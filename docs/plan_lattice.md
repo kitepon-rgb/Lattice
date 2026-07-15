@@ -7,6 +7,7 @@
 - v4 Phase gate Decision: [ADR 0022](adr/0022-rc1-v4-phase-gate-rejection.md)
 - v5 behavior evidence contract: [ADR 0023](adr/0023-rc1-v5-behavior-evidence-contract.md)
 - v5 behavior envelope acceptance: [ADR 0024](adr/0024-rc1-v5-behavior-envelope-accepted.md)
+- v5 oracle observation acceptance: [ADR 0025](adr/0025-rc1-v5-oracle-observation-accepted.md)
 - v4 corrected closed loop record: [ADR 0021](adr/0021-rc1-v4-corrected-closed-loop.md)
 - RC1 root Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
@@ -158,10 +159,10 @@ schema、fixed surface、oracle input、query setの変更は親直轄で新plan
 
 ### RC1-O1 — full oracle receiptとsurface observation
 
-- [ ] oracle receiptへrole、base SHA、entrypoint content digest、full case results、fixed surface preimage／digestを追加する。
-- [ ] oracle実行直前／直後に同じsurfaceを観測し、content driftをtyped rejectionにする。
-- [ ] preとpostが同じbehaviorでもrole／surfaceが異なればreceipt identityが異なることを証明する。
-- [ ] oracle input／executorをtransform write scope外に保ち、scope violationをrejectする。
+- [x] oracle receiptへrole、base SHA、entrypoint content digest、full case results、fixed surface preimage／digestを追加する。
+- [x] oracle実行直前／直後に同じsurfaceを観測し、content driftをtyped rejectionにする。
+- [x] preとpostが同じbehaviorでもrole／surfaceが異なればreceipt identityが異なることを証明する。
+- [x] oracle input／executorをtransform write scope外に保ち、scope violationをrejectする。
 
 ### RC1-O2 — behavior envelopeとartifact-only evaluator
 
