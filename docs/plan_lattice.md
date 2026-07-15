@@ -129,7 +129,7 @@ Source boundary／dispatch contract: [RC1 implementation boundaries](evidence/20
 - [x] Control `lattice-rc1-closed-loop-v2`のplacement dry-runで`budget-unknown`と
   `verification-insufficient`を検出し、実作業をdispatchせず[ADR 0004](adr/0004-rc1-control-admission-correction.md)へ
   訂正条件を固定する。
-- [ ] v2 Controlを[administrative closure evidence](evidence/2026-07-15-rc1-control-v2-administrative-closure.md)で
+- [x] v2 Controlを[administrative closure evidence](evidence/2026-07-15-rc1-control-v2-administrative-closure.md)で
   archiveし、known cost envelopeを持つcontinuation Controlを初期化する。
 - [ ] continuation Control内のread-only native Taskを完遂・回収・acceptし、そのevidenceで入口を
   `execution-verified`へ昇格してからRC1-B／RC1-Cを配置する。
