@@ -96,5 +96,33 @@ git diff --check
 - red原因: `src/rc1-v5-transform.mjs`と`src/rc1-v5-campaign.mjs`が未実装のため、3件すべて
   `ERR_MODULE_NOT_FOUND`。既存v4 behavior failureやtest syntax failureではない。
 
+### Characterization commit後のsource着手gate
+
+characterization commit `20abcd7`後に明示`codegraph index .`を実行した。結果は
+`43 files / 887 nodes / 3,377 edges`、complete、pending changes／refs `0`だった。
+
+- v5 transform／campaign test pathはexact file nodeとして解決した。
+- planned 3 exportのqueryは引き続きexact 0で、それぞれv4 exportだけをfuzzy hitした。
+- planned 2 source pathの`affectedTests`は空、traversed 0のままである。dynamic importを構造edgeとして
+  解決できていないため、手動によりv5 transform test／v5 campaign testをdirect affected testへ固定する。
+- planned sourceのowner、caller、callee、impactは`new_surface_unknown`を維持し、source追加後の明示reindexで
+  exact relationへ更新する。
+
+### v5 transform focused収束
+
+`src/rc1-v5-transform.mjs`を追加後、次を実行した。
+
+~~~text
+node --check src/rc1-v5-transform.mjs
+node --test test/rc1-v5-transform.test.mjs
+git diff --check
+~~~
+
+結果はsyntax／diff check成功、focused `3 pass / 0 fail / 0 skip`だった。accepted caseはpre baseline
+surface、transform source、post全present surface、exact output、patch、behavior envelope、cleanupをcross-bindした。
+behavior divergenceとscope violationはvalidなrejected transform artifactを返し、両方とも
+`behavior_evidence=null`、receiptの`behavior_envelope_digest=null`を保持した。campaign testとrelated／full gateは
+まだ実行していない。
+
 full `npm run ci`はRC1-Rへ集約する。Pではfocusedを収束させた後、Codegraphが再列挙したrelated testを
 TODO完了候補で一回だけ実行する。
