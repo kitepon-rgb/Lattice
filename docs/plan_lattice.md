@@ -144,6 +144,11 @@ Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
   absent／empty／stale／unsupported／unresolved／failureを区別するadapterを実装する。
   `callers`／`callees`／`impact`は未存在symbolに`--json`を指定してもexit 0の非JSON textを返す実測があるため、
   exit codeだけでなくstdoutのJSON parseとtyped absenceを検証する。
+- [x] **RC1-B2（F・親直轄）:** RC1-Dの実Codegraph integrationで再現した部分一致誤認を修復する。
+  `query selectDispatchChannel`が`SEAM_BY_CONCERN`のsignature内文字列を返してもexact symbol存在へ昇格させず、
+  query node identityをtargetへ照合し、graph traversalも同じexact resolutionを通過させる。anchorのexact hit、
+  proposed surfaceのfalse positive、非JSON absenceをfocused testで固定し、失敗したD integrationだけを再実行した。
+  Accepted Decision: [ADR 0008](adr/0008-codegraph-exact-symbol-identity.md)。
 - [x] **RC1-C:** disposable worktree、bounded write scope、characterization verifier、diff artifact、rollback／cleanupを実装する。
 
 ### RC1-D／E／F — controlとtreatmentを閉じる

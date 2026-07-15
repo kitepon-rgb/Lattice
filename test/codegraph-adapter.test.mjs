@@ -38,7 +38,11 @@ test('collects query operations in input order with typed ready outcomes', async
     },
     execute: fakeExecutor({
       status: { code: 0, stdout: READY_STATUS, stderr: '' },
-      'query:buildDispatchRecord': { code: 0, stdout: '[{"name":"buildDispatchRecord"}]', stderr: '' },
+      'query:buildDispatchRecord': {
+        code: 0,
+        stdout: '[{"node":{"name":"buildDispatchRecord","qualifiedName":"buildDispatchRecord"}}]',
+        stderr: '',
+      },
       'affected:fixture.mjs': { code: 0, stdout: '{"affectedTests":["test.mjs"]}', stderr: '' },
       'affected:test.mjs': { code: 0, stdout: '{"affectedTests":["test.mjs"]}', stderr: '' },
     }),
@@ -68,6 +72,73 @@ test('keeps query and affected empty results typed rather than independent', asy
   assert.equal(evidence.outcomes[0].outcome, 'symbol_absent');
   assert.equal(evidence.outcomes[1].outcome, 'empty');
   assert.equal(evidence.outcomes[1].targets[0].outcome, 'empty');
+});
+
+test('does not promote fuzzy query and traversal matches to exact symbol presence', async () => {
+  const fuzzyQuery = JSON.stringify([{
+    node: {
+      name: 'SEAM_BY_CONCERN',
+      qualifiedName: 'SEAM_BY_CONCERN',
+      signature: "{ symbol: 'selectDispatchChannel' }",
+    },
+  }]);
+  const evidence = await collectCodegraphEvidence({
+    cwd: '/repo',
+    querySet: {
+      queries: [
+        { id: 'query', operation: 'query', target: 'selectDispatchChannel' },
+        { id: 'impact', operation: 'impact', target: 'selectDispatchChannel' },
+      ],
+    },
+    execute: fakeExecutor({
+      'query:selectDispatchChannel': { code: 0, stdout: fuzzyQuery, stderr: '' },
+      'impact:selectDispatchChannel': {
+        code: 0,
+        stdout: JSON.stringify({
+          symbol: 'selectDispatchChannel',
+          affected: [{ name: 'SEAM_BY_CONCERN', kind: 'constant' }],
+        }),
+        stderr: '',
+      },
+    }),
+  });
+
+  assert.deepEqual(evidence.outcomes.map(({ outcome }) => outcome), [
+    'symbol_absent',
+    'symbol_absent',
+  ]);
+});
+
+test('accepts traversal JSON only after an exact query identity resolves', async () => {
+  const evidence = await collectCodegraphEvidence({
+    cwd: '/repo',
+    querySet: {
+      queries: [{ id: 'callers', operation: 'callers', target: 'buildDispatchRecord' }],
+    },
+    execute: fakeExecutor({
+      'query:buildDispatchRecord': {
+        code: 0,
+        stdout: JSON.stringify([{
+          node: {
+            name: 'buildDispatchRecord',
+            qualifiedName: 'buildDispatchRecord',
+          },
+        }]),
+        stderr: '',
+      },
+      'callers:buildDispatchRecord': {
+        code: 0,
+        stdout: JSON.stringify({
+          symbol: 'buildDispatchRecord',
+          callers: [{ name: 'fixture.test.mjs', kind: 'file' }],
+        }),
+        stderr: '',
+      },
+    }),
+  });
+
+  assert.equal(evidence.outcomes[0].outcome, 'ready');
+  assert.equal(evidence.outcomes[0].resolution[0].node.name, 'buildDispatchRecord');
 });
 
 test('accepts only the observed ANSI info-prefixed Symbol not found output', async () => {

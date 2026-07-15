@@ -86,6 +86,21 @@ function isExactSymbolAbsent(stdout, target) {
   return stripAnsi(stdout).trim() === `ℹ Symbol "${target}" not found`;
 }
 
+function exactSymbolCandidates(value, target) {
+  if (!Array.isArray(value)) {
+    return { outcome: 'invalid_json', candidates: [] };
+  }
+  const candidates = value.filter((entry) => {
+    const node = entry?.node;
+    return isPlainObject(node)
+      && (node.name === target || node.qualifiedName === target);
+  });
+  return {
+    outcome: candidates.length > 0 ? 'ready' : 'symbol_absent',
+    candidates,
+  };
+}
+
 function summarizeAffected(targets) {
   if (targets.every(({ outcome }) => outcome === 'ready')) {
     return 'ready';
@@ -141,6 +156,25 @@ async function executeCommand(execute, command) {
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+async function resolveExactSymbol({ cwd, target, execute }) {
+  const result = await executeCommand(execute, {
+    operation: 'query',
+    target,
+    cwd,
+    args: ['query', target, '--path', '.', '--json'],
+  });
+  if (result.code !== 0) {
+    return { outcome: 'command_failure', exitCode: result.code };
+  }
+  const parsed = parseJson(result.stdout);
+  if (parsed.value === undefined) {
+    return {
+      outcome: isExactSymbolAbsent(result.stdout, target) ? 'symbol_absent' : 'invalid_json',
+    };
+  }
+  return exactSymbolCandidates(parsed.value, target);
 }
 
 async function collectOne({ cwd, query, execute }) {
@@ -214,11 +248,36 @@ async function collectOne({ cwd, query, execute }) {
     return { id, operation, outcome: outcomeFromStatus(parsed.value), data: parsed.value };
   }
 
-  if (operation === 'query' && Array.isArray(parsed.value) && parsed.value.length === 0) {
-    return { id, operation, target, outcome: 'symbol_absent', data: parsed.value };
+  if (operation === 'query') {
+    const resolution = exactSymbolCandidates(parsed.value, target);
+    return {
+      id,
+      operation,
+      target,
+      outcome: resolution.outcome,
+      data: parsed.value,
+    };
   }
 
-  return { id, operation, target, outcome: 'ready', data: parsed.value };
+  const resolution = await resolveExactSymbol({ cwd, target, execute });
+  if (resolution.outcome !== 'ready') {
+    return {
+      id,
+      operation,
+      target,
+      outcome: resolution.outcome,
+      ...(resolution.exitCode === undefined ? {} : { exitCode: resolution.exitCode }),
+    };
+  }
+
+  return {
+    id,
+    operation,
+    target,
+    outcome: 'ready',
+    data: parsed.value,
+    resolution: resolution.candidates,
+  };
 }
 
 /**
