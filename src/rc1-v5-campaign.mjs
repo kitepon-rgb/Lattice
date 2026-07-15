@@ -30,8 +30,8 @@ import {
 } from './rc1-evidence-bundle.mjs';
 import {
   evaluateRc1V5Hypothesis,
-  verifyRc1V5BehaviorArtifactSet,
 } from './rc1-v5-behavior-evidence.mjs';
+import { verifyRc1V5CampaignArtifactSet } from './rc1-v5-artifact-set.mjs';
 import {
   RC1_V5_TRANSFORM_PATHS,
   runRc1V5SeamTransform,
@@ -532,12 +532,14 @@ export async function runRc1V5Campaign(options = {}) {
   }
   const control = compileCondition(fixedInputs, controlObservations, 'control');
   const bindings = sourceBindings(control.normal, fixedInputs.querySet);
+  const transformStartedAt = performance.now();
   const transform = await runRc1V5SeamTransform({
     repoRoot,
     baseRef: baseSha,
     oracle: fixedInputs.oracle,
     sourceBindings: bindings,
   });
+  const transformElapsedMs = roundedMilliseconds(transformStartedAt);
   if (transform.artifact.status !== 'accepted'
     || transform.receipt.source_invariant?.outcome !== 'passed'
     || !Buffer.isBuffer(transform.patch)
@@ -610,6 +612,7 @@ export async function runRc1V5Campaign(options = {}) {
     fixed_inputs: fixedInputIdentity(fixedInputs),
     runs: conditionRuns,
     transform: {
+      elapsed_ms: transformElapsedMs,
       artifact_digest: transform.artifact_digest,
       receipt_digest: transform.receipt_digest,
       patch_digest: transform.artifact.patch.digest,
@@ -641,6 +644,7 @@ export async function runRc1V5Campaign(options = {}) {
   return {
     schema: 'lattice.rc1.corrected_campaign_result.v5',
     base_sha: baseSha,
+    inputs: fixedInputs,
     evidence_bundles: evidenceBundles,
     condition_runs: conditionRuns,
     control,
@@ -659,6 +663,16 @@ function jsonBytes(value) {
 
 function artifactFiles(result) {
   const files = new Map();
+  for (const [key, relativePath] of [
+    ['planInput', 'inputs/plan-input.json'],
+    ['candidateSpec', 'inputs/candidate-spec-v2.json'],
+    ['normalManualEvidence', 'inputs/manual-evidence.normal.json'],
+    ['negativeManualEvidence', 'inputs/manual-evidence.shared-state-negative.json'],
+    ['querySet', 'inputs/query-set-v2.json'],
+    ['oracle', 'inputs/behavior-oracle-v2.json'],
+  ]) {
+    files.set(relativePath, jsonBytes(result.inputs[key]));
+  }
   for (const bundle of result.evidence_bundles) {
     files.set(`evidence/${bundle.run_id}.json`, jsonBytes(bundle));
   }
@@ -693,6 +707,7 @@ function assertWritableResult(result) {
   if (!exactRecord(result, [
     'schema',
     'base_sha',
+    'inputs',
     'evidence_bundles',
     'condition_runs',
     'control',
@@ -754,12 +769,12 @@ export async function writeRc1V5Artifacts(options = {}) {
       sha256: sha256(bytes),
     })).sort((left, right) => left.path.localeCompare(right.path)),
   };
-  const verification = verifyRc1V5BehaviorArtifactSet({
+  const verification = verifyRc1V5CampaignArtifactSet({
     manifest,
     payloads: [...files].map(([relativePath, bytes]) => ({ path: relativePath, bytes })),
   });
   if (!verification.valid) {
-    throw new TypeError(`RC1 v5 behavior artifact set is invalid: ${verification.failed_conditions.join(', ')}`);
+    throw new TypeError(`RC1 v5 campaign artifact set is invalid: ${verification.failed_conditions.join(', ')}`);
   }
 
   const parent = path.dirname(artifactRoot);

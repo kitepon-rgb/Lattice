@@ -201,6 +201,8 @@ test('actual 2+2 v5 campaign binds transform behavior, reindex, recompile, and i
   assert.ok(result.condition_runs.treatment.every(({ patch_digest: digest }) => (
     digest === result.transform.artifact.patch.digest
   )));
+  assert.ok(Number.isFinite(result.execution_evidence.transform.elapsed_ms));
+  assert.ok(result.execution_evidence.transform.elapsed_ms >= 0);
 
   assert.equal(result.comparison.schema, 'lattice.rc1.control_treatment_comparison.v3');
   assert.deepEqual(Object.keys(result.comparison.behavior), ['evidence_envelope_digest']);
