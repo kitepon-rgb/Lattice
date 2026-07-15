@@ -1,0 +1,90 @@
+{
+  "schema": "lattice.rc1.control_treatment_comparison.v1",
+  "fixed_inputs": {
+    "plan_input": "c4b64dab54db09f20a7a6ba57003a8d2f444a0c878b9387a2bbc338fa6d87ee3",
+    "normal_manual_evidence": "e995b6a7b70ff46b9df383bf15d940ef0d658b4a102e6f18a302a3d4e7851b5e",
+    "negative_manual_evidence": "126a55fc5137314f33d54866746913fefee7c8943412d6d0f32460de1b1d79a1",
+    "query_set": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+    "capacity_writers": 2,
+    "verifier": "893cbf613d0b15a87c3d98638ec371a568dd204a0fe0f8eaf1a17e624d493e7d"
+  },
+  "independent_variable": {
+    "kind": "accepted_seam_transform",
+    "artifact_digest": "09ef275af54cf4bc4bbd65e08750be6ab22f7febe4d800b3be16548408a4a30d",
+    "patch_digest": "acefad450f77906d21e1712c710c1ed91e199d9607d7c6703e8378abeb1f92af"
+  },
+  "control": {
+    "boundary_manifest_digest": "1aec1c9efc6baa19a6df9f82464ddb8069988f5165f049573811cc3de935a064",
+    "boundary_verdict_digest": "f7e4df5b94ea7f0cb9676670d312d7aaee5ef2881854610c3bb2de41557735bf",
+    "plan_graph_digest": "506052d82f68cd1041e7b3398687a2d539053dc55ffd63b5530ed9bdf5102110",
+    "verdict": "seam_candidate",
+    "write_conflicts": 1,
+    "state_conflicts": 0,
+    "hard_precedence": 0,
+    "unknowns": 4,
+    "minimum_feasible_waves": 2
+  },
+  "treatment": {
+    "boundary_manifest_digest": "cc2761d1d2839f8e309a2c7869e8169bdb964ac63e9e017194c3ed0a2878006a",
+    "boundary_verdict_digest": "50269f3b6b89d4b3514be5ed24b9cfe0eb9958cd15337bcb74df744d41820acf",
+    "plan_graph_digest": "c3122180b9d1faf95ab49f9a40434b71d9074596548fc57bfe5f07460f1decac",
+    "verdict": "parallel_ready",
+    "write_conflicts": 0,
+    "state_conflicts": 0,
+    "hard_precedence": 0,
+    "unknowns": 0,
+    "minimum_feasible_waves": 1
+  },
+  "negative_control": {
+    "boundary_manifest_digest": "01973acb35b4fef16f6af124b3f5adffa8c2cc8da0c355c76c0a2cbb6e6f7575",
+    "boundary_verdict_digest": "446079126e1f83a33e35cfd9b1aeb9c8834c8f48ec39999a24696acfe2a3ef8a",
+    "plan_graph_digest": "2d2f882dcc6ee90cdde2a0cf29dac514b1f8998b6f81342c42d4913a55a6eba5",
+    "verdict": "intentional_serial",
+    "write_conflicts": 1,
+    "state_conflicts": 1,
+    "hard_precedence": 0,
+    "unknowns": 4,
+    "minimum_feasible_waves": 2
+  },
+  "negative_treatment": {
+    "boundary_manifest_digest": "778732e8c67ae8fb1123bcd15cdb0c485af26c8a3823e136d171d375e7aaaa11",
+    "boundary_verdict_digest": "3a8809a6ffc2e62d6674cdc59860943ed48b812db7445c561ffd44883ead4baa",
+    "plan_graph_digest": "928736dc5a82ebca766304b44f428e19f2b896466d4cb0f2adec49f20fd408a7",
+    "verdict": "intentional_serial",
+    "write_conflicts": 0,
+    "state_conflicts": 1,
+    "hard_precedence": 0,
+    "unknowns": 0,
+    "minimum_feasible_waves": 2
+  },
+  "version_barrier": {
+    "old_plan": {
+      "version": "rc1-control-v1",
+      "digest": "506052d82f68cd1041e7b3398687a2d539053dc55ffd63b5530ed9bdf5102110"
+    },
+    "new_plan": {
+      "version": "rc1-treatment-v2",
+      "digest": "c3122180b9d1faf95ab49f9a40434b71d9074596548fc57bfe5f07460f1decac"
+    },
+    "plan_diff_digest": "52a816d0c2c4243f103a7eee3c118173ffdb4efb17dc2089a27d5134d10dc7b2",
+    "invalidated_contexts": [
+      {
+        "kind": "old_plan",
+        "ref": "rc1-control-v1"
+      },
+      {
+        "kind": "agent_context",
+        "ref": "rc1-control-agent-context"
+      },
+      {
+        "kind": "partial_patch",
+        "ref": "rc1-control-partial-patch-set"
+      },
+      {
+        "kind": "interface_assumption",
+        "ref": "shared-buildDispatchRecord-ownership"
+      }
+    ]
+  },
+  "hypothesis_result": "supported_in_fixture"
+}

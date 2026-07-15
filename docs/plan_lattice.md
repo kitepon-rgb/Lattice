@@ -196,10 +196,13 @@ Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
   Accepted Decision: [ADR 0014](adr/0014-rc1-portable-seam-treatment-accepted.md)。
   [受入証拠](evidence/2026-07-15-rc1-portable-seam-transform-acceptance.md)はv2 admission、same-base repeat、typed rejection、
   active transform predecessorを固定する。
-- [ ] **RC1-F（F・親直轄）:** RC1-E2のaccepted artifactから同じquery setでfresh indexし、post manifest、new plan v2、
+- [x] **RC1-F（F・親直轄）:** RC1-E2のaccepted artifactから同じquery setでfresh indexし、post manifest、new plan v2、
   plan diff、negative treatment、control／treatment比較を生成する。source patchと`.codegraph-rc1-treatment` sensor stateを
   別snapshot／receiptとしてcleanupする。
-- [ ] canonical artifactを再生成してdigest一致を確認し、unknown、intervention cost、未検証範囲を報告する。
+  Accepted Decision: [ADR 0015](adr/0015-rc1-treatment-plan-v2-accepted.md)。
+  [受入証拠](evidence/2026-07-15-rc1-treatment-recompile-acceptance.md)はsame-query fresh index、plan v2、negative control、
+  version barrier、control比較を固定する。
+- [x] canonical artifactを再生成してdigest一致を確認し、unknown、intervention cost、未検証範囲を報告する。
 
 ### RC1-G — Phase gate
 

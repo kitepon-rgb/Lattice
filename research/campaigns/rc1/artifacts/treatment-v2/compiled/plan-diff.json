@@ -1,0 +1,71 @@
+{
+  "schema": "lattice.plan_diff.v1",
+  "old_plan": {
+    "version": "rc1-control-v1",
+    "digest": "506052d82f68cd1041e7b3398687a2d539053dc55ffd63b5530ed9bdf5102110"
+  },
+  "new_plan": {
+    "version": "rc1-treatment-v2",
+    "digest": "c3122180b9d1faf95ab49f9a40434b71d9074596548fc57bfe5f07460f1decac"
+  },
+  "transform": {
+    "status": "accepted",
+    "artifact_digest": "09ef275af54cf4bc4bbd65e08750be6ab22f7febe4d800b3be16548408a4a30d",
+    "patch_digest": "acefad450f77906d21e1712c710c1ed91e199d9607d7c6703e8378abeb1f92af",
+    "verification_digest": "893cbf613d0b15a87c3d98638ec371a568dd204a0fe0f8eaf1a17e624d493e7d",
+    "changed_paths": [
+      "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+    ]
+  },
+  "query_set_digest": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+  "snapshots": {
+    "before_digest": "cbe59c4a21540fbe1b391b6c3c14e1c5f2228190ad19e32249a01c0241b539aa",
+    "after_digest": "7ce1695afcab0a91949753b4085233b333ecd03d1f5fabf22b1d4db4ff8d5d36"
+  },
+  "nodes": {
+    "added": [],
+    "removed": [],
+    "changed": [
+      "channel-policy",
+      "label-policy"
+    ]
+  },
+  "edges": {
+    "added": [],
+    "removed": [
+      "shared-dispatch-boundary"
+    ]
+  },
+  "invalidated_contexts": [
+    {
+      "kind": "old_plan",
+      "ref": "rc1-control-v1",
+      "reason": "accepted seam changed the owned boundary topology; active plan is immutable"
+    },
+    {
+      "kind": "agent_context",
+      "ref": "rc1-control-agent-context",
+      "reason": "the old shared-symbol ownership assumptions no longer apply"
+    },
+    {
+      "kind": "partial_patch",
+      "ref": "rc1-control-partial-patch-set",
+      "reason": "patches based on the old plan cannot cross the version barrier"
+    },
+    {
+      "kind": "interface_assumption",
+      "ref": "shared-buildDispatchRecord-ownership",
+      "reason": "each TODO now owns a separate policy symbol and path"
+    }
+  ],
+  "metrics": {
+    "write_conflicts_before": 1,
+    "write_conflicts_after": 0,
+    "hard_precedence_before": 0,
+    "hard_precedence_after": 0,
+    "minimum_feasible_waves_before": 2,
+    "minimum_feasible_waves_after": 1
+  }
+}

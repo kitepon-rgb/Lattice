@@ -1,0 +1,22 @@
+{
+  "schema": "lattice.boundary_verdict.v1",
+  "boundary_manifest_digest": "778732e8c67ae8fb1123bcd15cdb0c485af26c8a3823e136d171d375e7aaaa11",
+  "verdicts": [
+    {
+      "id": "channel-label-verdict",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "verdict": "intentional_serial",
+      "conflict_ids": [
+        "shared-state-dispatch-registry"
+      ],
+      "seam_candidate": null,
+      "reasons": [
+        "shared manual state/effect conflictはpath分離後も残る"
+      ],
+      "unknowns": []
+    }
+  ]
+}

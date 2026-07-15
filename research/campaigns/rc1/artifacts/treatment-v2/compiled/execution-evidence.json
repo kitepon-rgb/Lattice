@@ -1,0 +1,253 @@
+{
+  "schema": "lattice.rc1.treatment_recompile_execution_evidence.v1",
+  "observed_at": "2026-07-15T16:06:48.156Z",
+  "executor_head": "52870a58b6a8c466d4f6f457dadedea01a6df4c4",
+  "experiment_base_sha": "d2d412800492fbed03febe02abc6dca81c09a88b",
+  "graph_digest_projection": "lattice.codegraph_portable_outcome.v1",
+  "predecessor_digests": {
+    "control_compilation_evidence": "44cfd470e01e1e115c7f687271520483fbd3295d4b8ca2962a22b21129acb00e",
+    "transform_execution_evidence": "ad4d47157e1ce7b4bff2d5e8cf6756044e493ea967a5f33e323c02aa0ba67d77",
+    "transform_artifact": "09ef275af54cf4bc4bbd65e08750be6ab22f7febe4d800b3be16548408a4a30d",
+    "patch": "acefad450f77906d21e1712c710c1ed91e199d9607d7c6703e8378abeb1f92af"
+  },
+  "fixed_input_digests": {
+    "plan_input": "c4b64dab54db09f20a7a6ba57003a8d2f444a0c878b9387a2bbc338fa6d87ee3",
+    "normal_manual_evidence": "e995b6a7b70ff46b9df383bf15d940ef0d658b4a102e6f18a302a3d4e7851b5e",
+    "negative_manual_evidence": "126a55fc5137314f33d54866746913fefee7c8943412d6d0f32460de1b1d79a1",
+    "query_set": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+    "verifier": "893cbf613d0b15a87c3d98638ec371a568dd204a0fe0f8eaf1a17e624d493e7d"
+  },
+  "fresh_runs": [
+    {
+      "schema": "lattice.rc1.treatment_recompile_run.v1",
+      "base_sha": "d2d412800492fbed03febe02abc6dca81c09a88b",
+      "transform_artifact_digest": "09ef275af54cf4bc4bbd65e08750be6ab22f7febe4d800b3be16548408a4a30d",
+      "transform_execution_evidence_digest": "ad4d47157e1ce7b4bff2d5e8cf6756044e493ea967a5f33e323c02aa0ba67d77",
+      "control_compilation_evidence_digest": "44cfd470e01e1e115c7f687271520483fbd3295d4b8ca2962a22b21129acb00e",
+      "patch_digest": "acefad450f77906d21e1712c710c1ed91e199d9607d7c6703e8378abeb1f92af",
+      "query_set_digest": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+      "code_snapshot_digest": "7ce1695afcab0a91949753b4085233b333ecd03d1f5fabf22b1d4db4ff8d5d36",
+      "graph_digest_projection": "lattice.codegraph_portable_outcome.v1",
+      "raw_outcomes_digest": "5fa5878bc2d0cc7ebf68840468c850298280aa9ff321f52e27c7bb3d2b72930e",
+      "portable_outcomes_digest": "9d959e2ad40e4e027b0bb62921436d7b3a6e8139b982af976c7a38b1cac5b6f3",
+      "codegraph": {
+        "version": "1.4.1",
+        "file_count": 18,
+        "node_count": 214,
+        "edge_count": 845,
+        "pending_changes": {
+          "added": 0,
+          "modified": 0,
+          "removed": 0
+        },
+        "pending_refs": 0,
+        "worktree_mismatch": null
+      },
+      "verifier": {
+        "id": "dispatch-characterization",
+        "command": "node",
+        "args": [
+          "--test",
+          "--test-reporter=dot",
+          "test/research-dispatch-record.test.mjs"
+        ],
+        "outcome": "passed",
+        "exit_code": 0,
+        "stdout_digest": "a00c3b59d5e9e2d8ad78e29258e13b5cf4807919ebb5a523c199e8da1cda91b9",
+        "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "timings_ms": {
+        "apply_and_verify": 101.301,
+        "fresh_index_and_query": 2085.276,
+        "compile": 3.902,
+        "total": 2243.306
+      },
+      "sensor_directory": ".codegraph-rc1-treatment",
+      "sensor_cleanup": "passed",
+      "worktree_cleanup": "passed",
+      "source_unchanged": true
+    },
+    {
+      "schema": "lattice.rc1.treatment_recompile_run.v1",
+      "base_sha": "d2d412800492fbed03febe02abc6dca81c09a88b",
+      "transform_artifact_digest": "09ef275af54cf4bc4bbd65e08750be6ab22f7febe4d800b3be16548408a4a30d",
+      "transform_execution_evidence_digest": "ad4d47157e1ce7b4bff2d5e8cf6756044e493ea967a5f33e323c02aa0ba67d77",
+      "control_compilation_evidence_digest": "44cfd470e01e1e115c7f687271520483fbd3295d4b8ca2962a22b21129acb00e",
+      "patch_digest": "acefad450f77906d21e1712c710c1ed91e199d9607d7c6703e8378abeb1f92af",
+      "query_set_digest": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+      "code_snapshot_digest": "7ce1695afcab0a91949753b4085233b333ecd03d1f5fabf22b1d4db4ff8d5d36",
+      "graph_digest_projection": "lattice.codegraph_portable_outcome.v1",
+      "raw_outcomes_digest": "adf042f1d71e8226f00eac6e749ab59c6857084d431dc47d5a41bac9acab42b0",
+      "portable_outcomes_digest": "9d959e2ad40e4e027b0bb62921436d7b3a6e8139b982af976c7a38b1cac5b6f3",
+      "codegraph": {
+        "version": "1.4.1",
+        "file_count": 18,
+        "node_count": 214,
+        "edge_count": 845,
+        "pending_changes": {
+          "added": 0,
+          "modified": 0,
+          "removed": 0
+        },
+        "pending_refs": 0,
+        "worktree_mismatch": null
+      },
+      "verifier": {
+        "id": "dispatch-characterization",
+        "command": "node",
+        "args": [
+          "--test",
+          "--test-reporter=dot",
+          "test/research-dispatch-record.test.mjs"
+        ],
+        "outcome": "passed",
+        "exit_code": 0,
+        "stdout_digest": "a00c3b59d5e9e2d8ad78e29258e13b5cf4807919ebb5a523c199e8da1cda91b9",
+        "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "timings_ms": {
+        "apply_and_verify": 85.315,
+        "fresh_index_and_query": 2028.915,
+        "compile": 2.533,
+        "total": 2163.004
+      },
+      "sensor_directory": ".codegraph-rc1-treatment",
+      "sensor_cleanup": "passed",
+      "worktree_cleanup": "passed",
+      "source_unchanged": true
+    }
+  ],
+  "reproducibility": {
+    "raw_outcomes_digests": [
+      "5fa5878bc2d0cc7ebf68840468c850298280aa9ff321f52e27c7bb3d2b72930e",
+      "adf042f1d71e8226f00eac6e749ab59c6857084d431dc47d5a41bac9acab42b0"
+    ],
+    "raw_outcomes_equal": false,
+    "portable_outcomes_digest": "9d959e2ad40e4e027b0bb62921436d7b3a6e8139b982af976c7a38b1cac5b6f3",
+    "portable_outcomes_equal": true,
+    "compiled_artifacts_equal": true
+  },
+  "artifacts": {
+    "normal_boundary_manifest": {
+      "digest": "cc2761d1d2839f8e309a2c7869e8169bdb964ac63e9e017194c3ed0a2878006a",
+      "canonical_bytes": 3467
+    },
+    "normal_boundary_verdict": {
+      "digest": "50269f3b6b89d4b3514be5ed24b9cfe0eb9958cd15337bcb74df744d41820acf",
+      "canonical_bytes": 401
+    },
+    "normal_plan_graph": {
+      "digest": "c3122180b9d1faf95ab49f9a40434b71d9074596548fc57bfe5f07460f1decac",
+      "canonical_bytes": 783
+    },
+    "negative_boundary_manifest": {
+      "digest": "778732e8c67ae8fb1123bcd15cdb0c485af26c8a3823e136d171d375e7aaaa11",
+      "canonical_bytes": 3843
+    },
+    "negative_boundary_verdict": {
+      "digest": "3a8809a6ffc2e62d6674cdc59860943ed48b812db7445c561ffd44883ead4baa",
+      "canonical_bytes": 415
+    },
+    "negative_plan_graph": {
+      "digest": "928736dc5a82ebca766304b44f428e19f2b896466d4cb0f2adec49f20fd408a7",
+      "canonical_bytes": 979
+    },
+    "plan_diff": {
+      "digest": "52a816d0c2c4243f103a7eee3c118173ffdb4efb17dc2089a27d5134d10dc7b2",
+      "canonical_bytes": 1906
+    },
+    "comparison": {
+      "digest": "44d32a06ea56db357988ccd1f6e0325683b2b3503412716a151934dbb3ebf738",
+      "canonical_bytes": 3074
+    }
+  },
+  "graph_evidence": [
+    {
+      "id": "status",
+      "operation": "status",
+      "status": "ready",
+      "result_digest": "248c7ddef996174a4a8d495bf230bc7495164b5a09de858912cefe104cf6269d"
+    },
+    {
+      "id": "query-build-dispatch-record",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "ff3c34a957be92ec0a9e2a364abafa62b637f8cd29e416cfe1e0b9c9e8f1c689"
+    },
+    {
+      "id": "query-select-dispatch-channel",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "b8bd059d9b86dba929bc4c0d7602ba7ef244220536c97f288ada9364864ac4a9"
+    },
+    {
+      "id": "query-format-dispatch-label",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "ceb6e572ceb9023d96ba086501858b700db08c20ba4d88220dcb23a5ab33b39c"
+    },
+    {
+      "id": "callers-build-dispatch-record",
+      "operation": "callers",
+      "status": "ready",
+      "result_digest": "d7bb97e2621abbbcd8c5cbdd23f6fe45eb2dec989b725a06038b53caedbb27fb"
+    },
+    {
+      "id": "callees-build-dispatch-record",
+      "operation": "callees",
+      "status": "ready",
+      "result_digest": "66faf3f5e61ec9188d30e854b7ce55b0dc026684448f56d60d10bd49c9155499"
+    },
+    {
+      "id": "impact-build-dispatch-record",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "0617f390edf5c1e651623c839c7d8be335e4f15023b11159fee89db234bf894b"
+    },
+    {
+      "id": "impact-select-dispatch-channel",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "e1ae5056c815a0422a1c1846ccd79d963eefdb99e5ed3dcb1b6d123dc2a4bad2"
+    },
+    {
+      "id": "impact-format-dispatch-label",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "17463a1cba76852b041683717fcd0f9fdcef51c10072e1d811ad01177c25a0ec"
+    },
+    {
+      "id": "affected-fixture-sources",
+      "operation": "affected",
+      "status": "ready",
+      "result_digest": "3afb6e2b9a3f6db2d07ca91346a389156c109d1210dc02e293785e34693c619e"
+    }
+  ],
+  "observed_facts": {
+    "control_verdict": "seam_candidate",
+    "treatment_verdict": "parallel_ready",
+    "write_conflicts_before": 1,
+    "write_conflicts_after": 0,
+    "hard_precedence_before": 0,
+    "hard_precedence_after": 0,
+    "minimum_feasible_waves_before": 2,
+    "minimum_feasible_waves_after": 1,
+    "treatment_unknowns": 0,
+    "negative_verdict": "intentional_serial",
+    "negative_conflict_kinds": [
+      "state"
+    ],
+    "negative_minimum_feasible_waves": 2,
+    "invalidated_context_kinds": [
+      "old_plan",
+      "agent_context",
+      "partial_patch",
+      "interface_assumption"
+    ],
+    "canonical_source_patch_applied": false,
+    "source_unchanged": true,
+    "sensor_cleanup": "passed",
+    "worktree_cleanup": "passed"
+  },
+  "presentation_note": "Compiled artifact digests and canonical_bytes use Lattice canonical serialization. Raw telemetry is retained only as per-run digests; fresh run timing is a receipt and not plan identity."
+}

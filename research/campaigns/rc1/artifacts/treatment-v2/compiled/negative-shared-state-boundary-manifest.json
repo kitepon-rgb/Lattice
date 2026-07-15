@@ -1,0 +1,189 @@
+{
+  "schema": "lattice.boundary_manifest.v1",
+  "plan_input_digest": "c4b64dab54db09f20a7a6ba57003a8d2f444a0c878b9387a2bbc338fa6d87ee3",
+  "source": {
+    "code_snapshot_digest": "7ce1695afcab0a91949753b4085233b333ecd03d1f5fabf22b1d4db4ff8d5d36",
+    "query_set_digest": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+    "manual_evidence_digest": "126a55fc5137314f33d54866746913fefee7c8943412d6d0f32460de1b1d79a1",
+    "codegraph_version": "1.4.1"
+  },
+  "graph_evidence": [
+    {
+      "id": "status",
+      "operation": "status",
+      "status": "ready",
+      "result_digest": "248c7ddef996174a4a8d495bf230bc7495164b5a09de858912cefe104cf6269d"
+    },
+    {
+      "id": "query-build-dispatch-record",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "ff3c34a957be92ec0a9e2a364abafa62b637f8cd29e416cfe1e0b9c9e8f1c689"
+    },
+    {
+      "id": "query-select-dispatch-channel",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "b8bd059d9b86dba929bc4c0d7602ba7ef244220536c97f288ada9364864ac4a9"
+    },
+    {
+      "id": "query-format-dispatch-label",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "ceb6e572ceb9023d96ba086501858b700db08c20ba4d88220dcb23a5ab33b39c"
+    },
+    {
+      "id": "callers-build-dispatch-record",
+      "operation": "callers",
+      "status": "ready",
+      "result_digest": "d7bb97e2621abbbcd8c5cbdd23f6fe45eb2dec989b725a06038b53caedbb27fb"
+    },
+    {
+      "id": "callees-build-dispatch-record",
+      "operation": "callees",
+      "status": "ready",
+      "result_digest": "66faf3f5e61ec9188d30e854b7ce55b0dc026684448f56d60d10bd49c9155499"
+    },
+    {
+      "id": "impact-build-dispatch-record",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "0617f390edf5c1e651623c839c7d8be335e4f15023b11159fee89db234bf894b"
+    },
+    {
+      "id": "impact-select-dispatch-channel",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "e1ae5056c815a0422a1c1846ccd79d963eefdb99e5ed3dcb1b6d123dc2a4bad2"
+    },
+    {
+      "id": "impact-format-dispatch-label",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "17463a1cba76852b041683717fcd0f9fdcef51c10072e1d811ad01177c25a0ec"
+    },
+    {
+      "id": "affected-fixture-sources",
+      "operation": "affected",
+      "status": "ready",
+      "result_digest": "3afb6e2b9a3f6db2d07ca91346a389156c109d1210dc02e293785e34693c619e"
+    }
+  ],
+  "manual_evidence": [
+    {
+      "id": "manual-channel-policy",
+      "todo_id": "channel-policy",
+      "result_digest": "847673889e5fb2873641e46207d207f5bb3b7505f78bd6beb5ee24f7dde82c1a"
+    },
+    {
+      "id": "manual-label-policy",
+      "todo_id": "label-policy",
+      "result_digest": "b5088790de04ff91739b2d80a3b0c44cdc0483da5157efac0628cc7086f3bbc5"
+    }
+  ],
+  "todos": [
+    {
+      "id": "channel-policy",
+      "owns": [
+        {
+          "kind": "symbol",
+          "target": "selectDispatchChannel"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-channel.mjs"
+        }
+      ],
+      "reads": [],
+      "writes": [
+        {
+          "kind": "symbol",
+          "target": "selectDispatchChannel"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-channel.mjs"
+        },
+        {
+          "kind": "state",
+          "target": "dispatch-registry"
+        }
+      ],
+      "hard_needs": [],
+      "conflict_ids": [
+        "shared-state-dispatch-registry"
+      ],
+      "unknowns": [],
+      "tests": [
+        "test/research-dispatch-record.test.mjs"
+      ],
+      "evidence_refs": [
+        "query-select-dispatch-channel",
+        "impact-select-dispatch-channel",
+        "affected-fixture-sources",
+        "manual-channel-policy"
+      ]
+    },
+    {
+      "id": "label-policy",
+      "owns": [
+        {
+          "kind": "symbol",
+          "target": "formatDispatchLabel"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-label.mjs"
+        }
+      ],
+      "reads": [],
+      "writes": [
+        {
+          "kind": "symbol",
+          "target": "formatDispatchLabel"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-label.mjs"
+        },
+        {
+          "kind": "state",
+          "target": "dispatch-registry"
+        }
+      ],
+      "hard_needs": [],
+      "conflict_ids": [
+        "shared-state-dispatch-registry"
+      ],
+      "unknowns": [],
+      "tests": [
+        "test/research-dispatch-record.test.mjs"
+      ],
+      "evidence_refs": [
+        "query-format-dispatch-label",
+        "impact-format-dispatch-label",
+        "affected-fixture-sources",
+        "manual-label-policy"
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "shared-state-dispatch-registry",
+      "kind": "state",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "resource": {
+        "kind": "state",
+        "target": "dispatch-registry"
+      },
+      "evidence_refs": [
+        "manual-channel-policy",
+        "manual-label-policy"
+      ]
+    }
+  ],
+  "unknowns": []
+}

@@ -1,0 +1,50 @@
+{
+  "schema": "lattice.plan_graph.v1",
+  "plan_version": "rc1-treatment-v2",
+  "source_manifest_digest": "cc2761d1d2839f8e309a2c7869e8169bdb964ac63e9e017194c3ed0a2878006a",
+  "capacity": {
+    "writers": 2
+  },
+  "nodes": [
+    {
+      "id": "channel-policy",
+      "outcome": "routine priority maps to the batch dispatch channel",
+      "owned_boundaries": [
+        {
+          "kind": "symbol",
+          "target": "selectDispatchChannel"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-channel.mjs"
+        }
+      ]
+    },
+    {
+      "id": "label-policy",
+      "outcome": "dispatch labels use a slash separator",
+      "owned_boundaries": [
+        {
+          "kind": "symbol",
+          "target": "formatDispatchLabel"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-label.mjs"
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "joins": [],
+  "waves": [
+    {
+      "index": 0,
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ]
+    }
+  ],
+  "minimum_feasible_waves": 1
+}

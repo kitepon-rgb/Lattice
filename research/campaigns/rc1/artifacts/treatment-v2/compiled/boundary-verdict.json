@@ -1,0 +1,20 @@
+{
+  "schema": "lattice.boundary_verdict.v1",
+  "boundary_manifest_digest": "cc2761d1d2839f8e309a2c7869e8169bdb964ac63e9e017194c3ed0a2878006a",
+  "verdicts": [
+    {
+      "id": "channel-label-verdict",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "verdict": "parallel_ready",
+      "conflict_ids": [],
+      "seam_candidate": null,
+      "reasons": [
+        "accepted seamとpost-transform graph evidenceがnon-overlapping ownershipを示す"
+      ],
+      "unknowns": []
+    }
+  ]
+}
