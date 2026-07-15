@@ -38,11 +38,11 @@ try {
     querySet,
     controlCompilationEvidence,
   ] = await Promise.all([
-    readJson('research/campaigns/rc1/artifacts/control/boundary-manifest.json'),
-    readJson('research/campaigns/rc1/artifacts/control/boundary-verdict.json'),
-    readJson('research/campaigns/rc1/artifacts/control/plan-v1.json'),
+    readJson('research/campaigns/rc1/artifacts/control-v2/boundary-manifest.json'),
+    readJson('research/campaigns/rc1/artifacts/control-v2/boundary-verdict.json'),
+    readJson('research/campaigns/rc1/artifacts/control-v2/plan-v1.json'),
     readJson('research/campaigns/rc1/inputs/query-set.json'),
-    readJson('research/campaigns/rc1/artifacts/control/compilation-evidence.json'),
+    readJson('research/campaigns/rc1/artifacts/control-v2/compilation-evidence.json'),
   ]);
   const options = {
     repoRoot,

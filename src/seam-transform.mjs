@@ -14,6 +14,7 @@ import { runIsolatedTransform } from './isolation-runner.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const SHA1 = /^[0-9a-f]{40}$/;
+const PORTABLE_CODEGRAPH_PROJECTION = 'lattice.codegraph_portable_outcome.v1';
 const CANDIDATE_ID = 'extract-dispatch-policies';
 const FIXTURE_ENTRY = 'research/fixtures/dispatch-record/src/dispatch-record.mjs';
 const CHANNEL_PATH = 'research/fixtures/dispatch-record/src/dispatch-channel.mjs';
@@ -121,26 +122,119 @@ function evidenceArtifact(value) {
     && value.canonical_bytes > 0;
 }
 
+function evidenceArtifactSet(value) {
+  return exactRecord(value, ['boundary_manifest', 'boundary_verdict', 'plan_graph'])
+    && Object.values(value).every((artifact) => evidenceArtifact(artifact));
+}
+
+function portableOutcomeRecord(value) {
+  return exactRecord(value, ['id', 'operation', 'outcome', 'result_digest'])
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && typeof value.operation === 'string'
+    && value.operation.length > 0
+    && typeof value.outcome === 'string'
+    && value.outcome.length > 0
+    && typeof value.result_digest === 'string'
+    && SHA256.test(value.result_digest);
+}
+
+function assertPortableCodegraphEvidence(codegraph, { querySet, graphEvidence }) {
+  if (!exactRecord(codegraph, [
+    'version',
+    'file_count',
+    'node_count',
+    'edge_count',
+    'pending_changes',
+    'pending_refs',
+    'worktree_mismatch',
+    'fresh_index_repetitions',
+    'raw_outcomes_digests',
+    'raw_outcomes_equal',
+    'portable_outcomes_digest',
+    'portable_outcomes_equal',
+    'outcomes',
+  ])
+    || typeof codegraph.version !== 'string'
+    || codegraph.version.length === 0
+    || !Number.isSafeInteger(codegraph.file_count)
+    || codegraph.file_count <= 0
+    || !Number.isSafeInteger(codegraph.node_count)
+    || codegraph.node_count <= 0
+    || !Number.isSafeInteger(codegraph.edge_count)
+    || codegraph.edge_count <= 0
+    || !exactRecord(codegraph.pending_changes, ['added', 'modified', 'removed'])
+    || Object.values(codegraph.pending_changes).some((count) => count !== 0)
+    || codegraph.pending_refs !== 0
+    || codegraph.worktree_mismatch !== null
+    || codegraph.fresh_index_repetitions !== 2
+    || !Array.isArray(codegraph.raw_outcomes_digests)
+    || codegraph.raw_outcomes_digests.length !== 2
+    || codegraph.raw_outcomes_digests.some((digest) => (
+      typeof digest !== 'string' || !SHA256.test(digest)
+    ))
+    || new Set(codegraph.raw_outcomes_digests).size !== 2
+    || codegraph.raw_outcomes_equal !== false
+    || typeof codegraph.portable_outcomes_digest !== 'string'
+    || !SHA256.test(codegraph.portable_outcomes_digest)
+    || codegraph.portable_outcomes_equal !== true
+    || !Array.isArray(codegraph.outcomes)
+    || codegraph.outcomes.length === 0
+    || codegraph.outcomes.some((outcome) => !portableOutcomeRecord(outcome))) {
+    fail('portable Codegraph portability proofが不正');
+  }
+
+  if (!Array.isArray(querySet.queries)
+    || codegraph.outcomes.length !== querySet.queries.length
+    || codegraph.outcomes.some((outcome, index) => (
+      outcome.id !== querySet.queries[index]?.id
+      || outcome.operation !== querySet.queries[index]?.operation
+    ))) {
+    fail('portable Codegraph evidenceがquery setと一致しない');
+  }
+
+  const compiledGraphEvidence = codegraph.outcomes.map((outcome) => ({
+    id: outcome.id,
+    operation: outcome.operation,
+    status: outcome.outcome,
+    result_digest: outcome.result_digest,
+  }));
+  if (JSON.stringify(compiledGraphEvidence) !== JSON.stringify(graphEvidence)) {
+    fail('portable Codegraph evidenceがboundary manifestのgraph evidenceと一致しない');
+  }
+}
+
 function assertControlCompilationEvidence(evidence, {
   manifestDigest,
   verdictDigest,
   controlPlanDigest,
   querySetDigest,
   codeSnapshotDigest,
+  querySet,
+  graphEvidence,
 }) {
   if (!exactRecord(evidence, [
     'schema',
     'observed_at',
     'head',
+    'executor_head',
+    'graph_digest_projection',
     'input_digests',
     'codegraph',
     'artifacts',
     'observed_facts',
     'presentation_note',
   ])
-    || evidence.schema !== 'lattice.rc1.control_compilation_evidence.v1'
+    || evidence.schema !== 'lattice.rc1.control_compilation_evidence.v2'
+    || evidence.graph_digest_projection !== PORTABLE_CODEGRAPH_PROJECTION) {
+    fail('portable control compilation evidence v2またはprojectionが不正');
+  }
+  if (typeof evidence.observed_at !== 'string'
+    || Number.isNaN(Date.parse(evidence.observed_at))
     || typeof evidence.head !== 'string'
     || !SHA1.test(evidence.head)
+    || typeof evidence.executor_head !== 'string'
+    || !SHA1.test(evidence.executor_head)
     || !exactRecord(evidence.input_digests, [
       'plan_input',
       'query_set',
@@ -152,14 +246,11 @@ function assertControlCompilationEvidence(evidence, {
       typeof digest !== 'string' || !SHA256.test(digest)
     ))
     || !exactRecord(evidence.artifacts, ['control', 'shared_state_negative'])
-    || !exactRecord(evidence.artifacts.control, [
-      'boundary_manifest',
-      'boundary_verdict',
-      'plan_graph',
-    ])
-    || Object.values(evidence.artifacts.control).some((artifact) => !evidenceArtifact(artifact))) {
+    || !evidenceArtifactSet(evidence.artifacts.control)
+    || !evidenceArtifactSet(evidence.artifacts.shared_state_negative)) {
     fail('control compilation evidenceまたはcontrol baseが不正');
   }
+  assertPortableCodegraphEvidence(evidence.codegraph, { querySet, graphEvidence });
   if (evidence.input_digests.query_set !== querySetDigest
     || evidence.input_digests.code_snapshot !== codeSnapshotDigest
     || evidence.artifacts.control.boundary_manifest.digest !== manifestDigest
@@ -246,7 +337,11 @@ function assertCandidateInputs({
   };
   return {
     ...digests,
-    controlBaseSha: assertControlCompilationEvidence(controlCompilationEvidence, digests),
+    controlBaseSha: assertControlCompilationEvidence(controlCompilationEvidence, {
+      ...digests,
+      querySet,
+      graphEvidence: boundaryManifest.graph_evidence,
+    }),
   };
 }
 

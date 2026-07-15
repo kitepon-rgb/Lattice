@@ -38,11 +38,11 @@ async function controlInputs() {
     querySet,
     controlCompilationEvidence,
   ] = await Promise.all([
-    readJson('research/campaigns/rc1/artifacts/control/boundary-manifest.json'),
-    readJson('research/campaigns/rc1/artifacts/control/boundary-verdict.json'),
-    readJson('research/campaigns/rc1/artifacts/control/plan-v1.json'),
+    readJson('research/campaigns/rc1/artifacts/control-v2/boundary-manifest.json'),
+    readJson('research/campaigns/rc1/artifacts/control-v2/boundary-verdict.json'),
+    readJson('research/campaigns/rc1/artifacts/control-v2/plan-v1.json'),
     readJson('research/campaigns/rc1/inputs/query-set.json'),
-    readJson('research/campaigns/rc1/artifacts/control/compilation-evidence.json'),
+    readJson('research/campaigns/rc1/artifacts/control-v2/compilation-evidence.json'),
   ]);
   return {
     boundaryManifest,
@@ -130,9 +130,58 @@ test('candidate or query-set drift fails before isolated execution', async () =>
     /control compilation evidence|base/i,
   );
 
+  const projectionDrift = structuredClone(values);
+  projectionDrift.controlCompilationEvidence.graph_digest_projection = 'raw-outcome-v0';
+  await assert.rejects(
+    runRc1SeamTreatment({ repoRoot: '/not-used', ...projectionDrift }),
+    /portable control compilation evidence v2|projection/i,
+  );
+
+  const portabilityProofDrift = structuredClone(values);
+  portabilityProofDrift.controlCompilationEvidence.codegraph.portable_outcomes_equal = false;
+  await assert.rejects(
+    runRc1SeamTreatment({ repoRoot: '/not-used', ...portabilityProofDrift }),
+    /portability proof/i,
+  );
+
+  const outcomeDrift = structuredClone(values);
+  outcomeDrift.controlCompilationEvidence.codegraph.outcomes[0].result_digest = '0'.repeat(64);
+  await assert.rejects(
+    runRc1SeamTreatment({ repoRoot: '/not-used', ...outcomeDrift }),
+    /graph evidence/i,
+  );
+
   await assert.rejects(
     runRc1SeamTreatment({ repoRoot: '/not-used', ...values, baseRef: 'HEAD' }),
     /baseRef override/i,
+  );
+});
+
+test('legacy non-portable control evidence is rejected before isolated execution', async () => {
+  const [
+    boundaryManifest,
+    boundaryVerdict,
+    controlPlan,
+    querySet,
+    controlCompilationEvidence,
+  ] = await Promise.all([
+    readJson('research/campaigns/rc1/artifacts/control/boundary-manifest.json'),
+    readJson('research/campaigns/rc1/artifacts/control/boundary-verdict.json'),
+    readJson('research/campaigns/rc1/artifacts/control/plan-v1.json'),
+    readJson('research/campaigns/rc1/inputs/query-set.json'),
+    readJson('research/campaigns/rc1/artifacts/control/compilation-evidence.json'),
+  ]);
+
+  await assert.rejects(
+    runRc1SeamTreatment({
+      repoRoot: '/not-used',
+      boundaryManifest,
+      boundaryVerdict,
+      controlPlan,
+      querySet,
+      controlCompilationEvidence,
+    }),
+    /portable control compilation evidence v2/i,
   );
 });
 
@@ -143,9 +192,9 @@ test('shared-state negative control is not admitted to seam execution', async ()
     values.boundaryVerdict,
     values.controlPlan,
   ] = await Promise.all([
-    readJson('research/campaigns/rc1/artifacts/control/negative-shared-state-boundary-manifest.json'),
-    readJson('research/campaigns/rc1/artifacts/control/negative-shared-state-boundary-verdict.json'),
-    readJson('research/campaigns/rc1/artifacts/control/negative-shared-state-plan-v1.json'),
+    readJson('research/campaigns/rc1/artifacts/control-v2/negative-shared-state-boundary-manifest.json'),
+    readJson('research/campaigns/rc1/artifacts/control-v2/negative-shared-state-boundary-verdict.json'),
+    readJson('research/campaigns/rc1/artifacts/control-v2/negative-shared-state-plan-v1.json'),
   ]);
 
   await assert.rejects(
