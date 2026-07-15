@@ -9,6 +9,7 @@
 - v5 behavior envelope acceptance: [ADR 0024](adr/0024-rc1-v5-behavior-envelope-accepted.md)
 - v5 oracle observation acceptance: [ADR 0025](adr/0025-rc1-v5-oracle-observation-accepted.md)
 - v5 transform／campaign integration acceptance: [ADR 0026](adr/0026-rc1-v5-transform-campaign-integration-accepted.md)
+- v5 immutable closed loop acceptance: [ADR 0027](adr/0027-rc1-v5-immutable-closed-loop-accepted.md)
 - v4 corrected closed loop record: [ADR 0021](adr/0021-rc1-v4-corrected-closed-loop.md)
 - RC1 root Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
@@ -181,12 +182,12 @@ schema、fixed surface、oracle input、query setの変更は親直轄で新plan
 
 ### RC1-Q — immutable v5 closed loopを再発行する
 
-- [ ] v5 controlを2回fresh indexし、same compilerがproduction＋test shared writesを導出する。
-- [ ] accepted seamだけを加え、同じquery setでv5 treatmentを2回fresh indexする。
-- [ ] normal／negativeを同じcompilerへ通し、conflict、hard precedence、waves、unknownを比較する。
-- [ ] full behavior receipt／envelope、Codegraph preimage、compiled artifacts、plan diffを`artifacts/v5`へatomic保存する。
-- [ ] artifact-only verifierでmanifest byte hashと全cross-bindingを再計算し、corruption suiteをgreenにする。
-- [ ] v4 causal artifactとcontextのinvalidationを新plan versionへbindする。
+- [x] v5 controlを2回fresh indexし、same compilerがproduction＋test shared writesを導出する。
+- [x] accepted seamだけを加え、同じquery setでv5 treatmentを2回fresh indexする。
+- [x] normal／negativeを同じcompilerへ通し、conflict、hard precedence、waves、unknownを比較する。
+- [x] full behavior receipt／envelope、Codegraph preimage、compiled artifacts、plan diffを`artifacts/v5`へatomic保存する。
+- [x] artifact-only verifierでmanifest byte hashと全cross-bindingを再計算し、corruption suiteをgreenにする。
+- [x] v4 causal artifactとcontextのinvalidationを新plan versionへbindする。
 
 ### RC1-R — v5 Phase gate
 
