@@ -1,0 +1,76 @@
+{
+  "schema": "lattice.plan_graph.v1",
+  "plan_version": "rc1-control-v1",
+  "source_manifest_digest": "d539b016d9109de0ef655318d5c61516ed3184f867b8ce2c9e0848a95fecc74f",
+  "capacity": {
+    "writers": 2
+  },
+  "nodes": [
+    {
+      "id": "channel-policy",
+      "outcome": "routine priority maps to the batch dispatch channel",
+      "owned_boundaries": [
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        }
+      ]
+    },
+    {
+      "id": "label-policy",
+      "outcome": "dispatch labels use a slash separator",
+      "owned_boundaries": [
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "shared-dispatch-boundary",
+      "from": "channel-policy",
+      "to": "label-policy",
+      "kind": "write_conflict",
+      "evidence_refs": [
+        "query-build-dispatch-record",
+        "impact-build-dispatch-record"
+      ]
+    },
+    {
+      "id": "shared-state-dispatch-registry",
+      "from": "channel-policy",
+      "to": "label-policy",
+      "kind": "state_conflict",
+      "evidence_refs": [
+        "manual-channel-policy",
+        "manual-label-policy"
+      ]
+    }
+  ],
+  "joins": [],
+  "waves": [
+    {
+      "index": 0,
+      "todo_ids": [
+        "channel-policy"
+      ]
+    },
+    {
+      "index": 1,
+      "todo_ids": [
+        "label-policy"
+      ]
+    }
+  ],
+  "minimum_feasible_waves": 2
+}

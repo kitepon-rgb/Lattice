@@ -1,0 +1,131 @@
+{
+  "schema": "lattice.rc1.control_compilation_evidence.v1",
+  "observed_at": "2026-07-15T14:38:47.887Z",
+  "head": "d2d412800492fbed03febe02abc6dca81c09a88b",
+  "input_digests": {
+    "plan_input": "c4b64dab54db09f20a7a6ba57003a8d2f444a0c878b9387a2bbc338fa6d87ee3",
+    "query_set": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+    "manual_normal": "e995b6a7b70ff46b9df383bf15d940ef0d658b4a102e6f18a302a3d4e7851b5e",
+    "manual_shared_state_negative": "126a55fc5137314f33d54866746913fefee7c8943412d6d0f32460de1b1d79a1",
+    "code_snapshot": "cbe59c4a21540fbe1b391b6c3c14e1c5f2228190ad19e32249a01c0241b539aa"
+  },
+  "codegraph": {
+    "version": "1.4.1",
+    "file_count": 16,
+    "node_count": 208,
+    "edge_count": 835,
+    "pending_changes": {
+      "added": 0,
+      "modified": 0,
+      "removed": 0
+    },
+    "pending_refs": 0,
+    "worktree_mismatch": null,
+    "outcomes": [
+      {
+        "id": "status",
+        "operation": "status",
+        "outcome": "ready",
+        "result_digest": "604917cc8582580e1bcb34237db03271e1049476cf869f52f5a59ba2119bb979"
+      },
+      {
+        "id": "query-build-dispatch-record",
+        "operation": "query",
+        "outcome": "ready",
+        "result_digest": "d188b3e8edd3803f97ec886f762939c4f2846ec477df53a95ad62292401f3c39"
+      },
+      {
+        "id": "query-select-dispatch-channel",
+        "operation": "query",
+        "outcome": "symbol_absent",
+        "result_digest": "7611aad48584e3bf3e01ba317a79c281d40d812b76723144e8560635dda3fc21"
+      },
+      {
+        "id": "query-format-dispatch-label",
+        "operation": "query",
+        "outcome": "symbol_absent",
+        "result_digest": "5ac296a63d1cba307808dcf9c53b228e0d609cb48fd386be43c8160548ed46c0"
+      },
+      {
+        "id": "callers-build-dispatch-record",
+        "operation": "callers",
+        "outcome": "ready",
+        "result_digest": "2894f065c7cd5f4cf23c3dec819c49b91b553f7db003ba0da76281bc7643ddc3"
+      },
+      {
+        "id": "callees-build-dispatch-record",
+        "operation": "callees",
+        "outcome": "ready",
+        "result_digest": "f5b1266e6728adfea3924befadf082f5f101b18378505cc86172092cfbd03dc7"
+      },
+      {
+        "id": "impact-build-dispatch-record",
+        "operation": "impact",
+        "outcome": "ready",
+        "result_digest": "50f990aeeda59bad1ba97d6ef8922108e33d8b83f1d937c3b24b81bf9f7bdd00"
+      },
+      {
+        "id": "impact-select-dispatch-channel",
+        "operation": "impact",
+        "outcome": "symbol_absent",
+        "result_digest": "2faa50cc4f5b633405711143995056782c3af6eda5c14cf4bfac62d87d60bd27"
+      },
+      {
+        "id": "impact-format-dispatch-label",
+        "operation": "impact",
+        "outcome": "symbol_absent",
+        "result_digest": "e7f3379ee77d737d21ca9caddf393a44518588b183d005f0144baf17c499d96b"
+      },
+      {
+        "id": "affected-fixture-sources",
+        "operation": "affected",
+        "outcome": "unresolved",
+        "result_digest": "01e8176c11afb0bc0c1e4b2de7808dff0ca3fe0d4b286a2c6ddf2b68e6576834"
+      }
+    ]
+  },
+  "artifacts": {
+    "control": {
+      "boundary_manifest": {
+        "digest": "033481a45c95cef9a80caa38abefa7967d7aa42e6060e891e0f24b6470cbef72",
+        "canonical_bytes": 4298
+      },
+      "boundary_verdict": {
+        "digest": "a716d3bdd986730046a4b67a26172e4ddee4b02655822037c4672232077078fe",
+        "canonical_bytes": 1186
+      },
+      "plan_graph": {
+        "digest": "2799806b65c2749d9da34855e59d6cc3eaea9d749344e42f8e90c98eb58903c1",
+        "canonical_bytes": 984
+      }
+    },
+    "shared_state_negative": {
+      "boundary_manifest": {
+        "digest": "d539b016d9109de0ef655318d5c61516ed3184f867b8ce2c9e0848a95fecc74f",
+        "canonical_bytes": 4677
+      },
+      "boundary_verdict": {
+        "digest": "9e91c4442cc7672062a9b42c35eb7328439f27d552b1392f266e73d09f4182a0",
+        "canonical_bytes": 714
+      },
+      "plan_graph": {
+        "digest": "5fc9761fd34d5c9c0d71886ee27e05560f1ede2ee83d714bee2f3eb8baf47934",
+        "canonical_bytes": 1156
+      }
+    }
+  },
+  "observed_facts": {
+    "control_conflict_kinds": [
+      "write_boundary"
+    ],
+    "control_verdict": "seam_candidate",
+    "control_minimum_feasible_waves": 2,
+    "negative_conflict_kinds": [
+      "write_boundary",
+      "state"
+    ],
+    "negative_verdict": "intentional_serial",
+    "negative_minimum_feasible_waves": 2
+  },
+  "presentation_note": "各JSON fileはreview用pretty encoding。digestとcanonical_bytesはparsed payloadのLattice canonical serializationを指し、presentation file byteを指さない。"
+}
