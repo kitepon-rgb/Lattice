@@ -1,4 +1,11 @@
-import { lstat, mkdtemp, rm } from 'node:fs/promises';
+import {
+  lstat,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  rm,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -28,6 +35,8 @@ function run(command, args, { cwd, allowExitCodes = [0], env } = {}) {
 function bufferDigest(value) {
   return createHash('sha256').update(value).digest('hex');
 }
+
+const PROTECTED_PATHS = Object.freeze(['src', 'test']);
 
 function verificationReceipt(verifier, result, outcome) {
   const stdout = Buffer.isBuffer(result?.stdout) ? result.stdout : Buffer.alloc(0);
@@ -136,19 +145,116 @@ async function assertSnapshotUnchanged(worktreePath, baseSha, allowedPaths, expe
   }
 }
 
-async function assertSourceUnchanged(repoRoot, sourceHead, sourceStatus, sourceIgnoredStatus) {
-  const [head, status, ignoredStatus] = await Promise.all([
+async function fingerprintEntry(repoRoot, relativePath, records) {
+  const absolutePath = path.join(repoRoot, relativePath);
+  let stat;
+  try {
+    stat = await lstat(absolutePath);
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      records.push({ path: relativePath, type: 'missing', content_digest: null });
+      return;
+    }
+    throw error;
+  }
+  if (stat.isDirectory()) {
+    records.push({ path: relativePath, type: 'directory', content_digest: null });
+    const entries = await readdir(absolutePath, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      await fingerprintEntry(repoRoot, path.posix.join(relativePath, entry.name), records);
+    }
+    return;
+  }
+  if (stat.isFile()) {
+    records.push({
+      path: relativePath,
+      type: 'file',
+      content_digest: bufferDigest(await readFile(absolutePath)),
+    });
+    return;
+  }
+  if (stat.isSymbolicLink()) {
+    records.push({
+      path: relativePath,
+      type: 'symlink',
+      content_digest: bufferDigest(Buffer.from(await readlink(absolutePath), 'utf8')),
+    });
+    return;
+  }
+  records.push({ path: relativePath, type: 'special', content_digest: null });
+}
+
+async function protectedFingerprint(repoRoot) {
+  const records = [];
+  for (const protectedPath of PROTECTED_PATHS) {
+    await fingerprintEntry(repoRoot, protectedPath, records);
+  }
+  return {
+    digest: bufferDigest(Buffer.from(JSON.stringify(records), 'utf8')),
+    entry_count: records.length,
+  };
+}
+
+async function captureSourceState(repoRoot) {
+  const [head, visibleStatus, ignoredStatus, protectedContent] = await Promise.all([
     run('git', ['rev-parse', 'HEAD'], { cwd: repoRoot }),
     run('git', ['status', '--porcelain=v1', '-z'], { cwd: repoRoot }),
     run('git', [
       'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
     ], { cwd: repoRoot }),
+    protectedFingerprint(repoRoot),
   ]);
-  if (head.stdout.toString('utf8').trim() !== sourceHead
-    || !status.stdout.equals(sourceStatus)
-    || !ignoredStatus.stdout.equals(sourceIgnoredStatus)) {
-    throw new Error('source repository changed during isolated transform');
+  return {
+    head: head.stdout.toString('utf8').trim(),
+    visibleStatus: visibleStatus.stdout,
+    ignoredStatus: ignoredStatus.stdout,
+    protectedContent,
+  };
+}
+
+function sourceInvariantComparison(before, after) {
+  const compareBuffers = (left, right) => ({
+    before_digest: bufferDigest(left),
+    after_digest: bufferDigest(right),
+    equal: left.equals(right),
+  });
+  const receipt = {
+    schema: 'lattice.source_invariant_receipt.v1',
+    protected_paths: [...PROTECTED_PATHS],
+    outcome: 'passed',
+    head: {
+      before: before.head,
+      after: after.head,
+      equal: before.head === after.head,
+    },
+    visible_status: compareBuffers(before.visibleStatus, after.visibleStatus),
+    ignored_paths: compareBuffers(before.ignoredStatus, after.ignoredStatus),
+    protected_content: {
+      before_digest: before.protectedContent.digest,
+      after_digest: after.protectedContent.digest,
+      before_entry_count: before.protectedContent.entry_count,
+      after_entry_count: after.protectedContent.entry_count,
+      equal: before.protectedContent.digest === after.protectedContent.digest,
+    },
+  };
+  receipt.outcome = [
+    receipt.head.equal,
+    receipt.visible_status.equal,
+    receipt.ignored_paths.equal,
+    receipt.protected_content.equal,
+  ].every(Boolean) ? 'passed' : 'failed';
+  return receipt;
+}
+
+async function assertSourceUnchanged(repoRoot, sourceState) {
+  const receipt = sourceInvariantComparison(sourceState, await captureSourceState(repoRoot));
+  if (receipt.outcome !== 'passed') {
+    const error = new Error('source repository changed during isolated transform');
+    error.sourceInvariant = receipt;
+    throw error;
   }
+  return receipt;
 }
 
 export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, transform, verifyCommands, observe } = {}) {
@@ -159,18 +265,15 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
     throw new TypeError('invalid isolated transform arguments');
   }
 
-  const sourceHead = (await run('git', ['rev-parse', 'HEAD'], { cwd: repoRoot })).stdout.toString('utf8').trim();
-  const sourceStatus = (await run('git', ['status', '--porcelain=v1', '-z'], { cwd: repoRoot })).stdout;
-  if (sourceStatus.length > 0) throw new Error('source repository must be clean');
-  const sourceIgnoredStatus = (await run('git', [
-    'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
-  ], { cwd: repoRoot })).stdout;
+  const sourceState = await captureSourceState(repoRoot);
+  if (sourceState.visibleStatus.length > 0) throw new Error('source repository must be clean');
   const baseSha = (await run('git', ['rev-parse', '--verify', `${baseRef}^{commit}`], { cwd: repoRoot })).stdout.toString('utf8').trim();
   const worktreePath = await mkdtemp(path.join(os.tmpdir(), 'lattice-isolated-transform-'));
   let added = false;
   let primaryError;
   let result;
   let snapshot;
+  let sourceInvariant;
   const verifications = [];
   try {
     await run('git', ['worktree', 'add', '--detach', worktreePath, baseSha], { cwd: repoRoot });
@@ -210,8 +313,9 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
   }
   let sourceInvariantError;
   try {
-    await assertSourceUnchanged(repoRoot, sourceHead, sourceStatus, sourceIgnoredStatus);
+    sourceInvariant = await assertSourceUnchanged(repoRoot, sourceState);
   } catch (error) {
+    sourceInvariant = error.sourceInvariant;
     sourceInvariantError = error;
   }
   const errors = [primaryError, cleanupError, sourceInvariantError].filter(Boolean);
@@ -220,9 +324,10 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
     changedPaths: snapshot ? [...snapshot.changedPaths] : [],
     patch: snapshot ? Buffer.from(snapshot.patch) : null,
     verifications: structuredClone(verifications),
+    sourceInvariant: sourceInvariant ? structuredClone(sourceInvariant) : null,
   };
   for (const error of errors) error.transformEvidence = transformEvidence;
   if (errors.length === 1) throw errors[0];
   if (errors.length > 1) throw new AggregateError(errors, 'isolated transform failed; source repository changed or cleanup failed');
-  return result;
+  return { ...result, sourceInvariant };
 }

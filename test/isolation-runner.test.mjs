@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -62,6 +62,10 @@ test('許可パスの変更をbinary patchとして返し、observeはcleanup前
     stdout_digest: digest(`${process.version}\n`),
     stderr_digest: digest(''),
   }]);
+  assert.equal(result.sourceInvariant.schema, 'lattice.source_invariant_receipt.v1');
+  assert.equal(result.sourceInvariant.outcome, 'passed');
+  assert.deepEqual(result.sourceInvariant.protected_paths, ['src', 'test']);
+  assert.equal(result.sourceInvariant.protected_content.equal, true);
   assert.equal(git(repoRoot, ['rev-parse', 'HEAD']), sourceHead);
   assert.equal(await readFile(path.join(repoRoot, 'allowed.txt'), 'utf8'), 'before\n');
   assert.equal(git(repoRoot, ['status', '--porcelain']), '');
@@ -212,4 +216,39 @@ test('canonical repoへの新しいignored writeもsource invariant違反にす�
   );
   assert.equal(git(repoRoot, ['status', '--porcelain']), '');
   assert.equal(await readFile(path.join(repoRoot, 'ignored-leak.txt'), 'utf8'), 'hidden leak\n');
+});
+
+test('既存ignored protected fileのcontent-only driftをtyped fingerprintで検出する', async (t) => {
+  const repoRoot = await makeRepo(t);
+  await mkdir(path.join(repoRoot, 'test'), { recursive: true });
+  await Promise.all([
+    writeFile(path.join(repoRoot, '.gitignore'), 'test/protected.ignore\n'),
+    writeFile(path.join(repoRoot, 'test/protected.ignore'), 'before\n'),
+  ]);
+  git(repoRoot, ['add', '.gitignore']);
+  git(repoRoot, ['commit', '-m', 'protect ignored test input']);
+
+  await assert.rejects(
+    runIsolatedTransform({
+      repoRoot,
+      baseRef: 'HEAD',
+      allowedPaths: ['allowed.txt'],
+      transform: async ({ worktreePath }) => {
+        await Promise.all([
+          writeFile(path.join(worktreePath, 'allowed.txt'), 'isolated\n'),
+          writeFile(path.join(repoRoot, 'test/protected.ignore'), 'after\n'),
+        ]);
+      },
+      verifyCommands: [],
+    }),
+    (error) => {
+      assert.match(error.message, /source repository changed/i);
+      assert.equal(error.transformEvidence.sourceInvariant.outcome, 'failed');
+      assert.equal(error.transformEvidence.sourceInvariant.head.equal, true);
+      assert.equal(error.transformEvidence.sourceInvariant.visible_status.equal, true);
+      assert.equal(error.transformEvidence.sourceInvariant.ignored_paths.equal, true);
+      assert.equal(error.transformEvidence.sourceInvariant.protected_content.equal, false);
+      return true;
+    },
+  );
 });
