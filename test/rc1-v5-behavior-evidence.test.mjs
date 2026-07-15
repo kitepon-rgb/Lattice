@@ -45,6 +45,35 @@ function sealReceipt(value) {
   return { ...receipt, receipt_digest: digestArtifact(receipt) };
 }
 
+function sealEnvelope(value) {
+  const envelope = structuredClone(value);
+  delete envelope.envelope_digest;
+  return { ...envelope, envelope_digest: digestArtifact(envelope) };
+}
+
+function resealEvidence(value) {
+  const {
+    pre_receipt: preReceipt,
+    post_receipt: postReceipt,
+    transform_artifact: transformArtifact,
+    patch_digest: patchDigest,
+  } = value.behaviorEvidence;
+  value.behaviorEvidence.envelope = sealEnvelope({
+    schema: 'lattice.rc1.behavior_evidence_envelope.v1',
+    base_sha: preReceipt.base_sha,
+    oracle_digest: preReceipt.oracle_digest,
+    pre_receipt_digest: preReceipt.receipt_digest,
+    post_receipt_digest: postReceipt.receipt_digest,
+    pre_surface_digest: preReceipt.surface_digest,
+    post_surface_digest: postReceipt.surface_digest,
+    transform_artifact_digest: digestArtifact(transformArtifact),
+    patch_digest: patchDigest,
+    output_snapshot_digest: transformArtifact.output.snapshot_digest,
+  });
+  value.comparison.behavior.evidence_envelope_digest =
+    value.behaviorEvidence.envelope.envelope_digest;
+}
+
 function makeReceipt({ role, baseSha, oracleDigest, entrypointDigest, surface }) {
   const surfaceDigest = digestArtifact(surface);
   return sealReceipt({
@@ -91,6 +120,7 @@ async function validFixture() {
   ]);
   const preSurface = makeSurface(transformArtifact.scope.allowed_paths, preFiles);
   const postSurface = makeSurface(transformArtifact.scope.allowed_paths, postFiles);
+  transformArtifact.source.code_snapshot_digest = digestArtifact(preSurface);
   const base = {
     baseSha: transformArtifact.source.base_sha,
     oracleDigest: transformReceipt.behavior.oracle_digest,
@@ -169,8 +199,13 @@ test('v5 evidence binds full receipts to role, snapshot, transform, patch, and m
   const {
     compileRc1V5BehaviorEvidence,
     evaluateRc1V5Hypothesis,
+    validateRc1V5BehaviorSurface,
     verifyRc1V5BehaviorArtifactSet,
   } = await import('../src/rc1-v5-behavior-evidence.mjs');
+  assert.equal(validateRc1V5BehaviorSurface({
+    schema: 'lattice.rc1.behavior_surface_snapshot.v1',
+    files: [null],
+  }), false);
   const fixture = await validFixture();
   const envelope = compileRc1V5BehaviorEvidence({
     preReceipt: fixture.preReceipt,
@@ -233,7 +268,8 @@ test('v5 evidence binds full receipts to role, snapshot, transform, patch, and m
       value.behaviorEvidence.post_receipt = sealReceipt(value.behaviorEvidence.post_receipt);
     }],
     ['surface_snapshot', (value) => {
-      value.behaviorEvidence.post_receipt.surface.files[0].content_digest = 'c'.repeat(64);
+      value.behaviorEvidence.post_receipt.surface.files
+        .find(({ path }) => path === SHARED_TEST).content_digest = 'c'.repeat(64);
       value.behaviorEvidence.post_receipt.surface_digest = digestArtifact(
         value.behaviorEvidence.post_receipt.surface,
       );
@@ -242,6 +278,18 @@ test('v5 evidence binds full receipts to role, snapshot, transform, patch, and m
       value.behaviorEvidence.post_receipt.observation.after_surface_digest =
         value.behaviorEvidence.post_receipt.surface_digest;
       value.behaviorEvidence.post_receipt = sealReceipt(value.behaviorEvidence.post_receipt);
+    }],
+    ['pre_source_snapshot', (value) => {
+      value.behaviorEvidence.pre_receipt.surface.files
+        .find(({ path }) => path === SHARED_TEST).content_digest = '7'.repeat(64);
+      value.behaviorEvidence.pre_receipt.surface_digest = digestArtifact(
+        value.behaviorEvidence.pre_receipt.surface,
+      );
+      value.behaviorEvidence.pre_receipt.observation.before_surface_digest =
+        value.behaviorEvidence.pre_receipt.surface_digest;
+      value.behaviorEvidence.pre_receipt.observation.after_surface_digest =
+        value.behaviorEvidence.pre_receipt.surface_digest;
+      value.behaviorEvidence.pre_receipt = sealReceipt(value.behaviorEvidence.pre_receipt);
     }],
     ['observation_drift', (value) => {
       value.behaviorEvidence.post_receipt.observation.after_surface_digest = 'b'.repeat(64);
@@ -252,11 +300,15 @@ test('v5 evidence binds full receipts to role, snapshot, transform, patch, and m
     }],
     ['transform_artifact', (value) => {
       value.behaviorEvidence.transform_artifact.output.files[0].content_digest = '8'.repeat(64);
+      value.behaviorEvidence.transform_artifact.output.snapshot_digest = digestArtifact({
+        files: value.behaviorEvidence.transform_artifact.output.files,
+      });
     }],
   ];
   for (const [id, corrupt] of corruptions) {
     const value = structuredClone({ comparison: fixture.comparison, behaviorEvidence });
     corrupt(value);
+    resealEvidence(value);
     const corrupted = evaluateRc1V5Hypothesis(value);
     assert.equal(corrupted.supported, false, id);
     assert.ok(corrupted.failed_conditions.includes('behavior_binding'), id);
