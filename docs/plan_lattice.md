@@ -8,6 +8,7 @@
 - v5 behavior evidence contract: [ADR 0023](adr/0023-rc1-v5-behavior-evidence-contract.md)
 - v5 behavior envelope acceptance: [ADR 0024](adr/0024-rc1-v5-behavior-envelope-accepted.md)
 - v5 oracle observation acceptance: [ADR 0025](adr/0025-rc1-v5-oracle-observation-accepted.md)
+- v5 transform／campaign integration acceptance: [ADR 0026](adr/0026-rc1-v5-transform-campaign-integration-accepted.md)
 - v4 corrected closed loop record: [ADR 0021](adr/0021-rc1-v4-corrected-closed-loop.md)
 - RC1 root Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
@@ -173,10 +174,10 @@ schema、fixed surface、oracle input、query setの変更は親直轄で新plan
 
 ### RC1-P — v5 transform／campaign integration
 
-- [ ] disposable worktree内でpre snapshot＋oracle→transform→post snapshot＋oracleの順序を固定する。
-- [ ] accepted transformのexact output／patchとbehavior envelopeをbindし、rejected transformから後段artifactを作らない。
-- [ ] single compiler、production＋test writes、negative state、portable preimage、source invariant、version barrierをv5へ接続する。
-- [ ] focused gate収束後にrelated testをTODO完了候補で一回だけ実行する。
+- [x] disposable worktree内でpre snapshot＋oracle→transform→post snapshot＋oracleの順序を固定する。
+- [x] accepted transformのexact output／patchとbehavior envelopeをbindし、rejected transformから後段artifactを作らない。
+- [x] single compiler、production＋test writes、negative state、portable preimage、source invariant、version barrierをv5へ接続する。
+- [x] focused gate収束後にrelated testをTODO完了候補で一回だけ実行する。
 
 ### RC1-Q — immutable v5 closed loopを再発行する
 
