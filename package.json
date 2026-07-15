@@ -1,0 +1,14 @@
+{
+  "name": "@kitepon/lattice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/lattice.mjs && node --check src/bootstrap.mjs && node --check test/bootstrap.test.mjs",
+    "ci": "npm run test && npm run check"
+  }
+}

@@ -1,0 +1,57 @@
+project: lattice
+
+defaults:
+  readonly: true
+  result_format: json
+
+safety_profile: generic
+
+allowed_paths:
+  - AGENTS.md
+  - CLAUDE.md
+  - PLAN.md
+  - README.md
+  - Makefile
+  - package.json
+  - package-lock.json
+  - .editorconfig
+  - .gitignore
+  - .github/
+  - bin/
+  - docs/
+  - rag/
+  - src/
+  - test/
+
+deny_paths:
+  - .env
+  - .env.*
+  - "**/*.key"
+  - "**/*.pem"
+  - .claude/
+  - .codegraph/
+  - .spotter/
+  - .codex-sidecar/
+
+presets:
+  auditor:
+    workflow: auditor
+    readonly: true
+    prompt: "Return a bounded Lattice tool-use audit using the configured structured contract."
+  review:
+    workflow: review
+    readonly: true
+    prompt: "Review Lattice changes for concrete contract regressions, logical contradictions, and missing tests."
+  explore:
+    workflow: explore
+    readonly: true
+    prompt: "Explore Lattice code with exact file and symbol evidence."
+  opinion:
+    workflow: opinion
+    readonly: true
+    prompt: "Challenge the Lattice design with reproducible technical failure modes, not scope conservatism."
+  work:
+    workflow: work
+    readonly: false
+    require_worktree: true
+    prompt: "Implement an approved bounded Lattice change in an isolated worktree and report tests and residual risks."

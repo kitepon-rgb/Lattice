@@ -1,0 +1,2 @@
+# Acquired research is retained byte-for-byte; do not rewrite source whitespace.
+rag/parallel-ready-planning/** -whitespace

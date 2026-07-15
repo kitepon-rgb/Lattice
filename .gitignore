@@ -1,0 +1,10 @@
+node_modules/
+coverage/
+.DS_Store
+
+# Project-local tool state. Canonical config/marker generation is reproducible;
+# absolute paths, caches, logs, and runtime databases stay on each host.
+.claude/
+.codex/
+.spotter/
+.codex-sidecar/
