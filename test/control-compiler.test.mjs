@@ -8,6 +8,7 @@ import {
   validateBoundaryVerdict,
   validatePlanGraph,
 } from '../src/artifact-contracts.mjs';
+import { portableCodegraphOutcome } from '../src/codegraph-adapter.mjs';
 import { compileControlArtifacts } from '../src/control-compiler.mjs';
 
 const sha = (character) => character.repeat(64);
@@ -113,6 +114,51 @@ test('normal control compiles one write conflict, seam candidate, and two waves 
     ['label-policy'],
   ]);
   assert.equal(first.plan_graph.minimum_feasible_waves, 2);
+});
+
+test('control artifact digests portable graph outcomes instead of execution telemetry', async () => {
+  const left = await inputs();
+  const right = structuredClone(left);
+  const leftStatus = left.codegraphEvidence.outcomes[0];
+  const rightStatus = right.codegraphEvidence.outcomes[0];
+  Object.assign(leftStatus.data, {
+    projectPath: '/tmp/first',
+    indexPath: '/tmp/first/.codegraph',
+    lastIndexed: '2026-07-15T00:00:00.000Z',
+    dbSizeBytes: 1_024,
+  });
+  Object.assign(rightStatus.data, {
+    projectPath: '/tmp/second',
+    indexPath: '/tmp/second/.codegraph',
+    lastIndexed: '2026-07-15T00:00:01.000Z',
+    dbSizeBytes: 2_048,
+  });
+  const leftQuery = left.codegraphEvidence.outcomes
+    .find(({ id }) => id === 'query-build-dispatch-record');
+  const rightQuery = right.codegraphEvidence.outcomes
+    .find(({ id }) => id === 'query-build-dispatch-record');
+  leftQuery.data[0].node.updatedAt = 1;
+  rightQuery.data[0].node.updatedAt = 2;
+
+  const compile = (value) => compileControlArtifacts({
+    planInput: value.planInput,
+    manualEvidence: value.manualNormal,
+    querySet: value.querySet,
+    codegraphEvidence: value.codegraphEvidence,
+    codeSnapshotDigest: value.codeSnapshotDigest,
+  });
+  const first = compile(left);
+  const second = compile(right);
+
+  assert.notEqual(digestArtifact(leftStatus), digestArtifact(rightStatus));
+  assert.notEqual(digestArtifact(leftQuery), digestArtifact(rightQuery));
+  assert.deepEqual(first, second);
+  const statusRecord = first.boundary_manifest.graph_evidence
+    .find(({ id }) => id === 'status');
+  const queryRecord = first.boundary_manifest.graph_evidence
+    .find(({ id }) => id === 'query-build-dispatch-record');
+  assert.equal(statusRecord.result_digest, digestArtifact(portableCodegraphOutcome(leftStatus)));
+  assert.equal(queryRecord.result_digest, digestArtifact(portableCodegraphOutcome(leftQuery)));
 });
 
 test('shared-state negative control preserves manual provenance and refuses false parallel', async () => {

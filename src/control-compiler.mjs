@@ -6,6 +6,7 @@ import {
   validatePlanGraph,
   validatePlanInput,
 } from './artifact-contracts.mjs';
+import { portableCodegraphOutcome } from './codegraph-adapter.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
@@ -315,7 +316,7 @@ function graphRecords(querySet, codegraphEvidence) {
     id: query.id,
     operation: query.operation,
     status: codegraphEvidence.outcomes[index].outcome,
-    result_digest: digestArtifact(codegraphEvidence.outcomes[index]),
+    result_digest: digestArtifact(portableCodegraphOutcome(codegraphEvidence.outcomes[index])),
   }));
 }
 

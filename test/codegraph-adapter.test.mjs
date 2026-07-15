@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { collectCodegraphEvidence } from '../src/codegraph-adapter.mjs';
+import {
+  collectCodegraphEvidence,
+  portableCodegraphOutcome,
+} from '../src/codegraph-adapter.mjs';
 
 const READY_STATUS = JSON.stringify({
   initialized: true,
@@ -25,6 +28,73 @@ function fakeExecutor(responses) {
     return response;
   };
 }
+
+test('portable outcome removes only execution telemetry and does not mutate raw evidence', () => {
+  const status = {
+    id: 'status',
+    operation: 'status',
+    outcome: 'ready',
+    data: {
+      initialized: true,
+      version: '1.4.1',
+      projectPath: '/tmp/first',
+      indexPath: '/tmp/first/.codegraph',
+      lastIndexed: '2026-07-15T00:00:00.000Z',
+      dbSizeBytes: 1_024,
+      fileCount: 18,
+      customFutureField: 'must remain',
+    },
+  };
+  const query = {
+    id: 'query',
+    operation: 'query',
+    target: 'buildDispatchRecord',
+    outcome: 'ready',
+    updatedAt: 'top-level unknown must remain',
+    data: [{
+      node: {
+        id: 'function:stable',
+        kind: 'function',
+        name: 'buildDispatchRecord',
+        filePath: 'research/fixture.mjs',
+        updatedAt: 1,
+        customFutureField: 'must remain',
+      },
+      score: 100,
+    }],
+  };
+  const before = structuredClone({ status, query });
+
+  const portableStatus = portableCodegraphOutcome(status);
+  const portableQuery = portableCodegraphOutcome(query);
+
+  assert.deepEqual({ status, query }, before);
+  assert.deepEqual(portableStatus, {
+    id: 'status',
+    operation: 'status',
+    outcome: 'ready',
+    data: {
+      initialized: true,
+      version: '1.4.1',
+      fileCount: 18,
+      customFutureField: 'must remain',
+    },
+  });
+  assert.equal(portableQuery.updatedAt, 'top-level unknown must remain');
+  assert.equal('updatedAt' in portableQuery.data[0].node, false);
+  assert.equal(portableQuery.data[0].node.customFutureField, 'must remain');
+
+  const otherStatus = structuredClone(status);
+  otherStatus.data.projectPath = '/tmp/second';
+  otherStatus.data.indexPath = '/tmp/second/.codegraph';
+  otherStatus.data.lastIndexed = '2026-07-15T00:00:01.000Z';
+  otherStatus.data.dbSizeBytes = 2_048;
+  assert.deepEqual(portableCodegraphOutcome(otherStatus), portableStatus);
+
+  const structuralDrift = structuredClone(status);
+  structuralDrift.data.customFutureField = 'changed';
+  assert.notDeepEqual(portableCodegraphOutcome(structuralDrift), portableStatus);
+});
 
 test('collects query operations in input order with typed ready outcomes', async () => {
   const evidence = await collectCodegraphEvidence({

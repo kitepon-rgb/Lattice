@@ -7,6 +7,41 @@ function stripAnsi(value) {
   return value.replace(ANSI_ESCAPE, '');
 }
 
+function portableCopy(value, insideNode = false) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => portableCopy(entry));
+  }
+  if (!isPlainObject(value)) return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !(insideNode && key === 'updatedAt'))
+    .map(([key, entry]) => [
+      key,
+      portableCopy(entry, key === 'node' && isPlainObject(entry)),
+    ]));
+}
+
+/**
+ * Codegraph raw outcomeから環境依存telemetryだけを除くdigest projectionを返す。
+ * @param {unknown} outcome
+ * @returns {unknown}
+ */
+export function portableCodegraphOutcome(outcome) {
+  const portable = portableCopy(outcome);
+  if (!isPlainObject(portable)
+    || portable.operation !== 'status'
+    || !isPlainObject(portable.data)) {
+    return portable;
+  }
+  const {
+    projectPath,
+    indexPath,
+    lastIndexed,
+    dbSizeBytes,
+    ...portableStatus
+  } = portable.data;
+  return { ...portable, data: portableStatus };
+}
+
 function hasExactKeys(value, keys) {
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
