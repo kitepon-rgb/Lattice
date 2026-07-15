@@ -1,0 +1,6 @@
+{
+  "schema": "lattice.rc1.codegraph_identity.v1",
+  "version": "1.4.1",
+  "executable_ref": "codegraph",
+  "executable_digest": "2195336610e4d5a571767e066f4224d3f0f6f81bf7e34b3be18e45e87b699ef7"
+}

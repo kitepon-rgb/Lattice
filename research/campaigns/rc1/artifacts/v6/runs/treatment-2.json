@@ -1,0 +1,7 @@
+{
+  "schema": "lattice.rc1.condition_run.v2",
+  "condition": "treatment",
+  "run_id": "treatment-2",
+  "evidence_bundle_descriptor_digest": "a698ccfa64d345149952a70233dc94f076b727f75684559c7669362119146d95",
+  "measurement_digest": "d3f704538c3f75dd90e2ef1c670fc5a1fd619d962598b337f398f2594f0735e6"
+}

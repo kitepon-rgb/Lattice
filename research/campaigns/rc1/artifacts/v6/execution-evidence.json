@@ -1,0 +1,23 @@
+{
+  "schema": "lattice.rc1.corrected_campaign_execution_evidence.v6",
+  "base_sha": "724d2fee8abb6219c4c5d3979c494ab1ca46b163",
+  "elapsed_ms": 16924.723,
+  "compiler_source_digest": "5b4f4272e396b6e257ab0bfd4997382dddae9eb38cc19a0bf707d7ae8017e733",
+  "codegraph_identity_digest": "756e037bcef5e144fa76a1d49857bfc616e65b6260b46751269e5bc672727364",
+  "runtime_identity_digest": "93e8014fbbfd5b9e956abbb5eb70c06a35fb74b5cf3194d99df3a638704c274e",
+  "run_descriptor_digests": [
+    "b49d90ee574c896eb0549e1cc380d8fb93bb79dc7c1d261d7430e8590f1b840c",
+    "95032daac2f7e97648f289a5ecb54457a8c452937438c272041a9c1b0a6f76ba",
+    "8287cb797aa652282e0f4df63acd74839c777a8880212b36b2d7e64c05e9012a",
+    "a698ccfa64d345149952a70233dc94f076b727f75684559c7669362119146d95"
+  ],
+  "transform_artifact_digest": "4d686266917ae913db8e050da3113c3d28c705f950decb7717364fcc09254361",
+  "behavior_envelope_digest": "0933e897bf9261d7381fbe4c90977887f23b58bdcdff7cc3f755c65d877580a5",
+  "plan_diff_digest": "74bce5b5b8958ec7564001e93df68021a76ae4a9a4fd889901c3cb2e0190d34e",
+  "comparison_digest": "4bdd010aaa28649aa7a0c5a87905e77453d4dc1f100d5ec970013251fe84b730",
+  "hypothesis_evaluation_digest": "dd2a99ce959349de5087648780cbe829898de9246e0d53cd4b3a1fc9d9282b96",
+  "source_invariant": {
+    "control": true,
+    "treatment": true
+  }
+}

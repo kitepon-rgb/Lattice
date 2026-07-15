@@ -1,0 +1,15 @@
+{
+  "schema": "lattice.rc1.behavior_evidence_envelope.v2",
+  "base_sha": "724d2fee8abb6219c4c5d3979c494ab1ca46b163",
+  "oracle_digest": "abb844fa0325140cb4e73365f02429f2ec0b6006bd2b5bcc88f4727b988e7d23",
+  "runtime_identity_digest": "93e8014fbbfd5b9e956abbb5eb70c06a35fb74b5cf3194d99df3a638704c274e",
+  "case_contract_digest": "86af5a67519673fbea0e7cbba3db1198b7d7476563f116ff31ee129fd90d9a02",
+  "pre_receipt_digest": "f4ffa8b6439f19d81a4e467331fa1c93b313eca6e976c092fbccd077a30db93d",
+  "post_receipt_digest": "8e560d90fddd8dd5db1bcbb3e180f5ab9cfab7c4f7d8eaded559411ecbda6981",
+  "pre_surface_digest": "f3083554ac0daa448462c6ffb8bc6ae20d4506ef52dee04f20acdd8930f8413a",
+  "post_surface_digest": "2c1a1fb01b573e727f87c0ea896f783a8132ae79976693dce07d3b5104b58719",
+  "transform_artifact_digest": "4d686266917ae913db8e050da3113c3d28c705f950decb7717364fcc09254361",
+  "patch_digest": "016e2e40a758b1588d9fe0daf8bb97027c5ae6c509ce9a77951a8ff3ccf1a307",
+  "output_snapshot_digest": "7535d741ea9e0653169d207d6aba7688916f42345f236310a6f7dbc32915e032",
+  "envelope_digest": "0933e897bf9261d7381fbe4c90977887f23b58bdcdff7cc3f755c65d877580a5"
+}

@@ -1,0 +1,64 @@
+{
+  "schema": "lattice.rc1.hypothesis_evaluation.v4",
+  "hypothesis_id": "H1-v6",
+  "supported": true,
+  "checks": [
+    {
+      "id": "compiler_fixed",
+      "passed": true
+    },
+    {
+      "id": "codegraph_identity_fixed",
+      "passed": true
+    },
+    {
+      "id": "runtime_identity_fixed",
+      "passed": true
+    },
+    {
+      "id": "control_conflict_observed",
+      "passed": true
+    },
+    {
+      "id": "treatment_conflict_removed",
+      "passed": true
+    },
+    {
+      "id": "treatment_unknowns_closed",
+      "passed": true
+    },
+    {
+      "id": "treatment_one_wave",
+      "passed": true
+    },
+    {
+      "id": "hard_precedence_not_increased",
+      "passed": true
+    },
+    {
+      "id": "negative_state_serial_preserved",
+      "passed": true
+    },
+    {
+      "id": "two_fresh_runs_per_condition",
+      "passed": true
+    },
+    {
+      "id": "snapshot_changed_only_by_intervention",
+      "passed": true
+    },
+    {
+      "id": "behavior_bound",
+      "passed": true
+    },
+    {
+      "id": "source_invariant",
+      "passed": true
+    },
+    {
+      "id": "version_barrier",
+      "passed": true
+    }
+  ],
+  "failed_conditions": []
+}

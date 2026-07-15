@@ -1,0 +1,115 @@
+{
+  "schema": "lattice.plan_diff.v3",
+  "old_plan": {
+    "version": "rc1-v6-control",
+    "digest": "db370c5a043460a7465fe5d643ce924f43f9c85b3a8f70b05d0b6d8c314edb47"
+  },
+  "new_plan": {
+    "version": "rc1-v6-treatment",
+    "digest": "c90253dd4470fc19e9927113a9768336db4241b1963bf1fb52f0caebc3324a02"
+  },
+  "causal_predecessors": [
+    {
+      "kind": "rejected_plan_archive",
+      "ref": "docs/archive/2026-07-16-plan-lattice-research-campaign-1-v5-phase-rejected.md",
+      "digest": "31edaf03f00e1b0600e9a63b9f556c527dfde9428a451a68563d0c86afc2b7a3"
+    },
+    {
+      "kind": "phase_decision",
+      "ref": "docs/adr/0028-rc1-v5-phase-gate-rejection.md",
+      "digest": "51fea34d25924152dd9969e3e35c38c14bb6292d6145ac99a2ce0043a859bcc0"
+    },
+    {
+      "kind": "accepted_transform",
+      "ref": "transform/transform-artifact.json",
+      "digest": "4d686266917ae913db8e050da3113c3d28c705f950decb7717364fcc09254361"
+    },
+    {
+      "kind": "behavior_envelope",
+      "ref": "behavior/evidence-envelope.json",
+      "digest": "0933e897bf9261d7381fbe4c90977887f23b58bdcdff7cc3f755c65d877580a5"
+    },
+    {
+      "kind": "evidence_bundle",
+      "ref": "evidence/control-1.json",
+      "digest": "b49d90ee574c896eb0549e1cc380d8fb93bb79dc7c1d261d7430e8590f1b840c"
+    },
+    {
+      "kind": "evidence_bundle",
+      "ref": "evidence/control-2.json",
+      "digest": "95032daac2f7e97648f289a5ecb54457a8c452937438c272041a9c1b0a6f76ba"
+    },
+    {
+      "kind": "evidence_bundle",
+      "ref": "evidence/treatment-1.json",
+      "digest": "8287cb797aa652282e0f4df63acd74839c777a8880212b36b2d7e64c05e9012a"
+    },
+    {
+      "kind": "evidence_bundle",
+      "ref": "evidence/treatment-2.json",
+      "digest": "a698ccfa64d345149952a70233dc94f076b727f75684559c7669362119146d95"
+    }
+  ],
+  "transform": {
+    "status": "accepted",
+    "artifact_digest": "4d686266917ae913db8e050da3113c3d28c705f950decb7717364fcc09254361",
+    "receipt_digest": "1b95b46aa4f7218579cf94d66ddb1034fbbef3f1e93f258b47639b9b2095582f",
+    "patch_digest": "016e2e40a758b1588d9fe0daf8bb97027c5ae6c509ce9a77951a8ff3ccf1a307",
+    "changed_paths": [
+      "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+      "test/research-dispatch-channel.test.mjs",
+      "test/research-dispatch-label.test.mjs",
+      "test/research-dispatch-record.test.mjs"
+    ]
+  },
+  "nodes": {
+    "added": [],
+    "removed": [],
+    "changed": [
+      "channel-policy",
+      "label-policy"
+    ]
+  },
+  "edges": {
+    "added": [],
+    "removed": [
+      "write-overlap-001",
+      "write-overlap-002",
+      "write-overlap-003"
+    ]
+  },
+  "invalidated_contexts": [
+    {
+      "kind": "old_plan",
+      "ref": "lattice-research-campaign-1-v5",
+      "reason": "v5 Phase support was rejected by ADR 0028 and cannot receive v6 topology updates"
+    },
+    {
+      "kind": "agent_context",
+      "ref": "lattice-research-campaign-1-v5-agent-context",
+      "reason": "v5 context does not bind saved oracle semantics, runtime, or snapshot preimages"
+    },
+    {
+      "kind": "partial_patch",
+      "ref": "lattice-research-campaign-1-v5-partial-patch",
+      "reason": "patches compiled from unbound v5 measurement identity cannot cross the v6 barrier"
+    },
+    {
+      "kind": "interface_assumption",
+      "ref": "self-reported-digest-is-causal-identity",
+      "reason": "v6 requires typed preimages and exact predecessor descriptors"
+    }
+  ],
+  "metrics": {
+    "write_conflicts_before": 3,
+    "write_conflicts_after": 0,
+    "test_write_conflicts_before": 1,
+    "test_write_conflicts_after": 0,
+    "hard_precedence_before": 0,
+    "hard_precedence_after": 0,
+    "minimum_feasible_waves_before": 2,
+    "minimum_feasible_waves_after": 1
+  }
+}

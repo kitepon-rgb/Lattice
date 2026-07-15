@@ -213,10 +213,10 @@ oracle、query setの変更は親直轄で新plan versionを要求し、lane内�
 ### RC1-X — immutable v6 closed loopを再発行する
 
 - [x] exact artifact pathごとのmedia typeをwriter／verifier両方で固定し、誤分類candidateをrejectして正規再発行する。
-- [ ] v6 control／treatment各2 fresh indexを同じquery set、compiler、Codegraph identityで実行し、全4 runへsnapshot-bound bundleを保存する。
-- [ ] normal／negativeを同じcompilerへ通し、conflict、hard precedence、waves、unknownを比較する。
-- [ ] oracle／runtime、snapshot-bound evidence、compiled artifact、plan diffを`artifacts/v6`へatomic保存する。
-- [ ] disk再読込full verifierで全relationを再計算し、v5 artifactを上書きしない。
+- [x] v6 control／treatment各2 fresh indexを同じquery set、compiler、Codegraph identityで実行し、全4 runへsnapshot-bound bundleを保存する。
+- [x] normal／negativeを同じcompilerへ通し、conflict、hard precedence、waves、unknownを比較する。
+- [x] oracle／runtime、snapshot-bound evidence、compiled artifact、plan diffを`artifacts/v6`へatomic保存する。
+- [x] disk再読込full verifierで全relationを再計算し、v5 artifactを上書きしない。
 
 ### RC1-Y — v6 Phase gate
 

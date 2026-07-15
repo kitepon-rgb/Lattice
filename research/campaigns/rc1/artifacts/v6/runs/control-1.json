@@ -1,0 +1,7 @@
+{
+  "schema": "lattice.rc1.condition_run.v2",
+  "condition": "control",
+  "run_id": "control-1",
+  "evidence_bundle_descriptor_digest": "b49d90ee574c896eb0549e1cc380d8fb93bb79dc7c1d261d7430e8590f1b840c",
+  "measurement_digest": "0540fc5224446bf0e69570cd5114319ca55c223b95842efa2c549230c91d68bf"
+}

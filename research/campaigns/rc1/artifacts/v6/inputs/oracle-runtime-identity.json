@@ -1,0 +1,7 @@
+{
+  "schema": "lattice.rc1.oracle_runtime_identity.v1",
+  "node_version": "v26.5.0",
+  "exec_argv": [],
+  "environment": {},
+  "executor_source_digest": "4818dae903f85a1e53dc99893bb61745afb1201804d27c5168997866f2150220"
+}

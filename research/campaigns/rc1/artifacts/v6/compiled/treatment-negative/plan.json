@@ -1,0 +1,82 @@
+{
+  "schema": "lattice.plan_graph.v1",
+  "plan_version": "rc1-v6-treatment-negative",
+  "source_manifest_digest": "969377c0fc8ce05c34b20fa7b1621b47d49b58762f75820b9d3050444410fd5e",
+  "capacity": {
+    "writers": 2
+  },
+  "nodes": [
+    {
+      "id": "channel-policy",
+      "outcome": "routine priority maps to the batch dispatch channel",
+      "owned_boundaries": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-channel.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-channel.test.mjs"
+        },
+        {
+          "kind": "symbol",
+          "target": "channelPolicyContract"
+        },
+        {
+          "kind": "symbol",
+          "target": "selectDispatchChannel"
+        }
+      ]
+    },
+    {
+      "id": "label-policy",
+      "outcome": "dispatch labels use a slash separator",
+      "owned_boundaries": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-label.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-label.test.mjs"
+        },
+        {
+          "kind": "symbol",
+          "target": "formatDispatchLabel"
+        },
+        {
+          "kind": "symbol",
+          "target": "labelPolicyContract"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "state-overlap-001",
+      "from": "channel-policy",
+      "to": "label-policy",
+      "kind": "state_conflict",
+      "evidence_refs": [
+        "manual-channel-policy",
+        "manual-label-policy"
+      ]
+    }
+  ],
+  "joins": [],
+  "waves": [
+    {
+      "index": 0,
+      "todo_ids": [
+        "channel-policy"
+      ]
+    },
+    {
+      "index": 1,
+      "todo_ids": [
+        "label-policy"
+      ]
+    }
+  ],
+  "minimum_feasible_waves": 2
+}
