@@ -173,6 +173,12 @@ test('v6 2+2 campaign writes a snapshot-bound causal artifact set and rejects re
   ]) {
     assert.ok(manifest.files.some(({ path: relativePath }) => relativePath === identityPath));
   }
+  assert.equal(
+    manifest.files.find(({ path: relativePath }) => (
+      relativePath === 'identity/codegraph-executable'
+    )).media_type,
+    'application/javascript',
+  );
   await access(path.join(repoRoot, ARTIFACT_ROOT, 'artifact-manifest.json'));
   const diskVerification = await verifyRc1V6ArtifactsOnDisk({ repoRoot });
   assert.equal(diskVerification.valid, true, JSON.stringify(diskVerification.failed_conditions));
@@ -202,6 +208,15 @@ test('v6 2+2 campaign writes a snapshot-bound causal artifact set and rejects re
     },
   );
   assert.equal(verifyRc1V6CampaignArtifactSet(predecessorSubstitution).valid, false);
+
+  const mediaTypeSubstitution = structuredClone(manifest);
+  mediaTypeSubstitution.files.find(({ path: relativePath }) => (
+    relativePath === 'identity/codegraph-executable'
+  )).media_type = 'text/markdown';
+  assert.equal(verifyRc1V6CampaignArtifactSet({
+    manifest: mediaTypeSubstitution,
+    payloads,
+  }).valid, false);
 
   for (const identityPath of [
     'identity/boundary-compiler.mjs',

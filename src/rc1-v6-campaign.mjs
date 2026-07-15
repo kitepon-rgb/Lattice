@@ -31,6 +31,7 @@ import {
   RC1_V6_ARTIFACT_PATHS,
   RC1_V6_PHASE_DECISION_REF,
   RC1_V6_REJECTED_PLAN_REF,
+  rc1V6ArtifactMediaType,
   verifyRc1V6CampaignArtifactSet,
 } from './rc1-v6-artifact-set.mjs';
 import { compileRc1V6BehaviorEvidence } from './rc1-v6-behavior-evidence.mjs';
@@ -553,13 +554,7 @@ export async function writeRc1V6Artifacts(options = {}) {
     result_digest: digestArtifact(result.hypothesis_evaluation),
     files: [...files].map(([relativePath, bytes]) => ({
       path: relativePath,
-      media_type: relativePath.endsWith('.json')
-        ? 'application/json'
-        : relativePath.endsWith('.mjs')
-          ? 'application/javascript'
-        : relativePath.endsWith('.patch')
-          ? 'text/x-diff'
-          : 'text/markdown',
+      media_type: rc1V6ArtifactMediaType(relativePath),
       bytes: bytes.byteLength,
       sha256: sha256(bytes),
     })).sort((left, right) => left.path.localeCompare(right.path)),

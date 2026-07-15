@@ -385,6 +385,19 @@ const EXPECTED_PATHS = Object.freeze([
   `predecessor/${PHASE_DECISION_REF}`,
 ].sort());
 
+/** v6 exact path setに対応する唯一のmedia type契約。 */
+export function rc1V6ArtifactMediaType(relativePath) {
+  if (!EXPECTED_PATHS.includes(relativePath)) {
+    throw new TypeError(`RC1 v6 artifact pathがexact setに存在しない: ${relativePath}`);
+  }
+  if (relativePath.endsWith('.json')) return 'application/json';
+  if (relativePath.endsWith('.mjs') || relativePath === IDENTITY_PATHS.codegraphExecutable) {
+    return 'application/javascript';
+  }
+  if (relativePath.endsWith('.patch')) return 'text/x-diff';
+  return 'text/markdown';
+}
+
 function payloadMap(payloads) {
   if (!Array.isArray(payloads)) return null;
   const map = new Map();
@@ -420,6 +433,7 @@ function artifactContext(options) {
     const bytes = payloads.get(entry.path);
     if (!exactRecord(entry, ['path', 'media_type', 'bytes', 'sha256'])
       || !Buffer.isBuffer(bytes)
+      || entry.media_type !== rc1V6ArtifactMediaType(entry.path)
       || entry.bytes !== bytes.byteLength
       || entry.sha256 !== sha256(bytes)) {
       return null;
