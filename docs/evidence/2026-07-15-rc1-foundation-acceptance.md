@@ -67,4 +67,3 @@ Phase gateで1回だけ実行する。
 - Codegraph 1.4.1の公開shape変更はfail closedに`unresolved`となる。version横断互換は未実装である。
 - isolation runnerのcleanup強制失敗、symlink／submodule／特殊fileの個別integration、process timeout／output上限は未検証。
   RC1-Eの固定fixtureで必要な実変換gateと、一般transform基盤の完成を混同しない。
-
