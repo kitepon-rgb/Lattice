@@ -1,0 +1,629 @@
+{
+  "schema": "lattice.rc1.foundation_post_index_evidence.v1",
+  "observed_at": "2026-07-15T14:12:29.257Z",
+  "head": "155c9553dd9f5c979c76dc913eb0175b1677bfb7",
+  "query_set": {
+    "queries": [
+      {
+        "id": "status",
+        "operation": "status"
+      },
+      {
+        "id": "query-canonicalizeArtifact",
+        "operation": "query",
+        "target": "canonicalizeArtifact"
+      },
+      {
+        "id": "callers-canonicalizeArtifact",
+        "operation": "callers",
+        "target": "canonicalizeArtifact"
+      },
+      {
+        "id": "callees-canonicalizeArtifact",
+        "operation": "callees",
+        "target": "canonicalizeArtifact"
+      },
+      {
+        "id": "impact-canonicalizeArtifact",
+        "operation": "impact",
+        "target": "canonicalizeArtifact"
+      },
+      {
+        "id": "query-collectCodegraphEvidence",
+        "operation": "query",
+        "target": "collectCodegraphEvidence"
+      },
+      {
+        "id": "callers-collectCodegraphEvidence",
+        "operation": "callers",
+        "target": "collectCodegraphEvidence"
+      },
+      {
+        "id": "callees-collectCodegraphEvidence",
+        "operation": "callees",
+        "target": "collectCodegraphEvidence"
+      },
+      {
+        "id": "impact-collectCodegraphEvidence",
+        "operation": "impact",
+        "target": "collectCodegraphEvidence"
+      },
+      {
+        "id": "query-runIsolatedTransform",
+        "operation": "query",
+        "target": "runIsolatedTransform"
+      },
+      {
+        "id": "callers-runIsolatedTransform",
+        "operation": "callers",
+        "target": "runIsolatedTransform"
+      },
+      {
+        "id": "callees-runIsolatedTransform",
+        "operation": "callees",
+        "target": "runIsolatedTransform"
+      },
+      {
+        "id": "impact-runIsolatedTransform",
+        "operation": "impact",
+        "target": "runIsolatedTransform"
+      },
+      {
+        "id": "affected-artifact-contract",
+        "operation": "affected",
+        "target": "src/artifact-contracts.mjs"
+      },
+      {
+        "id": "affected-codegraph-adapter",
+        "operation": "affected",
+        "target": "src/codegraph-adapter.mjs"
+      },
+      {
+        "id": "affected-isolation-runner",
+        "operation": "affected",
+        "target": "src/isolation-runner.mjs"
+      }
+    ]
+  },
+  "result": {
+    "cwd": "/Users/kite/Developer/Lattice",
+    "outcomes": [
+      {
+        "id": "status",
+        "operation": "status",
+        "outcome": "ready",
+        "data": {
+          "initialized": true,
+          "version": "1.4.1",
+          "projectPath": "/Users/kite/Developer/Lattice",
+          "indexPath": "/Users/kite/Developer/Lattice/.codegraph",
+          "lastIndexed": "2026-07-15T14:07:48.238Z",
+          "fileCount": 13,
+          "nodeCount": 154,
+          "edgeCount": 603,
+          "dbSizeBytes": 790528,
+          "backend": "node-sqlite",
+          "journalMode": "wal",
+          "nodesByKind": {
+            "constant": 29,
+            "file": 11,
+            "function": 83,
+            "import": 31
+          },
+          "languages": [
+            "javascript",
+            "yaml"
+          ],
+          "pendingChanges": {
+            "added": 0,
+            "modified": 0,
+            "removed": 0
+          },
+          "worktreeMismatch": null,
+          "index": {
+            "builtWithVersion": "1.4.1",
+            "builtWithExtractionVersion": 24,
+            "currentExtractionVersion": 24,
+            "reindexRecommended": false,
+            "state": "complete",
+            "pendingRefs": 0
+          }
+        }
+      },
+      {
+        "id": "query-canonicalizeArtifact",
+        "operation": "query",
+        "target": "canonicalizeArtifact",
+        "outcome": "ready",
+        "data": [
+          {
+            "node": {
+              "id": "function:94f3d1b59b8acc6a7aea4fa0e682646e",
+              "kind": "function",
+              "name": "canonicalizeArtifact",
+              "qualifiedName": "canonicalizeArtifact",
+              "filePath": "src/artifact-contracts.mjs",
+              "language": "javascript",
+              "startLine": 192,
+              "endLine": 198,
+              "startColumn": 7,
+              "endColumn": 1,
+              "docstring": "JSON互換payloadをobject keyの辞書順でUTF-8 canonical JSONへ変換する。\n@param {unknown} value\n@returns {string}",
+              "signature": "(value)",
+              "visibility": null,
+              "isExported": true,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false,
+              "updatedAt": 1784124244323
+            },
+            "score": 111.47428827125083
+          },
+          {
+            "node": {
+              "id": "import:4b455a0c62e21c24a13c010b9daa97cd",
+              "kind": "import",
+              "name": "../src/artifact-contracts.mjs",
+              "qualifiedName": "../src/artifact-contracts.mjs",
+              "filePath": "test/artifact-contracts.test.mjs",
+              "language": "javascript",
+              "startLine": 6,
+              "endLine": 14,
+              "startColumn": 0,
+              "endColumn": 39,
+              "signature": "import {\n  canonicalizeArtifact,\n  digestArtifact,\n  validateBoundaryManifest,\n  validateBoundaryVerdict,\n  validatePlanDiff,\n  validatePlanGraph,\n  validatePlanInput,\n} from '../src/artifact-contracts.mjs';",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false,
+              "updatedAt": 1784124223389
+            },
+            "score": 3.09529956304619
+          }
+        ]
+      },
+      {
+        "id": "callers-canonicalizeArtifact",
+        "operation": "callers",
+        "target": "canonicalizeArtifact",
+        "outcome": "ready",
+        "data": {
+          "symbol": "canonicalizeArtifact",
+          "callers": [
+            {
+              "name": "artifact-contracts.test.mjs",
+              "kind": "file",
+              "filePath": "test/artifact-contracts.test.mjs",
+              "startLine": 1
+            },
+            {
+              "name": "digestArtifact",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 205
+            },
+            {
+              "name": "validateSafely",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 297
+            }
+          ]
+        }
+      },
+      {
+        "id": "callees-canonicalizeArtifact",
+        "operation": "callees",
+        "target": "canonicalizeArtifact",
+        "outcome": "ready",
+        "data": {
+          "symbol": "canonicalizeArtifact",
+          "callees": [
+            {
+              "name": "canonicalPart",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 149
+            },
+            {
+              "name": "byteLength",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 83
+            },
+            {
+              "name": "invalidArtifact",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 79
+            },
+            {
+              "name": "MAX_CANONICAL_BYTES",
+              "kind": "constant",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 9
+            }
+          ]
+        }
+      },
+      {
+        "id": "impact-canonicalizeArtifact",
+        "operation": "impact",
+        "target": "canonicalizeArtifact",
+        "outcome": "ready",
+        "data": {
+          "symbol": "canonicalizeArtifact",
+          "depth": 2,
+          "nodeCount": 9,
+          "edgeCount": 11,
+          "affected": [
+            {
+              "name": "canonicalizeArtifact",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 192
+            },
+            {
+              "name": "artifact-contracts.test.mjs",
+              "kind": "file",
+              "filePath": "test/artifact-contracts.test.mjs",
+              "startLine": 1
+            },
+            {
+              "name": "digestArtifact",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 205
+            },
+            {
+              "name": "validateSafely",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 297
+            },
+            {
+              "name": "validatePlanInput",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 317
+            },
+            {
+              "name": "validateBoundaryManifest",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 398
+            },
+            {
+              "name": "validateBoundaryVerdict",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 513
+            },
+            {
+              "name": "validatePlanGraph",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 552
+            },
+            {
+              "name": "validatePlanDiff",
+              "kind": "function",
+              "filePath": "src/artifact-contracts.mjs",
+              "startLine": 665
+            }
+          ]
+        }
+      },
+      {
+        "id": "query-collectCodegraphEvidence",
+        "operation": "query",
+        "target": "collectCodegraphEvidence",
+        "outcome": "ready",
+        "data": [
+          {
+            "node": {
+              "id": "function:42955d0b2b1a3fb5d5a5c718dfc41b21",
+              "kind": "function",
+              "name": "collectCodegraphEvidence",
+              "qualifiedName": "collectCodegraphEvidence",
+              "filePath": "src/codegraph-adapter.mjs",
+              "language": "javascript",
+              "startLine": 229,
+              "endLine": 247,
+              "startColumn": 7,
+              "endColumn": 1,
+              "docstring": "Collects Codegraph CLI evidence without turning command failures or empty results into independence.\n@param {{ cwd: string, querySet: { queries?: object[] }, execute?: Function }} options\n@returns {Promise<{ cwd: string, outcomes: object[] }>}",
+              "signature": "({ cwd, querySet, execute = defaultExecutor } = {})",
+              "visibility": null,
+              "isExported": true,
+              "isAsync": true,
+              "isStatic": false,
+              "isAbstract": false,
+              "updatedAt": 1784124468226
+            },
+            "score": 110.90189416378848
+          },
+          {
+            "node": {
+              "id": "import:ee79672b75b69d7b437bfad00bb91aa2",
+              "kind": "import",
+              "name": "../src/codegraph-adapter.mjs",
+              "qualifiedName": "../src/codegraph-adapter.mjs",
+              "filePath": "test/codegraph-adapter.test.mjs",
+              "language": "javascript",
+              "startLine": 4,
+              "endLine": 4,
+              "startColumn": 0,
+              "endColumn": 72,
+              "signature": "import { collectCodegraphEvidence } from '../src/codegraph-adapter.mjs';",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false,
+              "updatedAt": 1784124468233
+            },
+            "score": 3.680462985147429
+          }
+        ]
+      },
+      {
+        "id": "callers-collectCodegraphEvidence",
+        "operation": "callers",
+        "target": "collectCodegraphEvidence",
+        "outcome": "ready",
+        "data": {
+          "symbol": "collectCodegraphEvidence",
+          "callers": [
+            {
+              "name": "codegraph-adapter.test.mjs",
+              "kind": "file",
+              "filePath": "test/codegraph-adapter.test.mjs",
+              "startLine": 1
+            }
+          ]
+        }
+      },
+      {
+        "id": "callees-collectCodegraphEvidence",
+        "operation": "callees",
+        "target": "collectCodegraphEvidence",
+        "outcome": "ready",
+        "data": {
+          "symbol": "collectCodegraphEvidence",
+          "callees": [
+            {
+              "name": "collectOne",
+              "kind": "function",
+              "filePath": "src/codegraph-adapter.mjs",
+              "startLine": 146
+            }
+          ]
+        }
+      },
+      {
+        "id": "impact-collectCodegraphEvidence",
+        "operation": "impact",
+        "target": "collectCodegraphEvidence",
+        "outcome": "ready",
+        "data": {
+          "symbol": "collectCodegraphEvidence",
+          "depth": 2,
+          "nodeCount": 2,
+          "edgeCount": 2,
+          "affected": [
+            {
+              "name": "collectCodegraphEvidence",
+              "kind": "function",
+              "filePath": "src/codegraph-adapter.mjs",
+              "startLine": 229
+            },
+            {
+              "name": "codegraph-adapter.test.mjs",
+              "kind": "file",
+              "filePath": "test/codegraph-adapter.test.mjs",
+              "startLine": 1
+            }
+          ]
+        }
+      },
+      {
+        "id": "query-runIsolatedTransform",
+        "operation": "query",
+        "target": "runIsolatedTransform",
+        "outcome": "ready",
+        "data": [
+          {
+            "node": {
+              "id": "function:1c0b59a318fa954895473570640fbba0",
+              "kind": "function",
+              "name": "runIsolatedTransform",
+              "qualifiedName": "runIsolatedTransform",
+              "filePath": "src/isolation-runner.mjs",
+              "language": "javascript",
+              "startLine": 119,
+              "endLine": 176,
+              "startColumn": 7,
+              "endColumn": 1,
+              "signature": "({ repoRoot, baseRef, allowedPaths, transform, verifyCommands, observe } = {})",
+              "visibility": null,
+              "isExported": true,
+              "isAsync": true,
+              "isStatic": false,
+              "isAbstract": false,
+              "updatedAt": 1784124468231
+            },
+            "score": 111.62300969336036
+          },
+          {
+            "node": {
+              "id": "import:213d362ca23e08046053af3cd5061ef9",
+              "kind": "import",
+              "name": "../src/isolation-runner.mjs",
+              "qualifiedName": "../src/isolation-runner.mjs",
+              "filePath": "test/isolation-runner.test.mjs",
+              "language": "javascript",
+              "startLine": 8,
+              "endLine": 8,
+              "startColumn": 0,
+              "endColumn": 67,
+              "signature": "import { runIsolatedTransform } from '../src/isolation-runner.mjs';",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false,
+              "updatedAt": 1784124468236
+            },
+            "score": 3.680462985147429
+          }
+        ]
+      },
+      {
+        "id": "callers-runIsolatedTransform",
+        "operation": "callers",
+        "target": "runIsolatedTransform",
+        "outcome": "ready",
+        "data": {
+          "symbol": "runIsolatedTransform",
+          "callers": [
+            {
+              "name": "isolation-runner.test.mjs",
+              "kind": "file",
+              "filePath": "test/isolation-runner.test.mjs",
+              "startLine": 1
+            }
+          ]
+        }
+      },
+      {
+        "id": "callees-runIsolatedTransform",
+        "operation": "callees",
+        "target": "runIsolatedTransform",
+        "outcome": "ready",
+        "data": {
+          "symbol": "runIsolatedTransform",
+          "callees": [
+            {
+              "name": "safeRelativePath",
+              "kind": "function",
+              "filePath": "src/isolation-runner.mjs",
+              "startLine": 22
+            },
+            {
+              "name": "run",
+              "kind": "function",
+              "filePath": "src/isolation-runner.mjs",
+              "startLine": 6
+            },
+            {
+              "name": "captureSnapshot",
+              "kind": "function",
+              "filePath": "src/isolation-runner.mjs",
+              "startLine": 87
+            },
+            {
+              "name": "assertSnapshotUnchanged",
+              "kind": "function",
+              "filePath": "src/isolation-runner.mjs",
+              "startLine": 100
+            },
+            {
+              "name": "assertSourceUnchanged",
+              "kind": "function",
+              "filePath": "src/isolation-runner.mjs",
+              "startLine": 109
+            }
+          ]
+        }
+      },
+      {
+        "id": "impact-runIsolatedTransform",
+        "operation": "impact",
+        "target": "runIsolatedTransform",
+        "outcome": "ready",
+        "data": {
+          "symbol": "runIsolatedTransform",
+          "depth": 2,
+          "nodeCount": 2,
+          "edgeCount": 2,
+          "affected": [
+            {
+              "name": "runIsolatedTransform",
+              "kind": "function",
+              "filePath": "src/isolation-runner.mjs",
+              "startLine": 119
+            },
+            {
+              "name": "isolation-runner.test.mjs",
+              "kind": "file",
+              "filePath": "test/isolation-runner.test.mjs",
+              "startLine": 1
+            }
+          ]
+        }
+      },
+      {
+        "id": "affected-artifact-contract",
+        "operation": "affected",
+        "outcome": "ready",
+        "targets": [
+          {
+            "target": "src/artifact-contracts.mjs",
+            "outcome": "ready",
+            "data": {
+              "changedFiles": [
+                "src/artifact-contracts.mjs"
+              ],
+              "affectedTests": [
+                "test/artifact-contracts.test.mjs"
+              ],
+              "totalDependentsTraversed": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "affected-codegraph-adapter",
+        "operation": "affected",
+        "outcome": "ready",
+        "targets": [
+          {
+            "target": "src/codegraph-adapter.mjs",
+            "outcome": "ready",
+            "data": {
+              "changedFiles": [
+                "src/codegraph-adapter.mjs"
+              ],
+              "affectedTests": [
+                "test/codegraph-adapter.test.mjs"
+              ],
+              "totalDependentsTraversed": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "affected-isolation-runner",
+        "operation": "affected",
+        "outcome": "ready",
+        "targets": [
+          {
+            "target": "src/isolation-runner.mjs",
+            "outcome": "ready",
+            "data": {
+              "changedFiles": [
+                "src/isolation-runner.mjs"
+              ],
+              "affectedTests": [
+                "test/isolation-runner.test.mjs"
+              ],
+              "totalDependentsTraversed": 1
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

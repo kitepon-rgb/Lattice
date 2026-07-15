@@ -135,13 +135,16 @@ Source boundary／dispatch contract: [RC1 implementation boundaries](evidence/20
 - [x] continuation Control内のread-only native Taskを完遂・回収・acceptし、そのevidenceで入口を
   `execution-verified`へ昇格してからRC1-B／RC1-Cを配置する。
 
-- [ ] **RC1-A（F・親直轄）:** `plan_input.v1`、`boundary_manifest.v1`、`boundary_verdict.v1`、`plan_graph.v1`、`plan_diff.v1`の
+Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
+[受入証拠](evidence/2026-07-15-rc1-foundation-acceptance.md)はControl receipt、focused gate、実Codegraph post-indexを固定する。
+
+- [x] **RC1-A（F・親直轄）:** `plan_input.v1`、`boundary_manifest.v1`、`boundary_verdict.v1`、`plan_graph.v1`、`plan_diff.v1`の
   RC1必要subsetをexact key、bounded collection、canonical serialization、digest付きで実装する。
-- [ ] **RC1-B:** Codegraph 1.4.1の公開CLIからstatus、query、caller／callee、impact、affected testを収集し、
+- [x] **RC1-B:** Codegraph 1.4.1の公開CLIからstatus、query、caller／callee、impact、affected testを収集し、
   absent／empty／stale／unsupported／unresolved／failureを区別するadapterを実装する。
   `callers`／`callees`／`impact`は未存在symbolに`--json`を指定してもexit 0の非JSON textを返す実測があるため、
   exit codeだけでなくstdoutのJSON parseとtyped absenceを検証する。
-- [ ] **RC1-C:** disposable worktree、bounded write scope、characterization verifier、diff artifact、rollback／cleanupを実装する。
+- [x] **RC1-C:** disposable worktree、bounded write scope、characterization verifier、diff artifact、rollback／cleanupを実装する。
 
 ### RC1-D／E／F — controlとtreatmentを閉じる
 
