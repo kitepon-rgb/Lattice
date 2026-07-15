@@ -2,243 +2,201 @@
 
 - 状態: Active
 - 更新日: 2026-07-15
-- 現在のplan version: `lattice-research-campaign-1-v3`
-- predecessor: `lattice-research-campaign-1-v2`（[archive](archive/2026-07-15-plan-lattice-research-campaign-1-v2.md)、SHA-256 `170af6e1bc9b62b2b366b9c09a12861f3168808857aa96dc71c5cb51f03ad1ce`）
-- bootstrap predecessor: `lattice-bootstrap-v1`（[archive](archive/2026-07-15-plan-lattice-bootstrap-v1.md)、SHA-256 `78c07232cd2ede13dbd88bce02aa03b3591acc9ca1e39c21f7861398fc203a3b`）
-- Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
-- Portability correction: [ADR 0012](adr/0012-portable-codegraph-evidence-and-rc1-v3.md)
-- Control lifecycle correction: [ADR 0004](adr/0004-rc1-control-admission-correction.md)
-- Native execution verification: [ADR 0005](adr/0005-rc1-native-execution-verification.md)
+- 現在のplan version: `lattice-research-campaign-1-v4`
+- predecessor: `lattice-research-campaign-1-v3`（[Phase-rejected archive](archive/2026-07-15-plan-lattice-research-campaign-1-v3-phase-rejected.md)、SHA-256 `13a5ffa8580ac54dd1b63a556736b7fa888010483780660029cb938399a9baf7`）
+- Phase gate Decision: [ADR 0016](adr/0016-rc1-v3-phase-gate-rejection.md)
+- RC1 root Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
+- Portability Decision: [ADR 0012](adr/0012-portable-codegraph-evidence-and-rc1-v3.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
 - 公開契約: [00_product-contract.md](00_product-contract.md)
 
 ## Plan version diff
 
-v2のRC1-E後に、Codegraph raw outcome digestが同じcode／queryのfresh indexでもtemp path、index時刻、node更新時刻により
-変化することを実験で反証した。v3はv2 topologyへ追記せず、旧D／E artifactのactive predecessor資格を失効し、
-RC1-D2 portable control correction → RC1-E2 transform chain再発行 → RC1-Fを新しいhard dependencyとして再compileする。
+v3はproduction seam、隔離worktree、same-query fresh index、negative state control、plan diffまで接続したが、Phase gateで
+`supported_in_fixture`をrejectした。controlとtreatmentが別compilerを使う測定器交絡、future TODOのshared test-write脱落、
+fresh Codegraph outcome preimage欠落、success predicate不足、bounded source-invariant gapが実コードで再現したためである。
 
-RC1の核心仮説、control／treatment、fixture、query set、manual evidence、capacity、verifier、non-goalsはv2から変更しない。
-Wave 0とv2のaccepted実装commitは再利用するが、volatile graph digestを持つ旧artifact／agent context／途中patch／interface仮定は
-Fへ持ち越さない。Observer fixtureは後続のままとし、最初の実証はLattice所有fixtureだけで行う。
+v4はv3 topologyへ追記しない。v3 comparison、plan v2、causal agent context、partial patch、interface assumptionをactive
+dispatch predecessorから失効し、accepted production transformとdigest chainだけをhistorical mechanism evidenceとして引き継ぐ。
+同じboundary compiler、production＋test seam、保存可能なevidence preimageでcontrol／treatmentを再発行する。
 
-## Research Campaign 1
+Observer fixtureとdotagents統合は引き続き後続であり、v4の内的妥当性を外部dogfoodで埋めない。
 
-### 目的と仮説
+## Research Campaign 1 v4 correction
 
-- **核心仮説:** 同じTODO outcome、manual state／effect evidence、query set、capacity、verifierを固定し、
-  挙動不変seam変換だけを加えると、同一boundaryを争う2 TODOのwrite conflictを除去し、minimum feasible wavesを
-  2から1へ減らせる。accepted transformをpredecessorにした新plan versionへ全候補を再compileできる。
-- **対立仮説:** (a) conflictはsemantic／state／effect上切断不能、(b)改善はquery／input driftによる交絡、
-  (c)behaviorまたはversion barrierが成立せずplanをacceptできない、のいずれかである。
-- **control condition:** monolithic fixtureのままboundary／planをcompileし、transformしない。
-- **treatment condition:** 同じfixture artifactからdisposable worktreeを作り、accepted seam変換後に再index／recompileする。
-- **independent variable:** accepted seam transformation artifactの有無。code snapshot由来のgraph evidence以外は固定する。
+### 核心仮説と対立仮説
 
-研究fixtureは単一`buildDispatchRecord` symbolがchannel選択とlabel整形を所有し、将来TODO
-`channel-policy`／`label-policy`が同じsymbol／pathをwriteする。変換後は両責務を別symbol／別moduleへ抽出する。
-通常manual evidenceはpure／shared stateなし／external effectなしとし、negative controlだけ両TODOへ同一
-`dispatch-registry` state writeを与える。
+- **核心仮説 H1-v4:** pre／post snapshotへ同じboundary compiler、candidate spec、manual evidence、query set、capacity、
+  black-box behavior oracleを適用し、productionとfuture TODOがwriteするtest architectureの両方へaccepted seam変換を加えると、
+  全shared write resourceを除去し、hard dependencyを増やさずcapacity 2のminimum feasible wavesを1へできる。
+- **対立仮説 H0-a:** production seam後もtest、schema、state、effect、semantic resourceのいずれかが共有され、1 waveにはできない。
+- **対立仮説 H0-b:** conflict減少はcondition別rule、candidate／query drift、missing evidenceのsafe defaultによる測定器artifactである。
+- **対立仮説 H0-c:** test seamがbehavior oracleも同時に書き換え、behavior preservationを独立に検証できない。
+- **対立仮説 H0-d:** full portable outcome payloadからexact resolution／digestを再計算できず、再indexの主張を独立監査できない。
+
+### Experimental conditions
+
+- **control condition:** monolithic production symbolとpolicy-specific shared test expectationを変換せず、v4 fixed query setでfresh indexし、
+  single boundary compilerへ入力する。
+- **treatment condition:** 同じbaseへaccepted production＋test seam patchだけを加えたdisposable worktreeを、同じquery set、
+  compiler、manual evidence、capacity、black-box oracleでfresh index／compileする。
+- **independent variable:** accepted seam transformation artifactの有無。compiler identity、candidate spec、TODO outcome、
+  manual evidence、query set、capacity、oracle、Codegraph versionは条件間で固定する。
+- **negative control:** normalと同じsnapshot／compilerへ両TODOのshared `dispatch-registry` state writeを与え、pathとtestを
+  分離してもserialを保持する。
+
+candidate specは各TODOについて、現anchor production／test surfaceとproposed production／test surfaceを同時に固定する。
+single compilerはcondition名を受け取らず、exact graph outcomeからどのsurfaceが存在するかを解決し、同じwrite-intersection演算で
+conflictを導出する。期待conflict数を入力しない。
 
 ### 測定指標
 
-| 指標 | control | treatmentで期待する差 |
-|---|---:|---:|
-| typed verdict | `seam_candidate` | `parallel_ready` |
-| write conflict edge | 1 | 0 |
-| hard precedence edge | 0 | 0（偽edgeを増やさない） |
-| capacity 2でのminimum feasible waves | 2 | 1 |
-| behavior gate | green | 同じmatrixでgreen |
-| negative control | shared-state conflict | shared-state conflictを保持 |
-| query-set digest | 固定値 | 同一値 |
-| unresolved／unknown | typedに列挙 | 増減と理由を列挙。0へ丸めない |
-| version barrier | なし | old plan／context／patch／assumptionの失効一覧あり |
-| intervention cost | 0 | diff、gate、review、reindex、recompile実測を記録 |
+| 指標 | control | treatment success |
+|---|---|---|
+| boundary compiler identity | fixed digest | 同一digest |
+| production write overlap | 実測 | 0 |
+| test／schema／artifact write overlap | 実測・省略禁止 | 0 |
+| total write conflict records | 実測値を採る | 0 |
+| hard precedence | 実測 | 増加なし |
+| minimum feasible waves（capacity 2） | 2以上を実測 | 1 |
+| unknown | graph／manual provenance付き | 0へなるなら各解消根拠あり |
+| behavior preservation | transform外black-box oracle green | 同一oracle green |
+| negative shared state | serial | serial |
+| portable evidence | runごとのfull preimage＋digest | 独立再計算一致 |
+| diagnostic evidence | sanitized payload＋sanitization manifest | 絶対pathなし |
+| success predicate | 全条件truth table | single-field corruptionを全reject |
+| source invariant | typed protected scope receipt | drift 0 |
 
-actual wall-clock、tool時間、review、rework、rollbackも記録するが、単一の小型fixtureから一般的な速度改善率は主張しない。
+actual wall-clock、index／query、compile、review、rework、rollbackも記録する。v4も単一fixtureであり、任意repoの成功率や
+一般的速度改善率は主張しない。
 
 ### 成功条件
 
-1. controlとtreatmentが同一TODO input、manual evidence、query set、capacity、verifierを消費し、digestで一致を証明する。
-2. controlはwrite conflictを根拠に`seam_candidate`を返し、空結果やCLI failureを依存なしへ丸めない。
-3. transformはdisposable worktree内に限定され、characterization greenのartifactだけが再indexへ進む。
-4. treatmentはwrite conflictを0にし、hard dependencyやunknownを隠さず、minimum feasible wavesを1にする。
-5. negative controlはpath分離後もshared-state conflictを保持し、false `parallel_ready`を拒む。
-6. canonical serializationとdigestは同一入力からbyte-identicalに再生成できる。
-7. `lattice.plan_diff.v1`はaccepted transform artifact、node／edge差分、失効contextを持ち、新plan versionを生成する。
+1. control／treatmentが同じexported boundary compilerと同じcandidate specを使い、condition-specific branchを持たない。
+2. compilerはgraph evidenceからresolved ownershipとunknownを導出し、全TODOのwrite resource交差からconflictを作る。
+3. controlではproductionとtestを含む実在shared boundaryがtyped conflictになり、空／absent／unresolvedをindependenceへ丸めない。
+4. accepted transformはproduction concernとfuture TODOのwrite testを分離する。変換scope外の固定black-box oracleがpre／postでgreen。
+5. treatmentはshared write conflict 0、hidden unknown 0、hard precedence増加なし、minimum feasible waves 1である。
+6. shared-state negativeはstate conflictと2 wavesを保持する。
+7. 2 fresh control runと2 fresh treatment runのcanonical portable payloadを保存し、per-query／aggregate digestをartifactだけから再計算できる。
+8. sanitized diagnostic payloadは除外／置換fieldをversioned manifestへ列挙し、絶対pathを含まず、opaque raw receiptと役割を分ける。
+9. machine success predicateは宣言済み条件を全て検査し、各一条件だけを壊すtestでfalse supportを拒否する。
+10. source invariantはHEAD、git-visible status、ignored path集合、protected source／test scopeのcontent fingerprintを分けて記録する。
+11. new plan diffはv3 causal artifactsとcontextを失効し、v4 accepted transformとevidence bundleをpredecessorに持つ。
 
 ### 反証・設計変更条件
 
-- TODO、manual evidence、query set、capacity、verifierのいずれかが条件間でdriftした場合は非識別実験として棄却し、固定後に再実行する。
-- characterization／negative controlが失敗したtransformはrejectし、構造差分が良くてもrecompileへ採用しない。
-- 同じquery setでshared boundaryが残る、または新しいsemantic／state／effect conflictが現れた場合はH1を反証し、
-  seam候補またはboundary modelを変更する。
-- negative controlが`parallel_ready`になった場合はpath-only判定の実コード欠陥としてPhaseを止める。
-- Codegraph index absent／stale／unsupported／unresolved／CLI failureはtyped failureとし、公開面不足なら
-  upstream寄与または正式所有forkのDecisionへ送る。manualな安全推測で埋めない。
-- canonical worktree、Lattice外repo、external serviceへwriteした場合は隔離契約違反としてartifactをrejectし、原因を修正する。
-- plan versionは番号だけ変えず、accepted predecessorとinvalidationを証明できなければversion barrier設計を変更する。
+- pre／postでcompiler export、compiler source digest、candidate spec、query set、manual evidence、capacity、oracleのいずれかが違えば
+  非識別としてartifactをrejectする。
+- shared testまたはgenerated artifactのwriteが残れば1 waveを主張せず、追加seamまたはjoin TODOへplanを変更する。
+- transformed testだけがoracleになっていればbehavior gateをrejectし、transform scope外oracleを先に固定する。
+- portable payloadが欠落、digest不一致、unknown fieldの暗黙drop、sanitization manifest外の削除を起こしたrunは再compileへ進めない。
+- affected testがsharedでもwrite不要と分類する場合、TODO outcomeとtest assertionを照合したmanual provenanceを必須にする。
+- negative controlがparallelになればboundary compilerをrejectする。
+- protected canonical scopeへcontent driftがあればartifactをrejectし、cleanup成功へ丸めない。
+- v4実測が1 waveを支持しなければfixtureを都合よく変えず、H1-v4を反証してplan topologyを再compileする。
 
-## Hard dependency graphと並列lane
+## Hard dependencyと並列研究lane
 
 ```text
-RC1-P plan/ADR accepted
-  └─ RC1-S fixture + characterization safety net
-       ├─ RC1-A artifact contract lane ────┐
-       ├─ RC1-B Codegraph sensor lane ─────┴─ RC1-D control boundary/plan compile ─┐
-       └─ RC1-C isolation/verifier lane ───────────────────────────────────────────┴─ RC1-E treatment transform
-                                                                                         └─ portability refutation
-                                                                                              └─ RC1-D2 portable control
-                                                                                                   └─ RC1-E2 transform reissue
-                                                                                                        └─ RC1-F reindex/recompile/compare
-                                                                                                             └─ RC1-G Phase audit/evidence return
+RC1-G2 v3 Phase reject + v4 plan
+  └─ RC1-H identifiability characterization safety net
+       ├─ RC1-I single boundary compiler lane ───────────────┐
+       ├─ RC1-J production + test seam / oracle lane ───────┼─ RC1-L corrected control/treatment reissue
+       └─ RC1-K evidence preimage + source invariant lane ──┘       └─ RC1-M correction Phase gate
 ```
 
-| node | hard needs + witness | lane／effect | produces | gate |
+| node | hard dependency | lane／effect | evidence artifact | gate |
 |---|---|---|---|---|
-| RC1-P | bootstrap-v1 accepted artifacts | F: 親直轄／docs write | ADR 0002、plan v2、baseline | docs diff＋親反証＋独立commit |
-| RC1-S | RC1-P: fixture／実験契約 | A: safety-net／Lattice source write | monolith fixture、characterization、fixed input | Codegraph preflight＋focused test |
-| RC1-A | RC1-S: fixed examples | F: 親直轄／公開artifact byte contract | strict schemas、canonicalizer、digest | invalid／oversize／path escape test |
-| RC1-B | RC1-S: fixed query targets | A: sensor／read-only subprocess | status/query/caller/callee/impact/affected evidence | failure／empty／stale typed test |
-| RC1-C | RC1-S: behavior matrix | A: isolation／temp worktree write | bounded transform runner、verifier、rollback evidence | canonical worktree不変＋focused integration |
-| RC1-D | RC1-A＋RC1-B: schemaとgraph evidence | F: verdict契約／Lattice artifact write | control manifest、typed conflict/verdict、plan v1 | control success条件1〜2 |
-| RC1-E | RC1-C＋RC1-D: verifierと`seam_candidate` | F: 介入acceptance／isolated write | accepted／rejected transform artifact | behavior＋scope＋negative control |
-| RC1-D2 | ADR 0012＋portability probe | F: digest意味／artifact correction | portable control-v2 artifact | 2 fresh indexでbyte-identical |
-| RC1-E2 | RC1-D2＋RC1-E実装 | F: predecessor chain再発行 | portable-chain treatment-v2 artifact | same-base＋control-v2 digest chain |
-| RC1-F | RC1-E2: accepted artifact | F: version barrier／artifact write | post manifest、plan v2、plan diff、comparison | success条件4〜7 |
-| RC1-G | RC1-F: 全artifactとrelated green | A: read-only Phase監査 | refutation、Critic、親裁定、RAG／docs還流 | full `npm run ci` 1回 |
+| RC1-G2 | v3 full CI＋independent reject | F: 親直轄／docs write | ADR 0016、v3 archive、plan v4 | 独立commit |
+| RC1-H | ADR 0016＋v3 failing surfaces | F: 実験契約／test-first | v4 candidate spec、query set、black-box oracle、red tests | Codegraph preflight＋expected red |
+| RC1-I | RC1-H shared measurement contract | F: boundary semantics／source write | single compiler、derivation trace | same function pre／post＋corruption tests |
+| RC1-J | RC1-H fixed oracle | F: isolated transform／fixture patch | production＋test seam artifact | transform外oracle＋scope＋cleanup |
+| RC1-K | RC1-H evidence contract | F: evidence／runner source write | full portable、sanitized diagnostic、source receipt | preimage再計算＋path scrub |
+| RC1-L | RC1-I＋J＋K | F: correction integration／artifact write | corrected control、treatment、comparison、plan diff | 2 fresh run／condition |
+| RC1-M | RC1-L related green | A: read-only correction audit＋F親裁定 | focused refutation、full CI、Decision | P1 correction再監査1回 |
 
-RC1-A／B／Cは書込scopeを非交差に固定して並列化できる。RC1-D以降とD2→E2→Fは因果順を識別するため直列であり、
-ready幅を増やす目的でhard dependencyを削らない。
+RC1-I／J／KはRC1-Hが固定したschemaと入力を変更せず、非交差source scopeにできる範囲だけ並列に進める。
+candidate spec／query set／oracleの変更は親直轄で新plan versionを要求し、lane内の便宜で書き換えない。
 
 ## TODO
 
-### RC1-P — 計画versionを固定する
+### RC1-G2 — v3 Phase rejectとplan v4
 
-- [x] 旧Control revision 6の`worker_runs`、`consultations`、`campaigns`、dispatchが全て0と確認し、指定範囲だけ整理する。
-- [x] 同一HEADでfull baselineを再確認し、[evidence](evidence/2026-07-15-research-campaign-1-baseline-v2.md)へ固定する。
-- [x] 旧planをdigest一致でarchiveし、ADR 0002と`lattice-research-campaign-1-v2`を正本化する。
-- [x] [親反証](evidence/2026-07-15-research-campaign-1-plan-refutation.md)とdocs link／digest検証を行う。
-- [x] plan更新だけを独立commitする。
+- [x] full `npm run ci`をPhase gateで1回実行し、49 pass / 0 fail / 0 skipとworkspace不変を記録する。
+- [x] Find lane 7→6、Critic 9、cross-lane 16→11 familyをdedupし、supported 5／refuted 6を親裁定する。
+- [x] ADR 0016でv3 causal acceptanceをrejectし、生き残ったmechanism evidenceと失効artifactを分離する。
+- [x] 監査結果を`docs/evidence/`と`rag/`へ還流する。
+- [x] v3 planをPhase-rejectedとしてarchiveし、active topologyをv4へ全再compileする。
 
-### RC1-P2 — portability反証からplan v3へ再compileする
+### RC1-H — correction characterizationを先に置く
 
-- [x] 同じbase／patch／query setを2 fresh worktreeでindexし、raw outcome digest不一致とportable projection一致を
-  `research/campaigns/rc1/evidence/codegraph-portability-probe.json`へ固定する。
-- [x] v2をSHA-256一致でarchiveし、旧D／E artifactとagent contextのactive predecessor資格を失効する。
-- [x] ADR 0012、public product contract、RAG、D2→E2→F topologyを`lattice-research-campaign-1-v3`へ正本化する。
-- [x] plan v3更新だけを独立commitする。
-- [x] ControlへD2／E2／F taskをrevision 37〜39で順序どおり記録する。
+- [ ] source編集前にCodegraphでplanned owned symbol／path、caller／callee、impact、affected test、unknownを再確認する。
+- [ ] v3 findingごとに、現実装が失敗する最小characterization testを先に追加する。
+- [ ] conditionを受け取らないcandidate spec v2とfixed query set v2をversioned inputへ固定する。
+- [ ] transform scope外black-box behavior oracleと、future TODOのtest write ownership provenanceを固定する。
+- [ ] focused testが測定器交絡、shared test-write、missing preimage、incomplete predicate、protected ignored driftを赤にすることを記録する。
+- [ ] safety-netだけを独立commitする。
 
-### RC1-S — characterization safety netを先行する
+### RC1-I — single boundary compiler
 
-Accepted Decision: [ADR 0003](adr/0003-rc1-safety-net-accepted.md)
+- [ ] control／treatmentのduplicate manifest／verdict／plan derivationをsingle compilerへ置換する。
+- [ ] exact graph outcomeからanchor／proposed production＋test surfaceを解決し、writes intersectionからconflictを導出する。
+- [ ] graph absence／empty／unresolvedとmanual state／effect／unknownを同じtyped ruleで扱う。
+- [ ] conflict数やunknown数のexpected constantをcompiler input／condition branchへ持たせない。
+- [ ] single-field corruptionとnegative stateのfocused gateをgreenにする。
 
-- [x] source編集前にCodegraphで既存test入口、planned owned path／symbol、caller／callee、impact、affected testを確認し、
-  symbol不在を`new_surface_unknown`としてmanual boundary evidenceへ残す。
-- [x] Lattice内へmonolithic dispatch fixtureと、現挙動を固定するinput／output／error matrixを追加する。
-- [x] 通常manual state／effect evidence、shared-state negative control、固定query setをversioned inputとして追加する。
-- [x] focused characterizationを1回greenにし、fixture baselineを独立commitする。
+### RC1-J — production＋test seamと固定oracle
 
-### RC1-A／B／C — 閉ループの三laneを実装する
+- [ ] current behaviorを変換scope外oracleで固定したまま、policy実装とfuture TODO-owned testsをconcern別surfaceへ分ける。
+- [ ] shared composition testをpolicy-specific expected valueの共同write先にせず、stable composition contractへする。
+- [ ] scope violation、oracle divergence、test seam欠落をaccepted artifactへ進めない。
+- [ ] canonical source、sensor、disposable worktreeのcleanup receiptを型付きで残す。
 
-Source boundary／dispatch contract: [RC1 implementation boundaries](evidence/2026-07-15-rc1-implementation-boundaries.md)
+### RC1-K — evidence preimageとsource invariant
 
-- [x] Control `lattice-rc1-closed-loop-v2`のplacement dry-runで`budget-unknown`と
-  `verification-insufficient`を検出し、実作業をdispatchせず[ADR 0004](adr/0004-rc1-control-admission-correction.md)へ
-  訂正条件を固定する。
-- [x] v2 Controlを[administrative closure evidence](evidence/2026-07-15-rc1-control-v2-administrative-closure.md)で
-  archiveし、known cost envelopeを持つcontinuation Controlを初期化する。
-- [x] continuation Control内のread-only native Taskを完遂・回収・acceptし、そのevidenceで入口を
-  `execution-verified`へ昇格してからRC1-B／RC1-Cを配置する。
+- [ ] raw opaque receipt、sanitized diagnostic payload、canonical portable payloadを別schema／digestへ分ける。
+- [ ] control／treatment各2 runのfull portable payloadとper-query digestを保存する。
+- [ ] sanitization manifest外のfield削除と絶対path混入をfail closedにする。
+- [ ] protected source／test scopeの既存ignored content fingerprintを開始／終了で比較する。
+- [ ] artifactだけからportable aggregate digestを再計算するfocused testをgreenにする。
 
-Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
-[受入証拠](evidence/2026-07-15-rc1-foundation-acceptance.md)はControl receipt、focused gate、実Codegraph post-indexを固定する。
+### RC1-L — corrected closed loopを再発行する
 
-- [x] **RC1-A（F・親直轄）:** `plan_input.v1`、`boundary_manifest.v1`、`boundary_verdict.v1`、`plan_graph.v1`、`plan_diff.v1`の
-  RC1必要subsetをexact key、bounded collection、canonical serialization、digest付きで実装する。
-- [x] **RC1-B:** Codegraph 1.4.1の公開CLIからstatus、query、caller／callee、impact、affected testを収集し、
-  absent／empty／stale／unsupported／unresolved／failureを区別するadapterを実装する。
-  `callers`／`callees`／`impact`は未存在symbolに`--json`を指定してもexit 0の非JSON textを返す実測があるため、
-  exit codeだけでなくstdoutのJSON parseとtyped absenceを検証する。
-- [x] **RC1-B2（F・親直轄）:** RC1-Dの実Codegraph integrationで再現した部分一致誤認を修復する。
-  `query selectDispatchChannel`が`SEAM_BY_CONCERN`のsignature内文字列を返してもexact symbol存在へ昇格させず、
-  query node identityをtargetへ照合し、graph traversalも同じexact resolutionを通過させる。anchorのexact hit、
-  proposed surfaceのfalse positive、非JSON absenceをfocused testで固定し、失敗したD integrationだけを再実行した。
-  Accepted Decision: [ADR 0008](adr/0008-codegraph-exact-symbol-identity.md)。
-- [x] **RC1-C:** disposable worktree、bounded write scope、characterization verifier、diff artifact、rollback／cleanupを実装する。
+- [ ] v4 controlをfresh indexし、single compilerがproduction＋test shared writesとunknownを導出する。
+- [ ] accepted production＋test transformだけを加え、同じquery setでfresh treatment indexする。
+- [ ] normal／negativeを同じcompilerへ通し、実測conflict、hard precedence、waves、unknownを比較する。
+- [ ] full success predicateとplan diffを新artifact versionへcompileする。
+- [ ] 2 fresh run／conditionのportable payload、compiled identities、sanitized diagnosticを再生成一致させる。
+- [ ] v3 causal artifactsとcontextのinvalidationを新plan versionへbindする。
 
-### RC1-D／E／F — controlとtreatmentを閉じる
+### RC1-M — correction Phase gate
 
-旧RC1-D／Eは実装・当時の受入証拠として完了済みだが、[ADR 0012](adr/0012-portable-codegraph-evidence-and-rc1-v3.md)の
-再現実験によりvolatile raw graph digestが判明したため、生成artifactはRC1-Fのactive predecessorではない。
-
-- [x] **RC1-D:** original fixtureからboundary manifest、typed conflict／verdict、control plan v1をcompileする。
-  [ADR 0007](adr/0007-manual-evidence-provenance-in-boundary-manifest.md)に従い、同じnode内でmanual evidence個別provenanceを
-  manifestへ補完する。normalはwrite conflict 1＋`seam_candidate`＋2 wave、shared-state negativeはstate conflictを保持して
-  `intentional_serial`とし、[実装契約](evidence/2026-07-15-rc1-control-compiler-contract.md)をgateにした。
-  Accepted Decision: [ADR 0009](adr/0009-rc1-control-boundary-compile-accepted.md)。
-- [x] **RC1-E（F・親直轄）:** `seam_candidate`からchannel／label extractionをisolated worktreeで実行し、accept／rejectを
-  strict `lattice.transform_artifact.v1`へ証拠化する。raw patch、verifier receipt、post content snapshot、cleanup、source不変を
-  digestでbindし、scope violationとbehavior divergenceはpatchを後段へ渡さずrejectする。
-  Contract: [RC1-E seam transform](evidence/2026-07-15-rc1-seam-transform-contract.md)。
-  Contract Decision: [ADR 0010](adr/0010-rc1-transform-artifact-and-verifier-receipts.md)。
-  Accepted Decision: [ADR 0011](adr/0011-rc1-seam-treatment-same-base-accepted.md)。
-  [受入証拠](evidence/2026-07-15-rc1-seam-transform-acceptance.md)はsame-base binding、accepted／rejected artifact、
-  focused／related gate、reworkとresidual unknownを固定する。
-- [x] **RC1-D2（F・親直轄）:** [correction contract](evidence/2026-07-15-rc1-portable-evidence-correction-contract.md)に従い、
-  Codegraph raw outcomeから`lattice.codegraph_portable_outcome.v1`を作り、control normal／shared-state negativeを
-  `artifacts/control-v2/`へ再compileする。2 fresh worktreeでartifact全体のbyte-identicalを証明する。
-  Accepted Decision: [ADR 0013](adr/0013-rc1-portable-control-accepted.md)。
-  [受入証拠](evidence/2026-07-15-rc1-portable-control-acceptance.md)はraw／portable比較、control-v2 digest、focused／related gateを固定する。
-- [x] **RC1-E2（F・親直轄）:** control-v2 compilation evidenceだけをadmitし、same-base seam transformを
-  `artifacts/treatment-v2/`へ再発行する。旧control digest chain、scope violation、behavior divergence、negative admissionをrejectする。
-  Accepted Decision: [ADR 0014](adr/0014-rc1-portable-seam-treatment-accepted.md)。
-  [受入証拠](evidence/2026-07-15-rc1-portable-seam-transform-acceptance.md)はv2 admission、same-base repeat、typed rejection、
-  active transform predecessorを固定する。
-- [x] **RC1-F（F・親直轄）:** RC1-E2のaccepted artifactから同じquery setでfresh indexし、post manifest、new plan v2、
-  plan diff、negative treatment、control／treatment比較を生成する。source patchと`.codegraph-rc1-treatment` sensor stateを
-  別snapshot／receiptとしてcleanupする。
-  Accepted Decision: [ADR 0015](adr/0015-rc1-treatment-plan-v2-accepted.md)。
-  [受入証拠](evidence/2026-07-15-rc1-treatment-recompile-acceptance.md)はsame-query fresh index、plan v2、negative control、
-  version barrier、control比較を固定する。
-- [x] canonical artifactを再生成してdigest一致を確認し、unknown、intervention cost、未検証範囲を報告する。
-
-### RC1-G — Phase gate
-
-- [ ] TODO単位の軽量監査を各完了候補で一回だけ行い、diff、受入条件、related test、手補正の有無を確認する。
-- [ ] 全TODO収束後にfull `npm run ci`を一回実行する。
-- [ ] Find→Dedup→独立反証→Critic→親裁定のPhase監査を一回行い、件数遷移と棄却理由を残す。
-- [ ] 成功／反証結果を`docs/evidence/`へ、再利用可能な実測・外部仕様を`rag/`へ還流する。
-- [ ] 完了したplanを`docs/archive/`へ退避し、次plan versionを正本化する。
+- [ ] TODO単位のfocused／related gateと軽量監査を各完了候補で一回行う。
+- [ ] P1 correctionだけを対象に独立refuterへ一回再監査し、同じfindingの無限シーソーをしない。
+- [ ] source収束後のfull `npm run ci`を一回だけ実行する。
+- [ ] v4をsupport／refuteする不変Decisionとevidenceを残す。
+- [ ] RC1完了時だけplanをarchiveし、次campaignを正本化する。
 
 ## Evidence artifact
 
-RC1は少なくとも次をLattice内に保存する。
+v4は少なくとも次をLattice内へ保存する。
 
-- fixed plan input、manual state／effect evidence、negative control、query-set digest。
-- pre／post Codegraph status、symbol、caller／callee、impact、affected testのraw取得結果とtyped interpretation。
-- raw Codegraph telemetry digestと`lattice.codegraph_portable_outcome.v1` digest、除外field、fresh-index再現性比較。
-- control／treatmentのboundary manifest、verdict、plan graph、canonical digest。
-- transform patch、bounded scope、characterization結果、reject時の失敗理由、cleanup結果。
-- `plan_diff.v1`、失効context一覧、minimum feasible wavesとconflict edgeの比較。
-- actual wall-clock、tool時間、review、rework、rollbackを含む介入費と、一般化しない範囲。
+- candidate spec v2、query set v2、TODO outcome、manual state／effect、test-write provenance、black-box oracle digest。
+- pre／post各fresh runのcanonical portable outcomes full payload、sanitized diagnostic payload、opaque raw receipt。
+- single compiler identityと、各TODOのresolved production／test owns、writes、unknown、conflict derivation trace。
+- control／treatment／negativeのmanifest、verdict、plan、comparison、complete success predicate truth table。
+- production＋test seam patch、transform外oracle receipt、bounded scope、cleanup、protected source fingerprint。
+- v3→v4 plan diff、失効context、intervention時間、review、rework、rollback、未検証範囲。
 
-accepted machine artifactは`research/campaigns/rc1/`、人が読むgate／比較／監査は`docs/evidence/`を正本とする。
-一時worktreeとCodegraph DBは端末ローカルであり、証拠へ絶対pathや秘密を混入させない。
+machine artifactは`research/campaigns/rc1/artifacts/`の新versionへ置き、v3 artifactを上書きしない。
+raw telemetryと絶対pathをplan identityへ入れず、sanitization methodとportable preimageを独立に監査可能にする。
 
 ## Non-goalsとwriter境界
 
-- RC1では任意repo向けgoal decomposition、汎用refactor探索、最適scheduler、actual multi-agent dispatchを完成させない。
-- 一回のfixture結果から一般的速度改善率、製品価値、法的新規性、freedom-to-operateを主張しない。
-- read-only推薦器へ製品scopeを縮小しない一方、failed transformを成功へ丸めない。
-- Observerをfixtureにせず、Observer関連repoを編集しない。Observer dogfoodはRC1成功とPhase監査をhard dependencyにする。
-- `/Users/kite/Developer/dotagents`はread-only参照のみ。orchestration Controlのproduct-owned stateはLatticeの`.git/`配下、
-  RC1 artifactはLattice repo内に置き、dotagents本体、Throughline、他repoのhook／stateへ便乗しない。
+- v4では任意repo向けgoal decomposition、汎用seam synthesis、最適scheduler、actual multi-agent dispatchを完成させない。
+- 単一fixtureから一般的速度改善率、任意repo成功率、製品価値、新規性、freedom-to-operateを主張しない。
+- v3のaccepted production transformを失敗へ丸めず、causal acceptanceとの境界だけを修正する。
+- Observerをfixtureにせず、Observer関連repoを編集しない。Observer dogfoodはv4 Phase gateのhard dependency後に限る。
+- dotagents repoはread-only参照のみ。Control stateはLatticeの`.git/`、artifactはLattice repo内に置く。
 - remote作成、push、publish、credential／login、production／external effectは行わない。
-
-## 後続backlog（RC1の完了条件へ混ぜない）
-
-- 複数fixtureと実repoでsemantic conflict予測、未知seam生成、介入費の外的妥当性を反復する。
-- Observer dogfoodで現行手動DAGと比較し、actual wall-clock、review、rework、merge、rollbackを測る。
-- 公開CLI／schemaを安定化した後だけdotagents adapter、BugHub、installer、compatibility、rollbackを工場統合する。
