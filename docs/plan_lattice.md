@@ -191,8 +191,11 @@ Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
   `artifacts/control-v2/`へ再compileする。2 fresh worktreeでartifact全体のbyte-identicalを証明する。
   Accepted Decision: [ADR 0013](adr/0013-rc1-portable-control-accepted.md)。
   [受入証拠](evidence/2026-07-15-rc1-portable-control-acceptance.md)はraw／portable比較、control-v2 digest、focused／related gateを固定する。
-- [ ] **RC1-E2（F・親直轄）:** control-v2 compilation evidenceだけをadmitし、same-base seam transformを
+- [x] **RC1-E2（F・親直轄）:** control-v2 compilation evidenceだけをadmitし、same-base seam transformを
   `artifacts/treatment-v2/`へ再発行する。旧control digest chain、scope violation、behavior divergence、negative admissionをrejectする。
+  Accepted Decision: [ADR 0014](adr/0014-rc1-portable-seam-treatment-accepted.md)。
+  [受入証拠](evidence/2026-07-15-rc1-portable-seam-transform-acceptance.md)はv2 admission、same-base repeat、typed rejection、
+  active transform predecessorを固定する。
 - [ ] **RC1-F（F・親直轄）:** RC1-E2のaccepted artifactから同じquery setでfresh indexし、post manifest、new plan v2、
   plan diff、negative treatment、control／treatment比較を生成する。source patchと`.codegraph-rc1-treatment` sensor stateを
   別snapshot／receiptとしてcleanupする。
