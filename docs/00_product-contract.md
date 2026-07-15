@@ -14,6 +14,7 @@
 - `lattice.boundary_manifest.v1`: graph evidence、owns／reads／writes、hard needs、conflicts、unknowns、tests。
 - `lattice.boundary_verdict.v1`: `parallel_ready | seam_candidate | intentional_serial | unknown_requires_evidence`。
 - `lattice.plan_graph.v1`: immutable node、typed edge、capacity、join、source manifest digest。
+- `lattice.transform_artifact.v1`: candidate、source、bounded patch、verifier receipt、post snapshot、cleanup、accept／reject。
 - `lattice.plan_diff.v1`: old／new version、code transformation artifact、失効context、node／edge差分。
 
 schemaはexact key、bounded collection、canonical serialization、digestを持つ。未知field、欠落、過大入力、

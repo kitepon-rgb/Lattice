@@ -158,7 +158,11 @@ Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
   manifestへ補完する。normalはwrite conflict 1＋`seam_candidate`＋2 wave、shared-state negativeはstate conflictを保持して
   `intentional_serial`とし、[実装契約](evidence/2026-07-15-rc1-control-compiler-contract.md)をgateにした。
   Accepted Decision: [ADR 0009](adr/0009-rc1-control-boundary-compile-accepted.md)。
-- [ ] **RC1-E:** `seam_candidate`からchannel／label extractionをisolated worktreeで実行し、accept／rejectを証拠化する。
+- [ ] **RC1-E（F・親直轄）:** `seam_candidate`からchannel／label extractionをisolated worktreeで実行し、accept／rejectを
+  strict `lattice.transform_artifact.v1`へ証拠化する。raw patch、verifier receipt、post content snapshot、cleanup、source不変を
+  digestでbindし、scope violationとbehavior divergenceはpatchを後段へ渡さずrejectする。
+  Contract: [RC1-E seam transform](evidence/2026-07-15-rc1-seam-transform-contract.md)。
+  Decision: [ADR 0010](adr/0010-rc1-transform-artifact-and-verifier-receipts.md)。
 - [ ] **RC1-F:** 同じquery setで再indexし、post manifest、new plan v2、plan diff、control／treatment比較を生成する。
 - [ ] canonical artifactを再生成してdigest一致を確認し、unknown、intervention cost、未検証範囲を報告する。
 
