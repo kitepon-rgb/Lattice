@@ -6,6 +6,7 @@
 - predecessor: `lattice-research-campaign-1-v4`（[Phase-rejected archive](archive/2026-07-15-plan-lattice-research-campaign-1-v4-phase-rejected.md)、SHA-256 `831485b08de5ecc6624b7b1ed2175dce931dd480b5cfe247911499ae029d5fa2`）
 - v4 Phase gate Decision: [ADR 0022](adr/0022-rc1-v4-phase-gate-rejection.md)
 - v5 behavior evidence contract: [ADR 0023](adr/0023-rc1-v5-behavior-evidence-contract.md)
+- v5 behavior envelope acceptance: [ADR 0024](adr/0024-rc1-v5-behavior-envelope-accepted.md)
 - v4 corrected closed loop record: [ADR 0021](adr/0021-rc1-v4-corrected-closed-loop.md)
 - RC1 root Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
@@ -164,10 +165,10 @@ schema、fixed surface、oracle input、query setの変更は親直轄で新plan
 
 ### RC1-O2 — behavior envelopeとartifact-only evaluator
 
-- [ ] pre／post full receipt、transform artifact、patch、surface snapshotをversioned envelopeへcross-bindする。
-- [ ] comparison summaryを信頼せずunderlying artifactからbehavior条件を再計算するv5 evaluatorを実装する。
-- [ ] post→pre差替えと各single-field corruptionをすべてfalse supportへする。
-- [ ] manifestに必要behavior payloadが一件でも欠ければartifact setをrejectする。
+- [x] pre／post full receipt、transform artifact、patch、surface snapshotをversioned envelopeへcross-bindする。
+- [x] comparison summaryを信頼せずunderlying artifactからbehavior条件を再計算するv5 evaluatorを実装する。
+- [x] 依存digestを再封印したpost→pre差替えと各single-field corruptionをすべてfalse supportへする。
+- [x] manifestに必要behavior payloadが一件でも欠ければartifact setをrejectする。
 
 ### RC1-P — v5 transform／campaign integration
 
