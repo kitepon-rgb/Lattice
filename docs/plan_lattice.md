@@ -130,8 +130,9 @@ actual wall-clock、index／query、compile、review、rework、rollbackも記�
 RC1-S v5 Phase reject + v6 plan
   ├─ RC1-T full CI harness isolation
   └─ RC1-U causal-binding characterization safety net
-       ├─ RC1-V1 oracle semantics + runtime identity ─────┐
-       └─ RC1-V2 snapshot + Codegraph identity ──────────┴─ RC1-W artifact chain + version barrier
+       └─ RC1-V0 pure causal verifier core
+            ├─ RC1-V1 oracle semantics + runtime identity ─────┐
+            └─ RC1-V2 snapshot + Codegraph identity ──────────┴─ RC1-W artifact chain + version barrier
                                                                └─ RC1-X immutable v6 reissue
                                                                     └─ RC1-Y Phase gate
 ```
@@ -141,13 +142,14 @@ RC1-S v5 Phase reject + v6 plan
 | RC1-S | v5 full CI＋Phase P1 | F: 親直轄／Decision・docs write | ADR 0028、v5 archive、plan v6 | sourceなし独立commit |
 | RC1-T | full CIの3 failure | F: Phase gate isolation／test write | 3 scope単独characterization | dedicated clone＋focused green |
 | RC1-U | ADR 0028の再封印反例 | F: artifact identity契約／test-first | oracle／case／snapshot／predecessor expected-red | Codegraph preflight＋expected red |
-| RC1-V1 | RC1-U oracle red | F: observation identity／source write | semantic receipt＋runtime receipt | exact oracle cases＋fixed Worker runtime |
-| RC1-V2 | RC1-U snapshot red | F: measurement identity／source write | snapshot-bound evidence bundle | base／transform projection＋Codegraph identity |
+| RC1-V0 | RC1-U expected red | F: causal identity契約／source write | pure artifact verifier、ADR 0029 | corruption focused green |
+| RC1-V1 | RC1-V0 behavior contract | F: observation identity／source write | semantic receipt＋runtime receipt | exact oracle cases＋fixed Worker runtime |
+| RC1-V2 | RC1-V0 measurement contract | F: measurement identity／source write | snapshot-bound evidence bundle | base／transform projection＋Codegraph identity |
 | RC1-W | V1＋V2 | F: causal artifact／source write | v6 verifier、plan diff v3 | dependency-reseal corruption green |
 | RC1-X | RC1-T＋W related green | F: experiment execution／artifact write | immutable v6 2+2 campaign | source invariant＋disk replay |
 | RC1-Y | RC1-X immutable evidence | F親裁定 | full CI、Phase evidence、Decision | Phase audit 1回 |
 
-RC1-V1とV2はRC1-Uが固定した契約を変えず、非交差source／test scopeにできる範囲だけ並列研究する。schema、fixed surface、
+RC1-V1とV2はRC1-V0が固定した契約を変えず、非交差source／test scopeにできる範囲だけ並列研究する。schema、fixed surface、
 oracle、query setの変更は親直轄で新plan versionを要求し、lane内の便宜で書き換えない。
 
 ## TODO
@@ -176,6 +178,14 @@ oracle、query setの変更は親直轄で新plan versionを要求し、lane内�
 - [x] oracle digestとfalse-passed caseを全依存digestごと再封印してもv5 verifierが通る反例をtestへ固定する。
 - [x] case欠落／追加／並替え、runtime drift、snapshot substitution、Codegraph version drift、predecessor substitutionをexpected-redにする。
 - [x] characterizationだけを独立commitする。
+
+### RC1-V0 — pure causal verifier coreを固定する
+
+- [x] behavior receiptを保存oracle exact case列、pass意味論、runtime identityへ照合する。
+- [x] run evidenceをtyped snapshot、base／patch、Codegraph identity、raw evidenceへ照合する。
+- [x] plan diffの8 predecessorを呼出側が実bytesから導出した完全列へ照合する。
+- [x] raw bundle全体hashをbounded typed descriptorへ修正し、ADR 0029へ固定する。
+- [x] characterization corruption scopeをfocused 2 pass／0 failにする。
 
 ### RC1-V1 — oracle semanticsとruntime identity
 

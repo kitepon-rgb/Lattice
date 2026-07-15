@@ -117,12 +117,27 @@ function expectedCaseContract(oracle) {
 function v6Receipt(v5Receipt, oracle, runtimeIdentity) {
   const receipt = structuredClone(v5Receipt);
   receipt.schema = 'lattice.rc1.black_box_behavior_receipt.v4';
+  receipt.role = receipt.role === 'pre' ? 'pre_transform' : 'post_transform';
   receipt.oracle_digest = digestArtifact(oracle);
   receipt.case_contract_digest = digestArtifact(expectedCaseContract(oracle));
   receipt.runtime_identity = structuredClone(runtimeIdentity);
   receipt.runtime_identity_digest = digestArtifact(runtimeIdentity);
   reseal(receipt, 'receipt_digest');
   return receipt;
+}
+
+function evidenceBundleDescriptor(bundle) {
+  return {
+    schema: 'lattice.rc1.evidence_bundle_descriptor.v1',
+    condition: bundle.condition,
+    run_id: bundle.run_id,
+    query_set_digest: bundle.query_set_digest,
+    raw_digest: bundle.raw.payload_digest,
+    diagnostic_payload_digest: bundle.diagnostic.payload_digest,
+    sanitization_manifest_digest: bundle.diagnostic.sanitization_manifest_digest,
+    portable_digest: bundle.portable.aggregate_digest,
+    measurement_digest: bundle.measurement_digest,
+  };
 }
 
 function v6RunFixture(v5Bundle) {
@@ -165,7 +180,7 @@ function v6RunFixture(v5Bundle) {
     schema: 'lattice.rc1.condition_run.v2',
     condition: bundle.condition,
     run_id: bundle.run_id,
-    evidence_bundle_digest: digestArtifact(bundle),
+    evidence_bundle_descriptor_digest: digestArtifact(evidenceBundleDescriptor(bundle)),
     measurement_digest: bundle.measurement_digest,
   };
   const expected = {
@@ -262,7 +277,12 @@ test('v6 causal binding rejects semantic and measurement substitutions after res
     expectedRuntimeIdentity: runtimeIdentity,
   });
 
-  assert.equal(verifyReceipt(receipt).valid, true);
+  const validReceiptVerification = verifyReceipt(receipt);
+  assert.equal(
+    validReceiptVerification.valid,
+    true,
+    JSON.stringify(validReceiptVerification.failed_conditions),
+  );
 
   const wrongOracle = structuredClone(receipt);
   wrongOracle.oracle_digest = 'd'.repeat(64);
@@ -310,7 +330,9 @@ test('v6 causal binding rejects semantic and measurement substitutions after res
     snapshotSubstitution.bundle.measurement,
   );
   snapshotSubstitution.run.measurement_digest = snapshotSubstitution.bundle.measurement_digest;
-  snapshotSubstitution.run.evidence_bundle_digest = digestArtifact(snapshotSubstitution.bundle);
+  snapshotSubstitution.run.evidence_bundle_descriptor_digest = digestArtifact(
+    evidenceBundleDescriptor(snapshotSubstitution.bundle),
+  );
   assert.equal(verifyRc1V6RunEvidence({ ...snapshotSubstitution, expected }).valid, false);
 
   const codegraphDrift = structuredClone({ run, bundle });
@@ -320,7 +342,9 @@ test('v6 causal binding rejects semantic and measurement substitutions after res
   );
   codegraphDrift.bundle.measurement_digest = digestArtifact(codegraphDrift.bundle.measurement);
   codegraphDrift.run.measurement_digest = codegraphDrift.bundle.measurement_digest;
-  codegraphDrift.run.evidence_bundle_digest = digestArtifact(codegraphDrift.bundle);
+  codegraphDrift.run.evidence_bundle_descriptor_digest = digestArtifact(
+    evidenceBundleDescriptor(codegraphDrift.bundle),
+  );
   assert.equal(verifyRc1V6RunEvidence({ ...codegraphDrift, expected }).valid, false);
 
   const rawSubstitution = structuredClone({ run, bundle });
@@ -330,7 +354,9 @@ test('v6 causal binding rejects semantic and measurement substitutions after res
   rawSubstitution.bundle.measurement.raw_evidence_digest = rawSubstitution.bundle.raw.payload_digest;
   rawSubstitution.bundle.measurement_digest = digestArtifact(rawSubstitution.bundle.measurement);
   rawSubstitution.run.measurement_digest = rawSubstitution.bundle.measurement_digest;
-  rawSubstitution.run.evidence_bundle_digest = digestArtifact(rawSubstitution.bundle);
+  rawSubstitution.run.evidence_bundle_descriptor_digest = digestArtifact(
+    evidenceBundleDescriptor(rawSubstitution.bundle),
+  );
   assert.equal(verifyRc1V6RunEvidence({ ...rawSubstitution, expected }).valid, false);
 
   const { planDiff, expectedPredecessors } = predecessorFixture(payload.get('plan-diff.json'));
