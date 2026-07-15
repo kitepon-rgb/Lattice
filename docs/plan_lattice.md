@@ -113,6 +113,8 @@ ready幅を増やす目的でhard dependencyを削らない。
 
 ### RC1-S — characterization safety netを先行する
 
+Accepted Decision: [ADR 0003](adr/0003-rc1-safety-net-accepted.md)
+
 - [x] source編集前にCodegraphで既存test入口、planned owned path／symbol、caller／callee、impact、affected testを確認し、
   symbol不在を`new_surface_unknown`としてmanual boundary evidenceへ残す。
 - [x] Lattice内へmonolithic dispatch fixtureと、現挙動を固定するinput／output／error matrixを追加する。
