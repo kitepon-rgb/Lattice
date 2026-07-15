@@ -1,0 +1,218 @@
+{
+  "schema": "lattice.boundary_manifest.v1",
+  "plan_input_digest": "c4b64dab54db09f20a7a6ba57003a8d2f444a0c878b9387a2bbc338fa6d87ee3",
+  "source": {
+    "code_snapshot_digest": "cbe59c4a21540fbe1b391b6c3c14e1c5f2228190ad19e32249a01c0241b539aa",
+    "query_set_digest": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+    "manual_evidence_digest": "126a55fc5137314f33d54866746913fefee7c8943412d6d0f32460de1b1d79a1",
+    "codegraph_version": "1.4.1"
+  },
+  "graph_evidence": [
+    {
+      "id": "status",
+      "operation": "status",
+      "status": "ready",
+      "result_digest": "fc9481f1f8911beaced2ff776f47311770e62c1e4f477a02c1ef9671c6b4fec3"
+    },
+    {
+      "id": "query-build-dispatch-record",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "e79e488339253232f3ef8fb9ad48c534235c81b212e2d51d42c13c26933b6d33"
+    },
+    {
+      "id": "query-select-dispatch-channel",
+      "operation": "query",
+      "status": "symbol_absent",
+      "result_digest": "aeb51ce9c5c64dee7d17ab81052fdb92a0011f0967b5f747569f43c222056bac"
+    },
+    {
+      "id": "query-format-dispatch-label",
+      "operation": "query",
+      "status": "symbol_absent",
+      "result_digest": "5ac296a63d1cba307808dcf9c53b228e0d609cb48fd386be43c8160548ed46c0"
+    },
+    {
+      "id": "callers-build-dispatch-record",
+      "operation": "callers",
+      "status": "ready",
+      "result_digest": "610fa59b999de3622d9f9eabcfd8c21b6e6af00fd4a4c636df9549f20bbb36b4"
+    },
+    {
+      "id": "callees-build-dispatch-record",
+      "operation": "callees",
+      "status": "ready",
+      "result_digest": "34fad1823e585c88caf938e8fe58665cf84cf5ded3523fc464d509600c5999d6"
+    },
+    {
+      "id": "impact-build-dispatch-record",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "323c0e88e19fae2b9f99e78ab1e20c7d40313839c4a7e10d9d932de088b88c64"
+    },
+    {
+      "id": "impact-select-dispatch-channel",
+      "operation": "impact",
+      "status": "symbol_absent",
+      "result_digest": "2faa50cc4f5b633405711143995056782c3af6eda5c14cf4bfac62d87d60bd27"
+    },
+    {
+      "id": "impact-format-dispatch-label",
+      "operation": "impact",
+      "status": "symbol_absent",
+      "result_digest": "e7f3379ee77d737d21ca9caddf393a44518588b183d005f0144baf17c499d96b"
+    },
+    {
+      "id": "affected-fixture-sources",
+      "operation": "affected",
+      "status": "unresolved",
+      "result_digest": "01e8176c11afb0bc0c1e4b2de7808dff0ca3fe0d4b286a2c6ddf2b68e6576834"
+    }
+  ],
+  "manual_evidence": [
+    {
+      "id": "manual-channel-policy",
+      "todo_id": "channel-policy",
+      "result_digest": "847673889e5fb2873641e46207d207f5bb3b7505f78bd6beb5ee24f7dde82c1a"
+    },
+    {
+      "id": "manual-label-policy",
+      "todo_id": "label-policy",
+      "result_digest": "b5088790de04ff91739b2d80a3b0c44cdc0483da5157efac0628cc7086f3bbc5"
+    }
+  ],
+  "todos": [
+    {
+      "id": "channel-policy",
+      "owns": [
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        }
+      ],
+      "reads": [],
+      "writes": [
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        },
+        {
+          "kind": "state",
+          "target": "dispatch-registry"
+        }
+      ],
+      "hard_needs": [],
+      "conflict_ids": [
+        "shared-dispatch-boundary",
+        "shared-state-dispatch-registry"
+      ],
+      "unknowns": [
+        "new_surface_unknown:selectDispatchChannel",
+        "path_not_indexed_unknown:research/fixtures/dispatch-record/src/dispatch-channel.mjs"
+      ],
+      "tests": [
+        "test/research-dispatch-record.test.mjs"
+      ],
+      "evidence_refs": [
+        "query-build-dispatch-record",
+        "impact-build-dispatch-record",
+        "affected-fixture-sources",
+        "manual-channel-policy"
+      ]
+    },
+    {
+      "id": "label-policy",
+      "owns": [
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        }
+      ],
+      "reads": [],
+      "writes": [
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        },
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        },
+        {
+          "kind": "state",
+          "target": "dispatch-registry"
+        }
+      ],
+      "hard_needs": [],
+      "conflict_ids": [
+        "shared-dispatch-boundary",
+        "shared-state-dispatch-registry"
+      ],
+      "unknowns": [
+        "new_surface_unknown:formatDispatchLabel",
+        "path_not_indexed_unknown:research/fixtures/dispatch-record/src/dispatch-label.mjs"
+      ],
+      "tests": [
+        "test/research-dispatch-record.test.mjs"
+      ],
+      "evidence_refs": [
+        "query-build-dispatch-record",
+        "impact-build-dispatch-record",
+        "affected-fixture-sources",
+        "manual-label-policy"
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "shared-dispatch-boundary",
+      "kind": "write_boundary",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "resource": {
+        "kind": "symbol",
+        "target": "buildDispatchRecord"
+      },
+      "evidence_refs": [
+        "query-build-dispatch-record",
+        "impact-build-dispatch-record"
+      ]
+    },
+    {
+      "id": "shared-state-dispatch-registry",
+      "kind": "state",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "resource": {
+        "kind": "state",
+        "target": "dispatch-registry"
+      },
+      "evidence_refs": [
+        "manual-channel-policy",
+        "manual-label-policy"
+      ]
+    }
+  ],
+  "unknowns": [
+    "new_surface_unknown:selectDispatchChannel",
+    "path_not_indexed_unknown:research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+    "new_surface_unknown:formatDispatchLabel",
+    "path_not_indexed_unknown:research/fixtures/dispatch-record/src/dispatch-label.mjs"
+  ]
+}

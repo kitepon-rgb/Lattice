@@ -1,0 +1,61 @@
+{
+  "schema": "lattice.boundary_verdict.v1",
+  "boundary_manifest_digest": "1aec1c9efc6baa19a6df9f82464ddb8069988f5165f049573811cc3de935a064",
+  "verdicts": [
+    {
+      "id": "channel-label-verdict",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "verdict": "seam_candidate",
+      "conflict_ids": [
+        "shared-dispatch-boundary"
+      ],
+      "seam_candidate": {
+        "id": "extract-dispatch-policies",
+        "proposed_owns": [
+          {
+            "todo_id": "channel-policy",
+            "resources": [
+              {
+                "kind": "symbol",
+                "target": "selectDispatchChannel"
+              },
+              {
+                "kind": "path",
+                "target": "research/fixtures/dispatch-record/src/dispatch-channel.mjs"
+              }
+            ]
+          },
+          {
+            "todo_id": "label-policy",
+            "resources": [
+              {
+                "kind": "symbol",
+                "target": "formatDispatchLabel"
+              },
+              {
+                "kind": "path",
+                "target": "research/fixtures/dispatch-record/src/dispatch-label.mjs"
+              }
+            ]
+          }
+        ],
+        "preconditions": [
+          "characterization verifier is green",
+          "post-transform Codegraph query set resolves proposed surfaces"
+        ]
+      },
+      "reasons": [
+        "shared code write boundaryは非重複ownershipへ抽出できる"
+      ],
+      "unknowns": [
+        "new_surface_unknown:selectDispatchChannel",
+        "path_not_indexed_unknown:research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+        "new_surface_unknown:formatDispatchLabel",
+        "path_not_indexed_unknown:research/fixtures/dispatch-record/src/dispatch-label.mjs"
+      ]
+    }
+  ]
+}

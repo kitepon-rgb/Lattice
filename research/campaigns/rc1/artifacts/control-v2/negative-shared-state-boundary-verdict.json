@@ -1,0 +1,28 @@
+{
+  "schema": "lattice.boundary_verdict.v1",
+  "boundary_manifest_digest": "01973acb35b4fef16f6af124b3f5adffa8c2cc8da0c355c76c0a2cbb6e6f7575",
+  "verdicts": [
+    {
+      "id": "channel-label-verdict",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "verdict": "intentional_serial",
+      "conflict_ids": [
+        "shared-dispatch-boundary",
+        "shared-state-dispatch-registry"
+      ],
+      "seam_candidate": null,
+      "reasons": [
+        "shared manual state/effect conflictはcode seamだけでは切断できない"
+      ],
+      "unknowns": [
+        "new_surface_unknown:selectDispatchChannel",
+        "path_not_indexed_unknown:research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+        "new_surface_unknown:formatDispatchLabel",
+        "path_not_indexed_unknown:research/fixtures/dispatch-record/src/dispatch-label.mjs"
+      ]
+    }
+  ]
+}

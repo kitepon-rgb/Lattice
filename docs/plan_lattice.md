@@ -186,9 +186,11 @@ Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
   Accepted Decision: [ADR 0011](adr/0011-rc1-seam-treatment-same-base-accepted.md)。
   [受入証拠](evidence/2026-07-15-rc1-seam-transform-acceptance.md)はsame-base binding、accepted／rejected artifact、
   focused／related gate、reworkとresidual unknownを固定する。
-- [ ] **RC1-D2（F・親直轄）:** [correction contract](evidence/2026-07-15-rc1-portable-evidence-correction-contract.md)に従い、
+- [x] **RC1-D2（F・親直轄）:** [correction contract](evidence/2026-07-15-rc1-portable-evidence-correction-contract.md)に従い、
   Codegraph raw outcomeから`lattice.codegraph_portable_outcome.v1`を作り、control normal／shared-state negativeを
   `artifacts/control-v2/`へ再compileする。2 fresh worktreeでartifact全体のbyte-identicalを証明する。
+  Accepted Decision: [ADR 0013](adr/0013-rc1-portable-control-accepted.md)。
+  [受入証拠](evidence/2026-07-15-rc1-portable-control-acceptance.md)はraw／portable比較、control-v2 digest、focused／related gateを固定する。
 - [ ] **RC1-E2（F・親直轄）:** control-v2 compilation evidenceだけをadmitし、same-base seam transformを
   `artifacts/treatment-v2/`へ再発行する。旧control digest chain、scope violation、behavior divergence、negative admissionをrejectする。
 - [ ] **RC1-F（F・親直轄）:** RC1-E2のaccepted artifactから同じquery setでfresh indexし、post manifest、new plan v2、
