@@ -149,10 +149,10 @@ candidate spec／query set／oracleの変更は親直轄で新plan versionを要
 
 ### RC1-J — production＋test seamと固定oracle
 
-- [ ] current behaviorを変換scope外oracleで固定したまま、policy実装とfuture TODO-owned testsをconcern別surfaceへ分ける。
-- [ ] shared composition testをpolicy-specific expected valueの共同write先にせず、stable composition contractへする。
-- [ ] scope violation、oracle divergence、test seam欠落をaccepted artifactへ進めない。
-- [ ] canonical source、sensor、disposable worktreeのcleanup receiptを型付きで残す。
+- [x] current behaviorを変換scope外oracleで固定したまま、policy実装とfuture TODO-owned testsをconcern別surfaceへ分ける。
+- [x] shared composition testをpolicy-specific expected valueの共同write先にせず、stable composition contractへする。
+- [x] scope violation、oracle divergence、test seam欠落をaccepted artifactへ進めない。
+- [x] canonical source、sensor、disposable worktreeのcleanup receiptを型付きで残す。
 
 ### RC1-K — evidence preimageとsource invariant
 
