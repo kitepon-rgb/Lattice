@@ -141,11 +141,11 @@ candidate spec／query set／oracleの変更は親直轄で新plan versionを要
 
 ### RC1-I — single boundary compiler
 
-- [ ] control／treatmentのduplicate manifest／verdict／plan derivationをsingle compilerへ置換する。
-- [ ] exact graph outcomeからanchor／proposed production＋test surfaceを解決し、writes intersectionからconflictを導出する。
-- [ ] graph absence／empty／unresolvedとmanual state／effect／unknownを同じtyped ruleで扱う。
-- [ ] conflict数やunknown数のexpected constantをcompiler input／condition branchへ持たせない。
-- [ ] single-field corruptionとnegative stateのfocused gateをgreenにする。
+- [x] control／treatmentのduplicate manifest／verdict／plan derivationをsingle compilerへ置換する。
+- [x] exact graph outcomeからanchor／proposed production＋test surfaceを解決し、writes intersectionからconflictを導出する。
+- [x] graph absence／empty／unresolvedとmanual state／effect／unknownを同じtyped ruleで扱う。
+- [x] conflict数やunknown数のexpected constantをcompiler input／condition branchへ持たせない。
+- [x] single-field corruptionとnegative stateのfocused gateをgreenにする。
 
 ### RC1-J — production＋test seamと固定oracle
 
