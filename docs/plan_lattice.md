@@ -5,6 +5,7 @@
 - 現在のplan version: `lattice-research-campaign-1-v2`
 - predecessor: `lattice-bootstrap-v1`（[archive](archive/2026-07-15-plan-lattice-bootstrap-v1.md)、SHA-256 `78c07232cd2ede13dbd88bce02aa03b3591acc9ca1e39c21f7861398fc203a3b`）
 - Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
+- Control lifecycle correction: [ADR 0004](adr/0004-rc1-control-admission-correction.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
 - 公開契約: [00_product-contract.md](00_product-contract.md)
 
@@ -124,6 +125,14 @@ Accepted Decision: [ADR 0003](adr/0003-rc1-safety-net-accepted.md)
 ### RC1-A／B／C — 閉ループの三laneを実装する
 
 Source boundary／dispatch contract: [RC1 implementation boundaries](evidence/2026-07-15-rc1-implementation-boundaries.md)
+
+- [x] Control `lattice-rc1-closed-loop-v2`のplacement dry-runで`budget-unknown`と
+  `verification-insufficient`を検出し、実作業をdispatchせず[ADR 0004](adr/0004-rc1-control-admission-correction.md)へ
+  訂正条件を固定する。
+- [ ] v2 Controlを[administrative closure evidence](evidence/2026-07-15-rc1-control-v2-administrative-closure.md)で
+  archiveし、known cost envelopeを持つcontinuation Controlを初期化する。
+- [ ] continuation Control内のread-only native Taskを完遂・回収・acceptし、そのevidenceで入口を
+  `execution-verified`へ昇格してからRC1-B／RC1-Cを配置する。
 
 - [ ] **RC1-A（F・親直轄）:** `plan_input.v1`、`boundary_manifest.v1`、`boundary_verdict.v1`、`plan_graph.v1`、`plan_diff.v1`の
   RC1必要subsetをexact key、bounded collection、canonical serialization、digest付きで実装する。
