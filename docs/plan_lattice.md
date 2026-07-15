@@ -149,6 +149,9 @@ Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
 ### RC1-D／E／F — controlとtreatmentを閉じる
 
 - [ ] **RC1-D:** original fixtureからboundary manifest、typed conflict／verdict、control plan v1をcompileする。
+  [ADR 0007](adr/0007-manual-evidence-provenance-in-boundary-manifest.md)に従い、同じnode内でmanual evidence個別provenanceを
+  manifestへ補完する。normalはwrite conflict 1＋`seam_candidate`＋2 wave、shared-state negativeはstate conflictを保持して
+  `intentional_serial`とし、[実装契約](evidence/2026-07-15-rc1-control-compiler-contract.md)をgateにする。
 - [ ] **RC1-E:** `seam_candidate`からchannel／label extractionをisolated worktreeで実行し、accept／rejectを証拠化する。
 - [ ] **RC1-F:** 同じquery setで再indexし、post manifest、new plan v2、plan diff、control／treatment比較を生成する。
 - [ ] canonical artifactを再生成してdigest一致を確認し、unknown、intervention cost、未検証範囲を報告する。
