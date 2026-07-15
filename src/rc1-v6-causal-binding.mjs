@@ -282,7 +282,7 @@ function baseEvidenceBundle(bundle) {
   return { ...base, schema: 'lattice.rc1.evidence_bundle.v1' };
 }
 
-function evidenceBundleDescriptor(bundle) {
+export function createRc1V6EvidenceBundleDescriptor(bundle) {
   return {
     schema: 'lattice.rc1.evidence_bundle_descriptor.v1',
     condition: bundle.condition,
@@ -378,7 +378,8 @@ export function verifyRc1V6RunEvidence(options) {
       passed: runValid && bundleValid
         && run.condition === bundle.condition
         && run.run_id === bundle.run_id
-        && run.evidence_bundle_descriptor_digest === safeDigest(evidenceBundleDescriptor(bundle))
+        && run.evidence_bundle_descriptor_digest
+          === safeDigest(createRc1V6EvidenceBundleDescriptor(bundle))
         && run.measurement_digest === bundle.measurement_digest,
     },
     {

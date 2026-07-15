@@ -196,10 +196,10 @@ oracle、query setの変更は親直轄で新plan versionを要求し、lane内�
 
 ### RC1-V2 — snapshotとCodegraph identity
 
-- [ ] 全4 runへfixed surface snapshot preimage／digestを保存する。
-- [ ] control snapshotをbase surface、treatment snapshotをaccepted transform outputから独立再構成する。
-- [ ] raw／portable Codegraph evidence、snapshot、condition、base、patch、Codegraph identityを同じbundleへbindする。
-- [ ] compiler replayが自己申告snapshot digestを注入せず、bundle preimageから導出するようにする。
+- [x] fixed surfaceの実file bytes／明示absenceからtyped snapshot preimage／digestを生成する。
+- [x] control snapshotをbase behavior surface、treatment snapshotをaccepted transform outputから独立再構成する。
+- [x] raw／portable Codegraph evidence、snapshot、condition、base、patch、Codegraph identityを同じbundleへbindする。
+- [x] compiler replayが自己申告snapshot digestを注入せず、bundle preimageから導出するようにする。
 
 ### RC1-W — artifact chainとversion barrier
 
@@ -211,7 +211,7 @@ oracle、query setの変更は親直轄で新plan versionを要求し、lane内�
 
 ### RC1-X — immutable v6 closed loopを再発行する
 
-- [ ] v6 control／treatment各2 fresh indexを同じquery set、compiler、Codegraph identityで実行する。
+- [ ] v6 control／treatment各2 fresh indexを同じquery set、compiler、Codegraph identityで実行し、全4 runへsnapshot-bound bundleを保存する。
 - [ ] normal／negativeを同じcompilerへ通し、conflict、hard precedence、waves、unknownを比較する。
 - [ ] oracle／runtime、snapshot-bound evidence、compiled artifact、plan diffを`artifacts/v6`へatomic保存する。
 - [ ] disk再読込full verifierで全relationを再計算し、v5 artifactを上書きしない。
