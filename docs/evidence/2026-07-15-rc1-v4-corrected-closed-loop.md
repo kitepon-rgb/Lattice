@@ -6,7 +6,7 @@
 - predecessor: [ADR 0016](../adr/0016-rc1-v3-phase-gate-rejection.md)、[ADR 0017](../adr/0017-rc1-v4-identifiability-safety-net.md)、
   [ADR 0018](../adr/0018-rc1-v4-single-compiler-accepted.md)、[ADR 0019](../adr/0019-rc1-v4-production-test-seam-accepted.md)、
   [ADR 0020](../adr/0020-rc1-v4-evidence-preimage-accepted.md)
-- Decision: [ADR 0021](../adr/0021-rc1-v4-corrected-closed-loop-accepted.md)
+- Decision: [ADR 0021](../adr/0021-rc1-v4-corrected-closed-loop.md)
 - classification: F。experiment identity、accepted predecessor、version barrier、machine predicate、causal comparisonを同時に固定する
   契約境界なので親が直轄した。
 
