@@ -220,10 +220,10 @@ oracle、query setの変更は親直轄で新plan versionを要求し、lane内�
 
 ### RC1-Y — v6 Phase gate
 
-- [ ] TODO単位の軽量監査を各完了候補で一回だけ行う。
-- [ ] source収束後のfull `npm run ci`を一回だけ実行する。
-- [ ] v6成功条件だけを対象にPhase反証を一回行う。
-- [ ] H1-v6をsupport／refuteする不変DecisionとPhase evidenceを残す。
+- [x] TODO単位の軽量監査を各完了候補で一回だけ行う。
+- [x] source収束後のfull `npm run ci`を一回だけ実行する。
+- [x] v6成功条件だけを対象にPhase反証を一回行う。
+- [x] H1-v6をsupport／refuteする不変DecisionとPhase evidenceを残す。
 
 ## Evidence artifact
 
