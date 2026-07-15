@@ -30,7 +30,9 @@ allowed pathは次のexact 3件とする。
 `buildDispatchRecord`はexact input shape validation、2 seamのcomposition、frozen resultだけを所有する。error type／message／precedence、
 trim、returned value、freezeを変更しない。
 
-verifierは`node --test test/research-dispatch-record.test.mjs`を固定し、transform callbackがtestを変更することを許さない。
+verifierは`node --test --test-reporter=dot test/research-dispatch-record.test.mjs`を固定する。dot reporterの実測stdoutは
+`...\n`でdurationを含まない。runnerは外側test harnessの`NODE_TEST_CONTEXT`とcolor強制をverifier環境へ持ち込まず、
+同じ入力からreceipt digestを再生成できる。transform callbackがtestを変更することを許さない。
 accepted changed pathはallowed path 3件とexact一致しなければならない。
 
 ## Result contract
@@ -49,6 +51,8 @@ source unchangedを持つ。rejected artifactはtyped rejectionとevidence diges
 - artifact validatorをaccepted／rejected／invalid caseでfocused testする。
 - isolation runnerのsuccess／verifier failure receiptを既存temp repo testへ追加する。
 - seam transformerのcandidate drift、deterministic artifact、scope rejectをfocused testする。
+- canonical sourceは通常statusだけでなくignored path snapshotも開始前後で比較し、新規／削除ignored writeを検出する。
+  既存ignored fileのcontent-only mutationはpath snapshotでは検出できず、RC1-E後のresidual unknownとして明記する。
 - related integrationはtemp clone内で次を一回のscriptとして実行する。
   - fixed transformがcharacterization greenでacceptedになる。
   - allowed path外writeがscope rejectになる。
