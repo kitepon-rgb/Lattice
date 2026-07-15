@@ -5,6 +5,7 @@ import {
   validateTransformArtifact,
 } from './artifact-contracts.mjs';
 import { verifyRc1V6BehaviorReceipt } from './rc1-v6-causal-binding.mjs';
+import { sourceSnapshotFromRc1BehaviorSurface } from './rc1-v6-measurement.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const GIT_SHA1 = /^[0-9a-f]{40}$/;
@@ -201,7 +202,8 @@ function behaviorChecks(options) {
     {
       id: 'pre_source_binding',
       passed: preSurfaceValid && transformValid
-        && pre.surface_digest === transform.source.code_snapshot_digest,
+        && digestArtifact(sourceSnapshotFromRc1BehaviorSurface(pre.surface))
+          === transform.source.code_snapshot_digest,
     },
     { id: 'post_output_binding', passed: outputBound },
     {

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { digestArtifact } from '../src/artifact-contracts.mjs';
+import { sourceSnapshotFromRc1BehaviorSurface } from '../src/rc1-v6-measurement.mjs';
 
 const ARTIFACT_ROOT = new URL('../research/campaigns/rc1/artifacts/v5/', import.meta.url);
 
@@ -63,11 +64,16 @@ async function validFixture() {
     environment: {},
     executor_source_digest: 'a'.repeat(64),
   };
+  const preReceipt = v6Receipt(preV5, oracle, runtimeIdentity);
+  const postReceipt = v6Receipt(postV5, oracle, runtimeIdentity);
+  transformArtifact.source.code_snapshot_digest = digestArtifact(
+    sourceSnapshotFromRc1BehaviorSurface(preReceipt.surface),
+  );
   return {
     oracle,
     runtimeIdentity,
-    preReceipt: v6Receipt(preV5, oracle, runtimeIdentity),
-    postReceipt: v6Receipt(postV5, oracle, runtimeIdentity),
+    preReceipt,
+    postReceipt,
     transformArtifact,
     patchDigest: sha256(patch),
   };
