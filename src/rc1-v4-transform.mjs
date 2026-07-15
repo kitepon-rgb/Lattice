@@ -246,7 +246,7 @@ function behaviorSummary(pre, post, oracleDigest) {
   };
 }
 
-function makeReceipt(artifact, behavior, fixedInputsDigest) {
+function makeReceipt(artifact, behavior, fixedInputsDigest, sourceInvariant) {
   const value = {
     schema: 'lattice.rc1.seam_transform_receipt.v4',
     status: artifact.status,
@@ -254,6 +254,7 @@ function makeReceipt(artifact, behavior, fixedInputsDigest) {
     fixed_inputs_digest: fixedInputsDigest,
     behavior,
     cleanup: artifact.cleanup,
+    source_invariant: sourceInvariant ?? null,
   };
   return { value, digest: digestArtifact(value) };
 }
@@ -325,7 +326,12 @@ function rejectedResult({ error, evidence, sourceBindings, oracle, pre, post, fi
     throw new TypeError('RC1 v4 rejected transform artifact is invalid');
   }
   const behavior = behaviorSummary(pre, post, digestArtifact(oracle));
-  const receipt = makeReceipt(artifact, behavior, fixedInputsDigest);
+  const receipt = makeReceipt(
+    artifact,
+    behavior,
+    fixedInputsDigest,
+    evidence.sourceInvariant,
+  );
   return {
     artifact,
     artifact_digest: digestArtifact(artifact),
@@ -416,7 +422,8 @@ export async function runRc1V4SeamTransform({
     || pre.oracle_digest !== oracleDigest || post.oracle_digest !== oracleDigest
     || !sameArray(isolated.changedPaths, RC1_V4_TRANSFORM_PATHS)
     || !Buffer.isBuffer(isolated.patch)
-    || isolated.verifications.length !== VERIFIERS.length) {
+    || isolated.verifications.length !== VERIFIERS.length
+    || isolated.sourceInvariant?.outcome !== 'passed') {
     return rejectedResult({
       error: new Error('production-test seam incomplete'),
       evidence: isolated,
@@ -449,7 +456,7 @@ export async function runRc1V4SeamTransform({
   }
   const behavior = behaviorSummary(pre, post, oracleDigest);
   if (!behavior.equivalent) throw new TypeError('RC1 v4 behavior evidence is not equivalent');
-  const receipt = makeReceipt(artifact, behavior, fixedInputsDigest);
+  const receipt = makeReceipt(artifact, behavior, fixedInputsDigest, isolated.sourceInvariant);
   return {
     artifact,
     artifact_digest: digestArtifact(artifact),

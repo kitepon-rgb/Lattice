@@ -132,6 +132,8 @@ test('isolated v4 transform binds pre/post oracle, test seam, patch, and cleanup
   assert.equal(first.receipt.behavior.pre.outcome, 'passed');
   assert.equal(first.receipt.behavior.post.outcome, 'passed');
   assert.equal(first.receipt.behavior.equivalent, true);
+  assert.equal(first.receipt.source_invariant.schema, 'lattice.source_invariant_receipt.v1');
+  assert.equal(first.receipt.source_invariant.outcome, 'passed');
   assert.deepEqual(second.artifact, first.artifact);
   assert.deepEqual(second.receipt, first.receipt);
   assert.equal(second.patch.equals(first.patch), true);
