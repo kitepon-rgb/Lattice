@@ -13,6 +13,7 @@ import {
 import { runIsolatedTransform } from './isolation-runner.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
+const SHA1 = /^[0-9a-f]{40}$/;
 const CANDIDATE_ID = 'extract-dispatch-policies';
 const FIXTURE_ENTRY = 'research/fixtures/dispatch-record/src/dispatch-record.mjs';
 const CHANNEL_PATH = 'research/fixtures/dispatch-record/src/dispatch-channel.mjs';
@@ -101,8 +102,88 @@ function sameArray(left, right) {
   return left.length === right.length && left.every((entry, index) => entry === right[index]);
 }
 
-function assertCandidateInputs({ boundaryManifest, boundaryVerdict, controlPlan, querySet }) {
-  for (const value of [boundaryManifest, boundaryVerdict, controlPlan, querySet]) {
+function exactRecord(value, keys) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)
+    || Object.getPrototypeOf(value) !== Object.prototype) {
+    return false;
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length
+    && actual.every((key, index) => key === expected[index]);
+}
+
+function evidenceArtifact(value) {
+  return exactRecord(value, ['digest', 'canonical_bytes'])
+    && typeof value.digest === 'string'
+    && SHA256.test(value.digest)
+    && Number.isSafeInteger(value.canonical_bytes)
+    && value.canonical_bytes > 0;
+}
+
+function assertControlCompilationEvidence(evidence, {
+  manifestDigest,
+  verdictDigest,
+  controlPlanDigest,
+  querySetDigest,
+  codeSnapshotDigest,
+}) {
+  if (!exactRecord(evidence, [
+    'schema',
+    'observed_at',
+    'head',
+    'input_digests',
+    'codegraph',
+    'artifacts',
+    'observed_facts',
+    'presentation_note',
+  ])
+    || evidence.schema !== 'lattice.rc1.control_compilation_evidence.v1'
+    || typeof evidence.head !== 'string'
+    || !SHA1.test(evidence.head)
+    || !exactRecord(evidence.input_digests, [
+      'plan_input',
+      'query_set',
+      'manual_normal',
+      'manual_shared_state_negative',
+      'code_snapshot',
+    ])
+    || Object.values(evidence.input_digests).some((digest) => (
+      typeof digest !== 'string' || !SHA256.test(digest)
+    ))
+    || !exactRecord(evidence.artifacts, ['control', 'shared_state_negative'])
+    || !exactRecord(evidence.artifacts.control, [
+      'boundary_manifest',
+      'boundary_verdict',
+      'plan_graph',
+    ])
+    || Object.values(evidence.artifacts.control).some((artifact) => !evidenceArtifact(artifact))) {
+    fail('control compilation evidenceまたはcontrol baseが不正');
+  }
+  if (evidence.input_digests.query_set !== querySetDigest
+    || evidence.input_digests.code_snapshot !== codeSnapshotDigest
+    || evidence.artifacts.control.boundary_manifest.digest !== manifestDigest
+    || evidence.artifacts.control.boundary_verdict.digest !== verdictDigest
+    || evidence.artifacts.control.plan_graph.digest !== controlPlanDigest) {
+    fail('control compilation evidenceのdigest chainがcontrol artifactと一致しない');
+  }
+  return evidence.head;
+}
+
+function assertCandidateInputs({
+  boundaryManifest,
+  boundaryVerdict,
+  controlPlan,
+  querySet,
+  controlCompilationEvidence,
+}) {
+  for (const value of [
+    boundaryManifest,
+    boundaryVerdict,
+    controlPlan,
+    querySet,
+    controlCompilationEvidence,
+  ]) {
     canonicalizeArtifact(value);
   }
   if (!validateBoundaryManifest(boundaryManifest)
@@ -156,12 +237,16 @@ function assertCandidateInputs({ boundaryManifest, boundaryVerdict, controlPlan,
     })) {
     fail('seam candidate ownershipがfixed interventionと一致しない');
   }
-  return {
+  const digests = {
     manifestDigest,
     verdictDigest,
     controlPlanDigest,
     querySetDigest,
     codeSnapshotDigest: boundaryManifest.source.code_snapshot_digest,
+  };
+  return {
+    ...digests,
+    controlBaseSha: assertControlCompilationEvidence(controlCompilationEvidence, digests),
   };
 }
 
@@ -244,6 +329,9 @@ function rejectedArtifact({ error, repoRoot, digests }) {
   const errors = flattenErrors(error);
   const evidence = errors.map((entry) => entry.transformEvidence).find(Boolean);
   if (!evidence || typeof evidence.baseSha !== 'string') throw error;
+  if (evidence.baseSha !== digests.controlBaseSha) {
+    fail('runnerがcontrol compilation evidenceと異なるbaseを使用した');
+  }
   const reasons = [...new Set(errors.map((entry) => portableReason(entry, repoRoot)))];
   const kind = rejectionKind(reasons);
   const rejection = { kind, reasons };
@@ -298,30 +386,34 @@ export async function applyRc1SeamTransform({ worktreePath } = {}) {
  */
 export async function runRc1SeamTreatment({
   repoRoot,
-  baseRef = 'HEAD',
+  baseRef,
   boundaryManifest,
   boundaryVerdict,
   controlPlan,
   querySet,
+  controlCompilationEvidence,
   transform = applyRc1SeamTransform,
 } = {}) {
   if (typeof repoRoot !== 'string' || repoRoot.length === 0
-    || typeof baseRef !== 'string' || baseRef.length === 0
     || typeof transform !== 'function') {
     throw new TypeError('invalid RC1 seam treatment arguments');
+  }
+  if (baseRef !== undefined) {
+    fail('baseRef overrideは禁止。control compilation evidenceのheadを使う');
   }
   const digests = assertCandidateInputs({
     boundaryManifest,
     boundaryVerdict,
     controlPlan,
     querySet,
+    controlCompilationEvidence,
   });
   let output;
   let isolated;
   try {
     isolated = await runIsolatedTransform({
       repoRoot,
-      baseRef,
+      baseRef: digests.controlBaseSha,
       allowedPaths: [...ALLOWED_PATHS],
       transform,
       verifyCommands: VERIFIERS.map(({ command, args }) => ({ command, args: [...args] })),
@@ -334,6 +426,9 @@ export async function runRc1SeamTreatment({
   }
   if (!output || !Buffer.isBuffer(isolated.patch) || !sameArray(isolated.changedPaths, ALLOWED_PATHS)) {
     fail('accepted runner resultにpatch、scope、post snapshotが揃っていない');
+  }
+  if (isolated.baseSha !== digests.controlBaseSha) {
+    fail('runnerがcontrol compilation evidenceと異なるbaseを使用した');
   }
   const receipts = receiptsFromRunner(isolated.verifications);
   if (receipts.length !== VERIFIERS.length) {

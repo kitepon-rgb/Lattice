@@ -31,13 +31,27 @@ const repoRoot = path.join(tempRoot, 'repo');
 
 try {
   git(tempRoot, ['clone', '--no-hardlinks', '--quiet', sourceRoot, repoRoot]);
-  const [boundaryManifest, boundaryVerdict, controlPlan, querySet] = await Promise.all([
+  const [
+    boundaryManifest,
+    boundaryVerdict,
+    controlPlan,
+    querySet,
+    controlCompilationEvidence,
+  ] = await Promise.all([
     readJson('research/campaigns/rc1/artifacts/control/boundary-manifest.json'),
     readJson('research/campaigns/rc1/artifacts/control/boundary-verdict.json'),
     readJson('research/campaigns/rc1/artifacts/control/plan-v1.json'),
     readJson('research/campaigns/rc1/inputs/query-set.json'),
+    readJson('research/campaigns/rc1/artifacts/control/compilation-evidence.json'),
   ]);
-  const options = { repoRoot, boundaryManifest, boundaryVerdict, controlPlan, querySet };
+  const options = {
+    repoRoot,
+    boundaryManifest,
+    boundaryVerdict,
+    controlPlan,
+    querySet,
+    controlCompilationEvidence,
+  };
   const cloneHead = git(repoRoot, ['rev-parse', 'HEAD']).trim();
   const originalFixture = await readFile(path.join(repoRoot, FIXTURE_PATH), 'utf8');
 
@@ -58,6 +72,7 @@ try {
     assert.equal(validateTransformArtifact(result.artifact), true);
   }
   assert.equal(accepted.artifact.status, 'accepted');
+  assert.equal(accepted.artifact.source.base_sha, controlCompilationEvidence.head);
   assert.equal(Buffer.isBuffer(accepted.patch), true);
   assert.equal(scopeRejected.artifact.status, 'rejected');
   assert.equal(scopeRejected.artifact.rejection.kind, 'scope_violation');
@@ -79,6 +94,7 @@ try {
 
   process.stdout.write(`${JSON.stringify({
     status: 'passed',
+    control_base_sha: accepted.artifact.source.base_sha,
     accepted_artifact_digest: accepted.artifact_digest,
     patch_digest: accepted.artifact.patch.digest,
     verification_digest: accepted.artifact.verification.digest,

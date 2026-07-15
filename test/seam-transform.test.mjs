@@ -31,13 +31,26 @@ async function readJson(relativePath) {
 }
 
 async function controlInputs() {
-  const [boundaryManifest, boundaryVerdict, controlPlan, querySet] = await Promise.all([
+  const [
+    boundaryManifest,
+    boundaryVerdict,
+    controlPlan,
+    querySet,
+    controlCompilationEvidence,
+  ] = await Promise.all([
     readJson('research/campaigns/rc1/artifacts/control/boundary-manifest.json'),
     readJson('research/campaigns/rc1/artifacts/control/boundary-verdict.json'),
     readJson('research/campaigns/rc1/artifacts/control/plan-v1.json'),
     readJson('research/campaigns/rc1/inputs/query-set.json'),
+    readJson('research/campaigns/rc1/artifacts/control/compilation-evidence.json'),
   ]);
-  return { boundaryManifest, boundaryVerdict, controlPlan, querySet };
+  return {
+    boundaryManifest,
+    boundaryVerdict,
+    controlPlan,
+    querySet,
+    controlCompilationEvidence,
+  };
 }
 
 function git(cwd, args) {
@@ -109,12 +122,25 @@ test('candidate or query-set drift fails before isolated execution', async () =>
     runRc1SeamTreatment({ repoRoot: '/not-used', ...queryDrift }),
     /digest chain|query set/i,
   );
+
+  const controlBaseDrift = structuredClone(values);
+  controlBaseDrift.controlCompilationEvidence.head = 'not-a-git-sha';
+  await assert.rejects(
+    runRc1SeamTreatment({ repoRoot: '/not-used', ...controlBaseDrift }),
+    /control compilation evidence|base/i,
+  );
+
+  await assert.rejects(
+    runRc1SeamTreatment({ repoRoot: '/not-used', ...values, baseRef: 'HEAD' }),
+    /baseRef override/i,
+  );
 });
 
 test('accepted treatment is deterministic, behavior-verified, and source-preserving', async (t) => {
   const repoRoot = await makeFixtureRepo(t);
   const values = await controlInputs();
   const sourceHead = git(repoRoot, ['rev-parse', 'HEAD']);
+  values.controlCompilationEvidence.head = sourceHead;
   const original = await readFile(path.join(repoRoot, FIXTURE_PATH), 'utf8');
 
   const first = await runRc1SeamTreatment({ repoRoot, ...values });
@@ -122,6 +148,7 @@ test('accepted treatment is deterministic, behavior-verified, and source-preserv
 
   assert.equal(validateTransformArtifact(first.artifact), true);
   assert.equal(first.artifact.status, 'accepted');
+  assert.equal(first.artifact.source.base_sha, sourceHead);
   assert.equal(first.artifact_digest, digestArtifact(first.artifact));
   assert.equal(first.artifact.patch.digest, createHash('sha256').update(first.patch).digest('hex'));
   assert.deepEqual(first.artifact.scope.changed_paths, [

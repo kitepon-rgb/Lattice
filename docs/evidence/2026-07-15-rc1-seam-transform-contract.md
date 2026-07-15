@@ -11,12 +11,14 @@
 - `research/campaigns/rc1/artifacts/control/boundary-manifest.json`
 - `research/campaigns/rc1/artifacts/control/boundary-verdict.json`
 - `research/campaigns/rc1/artifacts/control/plan-v1.json`
+- `research/campaigns/rc1/artifacts/control/compilation-evidence.json`
 - `research/campaigns/rc1/inputs/query-set.json`
-- accepted fixture commitを指すclean `baseRef`
 
 transformerは各artifactをpublic validatorへ通し、manifest digest、verdict digest、plan source digest、query-set digest、
 pre-transform code snapshot digest、candidate ID／proposed ownershipを相互照合する。drift、state／effect conflict、候補欠落は
-worktreeを作る前にfail closedとする。
+worktreeを作る前にfail closedとする。隔離worktreeのbaseはcontrol compilation evidenceの`head`だけを権威とし、
+同evidence内のcontrol artifact digest／query-set digest／code snapshot digestを入力artifactと照合する。callerによる
+`baseRef` overrideは拒否し、accepted／rejectedのrunner evidenceがcontrol baseと異なる場合もartifact化しない。
 
 ## Fixed intervention
 
