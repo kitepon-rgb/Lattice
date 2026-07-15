@@ -90,7 +90,7 @@ RC1-P plan/ADR accepted
 |---|---|---|---|---|
 | RC1-P | bootstrap-v1 accepted artifacts | F: 親直轄／docs write | ADR 0002、plan v2、baseline | docs diff＋親反証＋独立commit |
 | RC1-S | RC1-P: fixture／実験契約 | A: safety-net／Lattice source write | monolith fixture、characterization、fixed input | Codegraph preflight＋focused test |
-| RC1-A | RC1-S: fixed examples | A: contract／非交差write | strict schemas、canonicalizer、digest | invalid／oversize／path escape test |
+| RC1-A | RC1-S: fixed examples | F: 親直轄／公開artifact byte contract | strict schemas、canonicalizer、digest | invalid／oversize／path escape test |
 | RC1-B | RC1-S: fixed query targets | A: sensor／read-only subprocess | status/query/caller/callee/impact/affected evidence | failure／empty／stale typed test |
 | RC1-C | RC1-S: behavior matrix | A: isolation／temp worktree write | bounded transform runner、verifier、rollback evidence | canonical worktree不変＋focused integration |
 | RC1-D | RC1-A＋RC1-B: schemaとgraph evidence | F: verdict契約／Lattice artifact write | control manifest、typed conflict/verdict、plan v1 | control success条件1〜2 |
@@ -123,7 +123,7 @@ Accepted Decision: [ADR 0003](adr/0003-rc1-safety-net-accepted.md)
 
 ### RC1-A／B／C — 閉ループの三laneを実装する
 
-- [ ] **RC1-A:** `plan_input.v1`、`boundary_manifest.v1`、`boundary_verdict.v1`、`plan_graph.v1`、`plan_diff.v1`の
+- [ ] **RC1-A（F・親直轄）:** `plan_input.v1`、`boundary_manifest.v1`、`boundary_verdict.v1`、`plan_graph.v1`、`plan_diff.v1`の
   RC1必要subsetをexact key、bounded collection、canonical serialization、digest付きで実装する。
 - [ ] **RC1-B:** Codegraph 1.4.1の公開CLIからstatus、query、caller／callee、impact、affected testを収集し、
   absent／empty／stale／unsupported／unresolved／failureを区別するadapterを実装する。
