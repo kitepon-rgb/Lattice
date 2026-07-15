@@ -1,0 +1,244 @@
+{
+  "schema": "lattice.rc1.codegraph_portability_probe.v1",
+  "observed_at": "2026-07-15T15:26:02.032Z",
+  "executor_head": "01d9d7203810ab20f9175f99b8928259b04ca8d7",
+  "experiment": {
+    "base_sha": "d2d412800492fbed03febe02abc6dca81c09a88b",
+    "patch_digest": "acefad450f77906d21e1712c710c1ed91e199d9607d7c6703e8378abeb1f92af",
+    "query_set_digest": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+    "repetitions": 2,
+    "codegraph_version": "1.4.1",
+    "index_directory": ".codegraph-rc1-treatment",
+    "environment": {
+      "CODEGRAPH_NO_DAEMON": "1",
+      "CODEGRAPH_NO_WATCH": "1",
+      "CODEGRAPH_NO_UPDATE_CHECK": "1",
+      "DO_NOT_TRACK": "1"
+    }
+  },
+  "runs": [
+    {
+      "raw_outcomes_digest": "b1d0ea4901d392a9b01a1d5297e8824a967f39e10204bc6b812ad93bb647651d",
+      "portable_outcomes_digest": "9d959e2ad40e4e027b0bb62921436d7b3a6e8139b982af976c7a38b1cac5b6f3",
+      "status": {
+        "version": "1.4.1",
+        "file_count": 18,
+        "node_count": 214,
+        "edge_count": 845,
+        "pending_changes": {
+          "added": 0,
+          "modified": 0,
+          "removed": 0
+        },
+        "worktree_mismatch": null,
+        "index": {
+          "builtWithVersion": "1.4.1",
+          "builtWithExtractionVersion": 24,
+          "currentExtractionVersion": 24,
+          "reindexRecommended": false,
+          "state": "complete",
+          "pendingRefs": 0
+        }
+      },
+      "queries": [
+        {
+          "id": "status",
+          "operation": "status",
+          "outcome": "ready",
+          "raw_digest": "80335ff7fb8277ff0091fc2cb2bcf68d97d767cc8e4600614df93510a88e4375",
+          "portable_digest": "248c7ddef996174a4a8d495bf230bc7495164b5a09de858912cefe104cf6269d"
+        },
+        {
+          "id": "query-build-dispatch-record",
+          "operation": "query",
+          "outcome": "ready",
+          "raw_digest": "1e3dcddf7679cda1a874e7351031803490ab16fb45a8e9b40134fc4a8de883c5",
+          "portable_digest": "ff3c34a957be92ec0a9e2a364abafa62b637f8cd29e416cfe1e0b9c9e8f1c689"
+        },
+        {
+          "id": "query-select-dispatch-channel",
+          "operation": "query",
+          "outcome": "ready",
+          "raw_digest": "c8476877df95f6463e047e263be69e9079fa39768155af499e8dac85902364d4",
+          "portable_digest": "b8bd059d9b86dba929bc4c0d7602ba7ef244220536c97f288ada9364864ac4a9"
+        },
+        {
+          "id": "query-format-dispatch-label",
+          "operation": "query",
+          "outcome": "ready",
+          "raw_digest": "0625dda7f18565d4dca7117c884116d8d435c0047ff393b168dee33019c32071",
+          "portable_digest": "ceb6e572ceb9023d96ba086501858b700db08c20ba4d88220dcb23a5ab33b39c"
+        },
+        {
+          "id": "callers-build-dispatch-record",
+          "operation": "callers",
+          "outcome": "ready",
+          "raw_digest": "27fd51f95a94e723bb6e17fa66e128cd1d41c2678348032806b89bdba4fdba94",
+          "portable_digest": "d7bb97e2621abbbcd8c5cbdd23f6fe45eb2dec989b725a06038b53caedbb27fb"
+        },
+        {
+          "id": "callees-build-dispatch-record",
+          "operation": "callees",
+          "outcome": "ready",
+          "raw_digest": "6df4e58d4d2f6de9598f982cb71432b9360e7e5fbc0f298efe3c19ed401875a2",
+          "portable_digest": "66faf3f5e61ec9188d30e854b7ce55b0dc026684448f56d60d10bd49c9155499"
+        },
+        {
+          "id": "impact-build-dispatch-record",
+          "operation": "impact",
+          "outcome": "ready",
+          "raw_digest": "197123470681d82017f80c32aaf110f84f8514087c3ed0005a7f979dfb065ea9",
+          "portable_digest": "0617f390edf5c1e651623c839c7d8be335e4f15023b11159fee89db234bf894b"
+        },
+        {
+          "id": "impact-select-dispatch-channel",
+          "operation": "impact",
+          "outcome": "ready",
+          "raw_digest": "10e151ed2d6680ab52d1e0af09897708aaac07e9fc622bdb05087b302db961bb",
+          "portable_digest": "e1ae5056c815a0422a1c1846ccd79d963eefdb99e5ed3dcb1b6d123dc2a4bad2"
+        },
+        {
+          "id": "impact-format-dispatch-label",
+          "operation": "impact",
+          "outcome": "ready",
+          "raw_digest": "10f54ca7b4ec6fd1477d0446872dcd7a7769f18efc9ffc93a5d3020c26337260",
+          "portable_digest": "17463a1cba76852b041683717fcd0f9fdcef51c10072e1d811ad01177c25a0ec"
+        },
+        {
+          "id": "affected-fixture-sources",
+          "operation": "affected",
+          "outcome": "ready",
+          "raw_digest": "3afb6e2b9a3f6db2d07ca91346a389156c109d1210dc02e293785e34693c619e",
+          "portable_digest": "3afb6e2b9a3f6db2d07ca91346a389156c109d1210dc02e293785e34693c619e"
+        }
+      ]
+    },
+    {
+      "raw_outcomes_digest": "27aecccdbe628c3bffe634d2971f270946cdacda2a916afd88062753436d2c7b",
+      "portable_outcomes_digest": "9d959e2ad40e4e027b0bb62921436d7b3a6e8139b982af976c7a38b1cac5b6f3",
+      "status": {
+        "version": "1.4.1",
+        "file_count": 18,
+        "node_count": 214,
+        "edge_count": 845,
+        "pending_changes": {
+          "added": 0,
+          "modified": 0,
+          "removed": 0
+        },
+        "worktree_mismatch": null,
+        "index": {
+          "builtWithVersion": "1.4.1",
+          "builtWithExtractionVersion": 24,
+          "currentExtractionVersion": 24,
+          "reindexRecommended": false,
+          "state": "complete",
+          "pendingRefs": 0
+        }
+      },
+      "queries": [
+        {
+          "id": "status",
+          "operation": "status",
+          "outcome": "ready",
+          "raw_digest": "525f8a4045ae6e211af0a8f0c6e342261a04ff911f89352383f22278f95f1eb7",
+          "portable_digest": "248c7ddef996174a4a8d495bf230bc7495164b5a09de858912cefe104cf6269d"
+        },
+        {
+          "id": "query-build-dispatch-record",
+          "operation": "query",
+          "outcome": "ready",
+          "raw_digest": "f668b286ede6c23df6d44bb9dfc0ab35bc51c7e3066d00d3ad62f2df36ab3927",
+          "portable_digest": "ff3c34a957be92ec0a9e2a364abafa62b637f8cd29e416cfe1e0b9c9e8f1c689"
+        },
+        {
+          "id": "query-select-dispatch-channel",
+          "operation": "query",
+          "outcome": "ready",
+          "raw_digest": "b3279a251a997f07065d2e4ddd611f6aa4a69ed97f1e97beb64677ee2541eb11",
+          "portable_digest": "b8bd059d9b86dba929bc4c0d7602ba7ef244220536c97f288ada9364864ac4a9"
+        },
+        {
+          "id": "query-format-dispatch-label",
+          "operation": "query",
+          "outcome": "ready",
+          "raw_digest": "224ad4abb0ec2f6e148f3d95bde81a88ac5a2386957e9ad76863198730bfd3c4",
+          "portable_digest": "ceb6e572ceb9023d96ba086501858b700db08c20ba4d88220dcb23a5ab33b39c"
+        },
+        {
+          "id": "callers-build-dispatch-record",
+          "operation": "callers",
+          "outcome": "ready",
+          "raw_digest": "d10614e3813f27b4ca4f4a33ad935a774af4ddaaf45527a75d50b08198867753",
+          "portable_digest": "d7bb97e2621abbbcd8c5cbdd23f6fe45eb2dec989b725a06038b53caedbb27fb"
+        },
+        {
+          "id": "callees-build-dispatch-record",
+          "operation": "callees",
+          "outcome": "ready",
+          "raw_digest": "ea3767fe4c0f87d50ad1ce16749a8815a6236d345d17db0014b154424f8d1319",
+          "portable_digest": "66faf3f5e61ec9188d30e854b7ce55b0dc026684448f56d60d10bd49c9155499"
+        },
+        {
+          "id": "impact-build-dispatch-record",
+          "operation": "impact",
+          "outcome": "ready",
+          "raw_digest": "b540af307c4ffa43f6540e8ebf62b46a53669df056bff2d439192573ac7a1708",
+          "portable_digest": "0617f390edf5c1e651623c839c7d8be335e4f15023b11159fee89db234bf894b"
+        },
+        {
+          "id": "impact-select-dispatch-channel",
+          "operation": "impact",
+          "outcome": "ready",
+          "raw_digest": "336da0b494dd10f462ace1591bc1dfe23450bf53e920d6193ac888f42f323616",
+          "portable_digest": "e1ae5056c815a0422a1c1846ccd79d963eefdb99e5ed3dcb1b6d123dc2a4bad2"
+        },
+        {
+          "id": "impact-format-dispatch-label",
+          "operation": "impact",
+          "outcome": "ready",
+          "raw_digest": "ac6dc3f50ef9b385b7a92dbcf15e0eba9b3fd6a2ff87321de716173760a7ea93",
+          "portable_digest": "17463a1cba76852b041683717fcd0f9fdcef51c10072e1d811ad01177c25a0ec"
+        },
+        {
+          "id": "affected-fixture-sources",
+          "operation": "affected",
+          "outcome": "ready",
+          "raw_digest": "3afb6e2b9a3f6db2d07ca91346a389156c109d1210dc02e293785e34693c619e",
+          "portable_digest": "3afb6e2b9a3f6db2d07ca91346a389156c109d1210dc02e293785e34693c619e"
+        }
+      ]
+    }
+  ],
+  "comparison": {
+    "raw_outcomes_equal": false,
+    "portable_outcomes_equal": true,
+    "raw_differing_query_ids": [
+      "status",
+      "query-build-dispatch-record",
+      "query-select-dispatch-channel",
+      "query-format-dispatch-label",
+      "callers-build-dispatch-record",
+      "callees-build-dispatch-record",
+      "impact-build-dispatch-record",
+      "impact-select-dispatch-channel",
+      "impact-format-dispatch-label"
+    ],
+    "portable_differing_query_ids": [],
+    "volatile_status_fields": [
+      "projectPath",
+      "indexPath",
+      "lastIndexed",
+      "dbSizeBytes"
+    ],
+    "volatile_node_fields": [
+      "updatedAt"
+    ]
+  },
+  "safety": {
+    "canonical_status": "unchanged",
+    "canonical_head": "unchanged",
+    "worktree_set": "unchanged",
+    "temporary_indexes": "removed"
+  }
+}

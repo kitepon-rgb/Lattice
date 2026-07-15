@@ -2,11 +2,9 @@
 
 - 状態: Active
 - 更新日: 2026-07-15
-- 現在のplan version: `lattice-research-campaign-1-v3`
-- predecessor: `lattice-research-campaign-1-v2`（[archive](archive/2026-07-15-plan-lattice-research-campaign-1-v2.md)、SHA-256 `170af6e1bc9b62b2b366b9c09a12861f3168808857aa96dc71c5cb51f03ad1ce`）
-- bootstrap predecessor: `lattice-bootstrap-v1`（[archive](archive/2026-07-15-plan-lattice-bootstrap-v1.md)、SHA-256 `78c07232cd2ede13dbd88bce02aa03b3591acc9ca1e39c21f7861398fc203a3b`）
+- 現在のplan version: `lattice-research-campaign-1-v2`
+- predecessor: `lattice-bootstrap-v1`（[archive](archive/2026-07-15-plan-lattice-bootstrap-v1.md)、SHA-256 `78c07232cd2ede13dbd88bce02aa03b3591acc9ca1e39c21f7861398fc203a3b`）
 - Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
-- Portability correction: [ADR 0012](adr/0012-portable-codegraph-evidence-and-rc1-v3.md)
 - Control lifecycle correction: [ADR 0004](adr/0004-rc1-control-admission-correction.md)
 - Native execution verification: [ADR 0005](adr/0005-rc1-native-execution-verification.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
@@ -14,13 +12,12 @@
 
 ## Plan version diff
 
-v2のRC1-E後に、Codegraph raw outcome digestが同じcode／queryのfresh indexでもtemp path、index時刻、node更新時刻により
-変化することを実験で反証した。v3はv2 topologyへ追記せず、旧D／E artifactのactive predecessor資格を失効し、
-RC1-D2 portable control correction → RC1-E2 transform chain再発行 → RC1-Fを新しいhard dependencyとして再compileする。
+`lattice-bootstrap-v1`のWave 1〜4を機能完成順に直列実行するtopologyを失効する。Research Campaign 1（RC1）は、
+境界観測、typed conflict／verdict、seam変換、同一query setでの再index、plan version再compile、control比較を
+一本の閉ループとして実装する。Observer fixtureは後続へ移し、最初の実証はLattice所有fixtureだけで行う。
 
-RC1の核心仮説、control／treatment、fixture、query set、manual evidence、capacity、verifier、non-goalsはv2から変更しない。
-Wave 0とv2のaccepted実装commitは再利用するが、volatile graph digestを持つ旧artifact／agent context／途中patch／interface仮定は
-Fへ持ち越さない。Observer fixtureは後続のままとし、最初の実証はLattice所有fixtureだけで行う。
+Wave 0のaccepted artifact（commits `3cbdbcb`、`05cb290`、green baseline、Codegraph index、Spotter設定）は
+predecessorとして再利用する。旧planの未着手TODO、旧agent context、旧Control、旧interface仮定はRC1へ持ち越さない。
 
 ## Research Campaign 1
 
@@ -87,11 +84,8 @@ RC1-P plan/ADR accepted
        ├─ RC1-A artifact contract lane ────┐
        ├─ RC1-B Codegraph sensor lane ─────┴─ RC1-D control boundary/plan compile ─┐
        └─ RC1-C isolation/verifier lane ───────────────────────────────────────────┴─ RC1-E treatment transform
-                                                                                         └─ portability refutation
-                                                                                              └─ RC1-D2 portable control
-                                                                                                   └─ RC1-E2 transform reissue
-                                                                                                        └─ RC1-F reindex/recompile/compare
-                                                                                                             └─ RC1-G Phase audit/evidence return
+                                                                                         └─ RC1-F reindex/recompile/compare
+                                                                                                └─ RC1-G Phase audit/evidence return
 ```
 
 | node | hard needs + witness | lane／effect | produces | gate |
@@ -103,12 +97,10 @@ RC1-P plan/ADR accepted
 | RC1-C | RC1-S: behavior matrix | A: isolation／temp worktree write | bounded transform runner、verifier、rollback evidence | canonical worktree不変＋focused integration |
 | RC1-D | RC1-A＋RC1-B: schemaとgraph evidence | F: verdict契約／Lattice artifact write | control manifest、typed conflict/verdict、plan v1 | control success条件1〜2 |
 | RC1-E | RC1-C＋RC1-D: verifierと`seam_candidate` | F: 介入acceptance／isolated write | accepted／rejected transform artifact | behavior＋scope＋negative control |
-| RC1-D2 | ADR 0012＋portability probe | F: digest意味／artifact correction | portable control-v2 artifact | 2 fresh indexでbyte-identical |
-| RC1-E2 | RC1-D2＋RC1-E実装 | F: predecessor chain再発行 | portable-chain treatment-v2 artifact | same-base＋control-v2 digest chain |
-| RC1-F | RC1-E2: accepted artifact | F: version barrier／artifact write | post manifest、plan v2、plan diff、comparison | success条件4〜7 |
+| RC1-F | RC1-E: accepted artifact | F: version barrier／artifact write | post manifest、plan v2、plan diff、comparison | success条件4〜7 |
 | RC1-G | RC1-F: 全artifactとrelated green | A: read-only Phase監査 | refutation、Critic、親裁定、RAG／docs還流 | full `npm run ci` 1回 |
 
-RC1-A／B／Cは書込scopeを非交差に固定して並列化できる。RC1-D以降とD2→E2→Fは因果順を識別するため直列であり、
+RC1-A／B／Cは書込scopeを非交差に固定して並列化できる。RC1-D以降は因果順を識別するため直列であり、
 ready幅を増やす目的でhard dependencyを削らない。
 
 ## TODO
@@ -120,15 +112,6 @@ ready幅を増やす目的でhard dependencyを削らない。
 - [x] 旧planをdigest一致でarchiveし、ADR 0002と`lattice-research-campaign-1-v2`を正本化する。
 - [x] [親反証](evidence/2026-07-15-research-campaign-1-plan-refutation.md)とdocs link／digest検証を行う。
 - [x] plan更新だけを独立commitする。
-
-### RC1-P2 — portability反証からplan v3へ再compileする
-
-- [x] 同じbase／patch／query setを2 fresh worktreeでindexし、raw outcome digest不一致とportable projection一致を
-  `research/campaigns/rc1/evidence/codegraph-portability-probe.json`へ固定する。
-- [x] v2をSHA-256一致でarchiveし、旧D／E artifactとagent contextのactive predecessor資格を失効する。
-- [x] ADR 0012、public product contract、RAG、D2→E2→F topologyを`lattice-research-campaign-1-v3`へ正本化する。
-- [x] plan v3更新だけを独立commitする。
-- [ ] ControlへD2／E2／F taskを順序どおり記録する。
 
 ### RC1-S — characterization safety netを先行する
 
@@ -170,9 +153,6 @@ Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
 
 ### RC1-D／E／F — controlとtreatmentを閉じる
 
-旧RC1-D／Eは実装・当時の受入証拠として完了済みだが、[ADR 0012](adr/0012-portable-codegraph-evidence-and-rc1-v3.md)の
-再現実験によりvolatile raw graph digestが判明したため、生成artifactはRC1-Fのactive predecessorではない。
-
 - [x] **RC1-D:** original fixtureからboundary manifest、typed conflict／verdict、control plan v1をcompileする。
   [ADR 0007](adr/0007-manual-evidence-provenance-in-boundary-manifest.md)に従い、同じnode内でmanual evidence個別provenanceを
   manifestへ補完する。normalはwrite conflict 1＋`seam_candidate`＋2 wave、shared-state negativeはstate conflictを保持して
@@ -186,14 +166,7 @@ Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
   Accepted Decision: [ADR 0011](adr/0011-rc1-seam-treatment-same-base-accepted.md)。
   [受入証拠](evidence/2026-07-15-rc1-seam-transform-acceptance.md)はsame-base binding、accepted／rejected artifact、
   focused／related gate、reworkとresidual unknownを固定する。
-- [ ] **RC1-D2（F・親直轄）:** [correction contract](evidence/2026-07-15-rc1-portable-evidence-correction-contract.md)に従い、
-  Codegraph raw outcomeから`lattice.codegraph_portable_outcome.v1`を作り、control normal／shared-state negativeを
-  `artifacts/control-v2/`へ再compileする。2 fresh worktreeでartifact全体のbyte-identicalを証明する。
-- [ ] **RC1-E2（F・親直轄）:** control-v2 compilation evidenceだけをadmitし、same-base seam transformを
-  `artifacts/treatment-v2/`へ再発行する。旧control digest chain、scope violation、behavior divergence、negative admissionをrejectする。
-- [ ] **RC1-F（F・親直轄）:** RC1-E2のaccepted artifactから同じquery setでfresh indexし、post manifest、new plan v2、
-  plan diff、negative treatment、control／treatment比較を生成する。source patchと`.codegraph-rc1-treatment` sensor stateを
-  別snapshot／receiptとしてcleanupする。
+- [ ] **RC1-F:** 同じquery setで再indexし、post manifest、new plan v2、plan diff、control／treatment比較を生成する。
 - [ ] canonical artifactを再生成してdigest一致を確認し、unknown、intervention cost、未検証範囲を報告する。
 
 ### RC1-G — Phase gate
@@ -210,7 +183,6 @@ RC1は少なくとも次をLattice内に保存する。
 
 - fixed plan input、manual state／effect evidence、negative control、query-set digest。
 - pre／post Codegraph status、symbol、caller／callee、impact、affected testのraw取得結果とtyped interpretation。
-- raw Codegraph telemetry digestと`lattice.codegraph_portable_outcome.v1` digest、除外field、fresh-index再現性比較。
 - control／treatmentのboundary manifest、verdict、plan graph、canonical digest。
 - transform patch、bounded scope、characterization結果、reject時の失敗理由、cleanup結果。
 - `plan_diff.v1`、失効context一覧、minimum feasible wavesとconflict edgeの比較。

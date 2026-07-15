@@ -25,6 +25,10 @@ schemaはexact key、bounded collection、canonical serialization、digestを持
 Codegraph由来のsymbol／edge／impact／affected testと、Latticeが補うschema、state、transaction、generated
 artifact、config、external effect、H、runtime traceを区別して保持する。Codegraphだけで独立性を宣言しない。
 
+`boundary_manifest.graph_evidence[].result_digest`は環境依存のraw CLI outputでなく、versioned portable outcome projectionの
+canonical digestを指す。raw telemetryは診断receiptとして別に保持し、project／index absolute path、index時刻、DB byte size、
+node更新時刻をplan identityへ混ぜない。除外fieldはprojection versionで列挙し、未知fieldをsafe defaultで捨てない。
+
 ## Transformation boundary
 
 - 初期版からdisposableな隔離worktreeで実refactorを実行対象にする。
