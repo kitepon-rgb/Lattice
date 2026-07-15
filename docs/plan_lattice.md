@@ -14,7 +14,7 @@
 - [x] Node ESM package、CLI entry、unit test、syntax check、CIを作り、baselineをgreenにする。
 - [x] Codegraph indexを初期化し、status／queryがLattice sourceを返すことを確認する。
 - [x] Spotter project設定を正規入口で導入し、診断する。
-- [ ] 初期環境を独立commitに固定する。remote作成、push、publishは行わない。
+- [x] 初期環境を独立commit `3cbdbcb` に固定する。remote作成、push、publishは行わない。
 - [x] dotagentsから未実証のLattice思想を除去し、本来のObserver／工場開発順へ戻す。
 
 受入証拠（2026-07-15）:
