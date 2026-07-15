@@ -1,0 +1,19 @@
+{
+  "schema": "lattice.manual_boundary_evidence.v1",
+  "evidence": [
+    {
+      "todo_id": "channel-policy",
+      "state_reads": [],
+      "state_writes": ["dispatch-registry"],
+      "effects": [],
+      "unknowns": []
+    },
+    {
+      "todo_id": "label-policy",
+      "state_reads": [],
+      "state_writes": ["dispatch-registry"],
+      "effects": [],
+      "unknowns": []
+    }
+  ]
+}

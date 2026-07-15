@@ -1,0 +1,58 @@
+{
+  "schema": "lattice.codegraph_query_set.v1",
+  "queries": [
+    {
+      "id": "status",
+      "operation": "status"
+    },
+    {
+      "id": "query-build-dispatch-record",
+      "operation": "query",
+      "target": "buildDispatchRecord"
+    },
+    {
+      "id": "query-select-dispatch-channel",
+      "operation": "query",
+      "target": "selectDispatchChannel"
+    },
+    {
+      "id": "query-format-dispatch-label",
+      "operation": "query",
+      "target": "formatDispatchLabel"
+    },
+    {
+      "id": "callers-build-dispatch-record",
+      "operation": "callers",
+      "target": "buildDispatchRecord"
+    },
+    {
+      "id": "callees-build-dispatch-record",
+      "operation": "callees",
+      "target": "buildDispatchRecord"
+    },
+    {
+      "id": "impact-build-dispatch-record",
+      "operation": "impact",
+      "target": "buildDispatchRecord"
+    },
+    {
+      "id": "impact-select-dispatch-channel",
+      "operation": "impact",
+      "target": "selectDispatchChannel"
+    },
+    {
+      "id": "impact-format-dispatch-label",
+      "operation": "impact",
+      "target": "formatDispatchLabel"
+    },
+    {
+      "id": "affected-fixture-sources",
+      "operation": "affected",
+      "targets": [
+        "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+        "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+        "research/fixtures/dispatch-record/src/dispatch-label.mjs"
+      ]
+    }
+  ]
+}

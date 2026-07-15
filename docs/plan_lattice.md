@@ -113,11 +113,11 @@ ready幅を増やす目的でhard dependencyを削らない。
 
 ### RC1-S — characterization safety netを先行する
 
-- [ ] source編集前にCodegraphで既存test入口、planned owned path／symbol、caller／callee、impact、affected testを確認し、
+- [x] source編集前にCodegraphで既存test入口、planned owned path／symbol、caller／callee、impact、affected testを確認し、
   symbol不在を`new_surface_unknown`としてmanual boundary evidenceへ残す。
-- [ ] Lattice内へmonolithic dispatch fixtureと、現挙動を固定するinput／output／error matrixを追加する。
-- [ ] 通常manual state／effect evidence、shared-state negative control、固定query setをversioned inputとして追加する。
-- [ ] focused characterizationを1回greenにし、fixture baselineを独立commitする。
+- [x] Lattice内へmonolithic dispatch fixtureと、現挙動を固定するinput／output／error matrixを追加する。
+- [x] 通常manual state／effect evidence、shared-state negative control、固定query setをversioned inputとして追加する。
+- [x] focused characterizationを1回greenにし、fixture baselineを独立commitする。
 
 ### RC1-A／B／C — 閉ループの三laneを実装する
 
@@ -125,6 +125,8 @@ ready幅を増やす目的でhard dependencyを削らない。
   RC1必要subsetをexact key、bounded collection、canonical serialization、digest付きで実装する。
 - [ ] **RC1-B:** Codegraph 1.4.1の公開CLIからstatus、query、caller／callee、impact、affected testを収集し、
   absent／empty／stale／unsupported／unresolved／failureを区別するadapterを実装する。
+  `callers`／`callees`／`impact`は未存在symbolに`--json`を指定してもexit 0の非JSON textを返す実測があるため、
+  exit codeだけでなくstdoutのJSON parseとtyped absenceを検証する。
 - [ ] **RC1-C:** disposable worktree、bounded write scope、characterization verifier、diff artifact、rollback／cleanupを実装する。
 
 ### RC1-D／E／F — controlとtreatmentを閉じる
