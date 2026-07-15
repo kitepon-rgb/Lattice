@@ -6,6 +6,7 @@
 - predecessor: `lattice-research-campaign-1-v3`（[Phase-rejected archive](archive/2026-07-15-plan-lattice-research-campaign-1-v3-phase-rejected.md)、SHA-256 `13a5ffa8580ac54dd1b63a556736b7fa888010483780660029cb938399a9baf7`）
 - Phase gate Decision: [ADR 0016](adr/0016-rc1-v3-phase-gate-rejection.md)
 - Identifiability safety net: [ADR 0017](adr/0017-rc1-v4-identifiability-safety-net.md)
+- Evidence preimage Decision: [ADR 0020](adr/0020-rc1-v4-evidence-preimage-accepted.md)
 - RC1 root Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
 - Portability Decision: [ADR 0012](adr/0012-portable-codegraph-evidence-and-rc1-v3.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
@@ -156,11 +157,11 @@ candidate spec／query set／oracleの変更は親直轄で新plan versionを要
 
 ### RC1-K — evidence preimageとsource invariant
 
-- [ ] raw opaque receipt、sanitized diagnostic payload、canonical portable payloadを別schema／digestへ分ける。
-- [ ] control／treatment各2 runのfull portable payloadとper-query digestを保存する。
-- [ ] sanitization manifest外のfield削除と絶対path混入をfail closedにする。
-- [ ] protected source／test scopeの既存ignored content fingerprintを開始／終了で比較する。
-- [ ] artifactだけからportable aggregate digestを再計算するfocused testをgreenにする。
+- [x] raw opaque receipt、sanitized diagnostic payload、canonical portable payloadを別schema／digestへ分ける。
+- [x] control／treatment各2 runを受けるcampaign gateへfull portable payloadとper-query digestを保持する。
+- [x] sanitization manifest外のfield削除と絶対path混入をfail closedにする。
+- [x] protected source／test scopeの既存ignored content fingerprintを開始／終了で比較する。
+- [x] artifactだけからportable aggregate digestを再計算するfocused testをgreenにする。
 
 ### RC1-L — corrected closed loopを再発行する
 
