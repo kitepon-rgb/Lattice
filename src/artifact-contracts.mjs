@@ -355,6 +355,13 @@ function graphEvidence(value) {
     && digest(value.result_digest);
 }
 
+function manualEvidence(value) {
+  return exactRecord(value, ['id', 'todo_id', 'result_digest'])
+    && identifier(value.id)
+    && identifier(value.todo_id)
+    && digest(value.result_digest);
+}
+
 function manifestTodo(value) {
   const ownedKinds = new Set(['symbol', 'path']);
   return exactRecord(value, [
@@ -402,6 +409,7 @@ export function validateBoundaryManifest(value) {
       'plan_input_digest',
       'source',
       'graph_evidence',
+      'manual_evidence',
       'todos',
       'conflicts',
       'unknowns',
@@ -422,31 +430,50 @@ export function validateBoundaryManifest(value) {
       return false;
     }
     if (!boundedArray(manifest.graph_evidence, graphEvidence, { min: 1 })
+      || !boundedArray(manifest.manual_evidence, manualEvidence, { min: 1 })
       || !boundedArray(manifest.todos, manifestTodo, { min: 1 })
       || !boundedArray(manifest.conflicts, manifestConflict)
       || !uniqueStrings(manifest.unknowns)) {
       return false;
     }
 
-    const evidenceIds = new Set(manifest.graph_evidence.map((entry) => entry.id));
+    const graphEvidenceIds = new Set(manifest.graph_evidence.map((entry) => entry.id));
+    const manualEvidenceIds = new Set(manifest.manual_evidence.map((entry) => entry.id));
+    const evidenceIds = new Set([...graphEvidenceIds, ...manualEvidenceIds]);
     const todoIds = new Set(manifest.todos.map((todo) => todo.id));
     const conflictIds = new Set(manifest.conflicts.map((conflict) => conflict.id));
-    if (evidenceIds.size !== manifest.graph_evidence.length
+    const manualTodoIds = new Set(manifest.manual_evidence.map((entry) => entry.todo_id));
+    if (graphEvidenceIds.size !== manifest.graph_evidence.length
+      || manualEvidenceIds.size !== manifest.manual_evidence.length
+      || evidenceIds.size !== graphEvidenceIds.size + manualEvidenceIds.size
       || todoIds.size !== manifest.todos.length
-      || conflictIds.size !== manifest.conflicts.length) {
+      || conflictIds.size !== manifest.conflicts.length
+      || manualTodoIds.size !== manifest.manual_evidence.length
+      || manualTodoIds.size !== todoIds.size
+      || manifest.manual_evidence.some((entry) => !todoIds.has(entry.todo_id))) {
       return false;
     }
+    const manualByTodo = new Map(manifest.manual_evidence
+      .map((entry) => [entry.todo_id, entry.id]));
     for (const todo of manifest.todos) {
       if (todo.hard_needs.some((id) => id === todo.id || !todoIds.has(id))
         || todo.conflict_ids.some((id) => !conflictIds.has(id))
-        || todo.evidence_refs.some((id) => !evidenceIds.has(id))) {
+        || todo.evidence_refs.some((id) => !evidenceIds.has(id))
+        || !todo.evidence_refs.includes(manualByTodo.get(todo.id))) {
         return false;
       }
     }
     for (const conflict of manifest.conflicts) {
       const conflictResource = resourceKey(conflict.resource);
+      const requiresManualEvidence = conflict.kind === 'state'
+        || conflict.kind === 'effect'
+        || conflict.kind === 'dynamic_unknown';
       if (conflict.todo_ids.some((id) => !todoIds.has(id))
         || conflict.evidence_refs.some((id) => !evidenceIds.has(id))
+        || (conflict.kind === 'write_boundary'
+          && !conflict.evidence_refs.some((id) => graphEvidenceIds.has(id)))
+        || (requiresManualEvidence && conflict.todo_ids
+          .some((id) => !conflict.evidence_refs.includes(manualByTodo.get(id))))
         || conflict.todo_ids.some((id) => {
           const todo = manifest.todos.find((entry) => entry.id === id);
           const relevantResources = conflict.kind === 'write_boundary'

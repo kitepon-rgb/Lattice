@@ -49,6 +49,18 @@ function boundaryManifest() {
         result_digest: sha('f'),
       },
     ],
+    manual_evidence: [
+      {
+        id: 'manual-channel-policy',
+        todo_id: 'channel-policy',
+        result_digest: sha('1'),
+      },
+      {
+        id: 'manual-label-policy',
+        todo_id: 'label-policy',
+        result_digest: sha('2'),
+      },
+    ],
     todos: [
       {
         id: 'channel-policy',
@@ -65,7 +77,7 @@ function boundaryManifest() {
         conflict_ids: ['shared-dispatch-boundary'],
         unknowns: [],
         tests: ['test/research-dispatch-record.test.mjs'],
-        evidence_refs: ['query-build-dispatch-record'],
+        evidence_refs: ['query-build-dispatch-record', 'manual-channel-policy'],
       },
       {
         id: 'label-policy',
@@ -82,7 +94,7 @@ function boundaryManifest() {
         conflict_ids: ['shared-dispatch-boundary'],
         unknowns: [],
         tests: ['test/research-dispatch-record.test.mjs'],
-        evidence_refs: ['query-build-dispatch-record'],
+        evidence_refs: ['query-build-dispatch-record', 'manual-label-policy'],
       },
     ],
     conflicts: [
@@ -325,6 +337,14 @@ test('boundary manifest and verdict enforce exact typed evidence', () => {
   duplicateEvidence.graph_evidence.push(clone(duplicateEvidence.graph_evidence[0]));
   assert.equal(validateBoundaryManifest(duplicateEvidence), false);
 
+  const missingManualEvidence = clone(manifest);
+  missingManualEvidence.manual_evidence.pop();
+  assert.equal(validateBoundaryManifest(missingManualEvidence), false);
+
+  const collidingEvidenceId = clone(manifest);
+  collidingEvidenceId.manual_evidence[0].id = collidingEvidenceId.graph_evidence[0].id;
+  assert.equal(validateBoundaryManifest(collidingEvidenceId), false);
+
   const missingEvidence = clone(manifest);
   missingEvidence.todos[0].evidence_refs = ['not-recorded'];
   assert.equal(validateBoundaryManifest(missingEvidence), false);
@@ -332,6 +352,24 @@ test('boundary manifest and verdict enforce exact typed evidence', () => {
   const disconnectedConflict = clone(manifest);
   disconnectedConflict.conflicts[0].resource.target = 'notOwnedByEitherTodo';
   assert.equal(validateBoundaryManifest(disconnectedConflict), false);
+
+  const stateConflict = clone(manifest);
+  for (const todo of stateConflict.todos) {
+    todo.writes.push({ kind: 'state', target: 'dispatch-registry' });
+    todo.conflict_ids.push('shared-state-dispatch-registry');
+  }
+  stateConflict.conflicts.push({
+    id: 'shared-state-dispatch-registry',
+    kind: 'state',
+    todo_ids: ['channel-policy', 'label-policy'],
+    resource: { kind: 'state', target: 'dispatch-registry' },
+    evidence_refs: ['manual-channel-policy', 'manual-label-policy'],
+  });
+  assert.equal(validateBoundaryManifest(stateConflict), true);
+
+  const falseManualProvenance = clone(stateConflict);
+  falseManualProvenance.conflicts[1].evidence_refs = ['query-build-dispatch-record'];
+  assert.equal(validateBoundaryManifest(falseManualProvenance), false);
 
   const unsafeTest = clone(manifest);
   unsafeTest.todos[0].tests = ['../outside.test.mjs'];
