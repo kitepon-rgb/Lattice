@@ -1,0 +1,283 @@
+{
+  "schema": "lattice.boundary_manifest.v1",
+  "plan_input_digest": "c4b64dab54db09f20a7a6ba57003a8d2f444a0c878b9387a2bbc338fa6d87ee3",
+  "source": {
+    "code_snapshot_digest": "38c807d66d5b67b666b532f37c8a7d8ef350d5a7364dc3c68954977cd450ad22",
+    "query_set_digest": "4bb43307fb37f270dae26aa9b782b33adae507d655829f99f3007c8f2b9f7a94",
+    "manual_evidence_digest": "e995b6a7b70ff46b9df383bf15d940ef0d658b4a102e6f18a302a3d4e7851b5e",
+    "codegraph_version": "1.4.1"
+  },
+  "graph_evidence": [
+    {
+      "id": "status",
+      "operation": "status",
+      "status": "ready",
+      "result_digest": "a35bab145ca2980223b1a12a538c8eeba11bd3f537405977f31ee3ad184da0bb"
+    },
+    {
+      "id": "query-build-dispatch-record",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "7357b85278348f4daf14aeb2cad2ba0152fb3ae490fecdd93503354733f258da"
+    },
+    {
+      "id": "callers-build-dispatch-record",
+      "operation": "callers",
+      "status": "ready",
+      "result_digest": "96ebb602c6bb8ca09018dc6e23e114d33bf1103b855cf1f1d93d3367bfcea3c6"
+    },
+    {
+      "id": "callees-build-dispatch-record",
+      "operation": "callees",
+      "status": "ready",
+      "result_digest": "4d47869ab653c8b6dd84109e54514761c68f08bbbd0add348635820342381ac8"
+    },
+    {
+      "id": "impact-build-dispatch-record",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "3a7c2f130529fea747e13371202b1aaade608119986c94b37345046a72014e4d"
+    },
+    {
+      "id": "query-select-dispatch-channel",
+      "operation": "query",
+      "status": "symbol_absent",
+      "result_digest": "3494511d6679149439cfabd35813dc0ea57e1992ef201c4ec40d0b71acfacb6b"
+    },
+    {
+      "id": "callers-select-dispatch-channel",
+      "operation": "callers",
+      "status": "symbol_absent",
+      "result_digest": "8dd4c66795cdabafe32dade02c3f88d76547648f4819c849c088c399828b4c91"
+    },
+    {
+      "id": "impact-select-dispatch-channel",
+      "operation": "impact",
+      "status": "symbol_absent",
+      "result_digest": "2faa50cc4f5b633405711143995056782c3af6eda5c14cf4bfac62d87d60bd27"
+    },
+    {
+      "id": "query-format-dispatch-label",
+      "operation": "query",
+      "status": "symbol_absent",
+      "result_digest": "a4b6dd8482a0aa5ceffcb932a1d7898696cc4c6a6bad43fff6eabbb0be3b0f20"
+    },
+    {
+      "id": "callers-format-dispatch-label",
+      "operation": "callers",
+      "status": "symbol_absent",
+      "result_digest": "538234176fb344dd0cab6034c0eb5702e921db14b7f9a700cca75f7c731a08cd"
+    },
+    {
+      "id": "impact-format-dispatch-label",
+      "operation": "impact",
+      "status": "symbol_absent",
+      "result_digest": "e7f3379ee77d737d21ca9caddf393a44518588b183d005f0144baf17c499d96b"
+    },
+    {
+      "id": "query-shared-composition-test",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "fa3b204f097f45101dd989fe364e8cb71abed8942dbbd3004f2f31227a9a9987"
+    },
+    {
+      "id": "query-channel-policy-contract",
+      "operation": "query",
+      "status": "symbol_absent",
+      "result_digest": "cf8b3054e86af0ae11107fcf3c63f1cbf0efb9adb64692ea5d4108798a7048f7"
+    },
+    {
+      "id": "impact-channel-policy-contract",
+      "operation": "impact",
+      "status": "symbol_absent",
+      "result_digest": "26ac0eaf77e750a2de723ba52177f5fd6b1373ac39684c1b3e8ac0b10cf1583f"
+    },
+    {
+      "id": "query-label-policy-contract",
+      "operation": "query",
+      "status": "symbol_absent",
+      "result_digest": "c43db61656ad0ff486c98e2335f687553b900de392fe0278d485d290207e75e9"
+    },
+    {
+      "id": "impact-label-policy-contract",
+      "operation": "impact",
+      "status": "symbol_absent",
+      "result_digest": "9bf9119ad0c7c6885f15c5988a9b5340dc2297848808249da1dafa1df02a43dc"
+    },
+    {
+      "id": "affected-rc1-production-and-tests",
+      "operation": "affected",
+      "status": "unresolved",
+      "result_digest": "3af4e0985259b13b5e05e7011251fd4bd93b47d588e2e2a484949288b3aa3d33"
+    }
+  ],
+  "manual_evidence": [
+    {
+      "id": "manual-channel-policy",
+      "todo_id": "channel-policy",
+      "result_digest": "cc0330eb48242f6f05d605ce533600259b57b4d455eed41783cd035a11dec8a3"
+    },
+    {
+      "id": "manual-label-policy",
+      "todo_id": "label-policy",
+      "result_digest": "b2a781c3ef5b236ea7be5a0b6c829c715731496896bfc6fc4792daa240d12969"
+    }
+  ],
+  "todos": [
+    {
+      "id": "channel-policy",
+      "owns": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-record.test.mjs"
+        },
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        }
+      ],
+      "reads": [],
+      "writes": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-record.test.mjs"
+        },
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        }
+      ],
+      "hard_needs": [],
+      "conflict_ids": [
+        "write-overlap-001",
+        "write-overlap-002",
+        "write-overlap-003"
+      ],
+      "unknowns": [],
+      "tests": [
+        "test/research-dispatch-record.test.mjs"
+      ],
+      "evidence_refs": [
+        "callees-build-dispatch-record",
+        "impact-build-dispatch-record",
+        "manual-channel-policy",
+        "query-build-dispatch-record",
+        "query-shared-composition-test"
+      ]
+    },
+    {
+      "id": "label-policy",
+      "owns": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-record.test.mjs"
+        },
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        }
+      ],
+      "reads": [],
+      "writes": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-record.test.mjs"
+        },
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        }
+      ],
+      "hard_needs": [],
+      "conflict_ids": [
+        "write-overlap-001",
+        "write-overlap-002",
+        "write-overlap-003"
+      ],
+      "unknowns": [],
+      "tests": [
+        "test/research-dispatch-record.test.mjs"
+      ],
+      "evidence_refs": [
+        "callees-build-dispatch-record",
+        "impact-build-dispatch-record",
+        "manual-label-policy",
+        "query-build-dispatch-record",
+        "query-shared-composition-test"
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "write-overlap-001",
+      "kind": "write_boundary",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "resource": {
+        "kind": "path",
+        "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+      },
+      "evidence_refs": [
+        "callees-build-dispatch-record",
+        "impact-build-dispatch-record",
+        "query-build-dispatch-record",
+        "query-shared-composition-test"
+      ]
+    },
+    {
+      "id": "write-overlap-002",
+      "kind": "write_boundary",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "resource": {
+        "kind": "path",
+        "target": "test/research-dispatch-record.test.mjs"
+      },
+      "evidence_refs": [
+        "callees-build-dispatch-record",
+        "impact-build-dispatch-record",
+        "query-build-dispatch-record",
+        "query-shared-composition-test"
+      ]
+    },
+    {
+      "id": "write-overlap-003",
+      "kind": "write_boundary",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "resource": {
+        "kind": "symbol",
+        "target": "buildDispatchRecord"
+      },
+      "evidence_refs": [
+        "callees-build-dispatch-record",
+        "impact-build-dispatch-record",
+        "query-build-dispatch-record",
+        "query-shared-composition-test"
+      ]
+    }
+  ],
+  "unknowns": []
+}

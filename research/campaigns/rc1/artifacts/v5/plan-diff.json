@@ -1,0 +1,78 @@
+{
+  "schema": "lattice.plan_diff.v2",
+  "old_plan": {
+    "version": "rc1-v5-control",
+    "digest": "50569a0880b56976fd139655e51ac5df81dfcb08d7581d2e0bd241132976ec8c"
+  },
+  "new_plan": {
+    "version": "rc1-v5-treatment",
+    "digest": "aa0df2d994b12908a5ab27f7215700b2e372d0a6193cb99423dbac513b43c2be"
+  },
+  "causal_predecessor": {
+    "plan_version": "lattice-research-campaign-1-v4",
+    "decision_ref": "docs/adr/0022-rc1-v4-phase-gate-rejection.md",
+    "status": "phase_rejected"
+  },
+  "transform": {
+    "status": "accepted",
+    "artifact_digest": "f9f6810c721411ee101be282290bf813a7e54cfe624cfc4a6fa510bbfdfef313",
+    "receipt_digest": "14a67ce14174866d52e8cfcd240a1fc46740198d7479c51ffc0d845666fccac9",
+    "patch_digest": "016e2e40a758b1588d9fe0daf8bb97027c5ae6c509ce9a77951a8ff3ccf1a307",
+    "changed_paths": [
+      "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+      "test/research-dispatch-channel.test.mjs",
+      "test/research-dispatch-label.test.mjs",
+      "test/research-dispatch-record.test.mjs"
+    ]
+  },
+  "nodes": {
+    "added": [],
+    "removed": [],
+    "changed": [
+      "channel-policy",
+      "label-policy"
+    ]
+  },
+  "edges": {
+    "added": [],
+    "removed": [
+      "write-overlap-001",
+      "write-overlap-002",
+      "write-overlap-003"
+    ]
+  },
+  "invalidated_contexts": [
+    {
+      "kind": "old_plan",
+      "ref": "lattice-research-campaign-1-v4",
+      "reason": "v4 machine support was rejected by ADR 0022 and cannot receive v5 topology updates"
+    },
+    {
+      "kind": "agent_context",
+      "ref": "lattice-research-campaign-1-v4-agent-context",
+      "reason": "v4 agent context admits behavior evidence without full snapshot and patch identity"
+    },
+    {
+      "kind": "partial_patch",
+      "ref": "lattice-research-campaign-1-v4-partial-patch",
+      "reason": "patches based on v4 behavior summaries cannot cross the v5 version barrier"
+    },
+    {
+      "kind": "interface_assumption",
+      "ref": "receipt-reuse-is-behavior-evidence",
+      "reason": "pre and post receipts must be distinct and exact-snapshot-bound in v5"
+    }
+  ],
+  "metrics": {
+    "write_conflicts_before": 3,
+    "write_conflicts_after": 0,
+    "test_write_conflicts_before": 1,
+    "test_write_conflicts_after": 0,
+    "hard_precedence_before": 0,
+    "hard_precedence_after": 0,
+    "minimum_feasible_waves_before": 2,
+    "minimum_feasible_waves_after": 1
+  }
+}

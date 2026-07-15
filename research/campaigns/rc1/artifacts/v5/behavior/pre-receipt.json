@@ -1,0 +1,109 @@
+{
+  "schema": "lattice.rc1.black_box_behavior_receipt.v3",
+  "role": "pre",
+  "base_sha": "b5e1029418b1eba8a0fb61215361e577f0065928",
+  "oracle_digest": "abb844fa0325140cb4e73365f02429f2ec0b6006bd2b5bcc88f4727b988e7d23",
+  "entrypoint": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+  "export_name": "buildDispatchRecord",
+  "entrypoint_content_digest": "fd6d263037ada1dea778f7cd4be9f8303a4b9e4326b8789ef53e1e23c3d18930",
+  "surface": {
+    "schema": "lattice.rc1.behavior_surface_snapshot.v1",
+    "files": [
+      {
+        "path": "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+        "state": "absent",
+        "content_digest": null
+      },
+      {
+        "path": "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+        "state": "absent",
+        "content_digest": null
+      },
+      {
+        "path": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+        "state": "present",
+        "content_digest": "fd6d263037ada1dea778f7cd4be9f8303a4b9e4326b8789ef53e1e23c3d18930"
+      },
+      {
+        "path": "test/research-dispatch-channel.test.mjs",
+        "state": "absent",
+        "content_digest": null
+      },
+      {
+        "path": "test/research-dispatch-label.test.mjs",
+        "state": "absent",
+        "content_digest": null
+      },
+      {
+        "path": "test/research-dispatch-record.test.mjs",
+        "state": "present",
+        "content_digest": "ab112d02e1d84e6b22eeef6badeb9e40fa6e02428ad6b6a2b7ecbfd11251e24f"
+      }
+    ]
+  },
+  "surface_digest": "f3083554ac0daa448462c6ffb8bc6ae20d4506ef52dee04f20acdd8930f8413a",
+  "observation": {
+    "before_surface_digest": "f3083554ac0daa448462c6ffb8bc6ae20d4506ef52dee04f20acdd8930f8413a",
+    "after_surface_digest": "f3083554ac0daa448462c6ffb8bc6ae20d4506ef52dee04f20acdd8930f8413a"
+  },
+  "outcome": "passed",
+  "case_results": [
+    {
+      "id": "urgent-record",
+      "outcome": "passed",
+      "observed_kind": "return",
+      "expected_digest": "3f53a88e705a1fca4b7ca054ed9ab9dcedd40bd0abac7149b8c015aacd20c171",
+      "observed_digest": "3f53a88e705a1fca4b7ca054ed9ab9dcedd40bd0abac7149b8c015aacd20c171"
+    },
+    {
+      "id": "routine-record",
+      "outcome": "passed",
+      "observed_kind": "return",
+      "expected_digest": "4ea867801ae58009c745d525bd01776df27a9b5fa0e0f435053be80f631edbd4",
+      "observed_digest": "4ea867801ae58009c745d525bd01776df27a9b5fa0e0f435053be80f631edbd4"
+    },
+    {
+      "id": "null-input",
+      "outcome": "passed",
+      "observed_kind": "throw",
+      "expected_digest": "20898fc4d70eef8c52befa0ce4d183cf753b5129934aa22670c952282fff8179",
+      "observed_digest": "20898fc4d70eef8c52befa0ce4d183cf753b5129934aa22670c952282fff8179"
+    },
+    {
+      "id": "missing-key",
+      "outcome": "passed",
+      "observed_kind": "throw",
+      "expected_digest": "20898fc4d70eef8c52befa0ce4d183cf753b5129934aa22670c952282fff8179",
+      "observed_digest": "20898fc4d70eef8c52befa0ce4d183cf753b5129934aa22670c952282fff8179"
+    },
+    {
+      "id": "extra-key",
+      "outcome": "passed",
+      "observed_kind": "throw",
+      "expected_digest": "20898fc4d70eef8c52befa0ce4d183cf753b5129934aa22670c952282fff8179",
+      "observed_digest": "20898fc4d70eef8c52befa0ce4d183cf753b5129934aa22670c952282fff8179"
+    },
+    {
+      "id": "invalid-priority",
+      "outcome": "passed",
+      "observed_kind": "throw",
+      "expected_digest": "8ebdc43270c5fa9a7ac0e72bc58897a189c6df48440554f082e2bb3764be09aa",
+      "observed_digest": "8ebdc43270c5fa9a7ac0e72bc58897a189c6df48440554f082e2bb3764be09aa"
+    },
+    {
+      "id": "empty-recipient",
+      "outcome": "passed",
+      "observed_kind": "throw",
+      "expected_digest": "bf06e563ec0a550bf849d054cd349c09f788bc545c76848c4e738c8c8a43bd2a",
+      "observed_digest": "bf06e563ec0a550bf849d054cd349c09f788bc545c76848c4e738c8c8a43bd2a"
+    },
+    {
+      "id": "empty-title",
+      "outcome": "passed",
+      "observed_kind": "throw",
+      "expected_digest": "886afbcd24cd082439bb4a77459083e755d01041fe6f4175d61651b05bdeae0a",
+      "observed_digest": "886afbcd24cd082439bb4a77459083e755d01041fe6f4175d61651b05bdeae0a"
+    }
+  ],
+  "receipt_digest": "692d7b97166077b8f529e5903f8607f61ca6a10098f857ae4c2802f931d5d26b"
+}

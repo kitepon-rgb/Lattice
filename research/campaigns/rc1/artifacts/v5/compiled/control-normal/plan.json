@@ -1,0 +1,100 @@
+{
+  "schema": "lattice.plan_graph.v1",
+  "plan_version": "rc1-v5-control",
+  "source_manifest_digest": "e24bff44936ce79dce86d1260e62334edebc36d26fd7b675743ca84b50532ff4",
+  "capacity": {
+    "writers": 2
+  },
+  "nodes": [
+    {
+      "id": "channel-policy",
+      "outcome": "routine priority maps to the batch dispatch channel",
+      "owned_boundaries": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-record.test.mjs"
+        },
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        }
+      ]
+    },
+    {
+      "id": "label-policy",
+      "outcome": "dispatch labels use a slash separator",
+      "owned_boundaries": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-record.test.mjs"
+        },
+        {
+          "kind": "symbol",
+          "target": "buildDispatchRecord"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "write-overlap-001",
+      "from": "channel-policy",
+      "to": "label-policy",
+      "kind": "write_conflict",
+      "evidence_refs": [
+        "callees-build-dispatch-record",
+        "impact-build-dispatch-record",
+        "query-build-dispatch-record",
+        "query-shared-composition-test"
+      ]
+    },
+    {
+      "id": "write-overlap-002",
+      "from": "channel-policy",
+      "to": "label-policy",
+      "kind": "write_conflict",
+      "evidence_refs": [
+        "callees-build-dispatch-record",
+        "impact-build-dispatch-record",
+        "query-build-dispatch-record",
+        "query-shared-composition-test"
+      ]
+    },
+    {
+      "id": "write-overlap-003",
+      "from": "channel-policy",
+      "to": "label-policy",
+      "kind": "write_conflict",
+      "evidence_refs": [
+        "callees-build-dispatch-record",
+        "impact-build-dispatch-record",
+        "query-build-dispatch-record",
+        "query-shared-composition-test"
+      ]
+    }
+  ],
+  "joins": [],
+  "waves": [
+    {
+      "index": 0,
+      "todo_ids": [
+        "channel-policy"
+      ]
+    },
+    {
+      "index": 1,
+      "todo_ids": [
+        "label-policy"
+      ]
+    }
+  ],
+  "minimum_feasible_waves": 2
+}

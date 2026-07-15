@@ -1,0 +1,128 @@
+{
+  "schema": "lattice.rc1.boundary_candidate_spec.v2",
+  "candidate_id": "extract-dispatch-production-and-test-policies",
+  "plan_input_ref": "research/campaigns/rc1/inputs/plan-input.json",
+  "query_set_ref": "research/campaigns/rc1/inputs/query-set-v2.json",
+  "behavior_oracle_ref": "research/campaigns/rc1/inputs/behavior-oracle-v2.json",
+  "compiler_contract": {
+    "condition_selector": "forbidden",
+    "surface_resolution": "exact_graph_name_or_qualified_name_at_expected_path",
+    "proposed_activation": "all_proposed_production_and_test_surfaces_exact",
+    "unresolved_policy": "typed_unknown",
+    "conflict_rule": "pairwise_write_resource_intersection"
+  },
+  "stable_surfaces": [
+    {
+      "kind": "symbol",
+      "target": "buildDispatchRecord",
+      "path": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+      "role": "composition_entry",
+      "active_when": "always"
+    },
+    {
+      "kind": "path",
+      "target": "test/research-dispatch-record.test.mjs",
+      "path": "test/research-dispatch-record.test.mjs",
+      "role": "stable_composition_contract",
+      "active_when": "proposed"
+    }
+  ],
+  "todos": [
+    {
+      "todo_id": "channel-policy",
+      "outcome": "routine priority maps to the batch dispatch channel",
+      "current": {
+        "production": {
+          "symbol": "buildDispatchRecord",
+          "path": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+          "query_id": "query-build-dispatch-record",
+          "impact_id": "impact-build-dispatch-record",
+          "link_query_id": "callees-build-dispatch-record"
+        },
+        "tests": [
+          {
+            "symbol": null,
+            "path": "test/research-dispatch-record.test.mjs",
+            "query_id": "query-shared-composition-test",
+            "impact_id": null,
+            "assertion_id": "routine-channel-output",
+            "provenance": {
+              "kind": "todo_outcome",
+              "ref": "research/campaigns/rc1/inputs/plan-input.json#channel-policy"
+            }
+          }
+        ]
+      },
+      "proposed": {
+        "production": {
+          "symbol": "selectDispatchChannel",
+          "path": "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+          "query_id": "query-select-dispatch-channel",
+          "impact_id": "impact-select-dispatch-channel",
+          "link_query_id": "callers-select-dispatch-channel"
+        },
+        "tests": [
+          {
+            "symbol": "channelPolicyContract",
+            "path": "test/research-dispatch-channel.test.mjs",
+            "query_id": "query-channel-policy-contract",
+            "impact_id": "impact-channel-policy-contract",
+            "assertion_id": "routine-channel-output",
+            "provenance": {
+              "kind": "todo_outcome",
+              "ref": "research/campaigns/rc1/inputs/plan-input.json#channel-policy"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "todo_id": "label-policy",
+      "outcome": "dispatch labels use a slash separator",
+      "current": {
+        "production": {
+          "symbol": "buildDispatchRecord",
+          "path": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+          "query_id": "query-build-dispatch-record",
+          "impact_id": "impact-build-dispatch-record",
+          "link_query_id": "callees-build-dispatch-record"
+        },
+        "tests": [
+          {
+            "symbol": null,
+            "path": "test/research-dispatch-record.test.mjs",
+            "query_id": "query-shared-composition-test",
+            "impact_id": null,
+            "assertion_id": "label-separator-output",
+            "provenance": {
+              "kind": "todo_outcome",
+              "ref": "research/campaigns/rc1/inputs/plan-input.json#label-policy"
+            }
+          }
+        ]
+      },
+      "proposed": {
+        "production": {
+          "symbol": "formatDispatchLabel",
+          "path": "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+          "query_id": "query-format-dispatch-label",
+          "impact_id": "impact-format-dispatch-label",
+          "link_query_id": "callers-format-dispatch-label"
+        },
+        "tests": [
+          {
+            "symbol": "labelPolicyContract",
+            "path": "test/research-dispatch-label.test.mjs",
+            "query_id": "query-label-policy-contract",
+            "impact_id": "impact-label-policy-contract",
+            "assertion_id": "label-separator-output",
+            "provenance": {
+              "kind": "todo_outcome",
+              "ref": "research/campaigns/rc1/inputs/plan-input.json#label-policy"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

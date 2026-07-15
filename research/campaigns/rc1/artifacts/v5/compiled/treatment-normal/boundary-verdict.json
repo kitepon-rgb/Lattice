@@ -1,0 +1,20 @@
+{
+  "schema": "lattice.boundary_verdict.v1",
+  "boundary_manifest_digest": "645ab0c679587c7bd5cb206be32535aa6c5c95e28b2aede587fc05f1578eafee",
+  "verdicts": [
+    {
+      "id": "channel-label-verdict-v4",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "verdict": "parallel_ready",
+      "conflict_ids": [],
+      "seam_candidate": null,
+      "reasons": [
+        "same compilerが全production/test write resourceの非重複を導出した"
+      ],
+      "unknowns": []
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema": "lattice.rc1.seam_transform_receipt.v5",
+  "status": "accepted",
+  "transform_artifact_digest": "f9f6810c721411ee101be282290bf813a7e54cfe624cfc4a6fa510bbfdfef313",
+  "behavior_envelope_digest": "02fdcac26dd88aea83f58f612c9e7adf9b2c6ff97f8c7837c4cc6e5d93846e67",
+  "fixed_inputs_digest": "82b51edae778161ca92796834dd76f6bc91b55fc80c6bd69461d7d5a30c5a2ce",
+  "source_invariant": {
+    "schema": "lattice.source_invariant_receipt.v1",
+    "protected_paths": [
+      "src",
+      "test"
+    ],
+    "outcome": "passed",
+    "head": {
+      "before": "b5e1029418b1eba8a0fb61215361e577f0065928",
+      "after": "b5e1029418b1eba8a0fb61215361e577f0065928",
+      "equal": true
+    },
+    "visible_status": {
+      "before_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "after_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "equal": true
+    },
+    "ignored_paths": {
+      "before_digest": "6a89d33cdb0ed7f4450fb5f2b0d3dadce87e09c787ccaf6aa7fce29c5d65dd19",
+      "after_digest": "6a89d33cdb0ed7f4450fb5f2b0d3dadce87e09c787ccaf6aa7fce29c5d65dd19",
+      "equal": true
+    },
+    "protected_content": {
+      "before_digest": "5f577f0d1c4577132ac69cda8e7ac09fc35bbd008e5cb0f36375f937f2a6232c",
+      "after_digest": "5f577f0d1c4577132ac69cda8e7ac09fc35bbd008e5cb0f36375f937f2a6232c",
+      "before_entry_count": 45,
+      "after_entry_count": 45,
+      "equal": true
+    }
+  },
+  "receipt_digest": "14a67ce14174866d52e8cfcd240a1fc46740198d7479c51ffc0d845666fccac9"
+}

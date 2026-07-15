@@ -1,0 +1,122 @@
+{
+  "schema": "lattice.rc1.black_box_behavior_oracle.v2",
+  "entrypoint": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+  "export_name": "buildDispatchRecord",
+  "executor_ref": "src/rc1-black-box-oracle.mjs",
+  "transform_scope_contract": {
+    "oracle_input_writable": false,
+    "executor_writable": false,
+    "excluded_paths": [
+      "research/campaigns/rc1/inputs/behavior-oracle-v2.json",
+      "src/rc1-black-box-oracle.mjs"
+    ]
+  },
+  "cases": [
+    {
+      "id": "urgent-record",
+      "input": {
+        "priority": "urgent",
+        "recipient": " ops ",
+        "title": " Database down "
+      },
+      "expected": {
+        "kind": "return",
+        "value": {
+          "channel": "pager",
+          "label": "ops:Database down"
+        },
+        "frozen": true
+      }
+    },
+    {
+      "id": "routine-record",
+      "input": {
+        "priority": "routine",
+        "recipient": "team-a",
+        "title": "Weekly digest"
+      },
+      "expected": {
+        "kind": "return",
+        "value": {
+          "channel": "queue",
+          "label": "team-a:Weekly digest"
+        },
+        "frozen": true
+      }
+    },
+    {
+      "id": "null-input",
+      "input": null,
+      "expected": {
+        "kind": "throw",
+        "name": "TypeError",
+        "message": "dispatch input must be a plain object with exact keys: priority, recipient, title"
+      }
+    },
+    {
+      "id": "missing-key",
+      "input": {
+        "priority": "routine",
+        "recipient": "ops"
+      },
+      "expected": {
+        "kind": "throw",
+        "name": "TypeError",
+        "message": "dispatch input must be a plain object with exact keys: priority, recipient, title"
+      }
+    },
+    {
+      "id": "extra-key",
+      "input": {
+        "priority": "routine",
+        "recipient": "ops",
+        "title": "x",
+        "extra": true
+      },
+      "expected": {
+        "kind": "throw",
+        "name": "TypeError",
+        "message": "dispatch input must be a plain object with exact keys: priority, recipient, title"
+      }
+    },
+    {
+      "id": "invalid-priority",
+      "input": {
+        "priority": "later",
+        "recipient": "ops",
+        "title": "x"
+      },
+      "expected": {
+        "kind": "throw",
+        "name": "TypeError",
+        "message": "priority must be urgent or routine"
+      }
+    },
+    {
+      "id": "empty-recipient",
+      "input": {
+        "priority": "routine",
+        "recipient": " ",
+        "title": "x"
+      },
+      "expected": {
+        "kind": "throw",
+        "name": "TypeError",
+        "message": "recipient must be a non-empty string"
+      }
+    },
+    {
+      "id": "empty-title",
+      "input": {
+        "priority": "routine",
+        "recipient": "ops",
+        "title": ""
+      },
+      "expected": {
+        "kind": "throw",
+        "name": "TypeError",
+        "message": "title must be a non-empty string"
+      }
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "schema": "lattice.boundary_verdict.v1",
+  "boundary_manifest_digest": "e24bff44936ce79dce86d1260e62334edebc36d26fd7b675743ca84b50532ff4",
+  "verdicts": [
+    {
+      "id": "channel-label-verdict-v4",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "verdict": "seam_candidate",
+      "conflict_ids": [
+        "write-overlap-001",
+        "write-overlap-002",
+        "write-overlap-003"
+      ],
+      "seam_candidate": {
+        "id": "extract-dispatch-production-and-test-policies",
+        "proposed_owns": [
+          {
+            "todo_id": "channel-policy",
+            "resources": [
+              {
+                "kind": "path",
+                "target": "research/fixtures/dispatch-record/src/dispatch-channel.mjs"
+              },
+              {
+                "kind": "path",
+                "target": "test/research-dispatch-channel.test.mjs"
+              },
+              {
+                "kind": "symbol",
+                "target": "channelPolicyContract"
+              },
+              {
+                "kind": "symbol",
+                "target": "selectDispatchChannel"
+              }
+            ]
+          },
+          {
+            "todo_id": "label-policy",
+            "resources": [
+              {
+                "kind": "path",
+                "target": "research/fixtures/dispatch-record/src/dispatch-label.mjs"
+              },
+              {
+                "kind": "path",
+                "target": "test/research-dispatch-label.test.mjs"
+              },
+              {
+                "kind": "symbol",
+                "target": "formatDispatchLabel"
+              },
+              {
+                "kind": "symbol",
+                "target": "labelPolicyContract"
+              }
+            ]
+          }
+        ],
+        "preconditions": [
+          "all proposed production and test surfaces resolve exactly",
+          "transform-external black-box oracle passes before and after"
+        ]
+      },
+      "reasons": [
+        "current production/test write overlapはcandidate specのproposed surfaceへ切断可能"
+      ],
+      "unknowns": []
+    }
+  ]
+}

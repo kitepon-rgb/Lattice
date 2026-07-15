@@ -1,0 +1,33 @@
+{
+  "schema": "lattice.plan_input.v1",
+  "project": {
+    "root": ".",
+    "fixture_entry": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+  },
+  "plan_version": "rc1-control-v1",
+  "capacity": {
+    "writers": 2
+  },
+  "todos": [
+    {
+      "id": "channel-policy",
+      "outcome": "routine priority maps to the batch dispatch channel",
+      "concern": "dispatch.channel_policy",
+      "anchor": {
+        "symbol": "buildDispatchRecord",
+        "path": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+      }
+    },
+    {
+      "id": "label-policy",
+      "outcome": "dispatch labels use a slash separator",
+      "concern": "dispatch.label_policy",
+      "anchor": {
+        "symbol": "buildDispatchRecord",
+        "path": "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+      }
+    }
+  ],
+  "manual_evidence_ref": "research/campaigns/rc1/inputs/manual-evidence.normal.json",
+  "query_set_ref": "research/campaigns/rc1/inputs/query-set.json"
+}
