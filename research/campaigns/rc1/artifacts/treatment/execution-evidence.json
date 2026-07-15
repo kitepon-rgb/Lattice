@@ -1,0 +1,62 @@
+{
+  "schema": "lattice.rc1.seam_transform_execution_evidence.v1",
+  "observed_at": "2026-07-15T15:12:10.734Z",
+  "executor_head": "d2887f22fbb5f5c42cac797bf92927b47ab3ab4d",
+  "experiment_base_sha": "d2d412800492fbed03febe02abc6dca81c09a88b",
+  "input_digests": {
+    "boundary_manifest": "033481a45c95cef9a80caa38abefa7967d7aa42e6060e891e0f24b6470cbef72",
+    "boundary_verdict": "a716d3bdd986730046a4b67a26172e4ddee4b02655822037c4672232077078fe",
+    "control_plan": "2799806b65c2749d9da34855e59d6cc3eaea9d749344e42f8e90c98eb58903c1",
+    "query_set": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+    "control_compilation_evidence": "30054f77c0673f610752bb352ab159b22524d0374ca271672b7422c55b928ba2"
+  },
+  "runs": {
+    "accepted_primary": {
+      "elapsed_ms": 391.739,
+      "artifact_digest": "7a667a1885928acd13b514e6bc10a68f5254392276561298c2b6d2544b374a4b"
+    },
+    "accepted_repeat": {
+      "elapsed_ms": 280.538,
+      "artifact_digest": "7a667a1885928acd13b514e6bc10a68f5254392276561298c2b6d2544b374a4b"
+    },
+    "scope_rejection": {
+      "elapsed_ms": 65.065,
+      "artifact_digest": "6ec29efa14624850a77b2f45ee30691d7befc17e1af75fb6b5d68b1d56d085af",
+      "kind": "scope_violation"
+    },
+    "behavior_rejection": {
+      "elapsed_ms": 158.83,
+      "artifact_digest": "00863e9f9ca71557ab108ed6eb005aced3efc726df8cbcaa0a488a8041209bef",
+      "kind": "behavior_verification_failed"
+    }
+  },
+  "artifacts": {
+    "transform": {
+      "digest": "7a667a1885928acd13b514e6bc10a68f5254392276561298c2b6d2544b374a4b",
+      "canonical_bytes": 2237
+    },
+    "scope_rejection": {
+      "digest": "6ec29efa14624850a77b2f45ee30691d7befc17e1af75fb6b5d68b1d56d085af",
+      "canonical_bytes": 1377
+    },
+    "behavior_rejection": {
+      "digest": "00863e9f9ca71557ab108ed6eb005aced3efc726df8cbcaa0a488a8041209bef",
+      "canonical_bytes": 1818
+    },
+    "patch": {
+      "digest": "acefad450f77906d21e1712c710c1ed91e199d9607d7c6703e8378abeb1f92af",
+      "bytes": 2815
+    }
+  },
+  "observed_facts": {
+    "deterministic_repeat": true,
+    "same_control_base": true,
+    "characterization_passed": true,
+    "scope_rejection": "scope_violation",
+    "behavior_rejection": "behavior_verification_failed",
+    "git_apply_check": "passed",
+    "source_unchanged": true,
+    "cleanup": "passed"
+  },
+  "presentation_note": "JSON files are pretty-encoded for review. Digests and canonical_bytes refer to Lattice canonical serialization; seam.patch digest and bytes refer to raw patch bytes."
+}

@@ -1,0 +1,71 @@
+{
+  "schema": "lattice.transform_artifact.v1",
+  "candidate_id": "extract-dispatch-policies",
+  "status": "accepted",
+  "source": {
+    "base_sha": "d2d412800492fbed03febe02abc6dca81c09a88b",
+    "boundary_manifest_digest": "033481a45c95cef9a80caa38abefa7967d7aa42e6060e891e0f24b6470cbef72",
+    "boundary_verdict_digest": "a716d3bdd986730046a4b67a26172e4ddee4b02655822037c4672232077078fe",
+    "control_plan_digest": "2799806b65c2749d9da34855e59d6cc3eaea9d749344e42f8e90c98eb58903c1",
+    "query_set_digest": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+    "code_snapshot_digest": "cbe59c4a21540fbe1b391b6c3c14e1c5f2228190ad19e32249a01c0241b539aa"
+  },
+  "scope": {
+    "allowed_paths": [
+      "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+    ],
+    "changed_paths": [
+      "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+    ]
+  },
+  "patch": {
+    "digest": "acefad450f77906d21e1712c710c1ed91e199d9607d7c6703e8378abeb1f92af",
+    "bytes": 2815
+  },
+  "verification": {
+    "status": "passed",
+    "digest": "893cbf613d0b15a87c3d98638ec371a568dd204a0fe0f8eaf1a17e624d493e7d",
+    "receipts": [
+      {
+        "id": "dispatch-characterization",
+        "command": "node",
+        "args": [
+          "--test",
+          "--test-reporter=dot",
+          "test/research-dispatch-record.test.mjs"
+        ],
+        "outcome": "passed",
+        "exit_code": 0,
+        "stdout_digest": "a00c3b59d5e9e2d8ad78e29258e13b5cf4807919ebb5a523c199e8da1cda91b9",
+        "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "output": {
+    "snapshot_digest": "7ce1695afcab0a91949753b4085233b333ecd03d1f5fabf22b1d4db4ff8d5d36",
+    "files": [
+      {
+        "path": "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+        "content_digest": "bd3383b1ba7e8215526f1a4766a9a04199ff0bfca07825f0bbb8d89b3ba8f7c7"
+      },
+      {
+        "path": "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+        "content_digest": "3f0016524a1acfbf040a5bd7d34451e82ec4bd976812cad615cabb05f5cb33a1"
+      },
+      {
+        "path": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+        "content_digest": "ea7c46711efa3be3623ab4c55daecbf2f8b360edeead85c9ac4328d5fbb3adf5"
+      }
+    ]
+  },
+  "cleanup": {
+    "status": "passed",
+    "source_status": "unchanged"
+  },
+  "rejection": null,
+  "unknowns": []
+}

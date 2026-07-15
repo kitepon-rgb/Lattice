@@ -1,0 +1,64 @@
+{
+  "schema": "lattice.transform_artifact.v1",
+  "candidate_id": "extract-dispatch-policies",
+  "status": "rejected",
+  "source": {
+    "base_sha": "d2d412800492fbed03febe02abc6dca81c09a88b",
+    "boundary_manifest_digest": "033481a45c95cef9a80caa38abefa7967d7aa42e6060e891e0f24b6470cbef72",
+    "boundary_verdict_digest": "a716d3bdd986730046a4b67a26172e4ddee4b02655822037c4672232077078fe",
+    "control_plan_digest": "2799806b65c2749d9da34855e59d6cc3eaea9d749344e42f8e90c98eb58903c1",
+    "query_set_digest": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+    "code_snapshot_digest": "cbe59c4a21540fbe1b391b6c3c14e1c5f2228190ad19e32249a01c0241b539aa"
+  },
+  "scope": {
+    "allowed_paths": [
+      "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+    ],
+    "changed_paths": [
+      "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+    ]
+  },
+  "patch": {
+    "digest": "7d0be17fd8e178ab93e15a426903be3084d844be461bf5665c2ebac21a42eb8a",
+    "bytes": 1752
+  },
+  "verification": {
+    "status": "failed",
+    "digest": "b7ab086ac9152893554b0011c8b0a5ba59f1799e73d88f135b9087cf7c14b7dd",
+    "receipts": [
+      {
+        "id": "dispatch-characterization",
+        "command": "node",
+        "args": [
+          "--test",
+          "--test-reporter=dot",
+          "test/research-dispatch-record.test.mjs"
+        ],
+        "outcome": "failed",
+        "exit_code": 1,
+        "stdout_digest": "56c95c70a1574918bfdf2a2fea861dc7259b6b1454af10464d1cea0cc14e966f",
+        "stderr_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "output": {
+    "snapshot_digest": null,
+    "files": []
+  },
+  "cleanup": {
+    "status": "passed",
+    "source_status": "unchanged"
+  },
+  "rejection": {
+    "kind": "behavior_verification_failed",
+    "reasons": [
+      "verifier failed (1): node"
+    ],
+    "evidence_digest": "aa6b5b7a56ad02106b80712d6532d440d5a1253a1027ab4e64777e011458a38c"
+  },
+  "unknowns": [
+    "post-transform content snapshot unavailable after rejection"
+  ]
+}

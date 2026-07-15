@@ -1,0 +1,73 @@
+diff --git a/research/fixtures/dispatch-record/src/dispatch-record.mjs b/research/fixtures/dispatch-record/src/dispatch-record.mjs
+index ad5989e..71b500c 100644
+--- a/research/fixtures/dispatch-record/src/dispatch-record.mjs
++++ b/research/fixtures/dispatch-record/src/dispatch-record.mjs
+@@ -1,3 +1,6 @@
++import { selectDispatchChannel } from './dispatch-channel.mjs';
++import { formatDispatchLabel } from './dispatch-label.mjs';
++
+ const INPUT_KEYS = ['priority', 'recipient', 'title'];
+ 
+ function isPlainObject(value) {
+@@ -17,13 +20,6 @@ function hasExactInputKeys(value) {
+     && actual.every((key, index) => key === INPUT_KEYS[index]);
+ }
+ 
+-function nonEmptyString(value, field) {
+-  if (typeof value !== 'string' || value.trim().length === 0) {
+-    throw new TypeError(`${field} must be a non-empty string`);
+-  }
+-  return value.trim();
+-}
+-
+ export function buildDispatchRecord(input) {
+   if (!hasExactInputKeys(input)) {
+     throw new TypeError(
+@@ -31,14 +27,8 @@ export function buildDispatchRecord(input) {
+     );
+   }
+ 
+-  if (input.priority !== 'urgent' && input.priority !== 'routine') {
+-    throw new TypeError('priority must be urgent or routine');
+-  }
+-
+-  const recipient = nonEmptyString(input.recipient, 'recipient');
+-  const title = nonEmptyString(input.title, 'title');
+-  const channel = input.priority === 'urgent' ? 'pager' : 'queue';
+-  const label = `${recipient}:${title}`;
++  const channel = selectDispatchChannel(input.priority);
++  const label = formatDispatchLabel(input.recipient, input.title);
+ 
+   return Object.freeze({ channel, label });
+ }
+diff --git a/research/fixtures/dispatch-record/src/dispatch-channel.mjs b/research/fixtures/dispatch-record/src/dispatch-channel.mjs
+new file mode 100644
+index 0000000..fbf3eca
+--- /dev/null
++++ b/research/fixtures/dispatch-record/src/dispatch-channel.mjs
+@@ -0,0 +1,7 @@
++export function selectDispatchChannel(priority) {
++  if (priority !== 'urgent' && priority !== 'routine') {
++    throw new TypeError('priority must be urgent or routine');
++  }
++
++  return priority === 'urgent' ? 'pager' : 'queue';
++}
+diff --git a/research/fixtures/dispatch-record/src/dispatch-label.mjs b/research/fixtures/dispatch-record/src/dispatch-label.mjs
+new file mode 100644
+index 0000000..a874c70
+--- /dev/null
++++ b/research/fixtures/dispatch-record/src/dispatch-label.mjs
+@@ -0,0 +1,12 @@
++function nonEmptyString(value, field) {
++  if (typeof value !== 'string' || value.trim().length === 0) {
++    throw new TypeError(`${field} must be a non-empty string`);
++  }
++  return value.trim();
++}
++
++export function formatDispatchLabel(recipient, title) {
++  const normalizedRecipient = nonEmptyString(recipient, 'recipient');
++  const normalizedTitle = nonEmptyString(title, 'title');
++  return `${normalizedRecipient}:${normalizedTitle}`;
++}

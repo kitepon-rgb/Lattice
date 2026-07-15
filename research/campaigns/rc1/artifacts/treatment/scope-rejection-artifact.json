@@ -1,0 +1,48 @@
+{
+  "schema": "lattice.transform_artifact.v1",
+  "candidate_id": "extract-dispatch-policies",
+  "status": "rejected",
+  "source": {
+    "base_sha": "d2d412800492fbed03febe02abc6dca81c09a88b",
+    "boundary_manifest_digest": "033481a45c95cef9a80caa38abefa7967d7aa42e6060e891e0f24b6470cbef72",
+    "boundary_verdict_digest": "a716d3bdd986730046a4b67a26172e4ddee4b02655822037c4672232077078fe",
+    "control_plan_digest": "2799806b65c2749d9da34855e59d6cc3eaea9d749344e42f8e90c98eb58903c1",
+    "query_set_digest": "c20c16da335826e1b5e692f6628cb83b6173ee30dd1ee60a1bf3b1d71dc69892",
+    "code_snapshot_digest": "cbe59c4a21540fbe1b391b6c3c14e1c5f2228190ad19e32249a01c0241b539aa"
+  },
+  "scope": {
+    "allowed_paths": [
+      "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+    ],
+    "changed_paths": []
+  },
+  "patch": {
+    "digest": null,
+    "bytes": 0
+  },
+  "verification": {
+    "status": "not_run",
+    "digest": "8408058b306acdd1eb556c85e00e888d1b580d8264c94f84861e8a6d7a1fdc91",
+    "receipts": []
+  },
+  "output": {
+    "snapshot_digest": null,
+    "files": []
+  },
+  "cleanup": {
+    "status": "passed",
+    "source_status": "unchanged"
+  },
+  "rejection": {
+    "kind": "scope_violation",
+    "reasons": [
+      "change outside allowed paths: outside.mjs"
+    ],
+    "evidence_digest": "d883edfbcec8a7a69522b7f8524275ad63a6fa25bddfc5f4ba0e72618c4be4cf"
+  },
+  "unknowns": [
+    "changed paths and post-transform snapshot unavailable after rejection"
+  ]
+}
