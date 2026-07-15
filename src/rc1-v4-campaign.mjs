@@ -145,6 +145,23 @@ async function applyAcceptedPatch(worktreePath, patch) {
   await run('git', ['apply', '--binary', '-'], { cwd: worktreePath, input: patch });
 }
 
+async function captureCodegraphBootstrap(worktreePath) {
+  try {
+    return await readFile(path.join(worktreePath, '.codegraph', '.gitignore'));
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function restoreCodegraphBootstrap(worktreePath, bootstrap) {
+  const codegraphPath = path.join(worktreePath, '.codegraph');
+  await rm(codegraphPath, { recursive: true, force: true });
+  if (bootstrap === null) return;
+  await mkdir(codegraphPath, { recursive: true });
+  await writeFile(path.join(codegraphPath, '.gitignore'), bootstrap);
+}
+
 async function observeFreshIndex({
   repoRoot,
   baseRef,
@@ -164,6 +181,7 @@ async function observeFreshIndex({
     transform: async ({ worktreePath }) => {
       if (condition === 'treatment') await applyAcceptedPatch(worktreePath, patch);
       snapshot = await fixedSnapshot(worktreePath);
+      const codegraphBootstrap = await captureCodegraphBootstrap(worktreePath);
       try {
         const indexStartedAt = performance.now();
         await run('codegraph', ['init', '.'], { cwd: worktreePath });
@@ -172,7 +190,7 @@ async function observeFreshIndex({
         rawEvidence = await collectCodegraphEvidence({ cwd: worktreePath, querySet });
         queryElapsedMs = roundedMilliseconds(queryStartedAt);
       } finally {
-        await rm(path.join(worktreePath, '.codegraph'), { recursive: true, force: true });
+        await restoreCodegraphBootstrap(worktreePath, codegraphBootstrap);
       }
     },
     verifyCommands: [],

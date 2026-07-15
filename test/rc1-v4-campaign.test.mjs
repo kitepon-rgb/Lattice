@@ -67,6 +67,18 @@ async function makeFixtureRepo(t) {
     copyRepoFile(repoRoot, SHARED_TEST),
     copyRepoFile(repoRoot, ORACLE_PATH),
   ]);
+  await mkdir(path.join(repoRoot, '.codegraph'), { recursive: true });
+  await writeFile(
+    path.join(repoRoot, '.codegraph', '.gitignore'),
+    [
+      '# CodeGraph data files — local to each machine, not for committing.',
+      '# Ignore everything in .codegraph/ except this file itself, so transient',
+      '# files (the database, daemon.pid, sockets, logs) never show up in git.',
+      '*',
+      '!.gitignore',
+      '',
+    ].join('\n'),
+  );
   git(repoRoot, ['init']);
   git(repoRoot, ['config', 'user.email', 'test@example.invalid']);
   git(repoRoot, ['config', 'user.name', 'Lattice Test']);
