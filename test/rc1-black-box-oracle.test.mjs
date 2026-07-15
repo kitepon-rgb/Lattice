@@ -17,6 +17,7 @@ import {
   validateRc1BlackBoxOracle,
 } from '../src/rc1-black-box-oracle.mjs';
 import { validateRc1V5BehaviorReceipt } from '../src/rc1-v5-behavior-evidence.mjs';
+import { verifyRc1V6BehaviorReceipt } from '../src/rc1-v6-causal-binding.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const FIXTURE = 'research/fixtures/dispatch-record/src/dispatch-record.mjs';
@@ -159,6 +160,68 @@ test('v5 receipt binds role, git base, entrypoint content, and the full fixed su
   assert.equal(pre.observation.before_surface_digest, pre.surface_digest);
   assert.equal(pre.observation.after_surface_digest, pre.surface_digest);
   assert.equal(JSON.stringify(pre).includes(REPO_ROOT), false);
+});
+
+test('v6 receipt binds saved oracle semantics and an explicit Worker runtime', async () => {
+  const {
+    createRc1V6OracleRuntimeIdentity,
+    runRc1V6BlackBoxOracle,
+  } = await import('../src/rc1-black-box-oracle.mjs');
+  const oracle = await oracleInput();
+  const baseSha = git(REPO_ROOT, ['rev-parse', 'HEAD']);
+  const runtimeIdentity = await createRc1V6OracleRuntimeIdentity();
+  const receipt = await runRc1V6BlackBoxOracle({
+    repoRoot: REPO_ROOT,
+    oracle,
+    role: 'pre_transform',
+    baseSha,
+    surfacePaths: [...SURFACE_PATHS],
+    runtimeIdentity,
+  });
+
+  assert.equal(receipt.schema, 'lattice.rc1.black_box_behavior_receipt.v4');
+  assert.equal(receipt.role, 'pre_transform');
+  assert.deepEqual(receipt.runtime_identity, runtimeIdentity);
+  assert.deepEqual(receipt.runtime_identity.exec_argv, []);
+  assert.deepEqual(receipt.runtime_identity.environment, {});
+  assert.equal(receipt.runtime_identity.node_version, process.version);
+  assert.equal(receipt.outcome, 'passed');
+  assert.ok(receipt.case_results.every(({ outcome, expected_digest, observed_digest }) => (
+    outcome === 'passed' && expected_digest === observed_digest
+  )));
+  assert.equal(verifyRc1V6BehaviorReceipt({
+    receipt,
+    oracle,
+    expectedRole: 'pre_transform',
+    expectedRuntimeIdentity: runtimeIdentity,
+  }).valid, true);
+
+  const moduleUrl = new URL('../src/rc1-black-box-oracle.mjs', import.meta.url).href;
+  const oracleUrl = new URL(
+    '../research/campaigns/rc1/inputs/behavior-oracle-v2.json',
+    import.meta.url,
+  ).href;
+  const script = [
+    "import { readFile } from 'node:fs/promises';",
+    `import { createRc1V6OracleRuntimeIdentity, runRc1V6BlackBoxOracle } from ${JSON.stringify(moduleUrl)};`,
+    `const oracle = JSON.parse(await readFile(new URL(${JSON.stringify(oracleUrl)}), 'utf8'));`,
+    `const runtimeIdentity = await createRc1V6OracleRuntimeIdentity();`,
+    `const receipt = await runRc1V6BlackBoxOracle({ repoRoot: ${JSON.stringify(REPO_ROOT)}, oracle, role: 'pre_transform', baseSha: ${JSON.stringify(baseSha)}, surfacePaths: ${JSON.stringify(SURFACE_PATHS)}, runtimeIdentity });`,
+    `process.stdout.write(JSON.stringify(receipt.runtime_identity));`,
+  ].join('\n');
+  const childRuntime = JSON.parse(execFileSync(process.execPath, [
+    '--input-type=module',
+    '--trace-warnings',
+    '--eval',
+    script,
+  ], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }));
+  assert.deepEqual(childRuntime.exec_argv, []);
+  assert.deepEqual(childRuntime.environment, {});
+  assert.equal(childRuntime.executor_source_digest, runtimeIdentity.executor_source_digest);
 });
 
 test('v5 oracle rejects a false base identity and transform-writable oracle scope', async () => {

@@ -29,6 +29,9 @@ const REQUIRED_EXCLUDED_PATHS = Object.freeze([ORACLE_INPUT_REF, EXECUTOR_REF].s
 const V5_WORKER_REQUEST = 'lattice.rc1.oracle_worker_request.v1';
 const V5_WORKER_RESULT = 'lattice.rc1.oracle_worker_result.v1';
 const V5_WORKER_FAILURE = 'lattice.rc1.oracle_worker_failure.v1';
+const V6_WORKER_REQUEST = 'lattice.rc1.oracle_worker_request.v2';
+const V6_WORKER_RESULT = 'lattice.rc1.oracle_worker_result.v2';
+const V6_WORKER_FAILURE = 'lattice.rc1.oracle_worker_failure.v2';
 const execFileAsync = promisify(execFile);
 
 function isPlainObject(value) {
@@ -229,6 +232,53 @@ function validV5CaseResult(value) {
     && SHA256.test(value.observed_digest);
 }
 
+function validV6RuntimeIdentity(value) {
+  return exactRecord(value, [
+    'schema',
+    'node_version',
+    'exec_argv',
+    'environment',
+    'executor_source_digest',
+  ])
+    && value.schema === 'lattice.rc1.oracle_runtime_identity.v1'
+    && typeof value.node_version === 'string'
+    && value.node_version.length > 0
+    && value.node_version.length <= 128
+    && Array.isArray(value.exec_argv)
+    && value.exec_argv.length <= 32
+    && value.exec_argv.every((entry) => typeof entry === 'string' && entry.length <= 1_024)
+    && isPlainObject(value.environment)
+    && Object.keys(value.environment).length <= 32
+    && Object.entries(value.environment).every(([key, entry]) => (
+      /^[A-Z][A-Z0-9_]{0,127}$/.test(key)
+      && typeof entry === 'string'
+      && entry.length <= 4_096
+    ))
+    && typeof value.executor_source_digest === 'string'
+    && SHA256.test(value.executor_source_digest);
+}
+
+async function observedV6RuntimeIdentity() {
+  return {
+    schema: 'lattice.rc1.oracle_runtime_identity.v1',
+    node_version: process.version,
+    exec_argv: [...process.execArgv],
+    environment: {},
+    executor_source_digest: sha256(await readFile(new URL(import.meta.url))),
+  };
+}
+
+/** v6 Workerを起動する固定runtime identityを返す。 */
+export async function createRc1V6OracleRuntimeIdentity() {
+  return {
+    schema: 'lattice.rc1.oracle_runtime_identity.v1',
+    node_version: process.version,
+    exec_argv: [],
+    environment: {},
+    executor_source_digest: sha256(await readFile(new URL(import.meta.url))),
+  };
+}
+
 async function executeV5WorkerRequest(request) {
   if (!exactRecord(request, ['schema', 'entrypoint_url', 'export_name', 'cases'])
     || request.schema !== V5_WORKER_REQUEST
@@ -263,6 +313,24 @@ async function executeV5WorkerRequest(request) {
     });
   }
   return { schema: V5_WORKER_RESULT, case_results: caseResults };
+}
+
+async function executeV6WorkerRequest(request) {
+  if (!exactRecord(request, ['schema', 'entrypoint_url', 'export_name', 'cases'])
+    || request.schema !== V6_WORKER_REQUEST) {
+    throw new TypeError('v6 worker request contract is invalid');
+  }
+  const v5Result = await executeV5WorkerRequest({
+    schema: V5_WORKER_REQUEST,
+    entrypoint_url: request.entrypoint_url,
+    export_name: request.export_name,
+    cases: request.cases,
+  });
+  return {
+    schema: V6_WORKER_RESULT,
+    case_results: v5Result.case_results,
+    runtime_identity: await observedV6RuntimeIdentity(),
+  };
 }
 
 function freshWorkerCaseResults({ entrypointUrl, exportName, cases }) {
@@ -323,6 +391,79 @@ function freshWorkerCaseResults({ entrypointUrl, exportName, cases }) {
     worker.once('exit', (exitCode) => {
       if (!settled) {
         rejectOnce('fresh workerがreceiptなしで終了した', {
+          exit_code: Number.isSafeInteger(exitCode) ? exitCode : -1,
+        });
+      }
+    });
+  });
+}
+
+function freshV6WorkerObservation({ entrypointUrl, exportName, cases }) {
+  const request = {
+    schema: V6_WORKER_REQUEST,
+    entrypoint_url: entrypointUrl,
+    export_name: exportName,
+    cases: structuredClone(cases),
+  };
+  return new Promise((resolve, reject) => {
+    let worker;
+    try {
+      worker = new Worker(new URL(import.meta.url), {
+        workerData: request,
+        execArgv: [],
+        env: {},
+      });
+    } catch (error) {
+      reject(v5Rejection(
+        'LATTICE_RC1_V6_EXECUTION_FAILED',
+        'fixed runtimeのfresh workerを起動できない',
+        { error_digest: sha256(String(error?.message ?? error)) },
+      ));
+      return;
+    }
+    let settled = false;
+    const rejectOnce = (reason, evidence) => {
+      if (settled) return;
+      settled = true;
+      reject(v5Rejection('LATTICE_RC1_V6_EXECUTION_FAILED', reason, evidence));
+    };
+    worker.once('message', (message) => {
+      if (settled) return;
+      if (exactRecord(message, ['schema', 'case_results', 'runtime_identity'])
+        && message.schema === V6_WORKER_RESULT
+        && Array.isArray(message.case_results)
+        && message.case_results.length === cases.length
+        && message.case_results.every(validV5CaseResult)
+        && message.case_results.every(({ id }, index) => id === cases[index].id)
+        && validV6RuntimeIdentity(message.runtime_identity)) {
+        settled = true;
+        resolve({
+          caseResults: structuredClone(message.case_results),
+          runtimeIdentity: structuredClone(message.runtime_identity),
+        });
+        return;
+      }
+      if (exactRecord(message, ['schema', 'error_digest'])
+        && message.schema === V6_WORKER_FAILURE
+        && typeof message.error_digest === 'string'
+        && SHA256.test(message.error_digest)) {
+        rejectOnce('fixed runtime worker内のoracle実行が失敗した', {
+          error_digest: message.error_digest,
+        });
+        return;
+      }
+      rejectOnce('fixed runtime worker response contractが不正', {
+        response_digest: observationDigest(message),
+      });
+    });
+    worker.once('error', (error) => {
+      rejectOnce('fixed runtime workerがerrorを返した', {
+        error_digest: sha256(String(error?.message ?? error)),
+      });
+    });
+    worker.once('exit', (exitCode) => {
+      if (!settled) {
+        rejectOnce('fixed runtime workerがreceiptなしで終了した', {
           exit_code: Number.isSafeInteger(exitCode) ? exitCode : -1,
         });
       }
@@ -607,6 +748,137 @@ export async function runRc1V5BlackBoxOracle(options = {}) {
   return { ...receipt, receipt_digest: digestArtifact(receipt) };
 }
 
+/**
+ * saved oracle exact semanticsと明示Worker runtimeへbindしたreceipt v4を生成する。
+ */
+export async function runRc1V6BlackBoxOracle(options = {}) {
+  if (!exactRecord(options, [
+    'repoRoot',
+    'oracle',
+    'role',
+    'baseSha',
+    'surfacePaths',
+    'runtimeIdentity',
+  ])
+    || !validateRc1BlackBoxOracle(options.oracle)
+    || (options.role !== 'pre_transform' && options.role !== 'post_transform')
+    || typeof options.baseSha !== 'string'
+    || !GIT_SHA1.test(options.baseSha)
+    || !sortedSurfacePaths(options.surfacePaths)
+    || !options.surfacePaths.includes(options.oracle.entrypoint)
+    || !validV6RuntimeIdentity(options.runtimeIdentity)) {
+    throw v5Rejection('LATTICE_RC1_V6_INPUT_INVALID', 'v6 oracle input contractが不正');
+  }
+  const { repoRoot, role, baseSha } = options;
+  const oracle = structuredClone(options.oracle);
+  const surfacePaths = [...options.surfacePaths];
+  const runtimeIdentity = structuredClone(options.runtimeIdentity);
+  const configuredRuntimeIdentity = await createRc1V6OracleRuntimeIdentity();
+  if (!isDeepStrictEqual(runtimeIdentity, configuredRuntimeIdentity)) {
+    throw v5Rejection(
+      'LATTICE_RC1_V6_RUNTIME_MISMATCH',
+      '指定runtime identityがexecutorの固定設定と一致しない',
+      {
+        expected_runtime_digest: digestArtifact(configuredRuntimeIdentity),
+        observed_runtime_digest: digestArtifact(runtimeIdentity),
+      },
+    );
+  }
+  const scopeConflicts = surfacePaths.filter((surfacePath) => (
+    oracle.transform_scope_contract.excluded_paths.includes(surfacePath)
+  ));
+  if (scopeConflicts.length > 0) {
+    throw v5Rejection(
+      'LATTICE_RC1_V6_SCOPE_VIOLATION',
+      'oracle inputまたはexecutorがtransform surfaceに含まれる',
+      { conflicting_paths: scopeConflicts },
+    );
+  }
+
+  const root = await resolveV5RepoRoot(repoRoot);
+  const actualHead = await currentGitHead(root);
+  if (actualHead !== baseSha) {
+    throw v5Rejection('LATTICE_RC1_V6_BASE_MISMATCH', 'base SHAが実Git HEADと一致しない', {
+      expected_base_sha: baseSha,
+      observed_base_sha: actualHead,
+    });
+  }
+
+  const before = await captureV5Surface(root, surfacePaths);
+  const entrypointFile = before.surface.files.find(({ path: surfacePath }) => (
+    surfacePath === oracle.entrypoint
+  ));
+  if (entrypointFile?.state !== 'present') {
+    throw v5Rejection('LATTICE_RC1_V6_SURFACE_INVALID', 'entrypointがfixed surfaceに存在しない', {
+      path: oracle.entrypoint,
+    });
+  }
+  const moduleUrl = pathToFileURL(path.resolve(root, oracle.entrypoint));
+  moduleUrl.searchParams.set('lattice-oracle-v6', entrypointFile.content_digest);
+  const observation = await freshV6WorkerObservation({
+    entrypointUrl: moduleUrl.href,
+    exportName: oracle.export_name,
+    cases: oracle.cases,
+  });
+  if (!isDeepStrictEqual(observation.runtimeIdentity, runtimeIdentity)) {
+    throw v5Rejection(
+      'LATTICE_RC1_V6_RUNTIME_DRIFT',
+      'Workerが固定runtime identityと異なる条件でoracleを実行した',
+      {
+        expected_runtime_digest: digestArtifact(runtimeIdentity),
+        observed_runtime_digest: digestArtifact(observation.runtimeIdentity),
+      },
+    );
+  }
+  const after = await captureV5Surface(root, surfacePaths);
+  if (before.digest !== after.digest) {
+    throw v5Rejection(
+      'LATTICE_RC1_V6_SURFACE_DRIFT',
+      'oracle観測中にfixed surfaceが変化した',
+      {
+        before_surface_digest: before.digest,
+        after_surface_digest: after.digest,
+      },
+    );
+  }
+  const afterHead = await currentGitHead(root);
+  if (afterHead !== actualHead) {
+    throw v5Rejection('LATTICE_RC1_V6_BASE_DRIFT', 'oracle観測中にGit HEADが変化した', {
+      before_base_sha: actualHead,
+      after_base_sha: afterHead,
+    });
+  }
+
+  const caseContract = oracle.cases.map(({ id, expected }) => ({
+    id,
+    expected_kind: expected.kind,
+    expected_digest: digestArtifact(expectedObservation(expected)),
+  }));
+  const receipt = {
+    schema: 'lattice.rc1.black_box_behavior_receipt.v4',
+    role,
+    base_sha: actualHead,
+    oracle_digest: digestArtifact(oracle),
+    entrypoint: oracle.entrypoint,
+    export_name: oracle.export_name,
+    entrypoint_content_digest: entrypointFile.content_digest,
+    surface: before.surface,
+    surface_digest: before.digest,
+    observation: {
+      before_surface_digest: before.digest,
+      after_surface_digest: after.digest,
+    },
+    outcome: observation.caseResults.every(({ outcome }) => outcome === 'passed')
+      ? 'passed'
+      : 'failed',
+    case_results: observation.caseResults,
+    case_contract_digest: digestArtifact(caseContract),
+    runtime_identity: observation.runtimeIdentity,
+    runtime_identity_digest: digestArtifact(observation.runtimeIdentity),
+  };
+  return { ...receipt, receipt_digest: digestArtifact(receipt) };
+}
+
 if (!isMainThread && workerData?.schema === V5_WORKER_REQUEST && parentPort !== null) {
   let response;
   try {
@@ -614,6 +886,19 @@ if (!isMainThread && workerData?.schema === V5_WORKER_REQUEST && parentPort !== 
   } catch (error) {
     response = {
       schema: V5_WORKER_FAILURE,
+      error_digest: sha256(String(error?.message ?? error)),
+    };
+  }
+  parentPort.postMessage(response);
+}
+
+if (!isMainThread && workerData?.schema === V6_WORKER_REQUEST && parentPort !== null) {
+  let response;
+  try {
+    response = await executeV6WorkerRequest(workerData);
+  } catch (error) {
+    response = {
+      schema: V6_WORKER_FAILURE,
       error_digest: sha256(String(error?.message ?? error)),
     };
   }

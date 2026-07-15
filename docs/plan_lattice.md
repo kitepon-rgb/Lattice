@@ -189,10 +189,10 @@ oracle、query setの変更は親直轄で新plan versionを要求し、lane内�
 
 ### RC1-V1 — oracle semanticsとruntime identity
 
-- [ ] 保存oracleからexact case列とexpected kind／digestを導出し、receiptへ照合する。
-- [ ] passed iff expected digest equals observed digestを強制し、overall outcomeを再計算する。
-- [ ] Worker execArgv／envを明示固定し、Node／flags／executor source digestを保存する。
-- [ ] pre／post receiptとbehavior envelopeをsaved oracle／runtimeへcross-bindする。
+- [x] 保存oracleからexact case列とexpected kind／digestを導出し、receiptへ照合する。
+- [x] passed iff expected digest equals observed digestを強制し、overall outcomeを再計算する。
+- [x] Worker execArgv／envを明示固定し、Node／flags／executor source digestを保存する。
+- [x] pre／post receiptとbehavior envelopeをsaved oracle／runtimeへcross-bindする。
 
 ### RC1-V2 — snapshotとCodegraph identity
 
