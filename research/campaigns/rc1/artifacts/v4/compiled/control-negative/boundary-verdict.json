@@ -1,0 +1,25 @@
+{
+  "schema": "lattice.boundary_verdict.v1",
+  "boundary_manifest_digest": "ff13dd644718babb9267d6d9dd3ca9bfdaaa5b3c40f410ba0288e7b5cc4aeeb4",
+  "verdicts": [
+    {
+      "id": "channel-label-verdict-v4",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "verdict": "intentional_serial",
+      "conflict_ids": [
+        "write-overlap-001",
+        "write-overlap-002",
+        "write-overlap-003",
+        "state-overlap-001"
+      ],
+      "seam_candidate": null,
+      "reasons": [
+        "shared manual state/effect conflictはcode seamでは切断できない"
+      ],
+      "unknowns": []
+    }
+  ]
+}

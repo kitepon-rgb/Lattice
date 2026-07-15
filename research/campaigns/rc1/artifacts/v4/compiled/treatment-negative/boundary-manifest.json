@@ -1,0 +1,269 @@
+{
+  "schema": "lattice.boundary_manifest.v1",
+  "plan_input_digest": "c4b64dab54db09f20a7a6ba57003a8d2f444a0c878b9387a2bbc338fa6d87ee3",
+  "source": {
+    "code_snapshot_digest": "b9e00f92475a2c6596a552edeba94608e2bc3ff37ea2f50a97ce4589e07fcc2b",
+    "query_set_digest": "4bb43307fb37f270dae26aa9b782b33adae507d655829f99f3007c8f2b9f7a94",
+    "manual_evidence_digest": "126a55fc5137314f33d54866746913fefee7c8943412d6d0f32460de1b1d79a1",
+    "codegraph_version": "1.4.1"
+  },
+  "graph_evidence": [
+    {
+      "id": "status",
+      "operation": "status",
+      "status": "ready",
+      "result_digest": "2e3579ea1488144708078dd06da85486b5f7688d3390f9c2038837a3f4d7ece0"
+    },
+    {
+      "id": "query-build-dispatch-record",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "0271f8388f205de2960f249b4c2f22a737cb89ce831f7b9217a8b635425dd0aa"
+    },
+    {
+      "id": "callers-build-dispatch-record",
+      "operation": "callers",
+      "status": "ready",
+      "result_digest": "0e6a27512649a4126ba968dc7f200883e2fa5b5237fa306aa88b54969cf1be4e"
+    },
+    {
+      "id": "callees-build-dispatch-record",
+      "operation": "callees",
+      "status": "ready",
+      "result_digest": "1382f12649c120e2ceb52548e54f6732a942cac1724379eecaf0194837c59e82"
+    },
+    {
+      "id": "impact-build-dispatch-record",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "3bc74fc003f60752695c12f72aafa06723b806e8b668854976cde1d738245421"
+    },
+    {
+      "id": "query-select-dispatch-channel",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "d5f353cd1dbf794cb6f49d9266c1cdd248a1b9f18a48e9d9dc1d69102fef6207"
+    },
+    {
+      "id": "callers-select-dispatch-channel",
+      "operation": "callers",
+      "status": "ready",
+      "result_digest": "46d03367b2766d766571133555b5657f2f64b20e2cb79778157ad9cc03289243"
+    },
+    {
+      "id": "impact-select-dispatch-channel",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "331425af4b6c99fa4765b56a01a5d43d24ff6d1a85f8937ab2da06a114e23f2f"
+    },
+    {
+      "id": "query-format-dispatch-label",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "e858bb7a495071c952c30e86899d31fc5527b212aadb0a4e40bbbb42dcb1d63c"
+    },
+    {
+      "id": "callers-format-dispatch-label",
+      "operation": "callers",
+      "status": "ready",
+      "result_digest": "6e2a648645b507ab3da21443ef7a83eb2061f41cbae3ccf742035a58388210c0"
+    },
+    {
+      "id": "impact-format-dispatch-label",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "0d141da3ab4ae390b19bed594c5286e0a9db4552a6d0712d04340393e4ca096d"
+    },
+    {
+      "id": "query-shared-composition-test",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "a1c1a5e0bacab0dac4d4032154432249d5ca17dec91ab7790d51c8166859c191"
+    },
+    {
+      "id": "query-channel-policy-contract",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "53667a4c6bcedb385095ef8a22e4cf71994303d22fefaec2111a630da27e2e27"
+    },
+    {
+      "id": "impact-channel-policy-contract",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "48ec593b765acb3554ab685b128cbcba3839b7f84e9eddd87425d0c6d848c262"
+    },
+    {
+      "id": "query-label-policy-contract",
+      "operation": "query",
+      "status": "ready",
+      "result_digest": "88c2d3fbd742657ef5c01433af1409c300ce933c19379ac6f1becec3ad1af33e"
+    },
+    {
+      "id": "impact-label-policy-contract",
+      "operation": "impact",
+      "status": "ready",
+      "result_digest": "7ffe8dadc117f371992cc041bef5eaa781ecf97d573d543c01e3e65142cf4687"
+    },
+    {
+      "id": "affected-rc1-production-and-tests",
+      "operation": "affected",
+      "status": "ready",
+      "result_digest": "3165d98b53b8b6df55340c9878acc91c6dc824c522563e16706c33537dfd62a6"
+    }
+  ],
+  "manual_evidence": [
+    {
+      "id": "manual-channel-policy",
+      "todo_id": "channel-policy",
+      "result_digest": "847673889e5fb2873641e46207d207f5bb3b7505f78bd6beb5ee24f7dde82c1a"
+    },
+    {
+      "id": "manual-label-policy",
+      "todo_id": "label-policy",
+      "result_digest": "b5088790de04ff91739b2d80a3b0c44cdc0483da5157efac0628cc7086f3bbc5"
+    }
+  ],
+  "todos": [
+    {
+      "id": "channel-policy",
+      "owns": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-channel.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-channel.test.mjs"
+        },
+        {
+          "kind": "symbol",
+          "target": "channelPolicyContract"
+        },
+        {
+          "kind": "symbol",
+          "target": "selectDispatchChannel"
+        }
+      ],
+      "reads": [],
+      "writes": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-channel.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-channel.test.mjs"
+        },
+        {
+          "kind": "state",
+          "target": "dispatch-registry"
+        },
+        {
+          "kind": "symbol",
+          "target": "channelPolicyContract"
+        },
+        {
+          "kind": "symbol",
+          "target": "selectDispatchChannel"
+        }
+      ],
+      "hard_needs": [],
+      "conflict_ids": [
+        "state-overlap-001"
+      ],
+      "unknowns": [],
+      "tests": [
+        "test/research-dispatch-channel.test.mjs",
+        "test/research-dispatch-record.test.mjs"
+      ],
+      "evidence_refs": [
+        "callers-select-dispatch-channel",
+        "impact-channel-policy-contract",
+        "impact-select-dispatch-channel",
+        "manual-channel-policy",
+        "query-channel-policy-contract",
+        "query-select-dispatch-channel"
+      ]
+    },
+    {
+      "id": "label-policy",
+      "owns": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-label.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-label.test.mjs"
+        },
+        {
+          "kind": "symbol",
+          "target": "formatDispatchLabel"
+        },
+        {
+          "kind": "symbol",
+          "target": "labelPolicyContract"
+        }
+      ],
+      "reads": [],
+      "writes": [
+        {
+          "kind": "path",
+          "target": "research/fixtures/dispatch-record/src/dispatch-label.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/research-dispatch-label.test.mjs"
+        },
+        {
+          "kind": "state",
+          "target": "dispatch-registry"
+        },
+        {
+          "kind": "symbol",
+          "target": "formatDispatchLabel"
+        },
+        {
+          "kind": "symbol",
+          "target": "labelPolicyContract"
+        }
+      ],
+      "hard_needs": [],
+      "conflict_ids": [
+        "state-overlap-001"
+      ],
+      "unknowns": [],
+      "tests": [
+        "test/research-dispatch-label.test.mjs",
+        "test/research-dispatch-record.test.mjs"
+      ],
+      "evidence_refs": [
+        "callers-format-dispatch-label",
+        "impact-format-dispatch-label",
+        "impact-label-policy-contract",
+        "manual-label-policy",
+        "query-format-dispatch-label",
+        "query-label-policy-contract"
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "state-overlap-001",
+      "kind": "state",
+      "todo_ids": [
+        "channel-policy",
+        "label-policy"
+      ],
+      "resource": {
+        "kind": "state",
+        "target": "dispatch-registry"
+      },
+      "evidence_refs": [
+        "manual-channel-policy",
+        "manual-label-policy"
+      ]
+    }
+  ],
+  "unknowns": []
+}

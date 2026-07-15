@@ -1,0 +1,1945 @@
+{
+  "schema": "lattice.rc1.evidence_bundle.v1",
+  "condition": "control",
+  "run_id": "control-2",
+  "query_set": {
+    "schema": "lattice.codegraph_query_set.v2",
+    "queries": [
+      {
+        "id": "status",
+        "operation": "status"
+      },
+      {
+        "id": "query-build-dispatch-record",
+        "operation": "query",
+        "target": "buildDispatchRecord"
+      },
+      {
+        "id": "callers-build-dispatch-record",
+        "operation": "callers",
+        "target": "buildDispatchRecord"
+      },
+      {
+        "id": "callees-build-dispatch-record",
+        "operation": "callees",
+        "target": "buildDispatchRecord"
+      },
+      {
+        "id": "impact-build-dispatch-record",
+        "operation": "impact",
+        "target": "buildDispatchRecord"
+      },
+      {
+        "id": "query-select-dispatch-channel",
+        "operation": "query",
+        "target": "selectDispatchChannel"
+      },
+      {
+        "id": "callers-select-dispatch-channel",
+        "operation": "callers",
+        "target": "selectDispatchChannel"
+      },
+      {
+        "id": "impact-select-dispatch-channel",
+        "operation": "impact",
+        "target": "selectDispatchChannel"
+      },
+      {
+        "id": "query-format-dispatch-label",
+        "operation": "query",
+        "target": "formatDispatchLabel"
+      },
+      {
+        "id": "callers-format-dispatch-label",
+        "operation": "callers",
+        "target": "formatDispatchLabel"
+      },
+      {
+        "id": "impact-format-dispatch-label",
+        "operation": "impact",
+        "target": "formatDispatchLabel"
+      },
+      {
+        "id": "query-shared-composition-test",
+        "operation": "query",
+        "target": "test/research-dispatch-record.test.mjs"
+      },
+      {
+        "id": "query-channel-policy-contract",
+        "operation": "query",
+        "target": "channelPolicyContract"
+      },
+      {
+        "id": "impact-channel-policy-contract",
+        "operation": "impact",
+        "target": "channelPolicyContract"
+      },
+      {
+        "id": "query-label-policy-contract",
+        "operation": "query",
+        "target": "labelPolicyContract"
+      },
+      {
+        "id": "impact-label-policy-contract",
+        "operation": "impact",
+        "target": "labelPolicyContract"
+      },
+      {
+        "id": "affected-rc1-production-and-tests",
+        "operation": "affected",
+        "targets": [
+          "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+          "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+          "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+          "test/research-dispatch-record.test.mjs",
+          "test/research-dispatch-channel.test.mjs",
+          "test/research-dispatch-label.test.mjs"
+        ]
+      }
+    ]
+  },
+  "query_set_digest": "4bb43307fb37f270dae26aa9b782b33adae507d655829f99f3007c8f2b9f7a94",
+  "raw": {
+    "schema": "lattice.codegraph_raw_opaque_receipt.v1",
+    "media_type": "application/vnd.lattice.codegraph-evidence+json",
+    "encoding": "canonical-json-base64",
+    "payload_base64": "eyJjd2QiOiIvdmFyL2ZvbGRlcnMvdjQvbnRkZF9xMmQxMHE5NjJrcTNjZng4bHIwMDAwMGduL1QvbGF0dGljZS1pc29sYXRlZC10cmFuc2Zvcm0ta2lWdDkxIiwib3V0Y29tZXMiOlt7ImRhdGEiOnsiYmFja2VuZCI6Im5vZGUtc3FsaXRlIiwiZGJTaXplQnl0ZXMiOjM0NDg4MzIsImVkZ2VDb3VudCI6Mjg5MCwiZmlsZUNvdW50IjozOSwiaW5kZXgiOnsiYnVpbHRXaXRoRXh0cmFjdGlvblZlcnNpb24iOjI0LCJidWlsdFdpdGhWZXJzaW9uIjoiMS40LjEiLCJjdXJyZW50RXh0cmFjdGlvblZlcnNpb24iOjI0LCJwZW5kaW5nUmVmcyI6MCwicmVpbmRleFJlY29tbWVuZGVkIjpmYWxzZSwic3RhdGUiOiJjb21wbGV0ZSJ9LCJpbmRleFBhdGgiOiIvcHJpdmF0ZS92YXIvZm9sZGVycy92NC9udGRkX3EyZDEwcTk2MmtxM2NmeDhscjAwMDAwZ24vVC9sYXR0aWNlLWlzb2xhdGVkLXRyYW5zZm9ybS1raVZ0OTEvLmNvZGVncmFwaCIsImluaXRpYWxpemVkIjp0cnVlLCJqb3VybmFsTW9kZSI6IndhbCIsImxhbmd1YWdlcyI6WyJqYXZhc2NyaXB0IiwieWFtbCJdLCJsYXN0SW5kZXhlZCI6IjIwMjYtMDctMTVUMTg6MDM6MjcuMDMyWiIsIm5vZGVDb3VudCI6NzUyLCJub2Rlc0J5S2luZCI6eyJjb25zdGFudCI6MTYzLCJmaWxlIjozNywiZnVuY3Rpb24iOjM3MCwiaW1wb3J0IjoxODJ9LCJwZW5kaW5nQ2hhbmdlcyI6eyJhZGRlZCI6MCwibW9kaWZpZWQiOjAsInJlbW92ZWQiOjB9LCJwcm9qZWN0UGF0aCI6Ii9wcml2YXRlL3Zhci9mb2xkZXJzL3Y0L250ZGRfcTJkMTBxOTYya3EzY2Z4OGxyMDAwMDBnbi9UL2xhdHRpY2UtaXNvbGF0ZWQtdHJhbnNmb3JtLWtpVnQ5MSIsInZlcnNpb24iOiIxLjQuMSIsIndvcmt0cmVlTWlzbWF0Y2giOm51bGx9LCJpZCI6InN0YXR1cyIsIm9wZXJhdGlvbiI6InN0YXR1cyIsIm91dGNvbWUiOiJyZWFkeSJ9LHsiZGF0YSI6W3sibm9kZSI6eyJlbmRDb2x1bW4iOjEsImVuZExpbmUiOjQ0LCJmaWxlUGF0aCI6InJlc2VhcmNoL2ZpeHR1cmVzL2Rpc3BhdGNoLXJlY29yZC9zcmMvZGlzcGF0Y2gtcmVjb3JkLm1qcyIsImlkIjoiZnVuY3Rpb246MzY2MTZkOWIwNzA3MDlkYjQ3NWE2YTE5NDhiZDI4M2IiLCJpc0Fic3RyYWN0IjpmYWxzZSwiaXNBc3luYyI6ZmFsc2UsImlzRXhwb3J0ZWQiOnRydWUsImlzU3RhdGljIjpmYWxzZSwia2luZCI6ImZ1bmN0aW9uIiwibGFuZ3VhZ2UiOiJqYXZhc2NyaXB0IiwibmFtZSI6ImJ1aWxkRGlzcGF0Y2hSZWNvcmQiLCJxdWFsaWZpZWROYW1lIjoiYnVpbGREaXNwYXRjaFJlY29yZCIsInNpZ25hdHVyZSI6IihpbnB1dCkiLCJzdGFydENvbHVtbiI6Nywic3RhcnRMaW5lIjoyNywidXBkYXRlZEF0IjoxNzg0MTM4NjA2OTEzLCJ2aXNpYmlsaXR5IjpudWxsfSwic2NvcmUiOjEwMS40NjU1NDQzNjEzNjM2M30seyJub2RlIjp7ImVuZENvbHVtbiI6OTksImVuZExpbmUiOjUsImZpbGVQYXRoIjoidGVzdC9yZXNlYXJjaC1kaXNwYXRjaC1yZWNvcmQudGVzdC5tanMiLCJpZCI6ImltcG9ydDoyYjM3MGI5YjFlYzJjOWJlMjdmYjAyNGFkZWI3MjkxYSIsImlzQWJzdHJhY3QiOmZhbHNlLCJpc0FzeW5jIjpmYWxzZSwiaXNFeHBvcnRlZCI6ZmFsc2UsImlzU3RhdGljIjpmYWxzZSwia2luZCI6ImltcG9ydCIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiIuLi9yZXNlYXJjaC9maXh0dXJlcy9kaXNwYXRjaC1yZWNvcmQvc3JjL2Rpc3BhdGNoLXJlY29yZC5tanMiLCJxdWFsaWZpZWROYW1lIjoiLi4vcmVzZWFyY2gvZml4dHVyZXMvZGlzcGF0Y2gtcmVjb3JkL3NyYy9kaXNwYXRjaC1yZWNvcmQubWpzIiwic2lnbmF0dXJlIjoiaW1wb3J0IHsgYnVpbGREaXNwYXRjaFJlY29yZCB9IGZyb20gJy4uL3Jlc2VhcmNoL2ZpeHR1cmVzL2Rpc3BhdGNoLXJlY29yZC9zcmMvZGlzcGF0Y2gtcmVjb3JkLm1qcyc7Iiwic3RhcnRDb2x1bW4iOjAsInN0YXJ0TGluZSI6NSwidXBkYXRlZEF0IjoxNzg0MTM4NjA3MDEwLCJ2aXNpYmlsaXR5IjpudWxsfSwic2NvcmUiOjMuODQ1MzQ1Nzc3ODg2ODA0OH0seyJub2RlIjp7ImVuZENvbHVtbiI6MiwiZW5kTGluZSI6MjYsImZpbGVQYXRoIjoidGVzdC9ib3VuZGFyeS1jb21waWxlci50ZXN0Lm1qcyIsImlkIjoiY29uc3RhbnQ6MDRmNDI0ZjhjOWZmZmYyMzQyMWJiNmFiNDVkYjRlMTYiLCJpc0Fic3RyYWN0IjpmYWxzZSwiaXNBc3luYyI6ZmFsc2UsImlzRXhwb3J0ZWQiOmZhbHNlLCJpc1N0YXRpYyI6ZmFsc2UsImtpbmQiOiJjb25zdGFudCIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJTVVJGQUNFX1BBVEhTIiwicXVhbGlmaWVkTmFtZSI6IlNVUkZBQ0VfUEFUSFMiLCJzaWduYXR1cmUiOiI9IG5ldyBNYXAoW1xuICBbJ2J1aWxkRGlzcGF0Y2hSZWNvcmQnLCBGSVhUVVJFXSxcbiAgWydzZWxlY3REaXNwYXRjaENoYW5uZWwnLCAncmVzZWFyY2gvZml4dHVyZXMvZGlzcGF0Yy4uLiIsInN0YXJ0Q29sdW1uIjo2LCJzdGFydExpbmUiOjE5LCJ1cGRhdGVkQXQiOjE3ODQxMzg2MDY5ODQsInZpc2liaWxpdHkiOm51bGx9LCJzY29yZSI6LTUuMzMzOTcwNzk1Njc1MDY4fV0sImlkIjoicXVlcnktYnVpbGQtZGlzcGF0Y2gtcmVjb3JkIiwib3BlcmF0aW9uIjoicXVlcnkiLCJvdXRjb21lIjoicmVhZHkiLCJ0YXJnZXQiOiJidWlsZERpc3BhdGNoUmVjb3JkIn0seyJkYXRhIjp7ImNhbGxlcnMiOlt7ImZpbGVQYXRoIjoidGVzdC9yZXNlYXJjaC1kaXNwYXRjaC1yZWNvcmQudGVzdC5tanMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJyZXNlYXJjaC1kaXNwYXRjaC1yZWNvcmQudGVzdC5tanMiLCJzdGFydExpbmUiOjF9XSwic3ltYm9sIjoiYnVpbGREaXNwYXRjaFJlY29yZCJ9LCJpZCI6ImNhbGxlcnMtYnVpbGQtZGlzcGF0Y2gtcmVjb3JkIiwib3BlcmF0aW9uIjoiY2FsbGVycyIsIm91dGNvbWUiOiJyZWFkeSIsInJlc29sdXRpb24iOlt7Im5vZGUiOnsiZW5kQ29sdW1uIjoxLCJlbmRMaW5lIjo0NCwiZmlsZVBhdGgiOiJyZXNlYXJjaC9maXh0dXJlcy9kaXNwYXRjaC1yZWNvcmQvc3JjL2Rpc3BhdGNoLXJlY29yZC5tanMiLCJpZCI6ImZ1bmN0aW9uOjM2NjE2ZDliMDcwNzA5ZGI0NzVhNmExOTQ4YmQyODNiIiwiaXNBYnN0cmFjdCI6ZmFsc2UsImlzQXN5bmMiOmZhbHNlLCJpc0V4cG9ydGVkIjp0cnVlLCJpc1N0YXRpYyI6ZmFsc2UsImtpbmQiOiJmdW5jdGlvbiIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJidWlsZERpc3BhdGNoUmVjb3JkIiwicXVhbGlmaWVkTmFtZSI6ImJ1aWxkRGlzcGF0Y2hSZWNvcmQiLCJzaWduYXR1cmUiOiIoaW5wdXQpIiwic3RhcnRDb2x1bW4iOjcsInN0YXJ0TGluZSI6MjcsInVwZGF0ZWRBdCI6MTc4NDEzODYwNjkxMywidmlzaWJpbGl0eSI6bnVsbH0sInNjb3JlIjoxMDEuNDY1NTQ0MzYxMzYzNjN9XSwidGFyZ2V0IjoiYnVpbGREaXNwYXRjaFJlY29yZCJ9LHsiZGF0YSI6eyJjYWxsZWVzIjpbeyJmaWxlUGF0aCI6InJlc2VhcmNoL2ZpeHR1cmVzL2Rpc3BhdGNoLXJlY29yZC9zcmMvZGlzcGF0Y2gtcmVjb3JkLm1qcyIsImtpbmQiOiJmdW5jdGlvbiIsIm5hbWUiOiJoYXNFeGFjdElucHV0S2V5cyIsInN0YXJ0TGluZSI6MTB9LHsiZmlsZVBhdGgiOiJyZXNlYXJjaC9maXh0dXJlcy9kaXNwYXRjaC1yZWNvcmQvc3JjL2Rpc3BhdGNoLXJlY29yZC5tanMiLCJraW5kIjoiZnVuY3Rpb24iLCJuYW1lIjoibm9uRW1wdHlTdHJpbmciLCJzdGFydExpbmUiOjIwfV0sInN5bWJvbCI6ImJ1aWxkRGlzcGF0Y2hSZWNvcmQifSwiaWQiOiJjYWxsZWVzLWJ1aWxkLWRpc3BhdGNoLXJlY29yZCIsIm9wZXJhdGlvbiI6ImNhbGxlZXMiLCJvdXRjb21lIjoicmVhZHkiLCJyZXNvbHV0aW9uIjpbeyJub2RlIjp7ImVuZENvbHVtbiI6MSwiZW5kTGluZSI6NDQsImZpbGVQYXRoIjoicmVzZWFyY2gvZml4dHVyZXMvZGlzcGF0Y2gtcmVjb3JkL3NyYy9kaXNwYXRjaC1yZWNvcmQubWpzIiwiaWQiOiJmdW5jdGlvbjozNjYxNmQ5YjA3MDcwOWRiNDc1YTZhMTk0OGJkMjgzYiIsImlzQWJzdHJhY3QiOmZhbHNlLCJpc0FzeW5jIjpmYWxzZSwiaXNFeHBvcnRlZCI6dHJ1ZSwiaXNTdGF0aWMiOmZhbHNlLCJraW5kIjoiZnVuY3Rpb24iLCJsYW5ndWFnZSI6ImphdmFzY3JpcHQiLCJuYW1lIjoiYnVpbGREaXNwYXRjaFJlY29yZCIsInF1YWxpZmllZE5hbWUiOiJidWlsZERpc3BhdGNoUmVjb3JkIiwic2lnbmF0dXJlIjoiKGlucHV0KSIsInN0YXJ0Q29sdW1uIjo3LCJzdGFydExpbmUiOjI3LCJ1cGRhdGVkQXQiOjE3ODQxMzg2MDY5MTMsInZpc2liaWxpdHkiOm51bGx9LCJzY29yZSI6MTAxLjQ2NTU0NDM2MTM2MzYzfV0sInRhcmdldCI6ImJ1aWxkRGlzcGF0Y2hSZWNvcmQifSx7ImRhdGEiOnsiYWZmZWN0ZWQiOlt7ImZpbGVQYXRoIjoicmVzZWFyY2gvZml4dHVyZXMvZGlzcGF0Y2gtcmVjb3JkL3NyYy9kaXNwYXRjaC1yZWNvcmQubWpzIiwia2luZCI6ImZ1bmN0aW9uIiwibmFtZSI6ImJ1aWxkRGlzcGF0Y2hSZWNvcmQiLCJzdGFydExpbmUiOjI3fSx7ImZpbGVQYXRoIjoidGVzdC9yZXNlYXJjaC1kaXNwYXRjaC1yZWNvcmQudGVzdC5tanMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJyZXNlYXJjaC1kaXNwYXRjaC1yZWNvcmQudGVzdC5tanMiLCJzdGFydExpbmUiOjF9XSwiZGVwdGgiOjIsImVkZ2VDb3VudCI6Miwibm9kZUNvdW50IjoyLCJzeW1ib2wiOiJidWlsZERpc3BhdGNoUmVjb3JkIn0sImlkIjoiaW1wYWN0LWJ1aWxkLWRpc3BhdGNoLXJlY29yZCIsIm9wZXJhdGlvbiI6ImltcGFjdCIsIm91dGNvbWUiOiJyZWFkeSIsInJlc29sdXRpb24iOlt7Im5vZGUiOnsiZW5kQ29sdW1uIjoxLCJlbmRMaW5lIjo0NCwiZmlsZVBhdGgiOiJyZXNlYXJjaC9maXh0dXJlcy9kaXNwYXRjaC1yZWNvcmQvc3JjL2Rpc3BhdGNoLXJlY29yZC5tanMiLCJpZCI6ImZ1bmN0aW9uOjM2NjE2ZDliMDcwNzA5ZGI0NzVhNmExOTQ4YmQyODNiIiwiaXNBYnN0cmFjdCI6ZmFsc2UsImlzQXN5bmMiOmZhbHNlLCJpc0V4cG9ydGVkIjp0cnVlLCJpc1N0YXRpYyI6ZmFsc2UsImtpbmQiOiJmdW5jdGlvbiIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJidWlsZERpc3BhdGNoUmVjb3JkIiwicXVhbGlmaWVkTmFtZSI6ImJ1aWxkRGlzcGF0Y2hSZWNvcmQiLCJzaWduYXR1cmUiOiIoaW5wdXQpIiwic3RhcnRDb2x1bW4iOjcsInN0YXJ0TGluZSI6MjcsInVwZGF0ZWRBdCI6MTc4NDEzODYwNjkxMywidmlzaWJpbGl0eSI6bnVsbH0sInNjb3JlIjoxMDEuNDY1NTQ0MzYxMzYzNjN9XSwidGFyZ2V0IjoiYnVpbGREaXNwYXRjaFJlY29yZCJ9LHsiZGF0YSI6W3sibm9kZSI6eyJlbmRDb2x1bW4iOjEyLCJlbmRMaW5lIjo2MSwiZmlsZVBhdGgiOiJzcmMvcmMxLXY0LXRyYW5zZm9ybS5tanMiLCJpZCI6ImNvbnN0YW50OjFmM2I4NmVjMjhjNTc4MWY0N2U3ZTYyMTdlYzA0MGE3IiwiaXNBYnN0cmFjdCI6ZmFsc2UsImlzQXN5bmMiOmZhbHNlLCJpc0V4cG9ydGVkIjpmYWxzZSwiaXNTdGF0aWMiOmZhbHNlLCJraW5kIjoiY29uc3RhbnQiLCJsYW5ndWFnZSI6ImphdmFzY3JpcHQiLCJuYW1lIjoiQ0hBTk5FTF9TT1VSQ0UiLCJxdWFsaWZpZWROYW1lIjoiQ0hBTk5FTF9TT1VSQ0UiLCJzaWduYXR1cmUiOiI9IFtcbiAgJ2V4cG9ydCBmdW5jdGlvbiBzZWxlY3REaXNwYXRjaENoYW5uZWwocHJpb3JpdHkpIHsnLFxuICBcIiAgaWYgKHByaW9yaXR5ICE9PSAndXJnZW50JyAmJiBwcmlvcml0eSAuLi4iLCJzdGFydENvbHVtbiI6Niwic3RhcnRMaW5lIjo1MiwidXBkYXRlZEF0IjoxNzg0MTM4NjA2OTY0LCJ2aXNpYmlsaXR5IjpudWxsfSwic2NvcmUiOjguNTU1NTc1NzEyMzg4ODE3fSx7Im5vZGUiOnsiZW5kQ29sdW1uIjoxMiwiZW5kTGluZSI6MTEwLCJmaWxlUGF0aCI6InNyYy9yYzEtdjQtdHJhbnNmb3JtLm1qcyIsImlkIjoiY29uc3RhbnQ6NTk2N2RiMTA2YjgzNDVlOWE2NDNiN2QwNzAxZGYyNGUiLCJpc0Fic3RyYWN0IjpmYWxzZSwiaXNBc3luYyI6ZmFsc2UsImlzRXhwb3J0ZWQiOmZhbHNlLCJpc1N0YXRpYyI6ZmFsc2UsImtpbmQiOiJjb25zdGFudCIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJDT01QT1NJVElPTl9TT1VSQ0UiLCJxdWFsaWZpZWROYW1lIjoiQ09NUE9TSVRJT05fU09VUkNFIiwic2lnbmF0dXJlIjoiPSBbXG4gIFwiaW1wb3J0IHsgc2VsZWN0RGlzcGF0Y2hDaGFubmVsIH0gZnJvbSAnLi9kaXNwYXRjaC1jaGFubmVsLm1qcyc7XCIsXG4gIFwiaW1wb3J0IHsgZm9ybWF0RGlzcGF0Y2hMYWIuLi4iLCJzdGFydENvbHVtbiI6Niwic3RhcnRMaW5lIjo3OSwidXBkYXRlZEF0IjoxNzg0MTM4NjA2OTY0LCJ2aXNpYmlsaXR5IjpudWxsfSwic2NvcmUiOjguNTU1NTc1NzEyMzg4ODE3fSx7Im5vZGUiOnsiZW5kQ29sdW1uIjoxMiwiZW5kTGluZSI6MzgsImZpbGVQYXRoIjoic3JjL3NlYW0tdHJhbnNmb3JtLm1qcyIsImlkIjoiY29uc3RhbnQ6Mjc5Nzc1OWUyNDIwODI5ZWMwMjdlZGJjMWFmZTBjMWQiLCJpc0Fic3RyYWN0IjpmYWxzZSwiaXNBc3luYyI6ZmFsc2UsImlzRXhwb3J0ZWQiOmZhbHNlLCJpc1N0YXRpYyI6ZmFsc2UsImtpbmQiOiJjb25zdGFudCIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJDSEFOTkVMX1NPVVJDRSIsInF1YWxpZmllZE5hbWUiOiJDSEFOTkVMX1NPVVJDRSIsInNpZ25hdHVyZSI6Ij0gW1xuICBcImV4cG9ydCBmdW5jdGlvbiBzZWxlY3REaXNwYXRjaENoYW5uZWwocHJpb3JpdHkpIHtcIixcbiAgXCIgIGlmIChwcmlvcml0eSAhPT0gJ3VyZ2VudCcgJiYgcHJpb3JpdHkgLi4uIiwic3RhcnRDb2x1bW4iOjYsInN0YXJ0TGluZSI6MjksInVwZGF0ZWRBdCI6MTc4NDEzODYwNjk2MSwidmlzaWJpbGl0eSI6bnVsbH0sInNjb3JlIjo4LjU1NTU3NTcxMjM4ODgxN30seyJub2RlIjp7ImVuZENvbHVtbiI6MTIsImVuZExpbmUiOjkyLCJmaWxlUGF0aCI6InNyYy9zZWFtLXRyYW5zZm9ybS5tanMiLCJpZCI6ImNvbnN0YW50OjQyOGFjNzAyYTYxZDYyNDcyZGViNTQ2NTlhY2Q5ODIyIiwiaXNBYnN0cmFjdCI6ZmFsc2UsImlzQXN5bmMiOmZhbHNlLCJpc0V4cG9ydGVkIjpmYWxzZSwiaXNTdGF0aWMiOmZhbHNlLCJraW5kIjoiY29uc3RhbnQiLCJsYW5ndWFnZSI6ImphdmFzY3JpcHQiLCJuYW1lIjoiQ09NUE9TSVRJT05fU09VUkNFIiwicXVhbGlmaWVkTmFtZSI6IkNPTVBPU0lUSU9OX1NPVVJDRSIsInNpZ25hdHVyZSI6Ij0gW1xuICBcImltcG9ydCB7IHNlbGVjdERpc3BhdGNoQ2hhbm5lbCB9IGZyb20gJy4vZGlzcGF0Y2gtY2hhbm5lbC5tanMnO1wiLFxuICBcImltcG9ydCB7IGZvcm1hdERpc3BhdGNoTGFiLi4uIiwic3RhcnRDb2x1bW4iOjYsInN0YXJ0TGluZSI6NTYsInVwZGF0ZWRBdCI6MTc4NDEzODYwNjk2MSwidmlzaWJpbGl0eSI6bnVsbH0sInNjb3JlIjo4LjU1NTU3NTcxMjM4ODgxN30seyJub2RlIjp7ImVuZENvbHVtbiI6MiwiZW5kTGluZSI6MjMsImZpbGVQYXRoIjoic3JjL2NvbnRyb2wtY29tcGlsZXIubWpzIiwiaWQiOiJjb25zdGFudDpiYjc0ZjE5MjJhNjRkNTNhYTlkYjA0YjdiZmEyYmJkYyIsImlzQWJzdHJhY3QiOmZhbHNlLCJpc0FzeW5jIjpmYWxzZSwiaXNFeHBvcnRlZCI6ZmFsc2UsImlzU3RhdGljIjpmYWxzZSwia2luZCI6ImNvbnN0YW50IiwibGFuZ3VhZ2UiOiJqYXZhc2NyaXB0IiwibmFtZSI6IlNFQU1fQllfQ09OQ0VSTiIsInF1YWxpZmllZE5hbWUiOiJTRUFNX0JZX0NPTkNFUk4iLCJzaWduYXR1cmUiOiI9IG5ldyBNYXAoW1xuICBbJ2Rpc3BhdGNoLmNoYW5uZWxfcG9saWN5Jywge1xuICAgIHN5bWJvbDogJ3NlbGVjdERpc3BhdGNoQ2hhbm5lbCcsXG4gICAgcGF0aDogJ3Jlc2VhcmNoL2YuLi4iLCJzdGFydENvbHVtbiI6Niwic3RhcnRMaW5lIjoxNCwidXBkYXRlZEF0IjoxNzg0MTM4NjA2OTQwLCJ2aXNpYmlsaXR5IjpudWxsfSwic2NvcmUiOjguMDQ5NTkzOTYxMDE5NDQzfSx7Im5vZGUiOnsiZW5kQ29sdW1uIjoyLCJlbmRMaW5lIjoyNiwiZmlsZVBhdGgiOiJzcmMvdHJlYXRtZW50LWNvbXBpbGVyLm1qcyIsImlkIjoiY29uc3RhbnQ6YTZmNGIxZDFkOGU5NGEyYTkyNWVhZjRkNmY4NjE0MjgiLCJpc0Fic3RyYWN0IjpmYWxzZSwiaXNBc3luYyI6ZmFsc2UsImlzRXhwb3J0ZWQiOmZhbHNlLCJpc1N0YXRpYyI6ZmFsc2UsImtpbmQiOiJjb25zdGFudCIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJTRUFNX0JZX0NPTkNFUk4iLCJxdWFsaWZpZWROYW1lIjoiU0VBTV9CWV9DT05DRVJOIiwic2lnbmF0dXJlIjoiPSBuZXcgTWFwKFtcbiAgWydkaXNwYXRjaC5jaGFubmVsX3BvbGljeScsIHtcbiAgICBzeW1ib2w6ICdzZWxlY3REaXNwYXRjaENoYW5uZWwnLFxuICAgIHBhdGg6ICdyZXNlYXJjaC9mLi4uIiwic3RhcnRDb2x1bW4iOjYsInN0YXJ0TGluZSI6MTcsInVwZGF0ZWRBdCI6MTc4NDEzODYwNjk2NiwidmlzaWJpbGl0eSI6bnVsbH0sInNjb3JlIjo4LjA0OTU5Mzk2MTAxOTQ0M30seyJub2RlIjp7ImVuZENvbHVtbiI6MiwiZW5kTGluZSI6MzIsImZpbGVQYXRoIjoidGVzdC9ib3VuZGFyeS1jb21waWxlci50ZXN0Lm1qcyIsImlkIjoiY29uc3RhbnQ6MTRkNTE0YWU5M2RhYTRlZjJmYTVjMTFmODQ0YWI0ZmUiLCJpc0Fic3RyYWN0IjpmYWxzZSwiaXNBc3luYyI6ZmFsc2UsImlzRXhwb3J0ZWQiOmZhbHNlLCJpc1N0YXRpYyI6ZmFsc2UsImtpbmQiOiJjb25zdGFudCIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJQUk9QT1NFRCIsInF1YWxpZmllZE5hbWUiOiJQUk9QT1NFRCIsInNpZ25hdHVyZSI6Ij0gbmV3IFNldChbXG4gICdzZWxlY3REaXNwYXRjaENoYW5uZWwnLFxuICAnZm9ybWF0RGlzcGF0Y2hMYWJlbCcsXG4gICdjaGFubmVsUG9saWN5Q29udHJhY3QnLFxuICAnbGFiZWxQb2wuLi4iLCJzdGFydENvbHVtbiI6Niwic3RhcnRMaW5lIjoyNywidXBkYXRlZEF0IjoxNzg0MTM4NjA2OTg0LCJ2aXNpYmlsaXR5IjpudWxsfSwic2NvcmUiOi01LjgyNTc0OTE0NTY1MDQ3NX0seyJub2RlIjp7ImVuZENvbHVtbiI6MiwiZW5kTGluZSI6MjYsImZpbGVQYXRoIjoidGVzdC9ib3VuZGFyeS1jb21waWxlci50ZXN0Lm1qcyIsImlkIjoiY29uc3RhbnQ6MDRmNDI0ZjhjOWZmZmYyMzQyMWJiNmFiNDVkYjRlMTYiLCJpc0Fic3RyYWN0IjpmYWxzZSwiaXNBc3luYyI6ZmFsc2UsImlzRXhwb3J0ZWQiOmZhbHNlLCJpc1N0YXRpYyI6ZmFsc2UsImtpbmQiOiJjb25zdGFudCIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJTVVJGQUNFX1BBVEhTIiwicXVhbGlmaWVkTmFtZSI6IlNVUkZBQ0VfUEFUSFMiLCJzaWduYXR1cmUiOiI9IG5ldyBNYXAoW1xuICBbJ2J1aWxkRGlzcGF0Y2hSZWNvcmQnLCBGSVhUVVJFXSxcbiAgWydzZWxlY3REaXNwYXRjaENoYW5uZWwnLCAncmVzZWFyY2gvZml4dHVyZXMvZGlzcGF0Yy4uLiIsInN0YXJ0Q29sdW1uIjo2LCJzdGFydExpbmUiOjE5LCJ1cGRhdGVkQXQiOjE3ODQxMzg2MDY5ODQsInZpc2liaWxpdHkiOm51bGx9LCJzY29yZSI6LTYuNDQ0NDI0Mjg3NjExMTgzfV0sImlkIjoicXVlcnktc2VsZWN0LWRpc3BhdGNoLWNoYW5uZWwiLCJvcGVyYXRpb24iOiJxdWVyeSIsIm91dGNvbWUiOiJzeW1ib2xfYWJzZW50IiwidGFyZ2V0Ijoic2VsZWN0RGlzcGF0Y2hDaGFubmVsIn0seyJpZCI6ImNhbGxlcnMtc2VsZWN0LWRpc3BhdGNoLWNoYW5uZWwiLCJvcGVyYXRpb24iOiJjYWxsZXJzIiwib3V0Y29tZSI6InN5bWJvbF9hYnNlbnQiLCJ0YXJnZXQiOiJzZWxlY3REaXNwYXRjaENoYW5uZWwifSx7ImlkIjoiaW1wYWN0LXNlbGVjdC1kaXNwYXRjaC1jaGFubmVsIiwib3BlcmF0aW9uIjoiaW1wYWN0Iiwib3V0Y29tZSI6InN5bWJvbF9hYnNlbnQiLCJ0YXJnZXQiOiJzZWxlY3REaXNwYXRjaENoYW5uZWwifSx7ImRhdGEiOlt7Im5vZGUiOnsiZW5kQ29sdW1uIjoyLCJlbmRMaW5lIjozMiwiZmlsZVBhdGgiOiJ0ZXN0L2JvdW5kYXJ5LWNvbXBpbGVyLnRlc3QubWpzIiwiaWQiOiJjb25zdGFudDoxNGQ1MTRhZTkzZGFhNGVmMmZhNWMxMWY4NDRhYjRmZSIsImlzQWJzdHJhY3QiOmZhbHNlLCJpc0FzeW5jIjpmYWxzZSwiaXNFeHBvcnRlZCI6ZmFsc2UsImlzU3RhdGljIjpmYWxzZSwia2luZCI6ImNvbnN0YW50IiwibGFuZ3VhZ2UiOiJqYXZhc2NyaXB0IiwibmFtZSI6IlBST1BPU0VEIiwicXVhbGlmaWVkTmFtZSI6IlBST1BPU0VEIiwic2lnbmF0dXJlIjoiPSBuZXcgU2V0KFtcbiAgJ3NlbGVjdERpc3BhdGNoQ2hhbm5lbCcsXG4gICdmb3JtYXREaXNwYXRjaExhYmVsJyxcbiAgJ2NoYW5uZWxQb2xpY3lDb250cmFjdCcsXG4gICdsYWJlbFBvbC4uLiIsInN0YXJ0Q29sdW1uIjo2LCJzdGFydExpbmUiOjI3LCJ1cGRhdGVkQXQiOjE3ODQxMzg2MDY5ODQsInZpc2liaWxpdHkiOm51bGx9LCJzY29yZSI6LTMuNDE4MzA1OTM3NjUxOTcyfV0sImlkIjoicXVlcnktZm9ybWF0LWRpc3BhdGNoLWxhYmVsIiwib3BlcmF0aW9uIjoicXVlcnkiLCJvdXRjb21lIjoic3ltYm9sX2Fic2VudCIsInRhcmdldCI6ImZvcm1hdERpc3BhdGNoTGFiZWwifSx7ImlkIjoiY2FsbGVycy1mb3JtYXQtZGlzcGF0Y2gtbGFiZWwiLCJvcGVyYXRpb24iOiJjYWxsZXJzIiwib3V0Y29tZSI6InN5bWJvbF9hYnNlbnQiLCJ0YXJnZXQiOiJmb3JtYXREaXNwYXRjaExhYmVsIn0seyJpZCI6ImltcGFjdC1mb3JtYXQtZGlzcGF0Y2gtbGFiZWwiLCJvcGVyYXRpb24iOiJpbXBhY3QiLCJvdXRjb21lIjoic3ltYm9sX2Fic2VudCIsInRhcmdldCI6ImZvcm1hdERpc3BhdGNoTGFiZWwifSx7ImRhdGEiOlt7Im5vZGUiOnsiZW5kQ29sdW1uIjo2MCwiZW5kTGluZSI6MTgsImZpbGVQYXRoIjoidGVzdC9ib3VuZGFyeS1jb21waWxlci50ZXN0Lm1qcyIsImlkIjoiY29uc3RhbnQ6ZDcwOWU4ZDQ5ODc4NDI2NjM4MWQ1ZWMzYjg3M2MyY2YiLCJpc0Fic3RyYWN0IjpmYWxzZSwiaXNBc3luYyI6ZmFsc2UsImlzRXhwb3J0ZWQiOmZhbHNlLCJpc1N0YXRpYyI6ZmFsc2UsImtpbmQiOiJjb25zdGFudCIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJTSEFSRURfVEVTVCIsInF1YWxpZmllZE5hbWUiOiJTSEFSRURfVEVTVCIsInNpZ25hdHVyZSI6Ij0gJ3Rlc3QvcmVzZWFyY2gtZGlzcGF0Y2gtcmVjb3JkLnRlc3QubWpzJyIsInN0YXJ0Q29sdW1uIjo2LCJzdGFydExpbmUiOjE4LCJ1cGRhdGVkQXQiOjE3ODQxMzg2MDY5ODQsInZpc2liaWxpdHkiOm51bGx9LCJzY29yZSI6MjMuODQ4NTk3NjU3MTcwMzM4fSx7Im5vZGUiOnsiZW5kQ29sdW1uIjo2MCwiZW5kTGluZSI6MjIsImZpbGVQYXRoIjoidGVzdC9yYzEtdjQtY2FtcGFpZ24udGVzdC5tanMiLCJpZCI6ImNvbnN0YW50OmNlNDRhY2ViMjc4ZjE3OTZhMWE0ODM0YWY5ZDZiMTY2IiwiaXNBYnN0cmFjdCI6ZmFsc2UsImlzQXN5bmMiOmZhbHNlLCJpc0V4cG9ydGVkIjpmYWxzZSwiaXNTdGF0aWMiOmZhbHNlLCJraW5kIjoiY29uc3RhbnQiLCJsYW5ndWFnZSI6ImphdmFzY3JpcHQiLCJuYW1lIjoiU0hBUkVEX1RFU1QiLCJxdWFsaWZpZWROYW1lIjoiU0hBUkVEX1RFU1QiLCJzaWduYXR1cmUiOiI9ICd0ZXN0L3Jlc2VhcmNoLWRpc3BhdGNoLXJlY29yZC50ZXN0Lm1qcyciLCJzdGFydENvbHVtbiI6Niwic3RhcnRMaW5lIjoyMiwidXBkYXRlZEF0IjoxNzg0MTM4NjA3MDA5LCJ2aXNpYmlsaXR5IjpudWxsfSwic2NvcmUiOjIzLjg0ODU5NzY1NzE3MDMzOH0seyJub2RlIjp7ImVuZENvbHVtbiI6NjAsImVuZExpbmUiOjE3LCJmaWxlUGF0aCI6InRlc3QvcmMxLXY0LWNoYXJhY3Rlcml6YXRpb24udGVzdC5tanMiLCJpZCI6ImNvbnN0YW50OmUyOWJlMDcwZGE0MTVhYzBkOWIzY2RkMTQ0OTBiMDE4IiwiaXNBYnN0cmFjdCI6ZmFsc2UsImlzQXN5bmMiOmZhbHNlLCJpc0V4cG9ydGVkIjpmYWxzZSwiaXNTdGF0aWMiOmZhbHNlLCJraW5kIjoiY29uc3RhbnQiLCJsYW5ndWFnZSI6ImphdmFzY3JpcHQiLCJuYW1lIjoiU0hBUkVEX1RFU1QiLCJxdWFsaWZpZWROYW1lIjoiU0hBUkVEX1RFU1QiLCJzaWduYXR1cmUiOiI9ICd0ZXN0L3Jlc2VhcmNoLWRpc3BhdGNoLXJlY29yZC50ZXN0Lm1qcyciLCJzdGFydENvbHVtbiI6Niwic3RhcnRMaW5lIjoxNywidXBkYXRlZEF0IjoxNzg0MTM4NjA3MDEyLCJ2aXNpYmlsaXR5IjpudWxsfSwic2NvcmUiOjIzLjg0ODU5NzY1NzE3MDMzOH0seyJub2RlIjp7ImVuZENvbHVtbiI6NjAsImVuZExpbmUiOjIzLCJmaWxlUGF0aCI6InRlc3QvcmMxLXY0LXRyYW5zZm9ybS50ZXN0Lm1qcyIsImlkIjoiY29uc3RhbnQ6MTllMGVmY2EzY2I0YTYzMTVhZTBmYzhmYmYyNjMyZTAiLCJpc0Fic3RyYWN0IjpmYWxzZSwiaXNBc3luYyI6ZmFsc2UsImlzRXhwb3J0ZWQiOmZhbHNlLCJpc1N0YXRpYyI6ZmFsc2UsImtpbmQiOiJjb25zdGFudCIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJTSEFSRURfVEVTVCIsInF1YWxpZmllZE5hbWUiOiJTSEFSRURfVEVTVCIsInNpZ25hdHVyZSI6Ij0gJ3Rlc3QvcmVzZWFyY2gtZGlzcGF0Y2gtcmVjb3JkLnRlc3QubWpzJyIsInN0YXJ0Q29sdW1uIjo2LCJzdGFydExpbmUiOjIzLCJ1cGRhdGVkQXQiOjE3ODQxMzg2MDcwMTMsInZpc2liaWxpdHkiOm51bGx9LCJzY29yZSI6MjMuODQ4NTk3NjU3MTcwMzM4fSx7Im5vZGUiOnsiZW5kQ29sdW1uIjo2MiwiZW5kTGluZSI6MTcsImZpbGVQYXRoIjoidGVzdC90cmVhdG1lbnQtY29tcGlsZXIudGVzdC5tanMiLCJpZCI6ImNvbnN0YW50OjI4MDE2NDY4MGIwMTY5YTUzNGU2MGM2ZTcxZTVhZjk4IiwiaXNBYnN0cmFjdCI6ZmFsc2UsImlzQXN5bmMiOmZhbHNlLCJpc0V4cG9ydGVkIjpmYWxzZSwiaXNTdGF0aWMiOmZhbHNlLCJraW5kIjoiY29uc3RhbnQiLCJsYW5ndWFnZSI6ImphdmFzY3JpcHQiLCJuYW1lIjoiQUZGRUNURURfVEVTVCIsInF1YWxpZmllZE5hbWUiOiJBRkZFQ1RFRF9URVNUIiwic2lnbmF0dXJlIjoiPSAndGVzdC9yZXNlYXJjaC1kaXNwYXRjaC1yZWNvcmQudGVzdC5tanMnIiwic3RhcnRDb2x1bW4iOjYsInN0YXJ0TGluZSI6MTcsInVwZGF0ZWRBdCI6MTc4NDEzODYwNzAxNiwidmlzaWJpbGl0eSI6bnVsbH0sInNjb3JlIjoyMy44NDg1OTc2NTcxNzAzMzh9LHsibm9kZSI6eyJlbmRDb2x1bW4iOjAsImVuZExpbmUiOjg4LCJmaWxlUGF0aCI6InRlc3QvcmVzZWFyY2gtZGlzcGF0Y2gtcmVjb3JkLnRlc3QubWpzIiwiaWQiOiJmaWxlOnRlc3QvcmVzZWFyY2gtZGlzcGF0Y2gtcmVjb3JkLnRlc3QubWpzIiwiaXNBYnN0cmFjdCI6ZmFsc2UsImlzQXN5bmMiOmZhbHNlLCJpc0V4cG9ydGVkIjpmYWxzZSwiaXNTdGF0aWMiOmZhbHNlLCJraW5kIjoiZmlsZSIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJyZXNlYXJjaC1kaXNwYXRjaC1yZWNvcmQudGVzdC5tanMiLCJxdWFsaWZpZWROYW1lIjoidGVzdC9yZXNlYXJjaC1kaXNwYXRjaC1yZWNvcmQudGVzdC5tanMiLCJzdGFydENvbHVtbiI6MCwic3RhcnRMaW5lIjoxLCJ1cGRhdGVkQXQiOjE3ODQxMzg2MDcwMTAsInZpc2liaWxpdHkiOm51bGx9LCJzY29yZSI6MjIuMTMzMTI1NjA5MjE5NjgyfSx7Im5vZGUiOnsiZW5kQ29sdW1uIjo2MCwiZW5kTGluZSI6MjIsImZpbGVQYXRoIjoic3JjL3JjMS12NC10cmFuc2Zvcm0ubWpzIiwiaWQiOiJjb25zdGFudDo3NjE1MmM2OWI1MGZjMGVjYjA2MjM4MTVkYTU0YTg0YiIsImlzQWJzdHJhY3QiOmZhbHNlLCJpc0FzeW5jIjpmYWxzZSwiaXNFeHBvcnRlZCI6ZmFsc2UsImlzU3RhdGljIjpmYWxzZSwia2luZCI6ImNvbnN0YW50IiwibGFuZ3VhZ2UiOiJqYXZhc2NyaXB0IiwibmFtZSI6IlNIQVJFRF9URVNUIiwicXVhbGlmaWVkTmFtZSI6IlNIQVJFRF9URVNUIiwic2lnbmF0dXJlIjoiPSAndGVzdC9yZXNlYXJjaC1kaXNwYXRjaC1yZWNvcmQudGVzdC5tanMnIiwic3RhcnRDb2x1bW4iOjYsInN0YXJ0TGluZSI6MjIsInVwZGF0ZWRBdCI6MTc4NDEzODYwNjk2MywidmlzaWJpbGl0eSI6bnVsbH0sInNjb3JlIjoyMS44NDg1OTc2NTcxNzAzMzh9LHsibm9kZSI6eyJlbmRDb2x1bW4iOjYyLCJlbmRMaW5lIjoxNiwiZmlsZVBhdGgiOiJzcmMvdHJlYXRtZW50LWNvbXBpbGVyLm1qcyIsImlkIjoiY29uc3RhbnQ6MzNmOTVhODhkODBkMTUyOTNjYjc5YmM5MTdjMjczZDgiLCJpc0Fic3RyYWN0IjpmYWxzZSwiaXNBc3luYyI6ZmFsc2UsImlzRXhwb3J0ZWQiOmZhbHNlLCJpc1N0YXRpYyI6ZmFsc2UsImtpbmQiOiJjb25zdGFudCIsImxhbmd1YWdlIjoiamF2YXNjcmlwdCIsIm5hbWUiOiJBRkZFQ1RFRF9URVNUIiwicXVhbGlmaWVkTmFtZSI6IkFGRkVDVEVEX1RFU1QiLCJzaWduYXR1cmUiOiI9ICd0ZXN0L3Jlc2VhcmNoLWRpc3BhdGNoLXJlY29yZC50ZXN0Lm1qcyciLCJzdGFydENvbHVtbiI6Niwic3RhcnRMaW5lIjoxNiwidXBkYXRlZEF0IjoxNzg0MTM4NjA2OTY2LCJ2aXNpYmlsaXR5IjpudWxsfSwic2NvcmUiOjIxLjg0ODU5NzY1NzE3MDMzOH1dLCJpZCI6InF1ZXJ5LXNoYXJlZC1jb21wb3NpdGlvbi10ZXN0Iiwib3BlcmF0aW9uIjoicXVlcnkiLCJvdXRjb21lIjoicmVhZHkiLCJ0YXJnZXQiOiJ0ZXN0L3Jlc2VhcmNoLWRpc3BhdGNoLXJlY29yZC50ZXN0Lm1qcyJ9LHsiZGF0YSI6W3sibm9kZSI6eyJlbmRDb2x1bW4iOjIsImVuZExpbmUiOjMyLCJmaWxlUGF0aCI6InRlc3QvYm91bmRhcnktY29tcGlsZXIudGVzdC5tanMiLCJpZCI6ImNvbnN0YW50OjE0ZDUxNGFlOTNkYWE0ZWYyZmE1YzExZjg0NGFiNGZlIiwiaXNBYnN0cmFjdCI6ZmFsc2UsImlzQXN5bmMiOmZhbHNlLCJpc0V4cG9ydGVkIjpmYWxzZSwiaXNTdGF0aWMiOmZhbHNlLCJraW5kIjoiY29uc3RhbnQiLCJsYW5ndWFnZSI6ImphdmFzY3JpcHQiLCJuYW1lIjoiUFJPUE9TRUQiLCJxdWFsaWZpZWROYW1lIjoiUFJPUE9TRUQiLCJzaWduYXR1cmUiOiI9IG5ldyBTZXQoW1xuICAnc2VsZWN0RGlzcGF0Y2hDaGFubmVsJyxcbiAgJ2Zvcm1hdERpc3BhdGNoTGFiZWwnLFxuICAnY2hhbm5lbFBvbGljeUNvbnRyYWN0JyxcbiAgJ2xhYmVsUG9sLi4uIiwic3RhcnRDb2x1bW4iOjYsInN0YXJ0TGluZSI6MjcsInVwZGF0ZWRBdCI6MTc4NDEzODYwNjk4NCwidmlzaWJpbGl0eSI6bnVsbH0sInNjb3JlIjotMy40MTgzMDU5Mzc2NTE5NzJ9XSwiaWQiOiJxdWVyeS1jaGFubmVsLXBvbGljeS1jb250cmFjdCIsIm9wZXJhdGlvbiI6InF1ZXJ5Iiwib3V0Y29tZSI6InN5bWJvbF9hYnNlbnQiLCJ0YXJnZXQiOiJjaGFubmVsUG9saWN5Q29udHJhY3QifSx7ImlkIjoiaW1wYWN0LWNoYW5uZWwtcG9saWN5LWNvbnRyYWN0Iiwib3BlcmF0aW9uIjoiaW1wYWN0Iiwib3V0Y29tZSI6InN5bWJvbF9hYnNlbnQiLCJ0YXJnZXQiOiJjaGFubmVsUG9saWN5Q29udHJhY3QifSx7ImRhdGEiOltdLCJpZCI6InF1ZXJ5LWxhYmVsLXBvbGljeS1jb250cmFjdCIsIm9wZXJhdGlvbiI6InF1ZXJ5Iiwib3V0Y29tZSI6InN5bWJvbF9hYnNlbnQiLCJ0YXJnZXQiOiJsYWJlbFBvbGljeUNvbnRyYWN0In0seyJpZCI6ImltcGFjdC1sYWJlbC1wb2xpY3ktY29udHJhY3QiLCJvcGVyYXRpb24iOiJpbXBhY3QiLCJvdXRjb21lIjoic3ltYm9sX2Fic2VudCIsInRhcmdldCI6ImxhYmVsUG9saWN5Q29udHJhY3QifSx7ImlkIjoiYWZmZWN0ZWQtcmMxLXByb2R1Y3Rpb24tYW5kLXRlc3RzIiwib3BlcmF0aW9uIjoiYWZmZWN0ZWQiLCJvdXRjb21lIjoidW5yZXNvbHZlZCIsInRhcmdldHMiOlt7ImRhdGEiOnsiYWZmZWN0ZWRUZXN0cyI6WyJ0ZXN0L3Jlc2VhcmNoLWRpc3BhdGNoLXJlY29yZC50ZXN0Lm1qcyJdLCJjaGFuZ2VkRmlsZXMiOlsicmVzZWFyY2gvZml4dHVyZXMvZGlzcGF0Y2gtcmVjb3JkL3NyYy9kaXNwYXRjaC1yZWNvcmQubWpzIl0sInRvdGFsRGVwZW5kZW50c1RyYXZlcnNlZCI6MX0sIm91dGNvbWUiOiJyZWFkeSIsInRhcmdldCI6InJlc2VhcmNoL2ZpeHR1cmVzL2Rpc3BhdGNoLXJlY29yZC9zcmMvZGlzcGF0Y2gtcmVjb3JkLm1qcyJ9LHsiZGF0YSI6eyJhZmZlY3RlZFRlc3RzIjpbXSwiY2hhbmdlZEZpbGVzIjpbInJlc2VhcmNoL2ZpeHR1cmVzL2Rpc3BhdGNoLXJlY29yZC9zcmMvZGlzcGF0Y2gtY2hhbm5lbC5tanMiXSwidG90YWxEZXBlbmRlbnRzVHJhdmVyc2VkIjowfSwib3V0Y29tZSI6ImVtcHR5IiwidGFyZ2V0IjoicmVzZWFyY2gvZml4dHVyZXMvZGlzcGF0Y2gtcmVjb3JkL3NyYy9kaXNwYXRjaC1jaGFubmVsLm1qcyJ9LHsiZGF0YSI6eyJhZmZlY3RlZFRlc3RzIjpbXSwiY2hhbmdlZEZpbGVzIjpbInJlc2VhcmNoL2ZpeHR1cmVzL2Rpc3BhdGNoLXJlY29yZC9zcmMvZGlzcGF0Y2gtbGFiZWwubWpzIl0sInRvdGFsRGVwZW5kZW50c1RyYXZlcnNlZCI6MH0sIm91dGNvbWUiOiJlbXB0eSIsInRhcmdldCI6InJlc2VhcmNoL2ZpeHR1cmVzL2Rpc3BhdGNoLXJlY29yZC9zcmMvZGlzcGF0Y2gtbGFiZWwubWpzIn0seyJkYXRhIjp7ImFmZmVjdGVkVGVzdHMiOlsidGVzdC9yZXNlYXJjaC1kaXNwYXRjaC1yZWNvcmQudGVzdC5tanMiXSwiY2hhbmdlZEZpbGVzIjpbInRlc3QvcmVzZWFyY2gtZGlzcGF0Y2gtcmVjb3JkLnRlc3QubWpzIl0sInRvdGFsRGVwZW5kZW50c1RyYXZlcnNlZCI6MH0sIm91dGNvbWUiOiJyZWFkeSIsInRhcmdldCI6InRlc3QvcmVzZWFyY2gtZGlzcGF0Y2gtcmVjb3JkLnRlc3QubWpzIn0seyJkYXRhIjp7ImFmZmVjdGVkVGVzdHMiOlsidGVzdC9yZXNlYXJjaC1kaXNwYXRjaC1jaGFubmVsLnRlc3QubWpzIl0sImNoYW5nZWRGaWxlcyI6WyJ0ZXN0L3Jlc2VhcmNoLWRpc3BhdGNoLWNoYW5uZWwudGVzdC5tanMiXSwidG90YWxEZXBlbmRlbnRzVHJhdmVyc2VkIjowfSwib3V0Y29tZSI6InJlYWR5IiwidGFyZ2V0IjoidGVzdC9yZXNlYXJjaC1kaXNwYXRjaC1jaGFubmVsLnRlc3QubWpzIn0seyJkYXRhIjp7ImFmZmVjdGVkVGVzdHMiOlsidGVzdC9yZXNlYXJjaC1kaXNwYXRjaC1sYWJlbC50ZXN0Lm1qcyJdLCJjaGFuZ2VkRmlsZXMiOlsidGVzdC9yZXNlYXJjaC1kaXNwYXRjaC1sYWJlbC50ZXN0Lm1qcyJdLCJ0b3RhbERlcGVuZGVudHNUcmF2ZXJzZWQiOjB9LCJvdXRjb21lIjoicmVhZHkiLCJ0YXJnZXQiOiJ0ZXN0L3Jlc2VhcmNoLWRpc3BhdGNoLWxhYmVsLnRlc3QubWpzIn1dfV19",
+    "payload_digest": "187d0474e74ea5e2ca7cd46a257085d3003698e6c212cebfec5a5606318fac71",
+    "canonical_bytes": 16929
+  },
+  "diagnostic": {
+    "schema": "lattice.codegraph_sanitized_diagnostic.v1",
+    "source_raw_digest": "187d0474e74ea5e2ca7cd46a257085d3003698e6c212cebfec5a5606318fac71",
+    "sanitization_manifest": {
+      "schema": "lattice.codegraph_sanitization_manifest.v1",
+      "sanitizer": "lattice.codegraph_diagnostic_sanitizer.v1",
+      "rules_digest": "0762b7fd84290ceb32248b8e3270e872868b9257ca4991161f5bbf220a336041",
+      "operations": [
+        {
+          "path": "/cwd",
+          "action": "replace",
+          "replacement": "<repo-root>"
+        },
+        {
+          "path": "/outcomes/0/data/projectPath",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/0/data/indexPath",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/0/data/lastIndexed",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/0/data/dbSizeBytes",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/1/data/0/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/1/data/1/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/1/data/2/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/2/resolution/0/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/3/resolution/0/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/4/resolution/0/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/5/data/0/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/5/data/1/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/5/data/2/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/5/data/3/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/5/data/4/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/5/data/5/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/5/data/6/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/5/data/7/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/8/data/0/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/11/data/0/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/11/data/1/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/11/data/2/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/11/data/3/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/11/data/4/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/11/data/5/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/11/data/6/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/11/data/7/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        },
+        {
+          "path": "/outcomes/12/data/0/node/updatedAt",
+          "action": "remove",
+          "replacement": null
+        }
+      ]
+    },
+    "sanitization_manifest_digest": "3d8cf38d49f245ec9a762a8815b5d88dbeb9ed7b2fe6c73891afc1d8b6b85e68",
+    "payload": {
+      "cwd": "<repo-root>",
+      "outcomes": [
+        {
+          "id": "status",
+          "operation": "status",
+          "outcome": "ready",
+          "data": {
+            "initialized": true,
+            "version": "1.4.1",
+            "fileCount": 39,
+            "nodeCount": 752,
+            "edgeCount": 2890,
+            "backend": "node-sqlite",
+            "journalMode": "wal",
+            "nodesByKind": {
+              "constant": 163,
+              "file": 37,
+              "function": 370,
+              "import": 182
+            },
+            "languages": [
+              "javascript",
+              "yaml"
+            ],
+            "pendingChanges": {
+              "added": 0,
+              "modified": 0,
+              "removed": 0
+            },
+            "worktreeMismatch": null,
+            "index": {
+              "builtWithVersion": "1.4.1",
+              "builtWithExtractionVersion": 24,
+              "currentExtractionVersion": 24,
+              "reindexRecommended": false,
+              "state": "complete",
+              "pendingRefs": 0
+            }
+          }
+        },
+        {
+          "id": "query-build-dispatch-record",
+          "operation": "query",
+          "target": "buildDispatchRecord",
+          "outcome": "ready",
+          "data": [
+            {
+              "node": {
+                "id": "function:36616d9b070709db475a6a1948bd283b",
+                "kind": "function",
+                "name": "buildDispatchRecord",
+                "qualifiedName": "buildDispatchRecord",
+                "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+                "language": "javascript",
+                "startLine": 27,
+                "endLine": 44,
+                "startColumn": 7,
+                "endColumn": 1,
+                "signature": "(input)",
+                "visibility": null,
+                "isExported": true,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 101.46554436136363
+            },
+            {
+              "node": {
+                "id": "import:2b370b9b1ec2c9be27fb024adeb7291a",
+                "kind": "import",
+                "name": "../research/fixtures/dispatch-record/src/dispatch-record.mjs",
+                "qualifiedName": "../research/fixtures/dispatch-record/src/dispatch-record.mjs",
+                "filePath": "test/research-dispatch-record.test.mjs",
+                "language": "javascript",
+                "startLine": 5,
+                "endLine": 5,
+                "startColumn": 0,
+                "endColumn": 99,
+                "signature": "import { buildDispatchRecord } from '../research/fixtures/dispatch-record/src/dispatch-record.mjs';",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 3.8453457778868048
+            },
+            {
+              "node": {
+                "id": "constant:04f424f8c9ffff23421bb6ab45db4e16",
+                "kind": "constant",
+                "name": "SURFACE_PATHS",
+                "qualifiedName": "SURFACE_PATHS",
+                "filePath": "test/boundary-compiler.test.mjs",
+                "language": "javascript",
+                "startLine": 19,
+                "endLine": 26,
+                "startColumn": 6,
+                "endColumn": 2,
+                "signature": "= new Map([\n  ['buildDispatchRecord', FIXTURE],\n  ['selectDispatchChannel', 'research/fixtures/dispatc...",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": -5.333970795675068
+            }
+          ]
+        },
+        {
+          "id": "callers-build-dispatch-record",
+          "operation": "callers",
+          "target": "buildDispatchRecord",
+          "outcome": "ready",
+          "data": {
+            "symbol": "buildDispatchRecord",
+            "callers": [
+              {
+                "name": "research-dispatch-record.test.mjs",
+                "kind": "file",
+                "filePath": "test/research-dispatch-record.test.mjs",
+                "startLine": 1
+              }
+            ]
+          },
+          "resolution": [
+            {
+              "node": {
+                "id": "function:36616d9b070709db475a6a1948bd283b",
+                "kind": "function",
+                "name": "buildDispatchRecord",
+                "qualifiedName": "buildDispatchRecord",
+                "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+                "language": "javascript",
+                "startLine": 27,
+                "endLine": 44,
+                "startColumn": 7,
+                "endColumn": 1,
+                "signature": "(input)",
+                "visibility": null,
+                "isExported": true,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 101.46554436136363
+            }
+          ]
+        },
+        {
+          "id": "callees-build-dispatch-record",
+          "operation": "callees",
+          "target": "buildDispatchRecord",
+          "outcome": "ready",
+          "data": {
+            "symbol": "buildDispatchRecord",
+            "callees": [
+              {
+                "name": "hasExactInputKeys",
+                "kind": "function",
+                "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+                "startLine": 10
+              },
+              {
+                "name": "nonEmptyString",
+                "kind": "function",
+                "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+                "startLine": 20
+              }
+            ]
+          },
+          "resolution": [
+            {
+              "node": {
+                "id": "function:36616d9b070709db475a6a1948bd283b",
+                "kind": "function",
+                "name": "buildDispatchRecord",
+                "qualifiedName": "buildDispatchRecord",
+                "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+                "language": "javascript",
+                "startLine": 27,
+                "endLine": 44,
+                "startColumn": 7,
+                "endColumn": 1,
+                "signature": "(input)",
+                "visibility": null,
+                "isExported": true,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 101.46554436136363
+            }
+          ]
+        },
+        {
+          "id": "impact-build-dispatch-record",
+          "operation": "impact",
+          "target": "buildDispatchRecord",
+          "outcome": "ready",
+          "data": {
+            "symbol": "buildDispatchRecord",
+            "depth": 2,
+            "nodeCount": 2,
+            "edgeCount": 2,
+            "affected": [
+              {
+                "name": "buildDispatchRecord",
+                "kind": "function",
+                "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+                "startLine": 27
+              },
+              {
+                "name": "research-dispatch-record.test.mjs",
+                "kind": "file",
+                "filePath": "test/research-dispatch-record.test.mjs",
+                "startLine": 1
+              }
+            ]
+          },
+          "resolution": [
+            {
+              "node": {
+                "id": "function:36616d9b070709db475a6a1948bd283b",
+                "kind": "function",
+                "name": "buildDispatchRecord",
+                "qualifiedName": "buildDispatchRecord",
+                "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+                "language": "javascript",
+                "startLine": 27,
+                "endLine": 44,
+                "startColumn": 7,
+                "endColumn": 1,
+                "signature": "(input)",
+                "visibility": null,
+                "isExported": true,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 101.46554436136363
+            }
+          ]
+        },
+        {
+          "id": "query-select-dispatch-channel",
+          "operation": "query",
+          "target": "selectDispatchChannel",
+          "outcome": "symbol_absent",
+          "data": [
+            {
+              "node": {
+                "id": "constant:1f3b86ec28c5781f47e7e6217ec040a7",
+                "kind": "constant",
+                "name": "CHANNEL_SOURCE",
+                "qualifiedName": "CHANNEL_SOURCE",
+                "filePath": "src/rc1-v4-transform.mjs",
+                "language": "javascript",
+                "startLine": 52,
+                "endLine": 61,
+                "startColumn": 6,
+                "endColumn": 12,
+                "signature": "= [\n  'export function selectDispatchChannel(priority) {',\n  \"  if (priority !== 'urgent' && priority ...",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 8.555575712388817
+            },
+            {
+              "node": {
+                "id": "constant:5967db106b8345e9a643b7d0701df24e",
+                "kind": "constant",
+                "name": "COMPOSITION_SOURCE",
+                "qualifiedName": "COMPOSITION_SOURCE",
+                "filePath": "src/rc1-v4-transform.mjs",
+                "language": "javascript",
+                "startLine": 79,
+                "endLine": 110,
+                "startColumn": 6,
+                "endColumn": 12,
+                "signature": "= [\n  \"import { selectDispatchChannel } from './dispatch-channel.mjs';\",\n  \"import { formatDispatchLab...",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 8.555575712388817
+            },
+            {
+              "node": {
+                "id": "constant:2797759e2420829ec027edbc1afe0c1d",
+                "kind": "constant",
+                "name": "CHANNEL_SOURCE",
+                "qualifiedName": "CHANNEL_SOURCE",
+                "filePath": "src/seam-transform.mjs",
+                "language": "javascript",
+                "startLine": 29,
+                "endLine": 38,
+                "startColumn": 6,
+                "endColumn": 12,
+                "signature": "= [\n  \"export function selectDispatchChannel(priority) {\",\n  \"  if (priority !== 'urgent' && priority ...",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 8.555575712388817
+            },
+            {
+              "node": {
+                "id": "constant:428ac702a61d62472deb54659acd9822",
+                "kind": "constant",
+                "name": "COMPOSITION_SOURCE",
+                "qualifiedName": "COMPOSITION_SOURCE",
+                "filePath": "src/seam-transform.mjs",
+                "language": "javascript",
+                "startLine": 56,
+                "endLine": 92,
+                "startColumn": 6,
+                "endColumn": 12,
+                "signature": "= [\n  \"import { selectDispatchChannel } from './dispatch-channel.mjs';\",\n  \"import { formatDispatchLab...",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 8.555575712388817
+            },
+            {
+              "node": {
+                "id": "constant:bb74f1922a64d53aa9db04b7bfa2bbdc",
+                "kind": "constant",
+                "name": "SEAM_BY_CONCERN",
+                "qualifiedName": "SEAM_BY_CONCERN",
+                "filePath": "src/control-compiler.mjs",
+                "language": "javascript",
+                "startLine": 14,
+                "endLine": 23,
+                "startColumn": 6,
+                "endColumn": 2,
+                "signature": "= new Map([\n  ['dispatch.channel_policy', {\n    symbol: 'selectDispatchChannel',\n    path: 'research/f...",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 8.049593961019443
+            },
+            {
+              "node": {
+                "id": "constant:a6f4b1d1d8e94a2a925eaf4d6f861428",
+                "kind": "constant",
+                "name": "SEAM_BY_CONCERN",
+                "qualifiedName": "SEAM_BY_CONCERN",
+                "filePath": "src/treatment-compiler.mjs",
+                "language": "javascript",
+                "startLine": 17,
+                "endLine": 26,
+                "startColumn": 6,
+                "endColumn": 2,
+                "signature": "= new Map([\n  ['dispatch.channel_policy', {\n    symbol: 'selectDispatchChannel',\n    path: 'research/f...",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 8.049593961019443
+            },
+            {
+              "node": {
+                "id": "constant:14d514ae93daa4ef2fa5c11f844ab4fe",
+                "kind": "constant",
+                "name": "PROPOSED",
+                "qualifiedName": "PROPOSED",
+                "filePath": "test/boundary-compiler.test.mjs",
+                "language": "javascript",
+                "startLine": 27,
+                "endLine": 32,
+                "startColumn": 6,
+                "endColumn": 2,
+                "signature": "= new Set([\n  'selectDispatchChannel',\n  'formatDispatchLabel',\n  'channelPolicyContract',\n  'labelPol...",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": -5.825749145650475
+            },
+            {
+              "node": {
+                "id": "constant:04f424f8c9ffff23421bb6ab45db4e16",
+                "kind": "constant",
+                "name": "SURFACE_PATHS",
+                "qualifiedName": "SURFACE_PATHS",
+                "filePath": "test/boundary-compiler.test.mjs",
+                "language": "javascript",
+                "startLine": 19,
+                "endLine": 26,
+                "startColumn": 6,
+                "endColumn": 2,
+                "signature": "= new Map([\n  ['buildDispatchRecord', FIXTURE],\n  ['selectDispatchChannel', 'research/fixtures/dispatc...",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": -6.444424287611183
+            }
+          ]
+        },
+        {
+          "id": "callers-select-dispatch-channel",
+          "operation": "callers",
+          "target": "selectDispatchChannel",
+          "outcome": "symbol_absent"
+        },
+        {
+          "id": "impact-select-dispatch-channel",
+          "operation": "impact",
+          "target": "selectDispatchChannel",
+          "outcome": "symbol_absent"
+        },
+        {
+          "id": "query-format-dispatch-label",
+          "operation": "query",
+          "target": "formatDispatchLabel",
+          "outcome": "symbol_absent",
+          "data": [
+            {
+              "node": {
+                "id": "constant:14d514ae93daa4ef2fa5c11f844ab4fe",
+                "kind": "constant",
+                "name": "PROPOSED",
+                "qualifiedName": "PROPOSED",
+                "filePath": "test/boundary-compiler.test.mjs",
+                "language": "javascript",
+                "startLine": 27,
+                "endLine": 32,
+                "startColumn": 6,
+                "endColumn": 2,
+                "signature": "= new Set([\n  'selectDispatchChannel',\n  'formatDispatchLabel',\n  'channelPolicyContract',\n  'labelPol...",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": -3.418305937651972
+            }
+          ]
+        },
+        {
+          "id": "callers-format-dispatch-label",
+          "operation": "callers",
+          "target": "formatDispatchLabel",
+          "outcome": "symbol_absent"
+        },
+        {
+          "id": "impact-format-dispatch-label",
+          "operation": "impact",
+          "target": "formatDispatchLabel",
+          "outcome": "symbol_absent"
+        },
+        {
+          "id": "query-shared-composition-test",
+          "operation": "query",
+          "target": "test/research-dispatch-record.test.mjs",
+          "outcome": "ready",
+          "data": [
+            {
+              "node": {
+                "id": "constant:d709e8d498784266381d5ec3b873c2cf",
+                "kind": "constant",
+                "name": "SHARED_TEST",
+                "qualifiedName": "SHARED_TEST",
+                "filePath": "test/boundary-compiler.test.mjs",
+                "language": "javascript",
+                "startLine": 18,
+                "endLine": 18,
+                "startColumn": 6,
+                "endColumn": 60,
+                "signature": "= 'test/research-dispatch-record.test.mjs'",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 23.848597657170338
+            },
+            {
+              "node": {
+                "id": "constant:ce44aceb278f1796a1a4834af9d6b166",
+                "kind": "constant",
+                "name": "SHARED_TEST",
+                "qualifiedName": "SHARED_TEST",
+                "filePath": "test/rc1-v4-campaign.test.mjs",
+                "language": "javascript",
+                "startLine": 22,
+                "endLine": 22,
+                "startColumn": 6,
+                "endColumn": 60,
+                "signature": "= 'test/research-dispatch-record.test.mjs'",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 23.848597657170338
+            },
+            {
+              "node": {
+                "id": "constant:e29be070da415ac0d9b3cdd14490b018",
+                "kind": "constant",
+                "name": "SHARED_TEST",
+                "qualifiedName": "SHARED_TEST",
+                "filePath": "test/rc1-v4-characterization.test.mjs",
+                "language": "javascript",
+                "startLine": 17,
+                "endLine": 17,
+                "startColumn": 6,
+                "endColumn": 60,
+                "signature": "= 'test/research-dispatch-record.test.mjs'",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 23.848597657170338
+            },
+            {
+              "node": {
+                "id": "constant:19e0efca3cb4a6315ae0fc8fbf2632e0",
+                "kind": "constant",
+                "name": "SHARED_TEST",
+                "qualifiedName": "SHARED_TEST",
+                "filePath": "test/rc1-v4-transform.test.mjs",
+                "language": "javascript",
+                "startLine": 23,
+                "endLine": 23,
+                "startColumn": 6,
+                "endColumn": 60,
+                "signature": "= 'test/research-dispatch-record.test.mjs'",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 23.848597657170338
+            },
+            {
+              "node": {
+                "id": "constant:280164680b0169a534e60c6e71e5af98",
+                "kind": "constant",
+                "name": "AFFECTED_TEST",
+                "qualifiedName": "AFFECTED_TEST",
+                "filePath": "test/treatment-compiler.test.mjs",
+                "language": "javascript",
+                "startLine": 17,
+                "endLine": 17,
+                "startColumn": 6,
+                "endColumn": 62,
+                "signature": "= 'test/research-dispatch-record.test.mjs'",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 23.848597657170338
+            },
+            {
+              "node": {
+                "id": "file:test/research-dispatch-record.test.mjs",
+                "kind": "file",
+                "name": "research-dispatch-record.test.mjs",
+                "qualifiedName": "test/research-dispatch-record.test.mjs",
+                "filePath": "test/research-dispatch-record.test.mjs",
+                "language": "javascript",
+                "startLine": 1,
+                "endLine": 88,
+                "startColumn": 0,
+                "endColumn": 0,
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 22.133125609219682
+            },
+            {
+              "node": {
+                "id": "constant:76152c69b50fc0ecb0623815da54a84b",
+                "kind": "constant",
+                "name": "SHARED_TEST",
+                "qualifiedName": "SHARED_TEST",
+                "filePath": "src/rc1-v4-transform.mjs",
+                "language": "javascript",
+                "startLine": 22,
+                "endLine": 22,
+                "startColumn": 6,
+                "endColumn": 60,
+                "signature": "= 'test/research-dispatch-record.test.mjs'",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 21.848597657170338
+            },
+            {
+              "node": {
+                "id": "constant:33f95a88d80d15293cb79bc917c273d8",
+                "kind": "constant",
+                "name": "AFFECTED_TEST",
+                "qualifiedName": "AFFECTED_TEST",
+                "filePath": "src/treatment-compiler.mjs",
+                "language": "javascript",
+                "startLine": 16,
+                "endLine": 16,
+                "startColumn": 6,
+                "endColumn": 62,
+                "signature": "= 'test/research-dispatch-record.test.mjs'",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": 21.848597657170338
+            }
+          ]
+        },
+        {
+          "id": "query-channel-policy-contract",
+          "operation": "query",
+          "target": "channelPolicyContract",
+          "outcome": "symbol_absent",
+          "data": [
+            {
+              "node": {
+                "id": "constant:14d514ae93daa4ef2fa5c11f844ab4fe",
+                "kind": "constant",
+                "name": "PROPOSED",
+                "qualifiedName": "PROPOSED",
+                "filePath": "test/boundary-compiler.test.mjs",
+                "language": "javascript",
+                "startLine": 27,
+                "endLine": 32,
+                "startColumn": 6,
+                "endColumn": 2,
+                "signature": "= new Set([\n  'selectDispatchChannel',\n  'formatDispatchLabel',\n  'channelPolicyContract',\n  'labelPol...",
+                "visibility": null,
+                "isExported": false,
+                "isAsync": false,
+                "isStatic": false,
+                "isAbstract": false
+              },
+              "score": -3.418305937651972
+            }
+          ]
+        },
+        {
+          "id": "impact-channel-policy-contract",
+          "operation": "impact",
+          "target": "channelPolicyContract",
+          "outcome": "symbol_absent"
+        },
+        {
+          "id": "query-label-policy-contract",
+          "operation": "query",
+          "target": "labelPolicyContract",
+          "outcome": "symbol_absent",
+          "data": []
+        },
+        {
+          "id": "impact-label-policy-contract",
+          "operation": "impact",
+          "target": "labelPolicyContract",
+          "outcome": "symbol_absent"
+        },
+        {
+          "id": "affected-rc1-production-and-tests",
+          "operation": "affected",
+          "outcome": "unresolved",
+          "targets": [
+            {
+              "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+              "outcome": "ready",
+              "data": {
+                "changedFiles": [
+                  "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+                ],
+                "affectedTests": [
+                  "test/research-dispatch-record.test.mjs"
+                ],
+                "totalDependentsTraversed": 1
+              }
+            },
+            {
+              "target": "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+              "outcome": "empty",
+              "data": {
+                "changedFiles": [
+                  "research/fixtures/dispatch-record/src/dispatch-channel.mjs"
+                ],
+                "affectedTests": [],
+                "totalDependentsTraversed": 0
+              }
+            },
+            {
+              "target": "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+              "outcome": "empty",
+              "data": {
+                "changedFiles": [
+                  "research/fixtures/dispatch-record/src/dispatch-label.mjs"
+                ],
+                "affectedTests": [],
+                "totalDependentsTraversed": 0
+              }
+            },
+            {
+              "target": "test/research-dispatch-record.test.mjs",
+              "outcome": "ready",
+              "data": {
+                "changedFiles": [
+                  "test/research-dispatch-record.test.mjs"
+                ],
+                "affectedTests": [
+                  "test/research-dispatch-record.test.mjs"
+                ],
+                "totalDependentsTraversed": 0
+              }
+            },
+            {
+              "target": "test/research-dispatch-channel.test.mjs",
+              "outcome": "ready",
+              "data": {
+                "changedFiles": [
+                  "test/research-dispatch-channel.test.mjs"
+                ],
+                "affectedTests": [
+                  "test/research-dispatch-channel.test.mjs"
+                ],
+                "totalDependentsTraversed": 0
+              }
+            },
+            {
+              "target": "test/research-dispatch-label.test.mjs",
+              "outcome": "ready",
+              "data": {
+                "changedFiles": [
+                  "test/research-dispatch-label.test.mjs"
+                ],
+                "affectedTests": [
+                  "test/research-dispatch-label.test.mjs"
+                ],
+                "totalDependentsTraversed": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "payload_digest": "9addbcacedd9d447be129625de05bfaad2ddedc4810a38e8c2645ba39525ea18"
+  },
+  "portable": {
+    "schema": "lattice.codegraph_portable_preimage.v1",
+    "projection": "lattice.codegraph_portable_outcome.v1",
+    "query_set_digest": "4bb43307fb37f270dae26aa9b782b33adae507d655829f99f3007c8f2b9f7a94",
+    "outcomes": [
+      {
+        "id": "status",
+        "operation": "status",
+        "outcome": "ready",
+        "data": {
+          "initialized": true,
+          "version": "1.4.1",
+          "fileCount": 39,
+          "nodeCount": 752,
+          "edgeCount": 2890,
+          "backend": "node-sqlite",
+          "journalMode": "wal",
+          "nodesByKind": {
+            "constant": 163,
+            "file": 37,
+            "function": 370,
+            "import": 182
+          },
+          "languages": [
+            "javascript",
+            "yaml"
+          ],
+          "pendingChanges": {
+            "added": 0,
+            "modified": 0,
+            "removed": 0
+          },
+          "worktreeMismatch": null,
+          "index": {
+            "builtWithVersion": "1.4.1",
+            "builtWithExtractionVersion": 24,
+            "currentExtractionVersion": 24,
+            "reindexRecommended": false,
+            "state": "complete",
+            "pendingRefs": 0
+          }
+        }
+      },
+      {
+        "id": "query-build-dispatch-record",
+        "operation": "query",
+        "target": "buildDispatchRecord",
+        "outcome": "ready",
+        "data": [
+          {
+            "node": {
+              "id": "function:36616d9b070709db475a6a1948bd283b",
+              "kind": "function",
+              "name": "buildDispatchRecord",
+              "qualifiedName": "buildDispatchRecord",
+              "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+              "language": "javascript",
+              "startLine": 27,
+              "endLine": 44,
+              "startColumn": 7,
+              "endColumn": 1,
+              "signature": "(input)",
+              "visibility": null,
+              "isExported": true,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 101.46554436136363
+          },
+          {
+            "node": {
+              "id": "import:2b370b9b1ec2c9be27fb024adeb7291a",
+              "kind": "import",
+              "name": "../research/fixtures/dispatch-record/src/dispatch-record.mjs",
+              "qualifiedName": "../research/fixtures/dispatch-record/src/dispatch-record.mjs",
+              "filePath": "test/research-dispatch-record.test.mjs",
+              "language": "javascript",
+              "startLine": 5,
+              "endLine": 5,
+              "startColumn": 0,
+              "endColumn": 99,
+              "signature": "import { buildDispatchRecord } from '../research/fixtures/dispatch-record/src/dispatch-record.mjs';",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 3.8453457778868048
+          },
+          {
+            "node": {
+              "id": "constant:04f424f8c9ffff23421bb6ab45db4e16",
+              "kind": "constant",
+              "name": "SURFACE_PATHS",
+              "qualifiedName": "SURFACE_PATHS",
+              "filePath": "test/boundary-compiler.test.mjs",
+              "language": "javascript",
+              "startLine": 19,
+              "endLine": 26,
+              "startColumn": 6,
+              "endColumn": 2,
+              "signature": "= new Map([\n  ['buildDispatchRecord', FIXTURE],\n  ['selectDispatchChannel', 'research/fixtures/dispatc...",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": -5.333970795675068
+          }
+        ]
+      },
+      {
+        "id": "callers-build-dispatch-record",
+        "operation": "callers",
+        "target": "buildDispatchRecord",
+        "outcome": "ready",
+        "data": {
+          "symbol": "buildDispatchRecord",
+          "callers": [
+            {
+              "name": "research-dispatch-record.test.mjs",
+              "kind": "file",
+              "filePath": "test/research-dispatch-record.test.mjs",
+              "startLine": 1
+            }
+          ]
+        },
+        "resolution": [
+          {
+            "node": {
+              "id": "function:36616d9b070709db475a6a1948bd283b",
+              "kind": "function",
+              "name": "buildDispatchRecord",
+              "qualifiedName": "buildDispatchRecord",
+              "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+              "language": "javascript",
+              "startLine": 27,
+              "endLine": 44,
+              "startColumn": 7,
+              "endColumn": 1,
+              "signature": "(input)",
+              "visibility": null,
+              "isExported": true,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 101.46554436136363
+          }
+        ]
+      },
+      {
+        "id": "callees-build-dispatch-record",
+        "operation": "callees",
+        "target": "buildDispatchRecord",
+        "outcome": "ready",
+        "data": {
+          "symbol": "buildDispatchRecord",
+          "callees": [
+            {
+              "name": "hasExactInputKeys",
+              "kind": "function",
+              "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+              "startLine": 10
+            },
+            {
+              "name": "nonEmptyString",
+              "kind": "function",
+              "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+              "startLine": 20
+            }
+          ]
+        },
+        "resolution": [
+          {
+            "node": {
+              "id": "function:36616d9b070709db475a6a1948bd283b",
+              "kind": "function",
+              "name": "buildDispatchRecord",
+              "qualifiedName": "buildDispatchRecord",
+              "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+              "language": "javascript",
+              "startLine": 27,
+              "endLine": 44,
+              "startColumn": 7,
+              "endColumn": 1,
+              "signature": "(input)",
+              "visibility": null,
+              "isExported": true,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 101.46554436136363
+          }
+        ]
+      },
+      {
+        "id": "impact-build-dispatch-record",
+        "operation": "impact",
+        "target": "buildDispatchRecord",
+        "outcome": "ready",
+        "data": {
+          "symbol": "buildDispatchRecord",
+          "depth": 2,
+          "nodeCount": 2,
+          "edgeCount": 2,
+          "affected": [
+            {
+              "name": "buildDispatchRecord",
+              "kind": "function",
+              "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+              "startLine": 27
+            },
+            {
+              "name": "research-dispatch-record.test.mjs",
+              "kind": "file",
+              "filePath": "test/research-dispatch-record.test.mjs",
+              "startLine": 1
+            }
+          ]
+        },
+        "resolution": [
+          {
+            "node": {
+              "id": "function:36616d9b070709db475a6a1948bd283b",
+              "kind": "function",
+              "name": "buildDispatchRecord",
+              "qualifiedName": "buildDispatchRecord",
+              "filePath": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+              "language": "javascript",
+              "startLine": 27,
+              "endLine": 44,
+              "startColumn": 7,
+              "endColumn": 1,
+              "signature": "(input)",
+              "visibility": null,
+              "isExported": true,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 101.46554436136363
+          }
+        ]
+      },
+      {
+        "id": "query-select-dispatch-channel",
+        "operation": "query",
+        "target": "selectDispatchChannel",
+        "outcome": "symbol_absent",
+        "data": [
+          {
+            "node": {
+              "id": "constant:1f3b86ec28c5781f47e7e6217ec040a7",
+              "kind": "constant",
+              "name": "CHANNEL_SOURCE",
+              "qualifiedName": "CHANNEL_SOURCE",
+              "filePath": "src/rc1-v4-transform.mjs",
+              "language": "javascript",
+              "startLine": 52,
+              "endLine": 61,
+              "startColumn": 6,
+              "endColumn": 12,
+              "signature": "= [\n  'export function selectDispatchChannel(priority) {',\n  \"  if (priority !== 'urgent' && priority ...",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 8.555575712388817
+          },
+          {
+            "node": {
+              "id": "constant:5967db106b8345e9a643b7d0701df24e",
+              "kind": "constant",
+              "name": "COMPOSITION_SOURCE",
+              "qualifiedName": "COMPOSITION_SOURCE",
+              "filePath": "src/rc1-v4-transform.mjs",
+              "language": "javascript",
+              "startLine": 79,
+              "endLine": 110,
+              "startColumn": 6,
+              "endColumn": 12,
+              "signature": "= [\n  \"import { selectDispatchChannel } from './dispatch-channel.mjs';\",\n  \"import { formatDispatchLab...",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 8.555575712388817
+          },
+          {
+            "node": {
+              "id": "constant:2797759e2420829ec027edbc1afe0c1d",
+              "kind": "constant",
+              "name": "CHANNEL_SOURCE",
+              "qualifiedName": "CHANNEL_SOURCE",
+              "filePath": "src/seam-transform.mjs",
+              "language": "javascript",
+              "startLine": 29,
+              "endLine": 38,
+              "startColumn": 6,
+              "endColumn": 12,
+              "signature": "= [\n  \"export function selectDispatchChannel(priority) {\",\n  \"  if (priority !== 'urgent' && priority ...",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 8.555575712388817
+          },
+          {
+            "node": {
+              "id": "constant:428ac702a61d62472deb54659acd9822",
+              "kind": "constant",
+              "name": "COMPOSITION_SOURCE",
+              "qualifiedName": "COMPOSITION_SOURCE",
+              "filePath": "src/seam-transform.mjs",
+              "language": "javascript",
+              "startLine": 56,
+              "endLine": 92,
+              "startColumn": 6,
+              "endColumn": 12,
+              "signature": "= [\n  \"import { selectDispatchChannel } from './dispatch-channel.mjs';\",\n  \"import { formatDispatchLab...",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 8.555575712388817
+          },
+          {
+            "node": {
+              "id": "constant:bb74f1922a64d53aa9db04b7bfa2bbdc",
+              "kind": "constant",
+              "name": "SEAM_BY_CONCERN",
+              "qualifiedName": "SEAM_BY_CONCERN",
+              "filePath": "src/control-compiler.mjs",
+              "language": "javascript",
+              "startLine": 14,
+              "endLine": 23,
+              "startColumn": 6,
+              "endColumn": 2,
+              "signature": "= new Map([\n  ['dispatch.channel_policy', {\n    symbol: 'selectDispatchChannel',\n    path: 'research/f...",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 8.049593961019443
+          },
+          {
+            "node": {
+              "id": "constant:a6f4b1d1d8e94a2a925eaf4d6f861428",
+              "kind": "constant",
+              "name": "SEAM_BY_CONCERN",
+              "qualifiedName": "SEAM_BY_CONCERN",
+              "filePath": "src/treatment-compiler.mjs",
+              "language": "javascript",
+              "startLine": 17,
+              "endLine": 26,
+              "startColumn": 6,
+              "endColumn": 2,
+              "signature": "= new Map([\n  ['dispatch.channel_policy', {\n    symbol: 'selectDispatchChannel',\n    path: 'research/f...",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 8.049593961019443
+          },
+          {
+            "node": {
+              "id": "constant:14d514ae93daa4ef2fa5c11f844ab4fe",
+              "kind": "constant",
+              "name": "PROPOSED",
+              "qualifiedName": "PROPOSED",
+              "filePath": "test/boundary-compiler.test.mjs",
+              "language": "javascript",
+              "startLine": 27,
+              "endLine": 32,
+              "startColumn": 6,
+              "endColumn": 2,
+              "signature": "= new Set([\n  'selectDispatchChannel',\n  'formatDispatchLabel',\n  'channelPolicyContract',\n  'labelPol...",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": -5.825749145650475
+          },
+          {
+            "node": {
+              "id": "constant:04f424f8c9ffff23421bb6ab45db4e16",
+              "kind": "constant",
+              "name": "SURFACE_PATHS",
+              "qualifiedName": "SURFACE_PATHS",
+              "filePath": "test/boundary-compiler.test.mjs",
+              "language": "javascript",
+              "startLine": 19,
+              "endLine": 26,
+              "startColumn": 6,
+              "endColumn": 2,
+              "signature": "= new Map([\n  ['buildDispatchRecord', FIXTURE],\n  ['selectDispatchChannel', 'research/fixtures/dispatc...",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": -6.444424287611183
+          }
+        ]
+      },
+      {
+        "id": "callers-select-dispatch-channel",
+        "operation": "callers",
+        "target": "selectDispatchChannel",
+        "outcome": "symbol_absent"
+      },
+      {
+        "id": "impact-select-dispatch-channel",
+        "operation": "impact",
+        "target": "selectDispatchChannel",
+        "outcome": "symbol_absent"
+      },
+      {
+        "id": "query-format-dispatch-label",
+        "operation": "query",
+        "target": "formatDispatchLabel",
+        "outcome": "symbol_absent",
+        "data": [
+          {
+            "node": {
+              "id": "constant:14d514ae93daa4ef2fa5c11f844ab4fe",
+              "kind": "constant",
+              "name": "PROPOSED",
+              "qualifiedName": "PROPOSED",
+              "filePath": "test/boundary-compiler.test.mjs",
+              "language": "javascript",
+              "startLine": 27,
+              "endLine": 32,
+              "startColumn": 6,
+              "endColumn": 2,
+              "signature": "= new Set([\n  'selectDispatchChannel',\n  'formatDispatchLabel',\n  'channelPolicyContract',\n  'labelPol...",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": -3.418305937651972
+          }
+        ]
+      },
+      {
+        "id": "callers-format-dispatch-label",
+        "operation": "callers",
+        "target": "formatDispatchLabel",
+        "outcome": "symbol_absent"
+      },
+      {
+        "id": "impact-format-dispatch-label",
+        "operation": "impact",
+        "target": "formatDispatchLabel",
+        "outcome": "symbol_absent"
+      },
+      {
+        "id": "query-shared-composition-test",
+        "operation": "query",
+        "target": "test/research-dispatch-record.test.mjs",
+        "outcome": "ready",
+        "data": [
+          {
+            "node": {
+              "id": "constant:d709e8d498784266381d5ec3b873c2cf",
+              "kind": "constant",
+              "name": "SHARED_TEST",
+              "qualifiedName": "SHARED_TEST",
+              "filePath": "test/boundary-compiler.test.mjs",
+              "language": "javascript",
+              "startLine": 18,
+              "endLine": 18,
+              "startColumn": 6,
+              "endColumn": 60,
+              "signature": "= 'test/research-dispatch-record.test.mjs'",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 23.848597657170338
+          },
+          {
+            "node": {
+              "id": "constant:ce44aceb278f1796a1a4834af9d6b166",
+              "kind": "constant",
+              "name": "SHARED_TEST",
+              "qualifiedName": "SHARED_TEST",
+              "filePath": "test/rc1-v4-campaign.test.mjs",
+              "language": "javascript",
+              "startLine": 22,
+              "endLine": 22,
+              "startColumn": 6,
+              "endColumn": 60,
+              "signature": "= 'test/research-dispatch-record.test.mjs'",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 23.848597657170338
+          },
+          {
+            "node": {
+              "id": "constant:e29be070da415ac0d9b3cdd14490b018",
+              "kind": "constant",
+              "name": "SHARED_TEST",
+              "qualifiedName": "SHARED_TEST",
+              "filePath": "test/rc1-v4-characterization.test.mjs",
+              "language": "javascript",
+              "startLine": 17,
+              "endLine": 17,
+              "startColumn": 6,
+              "endColumn": 60,
+              "signature": "= 'test/research-dispatch-record.test.mjs'",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 23.848597657170338
+          },
+          {
+            "node": {
+              "id": "constant:19e0efca3cb4a6315ae0fc8fbf2632e0",
+              "kind": "constant",
+              "name": "SHARED_TEST",
+              "qualifiedName": "SHARED_TEST",
+              "filePath": "test/rc1-v4-transform.test.mjs",
+              "language": "javascript",
+              "startLine": 23,
+              "endLine": 23,
+              "startColumn": 6,
+              "endColumn": 60,
+              "signature": "= 'test/research-dispatch-record.test.mjs'",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 23.848597657170338
+          },
+          {
+            "node": {
+              "id": "constant:280164680b0169a534e60c6e71e5af98",
+              "kind": "constant",
+              "name": "AFFECTED_TEST",
+              "qualifiedName": "AFFECTED_TEST",
+              "filePath": "test/treatment-compiler.test.mjs",
+              "language": "javascript",
+              "startLine": 17,
+              "endLine": 17,
+              "startColumn": 6,
+              "endColumn": 62,
+              "signature": "= 'test/research-dispatch-record.test.mjs'",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 23.848597657170338
+          },
+          {
+            "node": {
+              "id": "file:test/research-dispatch-record.test.mjs",
+              "kind": "file",
+              "name": "research-dispatch-record.test.mjs",
+              "qualifiedName": "test/research-dispatch-record.test.mjs",
+              "filePath": "test/research-dispatch-record.test.mjs",
+              "language": "javascript",
+              "startLine": 1,
+              "endLine": 88,
+              "startColumn": 0,
+              "endColumn": 0,
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 22.133125609219682
+          },
+          {
+            "node": {
+              "id": "constant:76152c69b50fc0ecb0623815da54a84b",
+              "kind": "constant",
+              "name": "SHARED_TEST",
+              "qualifiedName": "SHARED_TEST",
+              "filePath": "src/rc1-v4-transform.mjs",
+              "language": "javascript",
+              "startLine": 22,
+              "endLine": 22,
+              "startColumn": 6,
+              "endColumn": 60,
+              "signature": "= 'test/research-dispatch-record.test.mjs'",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 21.848597657170338
+          },
+          {
+            "node": {
+              "id": "constant:33f95a88d80d15293cb79bc917c273d8",
+              "kind": "constant",
+              "name": "AFFECTED_TEST",
+              "qualifiedName": "AFFECTED_TEST",
+              "filePath": "src/treatment-compiler.mjs",
+              "language": "javascript",
+              "startLine": 16,
+              "endLine": 16,
+              "startColumn": 6,
+              "endColumn": 62,
+              "signature": "= 'test/research-dispatch-record.test.mjs'",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": 21.848597657170338
+          }
+        ]
+      },
+      {
+        "id": "query-channel-policy-contract",
+        "operation": "query",
+        "target": "channelPolicyContract",
+        "outcome": "symbol_absent",
+        "data": [
+          {
+            "node": {
+              "id": "constant:14d514ae93daa4ef2fa5c11f844ab4fe",
+              "kind": "constant",
+              "name": "PROPOSED",
+              "qualifiedName": "PROPOSED",
+              "filePath": "test/boundary-compiler.test.mjs",
+              "language": "javascript",
+              "startLine": 27,
+              "endLine": 32,
+              "startColumn": 6,
+              "endColumn": 2,
+              "signature": "= new Set([\n  'selectDispatchChannel',\n  'formatDispatchLabel',\n  'channelPolicyContract',\n  'labelPol...",
+              "visibility": null,
+              "isExported": false,
+              "isAsync": false,
+              "isStatic": false,
+              "isAbstract": false
+            },
+            "score": -3.418305937651972
+          }
+        ]
+      },
+      {
+        "id": "impact-channel-policy-contract",
+        "operation": "impact",
+        "target": "channelPolicyContract",
+        "outcome": "symbol_absent"
+      },
+      {
+        "id": "query-label-policy-contract",
+        "operation": "query",
+        "target": "labelPolicyContract",
+        "outcome": "symbol_absent",
+        "data": []
+      },
+      {
+        "id": "impact-label-policy-contract",
+        "operation": "impact",
+        "target": "labelPolicyContract",
+        "outcome": "symbol_absent"
+      },
+      {
+        "id": "affected-rc1-production-and-tests",
+        "operation": "affected",
+        "outcome": "unresolved",
+        "targets": [
+          {
+            "target": "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+            "outcome": "ready",
+            "data": {
+              "changedFiles": [
+                "research/fixtures/dispatch-record/src/dispatch-record.mjs"
+              ],
+              "affectedTests": [
+                "test/research-dispatch-record.test.mjs"
+              ],
+              "totalDependentsTraversed": 1
+            }
+          },
+          {
+            "target": "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+            "outcome": "empty",
+            "data": {
+              "changedFiles": [
+                "research/fixtures/dispatch-record/src/dispatch-channel.mjs"
+              ],
+              "affectedTests": [],
+              "totalDependentsTraversed": 0
+            }
+          },
+          {
+            "target": "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+            "outcome": "empty",
+            "data": {
+              "changedFiles": [
+                "research/fixtures/dispatch-record/src/dispatch-label.mjs"
+              ],
+              "affectedTests": [],
+              "totalDependentsTraversed": 0
+            }
+          },
+          {
+            "target": "test/research-dispatch-record.test.mjs",
+            "outcome": "ready",
+            "data": {
+              "changedFiles": [
+                "test/research-dispatch-record.test.mjs"
+              ],
+              "affectedTests": [
+                "test/research-dispatch-record.test.mjs"
+              ],
+              "totalDependentsTraversed": 0
+            }
+          },
+          {
+            "target": "test/research-dispatch-channel.test.mjs",
+            "outcome": "ready",
+            "data": {
+              "changedFiles": [
+                "test/research-dispatch-channel.test.mjs"
+              ],
+              "affectedTests": [
+                "test/research-dispatch-channel.test.mjs"
+              ],
+              "totalDependentsTraversed": 0
+            }
+          },
+          {
+            "target": "test/research-dispatch-label.test.mjs",
+            "outcome": "ready",
+            "data": {
+              "changedFiles": [
+                "test/research-dispatch-label.test.mjs"
+              ],
+              "affectedTests": [
+                "test/research-dispatch-label.test.mjs"
+              ],
+              "totalDependentsTraversed": 0
+            }
+          }
+        ]
+      }
+    ],
+    "per_query": [
+      {
+        "id": "status",
+        "operation": "status",
+        "outcome": "ready",
+        "result_digest": "f13ba551892876b6101630264988fb2ad49cf639711f38cb4c1e22d85133e593"
+      },
+      {
+        "id": "query-build-dispatch-record",
+        "operation": "query",
+        "outcome": "ready",
+        "result_digest": "758d218d9e99000f4e945ba4c554f0c87b89ded3a0965a4ed2d89de2eae457d7"
+      },
+      {
+        "id": "callers-build-dispatch-record",
+        "operation": "callers",
+        "outcome": "ready",
+        "result_digest": "24352898cff6322b0d52e865e7f7a8ba7388f3fc8b2b788d5d2b248a61c048ab"
+      },
+      {
+        "id": "callees-build-dispatch-record",
+        "operation": "callees",
+        "outcome": "ready",
+        "result_digest": "8da5bbb07ec5a08f3ebe3a9e23ee91ce0f7e09ed30d457e3319c8b93311bea62"
+      },
+      {
+        "id": "impact-build-dispatch-record",
+        "operation": "impact",
+        "outcome": "ready",
+        "result_digest": "14e87c1b70d12ec8e6ae26c0ba53992500b1c6c7562921af60e1291903af0fdb"
+      },
+      {
+        "id": "query-select-dispatch-channel",
+        "operation": "query",
+        "outcome": "symbol_absent",
+        "result_digest": "496c91e9fefdcd874817125d6e8a6794b71c042f8e38bff039c42957fe636283"
+      },
+      {
+        "id": "callers-select-dispatch-channel",
+        "operation": "callers",
+        "outcome": "symbol_absent",
+        "result_digest": "8dd4c66795cdabafe32dade02c3f88d76547648f4819c849c088c399828b4c91"
+      },
+      {
+        "id": "impact-select-dispatch-channel",
+        "operation": "impact",
+        "outcome": "symbol_absent",
+        "result_digest": "2faa50cc4f5b633405711143995056782c3af6eda5c14cf4bfac62d87d60bd27"
+      },
+      {
+        "id": "query-format-dispatch-label",
+        "operation": "query",
+        "outcome": "symbol_absent",
+        "result_digest": "174840314a9deb8e9a8337d37a6d80593c2028ca7929cc7b5dccc2e9b19bc22c"
+      },
+      {
+        "id": "callers-format-dispatch-label",
+        "operation": "callers",
+        "outcome": "symbol_absent",
+        "result_digest": "538234176fb344dd0cab6034c0eb5702e921db14b7f9a700cca75f7c731a08cd"
+      },
+      {
+        "id": "impact-format-dispatch-label",
+        "operation": "impact",
+        "outcome": "symbol_absent",
+        "result_digest": "e7f3379ee77d737d21ca9caddf393a44518588b183d005f0144baf17c499d96b"
+      },
+      {
+        "id": "query-shared-composition-test",
+        "operation": "query",
+        "outcome": "ready",
+        "result_digest": "7cb7e3039e16a239c2c0ad4162990d159ae248552d88858fa0a90ca7b77cd4ce"
+      },
+      {
+        "id": "query-channel-policy-contract",
+        "operation": "query",
+        "outcome": "symbol_absent",
+        "result_digest": "b81c12a945339cda9825b0e65b031dd4bafa683cec34ee8b9b3f60843fd38e27"
+      },
+      {
+        "id": "impact-channel-policy-contract",
+        "operation": "impact",
+        "outcome": "symbol_absent",
+        "result_digest": "26ac0eaf77e750a2de723ba52177f5fd6b1373ac39684c1b3e8ac0b10cf1583f"
+      },
+      {
+        "id": "query-label-policy-contract",
+        "operation": "query",
+        "outcome": "symbol_absent",
+        "result_digest": "c43db61656ad0ff486c98e2335f687553b900de392fe0278d485d290207e75e9"
+      },
+      {
+        "id": "impact-label-policy-contract",
+        "operation": "impact",
+        "outcome": "symbol_absent",
+        "result_digest": "9bf9119ad0c7c6885f15c5988a9b5340dc2297848808249da1dafa1df02a43dc"
+      },
+      {
+        "id": "affected-rc1-production-and-tests",
+        "operation": "affected",
+        "outcome": "unresolved",
+        "result_digest": "3af4e0985259b13b5e05e7011251fd4bd93b47d588e2e2a484949288b3aa3d33"
+      }
+    ],
+    "aggregate_digest": "a887e8b9a29274f72278d360d3ea31af6aeda4ba249423df168f3fb82afafdb8"
+  },
+  "component_digests": {
+    "raw": "187d0474e74ea5e2ca7cd46a257085d3003698e6c212cebfec5a5606318fac71",
+    "diagnostic_payload": "9addbcacedd9d447be129625de05bfaad2ddedc4810a38e8c2645ba39525ea18",
+    "sanitization_manifest": "3d8cf38d49f245ec9a762a8815b5d88dbeb9ed7b2fe6c73891afc1d8b6b85e68",
+    "portable": "a887e8b9a29274f72278d360d3ea31af6aeda4ba249423df168f3fb82afafdb8"
+  }
+}

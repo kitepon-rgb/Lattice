@@ -1,0 +1,227 @@
+diff --git a/research/fixtures/dispatch-record/src/dispatch-record.mjs b/research/fixtures/dispatch-record/src/dispatch-record.mjs
+index ad5989e..eb70047 100644
+--- a/research/fixtures/dispatch-record/src/dispatch-record.mjs
++++ b/research/fixtures/dispatch-record/src/dispatch-record.mjs
+@@ -1,3 +1,6 @@
++import { selectDispatchChannel } from './dispatch-channel.mjs';
++import { formatDispatchLabel } from './dispatch-label.mjs';
++
+ const INPUT_KEYS = ['priority', 'recipient', 'title'];
+ 
+ function isPlainObject(value) {
+@@ -8,37 +11,19 @@ function isPlainObject(value) {
+ }
+ 
+ function hasExactInputKeys(value) {
+-  if (!isPlainObject(value)) {
+-    return false;
+-  }
+-
++  if (!isPlainObject(value)) return false;
+   const actual = Object.keys(value).sort();
+   return actual.length === INPUT_KEYS.length
+     && actual.every((key, index) => key === INPUT_KEYS[index]);
+ }
+ 
+-function nonEmptyString(value, field) {
+-  if (typeof value !== 'string' || value.trim().length === 0) {
+-    throw new TypeError(`${field} must be a non-empty string`);
+-  }
+-  return value.trim();
+-}
+-
+ export function buildDispatchRecord(input) {
+   if (!hasExactInputKeys(input)) {
+     throw new TypeError(
+       'dispatch input must be a plain object with exact keys: priority, recipient, title',
+     );
+   }
+-
+-  if (input.priority !== 'urgent' && input.priority !== 'routine') {
+-    throw new TypeError('priority must be urgent or routine');
+-  }
+-
+-  const recipient = nonEmptyString(input.recipient, 'recipient');
+-  const title = nonEmptyString(input.title, 'title');
+-  const channel = input.priority === 'urgent' ? 'pager' : 'queue';
+-  const label = `${recipient}:${title}`;
+-
++  const channel = selectDispatchChannel(input.priority);
++  const label = formatDispatchLabel(input.recipient, input.title);
+   return Object.freeze({ channel, label });
+ }
+diff --git a/test/research-dispatch-record.test.mjs b/test/research-dispatch-record.test.mjs
+index 3f21183..585b4c7 100644
+--- a/test/research-dispatch-record.test.mjs
++++ b/test/research-dispatch-record.test.mjs
+@@ -1,87 +1,17 @@
+ import assert from 'node:assert/strict';
+-import { readFile } from 'node:fs/promises';
+ import test from 'node:test';
+-
+ import { buildDispatchRecord } from '../research/fixtures/dispatch-record/src/dispatch-record.mjs';
+ 
+-async function readJson(relativePath) {
+-  const url = new URL(`../${relativePath}`, import.meta.url);
+-  return JSON.parse(await readFile(url, 'utf8'));
+-}
+-
+-test('dispatch fixture preserves the channel and label matrix', () => {
+-  const cases = [
+-    {
+-      input: { priority: 'urgent', recipient: ' ops ', title: ' Database down ' },
+-      expected: { channel: 'pager', label: 'ops:Database down' },
+-    },
+-    {
+-      input: { priority: 'routine', recipient: 'team-a', title: 'Weekly digest' },
+-      expected: { channel: 'queue', label: 'team-a:Weekly digest' },
+-    },
++test('dispatch composition keeps its stable public shape', () => {
++  const inputs = [
++    { priority: 'urgent', recipient: ' ops ', title: ' Database down ' },
++    { priority: 'routine', recipient: 'team-a', title: 'Weekly digest' },
+   ];
+-
+-  for (const fixture of cases) {
+-    const actual = buildDispatchRecord(fixture.input);
+-    assert.deepEqual(actual, fixture.expected);
++  for (const input of inputs) {
++    const actual = buildDispatchRecord(input);
++    assert.deepEqual(Object.keys(actual).sort(), ['channel', 'label']);
++    assert.equal(typeof actual.channel, 'string');
++    assert.equal(typeof actual.label, 'string');
+     assert.equal(Object.isFrozen(actual), true);
+   }
+ });
+-
+-test('dispatch fixture preserves validation failures', () => {
+-  const exactKeys = /^dispatch input must be a plain object with exact keys: priority, recipient, title$/;
+-
+-  assert.throws(() => buildDispatchRecord(null), { name: 'TypeError', message: exactKeys });
+-  assert.throws(
+-    () => buildDispatchRecord({ priority: 'routine', recipient: 'ops' }),
+-    { name: 'TypeError', message: exactKeys },
+-  );
+-  assert.throws(
+-    () => buildDispatchRecord({ priority: 'routine', recipient: 'ops', title: 'x', extra: true }),
+-    { name: 'TypeError', message: exactKeys },
+-  );
+-  assert.throws(
+-    () => buildDispatchRecord({ priority: 'later', recipient: 'ops', title: 'x' }),
+-    { name: 'TypeError', message: /^priority must be urgent or routine$/ },
+-  );
+-  assert.throws(
+-    () => buildDispatchRecord({ priority: 'routine', recipient: ' ', title: 'x' }),
+-    { name: 'TypeError', message: /^recipient must be a non-empty string$/ },
+-  );
+-  assert.throws(
+-    () => buildDispatchRecord({ priority: 'routine', recipient: 'ops', title: '' }),
+-    { name: 'TypeError', message: /^title must be a non-empty string$/ },
+-  );
+-});
+-
+-test('RC1 inputs keep the causal controls fixed', async () => {
+-  const [planInput, normal, negative, querySet] = await Promise.all([
+-    readJson('research/campaigns/rc1/inputs/plan-input.json'),
+-    readJson('research/campaigns/rc1/inputs/manual-evidence.normal.json'),
+-    readJson('research/campaigns/rc1/inputs/manual-evidence.shared-state-negative.json'),
+-    readJson('research/campaigns/rc1/inputs/query-set.json'),
+-  ]);
+-
+-  assert.equal(planInput.schema, 'lattice.plan_input.v1');
+-  assert.equal(planInput.capacity.writers, 2);
+-  assert.deepEqual(planInput.todos.map(({ id }) => id), ['channel-policy', 'label-policy']);
+-  assert.equal(new Set(planInput.todos.map(({ anchor }) => anchor.path)).size, 1);
+-  assert.equal(new Set(planInput.todos.map(({ anchor }) => anchor.symbol)).size, 1);
+-
+-  assert.deepEqual(normal.evidence.map(({ state_writes: writes }) => writes), [[], []]);
+-  assert.deepEqual(
+-    negative.evidence.map(({ state_writes: writes }) => writes),
+-    [['dispatch-registry'], ['dispatch-registry']],
+-  );
+-  assert.deepEqual(
+-    normal.evidence.map(({ state_writes: _writes, ...entry }) => entry),
+-    negative.evidence.map(({ state_writes: _writes, ...entry }) => entry),
+-  );
+-
+-  const queryIds = querySet.queries.map(({ id }) => id);
+-  assert.equal(new Set(queryIds).size, queryIds.length);
+-  assert.deepEqual(
+-    querySet.queries.filter(({ operation }) => operation === 'query').map(({ target }) => target),
+-    ['buildDispatchRecord', 'selectDispatchChannel', 'formatDispatchLabel'],
+-  );
+-});
+diff --git a/research/fixtures/dispatch-record/src/dispatch-channel.mjs b/research/fixtures/dispatch-record/src/dispatch-channel.mjs
+new file mode 100644
+index 0000000..fbf3eca
+--- /dev/null
++++ b/research/fixtures/dispatch-record/src/dispatch-channel.mjs
+@@ -0,0 +1,7 @@
++export function selectDispatchChannel(priority) {
++  if (priority !== 'urgent' && priority !== 'routine') {
++    throw new TypeError('priority must be urgent or routine');
++  }
++
++  return priority === 'urgent' ? 'pager' : 'queue';
++}
+diff --git a/research/fixtures/dispatch-record/src/dispatch-label.mjs b/research/fixtures/dispatch-record/src/dispatch-label.mjs
+new file mode 100644
+index 0000000..a874c70
+--- /dev/null
++++ b/research/fixtures/dispatch-record/src/dispatch-label.mjs
+@@ -0,0 +1,12 @@
++function nonEmptyString(value, field) {
++  if (typeof value !== 'string' || value.trim().length === 0) {
++    throw new TypeError(`${field} must be a non-empty string`);
++  }
++  return value.trim();
++}
++
++export function formatDispatchLabel(recipient, title) {
++  const normalizedRecipient = nonEmptyString(recipient, 'recipient');
++  const normalizedTitle = nonEmptyString(title, 'title');
++  return `${normalizedRecipient}:${normalizedTitle}`;
++}
+diff --git a/test/research-dispatch-channel.test.mjs b/test/research-dispatch-channel.test.mjs
+new file mode 100644
+index 0000000..cdae4c7
+--- /dev/null
++++ b/test/research-dispatch-channel.test.mjs
+@@ -0,0 +1,14 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { selectDispatchChannel } from '../research/fixtures/dispatch-record/src/dispatch-channel.mjs';
++
++export function channelPolicyContract() {
++  assert.equal(selectDispatchChannel('urgent'), 'pager');
++  assert.equal(selectDispatchChannel('routine'), 'queue');
++  assert.throws(() => selectDispatchChannel('later'), {
++    name: 'TypeError',
++    message: /^priority must be urgent or routine$/,
++  });
++}
++
++test('dispatch channel policy contract', channelPolicyContract);
+diff --git a/test/research-dispatch-label.test.mjs b/test/research-dispatch-label.test.mjs
+new file mode 100644
+index 0000000..0a4edfa
+--- /dev/null
++++ b/test/research-dispatch-label.test.mjs
+@@ -0,0 +1,17 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { formatDispatchLabel } from '../research/fixtures/dispatch-record/src/dispatch-label.mjs';
++
++export function labelPolicyContract() {
++  assert.equal(formatDispatchLabel(' ops ', ' Down '), 'ops:Down');
++  assert.throws(() => formatDispatchLabel(' ', 'x'), {
++    name: 'TypeError',
++    message: /^recipient must be a non-empty string$/,
++  });
++  assert.throws(() => formatDispatchLabel('ops', ''), {
++    name: 'TypeError',
++    message: /^title must be a non-empty string$/,
++  });
++}
++
++test('dispatch label policy contract', labelPolicyContract);

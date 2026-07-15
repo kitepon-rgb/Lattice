@@ -1,0 +1,148 @@
+{
+  "schema": "lattice.rc1.control_treatment_comparison.v2",
+  "fixed_inputs": {
+    "control": {
+      "plan_input": "c4b64dab54db09f20a7a6ba57003a8d2f444a0c878b9387a2bbc338fa6d87ee3",
+      "candidate_spec": "3250c93a8bd0958acee046f2b7ea371170290b7e256d6392421009db2e1cd8ac",
+      "normal_manual_evidence": "e995b6a7b70ff46b9df383bf15d940ef0d658b4a102e6f18a302a3d4e7851b5e",
+      "negative_manual_evidence": "126a55fc5137314f33d54866746913fefee7c8943412d6d0f32460de1b1d79a1",
+      "query_set": "4bb43307fb37f270dae26aa9b782b33adae507d655829f99f3007c8f2b9f7a94",
+      "capacity_writers": 2,
+      "behavior_oracle": "abb844fa0325140cb4e73365f02429f2ec0b6006bd2b5bcc88f4727b988e7d23"
+    },
+    "treatment": {
+      "plan_input": "c4b64dab54db09f20a7a6ba57003a8d2f444a0c878b9387a2bbc338fa6d87ee3",
+      "candidate_spec": "3250c93a8bd0958acee046f2b7ea371170290b7e256d6392421009db2e1cd8ac",
+      "normal_manual_evidence": "e995b6a7b70ff46b9df383bf15d940ef0d658b4a102e6f18a302a3d4e7851b5e",
+      "negative_manual_evidence": "126a55fc5137314f33d54866746913fefee7c8943412d6d0f32460de1b1d79a1",
+      "query_set": "4bb43307fb37f270dae26aa9b782b33adae507d655829f99f3007c8f2b9f7a94",
+      "capacity_writers": 2,
+      "behavior_oracle": "abb844fa0325140cb4e73365f02429f2ec0b6006bd2b5bcc88f4727b988e7d23"
+    }
+  },
+  "independent_variable": {
+    "kind": "accepted_production_and_test_seam",
+    "transform_artifact_digest": "cfe9898bbd72ea43dd314a9a69005de3957a4273a5a07600fe820caba15a685f",
+    "transform_receipt_digest": "722607c3ea92019116a4ed7f740df007f9e4429801779ca1fedee8d65b9fb000",
+    "patch_digest": "016e2e40a758b1588d9fe0daf8bb97027c5ae6c509ce9a77951a8ff3ccf1a307"
+  },
+  "compiler": {
+    "condition_selector": "forbidden",
+    "control": {
+      "export_name": "compileBoundaryCondition",
+      "source_digest": "5b4f4272e396b6e257ab0bfd4997382dddae9eb38cc19a0bf707d7ae8017e733"
+    },
+    "treatment": {
+      "export_name": "compileBoundaryCondition",
+      "source_digest": "5b4f4272e396b6e257ab0bfd4997382dddae9eb38cc19a0bf707d7ae8017e733"
+    }
+  },
+  "control": {
+    "boundary_manifest_digest": "ac6012e4d6616c5bec9a32a4b8d0f933c49bee665fdd67fd80c943ca12914150",
+    "boundary_verdict_digest": "b723d592f1c8ab8f2d263408989e8009d6e1b4b77dd03b4bd4af969bf1eb6326",
+    "plan_graph_digest": "b96588d1687eba5da2576d98a71622b68f7f489d29ad46140114c38aff70a9b4",
+    "verdict": "seam_candidate",
+    "write_conflicts": 3,
+    "test_write_conflicts": 1,
+    "state_conflicts": 0,
+    "hard_precedence": 0,
+    "unknowns": 0,
+    "minimum_feasible_waves": 2
+  },
+  "treatment": {
+    "boundary_manifest_digest": "853c7621692961c5880c162ea5e3ae4c64bc27e1a850bcdaaf8b478ebaab2e73",
+    "boundary_verdict_digest": "006640b8c6c424daae3e83533dc9356929a4a08979d826a3dcbfff2090482049",
+    "plan_graph_digest": "304ba5780248b068d4afe9a16c0681c024d65b781e1e0c8fc02910eb94ef2453",
+    "verdict": "parallel_ready",
+    "write_conflicts": 0,
+    "test_write_conflicts": 0,
+    "state_conflicts": 0,
+    "hard_precedence": 0,
+    "unknowns": 0,
+    "minimum_feasible_waves": 1
+  },
+  "negative_control": {
+    "boundary_manifest_digest": "ff13dd644718babb9267d6d9dd3ca9bfdaaa5b3c40f410ba0288e7b5cc4aeeb4",
+    "boundary_verdict_digest": "ffcc05da72a348d3880531a34f6123d7b6085f900a4700627bc9f2e7b896f2e8",
+    "plan_graph_digest": "cf7739599a44704a0c0d12c6ed8f6fe1666df1f2e3abdb00bd61104f228fc9cc",
+    "verdict": "intentional_serial",
+    "write_conflicts": 3,
+    "test_write_conflicts": 1,
+    "state_conflicts": 1,
+    "hard_precedence": 0,
+    "unknowns": 0,
+    "minimum_feasible_waves": 2
+  },
+  "negative_treatment": {
+    "boundary_manifest_digest": "f62be49ba1b959fda86fb4fade769bcc72f7c0043bd9c4fbb8a7992803c6b7f5",
+    "boundary_verdict_digest": "7f57c43cb417d4120d409c457e3b144c0f69622dc4908f0bf5da46bbcc27cbb4",
+    "plan_graph_digest": "ac41c7d8001f5f4df5660cadff25f894019d6942be5ba5bcf83d8d01df2ed46b",
+    "verdict": "intentional_serial",
+    "write_conflicts": 0,
+    "test_write_conflicts": 0,
+    "state_conflicts": 1,
+    "hard_precedence": 0,
+    "unknowns": 0,
+    "minimum_feasible_waves": 2
+  },
+  "behavior": {
+    "control": {
+      "outcome": "passed",
+      "oracle_digest": "abb844fa0325140cb4e73365f02429f2ec0b6006bd2b5bcc88f4727b988e7d23"
+    },
+    "treatment": {
+      "outcome": "passed",
+      "oracle_digest": "abb844fa0325140cb4e73365f02429f2ec0b6006bd2b5bcc88f4727b988e7d23"
+    }
+  },
+  "evidence": {
+    "control": {
+      "portable_preimages_complete": true,
+      "digests_recomputed": true,
+      "diagnostics_sanitized": true
+    },
+    "treatment": {
+      "portable_preimages_complete": true,
+      "digests_recomputed": true,
+      "diagnostics_sanitized": true
+    }
+  },
+  "predecessor": {
+    "transform_status": "accepted",
+    "same_base": true,
+    "fixed_inputs_bound": true
+  },
+  "version_barrier": {
+    "old_plan": {
+      "version": "rc1-v4-control",
+      "digest": "b96588d1687eba5da2576d98a71622b68f7f489d29ad46140114c38aff70a9b4"
+    },
+    "new_plan": {
+      "version": "rc1-v4-treatment",
+      "digest": "304ba5780248b068d4afe9a16c0681c024d65b781e1e0c8fc02910eb94ef2453"
+    },
+    "plan_diff_digest": "96424c044713408b0d4a28de812a1e1e441b738c219fb7bea61330aa01a9df7a",
+    "invalidated_contexts": [
+      {
+        "kind": "old_plan",
+        "ref": "lattice-research-campaign-1-v3"
+      },
+      {
+        "kind": "agent_context",
+        "ref": "lattice-research-campaign-1-v3-agent-context"
+      },
+      {
+        "kind": "partial_patch",
+        "ref": "lattice-research-campaign-1-v3-partial-patch"
+      },
+      {
+        "kind": "interface_assumption",
+        "ref": "shared-test-is-run-only"
+      }
+    ]
+  },
+  "source_invariant": {
+    "control": "passed",
+    "treatment": "passed"
+  }
+}

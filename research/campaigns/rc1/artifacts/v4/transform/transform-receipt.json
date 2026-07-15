@@ -1,0 +1,52 @@
+{
+  "schema": "lattice.rc1.seam_transform_receipt.v4",
+  "status": "accepted",
+  "transform_artifact_digest": "cfe9898bbd72ea43dd314a9a69005de3957a4273a5a07600fe820caba15a685f",
+  "fixed_inputs_digest": "db20e82fa08dc4d80d48ed35874c8a869aec0fd5179851d4a7bb65848f7e16f8",
+  "behavior": {
+    "oracle_digest": "abb844fa0325140cb4e73365f02429f2ec0b6006bd2b5bcc88f4727b988e7d23",
+    "pre": {
+      "outcome": "passed",
+      "receipt_digest": "a75f1ff55f5f40a1950a4d95b2b8920f7b58a73be574b54a2c06c38f1814e6ee"
+    },
+    "post": {
+      "outcome": "passed",
+      "receipt_digest": "a75f1ff55f5f40a1950a4d95b2b8920f7b58a73be574b54a2c06c38f1814e6ee"
+    },
+    "equivalent": true
+  },
+  "cleanup": {
+    "status": "passed",
+    "source_status": "unchanged"
+  },
+  "source_invariant": {
+    "schema": "lattice.source_invariant_receipt.v1",
+    "protected_paths": [
+      "src",
+      "test"
+    ],
+    "outcome": "passed",
+    "head": {
+      "before": "44f9b1aa0d6b15938a3c6c934097d4f75a1744b2",
+      "after": "44f9b1aa0d6b15938a3c6c934097d4f75a1744b2",
+      "equal": true
+    },
+    "visible_status": {
+      "before_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "after_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "equal": true
+    },
+    "ignored_paths": {
+      "before_digest": "6a89d33cdb0ed7f4450fb5f2b0d3dadce87e09c787ccaf6aa7fce29c5d65dd19",
+      "after_digest": "6a89d33cdb0ed7f4450fb5f2b0d3dadce87e09c787ccaf6aa7fce29c5d65dd19",
+      "equal": true
+    },
+    "protected_content": {
+      "before_digest": "381303abf37c0e78e0603824d2f683ccdc91e98bb020584a3a9afb42a6177be8",
+      "after_digest": "381303abf37c0e78e0603824d2f683ccdc91e98bb020584a3a9afb42a6177be8",
+      "before_entry_count": 38,
+      "after_entry_count": 38,
+      "equal": true
+    }
+  }
+}

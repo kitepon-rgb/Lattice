@@ -1,0 +1,78 @@
+{
+  "schema": "lattice.plan_diff.v2",
+  "old_plan": {
+    "version": "rc1-v4-control",
+    "digest": "b96588d1687eba5da2576d98a71622b68f7f489d29ad46140114c38aff70a9b4"
+  },
+  "new_plan": {
+    "version": "rc1-v4-treatment",
+    "digest": "304ba5780248b068d4afe9a16c0681c024d65b781e1e0c8fc02910eb94ef2453"
+  },
+  "causal_predecessor": {
+    "plan_version": "lattice-research-campaign-1-v3",
+    "decision_ref": "docs/adr/0016-rc1-v3-phase-gate-rejection.md",
+    "status": "rejected"
+  },
+  "transform": {
+    "status": "accepted",
+    "artifact_digest": "cfe9898bbd72ea43dd314a9a69005de3957a4273a5a07600fe820caba15a685f",
+    "receipt_digest": "722607c3ea92019116a4ed7f740df007f9e4429801779ca1fedee8d65b9fb000",
+    "patch_digest": "016e2e40a758b1588d9fe0daf8bb97027c5ae6c509ce9a77951a8ff3ccf1a307",
+    "changed_paths": [
+      "research/fixtures/dispatch-record/src/dispatch-channel.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-label.mjs",
+      "research/fixtures/dispatch-record/src/dispatch-record.mjs",
+      "test/research-dispatch-channel.test.mjs",
+      "test/research-dispatch-label.test.mjs",
+      "test/research-dispatch-record.test.mjs"
+    ]
+  },
+  "nodes": {
+    "added": [],
+    "removed": [],
+    "changed": [
+      "channel-policy",
+      "label-policy"
+    ]
+  },
+  "edges": {
+    "added": [],
+    "removed": [
+      "write-overlap-001",
+      "write-overlap-002",
+      "write-overlap-003"
+    ]
+  },
+  "invalidated_contexts": [
+    {
+      "kind": "old_plan",
+      "ref": "lattice-research-campaign-1-v3",
+      "reason": "v3 causal plan was rejected by ADR 0016 and cannot receive v4 topology updates"
+    },
+    {
+      "kind": "agent_context",
+      "ref": "lattice-research-campaign-1-v3-agent-context",
+      "reason": "condition-specific compiler and shared-test assumptions are invalid after v4 recompile"
+    },
+    {
+      "kind": "partial_patch",
+      "ref": "lattice-research-campaign-1-v3-partial-patch",
+      "reason": "patches based on production-only ownership cannot cross the v4 version barrier"
+    },
+    {
+      "kind": "interface_assumption",
+      "ref": "shared-test-is-run-only",
+      "reason": "future TODO-owned test writes are part of the schedulability boundary"
+    }
+  ],
+  "metrics": {
+    "write_conflicts_before": 3,
+    "write_conflicts_after": 0,
+    "test_write_conflicts_before": 1,
+    "test_write_conflicts_after": 0,
+    "hard_precedence_before": 0,
+    "hard_precedence_after": 0,
+    "minimum_feasible_waves_before": 2,
+    "minimum_feasible_waves_after": 1
+  }
+}
