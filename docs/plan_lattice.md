@@ -5,6 +5,7 @@
 - 現在のplan version: `lattice-research-campaign-1-v4`
 - predecessor: `lattice-research-campaign-1-v3`（[Phase-rejected archive](archive/2026-07-15-plan-lattice-research-campaign-1-v3-phase-rejected.md)、SHA-256 `13a5ffa8580ac54dd1b63a556736b7fa888010483780660029cb938399a9baf7`）
 - Phase gate Decision: [ADR 0016](adr/0016-rc1-v3-phase-gate-rejection.md)
+- Identifiability safety net: [ADR 0017](adr/0017-rc1-v4-identifiability-safety-net.md)
 - RC1 root Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
 - Portability Decision: [ADR 0012](adr/0012-portable-codegraph-evidence-and-rc1-v3.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
@@ -131,12 +132,12 @@ candidate spec／query set／oracleの変更は親直轄で新plan versionを要
 
 ### RC1-H — correction characterizationを先に置く
 
-- [ ] source編集前にCodegraphでplanned owned symbol／path、caller／callee、impact、affected test、unknownを再確認する。
-- [ ] v3 findingごとに、現実装が失敗する最小characterization testを先に追加する。
-- [ ] conditionを受け取らないcandidate spec v2とfixed query set v2をversioned inputへ固定する。
-- [ ] transform scope外black-box behavior oracleと、future TODOのtest write ownership provenanceを固定する。
-- [ ] focused testが測定器交絡、shared test-write、missing preimage、incomplete predicate、protected ignored driftを赤にすることを記録する。
-- [ ] safety-netだけを独立commitする。
+- [x] source編集前にCodegraphでplanned owned symbol／path、caller／callee、impact、affected test、unknownを再確認する。
+- [x] v3 findingごとに、現実装が失敗する最小characterization testを先に追加する。
+- [x] conditionを受け取らないcandidate spec v2とfixed query set v2をversioned inputへ固定する。
+- [x] transform scope外black-box behavior oracleと、future TODOのtest write ownership provenanceを固定する。
+- [x] focused testが測定器交絡、shared test-write、missing preimage、incomplete predicate、protected ignored driftを赤にすることを記録する。
+- [x] safety-netだけを独立commitする。
 
 ### RC1-I — single boundary compiler
 
