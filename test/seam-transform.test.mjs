@@ -136,6 +136,24 @@ test('candidate or query-set drift fails before isolated execution', async () =>
   );
 });
 
+test('shared-state negative control is not admitted to seam execution', async () => {
+  const values = await controlInputs();
+  [
+    values.boundaryManifest,
+    values.boundaryVerdict,
+    values.controlPlan,
+  ] = await Promise.all([
+    readJson('research/campaigns/rc1/artifacts/control/negative-shared-state-boundary-manifest.json'),
+    readJson('research/campaigns/rc1/artifacts/control/negative-shared-state-boundary-verdict.json'),
+    readJson('research/campaigns/rc1/artifacts/control/negative-shared-state-plan-v1.json'),
+  ]);
+
+  await assert.rejects(
+    runRc1SeamTreatment({ repoRoot: '/not-used', ...values }),
+    /normal control|seam intervention/i,
+  );
+});
+
 test('accepted treatment is deterministic, behavior-verified, and source-preserving', async (t) => {
   const repoRoot = await makeFixtureRepo(t);
   const values = await controlInputs();
