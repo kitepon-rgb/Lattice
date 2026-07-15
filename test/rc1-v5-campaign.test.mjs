@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   access,
   mkdir,
@@ -12,13 +13,73 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
+import { digestArtifact } from '../src/artifact-contracts.mjs';
 import { validateRc1EvidenceCampaign } from '../src/rc1-evidence-bundle.mjs';
-import { verifyRc1V5BehaviorArtifactSet } from '../src/rc1-v5-behavior-evidence.mjs';
+import {
+  evaluateRc1V5Hypothesis,
+  verifyRc1V5BehaviorArtifactSet,
+} from '../src/rc1-v5-behavior-evidence.mjs';
+import { verifyRc1V5CampaignArtifactSet } from '../src/rc1-v5-artifact-set.mjs';
 
 const FIXTURE = 'research/fixtures/dispatch-record/src/dispatch-record.mjs';
 const SHARED_TEST = 'test/research-dispatch-record.test.mjs';
 const ORACLE_PATH = 'research/campaigns/rc1/inputs/behavior-oracle-v2.json';
 const ARTIFACT_ROOT = 'research/campaigns/rc1/artifacts/v5';
+
+function sha256(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+function jsonBytes(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function behaviorEvidence(jsonArtifacts, rawArtifacts) {
+  return {
+    pre_receipt: jsonArtifacts.get('behavior/pre-receipt.json'),
+    post_receipt: jsonArtifacts.get('behavior/post-receipt.json'),
+    envelope: jsonArtifacts.get('behavior/evidence-envelope.json'),
+    transform_artifact: jsonArtifacts.get('transform/transform-artifact.json'),
+    patch_digest: sha256(rawArtifacts.get('transform/seam.patch')),
+  };
+}
+
+function resealedArtifactSet(manifest, payloads, mutate) {
+  const nextManifest = structuredClone(manifest);
+  const rawArtifacts = new Map(payloads.map(({ path: relativePath, bytes }) => (
+    [relativePath, Buffer.from(bytes)]
+  )));
+  const jsonArtifacts = new Map(
+    [...rawArtifacts]
+      .filter(([relativePath]) => relativePath.endsWith('.json'))
+      .map(([relativePath, bytes]) => [relativePath, JSON.parse(bytes.toString('utf8'))]),
+  );
+  mutate({ manifest: nextManifest, jsonArtifacts, rawArtifacts });
+  const nextPayloads = payloads.map(({ path: relativePath }) => {
+    const bytes = relativePath.endsWith('.json')
+      ? jsonBytes(jsonArtifacts.get(relativePath))
+      : Buffer.from(rawArtifacts.get(relativePath));
+    const entry = nextManifest.files.find(({ path: manifestPath }) => (
+      manifestPath === relativePath
+    ));
+    entry.bytes = bytes.byteLength;
+    entry.sha256 = sha256(bytes);
+    return { path: relativePath, bytes };
+  });
+  return { manifest: nextManifest, payloads: nextPayloads };
+}
+
+function recomputeEvaluation(jsonArtifacts, rawArtifacts) {
+  const comparison = jsonArtifacts.get('comparison.json');
+  const evaluation = evaluateRc1V5Hypothesis({
+    comparison,
+    behaviorEvidence: behaviorEvidence(jsonArtifacts, rawArtifacts),
+  });
+  jsonArtifacts.set('hypothesis-evaluation.json', evaluation);
+  const execution = jsonArtifacts.get('execution-evidence.json');
+  execution.comparison_digest = digestArtifact(comparison);
+  execution.hypothesis_evaluation_digest = digestArtifact(evaluation);
+}
 
 function git(cwd, args) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -94,14 +155,16 @@ test('actual 2+2 v5 campaign binds transform behavior, reindex, recompile, and i
   } = await v5Module();
   const repoRoot = await makeFixtureRepo(t);
   const baseSha = git(repoRoot, ['rev-parse', 'HEAD']);
+  const inputs = await fixedInputs();
   const result = await runRc1V5Campaign({
     repoRoot,
     baseRef: baseSha,
-    inputs: await fixedInputs(),
+    inputs,
   });
 
   assert.equal(result.schema, 'lattice.rc1.corrected_campaign_result.v5');
   assert.equal(result.base_sha, baseSha);
+  assert.deepEqual(result.inputs, inputs);
   assert.equal(result.evidence_bundles.length, 4);
   assert.equal(validateRc1EvidenceCampaign(result.evidence_bundles), true);
   const [controlOne, controlTwo, treatmentOne, treatmentTwo] = result.evidence_bundles;
@@ -174,6 +237,12 @@ test('actual 2+2 v5 campaign binds transform behavior, reindex, recompile, and i
     'behavior/evidence-envelope.json',
     'behavior/post-receipt.json',
     'behavior/pre-receipt.json',
+    'inputs/behavior-oracle-v2.json',
+    'inputs/candidate-spec-v2.json',
+    'inputs/manual-evidence.normal.json',
+    'inputs/manual-evidence.shared-state-negative.json',
+    'inputs/plan-input.json',
+    'inputs/query-set-v2.json',
     'transform/seam.patch',
     'transform/transform-artifact.json',
   ];
@@ -190,6 +259,136 @@ test('actual 2+2 v5 campaign binds transform behavior, reindex, recompile, and i
   const verification = verifyRc1V5BehaviorArtifactSet({ manifest, payloads });
   assert.equal(verification.valid, true);
   assert.deepEqual(verification.failed_conditions, []);
+  const campaignVerification = verifyRc1V5CampaignArtifactSet({ manifest, payloads });
+  assert.equal(campaignVerification.schema, 'lattice.rc1.campaign_artifact_verification.v1');
+  assert.equal(campaignVerification.valid, true);
+  assert.deepEqual(campaignVerification.failed_conditions, []);
+  assert.deepEqual(
+    campaignVerification.checks.map(({ id }) => id),
+    [
+      'behavior_artifact_set',
+      'exact_artifact_set',
+      'canonical_payloads',
+      'input_identity',
+      'evidence_campaign',
+      'compiler_replay',
+      'transform_binding',
+      'plan_diff_binding',
+      'comparison_binding',
+      'hypothesis_evaluation',
+      'execution_evidence',
+      'result_binding',
+    ],
+  );
+
+  const corruptions = [
+    {
+      name: 'saved input preimage',
+      expected: 'input_identity',
+      mutate: ({ jsonArtifacts }) => {
+        jsonArtifacts.get('inputs/plan-input.json').plan_version = 'rc1-corrupt-v1';
+      },
+    },
+    {
+      name: 'compiler output with dependent execution digest resealed',
+      expected: 'compiler_replay',
+      mutate: ({ jsonArtifacts }) => {
+        const plan = jsonArtifacts.get('compiled/control-normal/plan.json');
+        plan.plan_version = 'rc1-v5-control-corrupt';
+        jsonArtifacts.get('execution-evidence.json')
+          .compilations.control.normal.plan_graph = digestArtifact(plan);
+      },
+    },
+    {
+      name: 'run snapshot used for compiler replay',
+      expected: 'compiler_replay',
+      mutate: ({ jsonArtifacts }) => {
+        jsonArtifacts.get('execution-evidence.json')
+          .runs.control[0].code_snapshot_digest = 'a'.repeat(64);
+      },
+    },
+    {
+      name: 'transform source binding with full behavior chain resealed',
+      expected: 'transform_binding',
+      mutate: ({ manifest: changedManifest, jsonArtifacts, rawArtifacts }) => {
+        const transform = jsonArtifacts.get('transform/transform-artifact.json');
+        transform.source.boundary_manifest_digest = 'b'.repeat(64);
+        const transformDigest = digestArtifact(transform);
+        const envelope = jsonArtifacts.get('behavior/evidence-envelope.json');
+        envelope.transform_artifact_digest = transformDigest;
+        const { envelope_digest: ignoredEnvelopeDigest, ...envelopePreimage } = envelope;
+        envelope.envelope_digest = digestArtifact(envelopePreimage);
+        const receipt = jsonArtifacts.get('transform/transform-receipt.json');
+        receipt.transform_artifact_digest = transformDigest;
+        receipt.behavior_envelope_digest = envelope.envelope_digest;
+        const { receipt_digest: ignoredReceiptDigest, ...receiptPreimage } = receipt;
+        receipt.receipt_digest = digestArtifact(receiptPreimage);
+        const planDiff = jsonArtifacts.get('plan-diff.json');
+        planDiff.transform.artifact_digest = transformDigest;
+        planDiff.transform.receipt_digest = receipt.receipt_digest;
+        const comparison = jsonArtifacts.get('comparison.json');
+        comparison.independent_variable.transform_artifact_digest = transformDigest;
+        comparison.independent_variable.transform_receipt_digest = receipt.receipt_digest;
+        comparison.behavior.evidence_envelope_digest = envelope.envelope_digest;
+        comparison.version_barrier.plan_diff_digest = digestArtifact(planDiff);
+        const execution = jsonArtifacts.get('execution-evidence.json');
+        execution.transform.artifact_digest = transformDigest;
+        execution.transform.receipt_digest = receipt.receipt_digest;
+        execution.behavior.envelope_digest = envelope.envelope_digest;
+        execution.plan_diff_digest = digestArtifact(planDiff);
+        changedManifest.result_digest = envelope.envelope_digest;
+        recomputeEvaluation(jsonArtifacts, rawArtifacts);
+      },
+    },
+    {
+      name: 'v4 context invalidation with dependent digests resealed',
+      expected: 'plan_diff_binding',
+      mutate: ({ jsonArtifacts }) => {
+        const planDiff = jsonArtifacts.get('plan-diff.json');
+        planDiff.invalidated_contexts[0].reason = 'corrupted but well-formed reason';
+        const comparison = jsonArtifacts.get('comparison.json');
+        comparison.version_barrier.plan_diff_digest = digestArtifact(planDiff);
+        const execution = jsonArtifacts.get('execution-evidence.json');
+        execution.plan_diff_digest = digestArtifact(planDiff);
+        execution.comparison_digest = digestArtifact(comparison);
+      },
+    },
+    {
+      name: 'comparison fixed inputs with evaluator and digests resealed',
+      expected: 'comparison_binding',
+      mutate: ({ jsonArtifacts, rawArtifacts }) => {
+        const comparison = jsonArtifacts.get('comparison.json');
+        comparison.fixed_inputs.control.plan_input = 'c'.repeat(64);
+        comparison.fixed_inputs.treatment.plan_input = 'c'.repeat(64);
+        recomputeEvaluation(jsonArtifacts, rawArtifacts);
+      },
+    },
+    {
+      name: 'hypothesis evaluation with execution digest resealed',
+      expected: 'hypothesis_evaluation',
+      mutate: ({ jsonArtifacts }) => {
+        const evaluation = jsonArtifacts.get('hypothesis-evaluation.json');
+        evaluation.supported = false;
+        evaluation.checks[0].passed = false;
+        evaluation.failed_conditions = [evaluation.checks[0].id];
+        jsonArtifacts.get('execution-evidence.json').hypothesis_evaluation_digest =
+          digestArtifact(evaluation);
+      },
+    },
+    {
+      name: 'execution evidence run receipt',
+      expected: 'execution_evidence',
+      mutate: ({ jsonArtifacts }) => {
+        jsonArtifacts.get('execution-evidence.json').runs.control[0].raw_digest = 'd'.repeat(64);
+      },
+    },
+  ];
+  for (const corruption of corruptions) {
+    const corrupted = resealedArtifactSet(manifest, payloads, corruption.mutate);
+    const rejected = verifyRc1V5CampaignArtifactSet(corrupted);
+    assert.equal(rejected.valid, false, corruption.name);
+    assert.ok(rejected.failed_conditions.includes(corruption.expected), corruption.name);
+  }
   await assert.rejects(
     writeRc1V5Artifacts({ repoRoot, result }),
     /already exists/i,
