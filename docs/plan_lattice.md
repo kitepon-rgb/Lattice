@@ -7,6 +7,7 @@
 - Phase gate Decision: [ADR 0016](adr/0016-rc1-v3-phase-gate-rejection.md)
 - Identifiability safety net: [ADR 0017](adr/0017-rc1-v4-identifiability-safety-net.md)
 - Evidence preimage Decision: [ADR 0020](adr/0020-rc1-v4-evidence-preimage-accepted.md)
+- Corrected closed loop Decision: [ADR 0021](adr/0021-rc1-v4-corrected-closed-loop.md)
 - RC1 root Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
 - Portability Decision: [ADR 0012](adr/0012-portable-codegraph-evidence-and-rc1-v3.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
@@ -165,12 +166,18 @@ candidate spec／query set／oracleの変更は親直轄で新plan versionを要
 
 ### RC1-L — corrected closed loopを再発行する
 
-- [ ] v4 controlをfresh indexし、single compilerがproduction＋test shared writesとunknownを導出する。
-- [ ] accepted production＋test transformだけを加え、同じquery setでfresh treatment indexする。
-- [ ] normal／negativeを同じcompilerへ通し、実測conflict、hard precedence、waves、unknownを比較する。
-- [ ] full success predicateとplan diffを新artifact versionへcompileする。
-- [ ] 2 fresh run／conditionのportable payload、compiled identities、sanitized diagnosticを再生成一致させる。
-- [ ] v3 causal artifactsとcontextのinvalidationを新plan versionへbindする。
+- [x] v4 controlをfresh indexし、single compilerがproduction＋test shared writesとunknownを導出する。
+- [x] accepted production＋test transformだけを加え、同じquery setでfresh treatment indexする。
+- [x] normal／negativeを同じcompilerへ通し、実測conflict、hard precedence、waves、unknownを比較する。
+- [x] full success predicateとplan diffを新artifact versionへcompileする。
+- [x] 2 fresh run／conditionのportable payload、compiled identities、sanitized diagnosticを再生成一致させる。
+- [x] v3 causal artifactsとcontextのinvalidationを新plan versionへbindする。
+
+実測はcontrolのwrite conflicts 3／test-write conflicts 1／2 wavesから、treatmentの0／0／1 waveへ変化した。
+shared-state negativeはstate conflict 1／2 wavesを保持し、machine predicateは15／15条件を満たした。control／treatment各2 runの
+portable digest再現、manifest 23 payloadのbyte hash、canonical source invariantを確認し、
+[ADR 0021](adr/0021-rc1-v4-corrected-closed-loop.md)と
+[RC1-L evidence](evidence/2026-07-15-rc1-v4-corrected-closed-loop.md)へ固定した。Phase-level supportはRC1-Mまで保留する。
 
 ### RC1-M — correction Phase gate
 
