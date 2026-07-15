@@ -165,10 +165,10 @@ oracle、query setの変更は親直轄で新plan versionを要求し、lane内�
 
 - [x] source編集前にCodegraphで3 integration testのowned path／symbol、caller／callee、impact、affected test、unknownを確認する。
 - [x] 3 failure scopeを単独実行し、2件greenの並列干渉と1件redのimmutable root再発行を識別する。
-- [ ] control portabilityを専用cloneへ隔離し、canonical repo全worktree集合を所有物として比較しない。
-- [ ] treatment recompileはclone内worktreeだけをexact比較し、canonical repoはHEAD／status不変だけを検証する。
-- [ ] v4 campaign writerを専用cloneの空artifact rootへ発行し、canonical immutable artifactを再発行しない。
-- [ ] 3 focused scopeを一回greenにし、full gateはRC1-Yまで再実行しない。
+- [x] control portabilityを専用cloneへ隔離し、canonical repo全worktree集合を所有物として比較しない。
+- [x] treatment recompileはclone内worktreeだけをexact比較し、canonical repoはHEAD／status不変だけを検証する。
+- [x] v4 campaign writerを専用cloneの空artifact rootへ発行し、canonical immutable artifactを再発行しない。
+- [x] 3 focused scopeを一回greenにし、full gateはRC1-Yまで再実行しない。
 
 ### RC1-U — causal-binding characterizationを先に置く
 

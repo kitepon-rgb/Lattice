@@ -23,8 +23,8 @@ function git(cwd, args, encoding = 'utf8') {
 }
 
 const sourceRoot = process.cwd();
+const sourceHead = git(sourceRoot, ['rev-parse', 'HEAD']).trim();
 const sourceStatus = git(sourceRoot, ['status', '--porcelain=v1', '-z'], 'buffer');
-const sourceWorktrees = git(sourceRoot, ['worktree', 'list', '--porcelain']);
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'lattice-treatment-recompile-integration-'));
 const repoRoot = path.join(tempRoot, 'repo');
 
@@ -112,8 +112,8 @@ try {
   assert.equal(git(repoRoot, ['rev-parse', 'HEAD']).trim(), cloneHead);
   assert.equal(git(repoRoot, ['status', '--porcelain=v1', '-z'], 'buffer').equals(cloneStatus), true);
   assert.equal(git(repoRoot, ['worktree', 'list', '--porcelain']), cloneWorktrees);
+  assert.equal(git(sourceRoot, ['rev-parse', 'HEAD']).trim(), sourceHead);
   assert.equal(git(sourceRoot, ['status', '--porcelain=v1', '-z'], 'buffer').equals(sourceStatus), true);
-  assert.equal(git(sourceRoot, ['worktree', 'list', '--porcelain']), sourceWorktrees);
 
   process.stdout.write(`${JSON.stringify({
     status: 'passed',

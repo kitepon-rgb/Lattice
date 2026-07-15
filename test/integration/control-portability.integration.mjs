@@ -68,12 +68,18 @@ function executeCodegraph({ args, cwd }) {
   });
 }
 
-async function compileInFreshWorktree({ planInput, manualNormal, manualNegative, querySet }) {
+async function compileInFreshWorktree({
+  repoRoot,
+  planInput,
+  manualNormal,
+  manualNegative,
+  querySet,
+}) {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'lattice-rc1-control-portability-'));
   const worktreePath = path.join(tempRoot, 'worktree');
   let added = false;
   try {
-    git(sourceRoot, ['worktree', 'add', '--detach', worktreePath, CONTROL_BASE_SHA]);
+    git(repoRoot, ['worktree', 'add', '--detach', worktreePath, CONTROL_BASE_SHA]);
     added = true;
     const initialized = await executeCodegraph({ args: ['init', '.'], cwd: worktreePath });
     assert.equal(initialized.code, 0, initialized.stderr);
@@ -105,7 +111,7 @@ async function compileInFreshWorktree({ planInput, manualNormal, manualNegative,
       negative: compile(manualNegative),
     };
   } finally {
-    if (added) git(sourceRoot, ['worktree', 'remove', '--force', worktreePath]);
+    if (added) git(repoRoot, ['worktree', 'remove', '--force', worktreePath]);
     await rm(tempRoot, { recursive: true, force: true });
   }
 }
@@ -118,41 +124,54 @@ const [planInput, manualNormal, manualNegative, querySet] = await Promise.all([
 ]);
 const sourceHead = git(sourceRoot, ['rev-parse', 'HEAD']).trim();
 const sourceStatus = git(sourceRoot, ['status', '--porcelain=v1']);
-const worktreesBefore = git(sourceRoot, ['worktree', 'list', '--porcelain']);
+const isolatedRoot = await mkdtemp(path.join(os.tmpdir(), 'lattice-control-portability-repo-'));
+const repoRoot = path.join(isolatedRoot, 'repo');
 
-const first = await compileInFreshWorktree({ planInput, manualNormal, manualNegative, querySet });
-const second = await compileInFreshWorktree({ planInput, manualNormal, manualNegative, querySet });
+try {
+  git(isolatedRoot, ['clone', '--no-hardlinks', '--quiet', sourceRoot, repoRoot]);
+  const repoHead = git(repoRoot, ['rev-parse', 'HEAD']).trim();
+  const repoStatus = git(repoRoot, ['status', '--porcelain=v1']);
+  const worktreesBefore = git(repoRoot, ['worktree', 'list', '--porcelain']);
+  const options = { repoRoot, planInput, manualNormal, manualNegative, querySet };
 
-assert.notEqual(first.raw_outcomes_digest, second.raw_outcomes_digest);
-assert.equal(first.portable_outcomes_digest, second.portable_outcomes_digest);
-assert.deepEqual(first.normal, second.normal);
-assert.deepEqual(first.negative, second.negative);
-for (const compiled of [first.normal, first.negative]) {
-  assert.equal(validateBoundaryManifest(compiled.boundary_manifest), true);
-  assert.equal(validateBoundaryVerdict(compiled.boundary_verdict), true);
-  assert.equal(validatePlanGraph(compiled.plan_graph), true);
+  const first = await compileInFreshWorktree(options);
+  const second = await compileInFreshWorktree(options);
+
+  assert.notEqual(first.raw_outcomes_digest, second.raw_outcomes_digest);
+  assert.equal(first.portable_outcomes_digest, second.portable_outcomes_digest);
+  assert.deepEqual(first.normal, second.normal);
+  assert.deepEqual(first.negative, second.negative);
+  for (const compiled of [first.normal, first.negative]) {
+    assert.equal(validateBoundaryManifest(compiled.boundary_manifest), true);
+    assert.equal(validateBoundaryVerdict(compiled.boundary_verdict), true);
+    assert.equal(validatePlanGraph(compiled.plan_graph), true);
+  }
+  assert.equal(first.normal.boundary_verdict.verdicts[0].verdict, 'seam_candidate');
+  assert.equal(first.negative.boundary_verdict.verdicts[0].verdict, 'intentional_serial');
+  assert.equal(git(repoRoot, ['rev-parse', 'HEAD']).trim(), repoHead);
+  assert.equal(git(repoRoot, ['status', '--porcelain=v1']), repoStatus);
+  assert.equal(git(repoRoot, ['worktree', 'list', '--porcelain']), worktreesBefore);
+  assert.equal(git(sourceRoot, ['rev-parse', 'HEAD']).trim(), sourceHead);
+  assert.equal(git(sourceRoot, ['status', '--porcelain=v1']), sourceStatus);
+
+  process.stdout.write(`${JSON.stringify({
+    status: 'passed',
+    control_base_sha: CONTROL_BASE_SHA,
+    raw_outcomes_equal: false,
+    portable_outcomes_digest: first.portable_outcomes_digest,
+    normal: {
+      boundary_manifest_digest: first.normal.boundary_manifest_digest,
+      boundary_verdict_digest: first.normal.boundary_verdict_digest,
+      plan_graph_digest: first.normal.plan_graph_digest,
+    },
+    negative: {
+      boundary_manifest_digest: first.negative.boundary_manifest_digest,
+      boundary_verdict_digest: first.negative.boundary_verdict_digest,
+      plan_graph_digest: first.negative.plan_graph_digest,
+    },
+    source_unchanged: true,
+    cleanup: 'passed',
+  })}\n`);
+} finally {
+  await rm(isolatedRoot, { recursive: true, force: true });
 }
-assert.equal(first.normal.boundary_verdict.verdicts[0].verdict, 'seam_candidate');
-assert.equal(first.negative.boundary_verdict.verdicts[0].verdict, 'intentional_serial');
-assert.equal(git(sourceRoot, ['rev-parse', 'HEAD']).trim(), sourceHead);
-assert.equal(git(sourceRoot, ['status', '--porcelain=v1']), sourceStatus);
-assert.equal(git(sourceRoot, ['worktree', 'list', '--porcelain']), worktreesBefore);
-
-process.stdout.write(`${JSON.stringify({
-  status: 'passed',
-  control_base_sha: CONTROL_BASE_SHA,
-  raw_outcomes_equal: false,
-  portable_outcomes_digest: first.portable_outcomes_digest,
-  normal: {
-    boundary_manifest_digest: first.normal.boundary_manifest_digest,
-    boundary_verdict_digest: first.normal.boundary_verdict_digest,
-    plan_graph_digest: first.normal.plan_graph_digest,
-  },
-  negative: {
-    boundary_manifest_digest: first.negative.boundary_manifest_digest,
-    boundary_verdict_digest: first.negative.boundary_verdict_digest,
-    plan_graph_digest: first.negative.plan_graph_digest,
-  },
-  source_unchanged: true,
-  cleanup: 'passed',
-})}\n`);
