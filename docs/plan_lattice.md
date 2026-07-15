@@ -172,10 +172,10 @@ oracle、query setの変更は親直轄で新plan versionを要求し、lane内�
 
 ### RC1-U — causal-binding characterizationを先に置く
 
-- [ ] source編集前に対象symbolのCodegraph preflightを更新する。
-- [ ] oracle digestとfalse-passed caseを全依存digestごと再封印してもv5 verifierが通る反例をtestへ固定する。
-- [ ] case欠落／追加／並替え、runtime drift、snapshot substitution、Codegraph version drift、predecessor substitutionをexpected-redにする。
-- [ ] characterizationだけを独立commitする。
+- [x] source編集前に対象symbolのCodegraph preflightを更新する。
+- [x] oracle digestとfalse-passed caseを全依存digestごと再封印してもv5 verifierが通る反例をtestへ固定する。
+- [x] case欠落／追加／並替え、runtime drift、snapshot substitution、Codegraph version drift、predecessor substitutionをexpected-redにする。
+- [x] characterizationだけを独立commitする。
 
 ### RC1-V1 — oracle semanticsとruntime identity
 
