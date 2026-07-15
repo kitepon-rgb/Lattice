@@ -203,11 +203,12 @@ oracle、query setの変更は親直轄で新plan versionを要求し、lane内�
 
 ### RC1-W — artifact chainとversion barrier
 
-- [ ] v6 exact artifact setとartifact-only verifierを実装する。
-- [ ] Codegraph identityをfixed input／全run／comparison／executionへ固定する。
-- [ ] plan diff predecessor集合へv5 archive／Decision、transform、behavior envelope、4 bundle descriptor digestを保存する。
-- [ ] dependency-reseal corruption全件をsemantic checkでrejectする。
-- [ ] focused収束後にrelated testを一回だけ実行する。
+- [x] v6 exact artifact setとartifact-only verifierを実装する。
+- [x] boundary compiler、oracle executor、resolved Codegraph executableの実bytesを保存し、identity digestをartifact内preimageから再計算する。
+- [x] Codegraph identityをfixed input／全run／comparison／executionへ固定する。
+- [x] plan diff predecessor集合へv5 archive／Decision、transform、behavior envelope、4 bundle descriptor digestを保存する。
+- [x] dependency-reseal corruption全件をsemantic checkでrejectする。
+- [x] focused収束後にrelated testを一回だけ実行する。
 
 ### RC1-X — immutable v6 closed loopを再発行する
 

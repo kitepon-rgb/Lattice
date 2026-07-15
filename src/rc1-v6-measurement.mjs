@@ -178,9 +178,10 @@ async function resolveExecutable(command) {
   throw new TypeError(`RC1 v6 executableをPATHから解決できない: ${command}`);
 }
 
-/** 実行予定Codegraphのversionとresolved executable bytesをportable identityへ固定する。 */
-export async function resolveRc1V6CodegraphIdentity() {
+/** 実行予定Codegraphのidentityと、そのdigestを再計算できる実bytesを同時captureする。 */
+export async function captureRc1V6CodegraphExecutable() {
   const executablePath = await resolveExecutable('codegraph');
+  const executableBytes = await readFile(executablePath);
   const { stdout } = await execFileAsync(executablePath, ['--version'], {
     encoding: 'utf8',
     maxBuffer: 64 * 1024,
@@ -191,11 +192,19 @@ export async function resolveRc1V6CodegraphIdentity() {
     throw new TypeError('RC1 v6 Codegraph versionがsemverでない');
   }
   return {
-    schema: 'lattice.rc1.codegraph_identity.v1',
-    version,
-    executable_ref: 'codegraph',
-    executable_digest: sha256(await readFile(executablePath)),
+    identity: {
+      schema: 'lattice.rc1.codegraph_identity.v1',
+      version,
+      executable_ref: 'codegraph',
+      executable_digest: sha256(executableBytes),
+    },
+    executable_bytes: executableBytes,
   };
+}
+
+/** portable identityだけを必要とする既存caller向け入口。 */
+export async function resolveRc1V6CodegraphIdentity() {
+  return (await captureRc1V6CodegraphExecutable()).identity;
 }
 
 /** v1 evidence bundleへsource／tool measurementを追加する。 */
