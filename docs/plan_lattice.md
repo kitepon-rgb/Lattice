@@ -5,6 +5,7 @@
 - 現在のplan version: `lattice-research-campaign-1-v5`
 - predecessor: `lattice-research-campaign-1-v4`（[Phase-rejected archive](archive/2026-07-15-plan-lattice-research-campaign-1-v4-phase-rejected.md)、SHA-256 `831485b08de5ecc6624b7b1ed2175dce931dd480b5cfe247911499ae029d5fa2`）
 - v4 Phase gate Decision: [ADR 0022](adr/0022-rc1-v4-phase-gate-rejection.md)
+- v5 behavior evidence contract: [ADR 0023](adr/0023-rc1-v5-behavior-evidence-contract.md)
 - v4 corrected closed loop record: [ADR 0021](adr/0021-rc1-v4-corrected-closed-loop.md)
 - RC1 root Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
@@ -148,11 +149,11 @@ schema、fixed surface、oracle input、query setの変更は親直轄で新plan
 
 ### RC1-N — behavior-binding characterizationを先に置く
 
-- [ ] source編集前にCodegraphでowned symbol／path、caller／callee、impact、affected test、unknownを再確認する。
-- [ ] 現v4 artifactへpost→pre receipt差替えを適用しても15／15が維持される最小反例をtestへ固定する。
-- [ ] full receipt、fixed surface snapshot、behavior envelope、artifact-only evaluatorのexact schemaをtest fixtureで固定する。
-- [ ] role、base、entrypoint content、surface snapshot、patch、transform digest、manifest payloadを一つずつ壊すtestを赤にする。
-- [ ] safety-netだけを独立commitする。
+- [x] source編集前にCodegraphでowned symbol／path、caller／callee、impact、affected test、unknownを再確認する。
+- [x] 現v4 artifactへpost→pre receipt差替えを適用しても15／15が維持される最小反例をtestへ固定する。
+- [x] full receipt、fixed surface snapshot、behavior envelope、artifact-only evaluatorのexact schemaをtest fixtureで固定する。
+- [x] role、base、entrypoint content、surface snapshot、patch、transform digest、manifest payloadを一つずつ壊すtestを赤にする。
+- [x] safety-netだけを独立commitする。
 
 ### RC1-O1 — full oracle receiptとsurface observation
 
