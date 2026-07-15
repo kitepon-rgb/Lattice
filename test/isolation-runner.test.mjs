@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,6 +12,10 @@ function git(cwd, args) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
+}
+
+function digest(value) {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 async function makeRepo(t) {
@@ -49,6 +54,14 @@ test('許可パスの変更をbinary patchとして返し、observeはcleanup前
   assert.deepEqual(result.changedPaths, ['allowed.txt', 'new.bin']);
   assert.equal(Buffer.isBuffer(result.patch), true);
   assert.match(result.patch.toString('utf8'), /new\.bin/);
+  assert.deepEqual(result.verifications, [{
+    command: process.execPath,
+    args: ['--version'],
+    outcome: 'passed',
+    exit_code: 0,
+    stdout_digest: digest(`${process.version}\n`),
+    stderr_digest: digest(''),
+  }]);
   assert.equal(git(repoRoot, ['rev-parse', 'HEAD']), sourceHead);
   assert.equal(await readFile(path.join(repoRoot, 'allowed.txt'), 'utf8'), 'before\n');
   assert.equal(git(repoRoot, ['status', '--porcelain']), '');
@@ -83,7 +96,20 @@ test('verifier失敗でも一時worktreeをcleanupし、source repoを変更し�
       transform: ({ worktreePath }) => writeFile(path.join(worktreePath, 'allowed.txt'), 'after\n'),
       verifyCommands: [{ command: process.execPath, args: ['-e', 'process.exit(7)'] }],
     }),
-    /verifier.*7/i,
+    (error) => {
+      assert.match(error.message, /verifier.*7/i);
+      assert.deepEqual(error.transformEvidence.changedPaths, ['allowed.txt']);
+      assert.equal(Buffer.isBuffer(error.transformEvidence.patch), true);
+      assert.deepEqual(error.transformEvidence.verifications, [{
+        command: process.execPath,
+        args: ['-e', 'process.exit(7)'],
+        outcome: 'failed',
+        exit_code: 7,
+        stdout_digest: digest(''),
+        stderr_digest: digest(''),
+      }]);
+      return true;
+    },
   );
   assert.equal(git(repoRoot, ['rev-parse', 'HEAD']), sourceHead);
   assert.equal(git(repoRoot, ['status', '--porcelain']), '');
@@ -163,4 +189,27 @@ test('verifier failureとsource invariant違反をともに返す', async (t) =>
     },
   );
   assert.match(git(repoRoot, ['status', '--porcelain']), /canonical-leak\.txt/);
+});
+
+test('canonical repoへの新しいignored writeもsource invariant違反にする', async (t) => {
+  const repoRoot = await makeRepo(t);
+  await writeFile(path.join(repoRoot, '.gitignore'), 'ignored-leak.txt\n');
+  git(repoRoot, ['add', '.gitignore']);
+  git(repoRoot, ['commit', '-m', 'ignore canonical leak target']);
+
+  await assert.rejects(
+    runIsolatedTransform({
+      repoRoot,
+      baseRef: 'HEAD',
+      allowedPaths: ['allowed.txt'],
+      transform: async ({ worktreePath }) => {
+        await writeFile(path.join(worktreePath, 'allowed.txt'), 'isolated\n');
+        await writeFile(path.join(repoRoot, 'ignored-leak.txt'), 'hidden leak\n');
+      },
+      verifyCommands: [],
+    }),
+    /source repository changed/i,
+  );
+  assert.equal(git(repoRoot, ['status', '--porcelain']), '');
+  assert.equal(await readFile(path.join(repoRoot, 'ignored-leak.txt'), 'utf8'), 'hidden leak\n');
 });

@@ -2,10 +2,16 @@ import { lstat, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
-function run(command, args, { cwd, allowExitCodes = [0] } = {}) {
+function run(command, args, { cwd, allowExitCodes = [0], env } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, {
+      cwd,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...(env === undefined ? {} : { env }),
+    });
     const stdout = [];
     const stderr = [];
     child.stdout.on('data', (chunk) => stdout.push(chunk));
@@ -17,6 +23,30 @@ function run(command, args, { cwd, allowExitCodes = [0] } = {}) {
       else reject(Object.assign(new Error(`${command} failed (${signal ?? code}): ${result.stderr.toString('utf8').trim()}`), result));
     });
   });
+}
+
+function bufferDigest(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function verificationReceipt(verifier, result, outcome) {
+  const stdout = Buffer.isBuffer(result?.stdout) ? result.stdout : Buffer.alloc(0);
+  const stderr = Buffer.isBuffer(result?.stderr) ? result.stderr : Buffer.alloc(0);
+  return {
+    command: verifier.command,
+    args: [...verifier.args],
+    outcome,
+    exit_code: Number.isSafeInteger(result?.code) && result.code >= 0 ? result.code : 1,
+    stdout_digest: bufferDigest(stdout),
+    stderr_digest: bufferDigest(stderr),
+  };
+}
+
+function verifierEnvironment() {
+  const env = { ...process.env, NO_COLOR: '1' };
+  delete env.NODE_TEST_CONTEXT;
+  delete env.FORCE_COLOR;
+  return env;
 }
 
 function safeRelativePath(value) {
@@ -106,12 +136,17 @@ async function assertSnapshotUnchanged(worktreePath, baseSha, allowedPaths, expe
   }
 }
 
-async function assertSourceUnchanged(repoRoot, sourceHead, sourceStatus) {
-  const [head, status] = await Promise.all([
+async function assertSourceUnchanged(repoRoot, sourceHead, sourceStatus, sourceIgnoredStatus) {
+  const [head, status, ignoredStatus] = await Promise.all([
     run('git', ['rev-parse', 'HEAD'], { cwd: repoRoot }),
     run('git', ['status', '--porcelain=v1', '-z'], { cwd: repoRoot }),
+    run('git', [
+      'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
+    ], { cwd: repoRoot }),
   ]);
-  if (head.stdout.toString('utf8').trim() !== sourceHead || !status.stdout.equals(sourceStatus)) {
+  if (head.stdout.toString('utf8').trim() !== sourceHead
+    || !status.stdout.equals(sourceStatus)
+    || !ignoredStatus.stdout.equals(sourceIgnoredStatus)) {
     throw new Error('source repository changed during isolated transform');
   }
 }
@@ -127,23 +162,33 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
   const sourceHead = (await run('git', ['rev-parse', 'HEAD'], { cwd: repoRoot })).stdout.toString('utf8').trim();
   const sourceStatus = (await run('git', ['status', '--porcelain=v1', '-z'], { cwd: repoRoot })).stdout;
   if (sourceStatus.length > 0) throw new Error('source repository must be clean');
+  const sourceIgnoredStatus = (await run('git', [
+    'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
+  ], { cwd: repoRoot })).stdout;
   const baseSha = (await run('git', ['rev-parse', '--verify', `${baseRef}^{commit}`], { cwd: repoRoot })).stdout.toString('utf8').trim();
   const worktreePath = await mkdtemp(path.join(os.tmpdir(), 'lattice-isolated-transform-'));
   let added = false;
   let primaryError;
   let result;
+  let snapshot;
+  const verifications = [];
   try {
     await run('git', ['worktree', 'add', '--detach', worktreePath, baseSha], { cwd: repoRoot });
     added = true;
     await transform({ worktreePath });
-    const snapshot = await captureSnapshot(worktreePath, baseSha, allowedPaths);
+    snapshot = await captureSnapshot(worktreePath, baseSha, allowedPaths);
     for (const verifier of verifyCommands) {
       if (!verifier || typeof verifier.command !== 'string' || !Array.isArray(verifier.args) || verifier.args.some((arg) => typeof arg !== 'string')) {
         throw new TypeError('verifyCommands must contain command and string args');
       }
       try {
-        await run(verifier.command, verifier.args, { cwd: worktreePath });
+        const verification = await run(verifier.command, verifier.args, {
+          cwd: worktreePath,
+          env: verifierEnvironment(),
+        });
+        verifications.push(verificationReceipt(verifier, verification, 'passed'));
       } catch (error) {
+        verifications.push(verificationReceipt(verifier, error, 'failed'));
         throw new Error(`verifier failed (${error.signal ?? error.code}): ${verifier.command}`);
       }
       await assertSnapshotUnchanged(worktreePath, baseSha, allowedPaths, snapshot, 'verifier');
@@ -152,7 +197,7 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
       await observe({ worktreePath, changedPaths: snapshot.changedPaths, patch: snapshot.patch, baseSha });
       await assertSnapshotUnchanged(worktreePath, baseSha, allowedPaths, snapshot, 'observe');
     }
-    result = { baseSha, ...snapshot };
+    result = { baseSha, ...snapshot, verifications };
   } catch (error) {
     primaryError = error;
   }
@@ -161,15 +206,22 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
     if (added) await run('git', ['worktree', 'remove', '--force', worktreePath], { cwd: repoRoot });
     await rm(worktreePath, { recursive: true, force: true });
   } catch (error) {
-    cleanupError = error;
+    cleanupError = new Error(`cleanup failed: ${error.message}`);
   }
   let sourceInvariantError;
   try {
-    await assertSourceUnchanged(repoRoot, sourceHead, sourceStatus);
+    await assertSourceUnchanged(repoRoot, sourceHead, sourceStatus, sourceIgnoredStatus);
   } catch (error) {
     sourceInvariantError = error;
   }
   const errors = [primaryError, cleanupError, sourceInvariantError].filter(Boolean);
+  const transformEvidence = {
+    baseSha,
+    changedPaths: snapshot ? [...snapshot.changedPaths] : [],
+    patch: snapshot ? Buffer.from(snapshot.patch) : null,
+    verifications: structuredClone(verifications),
+  };
+  for (const error of errors) error.transformEvidence = transformEvidence;
   if (errors.length === 1) throw errors[0];
   if (errors.length > 1) throw new AggregateError(errors, 'isolated transform failed; source repository changed or cleanup failed');
   return result;

@@ -11,6 +11,7 @@ import {
   validatePlanDiff,
   validatePlanGraph,
   validatePlanInput,
+  validateTransformArtifact,
 } from '../src/artifact-contracts.mjs';
 
 const sha = (character) => character.repeat(64);
@@ -232,6 +233,76 @@ function planDiff() {
   };
 }
 
+function transformArtifact(status = 'accepted') {
+  const allowedPaths = [
+    'research/fixtures/dispatch-record/src/dispatch-channel.mjs',
+    'research/fixtures/dispatch-record/src/dispatch-label.mjs',
+    'research/fixtures/dispatch-record/src/dispatch-record.mjs',
+  ];
+  const receipts = status === 'accepted'
+    ? [{
+      id: 'dispatch-characterization',
+      command: 'node',
+      args: ['--test', 'test/research-dispatch-record.test.mjs'],
+      outcome: 'passed',
+      exit_code: 0,
+      stdout_digest: sha('1'),
+      stderr_digest: sha('2'),
+    }]
+    : [];
+  const verificationStatus = status === 'accepted' ? 'passed' : 'not_run';
+  const verificationDigest = digestArtifact({ status: verificationStatus, receipts });
+  const files = status === 'accepted'
+    ? allowedPaths.map((path, index) => ({
+      path,
+      content_digest: sha(['3', '4', '5'][index]),
+    }))
+    : [];
+  const rejectionCore = {
+    kind: 'scope_violation',
+    reasons: ['transform changed a path outside the accepted candidate scope'],
+  };
+
+  return {
+    schema: 'lattice.transform_artifact.v1',
+    candidate_id: 'extract-dispatch-policies',
+    status,
+    source: {
+      base_sha: 'a'.repeat(40),
+      boundary_manifest_digest: sha('a'),
+      boundary_verdict_digest: sha('b'),
+      control_plan_digest: sha('c'),
+      query_set_digest: sha('d'),
+      code_snapshot_digest: sha('e'),
+    },
+    scope: {
+      allowed_paths: allowedPaths,
+      changed_paths: status === 'accepted' ? allowedPaths : [],
+    },
+    patch: {
+      digest: status === 'accepted' ? sha('6') : null,
+      bytes: status === 'accepted' ? 512 : 0,
+    },
+    verification: {
+      status: verificationStatus,
+      digest: verificationDigest,
+      receipts,
+    },
+    output: {
+      snapshot_digest: status === 'accepted' ? digestArtifact({ files }) : null,
+      files,
+    },
+    cleanup: {
+      status: 'passed',
+      source_status: 'unchanged',
+    },
+    rejection: status === 'accepted'
+      ? null
+      : { ...rejectionCore, evidence_digest: digestArtifact(rejectionCore) },
+    unknowns: status === 'accepted' ? [] : ['changed paths were unavailable after scope rejection'],
+  };
+}
+
 test('canonical serialization is byte-stable and digest-bound', () => {
   const value = {
     z: 3,
@@ -436,6 +507,38 @@ test('plan graph binds nodes, edges, waves, and capacity', () => {
   const unknownField = clone(graph);
   unknownField.capacity.readers = 1;
   assert.equal(validatePlanGraph(unknownField), false);
+});
+
+test('transform artifact binds accepted and rejected intervention evidence', () => {
+  const accepted = transformArtifact();
+  const rejected = transformArtifact('rejected');
+
+  assert.equal(validateTransformArtifact(accepted), true);
+  assert.equal(validateTransformArtifact(rejected), true);
+
+  const verificationDrift = clone(accepted);
+  verificationDrift.verification.receipts[0].exit_code = 7;
+  assert.equal(validateTransformArtifact(verificationDrift), false);
+
+  const outputDrift = clone(accepted);
+  outputDrift.output.files[0].content_digest = sha('f');
+  assert.equal(validateTransformArtifact(outputDrift), false);
+
+  const escapedScope = clone(accepted);
+  escapedScope.scope.changed_paths[0] = '../outside.mjs';
+  assert.equal(validateTransformArtifact(escapedScope), false);
+
+  const acceptedWithoutPatch = clone(accepted);
+  acceptedWithoutPatch.patch = { digest: null, bytes: 0 };
+  assert.equal(validateTransformArtifact(acceptedWithoutPatch), false);
+
+  const rejectedWithoutReason = clone(rejected);
+  rejectedWithoutReason.rejection = null;
+  assert.equal(validateTransformArtifact(rejectedWithoutReason), false);
+
+  const acceptedWithRejection = clone(accepted);
+  acceptedWithRejection.rejection = clone(rejected.rejection);
+  assert.equal(validateTransformArtifact(acceptedWithRejection), false);
 });
 
 test('plan diff binds accepted transform, invalidation, topology delta, and metrics', () => {

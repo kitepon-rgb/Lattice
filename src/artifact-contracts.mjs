@@ -9,6 +9,7 @@ const MAX_PATH_BYTES = 1_024;
 const MAX_CANONICAL_BYTES = 1_048_576;
 
 const SHA256 = /^[0-9a-f]{64}$/;
+const SHA1 = /^[0-9a-f]{40}$/;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 
@@ -74,6 +75,19 @@ const INVALIDATION_KINDS = new Set([
   'agent_context',
   'partial_patch',
   'interface_assumption',
+]);
+const TRANSFORM_STATUSES = new Set(['accepted', 'rejected']);
+const VERIFICATION_STATUSES = new Set(['passed', 'failed', 'not_run']);
+const RECEIPT_OUTCOMES = new Set(['passed', 'failed']);
+const CLEANUP_STATUSES = new Set(['passed', 'failed', 'unresolved']);
+const SOURCE_STATUSES = new Set(['unchanged', 'changed', 'unresolved']);
+const TRANSFORM_REJECTION_KINDS = new Set([
+  'scope_violation',
+  'behavior_verification_failed',
+  'snapshot_mutation',
+  'source_invariant_violation',
+  'cleanup_failure',
+  'execution_failure',
 ]);
 
 function invalidArtifact(reason) {
@@ -659,6 +673,144 @@ function planDescriptor(value) {
   return exactRecord(value, ['version', 'digest'])
     && identifier(value.version)
     && digest(value.digest);
+}
+
+function sortedPaths(value, { min = 0 } = {}) {
+  return uniqueStrings(value, (entry) => repoPath(entry), { min })
+    && value.every((entry, index) => index === 0 || value[index - 1] < entry);
+}
+
+function transformSource(value) {
+  return exactRecord(value, [
+    'base_sha',
+    'boundary_manifest_digest',
+    'boundary_verdict_digest',
+    'control_plan_digest',
+    'query_set_digest',
+    'code_snapshot_digest',
+  ])
+    && typeof value.base_sha === 'string'
+    && SHA1.test(value.base_sha)
+    && digest(value.boundary_manifest_digest)
+    && digest(value.boundary_verdict_digest)
+    && digest(value.control_plan_digest)
+    && digest(value.query_set_digest)
+    && digest(value.code_snapshot_digest);
+}
+
+function verificationReceipt(value) {
+  return exactRecord(value, [
+    'id',
+    'command',
+    'args',
+    'outcome',
+    'exit_code',
+    'stdout_digest',
+    'stderr_digest',
+  ])
+    && identifier(value.id)
+    && boundedText(value.command, 512)
+    && boundedArray(value.args, (entry) => boundedText(entry, 1_024))
+    && RECEIPT_OUTCOMES.has(value.outcome)
+    && nonNegativeInteger(value.exit_code)
+    && digest(value.stdout_digest)
+    && digest(value.stderr_digest);
+}
+
+function transformVerification(value) {
+  if (!exactRecord(value, ['status', 'digest', 'receipts'])
+    || !VERIFICATION_STATUSES.has(value.status)
+    || !digest(value.digest)
+    || !boundedArray(value.receipts, verificationReceipt)
+    || new Set(value.receipts.map(({ id }) => id)).size !== value.receipts.length
+    || value.digest !== digestArtifact({ status: value.status, receipts: value.receipts })) {
+    return false;
+  }
+  if (value.status === 'passed') {
+    return value.receipts.length > 0
+      && value.receipts.every((receipt) => receipt.outcome === 'passed' && receipt.exit_code === 0);
+  }
+  if (value.status === 'not_run') return value.receipts.length === 0;
+  return value.receipts.length > 0;
+}
+
+function outputFile(value) {
+  return exactRecord(value, ['path', 'content_digest'])
+    && repoPath(value.path)
+    && digest(value.content_digest);
+}
+
+function transformOutput(value, changedPaths) {
+  if (!exactRecord(value, ['snapshot_digest', 'files'])
+    || !boundedArray(value.files, outputFile)
+    || new Set(value.files.map(({ path }) => path)).size !== value.files.length
+    || value.files.some((entry, index) => index > 0 && value.files[index - 1].path >= entry.path)) {
+    return false;
+  }
+  if (value.files.length === 0) return value.snapshot_digest === null;
+  return digest(value.snapshot_digest)
+    && value.snapshot_digest === digestArtifact({ files: value.files })
+    && value.files.length === changedPaths.length
+    && value.files.every((entry, index) => entry.path === changedPaths[index]);
+}
+
+function transformRejection(value) {
+  return exactRecord(value, ['kind', 'reasons', 'evidence_digest'])
+    && TRANSFORM_REJECTION_KINDS.has(value.kind)
+    && uniqueStrings(value.reasons, boundedText, { min: 1 })
+    && digest(value.evidence_digest)
+    && value.evidence_digest === digestArtifact({ kind: value.kind, reasons: value.reasons });
+}
+
+/** @param {unknown} value @returns {boolean} */
+export function validateTransformArtifact(value) {
+  return validateSafely(value, (artifact) => {
+    if (!exactRecord(artifact, [
+      'schema',
+      'candidate_id',
+      'status',
+      'source',
+      'scope',
+      'patch',
+      'verification',
+      'output',
+      'cleanup',
+      'rejection',
+      'unknowns',
+    ])
+      || artifact.schema !== 'lattice.transform_artifact.v1'
+      || !identifier(artifact.candidate_id)
+      || !TRANSFORM_STATUSES.has(artifact.status)
+      || !transformSource(artifact.source)
+      || !exactRecord(artifact.scope, ['allowed_paths', 'changed_paths'])
+      || !sortedPaths(artifact.scope.allowed_paths, { min: 1 })
+      || !sortedPaths(artifact.scope.changed_paths)
+      || artifact.scope.changed_paths.some((entry) => !artifact.scope.allowed_paths.includes(entry))
+      || !exactRecord(artifact.patch, ['digest', 'bytes'])
+      || !((artifact.patch.digest === null && artifact.patch.bytes === 0)
+        || (digest(artifact.patch.digest) && positiveInteger(artifact.patch.bytes)))
+      || !transformVerification(artifact.verification)
+      || !transformOutput(artifact.output, artifact.scope.changed_paths)
+      || !exactRecord(artifact.cleanup, ['status', 'source_status'])
+      || !CLEANUP_STATUSES.has(artifact.cleanup.status)
+      || !SOURCE_STATUSES.has(artifact.cleanup.source_status)
+      || !uniqueStrings(artifact.unknowns)) {
+      return false;
+    }
+
+    if (artifact.status === 'accepted') {
+      return artifact.rejection === null
+        && artifact.scope.changed_paths.length > 0
+        && digest(artifact.patch.digest)
+        && positiveInteger(artifact.patch.bytes)
+        && artifact.verification.status === 'passed'
+        && artifact.output.files.length === artifact.scope.changed_paths.length
+        && artifact.cleanup.status === 'passed'
+        && artifact.cleanup.source_status === 'unchanged';
+    }
+    return transformRejection(artifact.rejection)
+      && artifact.verification.status !== 'passed';
+  });
 }
 
 function changeSet(value, keys) {
