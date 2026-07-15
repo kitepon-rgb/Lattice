@@ -123,6 +123,8 @@ Accepted Decision: [ADR 0003](adr/0003-rc1-safety-net-accepted.md)
 
 ### RC1-A／B／C — 閉ループの三laneを実装する
 
+Source boundary／dispatch contract: [RC1 implementation boundaries](evidence/2026-07-15-rc1-implementation-boundaries.md)
+
 - [ ] **RC1-A（F・親直轄）:** `plan_input.v1`、`boundary_manifest.v1`、`boundary_verdict.v1`、`plan_graph.v1`、`plan_diff.v1`の
   RC1必要subsetをexact key、bounded collection、canonical serialization、digest付きで実装する。
 - [ ] **RC1-B:** Codegraph 1.4.1の公開CLIからstatus、query、caller／callee、impact、affected testを収集し、
