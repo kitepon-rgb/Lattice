@@ -128,7 +128,7 @@ ready幅を増やす目的でhard dependencyを削らない。
 - [x] v2をSHA-256一致でarchiveし、旧D／E artifactとagent contextのactive predecessor資格を失効する。
 - [x] ADR 0012、public product contract、RAG、D2→E2→F topologyを`lattice-research-campaign-1-v3`へ正本化する。
 - [x] plan v3更新だけを独立commitする。
-- [ ] ControlへD2／E2／F taskを順序どおり記録する。
+- [x] ControlへD2／E2／F taskをrevision 37〜39で順序どおり記録する。
 
 ### RC1-S — characterization safety netを先行する
 
