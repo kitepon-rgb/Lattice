@@ -18,7 +18,7 @@ const ENTRY_PATH = 'research/fixtures/delivery-policy-registry/src/delivery-poli
 const ORACLE_PATH = 'src/rc2-delivery-policy-oracle.mjs';
 const SHARED_TEST_PATH = 'test/rc2-delivery-policy-fixture.test.mjs';
 const EXPECTED_CANDIDATE_ID = 'shard-delivery-policy-registry-by-channel';
-const EXPECTED_CANDIDATE_DIGEST = '30ee67852f7ab5fb0d9bf82f2a4c55b6569a76507b0df5b329290c84d29b49f5';
+const EXPECTED_CANDIDATE_DIGEST = '4cc5d7bb428a8899353d18524c25105742fa90f89ee55d36064c4be3c52e2907';
 const GIT_SHA1 = /^[0-9a-f]{40}$/;
 
 export const RC2_DELIVERY_POLICY_TRANSFORM_PATHS = Object.freeze([

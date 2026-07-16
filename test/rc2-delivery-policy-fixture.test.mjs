@@ -74,9 +74,13 @@ test('delivery policy fixture rejects an unknown urgency as RangeError', async (
 });
 
 test('delivery policy oracle black-boxes the same table from the supplied repoRoot', async () => {
-  const { runRc2DeliveryPolicyOracle } = await import(ORACLE_MODULE);
+  const {
+    expectedRc2DeliveryPolicyOracleReceipt,
+    runRc2DeliveryPolicyOracle,
+  } = await import(ORACLE_MODULE);
   const receipt = await runRc2DeliveryPolicyOracle({ repoRoot: process.cwd() });
 
+  assert.deepEqual(receipt, expectedRc2DeliveryPolicyOracleReceipt());
   assert.equal(receipt.outcome, 'passed');
   assert.deepEqual(receipt.case_results.map(({ id, outcome }) => ({ id, outcome })),
     CASES.map(({ id }) => ({ id, outcome: 'passed' })));

@@ -14,8 +14,8 @@ import {
 const REPO_ROOT = path.resolve(new URL('..', import.meta.url).pathname);
 const CAMPAIGN_MODULE = '../src/rc2-campaign.mjs';
 const ARTIFACT_MODULE = '../src/rc2-artifact-set.mjs';
-const ARTIFACT_VERSION = 'v2';
-const PREDECESSOR_ARTIFACT_VERSION = 'v1';
+const ARTIFACT_VERSION = 'v3';
+const PREDECESSOR_ARTIFACT_VERSIONS = Object.freeze(['v1', 'v2']);
 
 let temporaryRoot;
 let fixturePromise;
@@ -264,7 +264,7 @@ test('RC2 campaignはaccepted patchだけを変数に6 fresh worktree runとfixe
   const { result, statusBeforeWrite } = await loadFixture();
 
   assert.equal(statusBeforeWrite, '');
-  assert.equal(result.schema, 'lattice.rc2.campaign_result.v2');
+  assert.equal(result.schema, 'lattice.rc2.campaign_result.v3');
   assert.equal(result.artifact_version, ARTIFACT_VERSION);
   assert.match(result.base_sha, /^[0-9a-f]{40}$/);
   assert.equal(result.transform.accepted.status, 'accepted');
@@ -336,7 +336,7 @@ test('RC2 campaignはaccepted patchだけを変数に6 fresh worktree runとfixe
     })),
   );
   assert.equal(result.identity.before_digest, result.identity.after_digest);
-  assert.equal(result.identity.schema, 'lattice.rc2.execution_identity.v2');
+  assert.equal(result.identity.schema, 'lattice.rc2.execution_identity.v3');
   assert.equal(result.identity.codegraph_identity.schema, 'lattice.rc2.codegraph_identity.v2');
   assert.equal(
     result.identity.codegraph_identity.project_config_ref,
@@ -397,16 +397,16 @@ test('同じv2 coreはprimary、partial、capacity、unknown、RC1 transferを�
   assertCompiled(transfer.treatment.negative, { conflicts: 1, pairs: 1, waves: 2 });
 
   assert.equal(result.new_plan_version.schema, 'lattice.rc2.plan_version.v1');
-  assert.equal(result.new_plan_version.version, 'rc2-delivery-policy-v3');
-  assert.equal(result.new_plan_version.predecessor_version, 'rc2-delivery-policy-v2');
+  assert.equal(result.new_plan_version.version, 'rc2-delivery-policy-v4');
+  assert.equal(result.new_plan_version.predecessor_version, 'rc2-delivery-policy-v3');
   assert.equal(result.new_plan_version.plan.minimum_feasible_waves, 1);
   assert.deepEqual(
     [...result.new_plan_version.affected_todos].sort(),
     ['email-policy', 'push-policy', 'sms-policy'],
   );
   assert.equal(result.plan_diff.schema, 'lattice.rc2.plan_diff.v1');
-  assert.equal(result.plan_diff.old_plan.version, 'rc2-delivery-policy-v2');
-  assert.equal(result.plan_diff.new_plan.version, 'rc2-delivery-policy-v3');
+  assert.equal(result.plan_diff.old_plan.version, 'rc2-delivery-policy-v3');
+  assert.equal(result.plan_diff.new_plan.version, 'rc2-delivery-policy-v4');
   assert.deepEqual(
     result.plan_diff.invalidated_contexts.map(({ kind }) => kind),
     ['old_plan', 'agent_context', 'partial_patch', 'interface_assumption', 'boundary_evidence'],
@@ -417,18 +417,22 @@ test('同じv2 coreはprimary、partial、capacity、unknown、RC1 transferを�
   assert.ok(result.plan_diff.causal_predecessors.some(({ kind }) => (
     kind === 'rc1_v6_phase_archive'
   )));
-  assert.equal(result.plan_diff.causal_predecessors.length, 31);
+  assert.equal(result.plan_diff.causal_predecessors.length, 35);
   for (const ref of [
     'identity/codegraph-config.json',
     'predecessors/adr-0040.md',
     'predecessors/rc2-v1-artifact-manifest.json',
     'predecessors/rc2-v1-new-plan-version.json',
+    'predecessors/adr-0041.md',
+    'predecessors/rc2-semantic-reseal-characterization.md',
+    'predecessors/rc2-v2-artifact-manifest.json',
+    'predecessors/rc2-v2-new-plan-version.json',
   ]) {
     assert.ok(result.plan_diff.causal_predecessors.some((entry) => entry.ref === ref));
   }
   assert.equal(
     result.plan_diff.invalidated_contexts.find(({ kind }) => kind === 'boundary_evidence').ref,
-    'rc2-delivery-policy-v2-boundary-evidence',
+    'rc2-delivery-policy-v3-boundary-evidence',
   );
   assert.equal(result.hypothesis_evaluation.supported, true);
   assert.deepEqual(result.hypothesis_evaluation.failed_conditions, []);
@@ -485,7 +489,7 @@ test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的
     manifest: fixture.manifest,
     payloads: fixture.payloads,
   });
-  assert.equal(fixture.manifest.schema, 'lattice.rc2.artifact_manifest.v2');
+  assert.equal(fixture.manifest.schema, 'lattice.rc2.artifact_manifest.v3');
   assert.equal(pure.schema, 'lattice.rc2.artifact_set_verification.v1');
   assert.equal(pure.valid, true);
   assert.deepEqual(pure.failed_conditions, []);
@@ -496,12 +500,14 @@ test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的
     artifactVersion: ARTIFACT_VERSION,
   });
   assert.equal(disk.valid, true);
-  const predecessorDisk = await fixture.campaign.verifyRc2CampaignArtifactsOnDisk({
-    repoRoot: fixture.repoRoot,
-    artifactVersion: PREDECESSOR_ARTIFACT_VERSION,
-  });
-  assert.equal(predecessorDisk.valid, true);
-  assert.equal(predecessorDisk.checks.length, 14);
+  for (const artifactVersion of PREDECESSOR_ARTIFACT_VERSIONS) {
+    const predecessorDisk = await fixture.campaign.verifyRc2CampaignArtifactsOnDisk({
+      repoRoot: fixture.repoRoot,
+      artifactVersion,
+    });
+    assert.equal(predecessorDisk.valid, true);
+    assert.equal(predecessorDisk.checks.length, artifactVersion === 'v1' ? 14 : 15);
+  }
   await assert.rejects(
     () => fixture.campaign.writeRc2CampaignArtifacts({
       repoRoot: fixture.repoRoot,
@@ -556,6 +562,8 @@ test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的
   for (const relativePath of [
     'predecessors/rc2-v1-artifact-manifest.json',
     'predecessors/rc2-v1-new-plan-version.json',
+    'predecessors/rc2-v2-artifact-manifest.json',
+    'predecessors/rc2-v2-new-plan-version.json',
   ]) {
     const v1PredecessorCorruption = copyArtifactSet(fixture);
     mutateJson(v1PredecessorCorruption, relativePath, (value) => {

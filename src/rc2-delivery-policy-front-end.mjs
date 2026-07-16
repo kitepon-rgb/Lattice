@@ -14,9 +14,13 @@ const INPUT_KEYS = [
   'sourceSnapshot',
   'codegraphEvidence',
 ];
-const EXPECTED_CANDIDATE_DIGEST = '30ee67852f7ab5fb0d9bf82f2a4c55b6569a76507b0df5b329290c84d29b49f5';
 const EXPECTED_CANDIDATE_ID = 'shard-delivery-policy-registry-by-channel';
-const EXPECTED_ORACLE_DIGEST = 'c4012dfc00cc5b0194bd1a87be4a4e0b20d45e784d49a987768eea1b9932fafe';
+const EXPECTED_ORACLE_DIGEST_BY_CANDIDATE_DIGEST = Object.freeze({
+  '30ee67852f7ab5fb0d9bf82f2a4c55b6569a76507b0df5b329290c84d29b49f5':
+    'c4012dfc00cc5b0194bd1a87be4a4e0b20d45e784d49a987768eea1b9932fafe',
+  '4cc5d7bb428a8899353d18524c25105742fa90f89ee55d36064c4be3c52e2907':
+    'c68a7ff9a7c9c4a181ceda6396d5fcbf27084de18680018d244a27998041652c',
+});
 const ORACLE_RUNNER = 'runRc2DeliveryPolicyOracle';
 const QUERY_OPERATIONS = new Set([
   'status',
@@ -238,7 +242,8 @@ function validateCandidateSpec(candidateSpec, queryById) {
     fail('candidate spec identityまたはshapeが不正');
   }
   const candidateDigest = digestArtifact(candidateSpec);
-  if (candidateDigest !== EXPECTED_CANDIDATE_DIGEST) {
+  const expectedOracleDigest = EXPECTED_ORACLE_DIGEST_BY_CANDIDATE_DIGEST[candidateDigest];
+  if (expectedOracleDigest === undefined) {
     fail('candidate specがaccepted RC2 witnessと一致しない');
   }
   if (!exactRecord(candidateSpec.compiler_contract, [
@@ -276,7 +281,7 @@ function validateCandidateSpec(candidateSpec, queryById) {
     'impact_id',
   ])
     || !boundedText(candidateSpec.fixed_oracle.path)
-    || candidateSpec.fixed_oracle.source_digest !== EXPECTED_ORACLE_DIGEST) {
+    || candidateSpec.fixed_oracle.source_digest !== expectedOracleDigest) {
     fail('candidate fixed oracle identityが不正');
   }
   uniqueBoundedStrings(candidateSpec.fixed_oracle.case_ids, 'fixed_oracle.case_ids');

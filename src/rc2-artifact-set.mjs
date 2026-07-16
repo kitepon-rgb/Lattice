@@ -7,6 +7,7 @@ import {
 } from './artifact-contracts.mjs';
 import { compileBoundaryCondition } from './boundary-compiler.mjs';
 import { compileDeliveryPolicyBoundaryBundleV2 } from './rc2-delivery-policy-front-end.mjs';
+import { expectedRc2DeliveryPolicyOracleReceipt } from './rc2-delivery-policy-oracle.mjs';
 import { compileRc1TransferBundleV2 } from './rc2-rc1-transfer-front-end.mjs';
 import {
   validateRc1EvidenceBundle,
@@ -17,6 +18,10 @@ import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
 const SHA256 = /^[0-9a-f]{64}$/;
 const GIT_SHA1 = /^[0-9a-f]{40}$/;
 const RAW_EVIDENCE_CHUNK_BYTES = 12_000;
+const RC2_ORACLE_PATH = 'src/rc2-delivery-policy-oracle.mjs';
+const RC2_ORACLE_IDENTITY_REF = 'identity/rc2-delivery-policy-oracle.mjs';
+const RC2_TRANSFORM_PATH = 'src/rc2-delivery-policy-transform.mjs';
+const RC2_TRANSFORM_IDENTITY_REF = 'identity/rc2-delivery-policy-transform.mjs';
 
 const PRIMARY_INPUT_PATHS = Object.freeze({
   planInput: 'inputs/primary/plan-input.json',
@@ -63,6 +68,8 @@ const V2_IDENTITY_PATHS = Object.freeze([
   CODEGRAPH_CONFIG_PATH,
 ]);
 
+const V3_IDENTITY_PATHS = V2_IDENTITY_PATHS;
+
 const V1_PREDECESSOR_PATHS = Object.freeze([
   'predecessors/adr-0031.md',
   'predecessors/adr-0032.md',
@@ -80,6 +87,14 @@ const V2_PREDECESSOR_PATHS = Object.freeze([
   'predecessors/adr-0040.md',
   'predecessors/rc2-v1-artifact-manifest.json',
   'predecessors/rc2-v1-new-plan-version.json',
+]);
+
+const V3_PREDECESSOR_PATHS = Object.freeze([
+  ...V2_PREDECESSOR_PATHS,
+  'predecessors/adr-0041.md',
+  'predecessors/rc2-semantic-reseal-characterization.md',
+  'predecessors/rc2-v2-artifact-manifest.json',
+  'predecessors/rc2-v2-new-plan-version.json',
 ]);
 
 const BYTE_PRESERVING_JSON_PATHS = new Set([
@@ -145,11 +160,22 @@ const RC2_V1_ARTIFACT_PATHS = Object.freeze([
   ...SUMMARY_PATHS,
 ].sort());
 
-export const RC2_ARTIFACT_PATHS = Object.freeze([
+const RC2_V2_ARTIFACT_PATHS = Object.freeze([
   ...Object.values(PRIMARY_INPUT_PATHS),
   ...Object.values(RC1_INPUT_PATHS),
   ...V2_IDENTITY_PATHS,
   ...V2_PREDECESSOR_PATHS,
+  ...TRANSFORM_PATHS,
+  ...RUN_IDS.map((runId) => `evidence/${runId}.json`),
+  ...COMPILED_PATHS,
+  ...SUMMARY_PATHS,
+].sort());
+
+export const RC2_ARTIFACT_PATHS = Object.freeze([
+  ...Object.values(PRIMARY_INPUT_PATHS),
+  ...Object.values(RC1_INPUT_PATHS),
+  ...V3_IDENTITY_PATHS,
+  ...V3_PREDECESSOR_PATHS,
   ...TRANSFORM_PATHS,
   ...RUN_IDS.map((runId) => `evidence/${runId}.json`),
   ...COMPILED_PATHS,
@@ -239,9 +265,17 @@ function artifactContract(manifest) {
   if (manifest?.schema === 'lattice.rc2.artifact_manifest.v2') {
     return {
       artifactVersion: 'v2',
-      artifactPaths: RC2_ARTIFACT_PATHS,
+      artifactPaths: RC2_V2_ARTIFACT_PATHS,
       identityPaths: V2_IDENTITY_PATHS,
       predecessorPaths: V2_PREDECESSOR_PATHS,
+    };
+  }
+  if (manifest?.schema === 'lattice.rc2.artifact_manifest.v3') {
+    return {
+      artifactVersion: 'v3',
+      artifactPaths: RC2_ARTIFACT_PATHS,
+      identityPaths: V3_IDENTITY_PATHS,
+      predecessorPaths: V3_PREDECESSOR_PATHS,
     };
   }
   return null;
@@ -301,14 +335,12 @@ function stripDigest(value, key) {
 
 function verifyIdentity(context) {
   const identity = context.json.get('identity.json');
-  const v2 = context.artifactVersion === 'v2';
-  const expectedIdentitySchema = v2
-    ? 'lattice.rc2.execution_identity.v2'
-    : 'lattice.rc2.execution_identity.v1';
-  const expectedCodegraphSchema = v2
+  const projectConfigBound = context.artifactVersion !== 'v1';
+  const expectedIdentitySchema = `lattice.rc2.execution_identity.${context.artifactVersion}`;
+  const expectedCodegraphSchema = projectConfigBound
     ? 'lattice.rc2.codegraph_identity.v2'
     : 'lattice.rc2.codegraph_identity.v1';
-  const codegraphKeys = v2
+  const codegraphKeys = projectConfigBound
     ? [
       'schema',
       'version',
@@ -334,7 +366,7 @@ function verifyIdentity(context) {
     || !SHA256.test(identity.codegraph_identity.executable_digest)
     || identity.codegraph_identity.executable_digest
       !== sha256(context.payloads.get('identity/codegraph-executable'))
-    || (v2 && (
+    || (projectConfigBound && (
       identity.codegraph_identity.project_config_ref !== CODEGRAPH_CONFIG_PATH
       || !SHA256.test(identity.codegraph_identity.project_config_digest)
       || identity.codegraph_identity.project_config_digest
@@ -368,13 +400,271 @@ function verifyIdentity(context) {
 }
 
 function verifyCodegraphConfig(context) {
-  if (context.artifactVersion !== 'v2') return false;
+  if (context.artifactVersion === 'v1') return false;
   const bytes = context.payloads.get(CODEGRAPH_CONFIG_PATH);
   const identity = context.json.get('identity.json');
   return Buffer.isBuffer(bytes)
     && bytes.equals(CODEGRAPH_CONFIG_BYTES)
     && identity?.codegraph_identity?.project_config_ref === CODEGRAPH_CONFIG_PATH
     && identity.codegraph_identity.project_config_digest === sha256(bytes);
+}
+
+function verifySurfaceSnapshot(snapshot, expectedPaths, expectedPresentPaths) {
+  if (!exactRecord(snapshot, ['schema', 'files', 'digest'])
+    || snapshot.schema !== 'lattice.rc2.delivery_policy_surface_snapshot.v1'
+    || !Array.isArray(snapshot.files)
+    || !isDeepStrictEqual(snapshot.files.map(({ path: relativePath }) => relativePath), expectedPaths)
+    || snapshot.files.some((file) => (
+      !exactRecord(file, ['path', 'state', 'content_digest'])
+      || (expectedPresentPaths.has(file.path)
+        ? file.state !== 'present' || !SHA256.test(file.content_digest)
+        : file.state !== 'absent' || file.content_digest !== null)
+    ))) {
+    return false;
+  }
+  return snapshot.digest === digestArtifact({ schema: snapshot.schema, files: snapshot.files });
+}
+
+function expectedMutationContract(candidate) {
+  if (!plainRecord(candidate)
+    || candidate.schema !== 'lattice.rc2.boundary_candidate_spec.v1'
+    || typeof candidate.candidate_id !== 'string'
+    || !plainRecord(candidate.fixed_oracle)
+    || candidate.fixed_oracle.path !== RC2_ORACLE_PATH
+    || !SHA256.test(candidate.fixed_oracle.source_digest)
+    || !Array.isArray(candidate.fixed_oracle.case_ids)
+    || !Array.isArray(candidate.todos)
+    || candidate.todos.length !== 3
+    || !Array.isArray(candidate.stable_surfaces)) {
+    return null;
+  }
+  const compositionSurfaces = candidate.stable_surfaces.filter(({ role }) => (
+    role === 'composition-test'
+  ));
+  if (compositionSurfaces.length !== 1) return null;
+  const composition = compositionSurfaces[0];
+  if (typeof composition.target !== 'string' || typeof composition.path !== 'string') return null;
+
+  const contracts = [];
+  const rows = [];
+  const surfacePaths = new Set([candidate.fixed_oracle.path]);
+  const controlPaths = new Set([candidate.fixed_oracle.path]);
+  for (const todo of candidate.todos) {
+    if (!plainRecord(todo)
+      || typeof todo.todo_id !== 'string'
+      || !Array.isArray(todo.case_ids)
+      || todo.case_ids.length !== 2
+      || !plainRecord(todo.current)
+      || !plainRecord(todo.proposed)
+      || !plainRecord(todo.current.production)
+      || !plainRecord(todo.proposed.production)
+      || !Array.isArray(todo.current.tests)
+      || !Array.isArray(todo.proposed.tests)
+      || todo.proposed.tests.length !== 1) {
+      return null;
+    }
+    const production = todo.proposed.production;
+    const test = todo.proposed.tests[0];
+    if (typeof production.symbol !== 'string'
+      || typeof production.path !== 'string'
+      || typeof test.symbol !== 'string'
+      || typeof test.path !== 'string'
+      || todo.case_ids.some((caseId) => typeof caseId !== 'string')) {
+      return null;
+    }
+    contracts.push({ testId: test.symbol, path: test.path });
+    rows.push(...todo.case_ids.map((caseId) => ({
+      caseId,
+      todoId: todo.todo_id,
+      resolver: production.symbol,
+      productionPath: production.path,
+      ownerTestId: test.symbol,
+    })));
+    for (const mode of [todo.current, todo.proposed]) {
+      if (typeof mode.production?.path !== 'string'
+        || mode.tests.some(({ path: testPath }) => typeof testPath !== 'string')) {
+        return null;
+      }
+      surfacePaths.add(mode.production.path);
+      mode.tests.forEach(({ path: testPath }) => surfacePaths.add(testPath));
+    }
+    controlPaths.add(todo.current.production.path);
+    todo.current.tests.forEach(({ path: testPath }) => controlPaths.add(testPath));
+  }
+  contracts.push({ testId: composition.target, path: composition.path });
+  if (new Set(contracts.map(({ testId }) => testId)).size !== contracts.length
+    || new Set(contracts.map(({ path: testPath }) => testPath)).size !== contracts.length
+    || !isDeepStrictEqual(rows.map(({ caseId }) => caseId), candidate.fixed_oracle.case_ids)
+    || new Set(candidate.fixed_oracle.case_ids).size !== candidate.fixed_oracle.case_ids.length) {
+    return null;
+  }
+  return {
+    contracts,
+    rows,
+    surfacePaths: [...surfacePaths].sort(),
+    controlPaths,
+  };
+}
+
+function verifyMutationEvidence(mutation, expected, outputDigest, candidateDigest, caseSetDigest) {
+  if (!exactRecord(mutation, [
+    'schema',
+    'candidate_digest',
+    'case_set_digest',
+    'rows',
+    'matrix_digest',
+    'evidence_digest',
+  ])
+    || mutation.schema !== 'lattice.rc2.delivery_policy_mutation_evidence.v1'
+    || mutation.candidate_digest !== candidateDigest
+    || mutation.case_set_digest !== caseSetDigest
+    || !Array.isArray(mutation.rows)
+    || mutation.rows.length !== expected.rows.length) {
+    return false;
+  }
+  for (let rowIndex = 0; rowIndex < expected.rows.length; rowIndex += 1) {
+    const row = mutation.rows[rowIndex];
+    const expectedRow = expected.rows[rowIndex];
+    if (!exactRecord(row, [
+      'case_id',
+      'owner_todo_id',
+      'resolver_symbol',
+      'mutated_path',
+      'oracle_mismatch_id',
+      'cells',
+      'restore_digest',
+    ])
+      || row.case_id !== expectedRow.caseId
+      || row.owner_todo_id !== expectedRow.todoId
+      || row.resolver_symbol !== expectedRow.resolver
+      || row.mutated_path !== expectedRow.productionPath
+      || row.oracle_mismatch_id !== expectedRow.caseId
+      || row.restore_digest !== outputDigest
+      || !Array.isArray(row.cells)
+      || row.cells.length !== expected.contracts.length) {
+      return false;
+    }
+    for (let cellIndex = 0; cellIndex < expected.contracts.length; cellIndex += 1) {
+      const cell = row.cells[cellIndex];
+      const contract = expected.contracts[cellIndex];
+      const owner = contract.testId === expectedRow.ownerTestId;
+      if (!exactRecord(cell, [
+        'test_id', 'path', 'outcome', 'exit_code', 'stdout_digest', 'stderr_digest',
+      ])
+        || cell.test_id !== contract.testId
+        || cell.path !== contract.path
+        || !Number.isSafeInteger(cell.exit_code)
+        || cell.exit_code < 0
+        || !SHA256.test(cell.stdout_digest)
+        || !SHA256.test(cell.stderr_digest)
+        || (owner
+          ? cell.outcome !== 'failed' || cell.exit_code === 0
+          : cell.outcome !== 'passed' || cell.exit_code !== 0)) {
+        return false;
+      }
+    }
+  }
+  const mutationBase = stripDigest(mutation, 'evidence_digest');
+  return mutation.matrix_digest === digestArtifact({ rows: mutation.rows })
+    && mutationBase !== null
+    && mutation.evidence_digest === digestArtifact(mutationBase);
+}
+
+function verifyTransformSemantics(context, accepted, behavior, mutation) {
+  try {
+    const candidate = context.json.get(PRIMARY_INPUT_PATHS.candidateSpec);
+    const expected = expectedMutationContract(candidate);
+    const oracleReceipt = expectedRc2DeliveryPolicyOracleReceipt();
+    const candidateDigest = digestArtifact(candidate);
+    const oracleIdentityBytes = context.payloads.get(RC2_ORACLE_IDENTITY_REF);
+    const transformIdentityBytes = context.payloads.get(RC2_TRANSFORM_IDENTITY_REF);
+    if (expected === null
+      || !Buffer.isBuffer(oracleIdentityBytes)
+      || !Buffer.isBuffer(transformIdentityBytes)
+      || !exactRecord(behavior, [
+        'schema',
+        'candidate_digest',
+        'adapter_source_digest',
+        'control_snapshot',
+        'output_snapshot',
+        'fixed_oracle',
+        'pre_oracle',
+        'post_oracle',
+        'case_set_digest',
+        'equivalent',
+        'evidence_digest',
+      ])
+      || behavior.schema !== 'lattice.rc2.delivery_policy_behavior_evidence.v1'
+      || !exactRecord(behavior.fixed_oracle, ['path', 'source_base64', 'source_digest'])
+      || behavior.fixed_oracle.path !== RC2_ORACLE_PATH
+      || typeof behavior.fixed_oracle.source_base64 !== 'string') {
+      return false;
+    }
+    const oracleBytes = Buffer.from(behavior.fixed_oracle.source_base64, 'base64');
+    if (oracleBytes.toString('base64') !== behavior.fixed_oracle.source_base64
+      || !oracleBytes.equals(oracleIdentityBytes)
+      || sha256(oracleBytes) !== behavior.fixed_oracle.source_digest
+      || behavior.fixed_oracle.source_digest !== candidate.fixed_oracle.source_digest
+      || behavior.fixed_oracle.source_digest !== accepted?.source?.fixed_oracle?.source_digest
+      || accepted.source.fixed_oracle.path !== RC2_ORACLE_PATH
+      || behavior.candidate_digest !== candidateDigest
+      || mutation?.candidate_digest !== candidateDigest
+      || accepted?.candidate?.candidate_id !== candidate.candidate_id
+      || accepted.candidate.digest !== candidateDigest
+      || behavior.adapter_source_digest !== sha256(transformIdentityBytes)
+      || accepted?.source?.adapter?.path !== RC2_TRANSFORM_PATH
+      || accepted.source.adapter.digest !== behavior.adapter_source_digest
+      || !isDeepStrictEqual(behavior.pre_oracle, oracleReceipt)
+      || !isDeepStrictEqual(behavior.post_oracle, oracleReceipt)) {
+      return false;
+    }
+    const expectedCaseSetDigest = digestArtifact({
+      case_results: oracleReceipt.case_results.map(({ id, output_digest: outputDigest }) => ({
+        id,
+        output_digest: outputDigest,
+      })),
+    });
+    const outputPaths = new Set(expected.surfacePaths);
+    if (behavior.case_set_digest !== expectedCaseSetDigest
+      || mutation.case_set_digest !== expectedCaseSetDigest
+      || accepted.behavior?.case_set_digest !== expectedCaseSetDigest
+      || accepted.behavior?.pre_oracle_digest !== digestArtifact(oracleReceipt)
+      || accepted.behavior?.post_oracle_digest !== digestArtifact(oracleReceipt)
+      || accepted.behavior?.equivalent !== true
+      || behavior.equivalent !== true
+      || !verifySurfaceSnapshot(behavior.control_snapshot, expected.surfacePaths, expected.controlPaths)
+      || !verifySurfaceSnapshot(behavior.output_snapshot, expected.surfacePaths, outputPaths)
+      || !isDeepStrictEqual(accepted.output?.files, behavior.output_snapshot.files)
+      || accepted.output.snapshot_digest !== behavior.output_snapshot.digest
+      || accepted.source.control_snapshot_digest !== behavior.control_snapshot.digest
+      || behavior.control_snapshot.files.find(({ path: relativePath }) => (
+        relativePath === RC2_ORACLE_PATH
+      ))?.content_digest !== behavior.fixed_oracle.source_digest
+      || behavior.output_snapshot.files.find(({ path: relativePath }) => (
+        relativePath === RC2_ORACLE_PATH
+      ))?.content_digest !== behavior.fixed_oracle.source_digest) {
+      return false;
+    }
+    const behaviorBase = stripDigest(behavior, 'evidence_digest');
+    if (behaviorBase === null
+      || behavior.evidence_digest !== digestArtifact(behaviorBase)
+      || accepted.behavior.evidence_digest !== behavior.evidence_digest
+      || !verifyMutationEvidence(
+        mutation,
+        expected,
+        behavior.output_snapshot.digest,
+        candidateDigest,
+        expectedCaseSetDigest,
+      )) {
+      return false;
+    }
+    return accepted.mutation?.evidence_digest === mutation.evidence_digest
+      && accepted.mutation.matrix_digest === mutation.matrix_digest
+      && accepted.mutation.row_count === expected.rows.length
+      && accepted.mutation.cell_count === expected.rows.length * expected.contracts.length;
+  } catch {
+    return false;
+  }
 }
 
 function verifyTransform(context) {
@@ -424,7 +714,8 @@ function verifyTransform(context) {
     && scopeReceipt?.status === 'rejected'
     && scopeReceipt.transform_artifact_digest === digestArtifact(scope)
     && scopeReceiptBase !== null
-    && scopeReceipt.receipt_digest === digestArtifact(scopeReceiptBase);
+    && scopeReceipt.receipt_digest === digestArtifact(scopeReceiptBase)
+    && verifyTransformSemantics(context, accepted, behavior, mutation);
 }
 
 function decodeRawEvidence(evidence) {
@@ -899,14 +1190,14 @@ function expectedPredecessorKinds(context) {
   expected.set('identity.json', 'execution_identity');
   expected.set('identity/schedulability-compiler-v2.mjs', 'compiler_identity');
   expected.set('identity/schedulability-verifier-v2.mjs', 'verifier_identity');
-  if (context.artifactVersion === 'v2') {
+  if (context.artifactVersion !== 'v1') {
     expected.set(CODEGRAPH_CONFIG_PATH, 'codegraph_project_config');
   }
   return expected;
 }
 
 function verifyV1PredecessorPair(context) {
-  if (context.artifactVersion !== 'v2') return true;
+  if (context.artifactVersion === 'v1') return true;
   const manifest = context.json.get('predecessors/rc2-v1-artifact-manifest.json');
   const plan = context.json.get('predecessors/rc2-v1-new-plan-version.json');
   if (!exactRecord(manifest, ['schema', 'base_sha', 'result_digest', 'files'])
@@ -925,6 +1216,35 @@ function verifyV1PredecessorPair(context) {
     return false;
   }
   const planBytes = context.payloads.get('predecessors/rc2-v1-new-plan-version.json');
+  const entry = manifest.files.find(({ path: relativePath }) => (
+    relativePath === 'new-plan-version.json'
+  ));
+  return exactRecord(entry, ['path', 'media_type', 'bytes', 'sha256'])
+    && entry.media_type === 'application/json'
+    && entry.bytes === planBytes.byteLength
+    && entry.sha256 === sha256(planBytes);
+}
+
+function verifyV2PredecessorPair(context) {
+  if (context.artifactVersion !== 'v3') return true;
+  const manifest = context.json.get('predecessors/rc2-v2-artifact-manifest.json');
+  const plan = context.json.get('predecessors/rc2-v2-new-plan-version.json');
+  if (!exactRecord(manifest, ['schema', 'base_sha', 'result_digest', 'files'])
+    || manifest.schema !== 'lattice.rc2.artifact_manifest.v2'
+    || !GIT_SHA1.test(manifest.base_sha)
+    || !SHA256.test(manifest.result_digest)
+    || !Array.isArray(manifest.files)
+    || !sameArtifact(
+      manifest.files.map(({ path: relativePath }) => relativePath).sort(),
+      RC2_V2_ARTIFACT_PATHS,
+    )
+    || new Set(manifest.files.map(({ path: relativePath }) => relativePath)).size
+      !== RC2_V2_ARTIFACT_PATHS.length
+    || plan?.schema !== 'lattice.rc2.plan_version.v1'
+    || plan.version !== 'rc2-delivery-policy-v3') {
+    return false;
+  }
+  const planBytes = context.payloads.get('predecessors/rc2-v2-new-plan-version.json');
   const entry = manifest.files.find(({ path: relativePath }) => (
     relativePath === 'new-plan-version.json'
   ));
@@ -956,7 +1276,8 @@ function verifyPredecessors(context) {
   }
   return refs.size === expected.size
     && [...expected.keys()].every((relativePath) => refs.has(relativePath))
-    && verifyV1PredecessorPair(context);
+    && verifyV1PredecessorPair(context)
+    && verifyV2PredecessorPair(context);
 }
 
 function verifyVersionBarrier(context, recomputed) {
@@ -972,15 +1293,22 @@ function verifyVersionBarrier(context, recomputed) {
     'interface_assumption',
     'boundary_evidence',
   ];
-  const v2 = context.artifactVersion === 'v2';
-  const predecessorPlan = v2
-    ? context.json.get('predecessors/rc2-v1-new-plan-version.json')
-    : null;
-  const predecessorVersion = v2
+  const predecessorPath = {
+    v1: null,
+    v2: 'predecessors/rc2-v1-new-plan-version.json',
+    v3: 'predecessors/rc2-v2-new-plan-version.json',
+  }[context.artifactVersion];
+  const predecessorPlan = predecessorPath === null ? null : context.json.get(predecessorPath);
+  const versionedPredecessor = predecessorPlan !== null;
+  const predecessorVersion = versionedPredecessor
     ? predecessorPlan?.version
     : primaryInputs.planInput.plan_version;
-  const expectedVersion = v2 ? 'rc2-delivery-policy-v3' : 'rc2-delivery-policy-v2';
-  const expectedOldDigest = v2
+  const expectedVersion = {
+    v1: 'rc2-delivery-policy-v2',
+    v2: 'rc2-delivery-policy-v3',
+    v3: 'rc2-delivery-policy-v4',
+  }[context.artifactVersion];
+  const expectedOldDigest = versionedPredecessor
     ? digestArtifact(predecessorPlan)
     : digestArtifact(control.plan);
   return newPlan?.schema === 'lattice.rc2.plan_version.v1'
@@ -1003,13 +1331,13 @@ function verifyVersionBarrier(context, recomputed) {
     && planDiff.invalidated_contexts?.map(({ kind }) => kind)
       .every((kind, index) => kind === expectedInvalidations[index])
     && planDiff.invalidated_contexts.length === expectedInvalidations.length
-    && (!v2 || (
+    && (!versionedPredecessor || (
       predecessorPlan?.plan_digest === digestArtifact(predecessorPlan.plan)
       && sameArtifact(predecessorPlan.plan, treatment.plan)
       && planDiff.invalidated_contexts.find(({ kind }) => kind === 'interface_assumption')?.ref
-        === 'rc2-delivery-policy-v2-interface-assumption'
+        === `${predecessorVersion}-interface-assumption`
       && planDiff.invalidated_contexts.find(({ kind }) => kind === 'boundary_evidence')?.ref
-        === 'rc2-delivery-policy-v2-boundary-evidence'
+        === `${predecessorVersion}-boundary-evidence`
     ));
 }
 
@@ -1086,7 +1414,7 @@ export function verifyRc2CampaignArtifactSet(options = {}) {
   }
 
   check('identity_binding', verifyIdentity(context));
-  if (context.artifactVersion === 'v2') {
+  if (context.artifactVersion !== 'v1') {
     check('codegraph_config_binding', verifyCodegraphConfig(context));
   }
   check('transform_binding', verifyTransform(context));

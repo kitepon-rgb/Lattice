@@ -31,7 +31,7 @@ async function readInput(name) { return JSON.parse(await readFile(new URL(`../re
 function snapshot(treatment) {
   return { schema_version: 'lattice.rc2.source_snapshot.v1', files: PATHS.map((path) => {
     const present = treatment || path === 'research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs' || path === 'test/rc2-delivery-policy-fixture.test.mjs' || path === ORACLE;
-    return { path, state: present ? 'file' : 'absent', content_digest: present ? (path === ORACLE ? 'c4012dfc00cc5b0194bd1a87be4a4e0b20d45e784d49a987768eea1b9932fafe' : sha256(`synthetic:${path}`)) : null };
+    return { path, state: present ? 'file' : 'absent', content_digest: present ? (path === ORACLE ? 'c68a7ff9a7c9c4a181ceda6396d5fcbf27084de18680018d244a27998041652c' : sha256(`synthetic:${path}`)) : null };
   }) };
 }
 

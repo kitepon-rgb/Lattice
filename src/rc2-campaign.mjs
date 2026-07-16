@@ -41,10 +41,11 @@ import { compileRc1TransferBundleV2 } from './rc2-rc1-transfer-front-end.mjs';
 import { compileSchedulabilityGraphV2 } from './schedulability-compiler-v2.mjs';
 import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
 
-const ARTIFACT_VERSION = 'v2';
+const ARTIFACT_VERSION = 'v3';
 const ARTIFACT_ROOTS = Object.freeze({
   v1: 'research/campaigns/rc2/artifacts/v1',
   v2: 'research/campaigns/rc2/artifacts/v2',
+  v3: 'research/campaigns/rc2/artifacts/v3',
 });
 const CODEGRAPH_CONFIG_REPO_PATH = 'codegraph.json';
 const CODEGRAPH_CONFIG_ARTIFACT_PATH = 'identity/codegraph-config.json';
@@ -58,7 +59,16 @@ const V2_ONLY_ARTIFACT_PATHS = Object.freeze([
   'predecessors/rc2-v1-artifact-manifest.json',
   'predecessors/rc2-v1-new-plan-version.json',
 ]);
-const RC2_V1_ARTIFACT_PATHS = Object.freeze(RC2_ARTIFACT_PATHS.filter((relativePath) => (
+const V3_ONLY_ARTIFACT_PATHS = Object.freeze([
+  'predecessors/adr-0041.md',
+  'predecessors/rc2-semantic-reseal-characterization.md',
+  'predecessors/rc2-v2-artifact-manifest.json',
+  'predecessors/rc2-v2-new-plan-version.json',
+]);
+const RC2_V2_ARTIFACT_PATHS = Object.freeze(RC2_ARTIFACT_PATHS.filter((relativePath) => (
+  !V3_ONLY_ARTIFACT_PATHS.includes(relativePath)
+)));
+const RC2_V1_ARTIFACT_PATHS = Object.freeze(RC2_V2_ARTIFACT_PATHS.filter((relativePath) => (
   !V2_ONLY_ARTIFACT_PATHS.includes(relativePath)
 )));
 const GIT_SHA1 = /^[0-9a-f]{40}$/;
@@ -130,6 +140,10 @@ const PREDECESSOR_FILES = Object.freeze({
   'predecessors/adr-0040.md': 'docs/adr/0040-rc2-post-publication-codegraph-scope-and-artifact-v2.md',
   'predecessors/rc2-v1-artifact-manifest.json': `${ARTIFACT_ROOTS.v1}/artifact-manifest.json`,
   'predecessors/rc2-v1-new-plan-version.json': `${ARTIFACT_ROOTS.v1}/new-plan-version.json`,
+  'predecessors/adr-0041.md': 'docs/adr/0041-rc2-artifact-semantic-oracle-mutation-binding.md',
+  'predecessors/rc2-semantic-reseal-characterization.md': 'docs/evidence/2026-07-16-rc2-artifact-semantic-reseal-characterization.md',
+  'predecessors/rc2-v2-artifact-manifest.json': `${ARTIFACT_ROOTS.v2}/artifact-manifest.json`,
+  'predecessors/rc2-v2-new-plan-version.json': `${ARTIFACT_ROOTS.v2}/new-plan-version.json`,
 });
 
 const RUN_IDS = Object.freeze([
@@ -268,16 +282,16 @@ async function loadPredecessors(repoRoot) {
   return payloads;
 }
 
-function loadV1PlanPredecessor(payloads) {
-  const manifestBytes = payloads.get('predecessors/rc2-v1-artifact-manifest.json');
-  const planBytes = payloads.get('predecessors/rc2-v1-new-plan-version.json');
+function loadV2PlanPredecessor(payloads) {
+  const manifestBytes = payloads.get('predecessors/rc2-v2-artifact-manifest.json');
+  const planBytes = payloads.get('predecessors/rc2-v2-new-plan-version.json');
   let manifest;
   let plan;
   try {
     manifest = JSON.parse(manifestBytes.toString('utf8'));
     plan = JSON.parse(planBytes.toString('utf8'));
   } catch {
-    throw new TypeError('RC2 v1 predecessor JSONをparseできない');
+    throw new TypeError('RC2 v2 predecessor JSONをparseできない');
   }
   const paths = Array.isArray(manifest?.files)
     ? manifest.files.map(({ path: relativePath }) => relativePath).sort()
@@ -287,16 +301,16 @@ function loadV1PlanPredecessor(payloads) {
   ));
   if (!jsonBytes(manifest).equals(manifestBytes)
     || !jsonBytes(plan).equals(planBytes)
-    || manifest.schema !== 'lattice.rc2.artifact_manifest.v1'
-    || !isDeepStrictEqual(paths, [...RC2_V1_ARTIFACT_PATHS])
+    || manifest.schema !== 'lattice.rc2.artifact_manifest.v2'
+    || !isDeepStrictEqual(paths, [...RC2_V2_ARTIFACT_PATHS])
     || !exactRecord(entry, ['path', 'media_type', 'bytes', 'sha256'])
     || entry.media_type !== 'application/json'
     || entry.bytes !== planBytes.byteLength
     || entry.sha256 !== sha256(planBytes)
     || plan.schema !== 'lattice.rc2.plan_version.v1'
-    || plan.version !== 'rc2-delivery-policy-v2'
+    || plan.version !== 'rc2-delivery-policy-v3'
     || plan.plan_digest !== digestArtifact(plan.plan)) {
-    throw new TypeError('RC2 v1 predecessor manifest／plan bindingが不正');
+    throw new TypeError('RC2 v2 predecessor manifest／plan bindingが不正');
   }
   return plan;
 }
@@ -860,7 +874,7 @@ function buildVersionBarrier({ inputs, compiled, predecessors, predecessorPlan }
   const affectedTodos = inputs.primary.planInput.todos.map(({ id }) => id);
   const newPlanVersion = {
     schema: 'lattice.rc2.plan_version.v1',
-    version: 'rc2-delivery-policy-v3',
+    version: 'rc2-delivery-policy-v4',
     predecessor_version: predecessorPlan.version,
     plan: treatment.plan,
     plan_digest: digestArtifact(treatment.plan),
@@ -883,15 +897,15 @@ function buildVersionBarrier({ inputs, compiled, predecessors, predecessorPlan }
     affected_todos: affectedTodos,
     invalidated_contexts: [
       { kind: 'old_plan', ref: predecessorPlan.version,
-        reason: 'the v2 sensor scope and evidence cannot receive v3 bindings by append' },
+        reason: 'the v3 artifact semantics cannot receive v4 bindings by append' },
       { kind: 'agent_context', ref: `${predecessorPlan.version}-agent-context`,
-        reason: 'v2 agent context does not bind the post-publication sensor identity' },
+        reason: 'v3 agent context does not bind the semantic verifier identity' },
       { kind: 'partial_patch', ref: `${predecessorPlan.version}-partial-patch`,
-        reason: 'patches compiled before the corrected sensor identity cannot cross the barrier' },
+        reason: 'patches compiled before semantic artifact binding cannot cross the barrier' },
       { kind: 'interface_assumption', ref: `${predecessorPlan.version}-interface-assumption`,
-        reason: 'v2 interface evidence is not bound to the corrected sensor identity' },
+        reason: 'v3 interface evidence does not bind oracle and mutation semantics' },
       { kind: 'boundary_evidence', ref: `${predecessorPlan.version}-boundary-evidence`,
-        reason: 'only fresh post-publication treatment evidence is valid for plan v3' },
+        reason: 'only fresh semantically verified treatment evidence is valid for plan v4' },
     ],
   };
   return { newPlanVersion, planDiff };
@@ -1143,7 +1157,7 @@ async function runTransforms({ root, baseSha, candidateSpec, costMeasurements })
 export async function runRc2Campaign(options = {}) {
   if (!exactRecord(options, ['repoRoot', 'baseRef', 'artifactVersion'])
     || options.artifactVersion !== ARTIFACT_VERSION) {
-    throw new TypeError('runRc2Campaign options must select exact artifactVersion v2');
+    throw new TypeError('runRc2Campaign options must select exact artifactVersion v3');
   }
   const { root, baseSha } = await resolveRepository(options.repoRoot, options.baseRef);
   const [inputs, predecessors, identityBefore] = await Promise.all([
@@ -1151,7 +1165,7 @@ export async function runRc2Campaign(options = {}) {
     loadPredecessors(root),
     captureExecutionIdentity(root),
   ]);
-  const predecessorPlan = loadV1PlanPredecessor(predecessors);
+  const predecessorPlan = loadV2PlanPredecessor(predecessors);
   const costMeasurements = [];
   const transform = await runTransforms({
     root,
@@ -1246,7 +1260,7 @@ export async function runRc2Campaign(options = {}) {
     throw new TypeError('RC2 execution identity drifted during campaign');
   }
   const identity = {
-    schema: 'lattice.rc2.execution_identity.v2',
+    schema: 'lattice.rc2.execution_identity.v3',
     sources: identityBefore.snapshot.sources,
     codegraph_identity: identityBefore.snapshot.codegraph_identity,
     codegraph_identity_digest: digestArtifact(identityBefore.snapshot.codegraph_identity),
@@ -1297,7 +1311,7 @@ export async function runRc2Campaign(options = {}) {
     cost,
   });
   return {
-    schema: 'lattice.rc2.campaign_result.v2',
+    schema: 'lattice.rc2.campaign_result.v3',
     artifact_version: ARTIFACT_VERSION,
     base_sha: baseSha,
     fixed_inputs: inputs,
@@ -1387,12 +1401,12 @@ export async function writeRc2CampaignArtifacts(options = {}) {
   if (!exactRecord(options, ['repoRoot', 'result'])
     || typeof options.repoRoot !== 'string'
     || options.repoRoot.length === 0
-    || options.result?.schema !== 'lattice.rc2.campaign_result.v2'
+    || options.result?.schema !== 'lattice.rc2.campaign_result.v3'
     || options.result?.artifact_version !== ARTIFACT_VERSION) {
     throw new TypeError('writeRc2CampaignArtifacts options are invalid');
   }
   const root = await realpath(options.repoRoot);
-  const artifactRoot = path.join(root, ARTIFACT_ROOTS.v2);
+  const artifactRoot = path.join(root, ARTIFACT_ROOTS.v3);
   try {
     await lstat(artifactRoot);
     throw new Error('RC2 artifact root already exists; immutable evidence is not overwritten');
@@ -1401,7 +1415,7 @@ export async function writeRc2CampaignArtifacts(options = {}) {
   }
   const files = artifactFiles(options.result);
   const manifest = {
-    schema: 'lattice.rc2.artifact_manifest.v2',
+    schema: 'lattice.rc2.artifact_manifest.v3',
     base_sha: options.result.base_sha,
     result_digest: digestArtifact(options.result.hypothesis_evaluation),
     files: [...files].map(([relativePath, bytes]) => ({
@@ -1420,7 +1434,7 @@ export async function writeRc2CampaignArtifacts(options = {}) {
   }
   const parent = path.dirname(artifactRoot);
   await mkdir(parent, { recursive: true });
-  const temporaryRoot = await mkdtemp(path.join(parent, '.v2-write-'));
+  const temporaryRoot = await mkdtemp(path.join(parent, '.v3-write-'));
   try {
     for (const [relativePath, bytes] of files) {
       await writeDurableFile(path.join(temporaryRoot, relativePath), bytes);
@@ -1441,7 +1455,8 @@ export async function writeRc2CampaignArtifacts(options = {}) {
 
 function artifactPathsForVersion(artifactVersion) {
   if (artifactVersion === 'v1') return RC2_V1_ARTIFACT_PATHS;
-  if (artifactVersion === 'v2') return RC2_ARTIFACT_PATHS;
+  if (artifactVersion === 'v2') return RC2_V2_ARTIFACT_PATHS;
+  if (artifactVersion === 'v3') return RC2_ARTIFACT_PATHS;
   return null;
 }
 

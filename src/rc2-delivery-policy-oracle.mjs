@@ -59,6 +59,19 @@ function expectedDigest(value) {
   return sha256(JSON.stringify(value));
 }
 
+/** runtime oracleとartifact verifierが共有する唯一のexpected receiptを返す。 */
+export function expectedRc2DeliveryPolicyOracleReceipt() {
+  return {
+    schema: 'lattice.rc2.delivery_policy_oracle_receipt.v1',
+    outcome: 'passed',
+    case_results: CASES.map(([id, _input, expected]) => ({
+      id,
+      outcome: 'passed',
+      output_digest: expectedDigest(expected),
+    })),
+  };
+}
+
 async function resolveEntrypoint(repoRoot) {
   if (typeof repoRoot !== 'string' || repoRoot.length === 0) {
     throw new TypeError('repoRoot must be a non-empty path');
@@ -88,6 +101,7 @@ function parseChildReceipt(stdout) {
 export async function runRc2DeliveryPolicyOracle({ repoRoot } = {}) {
   const entrypoint = await resolveEntrypoint(repoRoot);
   const childCases = CASES.map(([id, input]) => ({ id, input }));
+  const expectedReceipt = expectedRc2DeliveryPolicyOracleReceipt();
   let stdout;
   let stderr;
   try {
@@ -104,22 +118,17 @@ export async function runRc2DeliveryPolicyOracle({ repoRoot } = {}) {
   if (stderr.length !== 0) throw new Error('delivery policy oracle child wrote stderr');
 
   const childResults = parseChildReceipt(stdout);
-  const caseResults = childResults.map((result, index) => {
-    const [id, _input, expected] = CASES[index];
+  childResults.forEach((result, index) => {
+    const expected = expectedReceipt.case_results[index];
     if (!exactRecord(result, ['id', 'output_digest'])
-      || result.id !== id
+      || result.id !== expected.id
       || typeof result.output_digest !== 'string'
       || !/^[0-9a-f]{64}$/.test(result.output_digest)) {
       throw new TypeError('delivery policy oracle child case receipt is invalid');
     }
-    if (result.output_digest !== expectedDigest(expected)) {
-      throw new Error(`delivery policy behavior mismatch: ${id}`);
+    if (result.output_digest !== expected.output_digest) {
+      throw new Error(`delivery policy behavior mismatch: ${expected.id}`);
     }
-    return { id, outcome: 'passed', output_digest: result.output_digest };
   });
-  return {
-    schema: 'lattice.rc2.delivery_policy_oracle_receipt.v1',
-    outcome: 'passed',
-    case_results: caseResults,
-  };
+  return expectedReceipt;
 }
