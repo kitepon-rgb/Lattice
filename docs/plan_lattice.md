@@ -214,7 +214,7 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] fixed oracle source digestをcandidateとcontrol／treatment source snapshotへbindし、期待値JSONを重複作成しない。
 - [x] fixture front-endをbundle生成だけに限定し、K3／treatment／partial-state／unknownをtest-firstで固定する。
 - [x] front-end source前にfresh Codegraphでowned path／symbol、caller／callee、impact、affected test、bootstrap unknownを固定する。
-- [ ] `compileDeliveryPolicyBoundaryBundleV2`を実装し、同じnormalized graph coreへbundleだけを渡す。
+- [x] `compileDeliveryPolicyBoundaryBundleV2`を実装し、同じnormalized graph coreへbundleだけを渡す。
 - [x] transform外のblack-box oracleとshared composition characterizationを先にgreenにする。
 - [x] new pathのCodegraph空／absent結果を依存なしへ丸めず、初回index後にexact surfaceを再確認する。
 
