@@ -202,8 +202,8 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] 6 exact behavior、fail-loud input、fresh repoRoot oracleをexpected-red characterizationで固定する。
 - [ ] Lattice内へmonolithic delivery policy registryと3 TODO outcomeを持つfixtureを追加する。
 - [ ] current／proposed production＋test ownership、manual state／effect、query setを一つのcandidate witnessへ固定する。
-- [ ] transform外のblack-box oracleとshared composition characterizationを先にgreenにする。
-- [ ] new pathのCodegraph空／absent結果を依存なしへ丸めず、初回index後にexact surfaceを再確認する。
+- [x] transform外のblack-box oracleとshared composition characterizationを先にgreenにする。
+- [x] new pathのCodegraph空／absent結果を依存なしへ丸めず、初回index後にexact surfaceを再確認する。
 
 ### RC2-F — registry-shard transform adapter
 
