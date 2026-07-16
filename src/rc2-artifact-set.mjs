@@ -36,7 +36,13 @@ const RC1_INPUT_PATHS = Object.freeze({
   oracle: 'inputs/rc1/behavior-oracle-v2.json',
 });
 
-const IDENTITY_PATHS = Object.freeze([
+const CODEGRAPH_CONFIG_PATH = 'identity/codegraph-config.json';
+const CODEGRAPH_CONFIG_BYTES = Buffer.from(
+  '{"exclude":["research/campaigns/**/artifacts/**/identity/"]}\n',
+  'utf8',
+);
+
+const V1_IDENTITY_PATHS = Object.freeze([
   'identity/codegraph-adapter.mjs',
   'identity/codegraph-executable',
   'identity/rc1-black-box-oracle.mjs',
@@ -52,7 +58,12 @@ const IDENTITY_PATHS = Object.freeze([
   'identity/schedulability-verifier-v2.mjs',
 ]);
 
-const PREDECESSOR_PATHS = Object.freeze([
+const V2_IDENTITY_PATHS = Object.freeze([
+  ...V1_IDENTITY_PATHS,
+  CODEGRAPH_CONFIG_PATH,
+]);
+
+const V1_PREDECESSOR_PATHS = Object.freeze([
   'predecessors/adr-0031.md',
   'predecessors/adr-0032.md',
   'predecessors/adr-0037.md',
@@ -64,10 +75,18 @@ const PREDECESSOR_PATHS = Object.freeze([
   'predecessors/rc1-v6-transform-receipt.json',
 ]);
 
-const OPAQUE_PREDECESSOR_JSON_PATHS = new Set([
+const V2_PREDECESSOR_PATHS = Object.freeze([
+  ...V1_PREDECESSOR_PATHS,
+  'predecessors/adr-0040.md',
+  'predecessors/rc2-v1-artifact-manifest.json',
+  'predecessors/rc2-v1-new-plan-version.json',
+]);
+
+const BYTE_PRESERVING_JSON_PATHS = new Set([
   'predecessors/rc1-v6-artifact-manifest.json',
   'predecessors/rc1-v6-transform-artifact.json',
   'predecessors/rc1-v6-transform-receipt.json',
+  CODEGRAPH_CONFIG_PATH,
 ]);
 
 const TRANSFORM_PATHS = Object.freeze([
@@ -115,11 +134,22 @@ const SUMMARY_PATHS = Object.freeze([
   'plan-diff.json',
 ]);
 
+const RC2_V1_ARTIFACT_PATHS = Object.freeze([
+  ...Object.values(PRIMARY_INPUT_PATHS),
+  ...Object.values(RC1_INPUT_PATHS),
+  ...V1_IDENTITY_PATHS,
+  ...V1_PREDECESSOR_PATHS,
+  ...TRANSFORM_PATHS,
+  ...RUN_IDS.map((runId) => `evidence/${runId}.json`),
+  ...COMPILED_PATHS,
+  ...SUMMARY_PATHS,
+].sort());
+
 export const RC2_ARTIFACT_PATHS = Object.freeze([
   ...Object.values(PRIMARY_INPUT_PATHS),
   ...Object.values(RC1_INPUT_PATHS),
-  ...IDENTITY_PATHS,
-  ...PREDECESSOR_PATHS,
+  ...V2_IDENTITY_PATHS,
+  ...V2_PREDECESSOR_PATHS,
   ...TRANSFORM_PATHS,
   ...RUN_IDS.map((runId) => `evidence/${runId}.json`),
   ...COMPILED_PATHS,
@@ -197,21 +227,42 @@ function parseOpaqueJson(bytes) {
   }
 }
 
+function artifactContract(manifest) {
+  if (manifest?.schema === 'lattice.rc2.artifact_manifest.v1') {
+    return {
+      artifactVersion: 'v1',
+      artifactPaths: RC2_V1_ARTIFACT_PATHS,
+      identityPaths: V1_IDENTITY_PATHS,
+      predecessorPaths: V1_PREDECESSOR_PATHS,
+    };
+  }
+  if (manifest?.schema === 'lattice.rc2.artifact_manifest.v2') {
+    return {
+      artifactVersion: 'v2',
+      artifactPaths: RC2_ARTIFACT_PATHS,
+      identityPaths: V2_IDENTITY_PATHS,
+      predecessorPaths: V2_PREDECESSOR_PATHS,
+    };
+  }
+  return null;
+}
+
 function artifactContext(options) {
   if (!exactRecord(options, ['manifest', 'payloads'])) return null;
   const payloads = payloadMap(options.payloads);
   const manifest = options.manifest;
+  const contract = artifactContract(manifest);
   if (!payloads
+    || contract === null
     || !exactRecord(manifest, ['schema', 'base_sha', 'result_digest', 'files'])
-    || manifest.schema !== 'lattice.rc2.artifact_manifest.v1'
     || !GIT_SHA1.test(manifest.base_sha)
     || !SHA256.test(manifest.result_digest)
     || !Array.isArray(manifest.files)) {
     return null;
   }
   const manifestPaths = manifest.files.map(({ path: relativePath }) => relativePath).sort();
-  if (!sameArtifact(manifestPaths, RC2_ARTIFACT_PATHS)
-    || !sameArtifact([...payloads.keys()].sort(), RC2_ARTIFACT_PATHS)) {
+  if (!sameArtifact(manifestPaths, contract.artifactPaths)
+    || !sameArtifact([...payloads.keys()].sort(), contract.artifactPaths)) {
     return null;
   }
   for (const entry of manifest.files) {
@@ -225,14 +276,14 @@ function artifactContext(options) {
     }
   }
   const json = new Map();
-  for (const relativePath of RC2_ARTIFACT_PATHS.filter((entry) => entry.endsWith('.json'))) {
-    const parsed = OPAQUE_PREDECESSOR_JSON_PATHS.has(relativePath)
+  for (const relativePath of contract.artifactPaths.filter((entry) => entry.endsWith('.json'))) {
+    const parsed = BYTE_PRESERVING_JSON_PATHS.has(relativePath)
       ? parseOpaqueJson(payloads.get(relativePath))
       : parseCanonicalJson(payloads.get(relativePath));
     if (parsed === null) return null;
     json.set(relativePath, parsed);
   }
-  return { manifest, payloads, json };
+  return { manifest, payloads, json, ...contract };
 }
 
 function objectFromPaths(context, paths) {
@@ -250,6 +301,23 @@ function stripDigest(value, key) {
 
 function verifyIdentity(context) {
   const identity = context.json.get('identity.json');
+  const v2 = context.artifactVersion === 'v2';
+  const expectedIdentitySchema = v2
+    ? 'lattice.rc2.execution_identity.v2'
+    : 'lattice.rc2.execution_identity.v1';
+  const expectedCodegraphSchema = v2
+    ? 'lattice.rc2.codegraph_identity.v2'
+    : 'lattice.rc2.codegraph_identity.v1';
+  const codegraphKeys = v2
+    ? [
+      'schema',
+      'version',
+      'executable_ref',
+      'executable_digest',
+      'project_config_ref',
+      'project_config_digest',
+    ]
+    : ['schema', 'version', 'executable_ref', 'executable_digest'];
   if (!exactRecord(identity, [
     'schema',
     'sources',
@@ -258,20 +326,24 @@ function verifyIdentity(context) {
     'before_digest',
     'after_digest',
   ])
-    || identity.schema !== 'lattice.rc2.execution_identity.v1'
+    || identity.schema !== expectedIdentitySchema
     || !Array.isArray(identity.sources)
-    || identity.sources.length !== IDENTITY_PATHS.length - 1
-    || !exactRecord(identity.codegraph_identity, [
-      'schema', 'version', 'executable_ref', 'executable_digest',
-    ])
-    || identity.codegraph_identity.schema !== 'lattice.rc2.codegraph_identity.v1'
+    || identity.sources.length !== V1_IDENTITY_PATHS.length - 1
+    || !exactRecord(identity.codegraph_identity, codegraphKeys)
+    || identity.codegraph_identity.schema !== expectedCodegraphSchema
     || !SHA256.test(identity.codegraph_identity.executable_digest)
     || identity.codegraph_identity.executable_digest
       !== sha256(context.payloads.get('identity/codegraph-executable'))
+    || (v2 && (
+      identity.codegraph_identity.project_config_ref !== CODEGRAPH_CONFIG_PATH
+      || !SHA256.test(identity.codegraph_identity.project_config_digest)
+      || identity.codegraph_identity.project_config_digest
+        !== sha256(context.payloads.get(CODEGRAPH_CONFIG_PATH))
+    ))
     || identity.codegraph_identity_digest !== digestArtifact(identity.codegraph_identity)) {
     return false;
   }
-  const expectedSourceRefs = IDENTITY_PATHS
+  const expectedSourceRefs = V1_IDENTITY_PATHS
     .filter((relativePath) => relativePath !== 'identity/codegraph-executable');
   const actualRefs = identity.sources.map(({ artifact_ref: ref }) => ref).sort();
   if (!sameArtifact(actualRefs, expectedSourceRefs)) return false;
@@ -293,6 +365,16 @@ function verifyIdentity(context) {
   };
   const digest = digestArtifact(snapshot);
   return identity.before_digest === digest && identity.after_digest === digest;
+}
+
+function verifyCodegraphConfig(context) {
+  if (context.artifactVersion !== 'v2') return false;
+  const bytes = context.payloads.get(CODEGRAPH_CONFIG_PATH);
+  const identity = context.json.get('identity.json');
+  return Buffer.isBuffer(bytes)
+    && bytes.equals(CODEGRAPH_CONFIG_BYTES)
+    && identity?.codegraph_identity?.project_config_ref === CODEGRAPH_CONFIG_PATH
+    && identity.codegraph_identity.project_config_digest === sha256(bytes);
 }
 
 function verifyTransform(context) {
@@ -799,29 +881,82 @@ function expectedHypothesis(comparison, recomputed, transform) {
   };
 }
 
+function expectedPredecessorKinds(context) {
+  const expected = new Map();
+  for (const ref of context.predecessorPaths) {
+    expected.set(
+      ref,
+      ref === 'predecessors/rc1-v6-plan.md'
+        ? 'rc1_v6_phase_archive'
+        : 'immutable_predecessor',
+    );
+  }
+  expected.set('transform/accepted-artifact.json', 'accepted_transform');
+  expected.set('transform/behavior-evidence.json', 'behavior_envelope');
+  expected.set('transform/mutation-evidence.json', 'mutation_evidence');
+  for (const runId of RUN_IDS) expected.set(`evidence/${runId}.json`, 'evidence_bundle');
+  for (const ref of Object.values(PRIMARY_INPUT_PATHS)) expected.set(ref, 'fixed_input');
+  expected.set('identity.json', 'execution_identity');
+  expected.set('identity/schedulability-compiler-v2.mjs', 'compiler_identity');
+  expected.set('identity/schedulability-verifier-v2.mjs', 'verifier_identity');
+  if (context.artifactVersion === 'v2') {
+    expected.set(CODEGRAPH_CONFIG_PATH, 'codegraph_project_config');
+  }
+  return expected;
+}
+
+function verifyV1PredecessorPair(context) {
+  if (context.artifactVersion !== 'v2') return true;
+  const manifest = context.json.get('predecessors/rc2-v1-artifact-manifest.json');
+  const plan = context.json.get('predecessors/rc2-v1-new-plan-version.json');
+  if (!exactRecord(manifest, ['schema', 'base_sha', 'result_digest', 'files'])
+    || manifest.schema !== 'lattice.rc2.artifact_manifest.v1'
+    || !GIT_SHA1.test(manifest.base_sha)
+    || !SHA256.test(manifest.result_digest)
+    || !Array.isArray(manifest.files)
+    || !sameArtifact(
+      manifest.files.map(({ path: relativePath }) => relativePath).sort(),
+      RC2_V1_ARTIFACT_PATHS,
+    )
+    || new Set(manifest.files.map(({ path: relativePath }) => relativePath)).size
+      !== RC2_V1_ARTIFACT_PATHS.length
+    || plan?.schema !== 'lattice.rc2.plan_version.v1'
+    || plan.version !== 'rc2-delivery-policy-v2') {
+    return false;
+  }
+  const planBytes = context.payloads.get('predecessors/rc2-v1-new-plan-version.json');
+  const entry = manifest.files.find(({ path: relativePath }) => (
+    relativePath === 'new-plan-version.json'
+  ));
+  return exactRecord(entry, ['path', 'media_type', 'bytes', 'sha256'])
+    && entry.media_type === 'application/json'
+    && entry.bytes === planBytes.byteLength
+    && entry.sha256 === sha256(planBytes);
+}
+
 function verifyPredecessors(context) {
   const planDiff = context.json.get('plan-diff.json');
   const newPlan = context.json.get('new-plan-version.json');
+  const expected = expectedPredecessorKinds(context);
   if (!Array.isArray(planDiff?.causal_predecessors)
     || !sameArtifact(planDiff.causal_predecessors, newPlan?.causal_predecessors)
-    || planDiff.causal_predecessors.length < 15) {
+    || planDiff.causal_predecessors.length !== expected.size) {
     return false;
   }
   const refs = new Set();
   for (const predecessor of planDiff.causal_predecessors) {
     if (!exactRecord(predecessor, ['kind', 'ref', 'digest'])
-      || typeof predecessor.kind !== 'string'
-      || !RC2_ARTIFACT_PATHS.includes(predecessor.ref)
+      || predecessor.kind !== expected.get(predecessor.ref)
+      || !context.artifactPaths.includes(predecessor.ref)
       || refs.has(predecessor.ref)
       || predecessor.digest !== sha256(context.payloads.get(predecessor.ref))) {
       return false;
     }
     refs.add(predecessor.ref);
   }
-  return PREDECESSOR_PATHS.every((relativePath) => refs.has(relativePath))
-    && refs.has('transform/accepted-artifact.json')
-    && refs.has('transform/behavior-evidence.json')
-    && RUN_IDS.every((runId) => refs.has(`evidence/${runId}.json`));
+  return refs.size === expected.size
+    && [...expected.keys()].every((relativePath) => refs.has(relativePath))
+    && verifyV1PredecessorPair(context);
 }
 
 function verifyVersionBarrier(context, recomputed) {
@@ -837,9 +972,20 @@ function verifyVersionBarrier(context, recomputed) {
     'interface_assumption',
     'boundary_evidence',
   ];
+  const v2 = context.artifactVersion === 'v2';
+  const predecessorPlan = v2
+    ? context.json.get('predecessors/rc2-v1-new-plan-version.json')
+    : null;
+  const predecessorVersion = v2
+    ? predecessorPlan?.version
+    : primaryInputs.planInput.plan_version;
+  const expectedVersion = v2 ? 'rc2-delivery-policy-v3' : 'rc2-delivery-policy-v2';
+  const expectedOldDigest = v2
+    ? digestArtifact(predecessorPlan)
+    : digestArtifact(control.plan);
   return newPlan?.schema === 'lattice.rc2.plan_version.v1'
-    && newPlan.version === 'rc2-delivery-policy-v2'
-    && newPlan.predecessor_version === primaryInputs.planInput.plan_version
+    && newPlan.version === expectedVersion
+    && newPlan.predecessor_version === predecessorVersion
     && sameArtifact(newPlan.plan, treatment.plan)
     && newPlan.plan_digest === digestArtifact(treatment.plan)
     && newPlan.bundle_digest === digestArtifact(treatment.bundle)
@@ -849,14 +995,22 @@ function verifyVersionBarrier(context, recomputed) {
       primaryInputs.planInput.todos.map(({ id }) => id).sort(),
     )
     && planDiff?.schema === 'lattice.rc2.plan_diff.v1'
-    && planDiff.old_plan?.version === primaryInputs.planInput.plan_version
-    && planDiff.old_plan?.digest === digestArtifact(control.plan)
+    && planDiff.old_plan?.version === predecessorVersion
+    && planDiff.old_plan?.digest === expectedOldDigest
     && planDiff.new_plan?.version === newPlan.version
     && planDiff.new_plan?.digest === digestArtifact(newPlan)
     && sameArtifact(planDiff.affected_todos, newPlan.affected_todos)
     && planDiff.invalidated_contexts?.map(({ kind }) => kind)
       .every((kind, index) => kind === expectedInvalidations[index])
-    && planDiff.invalidated_contexts.length === expectedInvalidations.length;
+    && planDiff.invalidated_contexts.length === expectedInvalidations.length
+    && (!v2 || (
+      predecessorPlan?.plan_digest === digestArtifact(predecessorPlan.plan)
+      && sameArtifact(predecessorPlan.plan, treatment.plan)
+      && planDiff.invalidated_contexts.find(({ kind }) => kind === 'interface_assumption')?.ref
+        === 'rc2-delivery-policy-v2-interface-assumption'
+      && planDiff.invalidated_contexts.find(({ kind }) => kind === 'boundary_evidence')?.ref
+        === 'rc2-delivery-policy-v2-boundary-evidence'
+    ));
 }
 
 function verifyCost(context) {
@@ -932,6 +1086,9 @@ export function verifyRc2CampaignArtifactSet(options = {}) {
   }
 
   check('identity_binding', verifyIdentity(context));
+  if (context.artifactVersion === 'v2') {
+    check('codegraph_config_binding', verifyCodegraphConfig(context));
+  }
   check('transform_binding', verifyTransform(context));
   check('fresh_run_binding', verifyRuns(context));
 

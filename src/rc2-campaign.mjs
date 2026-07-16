@@ -41,7 +41,26 @@ import { compileRc1TransferBundleV2 } from './rc2-rc1-transfer-front-end.mjs';
 import { compileSchedulabilityGraphV2 } from './schedulability-compiler-v2.mjs';
 import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
 
-const ARTIFACT_ROOT = 'research/campaigns/rc2/artifacts/v1';
+const ARTIFACT_VERSION = 'v2';
+const ARTIFACT_ROOTS = Object.freeze({
+  v1: 'research/campaigns/rc2/artifacts/v1',
+  v2: 'research/campaigns/rc2/artifacts/v2',
+});
+const CODEGRAPH_CONFIG_REPO_PATH = 'codegraph.json';
+const CODEGRAPH_CONFIG_ARTIFACT_PATH = 'identity/codegraph-config.json';
+const CODEGRAPH_CONFIG_BYTES = Buffer.from(
+  '{"exclude":["research/campaigns/**/artifacts/**/identity/"]}\n',
+  'utf8',
+);
+const V2_ONLY_ARTIFACT_PATHS = Object.freeze([
+  CODEGRAPH_CONFIG_ARTIFACT_PATH,
+  'predecessors/adr-0040.md',
+  'predecessors/rc2-v1-artifact-manifest.json',
+  'predecessors/rc2-v1-new-plan-version.json',
+]);
+const RC2_V1_ARTIFACT_PATHS = Object.freeze(RC2_ARTIFACT_PATHS.filter((relativePath) => (
+  !V2_ONLY_ARTIFACT_PATHS.includes(relativePath)
+)));
 const GIT_SHA1 = /^[0-9a-f]{40}$/;
 const SEMVER = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/;
 const RAW_EVIDENCE_CHUNK_BYTES = 12_000;
@@ -108,6 +127,9 @@ const PREDECESSOR_FILES = Object.freeze({
   'predecessors/rc1-v6-seam.patch': `${RC1_ARTIFACT_ROOT}/transform/seam.patch`,
   'predecessors/rc1-v6-transform-artifact.json': `${RC1_ARTIFACT_ROOT}/transform/transform-artifact.json`,
   'predecessors/rc1-v6-transform-receipt.json': `${RC1_ARTIFACT_ROOT}/transform/transform-receipt.json`,
+  'predecessors/adr-0040.md': 'docs/adr/0040-rc2-post-publication-codegraph-scope-and-artifact-v2.md',
+  'predecessors/rc2-v1-artifact-manifest.json': `${ARTIFACT_ROOTS.v1}/artifact-manifest.json`,
+  'predecessors/rc2-v1-new-plan-version.json': `${ARTIFACT_ROOTS.v1}/new-plan-version.json`,
 });
 
 const RUN_IDS = Object.freeze([
@@ -192,7 +214,7 @@ async function resolveExecutable(command) {
   throw new TypeError(`${command} executableをPATHから解決できない`);
 }
 
-async function captureExecutionIdentity() {
+async function captureExecutionIdentity(repoRoot) {
   const sources = [];
   const payloads = new Map();
   for (const [runtimePath, artifactRef, sourceUrl] of SOURCE_IDENTITIES) {
@@ -204,13 +226,20 @@ async function captureExecutionIdentity() {
   const executableBytes = await readFile(executablePath);
   const version = (await run(executablePath, ['--version'])).stdout.toString('utf8').trim();
   if (!SEMVER.test(version)) throw new TypeError('Codegraph versionがsemverではない');
+  const projectConfigBytes = await readFile(path.join(repoRoot, CODEGRAPH_CONFIG_REPO_PATH));
+  if (!projectConfigBytes.equals(CODEGRAPH_CONFIG_BYTES)) {
+    throw new TypeError('Codegraph project config bytesがRC2 v2 contractと一致しない');
+  }
   const codegraphIdentity = {
-    schema: 'lattice.rc2.codegraph_identity.v1',
+    schema: 'lattice.rc2.codegraph_identity.v2',
     version,
     executable_ref: 'codegraph',
     executable_digest: sha256(executableBytes),
+    project_config_ref: CODEGRAPH_CONFIG_ARTIFACT_PATH,
+    project_config_digest: sha256(projectConfigBytes),
   };
   payloads.set('identity/codegraph-executable', executableBytes);
+  payloads.set(CODEGRAPH_CONFIG_ARTIFACT_PATH, projectConfigBytes);
   const snapshot = { sources, codegraph_identity: codegraphIdentity };
   return { snapshot, digest: digestArtifact(snapshot), payloads };
 }
@@ -237,6 +266,39 @@ async function loadPredecessors(repoRoot) {
     payloads.set(artifactPath, await readFile(path.join(repoRoot, repoPath)));
   }
   return payloads;
+}
+
+function loadV1PlanPredecessor(payloads) {
+  const manifestBytes = payloads.get('predecessors/rc2-v1-artifact-manifest.json');
+  const planBytes = payloads.get('predecessors/rc2-v1-new-plan-version.json');
+  let manifest;
+  let plan;
+  try {
+    manifest = JSON.parse(manifestBytes.toString('utf8'));
+    plan = JSON.parse(planBytes.toString('utf8'));
+  } catch {
+    throw new TypeError('RC2 v1 predecessor JSONをparseできない');
+  }
+  const paths = Array.isArray(manifest?.files)
+    ? manifest.files.map(({ path: relativePath }) => relativePath).sort()
+    : [];
+  const entry = manifest?.files?.find(({ path: relativePath }) => (
+    relativePath === 'new-plan-version.json'
+  ));
+  if (!jsonBytes(manifest).equals(manifestBytes)
+    || !jsonBytes(plan).equals(planBytes)
+    || manifest.schema !== 'lattice.rc2.artifact_manifest.v1'
+    || !isDeepStrictEqual(paths, [...RC2_V1_ARTIFACT_PATHS])
+    || !exactRecord(entry, ['path', 'media_type', 'bytes', 'sha256'])
+    || entry.media_type !== 'application/json'
+    || entry.bytes !== planBytes.byteLength
+    || entry.sha256 !== sha256(planBytes)
+    || plan.schema !== 'lattice.rc2.plan_version.v1'
+    || plan.version !== 'rc2-delivery-policy-v2'
+    || plan.plan_digest !== digestArtifact(plan.plan)) {
+    throw new TypeError('RC2 v1 predecessor manifest／plan bindingが不正');
+  }
+  return plan;
 }
 
 async function resolveRepository(repoRoot, baseRef) {
@@ -789,17 +851,17 @@ function predecessorDescriptors(payloads) {
   add('execution_identity', 'identity.json');
   add('compiler_identity', 'identity/schedulability-compiler-v2.mjs');
   add('verifier_identity', 'identity/schedulability-verifier-v2.mjs');
+  add('codegraph_project_config', CODEGRAPH_CONFIG_ARTIFACT_PATH);
   return descriptors;
 }
 
-function buildVersionBarrier({ inputs, compiled, predecessors }) {
-  const control = compiled.primary.control[0];
+function buildVersionBarrier({ inputs, compiled, predecessors, predecessorPlan }) {
   const treatment = compiled.primary.treatment[0];
   const affectedTodos = inputs.primary.planInput.todos.map(({ id }) => id);
   const newPlanVersion = {
     schema: 'lattice.rc2.plan_version.v1',
-    version: 'rc2-delivery-policy-v2',
-    predecessor_version: inputs.primary.planInput.plan_version,
+    version: 'rc2-delivery-policy-v3',
+    predecessor_version: predecessorPlan.version,
     plan: treatment.plan,
     plan_digest: digestArtifact(treatment.plan),
     bundle_digest: digestArtifact(treatment.bundle),
@@ -810,8 +872,8 @@ function buildVersionBarrier({ inputs, compiled, predecessors }) {
   const planDiff = {
     schema: 'lattice.rc2.plan_diff.v1',
     old_plan: {
-      version: inputs.primary.planInput.plan_version,
-      digest: digestArtifact(control.plan),
+      version: predecessorPlan.version,
+      digest: digestArtifact(predecessorPlan),
     },
     new_plan: {
       version: newPlanVersion.version,
@@ -820,16 +882,16 @@ function buildVersionBarrier({ inputs, compiled, predecessors }) {
     causal_predecessors: predecessors,
     affected_todos: affectedTodos,
     invalidated_contexts: [
-      { kind: 'old_plan', ref: inputs.primary.planInput.plan_version,
-        reason: 'control topology cannot receive treatment edges by append' },
-      { kind: 'agent_context', ref: `${inputs.primary.planInput.plan_version}-agent-context`,
-        reason: 'control ownership assumptions do not bind the accepted treatment snapshot' },
-      { kind: 'partial_patch', ref: `${inputs.primary.planInput.plan_version}-partial-patch`,
-        reason: 'patches compiled before the accepted seam cannot cross the version barrier' },
-      { kind: 'interface_assumption', ref: 'monolithic-delivery-policy-ownership',
-        reason: 'the accepted seam replaces monolithic production and test ownership' },
-      { kind: 'boundary_evidence', ref: 'control-snapshot-boundary-evidence',
-        reason: 'only fresh treatment evidence is valid for the new plan version' },
+      { kind: 'old_plan', ref: predecessorPlan.version,
+        reason: 'the v2 sensor scope and evidence cannot receive v3 bindings by append' },
+      { kind: 'agent_context', ref: `${predecessorPlan.version}-agent-context`,
+        reason: 'v2 agent context does not bind the post-publication sensor identity' },
+      { kind: 'partial_patch', ref: `${predecessorPlan.version}-partial-patch`,
+        reason: 'patches compiled before the corrected sensor identity cannot cross the barrier' },
+      { kind: 'interface_assumption', ref: `${predecessorPlan.version}-interface-assumption`,
+        reason: 'v2 interface evidence is not bound to the corrected sensor identity' },
+      { kind: 'boundary_evidence', ref: `${predecessorPlan.version}-boundary-evidence`,
+        reason: 'only fresh post-publication treatment evidence is valid for plan v3' },
     ],
   };
   return { newPlanVersion, planDiff };
@@ -1079,15 +1141,17 @@ async function runTransforms({ root, baseSha, candidateSpec, costMeasurements })
 
 /** accepted seamを独立変数にfresh sensor→v2 compile→new planまで実行する。 */
 export async function runRc2Campaign(options = {}) {
-  if (!exactRecord(options, ['repoRoot', 'baseRef'])) {
-    throw new TypeError('runRc2Campaign options must have exact repoRoot and baseRef');
+  if (!exactRecord(options, ['repoRoot', 'baseRef', 'artifactVersion'])
+    || options.artifactVersion !== ARTIFACT_VERSION) {
+    throw new TypeError('runRc2Campaign options must select exact artifactVersion v2');
   }
   const { root, baseSha } = await resolveRepository(options.repoRoot, options.baseRef);
   const [inputs, predecessors, identityBefore] = await Promise.all([
     loadInputs(root),
     loadPredecessors(root),
-    captureExecutionIdentity(),
+    captureExecutionIdentity(root),
   ]);
+  const predecessorPlan = loadV1PlanPredecessor(predecessors);
   const costMeasurements = [];
   const transform = await runTransforms({
     root,
@@ -1173,7 +1237,7 @@ export async function runRc2Campaign(options = {}) {
   };
   const compiled = compileAllConditions({ runs, inputs, costMeasurements });
 
-  const identityAfter = await captureExecutionIdentity();
+  const identityAfter = await captureExecutionIdentity(root);
   if (!isDeepStrictEqual(identityBefore.snapshot, identityAfter.snapshot)
     || identityBefore.payloads.size !== identityAfter.payloads.size
     || [...identityBefore.payloads].some(([relativePath, bytes]) => (
@@ -1182,7 +1246,7 @@ export async function runRc2Campaign(options = {}) {
     throw new TypeError('RC2 execution identity drifted during campaign');
   }
   const identity = {
-    schema: 'lattice.rc2.execution_identity.v1',
+    schema: 'lattice.rc2.execution_identity.v2',
     sources: identityBefore.snapshot.sources,
     codegraph_identity: identityBefore.snapshot.codegraph_identity,
     codegraph_identity_digest: digestArtifact(identityBefore.snapshot.codegraph_identity),
@@ -1203,6 +1267,7 @@ export async function runRc2Campaign(options = {}) {
     inputs,
     compiled,
     predecessors: causalPredecessors,
+    predecessorPlan,
   });
   const comparison = buildComparison({
     baseSha,
@@ -1232,7 +1297,8 @@ export async function runRc2Campaign(options = {}) {
     cost,
   });
   return {
-    schema: 'lattice.rc2.campaign_result.v1',
+    schema: 'lattice.rc2.campaign_result.v2',
+    artifact_version: ARTIFACT_VERSION,
     base_sha: baseSha,
     fixed_inputs: inputs,
     identity,
@@ -1321,11 +1387,12 @@ export async function writeRc2CampaignArtifacts(options = {}) {
   if (!exactRecord(options, ['repoRoot', 'result'])
     || typeof options.repoRoot !== 'string'
     || options.repoRoot.length === 0
-    || options.result?.schema !== 'lattice.rc2.campaign_result.v1') {
+    || options.result?.schema !== 'lattice.rc2.campaign_result.v2'
+    || options.result?.artifact_version !== ARTIFACT_VERSION) {
     throw new TypeError('writeRc2CampaignArtifacts options are invalid');
   }
   const root = await realpath(options.repoRoot);
-  const artifactRoot = path.join(root, ARTIFACT_ROOT);
+  const artifactRoot = path.join(root, ARTIFACT_ROOTS.v2);
   try {
     await lstat(artifactRoot);
     throw new Error('RC2 artifact root already exists; immutable evidence is not overwritten');
@@ -1334,7 +1401,7 @@ export async function writeRc2CampaignArtifacts(options = {}) {
   }
   const files = artifactFiles(options.result);
   const manifest = {
-    schema: 'lattice.rc2.artifact_manifest.v1',
+    schema: 'lattice.rc2.artifact_manifest.v2',
     base_sha: options.result.base_sha,
     result_digest: digestArtifact(options.result.hypothesis_evaluation),
     files: [...files].map(([relativePath, bytes]) => ({
@@ -1353,7 +1420,7 @@ export async function writeRc2CampaignArtifacts(options = {}) {
   }
   const parent = path.dirname(artifactRoot);
   await mkdir(parent, { recursive: true });
-  const temporaryRoot = await mkdtemp(path.join(parent, '.v1-write-'));
+  const temporaryRoot = await mkdtemp(path.join(parent, '.v2-write-'));
   try {
     for (const [relativePath, bytes] of files) {
       await writeDurableFile(path.join(temporaryRoot, relativePath), bytes);
@@ -1372,6 +1439,12 @@ export async function writeRc2CampaignArtifacts(options = {}) {
   return manifest;
 }
 
+function artifactPathsForVersion(artifactVersion) {
+  if (artifactVersion === 'v1') return RC2_V1_ARTIFACT_PATHS;
+  if (artifactVersion === 'v2') return RC2_ARTIFACT_PATHS;
+  return null;
+}
+
 function invalidDiskReceipt(condition) {
   return {
     schema: 'lattice.rc2.artifact_set_verification.v1',
@@ -1383,12 +1456,14 @@ function invalidDiskReceipt(condition) {
 
 /** immutable rootを再読し、in-memory resultなしでpure verifierへ渡す。 */
 export async function verifyRc2CampaignArtifactsOnDisk(options = {}) {
-  if (!exactRecord(options, ['repoRoot'])
+  if (!exactRecord(options, ['repoRoot', 'artifactVersion'])
     || typeof options.repoRoot !== 'string'
-    || options.repoRoot.length === 0) {
+    || options.repoRoot.length === 0
+    || artifactPathsForVersion(options.artifactVersion) === null) {
     throw new TypeError('verifyRc2CampaignArtifactsOnDisk options are invalid');
   }
-  const artifactRoot = path.join(options.repoRoot, ARTIFACT_ROOT);
+  const artifactRoot = path.join(options.repoRoot, ARTIFACT_ROOTS[options.artifactVersion]);
+  const artifactPaths = artifactPathsForVersion(options.artifactVersion);
   let manifestBytes;
   let manifest;
   try {
@@ -1402,7 +1477,7 @@ export async function verifyRc2CampaignArtifactsOnDisk(options = {}) {
   }
   let payloads;
   try {
-    payloads = await Promise.all(RC2_ARTIFACT_PATHS.map(async (relativePath) => ({
+    payloads = await Promise.all(artifactPaths.map(async (relativePath) => ({
       path: relativePath,
       bytes: await readFile(path.join(artifactRoot, relativePath)),
     })));
