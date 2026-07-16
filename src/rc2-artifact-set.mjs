@@ -58,10 +58,17 @@ const RC1_INPUT_PATHS = Object.freeze({
 });
 
 const CODEGRAPH_CONFIG_PATH = 'identity/codegraph-config.json';
-const CODEGRAPH_CONFIG_BYTES = Buffer.from(
-  '{"exclude":["research/campaigns/**/artifacts/**/identity/"]}\n',
-  'utf8',
-);
+// ratified config epochのallowlist。artifactのconfig bytesはこのいずれかと完全一致し、
+// かつidentity.jsonのproject_config_digestと自己整合でなければreject（第三のbytesはfail closed）。
+const CODEGRAPH_CONFIG_EPOCHS = Object.freeze([
+  // ADR 0040 epoch（RC2 v2〜v4 canonical artifactが保存する当時のratified config）
+  Buffer.from('{"exclude":["research/campaigns/**/artifacts/**/identity/"]}\n', 'utf8'),
+  // ADR 0044 Decision 10.3 epoch（research/runs/ event store除外、RC3-B以降のfresh実行）
+  Buffer.from(
+    '{"exclude":["research/campaigns/**/artifacts/**/identity/","research/runs/"]}\n',
+    'utf8',
+  ),
+]);
 
 const V1_IDENTITY_PATHS = Object.freeze([
   'identity/codegraph-adapter.mjs',
@@ -452,7 +459,7 @@ function verifyCodegraphConfig(context) {
   const bytes = context.payloads.get(CODEGRAPH_CONFIG_PATH);
   const identity = context.json.get('identity.json');
   return Buffer.isBuffer(bytes)
-    && bytes.equals(CODEGRAPH_CONFIG_BYTES)
+    && CODEGRAPH_CONFIG_EPOCHS.some((epochBytes) => bytes.equals(epochBytes))
     && identity?.codegraph_identity?.project_config_ref === CODEGRAPH_CONFIG_PATH
     && identity.codegraph_identity.project_config_digest === sha256(bytes);
 }

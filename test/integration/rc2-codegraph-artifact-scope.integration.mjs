@@ -16,6 +16,7 @@ const ORACLE_TESTS = Object.freeze([
   'test/rc2-campaign.test.mjs',
   'test/rc2-delivery-policy-fixture.test.mjs',
   'test/rc2-delivery-policy-transform.test.mjs',
+  'test/rc3-compatibility.test.mjs',
 ]);
 
 function run(command, args, cwd) {

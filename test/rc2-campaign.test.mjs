@@ -349,7 +349,7 @@ test('RC2 campaignはaccepted patchだけを変数に6 fresh worktree runとfixe
     sha256(configBytes),
   );
   assert.deepEqual(JSON.parse(configBytes.toString('utf8')), {
-    exclude: ['research/campaigns/**/artifacts/**/identity/'],
+    exclude: ['research/campaigns/**/artifacts/**/identity/', 'research/runs/'],
   });
   assert.equal(result.identity.before_digest, digestArtifact({
     sources: result.identity.sources,
