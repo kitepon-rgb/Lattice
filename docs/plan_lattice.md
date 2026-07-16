@@ -7,6 +7,7 @@
 - predecessor Decision: [ADR 0031](adr/0031-rc1-v6-phase-gate-support.md)
 - campaign Decision: [ADR 0032](adr/0032-rc2-bounded-graph-compiler-and-three-way-seam.md)
 - transform Decision: [ADR 0037](adr/0037-rc2-delivery-policy-transform-transaction.md)
+- closed-loop Decision: [ADR 0038](adr/0038-rc2-closed-loop-version-and-artifact-contract.md)
 - reconsideration evidence: [2026-07-16 RC2 plan reconsideration](evidence/2026-07-16-rc2-plan-reconsideration.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
 - 公開契約: [00_product-contract.md](00_product-contract.md)
@@ -63,7 +64,7 @@ candidate ID、fixture path、repo path、oracle、transform adapterを見ずに
 - **capacity control:** 同じtreatment graphでcapacityだけ3→2にし、0 conflictsでも2 wavesになることを別条件として測る。seam効果へ混ぜない。
 - **metamorphic controls:** A-B-C path、disconnected edge＋isolated、hard need＋conflict、TODO順列、ID／resource renameをcoreへ入力し、
   graph isomorphismに沿う同じminimumを要求する。
-- **failure controls:** third-only unknownはplan dispatch／transformを拒否する。不完全registry shardはoracle failure→rejected transformとなり、
+- **failure controls:** third-only unknownはplan dispatch／transformを拒否する。不完全registry shardはtyped `incomplete_transform` rejectionとなり、
   fresh treatment plan／version barrierを発行しない。
 
 ### 測定指標
@@ -222,13 +223,15 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 ### RC2-F — registry-shard transform adapter
 
 - [x] transform source／test前にCodegraphでplanned export／pathのbootstrap unknownと既存isolation／oracle／fixture影響を固定する。
-- [ ] writer、隔離transaction、snapshot binding、6×4 mutation matrix、rejection／cleanupをtest-firstで固定する。
-- [ ] shared exact testをcomposition-only＋3 dedicated testsへbehavior-preservingに分割する。
-- [ ] adapter責務をpatch、allowed paths、oracle／verifier、output snapshotへ限定する。
-- [ ] accepted seam candidate／witness／adapter source／patchをtransform artifactへcross-bindする。
-- [ ] 6 single-case mutationでowner dedicated testだけが失敗するexact partitionを検証し、各mutationを完全復元する。
-- [ ] incomplete shardをoracle failureでrejectし、accepted artifact／new planが出ないことを固定する。
-- [ ] canonical source invariant、scope、cleanup、rollback cutをfocused gateで確認する。
+- [x] writer、隔離transaction、snapshot binding、6×4 mutation matrix、rejection／cleanupをtest-firstで固定する。
+- [x] shared exact testをcomposition-only＋3 dedicated testsへbehavior-preservingに分割する。
+- [x] adapter責務をpatch、allowed paths、oracle／verifier、output snapshotへ限定する。
+- [x] accepted seam candidate／witness／adapter source／patchをtransform artifactへcross-bindする。
+- [x] 6 single-case mutationでowner dedicated testだけが失敗するexact partitionを検証し、各mutationを完全復元する。
+- [x] incomplete shardをtyped `incomplete_transform`でrejectし、accepted output／new planを持たないことを固定する。
+- [x] canonical source invariant、scope、cleanup、rollback cutをfocused gateで確認する。
+
+実装証拠: [2026-07-16 RC2 delivery policy transform](evidence/2026-07-16-rc2-delivery-policy-transform-implementation.md)
 
 ### RC2-G — closed loopとimmutable artifact
 
