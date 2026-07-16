@@ -273,7 +273,7 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] H2e version-aware active witness bindingとbase cross-bindingを実装し、世代不整合testをgreenにする。
 - [x] H2f.1 immutable v3をpredecessorにcanonical artifact v4／plan v5をatomic発行する。
 - [x] H2f.2 post-artifact Codegraph affected-set期待値へ新version witness testを加え、失敗scopeをgreenにする。
-- [ ] H2f.3 fresh reindex、4-version replay、related／full gateをevidenceへ固定する。
+- [x] H2f.3 fresh reindex、4-version replay、related／full gateをevidenceへ固定する。
 - [ ] RC2成功条件だけを対象にPhase反証を一回行う。
 - [ ] H1-RC2をsupport／refuteする新しい不変DecisionとPhase evidenceを残す。
 
@@ -318,6 +318,12 @@ version witness preflight証拠:
 
 version witness実装証拠:
 [2026-07-16 RC2 version witness consistency implementation](evidence/2026-07-16-rc2-version-witness-implementation.md)
+
+canonical version witness successor証拠:
+[2026-07-16 RC2 canonical artifact v4／plan v5](evidence/2026-07-16-rc2-canonical-artifact-v4.md)
+
+version witness full regression証拠:
+[2026-07-16 RC2 version witness full CI](evidence/2026-07-16-rc2-version-witness-full-ci.md)
 
 ## Evidence artifact
 
