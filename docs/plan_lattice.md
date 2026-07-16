@@ -251,7 +251,7 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 
 ### RC2-H — Phase gate
 
-- [ ] H0a post-artifact fresh indexで保存`identity/*.mjs`がlive graphへ混入するfailureをcharacterizeする。
+- [x] H0a post-artifact fresh indexで保存`identity/*.mjs`がlive graphへ混入するfailureをcharacterizeする。
 - [ ] H0b tracked `codegraph.json`でartifact identityだけを除外し、config actual bytesをexecution identityへbindする。
 - [ ] H0c immutable v1をpredecessorにしたartifact v2とplan `rc2-delivery-policy-v3`を発行し、v1／v2をdisk replayする。
 - [ ] TODO単位の軽量監査を各完了候補で一回だけ行う。
