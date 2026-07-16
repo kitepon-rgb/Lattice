@@ -14,6 +14,8 @@ import {
 const REPO_ROOT = path.resolve(new URL('..', import.meta.url).pathname);
 const CAMPAIGN_MODULE = '../src/rc2-campaign.mjs';
 const ARTIFACT_MODULE = '../src/rc2-artifact-set.mjs';
+const ARTIFACT_VERSION = 'v2';
+const PREDECESSOR_ARTIFACT_VERSION = 'v1';
 
 let temporaryRoot;
 let fixturePromise;
@@ -64,7 +66,11 @@ async function loadFixture() {
       temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-rc2-campaign-test-'));
       const repoRoot = path.join(temporaryRoot, 'repo');
       await run('git', ['clone', '--quiet', '--no-hardlinks', REPO_ROOT, repoRoot]);
-      const result = await campaign.runRc2Campaign({ repoRoot, baseRef: 'HEAD' });
+      const result = await campaign.runRc2Campaign({
+        repoRoot,
+        baseRef: 'HEAD',
+        artifactVersion: ARTIFACT_VERSION,
+      });
       const statusBeforeWrite = (await run(
         'git',
         ['status', '--porcelain=v1', '--untracked-files=all'],
@@ -80,14 +86,15 @@ async function loadArtifactFixture() {
   if (!artifactFixturePromise) {
     artifactFixturePromise = (async () => {
       const fixture = await loadFixture();
+      const artifactRoot = path.join(
+        fixture.repoRoot,
+        `research/campaigns/rc2/artifacts/${ARTIFACT_VERSION}`,
+      );
+      await rm(artifactRoot, { recursive: true, force: true });
       const manifest = await fixture.campaign.writeRc2CampaignArtifacts({
         repoRoot: fixture.repoRoot,
         result: fixture.result,
       });
-      const artifactRoot = path.join(
-        fixture.repoRoot,
-        'research/campaigns/rc2/artifacts/v1',
-      );
       const payloads = await Promise.all(
         fixture.artifactSet.RC2_ARTIFACT_PATHS.map(async (relativePath) => ({
           path: relativePath,
@@ -179,7 +186,8 @@ test('RC2 campaignはaccepted patchだけを変数に6 fresh worktree runとfixe
   const { result, statusBeforeWrite } = await loadFixture();
 
   assert.equal(statusBeforeWrite, '');
-  assert.equal(result.schema, 'lattice.rc2.campaign_result.v1');
+  assert.equal(result.schema, 'lattice.rc2.campaign_result.v2');
+  assert.equal(result.artifact_version, ARTIFACT_VERSION);
   assert.match(result.base_sha, /^[0-9a-f]{40}$/);
   assert.equal(result.transform.accepted.status, 'accepted');
   assert.equal(result.transform.accepted.artifact.status, 'accepted');
@@ -250,6 +258,21 @@ test('RC2 campaignはaccepted patchだけを変数に6 fresh worktree runとfixe
     })),
   );
   assert.equal(result.identity.before_digest, result.identity.after_digest);
+  assert.equal(result.identity.schema, 'lattice.rc2.execution_identity.v2');
+  assert.equal(result.identity.codegraph_identity.schema, 'lattice.rc2.codegraph_identity.v2');
+  assert.equal(
+    result.identity.codegraph_identity.project_config_ref,
+    'identity/codegraph-config.json',
+  );
+  const configBytes = result.identity_payloads.get('identity/codegraph-config.json');
+  assert.ok(Buffer.isBuffer(configBytes));
+  assert.equal(
+    result.identity.codegraph_identity.project_config_digest,
+    sha256(configBytes),
+  );
+  assert.deepEqual(JSON.parse(configBytes.toString('utf8')), {
+    exclude: ['research/campaigns/**/artifacts/**/identity/'],
+  });
   assert.equal(result.identity.before_digest, digestArtifact({
     sources: result.identity.sources,
     codegraph_identity: result.identity.codegraph_identity,
@@ -296,15 +319,16 @@ test('同じv2 coreはprimary、partial、capacity、unknown、RC1 transferを�
   assertCompiled(transfer.treatment.negative, { conflicts: 1, pairs: 1, waves: 2 });
 
   assert.equal(result.new_plan_version.schema, 'lattice.rc2.plan_version.v1');
-  assert.equal(result.new_plan_version.version, 'rc2-delivery-policy-v2');
+  assert.equal(result.new_plan_version.version, 'rc2-delivery-policy-v3');
+  assert.equal(result.new_plan_version.predecessor_version, 'rc2-delivery-policy-v2');
   assert.equal(result.new_plan_version.plan.minimum_feasible_waves, 1);
   assert.deepEqual(
     [...result.new_plan_version.affected_todos].sort(),
     ['email-policy', 'push-policy', 'sms-policy'],
   );
   assert.equal(result.plan_diff.schema, 'lattice.rc2.plan_diff.v1');
-  assert.equal(result.plan_diff.old_plan.version, 'rc2-delivery-policy-v1');
-  assert.equal(result.plan_diff.new_plan.version, 'rc2-delivery-policy-v2');
+  assert.equal(result.plan_diff.old_plan.version, 'rc2-delivery-policy-v2');
+  assert.equal(result.plan_diff.new_plan.version, 'rc2-delivery-policy-v3');
   assert.deepEqual(
     result.plan_diff.invalidated_contexts.map(({ kind }) => kind),
     ['old_plan', 'agent_context', 'partial_patch', 'interface_assumption', 'boundary_evidence'],
@@ -315,6 +339,19 @@ test('同じv2 coreはprimary、partial、capacity、unknown、RC1 transferを�
   assert.ok(result.plan_diff.causal_predecessors.some(({ kind }) => (
     kind === 'rc1_v6_phase_archive'
   )));
+  assert.equal(result.plan_diff.causal_predecessors.length, 31);
+  for (const ref of [
+    'identity/codegraph-config.json',
+    'predecessors/adr-0040.md',
+    'predecessors/rc2-v1-artifact-manifest.json',
+    'predecessors/rc2-v1-new-plan-version.json',
+  ]) {
+    assert.ok(result.plan_diff.causal_predecessors.some((entry) => entry.ref === ref));
+  }
+  assert.equal(
+    result.plan_diff.invalidated_contexts.find(({ kind }) => kind === 'boundary_evidence').ref,
+    'rc2-delivery-policy-v2-boundary-evidence',
+  );
   assert.equal(result.hypothesis_evaluation.supported, true);
   assert.deepEqual(result.hypothesis_evaluation.failed_conditions, []);
 });
@@ -370,15 +407,23 @@ test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的
     manifest: fixture.manifest,
     payloads: fixture.payloads,
   });
+  assert.equal(fixture.manifest.schema, 'lattice.rc2.artifact_manifest.v2');
   assert.equal(pure.schema, 'lattice.rc2.artifact_set_verification.v1');
   assert.equal(pure.valid, true);
   assert.deepEqual(pure.failed_conditions, []);
-  assert.ok(pure.checks.length >= 10);
+  assert.equal(pure.checks.length, 15);
 
   const disk = await fixture.campaign.verifyRc2CampaignArtifactsOnDisk({
     repoRoot: fixture.repoRoot,
+    artifactVersion: ARTIFACT_VERSION,
   });
   assert.equal(disk.valid, true);
+  const predecessorDisk = await fixture.campaign.verifyRc2CampaignArtifactsOnDisk({
+    repoRoot: fixture.repoRoot,
+    artifactVersion: PREDECESSOR_ARTIFACT_VERSION,
+  });
+  assert.equal(predecessorDisk.valid, true);
+  assert.equal(predecessorDisk.checks.length, 14);
   await assert.rejects(
     () => fixture.campaign.writeRc2CampaignArtifacts({
       repoRoot: fixture.repoRoot,
@@ -422,6 +467,29 @@ test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的
   assert.equal(predecessorVerification.valid, false);
   assert.ok(predecessorVerification.failed_conditions.includes('predecessor_binding'));
 
+  const configCorruption = copyArtifactSet(fixture);
+  mutateJson(configCorruption, 'identity/codegraph-config.json', (value) => {
+    value.exclude = [];
+  });
+  const configVerification = fixture.artifactSet.verifyRc2CampaignArtifactSet(configCorruption);
+  assert.equal(configVerification.valid, false);
+  assert.ok(configVerification.failed_conditions.includes('codegraph_config_binding'));
+
+  for (const relativePath of [
+    'predecessors/rc2-v1-artifact-manifest.json',
+    'predecessors/rc2-v1-new-plan-version.json',
+  ]) {
+    const v1PredecessorCorruption = copyArtifactSet(fixture);
+    mutateJson(v1PredecessorCorruption, relativePath, (value) => {
+      value.schema = `${value.schema}.corrupt`;
+    });
+    const v1PredecessorVerification = fixture.artifactSet.verifyRc2CampaignArtifactSet(
+      v1PredecessorCorruption,
+    );
+    assert.equal(v1PredecessorVerification.valid, false);
+    assert.ok(v1PredecessorVerification.failed_conditions.includes('predecessor_binding'));
+  }
+
   const costCorruption = copyArtifactSet(fixture);
   mutateJson(costCorruption, 'cost.json', (value) => {
     value.aggregate.elapsed_ms += 1;
@@ -448,6 +516,7 @@ test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的
   await writeFile(diskPatchPath, diskCorruption);
   const rejectedDisk = await fixture.campaign.verifyRc2CampaignArtifactsOnDisk({
     repoRoot: fixture.repoRoot,
+    artifactVersion: ARTIFACT_VERSION,
   });
   assert.equal(rejectedDisk.valid, false);
   await writeFile(diskPatchPath, originalPatch);

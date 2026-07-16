@@ -253,7 +253,9 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 
 - [x] H0a post-artifact fresh indexで保存`identity/*.mjs`がlive graphへ混入するfailureをcharacterizeする。
 - [ ] H0b tracked `codegraph.json`でartifact identityだけを除外し、config actual bytesをexecution identityへbindする。
-- [ ] H0c immutable v1をpredecessorにしたartifact v2とplan `rc2-delivery-policy-v3`を発行し、v1／v2をdisk replayする。
+- [x] H0c.1 artifact v2／plan v3／v1 read compatibilityの期待値をproduction変更前のcharacterizationへ固定する。
+- [ ] H0c.2 immutable v1をpredecessorにしたartifact v2 writer／version-aware verifier／plan v3 barrierを実装する。
+- [ ] H0c.3 canonical artifact v2を発行し、v1／v2をdisk replayする。
 - [ ] TODO単位の軽量監査を各完了候補で一回だけ行う。
 - [ ] source収束後のfull `npm run ci`を一回だけ実行する。
 - [ ] RC2成功条件だけを対象にPhase反証を一回行う。
@@ -273,7 +275,8 @@ RC2は少なくとも次をLattice内へ保存する。
 - transform、oracle、index、compile、verify別elapsed、patch bytes／files／review lines、reject／retry／rollback、未検証範囲。
 - old→new plan diff、失効context、digest付きpredecessor集合、artifact-only verifier receipt、Phase Decision。
 
-machine artifactは`research/campaigns/rc2/artifacts/v1`へ新規保存する。RC1 artifact、ADR、archiveを上書きせず、Decision pathを
+machine artifact v1は`research/campaigns/rc2/artifacts/v1`でimmutableに保持し、post-publication correctionは
+`research/campaigns/rc2/artifacts/v2`へ新規保存する。RC1／RC2 v1 artifact、ADR、archiveを上書きせず、Decision pathを
 後続裁定の可変台帳として再利用しない。
 
 ## Non-goalsとwriter境界
