@@ -177,6 +177,19 @@ test('does not promote fuzzy query and traversal matches to exact symbol presenc
     'symbol_absent',
     'symbol_absent',
   ]);
+  assert.deepEqual(evidence.outcomes[0], {
+    id: 'query',
+    operation: 'query',
+    target: 'selectDispatchChannel',
+    outcome: 'symbol_absent',
+    data: [],
+  });
+  assert.deepEqual(evidence.outcomes[1], {
+    id: 'impact',
+    operation: 'impact',
+    target: 'selectDispatchChannel',
+    outcome: 'symbol_absent',
+  });
 });
 
 test('accepts traversal JSON only after an exact query identity resolves', async () => {
