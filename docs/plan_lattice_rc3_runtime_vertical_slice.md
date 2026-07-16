@@ -350,14 +350,23 @@ RC3-C成果: 加算module 4（`src/runtime-contracts.mjs`／`src/runtime-event-s
 
 ### RC3-D — generic front-endとplan CLI
 
-- [ ] front-end source編集前Codegraph preflightを行う。
-- [ ] `run_request.v1`のmanual path／resource／state／effect witnessをnormalized graphへcompileする。
-- [ ] Codegraph raw telemetryとportable outcomeを分離し、exact symbol／pathを検査する。
-- [ ] `plan compile`と`plan verify`をJSON stdin／stdout、typed stderr／exitで実装する。
-- [ ] 2 fixture topologyを同じadapterでcompileし、fixture名／期待値分岐がないことを検査する。
-- [ ] dogfood fixture source、fixed behavior oracle、predeclared seam treatment、candidate witnessをexpected-red先行で用意する。
-- [ ] disposable repo内でallowed path、oracle、candidate、base、Codegraph query bindingを検証する。
-- [ ] 9 TODO、unknown、query drift、affected test driftをtyped non-dispatchableにする。
+- [x] front-end source編集前Codegraph preflightを行う。
+- [x] `run_request.v1`のmanual path／resource／state／effect witnessをnormalized graphへcompileする。
+- [x] Codegraph raw telemetryとportable outcomeを分離し、exact symbol／pathを検査する。
+- [x] `plan compile`と`plan verify`をJSON stdin／stdout、typed stderr／exitで実装する（引数形はADR 0044
+      Decision 8の`--request`／`--plan` file形を正とし、stdoutはversioned JSON 1行）。
+- [x] 2 fixture topologyを同じadapterでcompileし、fixture名／期待値分岐がないことを検査する。
+- [x] dogfood fixture source、fixed behavior oracle、predeclared seam treatment、candidate witnessをexpected-red先行で用意する。
+- [x] disposable repo内でallowed path、oracle、candidate、base、Codegraph query bindingを検証する。
+- [x] 9 TODO、unknown、query drift、affected test driftをtyped non-dispatchableにする。
+
+RC3-D成果: 加算module 3（`src/runtime-front-end.mjs`／`src/runtime-cli.mjs`／`src/rc3-dogfood-scaffold.mjs`）と
+CLI配線（`bin/lattice.mjs`）。CLI reject経路はDecision 8の承認済み挙動変更としてexit 2（usage）へ更新し、
+`--version`／`doctor --json`は不変。異provider review（codex-sidecar、gpt-5.6-sol×high）の12 finding
+（P0×3・P1×6・P2×3）を10採用・1条件付き・1棄却で裁定し、fail-closed修正と敵対test 7件を加算した。
+CLI envelope schema（`lattice.plan_compile_result.v1`等）の正式所有はRC3-J最終ADRで裁定する。
+詳細は[RC3-D front-end/CLI実装](evidence/2026-07-17-rc3-d-front-end-cli.md)。maintenance: Phase開始baseline red 6件を
+[RC2 config epoch裁定](evidence/2026-07-17-rc3-maintenance-rc2-codegraph-config-epoch.md)で修理した（commit `355b4cb`）。
 
 ### RC3-E — ready-frontier runtimeとscripted executor
 
