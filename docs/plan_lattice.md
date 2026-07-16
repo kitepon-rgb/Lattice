@@ -34,7 +34,8 @@ candidate ID、fixture path、repo path、oracle、transform adapterを見ずに
 
 - **核心仮説 H1-RC2:** 同一digestのbounded normalized graph compilerは、明示されたboundary witnessから、既存2-TODO fixtureと
   新3-TODO fixture、K3、empty、single edge＋isolated、A-B-C path、hard need＋conflict、capacity 2／3をfixture固有分岐なしにcompileできる。
-  新3-TODO fixture内ではaccepted 3-way registry shardだけを独立変数にすると、外部挙動を保ったままwrite conflictを3から0、
+  新3-TODO fixture内ではaccepted 3-way registry shardだけを独立変数にすると、外部挙動を保ったままdistinct write-conflict pairを
+  3（resource records 12）から0、
   capacity 3のexact minimum wavesを3から1へ減らす。二TODOだけがshared stateを持つnegativeは1 conflict、2 wavesを保持し、
   第三TODOを同じwaveへpackする。accepted transform、fresh reindex、new plan versionの因果鎖は保存artifactから再計算できる。
 - **H0-a:** coreがcandidate ID、path、TODO数、capacity、K3 shapeを特判し、二fixtureの期待値だけを返す。
@@ -69,7 +70,7 @@ candidate ID、fixture path、repo path、oracle、transform adapterを見ずに
 | 指標 | control | treatment／control success |
 |---|---|---|
 | compiler core identity | fixed digest | 全fixture／conditionで同一 |
-| current write conflicts | K3 = 3 | primary treatment 0 |
+| current write conflicts | K3 = 3 pairs／12 resource records | primary treatment 0／0 |
 | primary exact waves（capacity 3） | 3 | 1 |
 | partial state negative | control topologyに包含 | treatment exactly 1 conflict／2 waves |
 | capacity-only（capacity 2） | N/A | empty 3-node graph／2 waves |
@@ -79,7 +80,8 @@ candidate ID、fixture path、repo path、oracle、transform adapterを見ずに
 | optimality | producer witness | independent enumeratorが短い割当なしを確認 |
 | metamorphic invariance | original IDs/order | rename／permutation後もisomorphic |
 | unknown | provenance付き | dispatchable planなし |
-| behavior oracle | fixed exact cases | pre／post全case一致 |
+| behavior oracle | fixed source＋6 exact cases | pre／post全case＋source digest一致 |
+| test seam sensitivity | shared exact test | 6 mutationsでowner testだけ失敗 |
 | Codegraph evidence | control 2 run | treatment 2 run＋RC1 transfer 1+1 |
 | transform failure | N/A | rejected、new plan未発行 |
 | RC1 v6 compatibility | 12/12 | 実装後も12/12 |
@@ -103,20 +105,24 @@ wave差は構造的schedulability指標であり、actual multi-agent wall-clock
 8. K3、empty、single edge＋isolated、capacity-only、hard need＋conflictがそれぞれ期待minimumを持つ。
 9. TODO order permutationとID／resource renameがisomorphic verdict／scheduleを返す。
 10. third-only unknown、探索上限外、budget exhaustionはtyped non-dispatchable／unsupportedとなり、minimumを自己申告しない。
-11. 3-TODO primary controlはwrite conflict 3、capacity 3でminimum 3 wavesになる。
+11. 3-TODO primary controlはwrite conflict 3 pairs／12 resource records、capacity 3でminimum 3 wavesになる。
 12. registry-shard adapterはaccepted seam candidate digest、candidate witness digest、adapter source digest、allowed paths、oracleをtransformへbindし、
     conflict、expected waves、proposed ownershipを注入しない。
-13. accepted transformはcanonical worktreeを変えず、pre／post black-box oracleを全case greenにし、scope外write／cleanup leakを0にする。
-14. treatmentはwrite conflict 0、hidden unknown 0、capacity 3でminimum 1 waveになる。
-15. partial-state negativeはexactly one conflict、minimum 2 wavesで、第三TODOをいずれかのwaveへco-scheduleする。
-16. capacity-only controlは同じempty treatment graphをcapacity 2で2 wavesにする。
-17. incomplete transformとunknown controlからaccepted artifact、fresh treatment compile、new plan diffを発行しない。
-18. RC1 transfer blockとRC2 primary blockは同じcore source digestを持ち、condition-specific selectorを持たない。
-19. control／treatment各2 fresh runのsnapshot preimage、Codegraph identity、raw／portable evidence、patch identityを保存する。
-20. new plan diffはaccepted transform、behavior envelope、run evidence、v6 archive／ADR digestをpredecessorに持ち、旧plan／context／partial patchを失効する。
-21. artifact-only verifierはsummary booleanを信頼せず、normalized graph、schedule、oracle、snapshot、patch、predecessor、stage costを保存bytesから再計算する。
-22. stage別elapsed、patch bytes／files／review lines、reject／retry／rollback回数を保存し、未実測を0へ丸めない。
-23. focused／related収束後のfull `npm run ci`がgreenで、Phase反証に生き残るP0／P1 findingが0になる。
+13. fixed oracle sourceを期待値の唯一の正本にし、candidate、control／treatment source snapshot、保存source bytesのdigestとpre／post case-set
+    digestをcross-bindする。期待値を複製するoracle JSONを作らない。
+14. accepted transformはcanonical worktreeを変えず、pre／post black-box oracleを全case greenにし、scope外write／cleanup leakを0にする。
+15. oracle 6 caseを3 dedicated testsへexact partitionし、各single-case mutationでowner testだけが失敗、他2 testsとshared composition testが
+    成功する。空／常時pass testはacceptしない。
+16. treatmentはwrite conflict 0、hidden unknown 0、capacity 3でminimum 1 waveになる。
+17. partial-state negativeはexactly one conflict、minimum 2 wavesで、第三TODOをいずれかのwaveへco-scheduleする。
+18. capacity-only controlは同じempty treatment graphをcapacity 2で2 wavesにする。
+19. incomplete transformとunknown controlからaccepted artifact、fresh treatment compile、new plan diffを発行しない。
+20. RC1 transfer blockとRC2 primary blockは同じcore source digestを持ち、condition-specific selectorを持たない。
+21. control／treatment各2 fresh runのsnapshot preimage、Codegraph identity、raw／portable evidence、patch identityを保存する。
+22. new plan diffはaccepted transform、behavior envelope、run evidence、v6 archive／ADR digestをpredecessorに持ち、旧plan／context／partial patchを失効する。
+23. artifact-only verifierはsummary booleanを信頼せず、normalized graph、schedule、oracle、snapshot、patch、predecessor、stage costを保存bytesから再計算する。
+24. stage別elapsed、patch bytes／files／review lines、reject／retry／rollback回数を保存し、未実測を0へ丸めない。
+25. focused／related収束後のfull `npm run ci`がgreenで、Phase反証に生き残るP0／P1 findingが0になる。
 
 ### 反証・設計変更条件
 
@@ -130,6 +136,8 @@ wave差は構造的schedulability指標であり、actual multi-agent wall-clock
 - proposed ownershipのsemantic妥当性をCodegraphだけで証明できない場合は、manual witness claimを維持し、自動発見へ拡張しない。
 - shared production／test／state resourceがtreatmentに残れば1 waveを主張せず、追加seamまたはintentional serialへ再compileする。
 - oracle failure、scope violation、cleanup failureからnew planを発行できる場合はtransform protocolをrejectする。
+- fixed oracle source／case-set identityを保存bytesから再計算できない、またはdedicated test mutation matrixがexact partitionを示さない場合は
+  behavior／test seam claimをrejectする。
 - cost stageがaggregateへ潰れる、未実測が0になる、rejected attemptが消える場合はcost artifactをrejectする。
 - primary実測が3→1またはpartial negative 2 wavesを支持しなければfixtureを都合よく変更せず、H1-RC2をrefuteする。
 
@@ -200,15 +208,20 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 ### RC2-E — 3-TODO registry fixtureとoracle
 
 - [x] 6 exact behavior、fail-loud input、fresh repoRoot oracleをexpected-red characterizationで固定する。
-- [ ] Lattice内へmonolithic delivery policy registryと3 TODO outcomeを持つfixtureを追加する。
-- [ ] current／proposed production＋test ownership、manual state／effect、query setを一つのcandidate witnessへ固定する。
+- [x] Lattice内へmonolithic delivery policy registryとfixed black-box oracleを追加する。
+- [ ] 3つのfuture behavior TODOをplan inputへ固定する。
+- [ ] currentのfixed oracleを含むproduction＋test ownership、proposed ownership、6 case partition、manual state／effect、query setを一つのcandidate witnessへ固定する。
+- [ ] fixed oracle source digestをcandidateとcontrol／treatment source snapshotへbindし、期待値JSONを重複作成しない。
+- [ ] fixture front-endをbundle生成だけに限定し、K3／treatment／partial-state／unknownをtest-firstで固定する。
 - [x] transform外のblack-box oracleとshared composition characterizationを先にgreenにする。
 - [x] new pathのCodegraph空／absent結果を依存なしへ丸めず、初回index後にexact surfaceを再確認する。
 
 ### RC2-F — registry-shard transform adapter
 
+- [ ] shared exact testをcomposition-only＋3 dedicated testsへbehavior-preservingに分割する。
 - [ ] adapter責務をpatch、allowed paths、oracle／verifier、output snapshotへ限定する。
 - [ ] accepted seam candidate／witness／adapter source／patchをtransform artifactへcross-bindする。
+- [ ] 6 single-case mutationでowner dedicated testだけが失敗するexact partitionを検証し、各mutationを完全復元する。
 - [ ] incomplete shardをoracle failureでrejectし、accepted artifact／new planが出ないことを固定する。
 - [ ] canonical source invariant、scope、cleanup、rollback cutをfocused gateで確認する。
 
@@ -216,7 +229,7 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 
 - [ ] primary control／treatment各2 fresh indexを同じquery set、core、Codegraph identityで実行する。
 - [ ] normal、partial-state negative、capacity controlを同じnormalized graph compilerへ通す。
-- [ ] pre／post oracle、snapshot-bound Codegraph evidence、schedule proof、cost／reworkをartifactへ保存する。
+- [ ] pre／post oracle、fixed oracle source bytes／digest、snapshot-bound Codegraph evidence、schedule proof、cost／reworkをartifactへ保存する。
 - [ ] v6 archive／ADR、accepted transform、behavior envelope、run evidenceをpredecessorにしてnew plan全体を再compileする。
 - [ ] `research/campaigns/rc2/artifacts/v1`へatomic発行し、RC1 artifactを上書きしない。
 - [ ] disk verifierで保存bytesから全relationとminimumを再計算する。
@@ -233,11 +246,11 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 RC2は少なくとも次をLattice内へ保存する。
 
 - v6 Phase-supported archive／ADR digestと実装前後の12-check compatibility receipt。
-- v2 candidate witness、manual evidence、query set、behavior oracle、Codegraph／runtime identity。
+- v2 candidate witness、manual evidence、query set、fixed oracle source／case-set identity、Codegraph／runtime identity。
 - normalized graph、pairwise verdict、precedence／conflict、capacity、producer schedule、independent minimum verification。
 - K3、empty、single edge＋isolated、A-B-C path、hard need＋conflict、capacity-only、rename／permutation、unknownのcontrol結果。
 - RC1 transfer control／treatment各1 runとRC2 primary control／treatment各2 fresh runのsnapshot-bound raw／portable evidence。
-- accepted／rejected transform、adapter source、allowed paths、patch、oracle receipt、source invariant、cleanup。
+- accepted／rejected transform、adapter source、allowed paths、patch、oracle receipt、6-case mutation matrix、source invariant、cleanup。
 - normal／partial-state negative／capacity controlのmanifest、verdict、plan、comparison、underlying-artifact hypothesis evaluation。
 - transform、oracle、index、compile、verify別elapsed、patch bytes／files／review lines、reject／retry／rollback、未検証範囲。
 - old→new plan diff、失効context、digest付きpredecessor集合、artifact-only verifier receipt、Phase Decision。
