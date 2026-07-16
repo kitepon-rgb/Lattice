@@ -30,6 +30,8 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 - 初回scaffoldだけはindexがまだ存在しないためbootstrap例外とする。bootstrap sourceを作った直後、
   初期環境commitより前に`codegraph init`し、以後のsource TODOへ例外を持ち越さない。
 - Codegraph結果は構造証拠であり、semantic independenceやbehavior preservationの単独証明ではない。
+- `codegraph status`のcomplete／pending changes 0だけで新規fileのindex収載を仮定しない。`codegraph files`でcoverageを照合し、
+  欠落時は明示`codegraph sync`後にquery／caller／callee／impact／affectedを取り直す。
 - conflictに切断可能なseamがあれば、直列化だけで済ませず、純並列便益を目的とするrefactorを候補化する。
 - active plan versionのtopologyを追記で変えない。code変換後は旧plan／旧agent context／途中patchを失効し、
   accepted artifactをpredecessorにした新versionへ全affected TODOを再コンパイルする。

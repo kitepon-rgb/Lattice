@@ -185,9 +185,9 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 
 - [ ] `boundary_verdict.v2`と`plan_graph.v2`を旧validator非変更の別moduleで実装する。
 - [ ] fixture front-end outputのprovenance付きnormalized graph contractを実装する。
-- [ ] candidate／path非依存のdeterministic bounded schedulerを実装する。
-- [ ] producerと独立したenumerating verifierでfeasibility／minimumを再計算する。
-- [ ] metamorphic／unknown／capacity focused testをgreenにする。
+- [x] candidate／path非依存のdeterministic bounded schedulerを実装する。
+- [x] producerと独立したenumerating verifierでfeasibility／minimumを再計算する。
+- [x] metamorphic／unknown／capacity focused testをgreenにする。
 
 ### RC2-D — 既存2-TODO fixtureをv2へtransferする
 
