@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -116,6 +119,7 @@ test('collects query operations in input order with typed ready outcomes', async
       'affected:fixture.mjs': { code: 0, stdout: '{"affectedTests":["test.mjs"]}', stderr: '' },
       'affected:test.mjs': { code: 0, stdout: '{"affectedTests":["test.mjs"]}', stderr: '' },
     }),
+    inspectAffectedPath: async () => 'file',
   });
 
   assert.equal(evidence.cwd, '/repo');
@@ -190,6 +194,76 @@ test('does not promote fuzzy query and traversal matches to exact symbol presenc
     target: 'selectDispatchChannel',
     outcome: 'symbol_absent',
   });
+});
+
+test('binds affected targets to regular files inside the observed workspace', async (context) => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'lattice-codegraph-affected-'));
+  context.after(() => rm(cwd, { recursive: true, force: true }));
+  await mkdir(path.join(cwd, 'test'), { recursive: true });
+  await writeFile(path.join(cwd, 'test/present.test.mjs'), 'export const present = true;\n');
+  await symlink('present.test.mjs', path.join(cwd, 'test/link.test.mjs'));
+  await mkdir(path.join(cwd, 'test/directory'));
+
+  const targets = [
+    'test/present.test.mjs',
+    'test/missing.test.mjs',
+    'test/link.test.mjs',
+    'test/directory',
+    '../outside.test.mjs',
+  ];
+  const responses = Object.fromEntries(targets.map((target) => [
+    `affected:${target}`,
+    {
+      code: 0,
+      stdout: JSON.stringify({
+        changedFiles: [target],
+        affectedTests: [target],
+        totalDependentsTraversed: 0,
+      }),
+      stderr: '',
+    },
+  ]));
+  const evidence = await collectCodegraphEvidence({
+    cwd,
+    querySet: { queries: [{ id: 'affected', operation: 'affected', targets }] },
+    execute: fakeExecutor(responses),
+  });
+
+  assert.deepEqual(evidence.outcomes[0].targets, [
+    {
+      target: 'test/present.test.mjs',
+      outcome: 'ready',
+      data: {
+        changedFiles: ['test/present.test.mjs'],
+        affectedTests: ['test/present.test.mjs'],
+        totalDependentsTraversed: 0,
+      },
+    },
+    {
+      target: 'test/missing.test.mjs',
+      outcome: 'empty',
+      data: {
+        changedFiles: ['test/missing.test.mjs'],
+        affectedTests: [],
+        totalDependentsTraversed: 0,
+      },
+    },
+    { target: 'test/link.test.mjs', outcome: 'unresolved' },
+    { target: 'test/directory', outcome: 'unresolved' },
+    { target: '../outside.test.mjs', outcome: 'unresolved' },
+  ]);
+
+  const filesystemFailure = await collectCodegraphEvidence({
+    cwd,
+    querySet: {
+      queries: [{ id: 'affected', operation: 'affected', targets: ['test/present.test.mjs'] }],
+    },
+    execute: fakeExecutor(responses),
+    inspectAffectedPath: async () => 'unresolved',
+  });
+  assert.deepEqual(filesystemFailure.outcomes[0].targets, [
+    { target: 'test/present.test.mjs', outcome: 'unresolved' },
+  ]);
 });
 
 test('accepts traversal JSON only after an exact query identity resolves', async () => {
