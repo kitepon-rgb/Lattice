@@ -1,0 +1,1 @@
+{"evidence":[{"effects":[],"state_reads":[],"state_writes":["delivery-policy-registry"],"todo_id":"email-policy","unknowns":[]},{"effects":[],"state_reads":[],"state_writes":["delivery-policy-registry"],"todo_id":"sms-policy","unknowns":[]},{"effects":[],"state_reads":[],"state_writes":[],"todo_id":"push-policy","unknowns":[]}],"schema":"lattice.manual_boundary_evidence.v1"}

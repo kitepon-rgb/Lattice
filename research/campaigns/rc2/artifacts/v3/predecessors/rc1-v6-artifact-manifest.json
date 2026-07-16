@@ -1,0 +1,265 @@
+{
+  "schema": "lattice.rc1.artifact_manifest.v6",
+  "base_sha": "724d2fee8abb6219c4c5d3979c494ab1ca46b163",
+  "result_digest": "dd2a99ce959349de5087648780cbe829898de9246e0d53cd4b3a1fc9d9282b96",
+  "files": [
+    {
+      "path": "behavior/evidence-envelope.json",
+      "media_type": "application/json",
+      "bytes": 1136,
+      "sha256": "8ba9773acb51d0832a94bc3ce11ee6d5919c26288ee941540346792a646cbd29"
+    },
+    {
+      "path": "behavior/post-receipt.json",
+      "media_type": "application/json",
+      "bytes": 4952,
+      "sha256": "a744a7a22649b066a15008b94f093815b247166755465a1df36784d94b383d18"
+    },
+    {
+      "path": "behavior/pre-receipt.json",
+      "media_type": "application/json",
+      "bytes": 4699,
+      "sha256": "d49ab90d4f23cd8ce4f00435193dbe2d72752678d16faa867c8cf26fcb8b12e5"
+    },
+    {
+      "path": "comparison.json",
+      "media_type": "application/json",
+      "bytes": 5268,
+      "sha256": "8c7ebac3c6bb85b8b1f0b2689d0a4ec5a0ce870ba70befd960799d7bf09625ac"
+    },
+    {
+      "path": "compiled/control-negative/boundary-manifest.json",
+      "media_type": "application/json",
+      "bytes": 8836,
+      "sha256": "c36d3c2ccb8042eb0934541d65b04ac19012c9f71fbfc899118a26f4bddfb421"
+    },
+    {
+      "path": "compiled/control-negative/boundary-verdict.json",
+      "media_type": "application/json",
+      "bytes": 643,
+      "sha256": "4dde5c60fbeb207ee36e386551f75398d0a3c45f7fbfdb298416d844966852d4"
+    },
+    {
+      "path": "compiled/control-negative/plan.json",
+      "media_type": "application/json",
+      "bytes": 2645,
+      "sha256": "6434cee2039489b23afc39d3c7b96ed23e5a066a7572983a187a1fe1cb8e6fa3"
+    },
+    {
+      "path": "compiled/control-normal/boundary-manifest.json",
+      "media_type": "application/json",
+      "bytes": 8267,
+      "sha256": "3e99df28438f287c80591cd75185ff690cf4eed343eacb1cd218505ce35a7842"
+    },
+    {
+      "path": "compiled/control-normal/boundary-verdict.json",
+      "media_type": "application/json",
+      "bytes": 2152,
+      "sha256": "b038e93b930f46cbb3916fbedb216dc96ef526bcfb528a981162fc310b1000b1"
+    },
+    {
+      "path": "compiled/control-normal/plan.json",
+      "media_type": "application/json",
+      "bytes": 2402,
+      "sha256": "cd5795ec6e7e8175bb1d9bbc0a4c3c4a8b4c32a97d3a81d1b688afe50497ff46"
+    },
+    {
+      "path": "compiled/treatment-negative/boundary-manifest.json",
+      "media_type": "application/json",
+      "bytes": 7750,
+      "sha256": "52684ece8240f367400ef38ba418709dcfa51b5f724da48b3d13f1d1c05d1fc9"
+    },
+    {
+      "path": "compiled/treatment-negative/boundary-verdict.json",
+      "media_type": "application/json",
+      "bytes": 556,
+      "sha256": "29c379435d4148c36363607eafae6fd7cd47541ae5f81421b1139fc1f6c3eb10"
+    },
+    {
+      "path": "compiled/treatment-negative/plan.json",
+      "media_type": "application/json",
+      "bytes": 1840,
+      "sha256": "35a0ef146b146ca4e43e747bacd7beafca51560cc465001861a8f202b5cec26b"
+    },
+    {
+      "path": "compiled/treatment-normal/boundary-manifest.json",
+      "media_type": "application/json",
+      "bytes": 7167,
+      "sha256": "51fb19e355282d49373901a9d7791c103e9b952ccca2dd9775ca00314bfb18be"
+    },
+    {
+      "path": "compiled/treatment-normal/boundary-verdict.json",
+      "media_type": "application/json",
+      "bytes": 522,
+      "sha256": "a637ff27dbb295c70ac306fc5728ecd154c465423d811371d4947f851f6baa6b"
+    },
+    {
+      "path": "compiled/treatment-normal/plan.json",
+      "media_type": "application/json",
+      "bytes": 1537,
+      "sha256": "eeec78b0b7c3d73f82a1ade56d64362d9a02034a2f2100a323e5b28defbfe286"
+    },
+    {
+      "path": "evidence/control-1.json",
+      "media_type": "application/json",
+      "bytes": 96834,
+      "sha256": "d85c0be34bb766e24cf0d3258a237a464fab45ea46fad0af9f5f2f96e7e34ba8"
+    },
+    {
+      "path": "evidence/control-2.json",
+      "media_type": "application/json",
+      "bytes": 96834,
+      "sha256": "8e3eb84c3bcaa2ffba3eb604fda96613fd9f57b69ad94f68726bbd70edb9aa16"
+    },
+    {
+      "path": "evidence/treatment-1.json",
+      "media_type": "application/json",
+      "bytes": 146986,
+      "sha256": "d3cb1c24e726578540ed6ba9d4b0b1ed39bdf3684e22872fb6257e3b487149b5"
+    },
+    {
+      "path": "evidence/treatment-2.json",
+      "media_type": "application/json",
+      "bytes": 146986,
+      "sha256": "f839db312ceebf32e00d1006c17de97c95d2900546e2f7274a035e5f0a2c1e81"
+    },
+    {
+      "path": "execution-evidence.json",
+      "media_type": "application/json",
+      "bytes": 1322,
+      "sha256": "27ec2dbd8050a2e39ee7cd524382cb346fe81a9230e6b92c39b21b34fe72ca54"
+    },
+    {
+      "path": "hypothesis-evaluation.json",
+      "media_type": "application/json",
+      "bytes": 1173,
+      "sha256": "cca0827b18f8d4c3c41802268cde427cb6158360244e7bc9f904e04985a0455c"
+    },
+    {
+      "path": "identity/black-box-oracle.mjs",
+      "media_type": "application/javascript",
+      "bytes": 31424,
+      "sha256": "4818dae903f85a1e53dc99893bb61745afb1201804d27c5168997866f2150220"
+    },
+    {
+      "path": "identity/boundary-compiler.mjs",
+      "media_type": "application/javascript",
+      "bytes": 26039,
+      "sha256": "5b4f4272e396b6e257ab0bfd4997382dddae9eb38cc19a0bf707d7ae8017e733"
+    },
+    {
+      "path": "identity/codegraph-executable",
+      "media_type": "application/javascript",
+      "bytes": 12452,
+      "sha256": "2195336610e4d5a571767e066f4224d3f0f6f81bf7e34b3be18e45e87b699ef7"
+    },
+    {
+      "path": "inputs/behavior-oracle-v2.json",
+      "media_type": "application/json",
+      "bytes": 2922,
+      "sha256": "b6338fef3c3fd15e9a17418fd76c52b73ba61966c232d839d2c2c845e5f8d0d7"
+    },
+    {
+      "path": "inputs/candidate-spec-v2.json",
+      "media_type": "application/json",
+      "bytes": 4681,
+      "sha256": "83fc247e4206c880afa0a22534e2191a4959a68f52b7b76e4d1f0aef6684f5e7"
+    },
+    {
+      "path": "inputs/codegraph-identity.json",
+      "media_type": "application/json",
+      "bytes": 198,
+      "sha256": "336841cde7d813a389f6b24f3a70f261b2fba7849ec53c0b51dd547438bfbf28"
+    },
+    {
+      "path": "inputs/manual-evidence.normal.json",
+      "media_type": "application/json",
+      "bytes": 354,
+      "sha256": "9fadaece3357c366a93509f62448a44a3845312a080ed35db16fe9622233a8c1"
+    },
+    {
+      "path": "inputs/manual-evidence.shared-state-negative.json",
+      "media_type": "application/json",
+      "bytes": 424,
+      "sha256": "fdafad7967353f3313940a3ad725d1e8a40653d3c304a9d1a5847550e7650d5c"
+    },
+    {
+      "path": "inputs/oracle-runtime-identity.json",
+      "media_type": "application/json",
+      "bytes": 222,
+      "sha256": "c93faad6d85d76f8d2ded2d7356ef9e018f877f804a47c7dc1bb3794d1083c47"
+    },
+    {
+      "path": "inputs/plan-input.json",
+      "media_type": "application/json",
+      "bytes": 988,
+      "sha256": "c9d3e5426e7fcedf57c2d28fe4a8d4447dae568b400ae663bb11a5793021421e"
+    },
+    {
+      "path": "inputs/query-set-v2.json",
+      "media_type": "application/json",
+      "bytes": 2504,
+      "sha256": "cfdceeda781b06dfd274cc6c3dc159cb90726f58c5dc8b4b73296a30d1cf220e"
+    },
+    {
+      "path": "plan-diff.json",
+      "media_type": "application/json",
+      "bytes": 3866,
+      "sha256": "767a1bd6666723973d5a90ac7696a05424db2b023bde742022a033168d056f42"
+    },
+    {
+      "path": "predecessor/docs/adr/0028-rc1-v5-phase-gate-rejection.md",
+      "media_type": "text/markdown",
+      "bytes": 7957,
+      "sha256": "51fea34d25924152dd9969e3e35c38c14bb6292d6145ac99a2ce0043a859bcc0"
+    },
+    {
+      "path": "predecessor/docs/archive/2026-07-16-plan-lattice-research-campaign-1-v5-phase-rejected.md",
+      "media_type": "text/markdown",
+      "bytes": 18613,
+      "sha256": "31edaf03f00e1b0600e9a63b9f556c527dfde9428a451a68563d0c86afc2b7a3"
+    },
+    {
+      "path": "runs/control-1.json",
+      "media_type": "application/json",
+      "bytes": 297,
+      "sha256": "2c93315a5484f109ad79bb40495206f014bb2460dafa0b2859e6b2e2db2bd4bc"
+    },
+    {
+      "path": "runs/control-2.json",
+      "media_type": "application/json",
+      "bytes": 297,
+      "sha256": "9aae0b0ea66595fac14738d557d78279b391281c19db3240241e74a61e95eb9c"
+    },
+    {
+      "path": "runs/treatment-1.json",
+      "media_type": "application/json",
+      "bytes": 301,
+      "sha256": "d45e3f84104048455430e0b6ad27a99cc26dbf705ec4e8d12185c652744114b8"
+    },
+    {
+      "path": "runs/treatment-2.json",
+      "media_type": "application/json",
+      "bytes": 301,
+      "sha256": "898ab4d2ba13667f7dd9d2f4eb4dde808c6b5fa1c0df5bbbb2bd14506dd42d4e"
+    },
+    {
+      "path": "transform/seam.patch",
+      "media_type": "text/x-diff",
+      "bytes": 9141,
+      "sha256": "016e2e40a758b1588d9fe0daf8bb97027c5ae6c509ce9a77951a8ff3ccf1a307"
+    },
+    {
+      "path": "transform/transform-artifact.json",
+      "media_type": "application/json",
+      "bytes": 3604,
+      "sha256": "acc7edbffd3d7a4947b36b1a6a882abf4422162facda2053d42afcd448447b36"
+    },
+    {
+      "path": "transform/transform-receipt.json",
+      "media_type": "application/json",
+      "bytes": 1640,
+      "sha256": "25a9b1692045b672be4f7b2021012697d2b194586f0a3ec356947dc00d0d0326"
+    }
+  ]
+}
