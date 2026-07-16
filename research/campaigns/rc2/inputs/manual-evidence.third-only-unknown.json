@@ -1,0 +1,8 @@
+{
+  "schema": "lattice.manual_boundary_evidence.v1",
+  "evidence": [
+    { "todo_id": "email-policy", "state_reads": [], "state_writes": [], "effects": [], "unknowns": [] },
+    { "todo_id": "sms-policy", "state_reads": [], "state_writes": [], "effects": [], "unknowns": [] },
+    { "todo_id": "push-policy", "state_reads": [], "state_writes": [], "effects": [], "unknowns": ["dynamic-delivery-policy-boundary"] }
+  ]
+}

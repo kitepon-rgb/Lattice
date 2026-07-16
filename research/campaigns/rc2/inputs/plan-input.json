@@ -1,0 +1,16 @@
+{
+  "schema": "lattice.plan_input.v1",
+  "project": {
+    "root": ".",
+    "fixture_entry": "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs"
+  },
+  "plan_version": "rc2-delivery-policy-v1",
+  "capacity": { "writers": 3 },
+  "todos": [
+    { "id": "email-policy", "outcome": "email routine retry limitを3から4へ変更する", "concern": "delivery-policy", "anchor": { "symbol": "resolveDeliveryPolicy", "path": "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs" } },
+    { "id": "sms-policy", "outcome": "sms routine delayを30秒から20秒へ変更する", "concern": "delivery-policy", "anchor": { "symbol": "resolveDeliveryPolicy", "path": "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs" } },
+    { "id": "push-policy", "outcome": "push urgent retry limitを3から4へ変更する", "concern": "delivery-policy", "anchor": { "symbol": "resolveDeliveryPolicy", "path": "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs" } }
+  ],
+  "manual_evidence_ref": "research/campaigns/rc2/inputs/manual-evidence.normal.json",
+  "query_set_ref": "research/campaigns/rc2/inputs/query-set-v2.json"
+}
