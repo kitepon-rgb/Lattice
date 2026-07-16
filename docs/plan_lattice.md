@@ -184,8 +184,8 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 ### RC2-C — v2 contractとnormalized graph core
 
 - [x] provenance bundle、v2 verdict／plan validator、corruption rejectionをproduction source前のexpected-redで固定する。
-- [ ] `boundary_verdict.v2`と`plan_graph.v2`を旧validator非変更の別moduleで実装する。
-- [ ] fixture front-end outputのprovenance付きnormalized graph contractを実装する。
+- [x] `boundary_verdict.v2`と`plan_graph.v2`を旧validator非変更の別moduleで実装する。
+- [x] fixture front-end outputのprovenance付きnormalized graph contractを実装する。
 - [x] candidate／path非依存のdeterministic bounded schedulerを実装する。
 - [x] producerと独立したenumerating verifierでfeasibility／minimumを再計算する。
 - [x] metamorphic／unknown／capacity focused testをgreenにする。
