@@ -209,10 +209,12 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 
 - [x] 6 exact behavior、fail-loud input、fresh repoRoot oracleをexpected-red characterizationで固定する。
 - [x] Lattice内へmonolithic delivery policy registryとfixed black-box oracleを追加する。
-- [ ] 3つのfuture behavior TODOをplan inputへ固定する。
-- [ ] currentのfixed oracleを含むproduction＋test ownership、proposed ownership、6 case partition、manual state／effect、query setを一つのcandidate witnessへ固定する。
-- [ ] fixed oracle source digestをcandidateとcontrol／treatment source snapshotへbindし、期待値JSONを重複作成しない。
-- [ ] fixture front-endをbundle生成だけに限定し、K3／treatment／partial-state／unknownをtest-firstで固定する。
+- [x] 3つのfuture behavior TODOをplan inputへ固定する。
+- [x] currentのfixed oracleを含むproduction＋test ownership、proposed ownership、6 case partition、manual state／effect、query setを一つのcandidate witnessへ固定する。
+- [x] fixed oracle source digestをcandidateとcontrol／treatment source snapshotへbindし、期待値JSONを重複作成しない。
+- [x] fixture front-endをbundle生成だけに限定し、K3／treatment／partial-state／unknownをtest-firstで固定する。
+- [x] front-end source前にfresh Codegraphでowned path／symbol、caller／callee、impact、affected test、bootstrap unknownを固定する。
+- [ ] `compileDeliveryPolicyBoundaryBundleV2`を実装し、同じnormalized graph coreへbundleだけを渡す。
 - [x] transform外のblack-box oracleとshared composition characterizationを先にgreenにする。
 - [x] new pathのCodegraph空／absent結果を依存なしへ丸めず、初回index後にexact surfaceを再確認する。
 
