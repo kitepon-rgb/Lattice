@@ -236,7 +236,15 @@ test('RC2 campaignはaccepted patchだけを変数に6 fresh worktree runとfixe
   );
   assert.equal(
     result.runs.primary.treatment[0].measurement.snapshot_digest,
-    result.transform.accepted.artifact.output.snapshot_digest,
+    sha256(jsonBytes(result.runs.primary.treatment[0].measurement.snapshot)),
+  );
+  assert.deepEqual(
+    result.runs.primary.treatment[0].measurement.snapshot.files,
+    result.transform.accepted.artifact.output.files.map((file) => ({
+      path: file.path,
+      state: file.state === 'present' ? 'file' : 'absent',
+      content_digest: file.content_digest,
+    })),
   );
   assert.equal(result.identity.before_digest, result.identity.after_digest);
 });
