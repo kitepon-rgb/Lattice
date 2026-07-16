@@ -255,14 +255,17 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] H0b tracked `codegraph.json`でartifact identityだけを除外し、config actual bytesをexecution identityへbindする。
 - [x] H0c.1 artifact v2／plan v3／v1 read compatibilityの期待値をproduction変更前のcharacterizationへ固定する。
 - [x] H0c.2 immutable v1をpredecessorにしたartifact v2 writer／version-aware verifier／plan v3 barrierを実装する。
-- [ ] H0c.3 canonical artifact v2を発行し、v1／v2をdisk replayする。
-- [ ] TODO単位の軽量監査を各完了候補で一回だけ行う。
+- [x] H0c.3 canonical artifact v2を発行し、v1／v2をdisk replayする。
+- [x] TODO単位の軽量監査を各完了候補で一回だけ行う。
 - [ ] source収束後のfull `npm run ci`を一回だけ実行する。
 - [ ] RC2成功条件だけを対象にPhase反証を一回行う。
 - [ ] H1-RC2をsupport／refuteする新しい不変DecisionとPhase evidenceを残す。
 
 post-publication correction実装証拠:
 [2026-07-16 RC2 artifact v2 implementation](evidence/2026-07-16-rc2-artifact-v2-implementation.md)
+
+canonical successor証拠:
+[2026-07-16 RC2 canonical artifact v2](evidence/2026-07-16-rc2-canonical-artifact-v2.md)
 
 ## Evidence artifact
 
