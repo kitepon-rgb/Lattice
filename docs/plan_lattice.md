@@ -1,6 +1,6 @@
 # Lattice 実装計画
 
-- 状態: Active
+- 状態: Phase-supported
 - 更新日: 2026-07-16
 - 現在のplan version: `lattice-research-campaign-2-v1`
 - predecessor: `lattice-research-campaign-1-v6`（[Phase-supported archive](archive/2026-07-16-plan-lattice-research-campaign-1-v6-phase-supported.md)、SHA-256 `b655ded0a9c11dac33a79dfd3b347bc3c69ea2e5ec37af7bb688d3b9fd49a35c`）
@@ -8,6 +8,7 @@
 - campaign Decision: [ADR 0032](adr/0032-rc2-bounded-graph-compiler-and-three-way-seam.md)
 - transform Decision: [ADR 0037](adr/0037-rc2-delivery-policy-transform-transaction.md)
 - closed-loop Decision: [ADR 0038](adr/0038-rc2-closed-loop-version-and-artifact-contract.md)
+- Phase gate Decision: [ADR 0043](adr/0043-rc2-v4-phase-gate-support.md)
 - reconsideration evidence: [2026-07-16 RC2 plan reconsideration](evidence/2026-07-16-rc2-plan-reconsideration.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
 - 公開契約: [00_product-contract.md](00_product-contract.md)
@@ -274,8 +275,8 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] H2f.1 immutable v3をpredecessorにcanonical artifact v4／plan v5をatomic発行する。
 - [x] H2f.2 post-artifact Codegraph affected-set期待値へ新version witness testを加え、失敗scopeをgreenにする。
 - [x] H2f.3 fresh reindex、4-version replay、related／full gateをevidenceへ固定する。
-- [ ] RC2成功条件だけを対象にPhase反証を一回行う。
-- [ ] H1-RC2をsupport／refuteする新しい不変DecisionとPhase evidenceを残す。
+- [x] RC2成功条件だけを対象にPhase反証を一回行う。
+- [x] H1-RC2をsupport／refuteする新しい不変DecisionとPhase evidenceを残す。
 
 post-publication correction実装証拠:
 [2026-07-16 RC2 artifact v2 implementation](evidence/2026-07-16-rc2-artifact-v2-implementation.md)
@@ -324,6 +325,12 @@ canonical version witness successor証拠:
 
 version witness full regression証拠:
 [2026-07-16 RC2 version witness full CI](evidence/2026-07-16-rc2-version-witness-full-ci.md)
+
+RC2 v4 Phase反証証拠:
+[2026-07-16 RC2 artifact v4／plan v5 Phase反証](evidence/2026-07-16-rc2-v4-phase-refutation.md)
+
+RC2 v4 Phase gate Decision:
+[ADR 0043: RC2 v4は3-way registry fixtureで世代固有witness付き閉ループをsupportする](adr/0043-rc2-v4-phase-gate-support.md)
 
 ## Evidence artifact
 
