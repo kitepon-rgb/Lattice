@@ -173,8 +173,8 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 
 ### RC2-B — compatibilityとcharacterizationを先に置く
 
-- [ ] source編集前に対象path／symbolのCodegraph owned、caller／callee、impact、affected test、unknownを記録する。
-- [ ] committed v6 artifactのdisk verifier 12/12を互換baselineとして一回保存する。
+- [x] source編集前に対象path／symbolのCodegraph owned、caller／callee、impact、affected test、unknownを記録する。
+- [x] committed v6 artifactのdisk verifier 12/12を互換baselineとして一回保存する。
 - [ ] v1が3 TODOをrejectし、現scheduler／validatorがpartial graphとminimumを表現できない実挙動をcharacterizeする。
 - [ ] K3、empty、single edge＋isolated、A-B-C path、capacity-only、hard need＋conflictをexpected-red／green oracleへ固定する。
 - [ ] TODO順列、ID／resource rename、third-only unknown、探索上限、incomplete transformをtest-firstで固定する。
