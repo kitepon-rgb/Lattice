@@ -446,13 +446,25 @@ corruption再判定・path containment」まで硬化した。詳細は
 
 ### RC3-I — actual multi-agent dogfood
 
-- [ ] actual dispatch前にH gate、provider、quota、Control budget、回収手順を確認する。
-- [ ] actual executor 2以上へ非交差taskを隔離dispatchする。
-- [ ] known late conflictを注入し、affected holdと無関係継続を観測する。
-- [ ] stale receipt、timeout recovery、重複dispatch拒否を一度ずつ観測する。
-- [ ] vN+1へcarry over／redispatchし、最終artifactを受入する。
-- [ ] scripted campaignとの差をprovider runtime observationとして分離する。
-- [ ] wall-clock、queue、review、rework、retry、rollbackを未実測0へ丸めず保存する。
+- [x] actual dispatch前にH gate、provider、quota、Control budget、回収手順を確認する
+      （オーナー承認2026-07-17「全部承認」をH taskのapproval snapshotへ記録、Control rev 71）。
+- [x] actual executor 2以上へ非交差taskを隔離dispatchする（Claude implementer agent、
+      epoch 1×3体＋epoch 2 redispatch×2体＝計5 dispatch）。
+- [x] known late conflictを注入し、affected holdと無関係継続を観測する（TAへのscope外
+      oracle write注入→実diffからscope_violation＋observed_write_conflict検出→
+      exact hold {TA,TB}・TC継続）。
+- [x] stale receipt、timeout recovery、重複dispatch拒否を一度ずつ観測する。
+- [x] vN+1へcarry over／redispatchし、最終artifactを受入する（TCはrebind後のepoch 2
+      receiptで受理、TA/TBは新context packetでserial redispatch→全受理→run close）。
+- [x] scripted campaignとの差をprovider runtime observationとして分離する
+      （provider-runs.json / probes.jsonをcore eventsと分離保存）。
+- [x] wall-clock、queue、review、rework、retry、rollbackを未実測0へ丸めず保存する
+      （実測duration・tool_uses・retry系譜をprovider ledgerへ）。
+
+RC3-I成果: `src/rc3-actual-dogfood.mjs`（状態fileベースstep driver）と正典artifact
+[research/campaigns/rc3/artifacts/v2](../research/campaigns/rc3/artifacts/v2)（disk再検証16 check green・
+worktree残存0）。RC3-I driverの独立反証はRC3-JのPhase反証へ集約する（監査の増殖防止）。
+詳細は[RC3-I actual dogfood](evidence/2026-07-17-rc3-i-actual-dogfood.md)。
 
 ### RC3-J — Phase gate
 

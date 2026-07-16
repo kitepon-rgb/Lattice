@@ -1,0 +1,25 @@
+{
+ "schema": "lattice.rc3.actual_dogfood_manifest.v1",
+ "run_id": "rc3i-actual-01",
+ "scaffold": {
+  "lattice_source_base_sha": "c40596acf64556179bb769004dbb098e5e596fec",
+  "target_base_sha": "ec7db286209ec702ec0896c00ed5807a5c4c1741",
+  "path_digests": {
+   ".codegraph/.gitignore": "47c0dacebca9f56c9020b68584470dfc51f07650a3719904e98f4b447a5dd003",
+   "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs": "39bf74ee887a55186fa96a49e47b95a4b2480493dfd68d85eb0ec4ba56ad6005",
+   "src/rc2-delivery-policy-oracle.mjs": "c68a7ff9a7c9c4a181ceda6396d5fcbf27084de18680018d244a27998041652c",
+   "test/rc2-delivery-policy-fixture.test.mjs": "20288b4d4d2edbc5c3982cbdef4e3a71604b8c62ef7ae38904a98732db32555a"
+  }
+ },
+ "document_digests": {
+  "request.json": "bae31391711c7abe17dbdc4175fffeebe40e9bc1c4173389b11b60ed1c98cf04",
+  "plan.json": "55f4e81b51b4e80c340ee09be8c1e4fa1ae2e846c550ac3c0923f8ccb086df30",
+  "new-plan.json": "3c59a5141554d13af1040f3e4aa3ebb727312577c4aba293e93b8ed9570820e5",
+  "manifests.json": "4c031592cc4c5f7942bec44697c7040431bb7dc8e919da7e8d4efbc4c4abddb6",
+  "hold-decision.json": "507e04f3a86544ccc74ec184c238c6a453f766937669a75594b69a5d46c7396b",
+  "plan-diff.json": "1b32479d807541493c40228f17674ffe842482c217e730d1629b2022fde0267c",
+  "events.json": "bf3f4ff2c53d406b65ebb359a79124c7649eee19feebdf621480213616baa355",
+  "provider-runs.json": "fa544bceb520537c8f7cc7a0c7de06a4106918b82fee7b50206405c9546c2a26",
+  "probes.json": "6dd01b01dbf3ddfad98730991b4e5935f39cd50ad37a529c15f45ea342cef4ea"
+ }
+}

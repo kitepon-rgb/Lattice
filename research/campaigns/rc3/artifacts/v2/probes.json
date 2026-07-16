@@ -1,0 +1,15 @@
+{
+ "duplicate_dispatch": {
+  "todo_id": "TA",
+  "refused": "rc3 actual dogfood契約違反: 同一TODOの重複dispatchを拒否する: TA"
+ },
+ "stale_receipt": {
+  "todo_id": "TB",
+  "decision": {
+   "receipt_id": "TB-stale-r1",
+   "decision": "rejected",
+   "detail": "epoch_mismatch"
+  }
+ },
+ "residual_worktrees": []
+}

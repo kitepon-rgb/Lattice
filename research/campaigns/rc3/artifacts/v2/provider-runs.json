@@ -1,0 +1,86 @@
+[
+ {
+  "todo_id": "TA",
+  "runtime_handle": "actual-TA-h1",
+  "provider": "claude-implementer-agent",
+  "provider_model": "sonnet",
+  "state": "dispatched",
+  "observed_at": "2026-07-16T23:53:31.3NZ"
+ },
+ {
+  "todo_id": "TB",
+  "runtime_handle": "actual-TB-h1",
+  "provider": "claude-implementer-agent",
+  "provider_model": "sonnet",
+  "state": "dispatched",
+  "observed_at": "2026-07-16T23:53:31.3NZ"
+ },
+ {
+  "todo_id": "TC",
+  "runtime_handle": "actual-TC-h1",
+  "provider": "claude-implementer-agent",
+  "provider_model": "sonnet",
+  "state": "dispatched",
+  "observed_at": "2026-07-16T23:53:31.3NZ"
+ },
+ {
+  "todo_id": "TA",
+  "runtime_handle": "actual-TA-h1",
+  "provider": "claude-implementer-agent",
+  "state": "unknown_in_flight",
+  "note": "dispatch直後の観測。terminal未報告＝unknownとして扱い、同一provider handleの完了通知だけを回収経路にする（新handleでの重複起動なし）",
+  "observed_at": "2026-07-16T23:53:31.3NZ"
+ },
+ {
+  "todo_id": "TC",
+  "runtime_handle": "actual-TC-h1",
+  "provider": "claude-implementer-agent",
+  "state": "terminal_reported",
+  "duration_ms": 26969,
+  "tool_uses": 3,
+  "note": "同一provider handleの完了通知で回収。宣言scope内1 fileのみ変更・git操作なしを自己報告",
+  "observed_at": "2026-07-16T23:54:23Z"
+ },
+ {
+  "todo_id": "TA",
+  "runtime_handle": "actual-TA-h1",
+  "provider": "claude-implementer-agent",
+  "state": "terminal_reported",
+  "duration_ms": 35791,
+  "tool_uses": 6,
+  "note": "同一handle回収。scope内1 file＋既知注入のscope外1 file変更を自己報告（注入は実験プロトコル）",
+  "observed_at": "2026-07-16T23:54:56Z"
+ },
+ {
+  "todo_id": "TB",
+  "runtime_handle": "actual-TB-h1",
+  "provider": "claude-implementer-agent",
+  "state": "terminal_reported",
+  "duration_ms": 29970,
+  "tool_uses": 4,
+  "note": "同一handle回収。宣言scope内1 fileのみ変更を自己報告",
+  "observed_at": "2026-07-16T23:54:56Z"
+ },
+ {
+  "todo_id": "TA",
+  "runtime_handle": "actual-TA-h2",
+  "provider": "claude-implementer-agent",
+  "state": "terminal_reported",
+  "duration_ms": 28087,
+  "tool_uses": 5,
+  "retry_of": "actual-TA-h1",
+  "note": "epoch 2 redispatch（新context packet）。scope内1 fileのみ変更を自己報告",
+  "observed_at": "2026-07-16T23:56:29Z"
+ },
+ {
+  "todo_id": "TB",
+  "runtime_handle": "actual-TB-h2",
+  "provider": "claude-implementer-agent",
+  "state": "terminal_reported",
+  "duration_ms": 27395,
+  "tool_uses": 4,
+  "retry_of": "actual-TB-h1",
+  "note": "epoch 2 redispatch（新context packet）。scope内1 fileのみ変更を自己報告",
+  "observed_at": "2026-07-16T23:57:37Z"
+ }
+]

@@ -1,0 +1,23 @@
+{
+ "schema": "lattice.runtime_plan_diff.v1",
+ "old_plan_ref": "plan-rc3i-actual-e1",
+ "new_plan_ref": "plan-rc3i-actual-e2",
+ "accepted_checkpoints": [],
+ "invalidated_contexts": [
+  "TA",
+  "TB"
+ ],
+ "carried_over": [
+  "TC"
+ ],
+ "redispatched": [
+  "TA",
+  "TB"
+ ],
+ "node_edge_diff": {
+  "added_nodes": [],
+  "removed_nodes": [],
+  "added_conflicts": 1
+ },
+ "diff_digest": "372fbc7511746fd6eb1013c9c359b93b8c2e3e10d8f83d4007d67656e27078e0"
+}

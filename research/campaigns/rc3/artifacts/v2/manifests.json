@@ -1,0 +1,98 @@
+{
+ "TA": {
+  "schema": "lattice.boundary_manifest.v2",
+  "todo_id": "TA",
+  "owns": [
+   {
+    "kind": "path",
+    "target": "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs"
+   }
+  ],
+  "reads": [],
+  "writes": [
+   "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs"
+  ],
+  "resources": [],
+  "state_effects": [],
+  "unknowns": [],
+  "affected_tests": [
+   "test/rc2-delivery-policy-fixture.test.mjs"
+  ],
+  "graph_evidence": [
+   {
+    "query_id": "q-aff-TA",
+    "operation": "affected",
+    "status": "ready",
+    "result_digest": "66b3410507a7be03c9e93e391c2b49ab3140ff793125b56bd53270bc43ea4692"
+   }
+  ],
+  "witness_provenance": {
+   "own-path-48f23b4599fe0a40": "codegraph"
+  },
+  "manifest_digest": "836d8813a598de8e11e1f5b7e94aad3770af6e9a8662d86be54e893e55864036"
+ },
+ "TB": {
+  "schema": "lattice.boundary_manifest.v2",
+  "todo_id": "TB",
+  "owns": [
+   {
+    "kind": "path",
+    "target": "src/rc2-delivery-policy-oracle.mjs"
+   }
+  ],
+  "reads": [],
+  "writes": [
+   "src/rc2-delivery-policy-oracle.mjs"
+  ],
+  "resources": [],
+  "state_effects": [],
+  "unknowns": [],
+  "affected_tests": [
+   "test/rc2-delivery-policy-fixture.test.mjs"
+  ],
+  "graph_evidence": [
+   {
+    "query_id": "q-aff-TB",
+    "operation": "affected",
+    "status": "ready",
+    "result_digest": "3efce4974c99791192dee01ebe7835a4fbb9c35bb50e98dcc49641e4b700c4d4"
+   }
+  ],
+  "witness_provenance": {
+   "own-path-be73525057ace699": "codegraph"
+  },
+  "manifest_digest": "ef1b4be93748782ce2207cc4b7ba05805e757c69e6978abc27e0cb45ace68f88"
+ },
+ "TC": {
+  "schema": "lattice.boundary_manifest.v2",
+  "todo_id": "TC",
+  "owns": [
+   {
+    "kind": "path",
+    "target": "test/rc2-delivery-policy-fixture.test.mjs"
+   }
+  ],
+  "reads": [],
+  "writes": [
+   "test/rc2-delivery-policy-fixture.test.mjs"
+  ],
+  "resources": [],
+  "state_effects": [],
+  "unknowns": [],
+  "affected_tests": [
+   "test/rc2-delivery-policy-fixture.test.mjs"
+  ],
+  "graph_evidence": [
+   {
+    "query_id": "q-aff-TC",
+    "operation": "affected",
+    "status": "ready",
+    "result_digest": "31489a60c37e53ff99918669fb8e6bdd5550332395b88c2a59f1ff928fb9d641"
+   }
+  ],
+  "witness_provenance": {
+   "own-path-9d7693455943e77d": "codegraph"
+  },
+  "manifest_digest": "4cfffd64a7d49e74cb714446c783abfdcf62210a600a7301d96e8baa0477f390"
+ }
+}
