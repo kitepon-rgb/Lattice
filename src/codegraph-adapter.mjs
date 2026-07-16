@@ -290,7 +290,7 @@ async function collectOne({ cwd, query, execute }) {
       operation,
       target,
       outcome: resolution.outcome,
-      data: parsed.value,
+      data: resolution.candidates,
     };
   }
 
