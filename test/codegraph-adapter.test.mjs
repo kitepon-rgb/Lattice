@@ -141,6 +141,7 @@ test('keeps query and affected empty results typed rather than independent', asy
       'query:missingSymbol': { code: 0, stdout: '[]', stderr: '' },
       'affected:missing.mjs': { code: 0, stdout: '{"affectedTests":[]}', stderr: '' },
     }),
+    inspectAffectedPath: async () => 'absent',
   });
 
   assert.equal(evidence.outcomes[0].outcome, 'symbol_absent');
@@ -207,9 +208,11 @@ test('binds affected targets to regular files inside the observed workspace', as
   const targets = [
     'test/present.test.mjs',
     'test/missing.test.mjs',
+    'missing-root.mjs',
     'test/link.test.mjs',
     'test/directory',
     '../outside.test.mjs',
+    path.join(cwd, 'test/present.test.mjs'),
   ];
   const responses = Object.fromEntries(targets.map((target) => [
     `affected:${target}`,
@@ -248,9 +251,19 @@ test('binds affected targets to regular files inside the observed workspace', as
         totalDependentsTraversed: 0,
       },
     },
+    {
+      target: 'missing-root.mjs',
+      outcome: 'empty',
+      data: {
+        changedFiles: ['missing-root.mjs'],
+        affectedTests: [],
+        totalDependentsTraversed: 0,
+      },
+    },
     { target: 'test/link.test.mjs', outcome: 'unresolved' },
     { target: 'test/directory', outcome: 'unresolved' },
     { target: '../outside.test.mjs', outcome: 'unresolved' },
+    { target: path.join(cwd, 'test/present.test.mjs'), outcome: 'unresolved' },
   ]);
 
   const filesystemFailure = await collectCodegraphEvidence({

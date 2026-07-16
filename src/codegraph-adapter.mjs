@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { lstat, realpath } from 'node:fs/promises';
+import path from 'node:path';
 
 const OPERATIONS = new Set(['status', 'query', 'callers', 'callees', 'impact', 'affected']);
 const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/g;
@@ -146,6 +148,64 @@ function summarizeAffected(targets) {
   return 'unresolved';
 }
 
+function pathIsInside(root, candidate) {
+  const relativePath = path.relative(root, candidate);
+  return relativePath !== ''
+    && relativePath !== '..'
+    && !relativePath.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relativePath);
+}
+
+function pathIsInsideOrEqual(root, candidate) {
+  return path.relative(root, candidate) === '' || pathIsInside(root, candidate);
+}
+
+async function inspectAffectedPathState({ cwd, target }) {
+  if (path.isAbsolute(target)) return 'unresolved';
+  const root = path.resolve(cwd);
+  const candidate = path.resolve(root, target);
+  if (!pathIsInside(root, candidate)) return 'unresolved';
+
+  let rootRealpath;
+  try {
+    rootRealpath = await realpath(root);
+  } catch {
+    return 'unresolved';
+  }
+
+  try {
+    const stat = await lstat(candidate);
+    if (stat.isSymbolicLink() || !stat.isFile()) return 'unresolved';
+    const candidateRealpath = await realpath(candidate);
+    return pathIsInside(rootRealpath, candidateRealpath) ? 'file' : 'unresolved';
+  } catch (error) {
+    if (error?.code !== 'ENOENT') return 'unresolved';
+    try {
+      const parentRealpath = await realpath(path.dirname(candidate));
+      return pathIsInsideOrEqual(rootRealpath, parentRealpath) ? 'absent' : 'unresolved';
+    } catch {
+      return 'unresolved';
+    }
+  }
+}
+
+async function affectedPathState(inspectAffectedPath, cwd, target) {
+  try {
+    const state = await inspectAffectedPath({ cwd, target });
+    return new Set(['file', 'absent', 'unresolved']).has(state) ? state : 'unresolved';
+  } catch {
+    return 'unresolved';
+  }
+}
+
+function emptyAffectedData(target) {
+  return {
+    changedFiles: [target],
+    affectedTests: [],
+    totalDependentsTraversed: 0,
+  };
+}
+
 function defaultExecutor({ args, cwd }) {
   return new Promise((resolve) => {
     const child = spawn('codegraph', args, {
@@ -212,7 +272,7 @@ async function resolveExactSymbol({ cwd, target, execute }) {
   return exactSymbolCandidates(parsed.value, target);
 }
 
-async function collectOne({ cwd, query, execute }) {
+async function collectOne({ cwd, query, execute, inspectAffectedPath }) {
   const { id, operation, target } = query;
   if (!OPERATIONS.has(operation)) {
     return { id, operation, outcome: 'unsupported' };
@@ -225,25 +285,38 @@ async function collectOne({ cwd, query, execute }) {
     }
 
     const results = [];
-    for (const path of targets) {
+    for (const targetPath of targets) {
+      const pathState = await affectedPathState(inspectAffectedPath, cwd, targetPath);
+      if (pathState === 'absent') {
+        results.push({
+          target: targetPath,
+          outcome: 'empty',
+          data: emptyAffectedData(targetPath),
+        });
+        continue;
+      }
+      if (pathState !== 'file') {
+        results.push({ target: targetPath, outcome: 'unresolved' });
+        continue;
+      }
       const command = {
         operation,
-        target: path,
+        target: targetPath,
         cwd,
-        args: ['affected', path, '--path', '.', '--json'],
+        args: ['affected', targetPath, '--path', '.', '--json'],
       };
       const result = await executeCommand(execute, command);
       if (result.code !== 0) {
-        results.push({ target: path, outcome: 'command_failure', exitCode: result.code });
+        results.push({ target: targetPath, outcome: 'command_failure', exitCode: result.code });
         continue;
       }
       const parsed = parseJson(result.stdout);
       if (parsed.value === undefined || !parsed.value || !Array.isArray(parsed.value.affectedTests)) {
-        results.push({ target: path, outcome: 'invalid_json' });
+        results.push({ target: targetPath, outcome: 'invalid_json' });
         continue;
       }
       results.push({
-        target: path,
+        target: targetPath,
         outcome: parsed.value.affectedTests.length === 0 ? 'empty' : 'ready',
         data: parsed.value,
       });
@@ -320,13 +393,21 @@ async function collectOne({ cwd, query, execute }) {
  * @param {{ cwd: string, querySet: { queries?: object[] }, execute?: Function }} options
  * @returns {Promise<{ cwd: string, outcomes: object[] }>}
  */
-export async function collectCodegraphEvidence({ cwd, querySet, execute = defaultExecutor } = {}) {
+export async function collectCodegraphEvidence({
+  cwd,
+  querySet,
+  execute = defaultExecutor,
+  inspectAffectedPath = inspectAffectedPathState,
+} = {}) {
   const queries = Array.isArray(querySet?.queries) ? querySet.queries : [];
   if (typeof cwd !== 'string' || cwd.length === 0) {
     return { cwd, outcomes: [{ outcome: 'unresolved', reason: 'invalid_cwd' }] };
   }
   if (!Array.isArray(querySet?.queries)) {
     return { cwd, outcomes: [{ outcome: 'unresolved', reason: 'invalid_query_set' }] };
+  }
+  if (typeof inspectAffectedPath !== 'function') {
+    return { cwd, outcomes: [{ outcome: 'unresolved', reason: 'invalid_path_inspector' }] };
   }
 
   const outcomes = [];
@@ -335,7 +416,7 @@ export async function collectCodegraphEvidence({ cwd, querySet, execute = defaul
       outcomes.push({ outcome: 'unresolved', reason: 'invalid_query' });
       continue;
     }
-    outcomes.push(await collectOne({ cwd, query, execute }));
+    outcomes.push(await collectOne({ cwd, query, execute, inspectAffectedPath }));
   }
   return { cwd, outcomes };
 }
