@@ -1,0 +1,277 @@
+diff --git a/research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs b/research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs
+index 813c3f0..a2904a6 100644
+--- a/research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs
++++ b/research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs
+@@ -1,4 +1,8 @@
+-const INPUT_KEYS = ['channel', 'urgency'];
++import { resolveEmailPolicy } from './email-policy.mjs';
++import { resolvePushPolicy } from './push-policy.mjs';
++import { resolveSmsPolicy } from './sms-policy.mjs';
++
++const INPUT_KEYS = Object.freeze(['channel', 'urgency']);
+ 
+ function isPlainObject(value) {
+   return value !== null
+@@ -14,31 +18,20 @@ function hasExactInputKeys(value) {
+     && keys.every((key, index) => key === INPUT_KEYS[index]);
+ }
+ 
+-const POLICIES = Object.freeze({
+-  email: Object.freeze({
+-    routine: Object.freeze({ transport: 'smtp', retry_limit: 3, delay_seconds: 60 }),
+-    urgent: Object.freeze({ transport: 'smtp', retry_limit: 5, delay_seconds: 0 }),
+-  }),
+-  sms: Object.freeze({
+-    routine: Object.freeze({ transport: 'sms', retry_limit: 2, delay_seconds: 30 }),
+-    urgent: Object.freeze({ transport: 'sms', retry_limit: 4, delay_seconds: 0 }),
+-  }),
+-  push: Object.freeze({
+-    routine: Object.freeze({ transport: 'push', retry_limit: 1, delay_seconds: 10 }),
+-    urgent: Object.freeze({ transport: 'push', retry_limit: 3, delay_seconds: 0 }),
+-  }),
+-});
+-
+-/** 公開inputからdelivery policyを決定するmonolithic fixture entrypoint。 */
++/** 公開inputを検証し、channel別resolverへroutingするcomposition entry。 */
+ export function resolveDeliveryPolicy(input) {
+   if (!hasExactInputKeys(input)) {
+     throw new TypeError('delivery policy input must be a plain object with exact keys: channel, urgency');
+   }
+-  if (!Object.hasOwn(POLICIES, input.channel)) {
++  let policy;
++  if (input.channel === 'email') {
++    policy = resolveEmailPolicy(input.urgency);
++  } else if (input.channel === 'push') {
++    policy = resolvePushPolicy(input.urgency);
++  } else if (input.channel === 'sms') {
++    policy = resolveSmsPolicy(input.urgency);
++  } else {
+     throw new RangeError('channel must be email, sms, or push');
+   }
+-  if (!Object.hasOwn(POLICIES[input.channel], input.urgency)) {
+-    throw new RangeError('urgency must be routine or urgent');
+-  }
+-  return { channel: input.channel, ...POLICIES[input.channel][input.urgency] };
++  return { channel: input.channel, ...policy };
+ }
+diff --git a/test/rc2-delivery-policy-fixture.test.mjs b/test/rc2-delivery-policy-fixture.test.mjs
+index d4ed044..d20d8c4 100644
+--- a/test/rc2-delivery-policy-fixture.test.mjs
++++ b/test/rc2-delivery-policy-fixture.test.mjs
+@@ -1,86 +1,34 @@
+ import assert from 'node:assert/strict';
+ import test from 'node:test';
+ 
+-const FIXTURE_MODULE = '../research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs';
+-const ORACLE_MODULE = '../src/rc2-delivery-policy-oracle.mjs';
+-
+-const CASES = [
+-  {
+-    id: 'email-routine',
+-    input: { channel: 'email', urgency: 'routine' },
+-    expected: { channel: 'email', transport: 'smtp', retry_limit: 3, delay_seconds: 60 },
+-  },
+-  {
+-    id: 'email-urgent',
+-    input: { channel: 'email', urgency: 'urgent' },
+-    expected: { channel: 'email', transport: 'smtp', retry_limit: 5, delay_seconds: 0 },
+-  },
+-  {
+-    id: 'sms-routine',
+-    input: { channel: 'sms', urgency: 'routine' },
+-    expected: { channel: 'sms', transport: 'sms', retry_limit: 2, delay_seconds: 30 },
+-  },
+-  {
+-    id: 'sms-urgent',
+-    input: { channel: 'sms', urgency: 'urgent' },
+-    expected: { channel: 'sms', transport: 'sms', retry_limit: 4, delay_seconds: 0 },
+-  },
+-  {
+-    id: 'push-routine',
+-    input: { channel: 'push', urgency: 'routine' },
+-    expected: { channel: 'push', transport: 'push', retry_limit: 1, delay_seconds: 10 },
+-  },
+-  {
+-    id: 'push-urgent',
+-    input: { channel: 'push', urgency: 'urgent' },
+-    expected: { channel: 'push', transport: 'push', retry_limit: 3, delay_seconds: 0 },
+-  },
+-];
+-
+-for (const fixtureCase of CASES) {
+-  test(`delivery policy fixture returns the exact ${fixtureCase.id} behavior`, async () => {
+-    const { resolveDeliveryPolicy } = await import(FIXTURE_MODULE);
+-    assert.deepEqual(resolveDeliveryPolicy(fixtureCase.input), fixtureCase.expected);
+-  });
+-}
+-
+-test('delivery policy fixture rejects non-exact input shapes', async () => {
+-  const { resolveDeliveryPolicy } = await import(FIXTURE_MODULE);
+-
++import { resolveDeliveryPolicy } from '../research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs';
++
++export function deliveryPolicyCompositionContract() {
++  for (const channel of ['email', 'sms', 'push']) {
++    const output = resolveDeliveryPolicy({ channel, urgency: 'routine' });
++    assert.equal(output.channel, channel);
++    assert.deepEqual(Object.keys(output).sort(), [
++      'channel', 'delay_seconds', 'retry_limit', 'transport',
++    ]);
++    assert.equal(typeof output.transport, 'string');
++    assert.equal(typeof output.retry_limit, 'number');
++    assert.equal(typeof output.delay_seconds, 'number');
++  }
+   assert.throws(() => resolveDeliveryPolicy(null), { name: 'TypeError' });
+   assert.throws(() => resolveDeliveryPolicy({ channel: 'email' }), { name: 'TypeError' });
+   assert.throws(
+     () => resolveDeliveryPolicy({ channel: 'email', urgency: 'routine', extra: true }),
+     { name: 'TypeError' },
+   );
+-});
+-
+-test('delivery policy fixture rejects an unknown channel as RangeError', async () => {
+-  const { resolveDeliveryPolicy } = await import(FIXTURE_MODULE);
+-
+   assert.throws(
+     () => resolveDeliveryPolicy({ channel: 'webhook', urgency: 'routine' }),
+     { name: 'RangeError' },
+   );
+-});
+-
+-test('delivery policy fixture rejects an unknown urgency as RangeError', async () => {
+-  const { resolveDeliveryPolicy } = await import(FIXTURE_MODULE);
+-
+   assert.throws(
+     () => resolveDeliveryPolicy({ channel: 'email', urgency: 'later' }),
+     { name: 'RangeError' },
+   );
+-});
+-
+-test('delivery policy oracle black-boxes the same table from the supplied repoRoot', async () => {
+-  const { runRc2DeliveryPolicyOracle } = await import(ORACLE_MODULE);
+-  const receipt = await runRc2DeliveryPolicyOracle({ repoRoot: process.cwd() });
++}
+ 
+-  assert.equal(receipt.outcome, 'passed');
+-  assert.deepEqual(receipt.case_results.map(({ id, outcome }) => ({ id, outcome })),
+-    CASES.map(({ id }) => ({ id, outcome: 'passed' })));
+-  assert.equal(Object.hasOwn(receipt, 'expected_waves'), false);
+-  assert.equal(Object.hasOwn(receipt, 'conflicts'), false);
+-  assert.equal(Object.hasOwn(receipt, 'candidate_id'), false);
+-});
++test('delivery policy composition routing, shape, and fail-loud contract',
++  deliveryPolicyCompositionContract);
+diff --git a/research/fixtures/delivery-policy-registry/src/email-policy.mjs b/research/fixtures/delivery-policy-registry/src/email-policy.mjs
+new file mode 100644
+index 0000000..883f911
+--- /dev/null
++++ b/research/fixtures/delivery-policy-registry/src/email-policy.mjs
+@@ -0,0 +1,11 @@
++const POLICIES = Object.freeze({
++  routine: Object.freeze({ transport: 'smtp', retry_limit: 3, delay_seconds: 60 }),
++  urgent: Object.freeze({ transport: 'smtp', retry_limit: 5, delay_seconds: 0 }),
++});
++
++export function resolveEmailPolicy(urgency) {
++  if (!Object.hasOwn(POLICIES, urgency)) {
++    throw new RangeError('urgency must be routine or urgent');
++  }
++  return { ...POLICIES[urgency] };
++}
+diff --git a/research/fixtures/delivery-policy-registry/src/push-policy.mjs b/research/fixtures/delivery-policy-registry/src/push-policy.mjs
+new file mode 100644
+index 0000000..39b2c2f
+--- /dev/null
++++ b/research/fixtures/delivery-policy-registry/src/push-policy.mjs
+@@ -0,0 +1,11 @@
++const POLICIES = Object.freeze({
++  routine: Object.freeze({ transport: 'push', retry_limit: 1, delay_seconds: 10 }),
++  urgent: Object.freeze({ transport: 'push', retry_limit: 3, delay_seconds: 0 }),
++});
++
++export function resolvePushPolicy(urgency) {
++  if (!Object.hasOwn(POLICIES, urgency)) {
++    throw new RangeError('urgency must be routine or urgent');
++  }
++  return { ...POLICIES[urgency] };
++}
+diff --git a/research/fixtures/delivery-policy-registry/src/sms-policy.mjs b/research/fixtures/delivery-policy-registry/src/sms-policy.mjs
+new file mode 100644
+index 0000000..f6c46dc
+--- /dev/null
++++ b/research/fixtures/delivery-policy-registry/src/sms-policy.mjs
+@@ -0,0 +1,11 @@
++const POLICIES = Object.freeze({
++  routine: Object.freeze({ transport: 'sms', retry_limit: 2, delay_seconds: 30 }),
++  urgent: Object.freeze({ transport: 'sms', retry_limit: 4, delay_seconds: 0 }),
++});
++
++export function resolveSmsPolicy(urgency) {
++  if (!Object.hasOwn(POLICIES, urgency)) {
++    throw new RangeError('urgency must be routine or urgent');
++  }
++  return { ...POLICIES[urgency] };
++}
+diff --git a/test/rc2-delivery-policy-email.test.mjs b/test/rc2-delivery-policy-email.test.mjs
+new file mode 100644
+index 0000000..6c8f6fd
+--- /dev/null
++++ b/test/rc2-delivery-policy-email.test.mjs
+@@ -0,0 +1,15 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import { resolveEmailPolicy } from '../research/fixtures/delivery-policy-registry/src/email-policy.mjs';
++
++export function emailPolicyContract() {
++  assert.deepEqual(resolveEmailPolicy('routine'), {
++    transport: 'smtp', retry_limit: 3, delay_seconds: 60,
++  });
++  assert.deepEqual(resolveEmailPolicy('urgent'), {
++    transport: 'smtp', retry_limit: 5, delay_seconds: 0,
++  });
++}
++
++test('email-routine and email-urgent policy contract', emailPolicyContract);
+diff --git a/test/rc2-delivery-policy-push.test.mjs b/test/rc2-delivery-policy-push.test.mjs
+new file mode 100644
+index 0000000..ab5a7c0
+--- /dev/null
++++ b/test/rc2-delivery-policy-push.test.mjs
+@@ -0,0 +1,15 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import { resolvePushPolicy } from '../research/fixtures/delivery-policy-registry/src/push-policy.mjs';
++
++export function pushPolicyContract() {
++  assert.deepEqual(resolvePushPolicy('routine'), {
++    transport: 'push', retry_limit: 1, delay_seconds: 10,
++  });
++  assert.deepEqual(resolvePushPolicy('urgent'), {
++    transport: 'push', retry_limit: 3, delay_seconds: 0,
++  });
++}
++
++test('push-routine and push-urgent policy contract', pushPolicyContract);
+diff --git a/test/rc2-delivery-policy-sms.test.mjs b/test/rc2-delivery-policy-sms.test.mjs
+new file mode 100644
+index 0000000..1b24120
+--- /dev/null
++++ b/test/rc2-delivery-policy-sms.test.mjs
+@@ -0,0 +1,15 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import { resolveSmsPolicy } from '../research/fixtures/delivery-policy-registry/src/sms-policy.mjs';
++
++export function smsPolicyContract() {
++  assert.deepEqual(resolveSmsPolicy('routine'), {
++    transport: 'sms', retry_limit: 2, delay_seconds: 30,
++  });
++  assert.deepEqual(resolveSmsPolicy('urgent'), {
++    transport: 'sms', retry_limit: 4, delay_seconds: 0,
++  });
++}
++
++test('sms-routine and sms-urgent policy contract', smsPolicyContract);

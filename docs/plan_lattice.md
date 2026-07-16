@@ -240,12 +240,14 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] G2c blocker: accepted registry shardのcomposition entryから3 resolverへのexact callee linkをfresh Codegraphで観測可能にする。
 - [x] G2d blocker: 16KiBを超えるraw evidence base64をbounded canonical chunksへ保存し、disk verifierでbyte-exactにrehydrateする。
 - [x] G2e blocker: RC1 v6の3 opaque predecessor JSONをbyte-exactに保持し、RC2-owned JSONだけへcanonicalityを要求する。
-- [ ] primary control／treatment各2 fresh indexを同じquery set、core、Codegraph identityで実行する。
-- [ ] normal、partial-state negative、capacity controlを同じnormalized graph compilerへ通す。
-- [ ] pre／post oracle、fixed oracle source bytes／digest、snapshot-bound Codegraph evidence、schedule proof、cost／reworkをartifactへ保存する。
-- [ ] v6 archive／ADR、accepted transform、behavior envelope、run evidenceをpredecessorにしてnew plan全体を再compileする。
-- [ ] `research/campaigns/rc2/artifacts/v1`へatomic発行し、RC1 artifactを上書きしない。
-- [ ] disk verifierで保存bytesから全relationとminimumを再計算する。
+- [x] primary control／treatment各2 fresh indexを同じquery set、core、Codegraph identityで実行する。
+- [x] normal、partial-state negative、capacity controlを同じnormalized graph compilerへ通す。
+- [x] pre／post oracle、fixed oracle source bytes／digest、snapshot-bound Codegraph evidence、schedule proof、cost／reworkをartifactへ保存する。
+- [x] v6 archive／ADR、accepted transform、behavior envelope、run evidenceをpredecessorにしてnew plan全体を再compileする。
+- [x] `research/campaigns/rc2/artifacts/v1`へatomic発行し、RC1 artifactを上書きしない。
+- [x] disk verifierで保存bytesから全relationとminimumを再計算する。
+
+実行証拠: [2026-07-16 RC2 canonical closed loop](evidence/2026-07-16-rc2-canonical-closed-loop.md)
 
 ### RC2-H — Phase gate
 
