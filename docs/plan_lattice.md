@@ -266,11 +266,11 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] H1c.1 v1／v2 read compatibilityを保つversion-aware semantic verifierを実装し、3件のcharacterizationと関連契約をgreenにする。
 - [x] H1d immutable v2をpredecessorにcanonical artifact v3／plan v4を発行し、fresh reindex、旧context失効、related／full gateを
   新しいevidenceへ固定する。
-- [x] H2a Phase再反証で、canonical v2 common payloadをv3へ正規再包装しても15／15 validになるversion-downgrade P1を固定する。
+- [x] H2a Phase再反証で、canonical v2 common setをv3へ正規再包装しても15／15 validになる旧witness再包装P1を固定する。
 - [x] H2b 新しい不変ADRでartifact version固有のactive candidate／oracle epoch bindingとartifact v4／plan v5 barrierを裁定する。
-- [x] H2c v2→v3再包装をexpected-red characterizationへ固定し、v1／v2／v3 compatibilityを同時に保持する。
+- [x] H2c v2→v3再包装をexpected-red回帰testへ固定し、v1／v2／v3 compatibilityを同時に保持する。
 - [x] H2d source編集前Codegraph preflightでepoch verifier／campaign／candidate consumerとaffected testsを開き直す。
-- [ ] H2e version-aware active witness bindingとbase cross-bindingを実装し、downgrade characterizationをgreenにする。
+- [x] H2e version-aware active witness bindingとbase cross-bindingを実装し、世代不整合testをgreenにする。
 - [ ] H2f immutable v3をpredecessorにcanonical artifact v4／plan v5を発行し、fresh reindex、related／full gateを固定する。
 - [ ] RC2成功条件だけを対象にPhase反証を一回行う。
 - [ ] H1-RC2をsupport／refuteする新しい不変DecisionとPhase evidenceを残す。
@@ -302,17 +302,20 @@ canonical semantic successor証拠:
 semantic correction full regression証拠:
 [2026-07-16 RC2 semantic binding full CI](evidence/2026-07-16-rc2-semantic-binding-full-ci.md)
 
-v3 version-downgrade反証証拠:
-[2026-07-16 RC2 artifact v3 version-downgrade Phase refutation](evidence/2026-07-16-rc2-v3-version-downgrade-refutation.md)
+v3 witness再包装反証証拠:
+[2026-07-16 RC2 artifact v3 witness再包装 Phase refutation](evidence/2026-07-16-rc2-v3-version-downgrade-refutation.md)
 
 version witness epoch Decision:
 [ADR 0042: artifact versionをactive witness epochへbindしv4へ再compileする](adr/0042-rc2-artifact-version-witness-epoch-and-v4.md)
 
 version-contract expected-red証拠:
-[2026-07-16 RC2 artifact version-contract characterization](evidence/2026-07-16-rc2-version-downgrade-characterization.md)
+[2026-07-16 RC2 artifact version-contract回帰test](evidence/2026-07-16-rc2-version-downgrade-characterization.md)
 
 version witness preflight証拠:
 [2026-07-16 RC2 version witness Codegraph preflight](evidence/2026-07-16-rc2-version-witness-codegraph-preflight.md)
+
+version witness実装証拠:
+[2026-07-16 RC2 version witness consistency implementation](evidence/2026-07-16-rc2-version-witness-implementation.md)
 
 ## Evidence artifact
 

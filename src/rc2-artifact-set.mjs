@@ -22,6 +22,22 @@ const RC2_ORACLE_PATH = 'src/rc2-delivery-policy-oracle.mjs';
 const RC2_ORACLE_IDENTITY_REF = 'identity/rc2-delivery-policy-oracle.mjs';
 const RC2_TRANSFORM_PATH = 'src/rc2-delivery-policy-transform.mjs';
 const RC2_TRANSFORM_IDENTITY_REF = 'identity/rc2-delivery-policy-transform.mjs';
+const LEGACY_WITNESS = Object.freeze({
+  epoch: 'delivery-policy-legacy-v1',
+  candidateDigest: '30ee67852f7ab5fb0d9bf82f2a4c55b6569a76507b0df5b329290c84d29b49f5',
+  oracleSourceDigest: 'c4012dfc00cc5b0194bd1a87be4a4e0b20d45e784d49a987768eea1b9932fafe',
+});
+const SEMANTIC_WITNESS = Object.freeze({
+  epoch: 'delivery-policy-semantic-v2',
+  candidateDigest: '4cc5d7bb428a8899353d18524c25105742fa90f89ee55d36064c4be3c52e2907',
+  oracleSourceDigest: 'c68a7ff9a7c9c4a181ceda6396d5fcbf27084de18680018d244a27998041652c',
+});
+const WITNESS_BY_VERSION = Object.freeze({
+  v1: LEGACY_WITNESS,
+  v2: LEGACY_WITNESS,
+  v3: SEMANTIC_WITNESS,
+  v4: SEMANTIC_WITNESS,
+});
 
 const PRIMARY_INPUT_PATHS = Object.freeze({
   planInput: 'inputs/primary/plan-input.json',
@@ -69,6 +85,7 @@ const V2_IDENTITY_PATHS = Object.freeze([
 ]);
 
 const V3_IDENTITY_PATHS = V2_IDENTITY_PATHS;
+const V4_IDENTITY_PATHS = V3_IDENTITY_PATHS;
 
 const V1_PREDECESSOR_PATHS = Object.freeze([
   'predecessors/adr-0031.md',
@@ -95,6 +112,14 @@ const V3_PREDECESSOR_PATHS = Object.freeze([
   'predecessors/rc2-semantic-reseal-characterization.md',
   'predecessors/rc2-v2-artifact-manifest.json',
   'predecessors/rc2-v2-new-plan-version.json',
+]);
+
+const V4_PREDECESSOR_PATHS = Object.freeze([
+  ...V3_PREDECESSOR_PATHS,
+  'predecessors/adr-0042.md',
+  'predecessors/rc2-v3-version-downgrade-refutation.md',
+  'predecessors/rc2-v3-artifact-manifest.json',
+  'predecessors/rc2-v3-new-plan-version.json',
 ]);
 
 const BYTE_PRESERVING_JSON_PATHS = new Set([
@@ -171,11 +196,22 @@ const RC2_V2_ARTIFACT_PATHS = Object.freeze([
   ...SUMMARY_PATHS,
 ].sort());
 
-export const RC2_ARTIFACT_PATHS = Object.freeze([
+const RC2_V3_ARTIFACT_PATHS = Object.freeze([
   ...Object.values(PRIMARY_INPUT_PATHS),
   ...Object.values(RC1_INPUT_PATHS),
   ...V3_IDENTITY_PATHS,
   ...V3_PREDECESSOR_PATHS,
+  ...TRANSFORM_PATHS,
+  ...RUN_IDS.map((runId) => `evidence/${runId}.json`),
+  ...COMPILED_PATHS,
+  ...SUMMARY_PATHS,
+].sort());
+
+export const RC2_ARTIFACT_PATHS = Object.freeze([
+  ...Object.values(PRIMARY_INPUT_PATHS),
+  ...Object.values(RC1_INPUT_PATHS),
+  ...V4_IDENTITY_PATHS,
+  ...V4_PREDECESSOR_PATHS,
   ...TRANSFORM_PATHS,
   ...RUN_IDS.map((runId) => `evidence/${runId}.json`),
   ...COMPILED_PATHS,
@@ -260,6 +296,7 @@ function artifactContract(manifest) {
       artifactPaths: RC2_V1_ARTIFACT_PATHS,
       identityPaths: V1_IDENTITY_PATHS,
       predecessorPaths: V1_PREDECESSOR_PATHS,
+      witness: WITNESS_BY_VERSION.v1,
     };
   }
   if (manifest?.schema === 'lattice.rc2.artifact_manifest.v2') {
@@ -268,14 +305,25 @@ function artifactContract(manifest) {
       artifactPaths: RC2_V2_ARTIFACT_PATHS,
       identityPaths: V2_IDENTITY_PATHS,
       predecessorPaths: V2_PREDECESSOR_PATHS,
+      witness: WITNESS_BY_VERSION.v2,
     };
   }
   if (manifest?.schema === 'lattice.rc2.artifact_manifest.v3') {
     return {
       artifactVersion: 'v3',
-      artifactPaths: RC2_ARTIFACT_PATHS,
+      artifactPaths: RC2_V3_ARTIFACT_PATHS,
       identityPaths: V3_IDENTITY_PATHS,
       predecessorPaths: V3_PREDECESSOR_PATHS,
+      witness: WITNESS_BY_VERSION.v3,
+    };
+  }
+  if (manifest?.schema === 'lattice.rc2.artifact_manifest.v4') {
+    return {
+      artifactVersion: 'v4',
+      artifactPaths: RC2_ARTIFACT_PATHS,
+      identityPaths: V4_IDENTITY_PATHS,
+      predecessorPaths: V4_PREDECESSOR_PATHS,
+      witness: WITNESS_BY_VERSION.v4,
     };
   }
   return null;
@@ -607,6 +655,8 @@ function verifyTransformSemantics(context, accepted, behavior, mutation) {
       || behavior.fixed_oracle.source_digest !== candidate.fixed_oracle.source_digest
       || behavior.fixed_oracle.source_digest !== accepted?.source?.fixed_oracle?.source_digest
       || accepted.source.fixed_oracle.path !== RC2_ORACLE_PATH
+      || candidateDigest !== context.witness.candidateDigest
+      || behavior.fixed_oracle.source_digest !== context.witness.oracleSourceDigest
       || behavior.candidate_digest !== candidateDigest
       || mutation?.candidate_digest !== candidateDigest
       || accepted?.candidate?.candidate_id !== candidate.candidate_id
@@ -684,6 +734,18 @@ function verifyTransform(context) {
   const scopeReceiptBase = stripDigest(scopeReceipt, 'receipt_digest');
   return accepted?.schema === 'lattice.rc2.delivery_policy_transform_artifact.v1'
     && accepted.status === 'accepted'
+    && exactRecord(accepted.candidate, ['candidate_id', 'digest'])
+    && accepted.candidate.digest === context.witness.candidateDigest
+    && exactRecord(accepted.source, [
+      'adapter',
+      'base_sha',
+      'control_snapshot_digest',
+      'fixed_oracle',
+    ])
+    && exactRecord(accepted.source.adapter, ['path', 'digest'])
+    && exactRecord(accepted.source.fixed_oracle, ['path', 'source_digest'])
+    && accepted.source.base_sha === context.manifest.base_sha
+    && accepted.source.fixed_oracle.source_digest === context.witness.oracleSourceDigest
     && accepted.patch?.digest === sha256(patch)
     && accepted.patch?.bytes === patch.byteLength
     && accepted.output?.snapshot_digest === behavior?.output_snapshot?.digest
@@ -704,6 +766,8 @@ function verifyTransform(context) {
     && incomplete?.status === 'rejected'
     && incomplete?.rejection?.kind === 'incomplete_transform'
     && incomplete.output === null
+    && sameArtifact(incomplete.candidate, accepted.candidate)
+    && sameArtifact(incomplete.source, accepted.source)
     && incompleteReceipt?.status === 'rejected'
     && incompleteReceipt.transform_artifact_digest === digestArtifact(incomplete)
     && incompleteReceiptBase !== null
@@ -711,6 +775,8 @@ function verifyTransform(context) {
     && scope?.status === 'rejected'
     && scope?.rejection?.kind === 'scope_violation'
     && scope.output === null
+    && sameArtifact(scope.candidate, accepted.candidate)
+    && sameArtifact(scope.source, accepted.source)
     && scopeReceipt?.status === 'rejected'
     && scopeReceipt.transform_artifact_digest === digestArtifact(scope)
     && scopeReceiptBase !== null
@@ -1226,7 +1292,7 @@ function verifyV1PredecessorPair(context) {
 }
 
 function verifyV2PredecessorPair(context) {
-  if (context.artifactVersion !== 'v3') return true;
+  if (!['v3', 'v4'].includes(context.artifactVersion)) return true;
   const manifest = context.json.get('predecessors/rc2-v2-artifact-manifest.json');
   const plan = context.json.get('predecessors/rc2-v2-new-plan-version.json');
   if (!exactRecord(manifest, ['schema', 'base_sha', 'result_digest', 'files'])
@@ -1245,6 +1311,35 @@ function verifyV2PredecessorPair(context) {
     return false;
   }
   const planBytes = context.payloads.get('predecessors/rc2-v2-new-plan-version.json');
+  const entry = manifest.files.find(({ path: relativePath }) => (
+    relativePath === 'new-plan-version.json'
+  ));
+  return exactRecord(entry, ['path', 'media_type', 'bytes', 'sha256'])
+    && entry.media_type === 'application/json'
+    && entry.bytes === planBytes.byteLength
+    && entry.sha256 === sha256(planBytes);
+}
+
+function verifyV3PredecessorPair(context) {
+  if (context.artifactVersion !== 'v4') return true;
+  const manifest = context.json.get('predecessors/rc2-v3-artifact-manifest.json');
+  const plan = context.json.get('predecessors/rc2-v3-new-plan-version.json');
+  if (!exactRecord(manifest, ['schema', 'base_sha', 'result_digest', 'files'])
+    || manifest.schema !== 'lattice.rc2.artifact_manifest.v3'
+    || !GIT_SHA1.test(manifest.base_sha)
+    || !SHA256.test(manifest.result_digest)
+    || !Array.isArray(manifest.files)
+    || !sameArtifact(
+      manifest.files.map(({ path: relativePath }) => relativePath).sort(),
+      RC2_V3_ARTIFACT_PATHS,
+    )
+    || new Set(manifest.files.map(({ path: relativePath }) => relativePath)).size
+      !== RC2_V3_ARTIFACT_PATHS.length
+    || plan?.schema !== 'lattice.rc2.plan_version.v1'
+    || plan.version !== 'rc2-delivery-policy-v4') {
+    return false;
+  }
+  const planBytes = context.payloads.get('predecessors/rc2-v3-new-plan-version.json');
   const entry = manifest.files.find(({ path: relativePath }) => (
     relativePath === 'new-plan-version.json'
   ));
@@ -1277,7 +1372,8 @@ function verifyPredecessors(context) {
   return refs.size === expected.size
     && [...expected.keys()].every((relativePath) => refs.has(relativePath))
     && verifyV1PredecessorPair(context)
-    && verifyV2PredecessorPair(context);
+    && verifyV2PredecessorPair(context)
+    && verifyV3PredecessorPair(context);
 }
 
 function verifyVersionBarrier(context, recomputed) {
@@ -1297,6 +1393,7 @@ function verifyVersionBarrier(context, recomputed) {
     v1: null,
     v2: 'predecessors/rc2-v1-new-plan-version.json',
     v3: 'predecessors/rc2-v2-new-plan-version.json',
+    v4: 'predecessors/rc2-v3-new-plan-version.json',
   }[context.artifactVersion];
   const predecessorPlan = predecessorPath === null ? null : context.json.get(predecessorPath);
   const versionedPredecessor = predecessorPlan !== null;
@@ -1307,6 +1404,7 @@ function verifyVersionBarrier(context, recomputed) {
     v1: 'rc2-delivery-policy-v2',
     v2: 'rc2-delivery-policy-v3',
     v3: 'rc2-delivery-policy-v4',
+    v4: 'rc2-delivery-policy-v5',
   }[context.artifactVersion];
   const expectedOldDigest = versionedPredecessor
     ? digestArtifact(predecessorPlan)
