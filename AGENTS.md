@@ -32,6 +32,8 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 - Codegraph結果は構造証拠であり、semantic independenceやbehavior preservationの単独証明ではない。
 - `codegraph status`のcomplete／pending changes 0だけで新規fileのindex収載を仮定しない。`codegraph files`でcoverageを照合し、
   欠落時は明示`codegraph sync`後にquery／caller／callee／impact／affectedを取り直す。
+- Codegraphのsymbol lookupは、存在しない要求名を近い別symbolへfuzzy解決する場合がある。返却されたsymbol名とpathのexact一致を
+  照合し、不一致をplanned symbolのcaller／callee／impact証拠へ使わない。不一致や空結果はunknown／absentとして記録する。
 - conflictに切断可能なseamがあれば、直列化だけで済ませず、純並列便益を目的とするrefactorを候補化する。
 - active plan versionのtopologyを追記で変えない。code変換後は旧plan／旧agent context／途中patchを失効し、
   accepted artifactをpredecessorにした新versionへ全affected TODOを再コンパイルする。
