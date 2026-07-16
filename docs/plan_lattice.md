@@ -260,7 +260,7 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] source収束後のfull `npm run ci`を一回だけ実行する。
 - [x] H1a Phase反証P1として、全digestを再封印したoracle source／false receipt／mutation matrix意味改竄の誤受理を
   characterization testとevidenceへ固定する。
-- [ ] H1b 新しい不変ADRでsemantic oracle／mutation verifier、artifact v3、plan v4のversion barrierを裁定する。
+- [x] H1b 新しい不変ADRでsemantic oracle／mutation verifier、artifact v3、plan v4のversion barrierを裁定する。
 - [ ] H1c source編集前Codegraph preflightを開き直し、v1／v2 read compatibilityを保つversion-aware semantic verifierを実装して
   characterizationをgreenにする。
 - [ ] H1d immutable v2をpredecessorにcanonical artifact v3／plan v4を発行し、fresh reindex、旧context失効、related／full gateを
@@ -279,6 +279,9 @@ full regression証拠:
 
 semantic reseal expected-red証拠:
 [2026-07-16 RC2 artifact semantic reseal characterization](evidence/2026-07-16-rc2-artifact-semantic-reseal-characterization.md)
+
+semantic binding Decision:
+[ADR 0041: RC2 artifactへoracle／mutation semanticsをbindしv3へ再compileする](adr/0041-rc2-artifact-semantic-oracle-mutation-binding.md)
 
 ## Evidence artifact
 
