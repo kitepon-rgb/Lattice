@@ -405,15 +405,24 @@ P0-2の「別process sandbox必須」だけをplan Non-goals（malicious executo
 
 ### RC3-G — 後発競合、selective hold、recompile
 
-- [ ] event intake freezeと後着eventの順序契約を実装する。
-- [ ] path／semantic／effect／scope／stale kindごとのaffected closureを計算する。
-- [ ] hold decisionへfinding、hold／continue集合、根拠event digestを保存する。
-- [ ] carry-over witnessを独立verifierで再計算し、証明不能TODOをholdへ戻す。
-- [ ] epoch rebind packetとrebind eventを発行し、rebind前後のreceipt epoch規則を検証する。
-- [ ] accepted checkpointまたはseam artifactをpredecessorにplan vN+1をcompileする。
-- [ ] old plan、agent context、partial patch、interface assumption、boundary evidenceを失効する。
-- [ ] carried-over TODOとredispatch TODOへ異なる新context packetを発行する。
-- [ ] irreducible conflictをintentional serial、predeclared seamをtransform laneへ送る。
+- [x] event intake freezeと後着eventの順序契約を実装する。
+- [x] path／semantic／effect／scope／stale kindごとのaffected closureを計算する。
+- [x] hold decisionへfinding、hold／continue集合、根拠event digestを保存する。
+- [x] carry-over witnessを独立verifierで再計算し、証明不能TODOをholdへ戻す。
+- [x] epoch rebind packetとrebind eventを発行し、rebind前後のreceipt epoch規則を検証する。
+- [x] accepted checkpointまたはseam artifactをpredecessorにplan vN+1をcompileする。
+- [x] old plan、agent context、partial patch、interface assumption、boundary evidenceを失効する。
+- [x] carried-over TODOとredispatch TODOへ異なる新context packetを発行する。
+- [x] irreducible conflictをintentional serial、predeclared seamをtransform laneへ送る。
+
+RC3-G成果: 加算module 1（`src/runtime-hold-recompile.mjs`）とengine／verifierのepoch意味論拡張
+（frontier・terminal guard・freeze境界・hold seedの現epoch scope化、checkpoint bindingのdispatch
+attempt scope化、rebindなしepoch自称receiptの`unrebound_epoch` reject）。producerのhold裁定は
+verifier再計算とのexact一致を自己検査し、divergenceは即例外。carry-over witnessはpost-freeze
+event不在・finding scope非交差・sources再実証を通過した場合だけ発行され、証明不能TODOは
+holdへ戻る。contextは全TODOで一斉失効し、carried-overはrebindで再認可される。
+異provider review P0×1・P1×5・P2×1を全採用（P1-4は「旧epoch receiptはrecompile前に旧planで裁定」
+を正規経路として固定）。詳細は[RC3-G hold/recompile実装](evidence/2026-07-17-rc3-g-hold-recompile.md)。
 
 ### RC3-H — scripted closed-loop campaign
 

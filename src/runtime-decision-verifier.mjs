@@ -54,12 +54,22 @@ export function computeReadyFrontier(options = {}) {
 
   const acceptedSet = new Set(state.accepted);
   const runningSet = new Set(state.running);
-  const heldSet = new Set(state.holds.flatMap((hold) => hold.hold_set ?? []));
-  // terminal済み・dispatch済みTODOはplainなfrontierへ戻さない。receipt rejectedの
-  // 再実行は新context packetを伴うRC3-Gのredispatch契約だけが所有する
-  // （旧contextの暗黙再利用をfail closedで塞ぐ）。
-  const terminalSet = new Set(state.terminal);
-  const dispatchedSet = new Set(state.dispatched);
+  // dispatch済み・terminal済み・held済みの除外は現plan epochへscopeする。
+  // 旧epochのdispatch／hold記録は、recompile時のcontext失効とredispatch契約
+  //（RC3-G）によって新epochでは再配置可能になる。accepted／runningは
+  // epoch非依存（物理状態）のまま除外する。
+  const heldSet = new Set();
+  const terminalSet = new Set();
+  const dispatchedSet = new Set();
+  for (const event of events) {
+    if (event.plan_epoch !== plan.plan_epoch) continue;
+    if (event.kind === 'hold_decided') {
+      for (const todoId of event.payload?.hold_set ?? []) heldSet.add(todoId);
+    }
+    if (event.subject?.kind !== 'todo') continue;
+    if (event.kind === 'executor_dispatched') dispatchedSet.add(event.subject.ref);
+    if (event.kind === 'executor_terminal') terminalSet.add(event.subject.ref);
+  }
   const slots = plan.capacity.executors - runningSet.size;
   if (slots < 1) {
     return { dispatchable: [] };
@@ -324,8 +334,12 @@ export function recomputeHoldDecision(options = {}) {
   }
   const freezeSequence = state.freeze.sequence;
 
+  // seedは現plan epochのconflictだけ（過去epochの処理済みconflictを再seedしない）。
+  const currentEpochConflictSequences = new Set(events
+    .filter((event) => event.kind === 'conflict_found' && event.plan_epoch === plan.plan_epoch)
+    .map((event) => event.sequence));
   const frozenConflicts = state.conflicts.filter((conflict) => (
-    conflict.sequence <= freezeSequence
+    conflict.sequence <= freezeSequence && currentEpochConflictSequences.has(conflict.sequence)
   ));
   if (frozenConflicts.length === 0) {
     invalidVerification('frozen prefix内にconflict findingがない');
@@ -397,10 +411,12 @@ export function recomputeReceiptDecisions(options = {}) {
   const state = projectRuntimeState({ events });
   // freezeはresumeで消えない永続境界として扱う。resume後もvN epoch receiptの
   // stale判定は最初のfreeze境界に対して行う（受理へ反転させない）。
-  const freezes = [
-    ...state.freeze_history.map((entry) => entry.sequence),
-    ...(state.freeze === null ? [] : [state.freeze.sequence]),
-  ].sort((left, right) => left - right);
+  // 境界は検証対象planのepochで発生したfreezeへscopeする: vN+1 epochの
+  // receiptをvNのfreezeで塞がない（rebind後のvN+1 receipt受理、RC3-G）。
+  const freezes = events
+    .filter((event) => event.kind === 'intake_frozen' && event.plan_epoch === plan.plan_epoch)
+    .map((event) => event.sequence)
+    .sort((left, right) => left - right);
   const freezeBoundary = freezes.length === 0 ? null : freezes[0];
 
   const seenReceiptIds = new Set();
@@ -441,11 +457,33 @@ export function recomputeReceiptDecisions(options = {}) {
     if (receipt.plan_epoch !== plan.plan_epoch) {
       return reject('epoch_mismatch');
     }
+    // dispatchが旧epochのTODOが現epoch receiptを名乗る場合はepoch_rebound必須
+    // （rebindなしのepoch自称を受理しない。Decision 7.3/7.4）。
+    {
+      const dispatchEvent = events.find((event) => (
+        event.kind === 'executor_dispatched'
+        && event.subject?.kind === 'todo'
+        && event.subject.ref === receipt.todo_id
+        && event.sequence === dispatch.sequence
+      ));
+      if (dispatchEvent !== undefined && dispatchEvent.plan_epoch !== plan.plan_epoch) {
+        const rebound = state.rebinds[receipt.todo_id];
+        if (rebound === undefined
+          || rebound.payload?.new_plan_epoch !== plan.plan_epoch
+          || rebound.sequence >= receipt.sequence) {
+          return reject('unrebound_epoch');
+        }
+      }
+    }
     // checkpoint観測が存在するTODOは、receipt以前の最後の観測checkpointとの
     // digest一致とobserved_diff一致を要求（executor自己申告をbinding証拠に
-    // しない。RC3-F。receipt後の追加checkpointはbinding対象にしない）。
+    // しない。RC3-F）。bindingは同一dispatch attemptへscope＝最後のdispatch
+    // 以降のcheckpointだけが対象（redispatch後のreceiptを旧attemptの
+    // checkpointで塞がない。RC3-G）。
     const observedCheckpoints = state.checkpoints.filter((entry) => (
-      entry.todo_id === receipt.todo_id && entry.sequence < receipt.sequence
+      entry.todo_id === receipt.todo_id
+      && entry.sequence > dispatch.sequence
+      && entry.sequence < receipt.sequence
     ));
     if (observedCheckpoints.length > 0) {
       const last = observedCheckpoints[observedCheckpoints.length - 1].payload;
