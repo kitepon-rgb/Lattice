@@ -1,0 +1,1 @@
+{"evidence":[{"effects":[],"state_reads":[],"state_writes":["dispatch-registry"],"todo_id":"channel-policy","unknowns":[]},{"effects":[],"state_reads":[],"state_writes":["dispatch-registry"],"todo_id":"label-policy","unknowns":[]}],"schema":"lattice.manual_boundary_evidence.v1"}
