@@ -132,21 +132,21 @@ function hasExactInputKeys(value) {
     && keys.every((key, index) => key === INPUT_KEYS[index]);
 }
 
-const RESOLVERS = Object.freeze({
-  email: (urgency) => resolveEmailPolicy(urgency),
-  push: (urgency) => resolvePushPolicy(urgency),
-  sms: (urgency) => resolveSmsPolicy(urgency),
-});
-
 /** 公開inputを検証し、channel別resolverへroutingするcomposition entry。 */
 export function resolveDeliveryPolicy(input) {
   if (!hasExactInputKeys(input)) {
     throw new TypeError('delivery policy input must be a plain object with exact keys: channel, urgency');
   }
-  if (!Object.hasOwn(RESOLVERS, input.channel)) {
+  let policy;
+  if (input.channel === 'email') {
+    policy = resolveEmailPolicy(input.urgency);
+  } else if (input.channel === 'push') {
+    policy = resolvePushPolicy(input.urgency);
+  } else if (input.channel === 'sms') {
+    policy = resolveSmsPolicy(input.urgency);
+  } else {
     throw new RangeError('channel must be email, sms, or push');
   }
-  const policy = RESOLVERS[input.channel](input.urgency);
   return { channel: input.channel, ...policy };
 }
 `;
