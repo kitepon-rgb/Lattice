@@ -157,3 +157,18 @@ test('closed set外のevent kindはdigestが正しくてもtyped rejectされる
   assert.equal(verification.valid, false);
   assert.ok(verification.failed_conditions.includes('unknown_kind'), JSON.stringify(verification.failed_conditions));
 });
+
+test('sequenceと保存配列順序が一致しないchainはtyped rejectされる', async () => {
+  const { verifyRunEventChain } = await import(EVENT_STORE_MODULE);
+  // 順序judgementはsequenceで行うが、append-only列の保存bytes自体が
+  // sequence昇順であることも契約に含める（RC3-C review採用finding）。
+  const events = await validChain();
+  const reordered = [...events].reverse();
+
+  const verification = verifyRunEventChain({ events: reordered });
+  assert.equal(verification.valid, false);
+  assert.ok(
+    verification.failed_conditions.includes('storage_order'),
+    JSON.stringify(verification.failed_conditions),
+  );
+});

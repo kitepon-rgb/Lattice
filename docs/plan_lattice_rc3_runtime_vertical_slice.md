@@ -335,12 +335,18 @@ integration）、intentional expected-red 17（全件`ERR_MODULE_NOT_FOUND`の�
 
 ### RC3-C — versioned runtime contractとevent verifier
 
-- [ ] RC2 schemaを変更せず、runtime schema validatorを加算moduleで実装する。
-- [ ] canonical event serialization、sequence、previous digest、actor／epoch bindingを実装する。
-- [ ] event prefixからruntime stateを再構成するprojectionを実装する。
-- [ ] dispatch／hold／continue／invalidate decisionをproducer非依存に再計算するverifierを実装する。
-- [ ] credential／prompt／無関係会話をevent payloadへ入れないredaction contractを実装する。
-- [ ] corruption focused testをgreenにし、手補正と未検証範囲を監査する。
+- [x] RC2 schemaを変更せず、runtime schema validatorを加算moduleで実装する。
+- [x] canonical event serialization、sequence、previous digest、actor／epoch bindingを実装する。
+- [x] event prefixからruntime stateを再構成するprojectionを実装する。
+- [x] dispatch／hold／continue／invalidate decisionをproducer非依存に再計算するverifierを実装する。
+- [x] credential／prompt／無関係会話をevent payloadへ入れないredaction contractを実装する。
+- [x] corruption focused testをgreenにし、手補正と未検証範囲を監査する。
+
+RC3-C成果: 加算module 4（`src/runtime-contracts.mjs`／`src/runtime-event-store.mjs`／`src/runtime-projection.mjs`／
+`src/runtime-decision-verifier.mjs`）。RC3-B expected-red 17は期待変更なしで全green化。異provider review
+（codex-sidecar `review`、gpt-5.6-sol×high）の10 finding（P0×3・P1×6・P2×1）を全件採用し、fail-closed方向の
+修正と敵対test 10件を加算した。RC3対象41 test green・`npm run check` pass。詳細は
+[RC3 runtime contract実装](evidence/2026-07-17-rc3-runtime-contract-implementation.md)。
 
 ### RC3-D — generic front-endとplan CLI
 
