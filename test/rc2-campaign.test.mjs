@@ -6,7 +6,10 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import test, { after } from 'node:test';
 
-import { canonicalizeArtifact } from '../src/artifact-contracts.mjs';
+import {
+  canonicalizeArtifact,
+  digestArtifact,
+} from '../src/artifact-contracts.mjs';
 
 const REPO_ROOT = path.resolve(new URL('..', import.meta.url).pathname);
 const CAMPAIGN_MODULE = '../src/rc2-campaign.mjs';
@@ -247,6 +250,10 @@ test('RC2 campaignはaccepted patchだけを変数に6 fresh worktree runとfixe
     })),
   );
   assert.equal(result.identity.before_digest, result.identity.after_digest);
+  assert.equal(result.identity.before_digest, digestArtifact({
+    sources: result.identity.sources,
+    codegraph_identity: result.identity.codegraph_identity,
+  }));
 });
 
 test('同じv2 coreはprimary、partial、capacity、unknown、RC1 transferを識別してnew plan全体を再compileする', async () => {
@@ -318,6 +325,7 @@ test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的
     relativePath.startsWith('evidence/')
   ));
   assert.equal(evidencePayloads.length, 6);
+  let over16KiBEvidence = 0;
   for (const payload of evidencePayloads) {
     const storedRun = JSON.parse(payload.bytes.toString('utf8'));
     const storedRaw = storedRun.evidence.raw;
@@ -335,7 +343,6 @@ test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的
     assert.equal(storedRaw.source_schema, 'lattice.codegraph_raw_opaque_receipt.v1');
     assert.equal(storedRaw.source_encoding, 'canonical-json-base64');
     assert.equal(storedRaw.storage_encoding, 'ordered-base64-chunks');
-    assert.ok(storedRaw.payload_base64_chunks.length > 1);
     assert.ok(storedRaw.payload_base64_chunks.every((chunk) => (
       Buffer.byteLength(chunk, 'utf8') <= 12_000
     )));
@@ -344,11 +351,21 @@ test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的
     )));
     assert.equal(Object.hasOwn(storedRaw, 'payload_base64'), false);
     const encoded = storedRaw.payload_base64_chunks.join('');
+    const encodedBytes = Buffer.byteLength(encoded, 'utf8');
+    assert.equal(
+      storedRaw.payload_base64_chunks.length,
+      Math.ceil(encodedBytes / 12_000),
+    );
+    if (encodedBytes > 16 * 1024) {
+      over16KiBEvidence += 1;
+      assert.ok(storedRaw.payload_base64_chunks.length > 1);
+    }
     const decoded = Buffer.from(encoded, 'base64');
     assert.equal(decoded.toString('base64'), encoded);
     assert.equal(decoded.byteLength, storedRaw.canonical_bytes);
     assert.equal(sha256(decoded), storedRaw.payload_digest);
   }
+  assert.ok(over16KiBEvidence > 0);
   const pure = fixture.artifactSet.verifyRc2CampaignArtifactSet({
     manifest: fixture.manifest,
     payloads: fixture.payloads,
