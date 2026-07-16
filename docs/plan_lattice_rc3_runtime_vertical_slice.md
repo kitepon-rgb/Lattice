@@ -370,12 +370,20 @@ CLI envelope schema（`lattice.plan_compile_result.v1`等）の正式所有はRC
 
 ### RC3-E — ready-frontier runtimeとscripted executor
 
-- [ ] plan、accepted predecessor、running state、capacityからready frontierを計算する。
-- [ ] synchronous wave barrierを要求せず、各dispatch decisionをeventへ保存する。
-- [ ] provider非依存なexecutor adapter interfaceと決定論的scripted executorを実装する。
-- [ ] dispatch、observe、checkpoint、hold request、terminal reportの状態遷移を実装する。
-- [ ] timeoutをunknownとして同一handle回収し、重複dispatchを拒否する。
-- [ ] runtime decision verifierで全dispatch prefixを再計算する。
+- [x] plan、accepted predecessor、running state、capacityからready frontierを計算する。
+- [x] synchronous wave barrierを要求せず、各dispatch decisionをeventへ保存する。
+- [x] provider非依存なexecutor adapter interfaceと決定論的scripted executorを実装する。
+- [x] dispatch、observe、checkpoint、hold request、terminal reportの状態遷移を実装する。
+- [x] timeoutをunknownとして同一handle回収し、重複dispatchを拒否する。
+- [x] runtime decision verifierで全dispatch prefixを再計算する。
+
+RC3-E成果: 加算module 2（`src/runtime-engine.mjs`／`src/runtime-scripted-executor.mjs`）。engineはdispatch選択と
+receipt裁定をverifierと独立の実装で持ち、testが全dispatch_decided prefixのexact再計算一致を要求する。
+hold requestはconflict_found＋即時intake_frozenで証拠化し、競合発見後のfail-open dispatchを塞ぐ。
+異provider review（codex-sidecar、gpt-5.6-sol×high）のP0×1・P1×7・P2×1を、P0（frontier集合のproducer/verifier
+divergence）はverifier側の意味論補完（terminal/dispatched除外、redispatchはRC3-G所有）として採用、P1は全採用、
+P2（unknown観測の証拠化）はrun_event.v1のkind集合変更を要するためRC3-J ADRの裁定事項として保存した。
+詳細は[RC3-E runtime engine実装](evidence/2026-07-17-rc3-e-runtime-engine.md)。
 
 ### RC3-F — isolated worktree executorとdiff observer
 

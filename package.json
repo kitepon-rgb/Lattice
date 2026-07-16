@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check bin/lattice.mjs && node --check src/bootstrap.mjs && node --check src/runtime-contracts.mjs && node --check src/runtime-event-store.mjs && node --check src/runtime-projection.mjs && node --check src/runtime-decision-verifier.mjs && node --check src/runtime-front-end.mjs && node --check src/runtime-cli.mjs && node --check src/rc3-dogfood-scaffold.mjs && node --check research/fixtures/dispatch-record/src/dispatch-record.mjs && node --check test/bootstrap.test.mjs && node --check test/research-dispatch-record.test.mjs",
+    "check": "node --check bin/lattice.mjs && node --check src/bootstrap.mjs && node --check src/runtime-contracts.mjs && node --check src/runtime-event-store.mjs && node --check src/runtime-projection.mjs && node --check src/runtime-decision-verifier.mjs && node --check src/runtime-front-end.mjs && node --check src/runtime-cli.mjs && node --check src/rc3-dogfood-scaffold.mjs && node --check src/runtime-engine.mjs && node --check src/runtime-scripted-executor.mjs && node --check research/fixtures/dispatch-record/src/dispatch-record.mjs && node --check test/bootstrap.test.mjs && node --check test/research-dispatch-record.test.mjs",
     "ci": "npm run test && npm run check"
   }
 }

@@ -55,13 +55,19 @@ export function computeReadyFrontier(options = {}) {
   const acceptedSet = new Set(state.accepted);
   const runningSet = new Set(state.running);
   const heldSet = new Set(state.holds.flatMap((hold) => hold.hold_set ?? []));
+  // terminal済み・dispatch済みTODOはplainなfrontierへ戻さない。receipt rejectedの
+  // 再実行は新context packetを伴うRC3-Gのredispatch契約だけが所有する
+  // （旧contextの暗黙再利用をfail closedで塞ぐ）。
+  const terminalSet = new Set(state.terminal);
+  const dispatchedSet = new Set(state.dispatched);
   const slots = plan.capacity.executors - runningSet.size;
   if (slots < 1) {
     return { dispatchable: [] };
   }
 
   const eligible = nodeIds.filter((todoId) => {
-    if (acceptedSet.has(todoId) || runningSet.has(todoId) || heldSet.has(todoId)) return false;
+    if (acceptedSet.has(todoId) || runningSet.has(todoId) || heldSet.has(todoId)
+      || terminalSet.has(todoId) || dispatchedSet.has(todoId)) return false;
     return plan.precedence.every((edge) => (
       edge.to_todo_id !== todoId || acceptedSet.has(edge.from_todo_id)
     ));
@@ -372,6 +378,7 @@ export function recomputeReceiptDecisions(options = {}) {
   ].sort((left, right) => left - right);
   const freezeBoundary = freezes.length === 0 ? null : freezes[0];
 
+  const seenReceiptIds = new Set();
   const decisions = state.receipts.map((receipt) => {
     const base = {
       receipt_id: receipt.receipt_id,
@@ -381,6 +388,12 @@ export function recomputeReceiptDecisions(options = {}) {
     const reject = (detail) => (
       { ...base, decision: 'rejected', reason: 'stale_context', detail }
     );
+
+    // receipt_idの再利用は帰属の一意性を壊すためreject（先着だけを裁定対象にする）。
+    if (seenReceiptIds.has(receipt.receipt_id)) {
+      return reject('duplicate_receipt_id');
+    }
+    seenReceiptIds.add(receipt.receipt_id);
 
     // 帰属照合の基準はdispatch記録であり、executor自己申告ではない（Decision 7.4）。
     const payload = receipt.payload ?? {};
