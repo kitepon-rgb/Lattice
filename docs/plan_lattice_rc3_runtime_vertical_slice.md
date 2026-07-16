@@ -322,12 +322,16 @@ RC3-A成果: [ADR 0044](adr/0044-rc3-runtime-contract.md)（10 schema・event契
 
 ### RC3-B — characterization safety netを先行する
 
-- [ ] RC1 v6とRC2 v1〜v4 artifact replayを互換baselineとして一回固定する。
-- [ ] 現CLIが`--version`／`doctor --json`以外をrejectする現挙動をcharacterizeする。
-- [ ] late conflict、scope violation、semantic unknown、stale receipt、carry-over欠落をexpected-redで固定する。
-- [ ] ready frontierがwave completionを待たずに次nodeをunlockするcaseをexpected-redで固定する。
-- [ ] event欠落、重複、fork、digest mismatch、unknown kindをexpected-redで固定する。
-- [ ] target repoへのevent store混入を`codegraph files`で検出するintegration safety netを置く。
+- [x] RC1 v6とRC2 v1〜v4 artifact replayを互換baselineとして一回固定する。
+- [x] 現CLIが`--version`／`doctor --json`以外をrejectする現挙動をcharacterizeする。
+- [x] late conflict、scope violation、semantic unknown、stale receipt、carry-over欠落をexpected-redで固定する。
+- [x] ready frontierがwave completionを待たずに次nodeをunlockするcaseをexpected-redで固定する。
+- [x] event欠落、重複、fork、digest mismatch、unknown kindをexpected-redで固定する。
+- [x] target repoへのevent store混入を`codegraph files`で検出するintegration safety netを置く。
+
+RC3-B成果: green 7（互換replay 12／14／15／15／15 checks、CLI fail-closed characterization、event store scope
+integration）、intentional expected-red 17（全件`ERR_MODULE_NOT_FOUND`のみ、対象は`src/runtime-event-store.mjs`と
+`src/runtime-decision-verifier.mjs`）。詳細は[RC3 characterization safety net](evidence/2026-07-17-rc3-characterization-safety-net.md)。
 
 ### RC3-C — versioned runtime contractとevent verifier
 

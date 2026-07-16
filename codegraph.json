@@ -1,1 +1,1 @@
-{"exclude":["research/campaigns/**/artifacts/**/identity/"]}
+{"exclude":["research/campaigns/**/artifacts/**/identity/","research/runs/"]}

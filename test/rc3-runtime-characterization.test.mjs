@@ -1,0 +1,393 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+// RC3-B expected-red characterization（ADR 0044 Decision 4〜7）。
+// 対象moduleはRC3-C／RC3-E／RC3-Gで実装されるまで存在せず、本fileの全testは
+// `ERR_MODULE_NOT_FOUND`だけを理由にfailしなければならない。
+// schema envelope／digestの完全検証はRC3-Cのvalidator契約で固定し、本fileは
+// producer非依存に再計算されるruntime意味論（ready frontier、conflict分類、
+// hold／continue、receipt受理、carry-over witness）だけを固定する。
+const DECISION_VERIFIER_MODULE = '../src/runtime-decision-verifier.mjs';
+const EVENT_STORE_MODULE = '../src/runtime-event-store.mjs';
+
+const RUN_ID = 'run-rc3b-characterization';
+
+function placeholderDigest(character) {
+  return character.repeat(64);
+}
+
+function runtimePlan({
+  nodes = ['T1', 'T2', 'T3'],
+  precedence = [],
+  conflicts = [],
+  capacity = { executors: 2 },
+  planEpoch = 1,
+} = {}) {
+  return {
+    schema: 'lattice.runtime_plan.v1',
+    plan_ref: `rc3b-plan-v${planEpoch}`,
+    plan_epoch: planEpoch,
+    request_digest: placeholderDigest('1'),
+    base_sha: 'b'.repeat(40),
+    nodes: nodes.map((todoId) => ({ todo_id: todoId })),
+    precedence,
+    conflicts,
+    capacity,
+    manifest_digests: Object.fromEntries(nodes.map((todoId) => [todoId, placeholderDigest('2')])),
+    claim: { mode: 'exact_minimum' },
+    predecessor_refs: [],
+    plan_digest: placeholderDigest('3'),
+  };
+}
+
+function boundaryManifest({ todoId, writes = [], reads = [], resources = [] }) {
+  return {
+    schema: 'lattice.boundary_manifest.v2',
+    todo_id: todoId,
+    owns: writes.map((path) => ({ kind: 'path', target: path })),
+    reads,
+    writes,
+    resources,
+    state_effects: resources.map((resourceId) => ({
+      resource_id: resourceId,
+      kind: 'state',
+    })),
+    unknowns: [],
+    affected_tests: [],
+    graph_evidence: [],
+    witness_provenance: 'manual_state_effect',
+    manifest_digest: placeholderDigest('2'),
+  };
+}
+
+/**
+ * digestRunEvent（自己digest規則）でsequence／previous_digest／event_digestを
+ * 連結した正規のevent chainを組み立てる。
+ */
+async function chain(specs) {
+  const { digestRunEvent } = await import(EVENT_STORE_MODULE);
+  const events = [];
+  let previousDigest = null;
+  for (const [index, spec] of specs.entries()) {
+    const event = {
+      schema: 'lattice.run_event.v1',
+      run_id: RUN_ID,
+      sequence: index,
+      previous_digest: previousDigest,
+      kind: spec.kind,
+      actor: spec.actor ?? 'lattice-runtime',
+      plan_epoch: spec.plan_epoch ?? 1,
+      subject: spec.subject ?? { kind: 'run', ref: RUN_ID },
+      payload: spec.payload ?? {},
+      recorded_at: '2026-07-17T00:00:00.000Z',
+    };
+    event.event_digest = digestRunEvent(event);
+    events.push(event);
+    previousDigest = event.event_digest;
+  }
+  return events;
+}
+
+function todoSubject(todoId) {
+  return { kind: 'todo', ref: todoId };
+}
+
+const RUN_PREAMBLE = Object.freeze([
+  { kind: 'run_initialized' },
+  { kind: 'plan_compiled' },
+  { kind: 'plan_verified' },
+]);
+
+test('ready frontierはwave completionを待たずhard predecessor充足nodeをunlockする', async () => {
+  const { computeReadyFrontier } = await import(DECISION_VERIFIER_MODULE);
+  // ADR 0044 Decision 4 expected example: precedence T1→T3のみ、conflictなし、
+  // capacity 2、minimum waves 2。T1 acceptedの時点でT2がrunningでも、T3は
+  // dispatch可能でなければならない。T2完了を待つwave barrier実装はここでredになる。
+  const plan = runtimePlan({ precedence: [{ from_todo_id: 'T1', to_todo_id: 'T3' }] });
+  const events = await chain([
+    ...RUN_PREAMBLE,
+    { kind: 'dispatch_decided', payload: { dispatched: ['T1', 'T2'] } },
+    { kind: 'executor_dispatched', subject: todoSubject('T1') },
+    { kind: 'executor_dispatched', subject: todoSubject('T2') },
+    { kind: 'receipt_recorded', subject: todoSubject('T1') },
+    { kind: 'receipt_accepted', subject: todoSubject('T1') },
+  ]);
+
+  const frontier = computeReadyFrontier({ plan, events });
+  assert.deepEqual(frontier.dispatchable, ['T3']);
+});
+
+test('capacity飽和中のnodeはhard predecessor充足でもdispatch不可である', async () => {
+  const { computeReadyFrontier } = await import(DECISION_VERIFIER_MODULE);
+  // 同じtopologyでcapacity 1なら、T2がrunningの間はT3をdispatchできない。
+  // barrierでなくcapacityだけが理由のblockであることをexpected setで固定する。
+  const plan = runtimePlan({
+    precedence: [{ from_todo_id: 'T1', to_todo_id: 'T3' }],
+    capacity: { executors: 1 },
+  });
+  const events = await chain([
+    ...RUN_PREAMBLE,
+    { kind: 'dispatch_decided', payload: { dispatched: ['T1'] } },
+    { kind: 'executor_dispatched', subject: todoSubject('T1') },
+    { kind: 'receipt_recorded', subject: todoSubject('T1') },
+    { kind: 'receipt_accepted', subject: todoSubject('T1') },
+    { kind: 'dispatch_decided', payload: { dispatched: ['T2'] } },
+    { kind: 'executor_dispatched', subject: todoSubject('T2') },
+  ]);
+
+  const frontier = computeReadyFrontier({ plan, events });
+  assert.deepEqual(frontier.dispatchable, []);
+});
+
+test('宣言外writeと運転中overlapはscope violationとobserved write conflictの別findingになる', async () => {
+  const { classifyObservedDiff } = await import(DECISION_VERIFIER_MODULE);
+  // ADR 0044 Decision 5.3 expected example: T1がsrc/a.mjs（declared）と
+  // src/c.mjs（undeclared）を変更し、src/c.mjsがT2のdeclared writeである場合、
+  // scope_violation（T1）とobserved_write_conflict（T1×T2）を別findingで保存し、
+  // silent mergeしない。
+  const plan = runtimePlan({ nodes: ['T1', 'T2'] });
+  const manifests = {
+    T1: boundaryManifest({ todoId: 'T1', writes: ['src/a.mjs'] }),
+    T2: boundaryManifest({ todoId: 'T2', writes: ['src/c.mjs'] }),
+  };
+  const observations = [
+    { todo_id: 'T1', paths: ['src/a.mjs', 'src/c.mjs'] },
+    { todo_id: 'T2', paths: ['src/c.mjs'] },
+  ];
+
+  const { findings } = classifyObservedDiff({ plan, manifests, observations });
+  assert.ok(findings.some((finding) => (
+    finding.kind === 'scope_violation'
+    && finding.todo_ids.includes('T1')
+    && finding.path === 'src/c.mjs'
+  )), JSON.stringify(findings));
+  assert.ok(findings.some((finding) => (
+    finding.kind === 'observed_write_conflict'
+    && [...finding.todo_ids].sort().join(',') === 'T1,T2'
+    && finding.path === 'src/c.mjs'
+  )), JSON.stringify(findings));
+});
+
+test('別pathでも同一state witnessへ到達するwriteはsemantic conflict unknownになる', async () => {
+  const { classifyObservedDiff } = await import(DECISION_VERIFIER_MODULE);
+  // ADR 0044 Decision 5: 観測不能なsemantic conflictを安全と推測しない。
+  // path非交差でも共有resource witnessがあればunknown findingとして保存する。
+  const plan = runtimePlan({ nodes: ['T1', 'T2'] });
+  const manifests = {
+    T1: boundaryManifest({
+      todoId: 'T1',
+      writes: ['src/a.mjs'],
+      resources: ['delivery-policy-shared-state'],
+    }),
+    T2: boundaryManifest({
+      todoId: 'T2',
+      writes: ['src/b.mjs'],
+      resources: ['delivery-policy-shared-state'],
+    }),
+  };
+  const observations = [
+    { todo_id: 'T1', paths: ['src/a.mjs'] },
+    { todo_id: 'T2', paths: ['src/b.mjs'] },
+  ];
+
+  const { findings } = classifyObservedDiff({ plan, manifests, observations });
+  assert.ok(findings.some((finding) => (
+    finding.kind === 'semantic_conflict_unknown'
+    && [...finding.todo_ids].sort().join(',') === 'T1,T2'
+    && finding.resource_id === 'delivery-policy-shared-state'
+  )), JSON.stringify(findings));
+  assert.equal(findings.some((finding) => finding.kind === 'observed_write_conflict'), false);
+});
+
+function conflictScenarioSpecs(extraSpecs = []) {
+  return [
+    ...RUN_PREAMBLE,
+    { kind: 'dispatch_decided', payload: { dispatched: ['T1', 'T2', 'T3'] } },
+    { kind: 'executor_dispatched', subject: todoSubject('T1') },
+    { kind: 'executor_dispatched', subject: todoSubject('T2') },
+    { kind: 'executor_dispatched', subject: todoSubject('T3') },
+    { kind: 'checkpoint_observed', subject: todoSubject('T3'), payload: { checkpoint_digest: placeholderDigest('c') } },
+    {
+      kind: 'conflict_found',
+      payload: {
+        finding_kind: 'observed_write_conflict',
+        todo_ids: ['T1', 'T2'],
+        path: 'src/c.mjs',
+      },
+    },
+    { kind: 'intake_frozen', payload: { frozen_prefix_digest: placeholderDigest('d') } },
+    ...extraSpecs,
+  ];
+}
+
+test('carry-over witnessを欠く無関係TODOは継続せずholdになる', async () => {
+  const { recomputeHoldDecision } = await import(DECISION_VERIFIER_MODULE);
+  // ADR 0044 Decision 6.4／7.2: affected closure外のTODOでも、carry-over witnessが
+  // 保存bytesに存在しなければcontinueできない（fail closed）。
+  const plan = runtimePlan({ capacity: { executors: 3 } });
+  const events = await chain(conflictScenarioSpecs());
+
+  const decision = recomputeHoldDecision({ plan, events });
+  assert.deepEqual([...decision.hold_set].sort(), ['T1', 'T2', 'T3']);
+  assert.deepEqual(decision.continue_set, []);
+});
+
+test('carry-over witnessが保存された無関係TODOだけがcontinueできる', async () => {
+  const { recomputeHoldDecision } = await import(DECISION_VERIFIER_MODULE);
+  const plan = runtimePlan({ capacity: { executors: 3 } });
+  const events = await chain(conflictScenarioSpecs([
+    {
+      kind: 'carry_over_witnessed',
+      subject: todoSubject('T3'),
+      payload: {
+        witness_digest: placeholderDigest('e'),
+        receipt_bindings: [],
+      },
+    },
+  ]));
+
+  const decision = recomputeHoldDecision({ plan, events });
+  assert.deepEqual([...decision.hold_set].sort(), ['T1', 'T2']);
+  assert.deepEqual(decision.continue_set, ['T3']);
+});
+
+test('freeze後の旧epoch receiptはwitness bindingの有無によらずstale contextでrejectされる', async () => {
+  const { recomputeReceiptDecisions } = await import(DECISION_VERIFIER_MODULE);
+  // ADR 0044 Decision 7.4／7.5 post-freeze-stale-receipt: 「rebind前」はevent
+  // sequenceで判定し、frozen prefix外のvN epoch receiptは到着順・生成主張に
+  // よらずtyped rejectする。accepted outputへ数えない。
+  const plan = runtimePlan({ capacity: { executors: 3 } });
+  const events = await chain(conflictScenarioSpecs([
+    {
+      kind: 'carry_over_witnessed',
+      subject: todoSubject('T3'),
+      payload: {
+        witness_digest: placeholderDigest('e'),
+        receipt_bindings: [],
+      },
+    },
+    {
+      kind: 'receipt_recorded',
+      subject: todoSubject('T3'),
+      plan_epoch: 1,
+      payload: { receipt_id: 'T3-r2' },
+    },
+  ]));
+
+  const { decisions } = recomputeReceiptDecisions({ plan, events });
+  const stale = decisions.find((decision) => decision.receipt_id === 'T3-r2');
+  assert.equal(stale.decision, 'rejected');
+  assert.equal(stale.reason, 'stale_context');
+  assert.equal(decisions.filter((decision) => decision.decision === 'accepted').length, 0);
+});
+
+test('frozen prefix内の旧epoch receiptはwitness bindingがある場合だけ受理される', async () => {
+  const { recomputeReceiptDecisions } = await import(DECISION_VERIFIER_MODULE);
+  // ADR 0044 Decision 7.5 carry-over-accept: freeze前にrecordされたvN receiptは、
+  // carry-over witnessのreceipt_bindingsが当該receiptをbindする場合だけ有効になる。
+  const plan = runtimePlan({ capacity: { executors: 3 } });
+  const boundSpecs = [
+    ...RUN_PREAMBLE,
+    { kind: 'dispatch_decided', payload: { dispatched: ['T1', 'T2', 'T3'] } },
+    { kind: 'executor_dispatched', subject: todoSubject('T1') },
+    { kind: 'executor_dispatched', subject: todoSubject('T2') },
+    { kind: 'executor_dispatched', subject: todoSubject('T3') },
+    {
+      kind: 'receipt_recorded',
+      subject: todoSubject('T3'),
+      plan_epoch: 1,
+      payload: { receipt_id: 'T3-r1' },
+    },
+    {
+      kind: 'conflict_found',
+      payload: {
+        finding_kind: 'observed_write_conflict',
+        todo_ids: ['T1', 'T2'],
+        path: 'src/c.mjs',
+      },
+    },
+    { kind: 'intake_frozen', payload: { frozen_prefix_digest: placeholderDigest('d') } },
+  ];
+  const boundReceiptSequence = 7;
+
+  const withBinding = await chain([
+    ...boundSpecs,
+    {
+      kind: 'carry_over_witnessed',
+      subject: todoSubject('T3'),
+      payload: {
+        witness_digest: placeholderDigest('e'),
+        receipt_bindings: [{
+          receipt_id: 'T3-r1',
+          recorded_sequence: boundReceiptSequence,
+          within_frozen_prefix: true,
+        }],
+      },
+    },
+  ]);
+  const bound = recomputeReceiptDecisions({ plan, events: withBinding });
+  const acceptedReceipt = bound.decisions.find((decision) => decision.receipt_id === 'T3-r1');
+  assert.equal(acceptedReceipt.decision, 'accepted');
+
+  const withoutBinding = await chain([
+    ...boundSpecs,
+    {
+      kind: 'carry_over_witnessed',
+      subject: todoSubject('T3'),
+      payload: {
+        witness_digest: placeholderDigest('e'),
+        receipt_bindings: [],
+      },
+    },
+  ]);
+  const unbound = recomputeReceiptDecisions({ plan, events: withoutBinding });
+  const rejectedReceipt = unbound.decisions.find((decision) => decision.receipt_id === 'T3-r1');
+  assert.equal(rejectedReceipt.decision, 'rejected');
+  assert.equal(rejectedReceipt.reason, 'stale_context');
+});
+
+test('carry-over witnessは1 fieldのdigest破壊でも継続不可としてrejectされる', async () => {
+  const { verifyCarryOverWitness } = await import(DECISION_VERIFIER_MODULE);
+  const { digestArtifact } = await import('../src/artifact-contracts.mjs');
+  // ADR 0044 Decision 7.5 witness-single-field-corruption: invariant digestの
+  // どれか一つでも保存bytesの再計算と一致しなければcarry-over不成立とし、
+  // 理由kind carry_over_unprovableでholdへ戻す。
+  const sources = {
+    todo_input: { todo_id: 'T3', request: 'rc3b-request' },
+    boundary_manifest: boundaryManifest({ todoId: 'T3', writes: ['src/t3.mjs'] }),
+    validator: { id: 'rc3b-validator', command: 'node', args: ['--test'] },
+    context_content: {
+      todo_id: 'T3',
+      task_ref: 'rc3b-task-T3',
+      scope: { writes: ['src/t3.mjs'] },
+      base_sha: 'b'.repeat(40),
+      verifier_refs: ['rc3b-validator'],
+      forbidden_operations: ['commit', 'push'],
+    },
+  };
+  const witness = {
+    schema: 'lattice.carry_over_witness.v1',
+    witness_id: 'rc3b-witness-T3',
+    todo_id: 'T3',
+    predecessor_epoch: 1,
+    successor_epoch: 2,
+    invariant_digests: {
+      todo_input: digestArtifact(sources.todo_input),
+      boundary_manifest: digestArtifact(sources.boundary_manifest),
+      validator: digestArtifact(sources.validator),
+      context_content: digestArtifact(sources.context_content),
+    },
+    non_overlap_evidence: ['hold-decision-rc3b'],
+    receipt_bindings: [],
+  };
+  witness.witness_digest = digestArtifact(witness);
+
+  const intact = verifyCarryOverWitness({ witness, sources });
+  assert.equal(intact.valid, true, JSON.stringify(intact.reasons));
+
+  const corrupted = structuredClone(witness);
+  corrupted.invariant_digests.validator = placeholderDigest('f');
+  const result = verifyCarryOverWitness({ witness: corrupted, sources });
+  assert.equal(result.valid, false);
+  assert.ok(result.reasons.includes('carry_over_unprovable'), JSON.stringify(result.reasons));
+});
