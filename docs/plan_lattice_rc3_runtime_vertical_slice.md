@@ -308,14 +308,17 @@ exact照合する。
 ### RC3-A — runtime契約を不変Decisionへ固定する
 
 - [x] 本planをFable Highのread-only相談と親の反対仮説で再検証する。
-- [ ] current git、RC2 replay、Codegraph coverage、CLI surfaceをbaseline evidenceへ固定する。
-- [ ] carry-over witnessと「全plan失効／一部in-flight継続」の両立条件をexpected examplesで定義する。
-- [ ] minimum waveとready-frontier runtime dispatchを分離する。
-- [ ] path／resource binding、event order、freeze window、stale epoch、receipt帰属を定義する。
-- [ ] schema version、CLI command、executor adapter、artifact rootの所有境界を裁定する。
-- [ ] RC2 delivery-policy fixture／adapterの再利用可否と、RC3-owned dogfood fixture／oracle／predeclared treatmentの所有境界を裁定する。
-- [ ] ADR 0044へRC3 contract Decisionを固定し、既存ADRへ追記しない。
-- [ ] plan／ADR／baseline evidenceだけをpathspec付きdocs commitにする。
+- [x] current git、RC2 replay、Codegraph coverage、CLI surfaceをbaseline evidenceへ固定する。
+- [x] carry-over witnessと「全plan失効／一部in-flight継続」の両立条件をexpected examplesで定義する。
+- [x] minimum waveとready-frontier runtime dispatchを分離する。
+- [x] path／resource binding、event order、freeze window、stale epoch、receipt帰属を定義する。
+- [x] schema version、CLI command、executor adapter、artifact rootの所有境界を裁定する。
+- [x] RC2 delivery-policy fixture／adapterの再利用可否と、RC3-owned dogfood fixture／oracle／predeclared treatmentの所有境界を裁定する。
+- [x] ADR 0044へRC3 contract Decisionを固定し、既存ADRへ追記しない。
+- [x] plan／ADR／baseline evidenceだけをpathspec付きdocs commitにする。
+
+RC3-A成果: [ADR 0044](adr/0044-rc3-runtime-contract.md)（10 schema・event契約・rebind規則・再利用裁定、
+異provider refuter 8 P1 objection全採用の反証記録を含む）、[RC3 baseline evidence](evidence/2026-07-16-rc3-baseline.md)。
 
 ### RC3-B — characterization safety netを先行する
 
