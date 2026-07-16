@@ -135,6 +135,84 @@ function mutateJson(set, relativePath, mutate) {
   replacePayload(set, relativePath, jsonBytes(value));
 }
 
+function artifactJson(set, relativePath) {
+  const payload = set.payloads.find(({ path: candidate }) => candidate === relativePath);
+  assert.ok(payload, `missing JSON payload ${relativePath}`);
+  return JSON.parse(payload.bytes.toString('utf8'));
+}
+
+function digestWithout(value, key) {
+  const preimage = structuredClone(value);
+  delete preimage[key];
+  return digestArtifact(preimage);
+}
+
+function refreshCausalPredecessors(set, predecessors) {
+  for (const predecessor of predecessors) {
+    const payload = set.payloads.find(({ path: candidate }) => candidate === predecessor.ref);
+    assert.ok(payload, `missing predecessor payload ${predecessor.ref}`);
+    predecessor.digest = sha256(payload.bytes);
+  }
+}
+
+function resealSemanticTransformCorruption(set) {
+  const behavior = artifactJson(set, 'transform/behavior-evidence.json');
+  const mutation = artifactJson(set, 'transform/mutation-evidence.json');
+  behavior.evidence_digest = digestWithout(behavior, 'evidence_digest');
+  mutation.matrix_digest = digestArtifact({ rows: mutation.rows });
+  mutation.evidence_digest = digestWithout(mutation, 'evidence_digest');
+  replacePayload(set, 'transform/behavior-evidence.json', jsonBytes(behavior));
+  replacePayload(set, 'transform/mutation-evidence.json', jsonBytes(mutation));
+
+  const accepted = artifactJson(set, 'transform/accepted-artifact.json');
+  accepted.behavior = {
+    evidence_digest: behavior.evidence_digest,
+    pre_oracle_digest: digestArtifact(behavior.pre_oracle),
+    post_oracle_digest: digestArtifact(behavior.post_oracle),
+    case_set_digest: behavior.case_set_digest,
+    equivalent: behavior.equivalent,
+  };
+  accepted.mutation = {
+    evidence_digest: mutation.evidence_digest,
+    matrix_digest: mutation.matrix_digest,
+    row_count: mutation.rows.length,
+    cell_count: mutation.rows.reduce((sum, row) => sum + row.cells.length, 0),
+  };
+  replacePayload(set, 'transform/accepted-artifact.json', jsonBytes(accepted));
+
+  const receipt = artifactJson(set, 'transform/accepted-receipt.json');
+  receipt.transform_artifact_digest = digestArtifact(accepted);
+  receipt.behavior_evidence_digest = behavior.evidence_digest;
+  receipt.mutation_evidence_digest = mutation.evidence_digest;
+  receipt.receipt_digest = digestWithout(receipt, 'receipt_digest');
+  replacePayload(set, 'transform/accepted-receipt.json', jsonBytes(receipt));
+
+  const newPlan = artifactJson(set, 'new-plan-version.json');
+  refreshCausalPredecessors(set, newPlan.causal_predecessors);
+  replacePayload(set, 'new-plan-version.json', jsonBytes(newPlan));
+
+  const planDiff = artifactJson(set, 'plan-diff.json');
+  refreshCausalPredecessors(set, planDiff.causal_predecessors);
+  planDiff.new_plan.digest = digestArtifact(newPlan);
+  replacePayload(set, 'plan-diff.json', jsonBytes(planDiff));
+
+  const comparison = artifactJson(set, 'comparison.json');
+  comparison.independent_variable.transform_artifact_digest = digestArtifact(accepted);
+  comparison.version_barrier.new_plan_version_digest = digestArtifact(newPlan);
+  comparison.version_barrier.plan_diff_digest = digestArtifact(planDiff);
+  comparison.version_barrier.causal_predecessors_digest = digestArtifact(
+    planDiff.causal_predecessors,
+  );
+  replacePayload(set, 'comparison.json', jsonBytes(comparison));
+
+  const execution = artifactJson(set, 'execution-evidence.json');
+  execution.transform_artifact_digest = digestArtifact(accepted);
+  execution.new_plan_version_digest = digestArtifact(newPlan);
+  execution.plan_diff_digest = digestArtifact(planDiff);
+  execution.comparison_digest = digestArtifact(comparison);
+  replacePayload(set, 'execution-evidence.json', jsonBytes(execution));
+}
+
 function conflictPairs(graph) {
   return new Set(graph.conflicts.map(({ todo_ids: todoIds }) => (
     [...todoIds].sort().join('\u0000')
@@ -520,6 +598,62 @@ test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的
   });
   assert.equal(rejectedDisk.valid, false);
   await writeFile(diskPatchPath, originalPatch);
+});
+
+test('artifact-only verifierは全digestを再封印したoracle／mutation意味改竄を拒否する', async (t) => {
+  const fixture = await loadArtifactFixture();
+  const corruptions = [
+    {
+      id: 'oracle-source-substitution',
+      mutate(set) {
+        mutateJson(set, 'transform/behavior-evidence.json', (value) => {
+          value.fixed_oracle.source_base64 = Buffer.from(
+            'export const substitutedOracle = true;\n',
+            'utf8',
+          ).toString('base64');
+        });
+      },
+    },
+    {
+      id: 'false-passed-oracle-receipt',
+      mutate(set) {
+        mutateJson(set, 'transform/behavior-evidence.json', (value) => {
+          for (const receipt of [value.pre_oracle, value.post_oracle]) {
+            receipt.case_results[0].output_digest = '0'.repeat(64);
+          }
+          value.case_set_digest = digestArtifact({
+            case_results: value.pre_oracle.case_results.map(({ id, output_digest: outputDigest }) => ({
+              id,
+              output_digest: outputDigest,
+            })),
+          });
+        });
+      },
+    },
+    {
+      id: 'owner-test-mutation-matrix-substitution',
+      mutate(set) {
+        mutateJson(set, 'transform/mutation-evidence.json', (value) => {
+          const ownerCell = value.rows[0].cells.find(({ test_id: testId }) => (
+            testId === 'emailPolicyContract'
+          ));
+          ownerCell.outcome = 'passed';
+          ownerCell.exit_code = 0;
+        });
+      },
+    },
+  ];
+
+  for (const corruption of corruptions) {
+    await t.test(corruption.id, () => {
+      const resealed = copyArtifactSet(fixture);
+      corruption.mutate(resealed);
+      resealSemanticTransformCorruption(resealed);
+      const verification = fixture.artifactSet.verifyRc2CampaignArtifactSet(resealed);
+      assert.equal(verification.valid, false);
+      assert.ok(verification.failed_conditions.includes('transform_binding'));
+    });
+  }
 });
 
 test('typed rejected transformとthird-only unknownはaccepted outputまたはplanを発行しない', async () => {

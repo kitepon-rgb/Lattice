@@ -258,6 +258,13 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] H0c.3 canonical artifact v2を発行し、v1／v2をdisk replayする。
 - [x] TODO単位の軽量監査を各完了候補で一回だけ行う。
 - [x] source収束後のfull `npm run ci`を一回だけ実行する。
+- [x] H1a Phase反証P1として、全digestを再封印したoracle source／false receipt／mutation matrix意味改竄の誤受理を
+  characterization testとevidenceへ固定する。
+- [ ] H1b 新しい不変ADRでsemantic oracle／mutation verifier、artifact v3、plan v4のversion barrierを裁定する。
+- [ ] H1c source編集前Codegraph preflightを開き直し、v1／v2 read compatibilityを保つversion-aware semantic verifierを実装して
+  characterizationをgreenにする。
+- [ ] H1d immutable v2をpredecessorにcanonical artifact v3／plan v4を発行し、fresh reindex、旧context失効、related／full gateを
+  新しいevidenceへ固定する。
 - [ ] RC2成功条件だけを対象にPhase反証を一回行う。
 - [ ] H1-RC2をsupport／refuteする新しい不変DecisionとPhase evidenceを残す。
 
@@ -269,6 +276,9 @@ canonical successor証拠:
 
 full regression証拠:
 [2026-07-16 RC2 full CI](evidence/2026-07-16-rc2-full-ci.md)
+
+semantic reseal expected-red証拠:
+[2026-07-16 RC2 artifact semantic reseal characterization](evidence/2026-07-16-rc2-artifact-semantic-reseal-characterization.md)
 
 ## Evidence artifact
 
@@ -286,7 +296,8 @@ RC2は少なくとも次をLattice内へ保存する。
 
 machine artifact v1は`research/campaigns/rc2/artifacts/v1`でimmutableに保持し、post-publication correctionは
 `research/campaigns/rc2/artifacts/v2`へ新規保存する。RC1／RC2 v1 artifact、ADR、archiveを上書きせず、Decision pathを
-後続裁定の可変台帳として再利用しない。
+後続裁定の可変台帳として再利用しない。Phase反証で見つかったsemantic reseal P1のcorrected successorはv1／v2を変更せず
+`research/campaigns/rc2/artifacts/v3`へ新規保存する。
 
 ## Non-goalsとwriter境界
 
