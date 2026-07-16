@@ -314,6 +314,41 @@ test('同じv2 coreはprimary、partial、capacity、unknown、RC1 transferを�
 
 test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的corruptionを拒否する', async () => {
   const fixture = await loadArtifactFixture();
+  const evidencePayloads = fixture.payloads.filter(({ path: relativePath }) => (
+    relativePath.startsWith('evidence/')
+  ));
+  assert.equal(evidencePayloads.length, 6);
+  for (const payload of evidencePayloads) {
+    const storedRun = JSON.parse(payload.bytes.toString('utf8'));
+    const storedRaw = storedRun.evidence.raw;
+    assert.deepEqual(Object.keys(storedRaw).sort(), [
+      'canonical_bytes',
+      'media_type',
+      'payload_base64_chunks',
+      'payload_digest',
+      'schema',
+      'source_encoding',
+      'source_schema',
+      'storage_encoding',
+    ]);
+    assert.equal(storedRaw.schema, 'lattice.rc2.chunked_codegraph_raw_receipt.v1');
+    assert.equal(storedRaw.source_schema, 'lattice.codegraph_raw_opaque_receipt.v1');
+    assert.equal(storedRaw.source_encoding, 'canonical-json-base64');
+    assert.equal(storedRaw.storage_encoding, 'ordered-base64-chunks');
+    assert.ok(storedRaw.payload_base64_chunks.length > 1);
+    assert.ok(storedRaw.payload_base64_chunks.every((chunk) => (
+      Buffer.byteLength(chunk, 'utf8') <= 12_000
+    )));
+    assert.ok(storedRaw.payload_base64_chunks.slice(0, -1).every((chunk) => (
+      Buffer.byteLength(chunk, 'utf8') === 12_000
+    )));
+    assert.equal(Object.hasOwn(storedRaw, 'payload_base64'), false);
+    const encoded = storedRaw.payload_base64_chunks.join('');
+    const decoded = Buffer.from(encoded, 'base64');
+    assert.equal(decoded.toString('base64'), encoded);
+    assert.equal(decoded.byteLength, storedRaw.canonical_bytes);
+    assert.equal(sha256(decoded), storedRaw.payload_digest);
+  }
   const pure = fixture.artifactSet.verifyRc2CampaignArtifactSet({
     manifest: fixture.manifest,
     payloads: fixture.payloads,
@@ -377,6 +412,17 @@ test('RC2 artifact writerはatomic immutableでdisk-only verifierが意味論的
   const costVerification = fixture.artifactSet.verifyRc2CampaignArtifactSet(costCorruption);
   assert.equal(costVerification.valid, false);
   assert.ok(costVerification.failed_conditions.includes('cost_arithmetic'));
+
+  const rawChunkCorruption = copyArtifactSet(fixture);
+  mutateJson(rawChunkCorruption, 'evidence/primary-control-1.json', (value) => {
+    const chunk = value.evidence.raw.payload_base64_chunks[0];
+    value.evidence.raw.payload_base64_chunks[0] = `${chunk[0] === 'A' ? 'B' : 'A'}${chunk.slice(1)}`;
+  });
+  const rawChunkVerification = fixture.artifactSet.verifyRc2CampaignArtifactSet(
+    rawChunkCorruption,
+  );
+  assert.equal(rawChunkVerification.valid, false);
+  assert.ok(rawChunkVerification.failed_conditions.includes('fresh_run_binding'));
 
   const diskPatchPath = path.join(fixture.artifactRoot, 'transform/seam.patch');
   const originalPatch = await readFile(diskPatchPath);
