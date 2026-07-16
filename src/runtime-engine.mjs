@@ -326,7 +326,11 @@ export async function observeExecutor(options = {}) {
     return { events: next, observation: { state: 'unknown' } };
   }
   if (observation.state === 'checkpoint_ready') {
-    if (!plainRecord(observation.checkpoint)) fail(`checkpoint payloadが必要: ${todoId}`);
+    if (!plainRecord(observation.checkpoint)
+      || typeof observation.checkpoint.checkpoint_digest !== 'string'
+      || !/^[0-9a-f]{64}$/.test(observation.checkpoint.checkpoint_digest)) {
+      fail(`checkpoint payloadにはcheckpoint_digestが必要: ${todoId}`);
+    }
     next.push(buildNextRunEvent({
       events: next,
       runId,
@@ -351,13 +355,22 @@ export async function observeExecutor(options = {}) {
       payload: structuredClone(observation.receipt),
       recordedAt,
     }));
+    // cleanup失敗は成功へ丸めず、残存pathと回収条件をterminal eventへ保存する
+    // （plan RC3-F）。cleanup情報のないadapterは省略可。
+    const terminalPayload = {
+      executor_handle: dispatch.payload.executor_handle,
+      terminal_state: 'reported',
+    };
+    if (plainRecord(observation.cleanup)) {
+      terminalPayload.cleanup = structuredClone(observation.cleanup);
+    }
     next.push(buildNextRunEvent({
       events: next,
       runId,
       kind: 'executor_terminal',
       planEpoch: plan.plan_epoch,
       subject: { kind: 'todo', ref: todoId },
-      payload: { executor_handle: dispatch.payload.executor_handle, terminal_state: 'reported' },
+      payload: terminalPayload,
       recordedAt,
     }));
     return { events: next, observation: { state: 'terminal' } };
@@ -409,6 +422,63 @@ export async function observeExecutor(options = {}) {
  * 帰属の基準はdispatch記録（handle・worktree・packet digest）であり、
  * executor自己申告を信用しない。裁定はreceipt_accepted／receipt_rejected eventへ保存する。
  */
+/**
+ * 直近のcheckpoint観測をdeclared scope／他running TODOへcross-bindし、
+ * findingがあればconflict_found＋intake_frozenを追記する（RC3-F検出、裁定はRC3-G）。
+ */
+export function classifyCheckpointObservation(options = {}) {
+  if (!exactRecord(options, ['runId', 'plan', 'events', 'packets', 'todoId', 'detect', 'recordedAt'])) {
+    fail('classifyCheckpointObservation optionsがexact shapeでない');
+  }
+  const { runId, plan, events, packets, todoId, detect, recordedAt } = options;
+  if (typeof detect !== 'function') fail('detect関数が必要');
+  const state = projectRuntimeState({ events });
+  const checkpoints = state.checkpoints.filter((entry) => entry.todo_id === todoId);
+  if (checkpoints.length === 0) fail(`checkpoint未観測のTODOを分類できない: ${todoId}`);
+  const checkpoint = checkpoints[checkpoints.length - 1].payload;
+  const { findings } = detect({
+    todoId,
+    checkpoint,
+    packets,
+    runningTodoIds: state.running,
+  });
+  if (!Array.isArray(findings)) fail('detectがfindings配列を返さない');
+  // 再分類のidempotence: 既に保存済みのfinding（kind＋todo_ids＋path）は再記録しない。
+  const recordedKeys = new Set(state.conflicts.map((conflict) => (
+    `${conflict.kind}|${[...(conflict.todo_ids ?? [])].sort().join(',')}|${conflict.path ?? ''}`
+  )));
+  const freshFindings = findings.filter((finding) => !recordedKeys.has(
+    `${finding.kind}|${[...(finding.todo_ids ?? [])].sort().join(',')}|${finding.path ?? ''}`,
+  ));
+  let next = [...events];
+  for (const finding of freshFindings) {
+    next.push(buildNextRunEvent({
+      events: next,
+      runId,
+      kind: 'conflict_found',
+      planEpoch: plan.plan_epoch,
+      subject: { kind: 'todo', ref: todoId },
+      payload: structuredClone(finding),
+      recordedAt,
+    }));
+  }
+  if (freshFindings.length > 0 && state.freeze === null) {
+    next.push(buildNextRunEvent({
+      events: next,
+      runId,
+      kind: 'intake_frozen',
+      planEpoch: plan.plan_epoch,
+      subject: { kind: 'runtime_plan', ref: plan.plan_ref },
+      payload: {
+        frozen_prefix_digest: digestArtifact(next.map((event) => event.event_digest)),
+        reason_kind: findings[0].kind,
+      },
+      recordedAt,
+    }));
+  }
+  return { events: next, findings: freshFindings };
+}
+
 const RECEIPT_BINDING_FIELDS = Object.freeze([
   'executor_handle',
   'worktree_id',
@@ -475,6 +545,26 @@ export function adjudicatePendingReceipts(options = {}) {
       rejection = 'base_mismatch';
     } else if (receipt.plan_epoch !== plan.plan_epoch) {
       rejection = 'epoch_mismatch';
+    } else if ((() => {
+      // receipt以前の最後の観測checkpointへのbindを要求（digestとobserved_diff。
+      // executor自己申告をbinding証拠にしない。RC3-F）。
+      const observedCheckpoints = state.checkpoints.filter((entry) => (
+        entry.todo_id === receipt.todo_id && entry.sequence < receipt.sequence
+      ));
+      if (observedCheckpoints.length === 0) return false;
+      const last = observedCheckpoints[observedCheckpoints.length - 1].payload;
+      if (typeof last?.checkpoint_digest === 'string'
+        && payload.checkpoint_digest !== last.checkpoint_digest) {
+        return true;
+      }
+      if (last?.diff?.entries !== undefined && Array.isArray(last.diff.entries)) {
+        const expected = JSON.stringify(last.diff.entries.map(({ path: p, change }) => ({ path: p, change })));
+        const reported = JSON.stringify((payload.observed_diff ?? []).map(({ path: p, change }) => ({ path: p, change })));
+        if (expected !== reported) return true;
+      }
+      return false;
+    })()) {
+      rejection = 'checkpoint_mismatch';
     } else if (freezeBoundary !== null) {
       // freeze境界を跨いだreceiptはstale（Decision 7.4）。frozen prefix内のreceiptは
       // 実証済みcarry-over witnessのbindingがある場合だけ受理（Decision 7.5）。

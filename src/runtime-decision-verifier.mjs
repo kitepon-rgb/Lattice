@@ -154,6 +154,7 @@ export function classifyObservedDiff(options = {}) {
     }
   }
   const overlapPairs = new Set();
+  const emittedOverlaps = new Set();
   for (const [path, writers] of [...writersByPath.entries()].sort()) {
     if (writers.length < 2) continue;
     const sortedWriters = sorted(writers);
@@ -164,7 +165,31 @@ export function classifyObservedDiff(options = {}) {
           todo_ids: [sortedWriters[left], sortedWriters[right]],
           path,
         });
+        emittedOverlaps.add(`${sortedWriters[left]} ${sortedWriters[right]} ${path}`);
         overlapPairs.add(`${sortedWriters[left]} ${sortedWriters[right]}`);
+      }
+    }
+  }
+
+  // 観測pathが、まだ観測を持たない別TODOのdeclared write（prefix宣言含む）へ
+  // 到達する場合も後発write conflictとして保存する（片側観測だけの
+  // late conflictを安全と推測しない。RC3-F採用のverifier意味論補完）。
+  for (const [todoId, paths] of observedByTodo) {
+    for (const [otherId, manifest] of Object.entries(manifests)) {
+      if (otherId === todoId) continue;
+      const otherDeclared = manifest.writes ?? [];
+      for (const path of paths) {
+        if (!declaredWriteCovers(otherDeclared, path)) continue;
+        const pair = sorted([todoId, otherId]);
+        const key = `${pair[0]} ${pair[1]} ${path}`;
+        if (emittedOverlaps.has(key)) continue;
+        emittedOverlaps.add(key);
+        findings.push({
+          kind: 'observed_write_conflict',
+          todo_ids: pair,
+          path,
+        });
+        overlapPairs.add(`${pair[0]} ${pair[1]}`);
       }
     }
   }
@@ -415,6 +440,26 @@ export function recomputeReceiptDecisions(options = {}) {
     }
     if (receipt.plan_epoch !== plan.plan_epoch) {
       return reject('epoch_mismatch');
+    }
+    // checkpoint観測が存在するTODOは、receipt以前の最後の観測checkpointとの
+    // digest一致とobserved_diff一致を要求（executor自己申告をbinding証拠に
+    // しない。RC3-F。receipt後の追加checkpointはbinding対象にしない）。
+    const observedCheckpoints = state.checkpoints.filter((entry) => (
+      entry.todo_id === receipt.todo_id && entry.sequence < receipt.sequence
+    ));
+    if (observedCheckpoints.length > 0) {
+      const last = observedCheckpoints[observedCheckpoints.length - 1].payload;
+      if (typeof last?.checkpoint_digest === 'string'
+        && payload.checkpoint_digest !== last.checkpoint_digest) {
+        return reject('checkpoint_mismatch');
+      }
+      if (last?.diff?.entries !== undefined && Array.isArray(last.diff.entries)) {
+        const expected = JSON.stringify(last.diff.entries.map(({ path, change }) => ({ path, change })));
+        const reported = JSON.stringify((payload.observed_diff ?? []).map(({ path, change }) => ({ path, change })));
+        if (expected !== reported) {
+          return reject('checkpoint_mismatch');
+        }
+      }
     }
     if (receipt.rejected_sequence !== null) {
       return reject('recorded_rejection');

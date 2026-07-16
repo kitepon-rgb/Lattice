@@ -387,13 +387,21 @@ P2（unknown観測の証拠化）はrun_event.v1のkind集合変更を要する�
 
 ### RC3-F — isolated worktree executorとdiff observer
 
-- [ ] source編集前にworktree／git／Codegraph ownership boundaryをpreflightする。
-- [ ] canonical worktreeを直接変更しないdisposable worktree provision／cleanupを実装する。
-- [ ] executor packetへtask、scope、base、plan epoch、verifier、禁止操作をbindする。
-- [ ] checkpoint diffをbounded canonical recordへ変換する。
-- [ ] observed pathをdeclared path／resourceへcross-bindし、scope外writeを検出する。
-- [ ] receiptのhandle／worktree／base／epoch／checkpoint欠落とstale値をrejectする。
-- [ ] cleanup failureを成功へ丸めず、残存pathと回収条件を記録する。
+- [x] source編集前にworktree／git／Codegraph ownership boundaryをpreflightする。
+- [x] canonical worktreeを直接変更しないdisposable worktree provision／cleanupを実装する。
+- [x] executor packetへtask、scope、base、plan epoch、verifier、禁止操作をbindする。
+- [x] checkpoint diffをbounded canonical recordへ変換する。
+- [x] observed pathをdeclared path／resourceへcross-bindし、scope外writeを検出する。
+- [x] receiptのhandle／worktree／base／epoch／checkpoint欠落とstale値をrejectする。
+- [x] cleanup failureを成功へ丸めず、残存pathと回収条件を記録する。
+
+RC3-F成果: 加算module 2（`src/runtime-diff-observer.mjs`／`src/runtime-worktree-executor.mjs`）と
+engine／verifierへのcheckpoint binding・conflict分類の拡張。実git worktree・実diffのintegration 8条件
+（ignored write検出、rename分解、例外時leak-free、canonical write/ref作成guard、HEAD drift、
+checkpoint_mismatch、freeze、idempotent再分類）をgreenで固定。異provider review P0×4・P1×5・P2×1は、
+P0-2の「別process sandbox必須」だけをplan Non-goals（malicious executor非対象・cooperative前提）により
+棄却してcanonical fingerprint検出guardへ置換し、他は全採用した。
+詳細は[RC3-F worktree executor実装](evidence/2026-07-17-rc3-f-worktree-executor.md)。
 
 ### RC3-G — 後発競合、selective hold、recompile
 

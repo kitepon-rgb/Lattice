@@ -80,7 +80,7 @@ export function createScriptedExecutorAdapter(options = {}) {
       todo_id: packet.todo_id,
       checkpoint_digest: typeof step.checkpoint_digest === 'string'
         ? step.checkpoint_digest
-        : 'c'.repeat(64),
+        : (handleState.lastCheckpointDigest ?? 'c'.repeat(64)),
       observed_diff: Array.isArray(step.observed_diff)
         ? structuredClone(step.observed_diff)
         : packet.scope.writes.map((path) => ({ path, change: 'modified' })),
@@ -110,6 +110,7 @@ export function createScriptedExecutorAdapter(options = {}) {
         steps: structuredClone(steps),
         cursor: 0,
         terminalReported: false,
+        lastCheckpointDigest: null,
       });
       return { executor_handle: executorHandle, worktree_id: worktreeId };
     },
@@ -130,6 +131,9 @@ export function createScriptedExecutorAdapter(options = {}) {
       }
       if (step.kind === 'checkpoint') {
         if (!plainRecord(step.checkpoint)) fail('checkpoint stepにcheckpoint payloadが必要');
+        if (typeof step.checkpoint.checkpoint_digest === 'string') {
+          handleState.lastCheckpointDigest = step.checkpoint.checkpoint_digest;
+        }
         return { state: 'checkpoint_ready', checkpoint: structuredClone(step.checkpoint) };
       }
       if (step.kind === 'hold_request') {
