@@ -271,7 +271,9 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] H2c v2→v3再包装をexpected-red回帰testへ固定し、v1／v2／v3 compatibilityを同時に保持する。
 - [x] H2d source編集前Codegraph preflightでepoch verifier／campaign／candidate consumerとaffected testsを開き直す。
 - [x] H2e version-aware active witness bindingとbase cross-bindingを実装し、世代不整合testをgreenにする。
-- [ ] H2f immutable v3をpredecessorにcanonical artifact v4／plan v5を発行し、fresh reindex、related／full gateを固定する。
+- [x] H2f.1 immutable v3をpredecessorにcanonical artifact v4／plan v5をatomic発行する。
+- [x] H2f.2 post-artifact Codegraph affected-set期待値へ新version witness testを加え、失敗scopeをgreenにする。
+- [ ] H2f.3 fresh reindex、4-version replay、related／full gateをevidenceへ固定する。
 - [ ] RC2成功条件だけを対象にPhase反証を一回行う。
 - [ ] H1-RC2をsupport／refuteする新しい不変DecisionとPhase evidenceを残す。
 

@@ -12,6 +12,7 @@ const LIVE_PATHS = Object.freeze([
   'research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs',
 ]);
 const ORACLE_TESTS = Object.freeze([
+  'test/rc2-artifact-version-witness.test.mjs',
   'test/rc2-campaign.test.mjs',
   'test/rc2-delivery-policy-fixture.test.mjs',
   'test/rc2-delivery-policy-transform.test.mjs',
