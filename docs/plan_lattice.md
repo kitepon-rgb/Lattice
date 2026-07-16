@@ -6,6 +6,7 @@
 - predecessor: `lattice-research-campaign-1-v6`（[Phase-supported archive](archive/2026-07-16-plan-lattice-research-campaign-1-v6-phase-supported.md)、SHA-256 `b655ded0a9c11dac33a79dfd3b347bc3c69ea2e5ec37af7bb688d3b9fd49a35c`）
 - predecessor Decision: [ADR 0031](adr/0031-rc1-v6-phase-gate-support.md)
 - campaign Decision: [ADR 0032](adr/0032-rc2-bounded-graph-compiler-and-three-way-seam.md)
+- transform Decision: [ADR 0037](adr/0037-rc2-delivery-policy-transform-transaction.md)
 - reconsideration evidence: [2026-07-16 RC2 plan reconsideration](evidence/2026-07-16-rc2-plan-reconsideration.md)
 - 製品思想: [../PLAN.md](../PLAN.md)
 - 公開契約: [00_product-contract.md](00_product-contract.md)
@@ -220,6 +221,8 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 
 ### RC2-F — registry-shard transform adapter
 
+- [x] transform source／test前にCodegraphでplanned export／pathのbootstrap unknownと既存isolation／oracle／fixture影響を固定する。
+- [ ] writer、隔離transaction、snapshot binding、6×4 mutation matrix、rejection／cleanupをtest-firstで固定する。
 - [ ] shared exact testをcomposition-only＋3 dedicated testsへbehavior-preservingに分割する。
 - [ ] adapter責務をpatch、allowed paths、oracle／verifier、output snapshotへ限定する。
 - [ ] accepted seam candidate／witness／adapter source／patchをtransform artifactへcross-bindする。
