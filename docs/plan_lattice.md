@@ -269,7 +269,7 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] H2a Phase再反証で、canonical v2 common payloadをv3へ正規再包装しても15／15 validになるversion-downgrade P1を固定する。
 - [x] H2b 新しい不変ADRでartifact version固有のactive candidate／oracle epoch bindingとartifact v4／plan v5 barrierを裁定する。
 - [x] H2c v2→v3再包装をexpected-red characterizationへ固定し、v1／v2／v3 compatibilityを同時に保持する。
-- [ ] H2d source編集前Codegraph preflightでepoch verifier／campaign／candidate consumerとaffected testsを開き直す。
+- [x] H2d source編集前Codegraph preflightでepoch verifier／campaign／candidate consumerとaffected testsを開き直す。
 - [ ] H2e version-aware active witness bindingとbase cross-bindingを実装し、downgrade characterizationをgreenにする。
 - [ ] H2f immutable v3をpredecessorにcanonical artifact v4／plan v5を発行し、fresh reindex、related／full gateを固定する。
 - [ ] RC2成功条件だけを対象にPhase反証を一回行う。
@@ -310,6 +310,9 @@ version witness epoch Decision:
 
 version-contract expected-red証拠:
 [2026-07-16 RC2 artifact version-contract characterization](evidence/2026-07-16-rc2-version-downgrade-characterization.md)
+
+version witness preflight証拠:
+[2026-07-16 RC2 version witness Codegraph preflight](evidence/2026-07-16-rc2-version-witness-codegraph-preflight.md)
 
 ## Evidence artifact
 
