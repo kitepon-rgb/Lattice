@@ -97,7 +97,12 @@ function applyGitPatch(cwd, patchBytes) {
 }
 
 function changedPaths(repoRoot) {
-  const status = git(repoRoot, ['status', '--porcelain', '--untracked-files=all']);
+  const result = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const status = result.stdout.trimEnd();
   if (status.length === 0) return [];
   return status.split('\n').map((line) => line.slice(3)).sort();
 }
