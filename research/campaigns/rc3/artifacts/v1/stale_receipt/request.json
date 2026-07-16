@@ -1,0 +1,141 @@
+{
+ "schema": "lattice.run_request.v1",
+ "request_id": "rc3h-late",
+ "repo": {
+  "base_sha": "339a09225425c2c22fc33d27122c62a009efe3d0",
+  "root_kind": "git-worktree"
+ },
+ "capacity": {
+  "executors": 3
+ },
+ "todos": [
+  {
+   "todo_id": "TA"
+  },
+  {
+   "todo_id": "TB"
+  },
+  {
+   "todo_id": "TC"
+  }
+ ],
+ "manual_witness": {
+  "TA": {
+   "owns": [
+    {
+     "kind": "path",
+     "target": "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs"
+    }
+   ],
+   "reads": [],
+   "writes": [
+    "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-aff-TA",
+      "expect": {
+       "kind": "affected",
+       "path": "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "test/rc2-delivery-policy-fixture.test.mjs"
+   ],
+   "unknowns": []
+  },
+  "TB": {
+   "owns": [
+    {
+     "kind": "path",
+     "target": "src/rc2-delivery-policy-oracle.mjs"
+    }
+   ],
+   "reads": [],
+   "writes": [
+    "src/rc2-delivery-policy-oracle.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-aff-TB",
+      "expect": {
+       "kind": "affected",
+       "path": "src/rc2-delivery-policy-oracle.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "test/rc2-delivery-policy-fixture.test.mjs"
+   ],
+   "unknowns": []
+  },
+  "TC": {
+   "owns": [
+    {
+     "kind": "path",
+     "target": "test/rc2-delivery-policy-fixture.test.mjs"
+    }
+   ],
+   "reads": [],
+   "writes": [
+    "test/rc2-delivery-policy-fixture.test.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-aff-TC",
+      "expect": {
+       "kind": "affected",
+       "path": "test/rc2-delivery-policy-fixture.test.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "test/rc2-delivery-policy-fixture.test.mjs"
+   ],
+   "unknowns": []
+  }
+ },
+ "codegraph_query_set": {
+  "queries": [
+   {
+    "id": "q-status",
+    "operation": "status"
+   },
+   {
+    "id": "q-aff-TA",
+    "operation": "affected",
+    "target": "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs"
+   },
+   {
+    "id": "q-aff-TB",
+    "operation": "affected",
+    "target": "src/rc2-delivery-policy-oracle.mjs"
+   },
+   {
+    "id": "q-aff-TC",
+    "operation": "affected",
+    "target": "test/rc2-delivery-policy-fixture.test.mjs"
+   }
+  ]
+ },
+ "executor_capability": {
+  "adapters": [
+   "isolated-worktree"
+  ]
+ },
+ "claim_mode": "exact_minimum",
+ "request_digest": "32539b54372bbbdb6686a89c538b5218405965bb2ed47e0b7d0d31eb20c1dc4a"
+}

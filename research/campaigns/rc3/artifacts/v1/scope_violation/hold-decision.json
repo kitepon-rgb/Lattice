@@ -1,0 +1,26 @@
+{
+ "schema": "lattice.hold_decision.v1",
+ "decision_id": "hold-rc3h-scope-seq7",
+ "finding": {
+  "sequence": 6,
+  "kind": "scope_violation",
+  "todo_ids": [
+   "TA"
+  ],
+  "path": "docs/rogue.md"
+ },
+ "frozen_prefix_digest": "5fac6998cb3891f1af1798d667dbc495ee068877bdb7849c02f635f2a2a2ed33",
+ "affected_closure": [
+  "TA"
+ ],
+ "hold_set": [
+  "TA"
+ ],
+ "continue_set": [
+  "TB"
+ ],
+ "evidence_digests": [
+  "7e3563d437e5f1bf5bf192fc9cd8e999f778465bcb39848bafb003eb3d79c96d"
+ ],
+ "decision_digest": "644a81c9e92e023a835e86eee3c72967a019666d677e6e745249496a4b65fc4a"
+}

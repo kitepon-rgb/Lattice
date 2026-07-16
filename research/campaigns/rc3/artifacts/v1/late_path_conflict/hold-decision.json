@@ -1,0 +1,30 @@
+{
+ "schema": "lattice.hold_decision.v1",
+ "decision_id": "hold-rc3h-late-seq10",
+ "finding": {
+  "sequence": 9,
+  "kind": "observed_write_conflict",
+  "todo_ids": [
+   "TA",
+   "TB"
+  ],
+  "path": "src/rc2-delivery-policy-oracle.mjs"
+ },
+ "frozen_prefix_digest": "afec43119d9a11718d7eb4e2283c42dd95627330a1181fc23095fd2b56596a91",
+ "affected_closure": [
+  "TA",
+  "TB"
+ ],
+ "hold_set": [
+  "TA",
+  "TB"
+ ],
+ "continue_set": [
+  "TC"
+ ],
+ "evidence_digests": [
+  "f666df631a5939d8fcfe2579d344c39ae799585027e2916d6d2150f184eda5b0",
+  "3f10d11a5828f4cfd22b81b8d5d56a75cde1fe40ab266eb054ddbb5aa4655131"
+ ],
+ "decision_digest": "d8857886ad28515819a4917b6737587f7fd7e80fa3edc5195b793fac67f89093"
+}

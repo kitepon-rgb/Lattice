@@ -1,0 +1,491 @@
+[
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 0,
+  "previous_digest": null,
+  "kind": "run_initialized",
+  "actor": "lattice-runtime",
+  "plan_epoch": 0,
+  "subject": {
+   "kind": "run_request",
+   "ref": "request.json"
+  },
+  "payload": {
+   "request_digest": "0c870d4b940e85bedf3a0f91745a1e3778ab72e81be4112c0837c477a69da9cd"
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "5e7f22ed0cc8a2f2c6ffa2e5543d791cbb1bfa6025025bdcb1a8a6aa6a3782fa"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 1,
+  "previous_digest": "5e7f22ed0cc8a2f2c6ffa2e5543d791cbb1bfa6025025bdcb1a8a6aa6a3782fa",
+  "kind": "plan_compiled",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "runtime_plan",
+   "ref": "plan-rc3h-clean-e1"
+  },
+  "payload": {
+   "plan_digest": "d6796c663ab215ae9caa3b2a61bdaf94e8e69c55990053ea353242401c4374ca",
+   "manifest_digests": {
+    "TA": "836d8813a598de8e11e1f5b7e94aad3770af6e9a8662d86be54e893e55864036",
+    "TB": "ef1b4be93748782ce2207cc4b7ba05805e757c69e6978abc27e0cb45ace68f88",
+    "TC": "4cfffd64a7d49e74cb714446c783abfdcf62210a600a7301d96e8baa0477f390"
+   },
+   "manifests_digest": "4c031592cc4c5f7942bec44697c7040431bb7dc8e919da7e8d4efbc4c4abddb6"
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "9abc8f05a1959025cbd1bb6f8d8184b158ad89adce5555874b534cc0784c9a98"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 2,
+  "previous_digest": "9abc8f05a1959025cbd1bb6f8d8184b158ad89adce5555874b534cc0784c9a98",
+  "kind": "dispatch_decided",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "runtime_plan",
+   "ref": "plan-rc3h-clean-e1"
+  },
+  "payload": {
+   "dispatchable": [
+    "TA",
+    "TB",
+    "TC"
+   ],
+   "running": [],
+   "accepted": [],
+   "capacity": 3
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "a20a82c2afb282fedd9ba53f94f7044423a15a39ad610ee26fb2ce5caa4b3c4d"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 3,
+  "previous_digest": "a20a82c2afb282fedd9ba53f94f7044423a15a39ad610ee26fb2ce5caa4b3c4d",
+  "kind": "executor_dispatched",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TA"
+  },
+  "payload": {
+   "executor_handle": "worktree-TA-h1",
+   "worktree_id": "wt-TA-1",
+   "packet_digest": "1ca205e36ad47eadf7d6f0d186b1269859a41074b5e2fa9ce4f9bf2a2674ea08",
+   "context_content_digest": "4265be9a0046633f80dcec6c821248294270757f0dcc9d979d429d7aece3eccb"
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "c3aeec119612e41c9ee9dff7ea18acf40be390b9d6c57fed36e8b9429ebc9b50"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 4,
+  "previous_digest": "c3aeec119612e41c9ee9dff7ea18acf40be390b9d6c57fed36e8b9429ebc9b50",
+  "kind": "executor_dispatched",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TB"
+  },
+  "payload": {
+   "executor_handle": "worktree-TB-h2",
+   "worktree_id": "wt-TB-2",
+   "packet_digest": "9997808d3849a48ade286099520816de4a86c442feb81929ec01e910e2a5922c",
+   "context_content_digest": "6920919c7139bf06f0b839d112c4c4b4047041d3466ab18b47318342a5d1e114"
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "52715527ed522e292eb02423f6fccd821b574ad881f67ea841508f90ee44a98c"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 5,
+  "previous_digest": "52715527ed522e292eb02423f6fccd821b574ad881f67ea841508f90ee44a98c",
+  "kind": "executor_dispatched",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TC"
+  },
+  "payload": {
+   "executor_handle": "worktree-TC-h3",
+   "worktree_id": "wt-TC-3",
+   "packet_digest": "dca40702ee4aa0d22f045e4888df0662f18221736b840ad7881e6e17a94b8967",
+   "context_content_digest": "3a51e190f9151f6c8dacab9c296f7afa850a23e09f8de46c79f7621d5de0a09a"
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "adf53eb06517b1ed9dc75cc8ca4766d4024aa4907fa5b51625334750d59f899c"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 6,
+  "previous_digest": "adf53eb06517b1ed9dc75cc8ca4766d4024aa4907fa5b51625334750d59f899c",
+  "kind": "checkpoint_observed",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TA"
+  },
+  "payload": {
+   "checkpoint_digest": "f4684797a8cb7e976a29062cf1cdf2b4eb7e8d62acbbf1b18d04f5de62bfb981",
+   "diff": {
+    "schema": "lattice.checkpoint_diff.v1",
+    "base_sha": "339a09225425c2c22fc33d27122c62a009efe3d0",
+    "entries": [
+     {
+      "path": "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs",
+      "change": "modified",
+      "content_digest": "b6a98d9ce9a2d9149288fa3df42d377c3e42737afdcdaf714e33c0a100b51060"
+     }
+    ]
+   }
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "000c7a1bcef9d23ee2398685817579b7f64c99320eca777312464c488ce13b55"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 7,
+  "previous_digest": "000c7a1bcef9d23ee2398685817579b7f64c99320eca777312464c488ce13b55",
+  "kind": "checkpoint_observed",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TB"
+  },
+  "payload": {
+   "checkpoint_digest": "9e217b11cb67221ff21b345047a4618f70c14c5c421d615da3bc17898969fd02",
+   "diff": {
+    "schema": "lattice.checkpoint_diff.v1",
+    "base_sha": "339a09225425c2c22fc33d27122c62a009efe3d0",
+    "entries": [
+     {
+      "path": "src/rc2-delivery-policy-oracle.mjs",
+      "change": "modified",
+      "content_digest": "f2c82decdd7181cf98945929a62598db7e6b477e11f6e0eb0ae97020eff151ad"
+     }
+    ]
+   }
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "d84d69685230f5c61899cc7b4db761bd42e15c4b6eeef491766c46bbe5da6919"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 8,
+  "previous_digest": "d84d69685230f5c61899cc7b4db761bd42e15c4b6eeef491766c46bbe5da6919",
+  "kind": "checkpoint_observed",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TC"
+  },
+  "payload": {
+   "checkpoint_digest": "32972102b61ff705507bd98060fd941b713e03e3acaf7bd3cb8a6e744714743a",
+   "diff": {
+    "schema": "lattice.checkpoint_diff.v1",
+    "base_sha": "339a09225425c2c22fc33d27122c62a009efe3d0",
+    "entries": [
+     {
+      "path": "test/rc2-delivery-policy-fixture.test.mjs",
+      "change": "modified",
+      "content_digest": "ae9a6306a205417afddd14316cc1d0d5e04a98f1be10865dce643925ee070ce2"
+     }
+    ]
+   }
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "3203baa355ab318d5b5e5ada0da6d5fc236b0595f7f0116a60ddbb0fd9cfb9ac"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 9,
+  "previous_digest": "3203baa355ab318d5b5e5ada0da6d5fc236b0595f7f0116a60ddbb0fd9cfb9ac",
+  "kind": "dispatch_decided",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "runtime_plan",
+   "ref": "plan-rc3h-clean-e1"
+  },
+  "payload": {
+   "dispatchable": [],
+   "running": [
+    "TA",
+    "TB",
+    "TC"
+   ],
+   "accepted": [],
+   "capacity": 3
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "462618edac8b3ecc3cfdbe838217bd31ad7d54be8c5309580428158ac5489fa2"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 10,
+  "previous_digest": "462618edac8b3ecc3cfdbe838217bd31ad7d54be8c5309580428158ac5489fa2",
+  "kind": "receipt_recorded",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TA"
+  },
+  "payload": {
+   "schema": "lattice.executor_receipt.v1",
+   "receipt_id": "TA-r1",
+   "executor_handle": "worktree-TA-h1",
+   "worktree_id": "wt-TA-1",
+   "base_sha": "339a09225425c2c22fc33d27122c62a009efe3d0",
+   "plan_epoch": 1,
+   "packet_digest": "1ca205e36ad47eadf7d6f0d186b1269859a41074b5e2fa9ce4f9bf2a2674ea08",
+   "todo_id": "TA",
+   "checkpoint_digest": "f4684797a8cb7e976a29062cf1cdf2b4eb7e8d62acbbf1b18d04f5de62bfb981",
+   "observed_diff": [
+    {
+     "path": "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs",
+     "change": "modified"
+    }
+   ],
+   "receipt_digest": "1caf034489734e8b180dd384adfc8d940f3a88661f327c41b942d3eb1b70df2f"
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "809276cfccdcccd264d6c8811174bf18aa3007be9508d9a2a0b1ba85a5a2684d"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 11,
+  "previous_digest": "809276cfccdcccd264d6c8811174bf18aa3007be9508d9a2a0b1ba85a5a2684d",
+  "kind": "executor_terminal",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TA"
+  },
+  "payload": {
+   "executor_handle": "worktree-TA-h1",
+   "terminal_state": "reported",
+   "cleanup": {
+    "cleanup_ok": true,
+    "residual_paths": []
+   }
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "795fa81b687d26ee7a2a824fdc91039d1cd65b0eac25c64db0633de7437bf2cb"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 12,
+  "previous_digest": "795fa81b687d26ee7a2a824fdc91039d1cd65b0eac25c64db0633de7437bf2cb",
+  "kind": "receipt_recorded",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TB"
+  },
+  "payload": {
+   "schema": "lattice.executor_receipt.v1",
+   "receipt_id": "TB-r1",
+   "executor_handle": "worktree-TB-h2",
+   "worktree_id": "wt-TB-2",
+   "base_sha": "339a09225425c2c22fc33d27122c62a009efe3d0",
+   "plan_epoch": 1,
+   "packet_digest": "9997808d3849a48ade286099520816de4a86c442feb81929ec01e910e2a5922c",
+   "todo_id": "TB",
+   "checkpoint_digest": "9e217b11cb67221ff21b345047a4618f70c14c5c421d615da3bc17898969fd02",
+   "observed_diff": [
+    {
+     "path": "src/rc2-delivery-policy-oracle.mjs",
+     "change": "modified"
+    }
+   ],
+   "receipt_digest": "6d6aec6ad17c51fe108fa484d4ce5c30e09325343abd7bcd73a06783dd447d6d"
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "b9bdf5025e5d34e0213b44c5f26a966973b47210bd856284e178a73f42f76e47"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 13,
+  "previous_digest": "b9bdf5025e5d34e0213b44c5f26a966973b47210bd856284e178a73f42f76e47",
+  "kind": "executor_terminal",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TB"
+  },
+  "payload": {
+   "executor_handle": "worktree-TB-h2",
+   "terminal_state": "reported",
+   "cleanup": {
+    "cleanup_ok": true,
+    "residual_paths": []
+   }
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "6a716c7e02a03cfe71965cd8be092253c99cca804b42dd9b827e8388c8e50e44"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 14,
+  "previous_digest": "6a716c7e02a03cfe71965cd8be092253c99cca804b42dd9b827e8388c8e50e44",
+  "kind": "receipt_recorded",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TC"
+  },
+  "payload": {
+   "schema": "lattice.executor_receipt.v1",
+   "receipt_id": "TC-r1",
+   "executor_handle": "worktree-TC-h3",
+   "worktree_id": "wt-TC-3",
+   "base_sha": "339a09225425c2c22fc33d27122c62a009efe3d0",
+   "plan_epoch": 1,
+   "packet_digest": "dca40702ee4aa0d22f045e4888df0662f18221736b840ad7881e6e17a94b8967",
+   "todo_id": "TC",
+   "checkpoint_digest": "32972102b61ff705507bd98060fd941b713e03e3acaf7bd3cb8a6e744714743a",
+   "observed_diff": [
+    {
+     "path": "test/rc2-delivery-policy-fixture.test.mjs",
+     "change": "modified"
+    }
+   ],
+   "receipt_digest": "9c213014c5d8b8af386ed15af7caea5a0f2569d78e5bebdd6210b782c33dc282"
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "0b377a9ae08bc247f1ba8880d86fbd1eac02770f17192ffa85eff76f04971328"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 15,
+  "previous_digest": "0b377a9ae08bc247f1ba8880d86fbd1eac02770f17192ffa85eff76f04971328",
+  "kind": "executor_terminal",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TC"
+  },
+  "payload": {
+   "executor_handle": "worktree-TC-h3",
+   "terminal_state": "reported",
+   "cleanup": {
+    "cleanup_ok": true,
+    "residual_paths": []
+   }
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "a6c27a4721d1f399a066590b8d32f581cd31dd40781fa0de2290a3432788e5fc"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 16,
+  "previous_digest": "a6c27a4721d1f399a066590b8d32f581cd31dd40781fa0de2290a3432788e5fc",
+  "kind": "receipt_accepted",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TA"
+  },
+  "payload": {
+   "receipt_id": "TA-r1",
+   "checkpoint_digest": "f4684797a8cb7e976a29062cf1cdf2b4eb7e8d62acbbf1b18d04f5de62bfb981"
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "21d7963f52a8f86a46a010ab346808aede81ba2e7f4bcc8100c53b1472943613"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 17,
+  "previous_digest": "21d7963f52a8f86a46a010ab346808aede81ba2e7f4bcc8100c53b1472943613",
+  "kind": "receipt_accepted",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TB"
+  },
+  "payload": {
+   "receipt_id": "TB-r1",
+   "checkpoint_digest": "9e217b11cb67221ff21b345047a4618f70c14c5c421d615da3bc17898969fd02"
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "babac2ffb9ad790231c41d5698c5b63310f04f0aa88787f5c066073afcf4eb03"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 18,
+  "previous_digest": "babac2ffb9ad790231c41d5698c5b63310f04f0aa88787f5c066073afcf4eb03",
+  "kind": "receipt_accepted",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "todo",
+   "ref": "TC"
+  },
+  "payload": {
+   "receipt_id": "TC-r1",
+   "checkpoint_digest": "32972102b61ff705507bd98060fd941b713e03e3acaf7bd3cb8a6e744714743a"
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "f8e816f9192f7a211c7f51b5d35191d402ba006709d9533f528651703c4883b5"
+ },
+ {
+  "schema": "lattice.run_event.v1",
+  "run_id": "rc3h-clean",
+  "sequence": 19,
+  "previous_digest": "f8e816f9192f7a211c7f51b5d35191d402ba006709d9533f528651703c4883b5",
+  "kind": "run_closed",
+  "actor": "lattice-runtime",
+  "plan_epoch": 1,
+  "subject": {
+   "kind": "runtime_plan",
+   "ref": "plan-rc3h-clean-e1"
+  },
+  "payload": {
+   "accepted": [
+    "TA",
+    "TB",
+    "TC"
+   ]
+  },
+  "recorded_at": "2026-07-17T00:00:00.000Z",
+  "event_digest": "02bba928d0d06e2db5f6fbff78baec3686a9761ac297cded25705845c3250a62"
+ }
+]

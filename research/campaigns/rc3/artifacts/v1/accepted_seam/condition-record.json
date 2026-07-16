@@ -1,0 +1,65 @@
+{
+ "schema": "lattice.rc3.campaign_condition.v1",
+ "condition": "accepted_seam",
+ "expected": {
+  "lane": "seam_transform",
+  "transform_status": "accepted",
+  "conflict_reduced": true,
+  "wave_reduced": true,
+  "new_plan_issued": true
+ },
+ "actual": {
+  "lane": "seam_transform",
+  "transform_status": "accepted",
+  "conflict_reduced": true,
+  "wave_reduced": true,
+  "new_plan_issued": true
+ },
+ "matched": true,
+ "event_chain_valid": true,
+ "dispatch_replay_matched": true,
+ "event_count": 0,
+ "events_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+ "seam": {
+  "pre": {
+   "conflicts": 2,
+   "minimum_feasible_waves": 2,
+   "base_sha": "f32ad50075ef2cd1fe2e28b660274ac38a50e390"
+  },
+  "post": {
+   "conflicts": 0,
+   "minimum_feasible_waves": 1,
+   "base_sha": "79973af95c894159009741d5d0ff3f8b4217ec67"
+  },
+  "transform_artifact_digest": "41937c8a1b9390d2879ffddc6e5b48accc6b7195867c3f2ccd623ed9a325ad60",
+  "patch_digest": "51f772a408ec397e297e2e0999592374ce3bb3ff3de4e830bd63de1e2c81a5cc",
+  "predecessor": {
+   "epoch": "delivery-policy-semantic-v2",
+   "candidate_digest": "4cc5d7bb428a8899353d18524c25105742fa90f89ee55d36064c4be3c52e2907",
+   "oracle_source_digest": "c68a7ff9a7c9c4a181ceda6396d5fcbf27084de18680018d244a27998041652c",
+   "adapter_path": "src/rc2-delivery-policy-transform.mjs"
+  },
+  "post_plan_predecessor_refs": [
+   "plan-rc3h-seam-pre-e1",
+   "seam:41937c8a1b9390d2879ffddc6e5b48accc6b7195867c3f2ccd623ed9a325ad60"
+  ],
+  "namespaces": {
+   "lattice_source": {
+    "root_kind": "lattice-source",
+    "base_sha": "f167ed384b30b59625fbdcf8ca091e92f037e480",
+    "adapter_path": "src/rc2-delivery-policy-transform.mjs",
+    "path_digests": {
+     ".codegraph/.gitignore": "47c0dacebca9f56c9020b68584470dfc51f07650a3719904e98f4b447a5dd003",
+     "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs": "39bf74ee887a55186fa96a49e47b95a4b2480493dfd68d85eb0ec4ba56ad6005",
+     "src/rc2-delivery-policy-oracle.mjs": "c68a7ff9a7c9c4a181ceda6396d5fcbf27084de18680018d244a27998041652c",
+     "test/rc2-delivery-policy-fixture.test.mjs": "20288b4d4d2edbc5c3982cbdef4e3a71604b8c62ef7ae38904a98732db32555a"
+    }
+   },
+   "target": {
+    "root_kind": "disposable-dogfood",
+    "pre_base_sha": "f32ad50075ef2cd1fe2e28b660274ac38a50e390",
+    "post_base_sha": "79973af95c894159009741d5d0ff3f8b4217ec67"
+   }
+  }
+ }
+}

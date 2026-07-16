@@ -1,0 +1,32 @@
+{
+ "schema": "lattice.runtime_plan.v1",
+ "plan_ref": "plan-rc3h-seam-post-e2",
+ "plan_epoch": 2,
+ "request_digest": "bded196276907e63afeff1c87b50a8815cea949fec0711289035da8fc60b4818",
+ "base_sha": "79973af95c894159009741d5d0ff3f8b4217ec67",
+ "nodes": [
+  {
+   "todo_id": "Temail"
+  },
+  {
+   "todo_id": "Tsms"
+  }
+ ],
+ "precedence": [],
+ "conflicts": [],
+ "capacity": {
+  "executors": 2
+ },
+ "manifest_digests": {
+  "Temail": "d12b072b253b18b71526c66f9b378630e038905188e494f396844f4e746b0180",
+  "Tsms": "430cc26bf02c1d88539434a9278157c244dd04305cd4173a3363a9a547493b78"
+ },
+ "claim": {
+  "mode": "exact_minimum"
+ },
+ "predecessor_refs": [
+  "plan-rc3h-seam-pre-e1",
+  "seam:41937c8a1b9390d2879ffddc6e5b48accc6b7195867c3f2ccd623ed9a325ad60"
+ ],
+ "plan_digest": "d03a491835d7666641673bb0e77556ed930e6bd94e0a913d717b1a0a07817896"
+}

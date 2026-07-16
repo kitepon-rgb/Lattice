@@ -1,0 +1,25 @@
+{
+ "schema": "lattice.rc3.campaign_condition.v1",
+ "condition": "semantic_unknown",
+ "expected": {
+  "outcome": "non_dispatchable",
+  "code": "BOUNDARY_UNKNOWN",
+  "drift_control": {
+   "outcome": "non_dispatchable",
+   "code": "AFFECTED_TEST_DRIFT"
+  }
+ },
+ "actual": {
+  "outcome": "non_dispatchable",
+  "code": "BOUNDARY_UNKNOWN",
+  "drift_control": {
+   "outcome": "non_dispatchable",
+   "code": "AFFECTED_TEST_DRIFT"
+  }
+ },
+ "matched": true,
+ "event_chain_valid": true,
+ "dispatch_replay_matched": true,
+ "event_count": 0,
+ "events_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+}

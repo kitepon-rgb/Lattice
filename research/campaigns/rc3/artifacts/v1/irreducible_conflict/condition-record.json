@@ -1,0 +1,41 @@
+{
+ "schema": "lattice.rc3.campaign_condition.v1",
+ "condition": "irreducible_conflict",
+ "expected": {
+  "lane": "intentional_serial",
+  "hold": [
+   "TA",
+   "TB"
+  ],
+  "recompiled_with_conflict": true,
+  "precedence_not_faked": true,
+  "serialized_in_new_epoch": true,
+  "accepted": [
+   "TA",
+   "TB",
+   "TC"
+  ],
+  "closed": true
+ },
+ "actual": {
+  "lane": "intentional_serial",
+  "hold": [
+   "TA",
+   "TB"
+  ],
+  "recompiled_with_conflict": true,
+  "precedence_not_faked": true,
+  "serialized_in_new_epoch": true,
+  "accepted": [
+   "TA",
+   "TB",
+   "TC"
+  ],
+  "closed": true
+ },
+ "matched": true,
+ "event_chain_valid": true,
+ "dispatch_replay_matched": true,
+ "event_count": 29,
+ "events_digest": "65ffe006cf1c6ddc582c0b7c0c072786c04156e0a61aaac64de07124023001f4"
+}

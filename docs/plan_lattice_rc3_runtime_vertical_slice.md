@@ -426,13 +426,23 @@ holdへ戻る。contextは全TODOで一斉失効し、carried-overはrebindで�
 
 ### RC3-H — scripted closed-loop campaign
 
-- [ ] 8 conditionを同一base、同一request、同一runtime identityで実行する。
-- [ ] clean／late conflict／scope／semantic unknown／stale／serial／seam／corruptionを保存する。
-- [ ] 正解affected／hold／continue集合と実測を比較する。
-- [ ] event、receipt、plan diff、Codegraph、test、cost／reworkをartifactへ保存する。
-- [ ] immutable artifact rootへatomic no-overwrite発行する。
-- [ ] artifact-only verifierで全decisionを保存bytesから再計算する。
-- [ ] related gateを一回実行し、失敗scopeだけを収束させる。
+- [x] 8 conditionを同一base、同一request、同一runtime identityで実行する（同一base・同一template・
+      注入のみ可変の運用解釈。字義どおりの単一request bytesは条件表の注入設計と両立しないため、
+      解釈をevidenceへ記録した）。
+- [x] clean／late conflict／scope／semantic unknown／stale／serial／seam／corruptionを保存する。
+- [x] 正解affected／hold／continue集合と実測を比較する。
+- [x] event、receipt、plan diff、Codegraph、test、cost／reworkをartifactへ保存する。
+- [x] immutable artifact rootへatomic no-overwrite発行する。
+- [x] artifact-only verifierで全decisionを保存bytesから再計算する。
+- [x] related gateを一回実行し、失敗scopeだけを収束させる。
+
+RC3-H成果: `src/rc3-scripted-campaign.mjs`と正典artifact
+[research/campaigns/rc3/artifacts/v1](../research/campaigns/rc3/artifacts/v1)（8条件・disk再検証54 check green・
+cost実測付き）。late conflictは継続TODOのvN+1受理まで、irreducible conflictは実行中発見→recompile→
+intentional serial redispatchまでの閉ループを保存。異provider review P0×1・P1×6・P2×1を採用し、
+artifact-only verifierを「8条件完全性・期待/実測の再比較・actual主張のevents再計算・変異bytesからの
+corruption再判定・path containment」まで硬化した。詳細は
+[RC3-H scripted campaign](evidence/2026-07-17-rc3-h-scripted-campaign.md)。
 
 ### RC3-I — actual multi-agent dogfood
 

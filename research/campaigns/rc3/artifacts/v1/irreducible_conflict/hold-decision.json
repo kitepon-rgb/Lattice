@@ -1,0 +1,28 @@
+{
+ "schema": "lattice.hold_decision.v1",
+ "decision_id": "hold-rc3h-serial-seq10",
+ "finding": {
+  "sequence": 9,
+  "kind": "semantic_conflict_unknown",
+  "todo_ids": [
+   "TA",
+   "TB"
+  ],
+  "resource_id": "discovered-shared-state",
+  "reported_by": "scripted-TA-h1"
+ },
+ "frozen_prefix_digest": "8d6bf4386f6cf0e1835217aba271d7c15ccd24d98e7134bad99864121ffd16d0",
+ "affected_closure": [
+  "TA",
+  "TB"
+ ],
+ "hold_set": [
+  "TA",
+  "TB"
+ ],
+ "continue_set": [],
+ "evidence_digests": [
+  "31fbe0428bd1176432256c0985c57989d7aa7ae0475af90dacbd88b0373ba379"
+ ],
+ "decision_digest": "e21db7bc79caabed6e2269a64760ca97c929a89ff127247a67f107670f96548c"
+}

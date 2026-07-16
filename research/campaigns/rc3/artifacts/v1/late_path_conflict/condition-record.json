@@ -1,0 +1,47 @@
+{
+ "schema": "lattice.rc3.campaign_condition.v1",
+ "condition": "late_path_conflict",
+ "expected": {
+  "hold": [
+   "TA",
+   "TB"
+  ],
+  "continue": [
+   "TC"
+  ],
+  "lane": "intentional_serial",
+  "carried_over": [
+   "TC"
+  ],
+  "redispatched": [
+   "TA",
+   "TB"
+  ],
+  "new_epoch": 2,
+  "carried_output_accepted": true
+ },
+ "actual": {
+  "hold": [
+   "TA",
+   "TB"
+  ],
+  "continue": [
+   "TC"
+  ],
+  "lane": "intentional_serial",
+  "carried_over": [
+   "TC"
+  ],
+  "redispatched": [
+   "TA",
+   "TB"
+  ],
+  "new_epoch": 2,
+  "carried_output_accepted": true
+ },
+ "matched": true,
+ "event_chain_valid": true,
+ "dispatch_replay_matched": true,
+ "event_count": 24,
+ "events_digest": "60d219e38f7fba7532f90bba9ab9a501dce4e6ac5412afaa68e64dcced9b42f7"
+}

@@ -1,0 +1,78 @@
+{
+ "schema": "lattice.rc3.campaign_condition.v1",
+ "condition": "event_corruption",
+ "expected": {
+  "all_rejected": true,
+  "all_typed": true
+ },
+ "actual": {
+  "all_rejected": true,
+  "all_typed": true
+ },
+ "matched": true,
+ "event_chain_valid": true,
+ "dispatch_replay_matched": true,
+ "event_count": 0,
+ "events_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+ "corruption_results": {
+  "tamper": {
+   "valid": false,
+   "failed_conditions": [
+    "event_digest_mismatch"
+   ],
+   "expected_failed": [
+    "event_digest_mismatch"
+   ],
+   "typed_match": true
+  },
+  "gap": {
+   "valid": false,
+   "failed_conditions": [
+    "sequence_gap",
+    "digest_chain_mismatch"
+   ],
+   "expected_failed": [
+    "sequence_gap",
+    "digest_chain_mismatch"
+   ],
+   "typed_match": true
+  },
+  "fork": {
+   "valid": false,
+   "failed_conditions": [
+    "storage_order",
+    "sequence_fork"
+   ],
+   "expected_failed": [
+    "sequence_fork",
+    "storage_order"
+   ],
+   "typed_match": true
+  },
+  "duplicate": {
+   "valid": false,
+   "failed_conditions": [
+    "storage_order",
+    "duplicate_event"
+   ],
+   "expected_failed": [
+    "duplicate_event",
+    "storage_order"
+   ],
+   "typed_match": true
+  },
+  "unknown_kind": {
+   "valid": false,
+   "failed_conditions": [
+    "unknown_kind",
+    "digest_chain_mismatch"
+   ],
+   "expected_failed": [
+    "unknown_kind",
+    "digest_chain_mismatch"
+   ],
+   "typed_match": true
+  }
+ },
+ "corrupted_source_events_digest": "00a370389ba53bdde295fa43e3f6edd20c71b1755953102b02c42ce1fce7c4cf"
+}

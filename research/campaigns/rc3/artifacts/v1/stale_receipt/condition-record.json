@@ -1,0 +1,21 @@
+{
+ "schema": "lattice.rc3.campaign_condition.v1",
+ "condition": "stale_receipt",
+ "expected": {
+  "decision": "rejected",
+  "reason": "stale_context",
+  "verifier_decision": "rejected",
+  "accepted_outputs_from_stale": []
+ },
+ "actual": {
+  "decision": "rejected",
+  "reason": "stale_context",
+  "verifier_decision": "rejected",
+  "accepted_outputs_from_stale": []
+ },
+ "matched": true,
+ "event_chain_valid": true,
+ "dispatch_replay_matched": true,
+ "event_count": 26,
+ "events_digest": "c6dea8b96162d8e5676a1bc081f17f4fd96270cd663708f0988b7d2f547755fb"
+}

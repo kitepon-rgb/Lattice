@@ -135,6 +135,18 @@ export function createWorktreeExecutorAdapter(options = {}) {
       return { executor_handle: executorHandle, worktree_id: worktreeId };
     },
 
+    /** epoch rebind（Decision 7.3）: content不変のままplan epochだけを更新する。 */
+    async rebind({ executor_handle: executorHandle, rebind } = {}) {
+      const handleState = active.get(executorHandle);
+      if (handleState === undefined) fail(`未知のhandleをrebindできない: ${String(executorHandle)}`);
+      if (!plainRecord(rebind) || rebind.schema !== 'lattice.epoch_rebind_packet.v1'
+        || rebind.todo_id !== handleState.packet.todo_id) {
+        fail(`rebind packetが不正: ${String(executorHandle)}`);
+      }
+      handleState.packet.plan_epoch = rebind.new_plan_epoch;
+      return { executor_handle: executorHandle, plan_epoch: rebind.new_plan_epoch };
+    },
+
     async observe({ executor_handle: executorHandle } = {}) {
       const handleState = active.get(executorHandle);
       if (handleState === undefined) fail(`未知のhandleを観測できない: ${String(executorHandle)}`);

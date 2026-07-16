@@ -1,0 +1,37 @@
+{
+ "schema": "lattice.rc3.campaign_condition.v1",
+ "condition": "clean_parallel",
+ "expected": {
+  "hold": [],
+  "continue": [
+   "TA",
+   "TB",
+   "TC"
+  ],
+  "accepted": [
+   "TA",
+   "TB",
+   "TC"
+  ],
+  "closed": true
+ },
+ "actual": {
+  "hold": [],
+  "continue": [
+   "TA",
+   "TB",
+   "TC"
+  ],
+  "accepted": [
+   "TA",
+   "TB",
+   "TC"
+  ],
+  "closed": true
+ },
+ "matched": true,
+ "event_chain_valid": true,
+ "dispatch_replay_matched": true,
+ "event_count": 20,
+ "events_digest": "00a370389ba53bdde295fa43e3f6edd20c71b1755953102b02c42ce1fce7c4cf"
+}

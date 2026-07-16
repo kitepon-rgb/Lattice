@@ -1,0 +1,140 @@
+{
+ "schema": "lattice.run_request.v1",
+ "request_id": "rc3h-seam-post",
+ "repo": {
+  "base_sha": "79973af95c894159009741d5d0ff3f8b4217ec67",
+  "root_kind": "git-worktree"
+ },
+ "capacity": {
+  "executors": 2
+ },
+ "todos": [
+  {
+   "todo_id": "Temail"
+  },
+  {
+   "todo_id": "Tsms"
+  }
+ ],
+ "manual_witness": {
+  "Temail": {
+   "owns": [
+    {
+     "kind": "symbol",
+     "target": "resolveEmailPolicy"
+    },
+    {
+     "kind": "path",
+     "target": "research/fixtures/delivery-policy-registry/src/email-policy.mjs"
+    }
+   ],
+   "reads": [],
+   "writes": [
+    "research/fixtures/delivery-policy-registry/src/email-policy.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-Temail",
+      "expect": {
+       "kind": "symbol",
+       "name": "resolveEmailPolicy",
+       "path": "research/fixtures/delivery-policy-registry/src/email-policy.mjs"
+      }
+     },
+     {
+      "query_id": "q-aff-Temail",
+      "expect": {
+       "kind": "affected",
+       "path": "research/fixtures/delivery-policy-registry/src/email-policy.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "test/rc2-delivery-policy-email.test.mjs",
+    "test/rc2-delivery-policy-fixture.test.mjs"
+   ],
+   "unknowns": []
+  },
+  "Tsms": {
+   "owns": [
+    {
+     "kind": "symbol",
+     "target": "resolveSmsPolicy"
+    },
+    {
+     "kind": "path",
+     "target": "research/fixtures/delivery-policy-registry/src/sms-policy.mjs"
+    }
+   ],
+   "reads": [],
+   "writes": [
+    "research/fixtures/delivery-policy-registry/src/sms-policy.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-Tsms",
+      "expect": {
+       "kind": "symbol",
+       "name": "resolveSmsPolicy",
+       "path": "research/fixtures/delivery-policy-registry/src/sms-policy.mjs"
+      }
+     },
+     {
+      "query_id": "q-aff-Tsms",
+      "expect": {
+       "kind": "affected",
+       "path": "research/fixtures/delivery-policy-registry/src/sms-policy.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "test/rc2-delivery-policy-fixture.test.mjs",
+    "test/rc2-delivery-policy-sms.test.mjs"
+   ],
+   "unknowns": []
+  }
+ },
+ "codegraph_query_set": {
+  "queries": [
+   {
+    "id": "q-status",
+    "operation": "status"
+   },
+   {
+    "id": "q-Temail",
+    "operation": "query",
+    "target": "resolveEmailPolicy"
+   },
+   {
+    "id": "q-aff-Temail",
+    "operation": "affected",
+    "target": "research/fixtures/delivery-policy-registry/src/email-policy.mjs"
+   },
+   {
+    "id": "q-Tsms",
+    "operation": "query",
+    "target": "resolveSmsPolicy"
+   },
+   {
+    "id": "q-aff-Tsms",
+    "operation": "affected",
+    "target": "research/fixtures/delivery-policy-registry/src/sms-policy.mjs"
+   }
+  ]
+ },
+ "executor_capability": {
+  "adapters": [
+   "isolated-worktree"
+  ]
+ },
+ "claim_mode": "exact_minimum",
+ "request_digest": "bded196276907e63afeff1c87b50a8815cea949fec0711289035da8fc60b4818"
+}

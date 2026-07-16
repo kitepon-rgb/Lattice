@@ -1,0 +1,128 @@
+{
+ "schema": "lattice.rc3.campaign_manifest.v1",
+ "cost_observations": [
+  {
+   "condition": "clean_parallel",
+   "elapsed_ms": 1061.2
+  },
+  {
+   "condition": "late_path_conflict",
+   "elapsed_ms": 1031.752
+  },
+  {
+   "condition": "scope_violation",
+   "elapsed_ms": 717.284
+  },
+  {
+   "condition": "semantic_unknown",
+   "elapsed_ms": 969.616
+  },
+  {
+   "condition": "stale_receipt",
+   "elapsed_ms": 1010.182
+  },
+  {
+   "condition": "irreducible_conflict",
+   "elapsed_ms": 798.344
+  },
+  {
+   "condition": "accepted_seam",
+   "elapsed_ms": 4933.226
+  },
+  {
+   "condition": "event_corruption",
+   "elapsed_ms": 3.932
+  }
+ ],
+ "scaffold": {
+  "lattice_source_base_sha": "f167ed384b30b59625fbdcf8ca091e92f037e480",
+  "target_base_sha": "339a09225425c2c22fc33d27122c62a009efe3d0",
+  "predeclared_treatment": {
+   "epoch": "delivery-policy-semantic-v2",
+   "candidate_digest": "4cc5d7bb428a8899353d18524c25105742fa90f89ee55d36064c4be3c52e2907",
+   "oracle_source_digest": "c68a7ff9a7c9c4a181ceda6396d5fcbf27084de18680018d244a27998041652c",
+   "adapter_path": "src/rc2-delivery-policy-transform.mjs"
+  },
+  "path_digests": {
+   ".codegraph/.gitignore": "47c0dacebca9f56c9020b68584470dfc51f07650a3719904e98f4b447a5dd003",
+   "research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs": "39bf74ee887a55186fa96a49e47b95a4b2480493dfd68d85eb0ec4ba56ad6005",
+   "src/rc2-delivery-policy-oracle.mjs": "c68a7ff9a7c9c4a181ceda6396d5fcbf27084de18680018d244a27998041652c",
+   "test/rc2-delivery-policy-fixture.test.mjs": "20288b4d4d2edbc5c3982cbdef4e3a71604b8c62ef7ae38904a98732db32555a"
+  }
+ },
+ "conditions": [
+  {
+   "condition": "clean_parallel",
+   "record_path": "clean_parallel/condition-record.json",
+   "record_digest": "567575ffc6ea808a9f4e4b33fb241588c47f44e54e0215a03ed7eea70526b466",
+   "events_path": "clean_parallel/events.json",
+   "plan_path": "clean_parallel/plan.json",
+   "manifests_path": null,
+   "hold_decision_path": null
+  },
+  {
+   "condition": "late_path_conflict",
+   "record_path": "late_path_conflict/condition-record.json",
+   "record_digest": "9fa15eaff1a703b1b5c14f51139099d9b3fb83865d1f064b612e8b62ca3115e9",
+   "events_path": "late_path_conflict/events.json",
+   "plan_path": "late_path_conflict/plan.json",
+   "manifests_path": "late_path_conflict/manifests.json",
+   "hold_decision_path": "late_path_conflict/hold-decision.json"
+  },
+  {
+   "condition": "scope_violation",
+   "record_path": "scope_violation/condition-record.json",
+   "record_digest": "81a960b920ced42e5fc017ec1ecd9393ea97ce2c6fec692349473f187ee95373",
+   "events_path": "scope_violation/events.json",
+   "plan_path": "scope_violation/plan.json",
+   "manifests_path": "scope_violation/manifests.json",
+   "hold_decision_path": "scope_violation/hold-decision.json"
+  },
+  {
+   "condition": "semantic_unknown",
+   "record_path": "semantic_unknown/condition-record.json",
+   "record_digest": "955175d16fdd6df1af4ae4b8739ee5bbc00b01ae82465a52c461b2b34c5ad413",
+   "events_path": null,
+   "plan_path": null,
+   "manifests_path": null,
+   "hold_decision_path": null
+  },
+  {
+   "condition": "stale_receipt",
+   "record_path": "stale_receipt/condition-record.json",
+   "record_digest": "78d068bfacd34682ebcd8edd71a9fe71a8e8bd7a473239b9e90d5b46ab5e60c1",
+   "events_path": "stale_receipt/events.json",
+   "plan_path": "stale_receipt/plan.json",
+   "manifests_path": "stale_receipt/manifests.json",
+   "hold_decision_path": null
+  },
+  {
+   "condition": "irreducible_conflict",
+   "record_path": "irreducible_conflict/condition-record.json",
+   "record_digest": "683fafd604629fdbc4309cc673f09d7b887ba67503d05b3950c380636bdb941e",
+   "events_path": "irreducible_conflict/events.json",
+   "plan_path": "irreducible_conflict/plan.json",
+   "manifests_path": "irreducible_conflict/manifests.json",
+   "hold_decision_path": "irreducible_conflict/hold-decision.json"
+  },
+  {
+   "condition": "accepted_seam",
+   "record_path": "accepted_seam/condition-record.json",
+   "record_digest": "3c93ce2edcb1b53980cc186b9fa49f82c1f6a8bd8ef2ff0e5093096902248b03",
+   "events_path": null,
+   "plan_path": null,
+   "manifests_path": null,
+   "hold_decision_path": null
+  },
+  {
+   "condition": "event_corruption",
+   "record_path": "event_corruption/condition-record.json",
+   "record_digest": "79b75b6450539a890b46b33f124204cf3bc21f572d4ec3b5f71348485d8fbd9b",
+   "events_path": null,
+   "plan_path": null,
+   "manifests_path": null,
+   "hold_decision_path": null,
+   "corruption_variants_path": "event_corruption/corruption-variants.json"
+  }
+ ]
+}

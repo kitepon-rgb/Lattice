@@ -1,0 +1,33 @@
+{
+ "schema": "lattice.runtime_plan.v1",
+ "plan_ref": "plan-rc3h-late-e1",
+ "plan_epoch": 1,
+ "request_digest": "32539b54372bbbdb6686a89c538b5218405965bb2ed47e0b7d0d31eb20c1dc4a",
+ "base_sha": "339a09225425c2c22fc33d27122c62a009efe3d0",
+ "nodes": [
+  {
+   "todo_id": "TA"
+  },
+  {
+   "todo_id": "TB"
+  },
+  {
+   "todo_id": "TC"
+  }
+ ],
+ "precedence": [],
+ "conflicts": [],
+ "capacity": {
+  "executors": 3
+ },
+ "manifest_digests": {
+  "TA": "836d8813a598de8e11e1f5b7e94aad3770af6e9a8662d86be54e893e55864036",
+  "TB": "ef1b4be93748782ce2207cc4b7ba05805e757c69e6978abc27e0cb45ace68f88",
+  "TC": "4cfffd64a7d49e74cb714446c783abfdcf62210a600a7301d96e8baa0477f390"
+ },
+ "claim": {
+  "mode": "exact_minimum"
+ },
+ "predecessor_refs": [],
+ "plan_digest": "62855e0f5f96676ce9114aa4deeedc643239c97c5e89e914dedc18a20aa337ae"
+}
