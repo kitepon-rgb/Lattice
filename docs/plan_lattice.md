@@ -204,7 +204,7 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 
 - [x] RC1 v6の4条件、v2 validator、candidate／query／manual bindingをexpected-red characterizationで固定する。
 - [x] RC1 candidate／Codegraph／manual evidenceをnormalized graphへ変換するfront-endを追加する。
-- [ ] disposable worktreeで既存accepted patchを使い、fresh control／treatment各1 runを同じcoreへ通す。
+- [x] disposable worktreeで既存accepted patchを使い、fresh control／treatment各1 runを同じcoreへ通す。
 - [x] v6のnormal／negative conflictとwavesにisomorphicで、v6 artifact非変更を確認する。
 
 ### RC2-E — 3-TODO registry fixtureとoracle
