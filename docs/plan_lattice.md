@@ -236,7 +236,8 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 ### RC2-G — closed loopとimmutable artifact
 
 - [x] G2a blocker: fuzzy-only Codegraph queryを`symbol_absent`にしたまま候補dataを残すadapter欠陥をcharacterizeし、exact候補だけへ正規化する。
-- [ ] G2b blocker: Codegraphがabsent test path自身をaffected testに返す場合も、filesystem existenceへbindしてtyped emptyとして保持する。
+- [x] G2b blocker: Codegraphがabsent test path自身をaffected testに返す場合も、filesystem existenceへbindしてtyped emptyとして保持する。
+- [ ] G2c blocker: accepted registry shardのcomposition entryから3 resolverへのexact callee linkをfresh Codegraphで観測可能にする。
 - [ ] primary control／treatment各2 fresh indexを同じquery set、core、Codegraph identityで実行する。
 - [ ] normal、partial-state negative、capacity controlを同じnormalized graph compilerへ通す。
 - [ ] pre／post oracle、fixed oracle source bytes／digest、snapshot-bound Codegraph evidence、schedule proof、cost／reworkをartifactへ保存する。
