@@ -175,10 +175,11 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 
 - [x] source編集前に対象path／symbolのCodegraph owned、caller／callee、impact、affected test、unknownを記録する。
 - [x] committed v6 artifactのdisk verifier 12/12を互換baselineとして一回保存する。
-- [ ] v1が3 TODOをrejectし、現scheduler／validatorがpartial graphとminimumを表現できない実挙動をcharacterizeする。
-- [ ] K3、empty、single edge＋isolated、A-B-C path、capacity-only、hard need＋conflictをexpected-red／green oracleへ固定する。
-- [ ] TODO順列、ID／resource rename、third-only unknown、探索上限、incomplete transformをtest-firstで固定する。
-- [ ] characterizationだけを独立commitする。
+- [x] v1が3 TODOをrejectし、現scheduler／validatorがpartial graphとminimumを表現できない実挙動をcharacterizeする。
+- [x] K3、empty、single edge＋isolated、A-B-C path、capacity-only、hard need＋conflictをexpected-red／green oracleへ固定する。
+- [x] TODO順列、ID／resource rename、third-only unknown、node／探索上限をtest-firstで固定する。
+- [x] producerと独立したminimum verifierのfeasible／non-minimum／conflict／precedence／capacity corruptionをtest-firstで固定する。
+- [x] characterizationだけを独立commitする。
 
 ### RC2-C — v2 contractとnormalized graph core
 
