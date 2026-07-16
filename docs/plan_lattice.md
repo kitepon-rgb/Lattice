@@ -192,12 +192,14 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 
 ### RC2-D — 既存2-TODO fixtureをv2へtransferする
 
+- [x] RC1 v6の4条件、v2 validator、candidate／query／manual bindingをexpected-red characterizationで固定する。
 - [ ] RC1 candidate／Codegraph／manual evidenceをnormalized graphへ変換するfront-endを追加する。
 - [ ] disposable worktreeで既存accepted patchを使い、fresh control／treatment各1 runを同じcoreへ通す。
 - [ ] v6のnormal／negative conflictとwavesにisomorphicで、v6 artifact非変更を確認する。
 
 ### RC2-E — 3-TODO registry fixtureとoracle
 
+- [x] 6 exact behavior、fail-loud input、fresh repoRoot oracleをexpected-red characterizationで固定する。
 - [ ] Lattice内へmonolithic delivery policy registryと3 TODO outcomeを持つfixtureを追加する。
 - [ ] current／proposed production＋test ownership、manual state／effect、query setを一つのcandidate witnessへ固定する。
 - [ ] transform外のblack-box oracleとshared composition characterizationを先にgreenにする。
