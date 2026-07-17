@@ -22,7 +22,7 @@ import { dirname, join } from 'node:path';
 const RUNTIME_ERRORS_SCHEMA = 'lattice.runtime_errors.v1';
 const DIAGNOSTICS_SCHEMA = 'lattice.runtime_error_diagnostics.v1';
 const PRODUCT = 'lattice';
-const STATE_VERSION = 1;
+const STATE_VERSION = '1.0';
 const MAX_RECORDS = 256;
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const LOCK_STALE_MS = 60_000;
