@@ -441,7 +441,18 @@ export function recomputeReceiptDecisions(options = {}) {
     if (RECEIPT_BINDING_FIELDS.some((field) => typeof payload[field] !== 'string')) {
       return reject('binding_missing');
     }
-    const dispatch = state.dispatches[receipt.todo_id];
+    // dispatch記録は「receipt記録時点までの最後のdispatch」を使う（裁定時点の
+    // prefix意味論。全投影の最後勝ちにすると、後続redispatchが過去receiptの
+    // 帰属先を書き換えてproducer裁定とdivergeする。RC3-J P1採用）。
+    const dispatchEventForReceipt = events.findLast((event) => (
+      event.kind === 'executor_dispatched'
+      && event.subject?.kind === 'todo'
+      && event.subject.ref === receipt.todo_id
+      && event.sequence < receipt.sequence
+    ));
+    const dispatch = dispatchEventForReceipt === undefined
+      ? undefined
+      : { sequence: dispatchEventForReceipt.sequence, payload: dispatchEventForReceipt.payload };
     if (dispatch === undefined) {
       return reject('not_dispatched');
     }
@@ -459,20 +470,12 @@ export function recomputeReceiptDecisions(options = {}) {
     }
     // dispatchが旧epochのTODOが現epoch receiptを名乗る場合はepoch_rebound必須
     // （rebindなしのepoch自称を受理しない。Decision 7.3/7.4）。
-    {
-      const dispatchEvent = events.find((event) => (
-        event.kind === 'executor_dispatched'
-        && event.subject?.kind === 'todo'
-        && event.subject.ref === receipt.todo_id
-        && event.sequence === dispatch.sequence
-      ));
-      if (dispatchEvent !== undefined && dispatchEvent.plan_epoch !== plan.plan_epoch) {
-        const rebound = state.rebinds[receipt.todo_id];
-        if (rebound === undefined
-          || rebound.payload?.new_plan_epoch !== plan.plan_epoch
-          || rebound.sequence >= receipt.sequence) {
-          return reject('unrebound_epoch');
-        }
+    if (dispatchEventForReceipt.plan_epoch !== plan.plan_epoch) {
+      const rebound = state.rebinds[receipt.todo_id];
+      if (rebound === undefined
+        || rebound.payload?.new_plan_epoch !== plan.plan_epoch
+        || rebound.sequence >= receipt.sequence) {
+        return reject('unrebound_epoch');
       }
     }
     // checkpoint観測が存在するTODOは、receipt以前の最後の観測checkpointとの

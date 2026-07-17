@@ -586,14 +586,57 @@ export async function verifyActualArtifactOnDisk({ artifactRoot }) {
     passed: JSON.stringify(recomputedHold.hold_set) === JSON.stringify(holdDecision.hold_set)
       && JSON.stringify(recomputedHold.continue_set) === JSON.stringify(holdDecision.continue_set),
   });
-  const receiptCheck = recomputeReceiptDecisions({ plan: newPlan, events });
-  const acceptedTodoIds = projectRuntimeState({ events }).accepted;
-  checks.push({
-    id: 'receipt_replay_accepted',
-    passed: receiptCheck.decisions
-      .filter(({ decision }) => decision === 'accepted')
-      .every(({ todo_id: todoId }) => acceptedTodoIds.includes(todoId)),
-  });
+  // receipt裁定の再計算: 記録済みoutcome event（accepted/rejected＋detail）と
+  // replay結果の双方向・reason粒度の一致を要求する（片側包含にしない。RC3-J P1採用）。
+  // 各receiptの裁定は「outcome eventのepoch＝裁定時のactive plan」で再計算する
+  //（receiptが名乗るepochではない。staleは新planの下でepoch_mismatchになる）。
+  const recordedOutcomes = new Map();
+  for (const event of events) {
+    if (event.kind !== 'receipt_accepted' && event.kind !== 'receipt_rejected') continue;
+    const receiptId = event.payload?.receipt_id;
+    if (typeof receiptId !== 'string') continue;
+    recordedOutcomes.set(receiptId, {
+      decision: event.kind === 'receipt_accepted' ? 'accepted' : 'rejected',
+      detail: event.payload?.detail ?? null,
+      adjudication_epoch: event.plan_epoch,
+    });
+  }
+  const planByEpoch = new Map([plan, newPlan]
+    .filter((entry) => entry !== null)
+    .map((entry) => [entry.plan_epoch, entry]));
+  let receiptReplayOk = recordedOutcomes.size > 0;
+  const acceptedInReplay = new Set();
+  for (const [receiptId, recorded] of recordedOutcomes) {
+    const adjudicationPlan = planByEpoch.get(recorded.adjudication_epoch);
+    if (adjudicationPlan === undefined) {
+      receiptReplayOk = false;
+      continue;
+    }
+    // 裁定「前」のprefix（outcome event以前）に対するreplayと比較する。
+    const outcomeIndex = events.findIndex((event) => (
+      (event.kind === 'receipt_accepted' || event.kind === 'receipt_rejected')
+      && event.payload?.receipt_id === receiptId
+    ));
+    const replayed = recomputeReceiptDecisions({
+      plan: adjudicationPlan,
+      events: events.slice(0, outcomeIndex),
+    }).decisions.find(({ receipt_id: id }) => id === receiptId);
+    if (replayed === undefined
+      || replayed.decision !== recorded.decision
+      || (recorded.decision === 'rejected' && replayed.detail !== recorded.detail)) {
+      receiptReplayOk = false;
+    }
+    if (replayed?.decision === 'accepted') acceptedInReplay.add(receiptId);
+  }
+  // 最終planでのfull replayに現れる受理が、記録済みoutcomeへ全て対応することも要求。
+  if (newPlan !== null) {
+    for (const decision of recomputeReceiptDecisions({ plan: newPlan, events }).decisions) {
+      if (decision.decision === 'accepted' && !recordedOutcomes.has(decision.receipt_id)) {
+        receiptReplayOk = false;
+      }
+    }
+  }
+  checks.push({ id: 'receipt_replay_bidirectional', passed: receiptReplayOk });
   checks.push({
     id: 'provider_separation',
     passed: events.every((event) => (

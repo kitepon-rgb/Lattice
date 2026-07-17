@@ -468,13 +468,22 @@ worktree残存0）。RC3-I driverの独立反証はRC3-JのPhase反証へ集約�
 
 ### RC3-J — Phase gate
 
-- [ ] maintenance queueの再現項目をdedupし、P0／P1だけをPhase gate前に閉じる。
-- [ ] source収束後のfull `npm run ci`を一回実行する。
-- [ ] Fable Highをread-onlyの反証相談へ使い、親がfindingを実コードと証拠で裁定する。
-- [ ] H1-RC3と全成功条件を対象にPhase反証を一回行う。
-- [ ] P0／P1が無ければsupport範囲とnon-goalを新しいADRへ固定する。
-- [ ] 実問題があれば完了扱いせず、correction versionと新ADRを立てる。
-- [ ] plan、evidence、Control、artifact、testが全て完了してからarchiveする。
+- [x] maintenance queueの再現項目をdedupし、P0／P1だけをPhase gate前に閉じる
+      （各Phase evidenceの評価残9項目を集約。P0/P1は反証発見の2件のみで、gate内で修理）。
+- [x] source収束後のfull `npm run ci`を一回実行する（correction適用後290 test green）。
+- [x] Fable Highをread-onlyの反証相談へ使い、親がfindingを実コードと証拠で裁定する。
+- [x] H1-RC3と全成功条件を対象にPhase反証を一回行う（独立digest再計算実装つき。
+      H0-a〜d／f／g棄却、P1×2採用・修理、P2×8はADRのclaim境界へ裁定、棄却0）。
+- [x] P0／P1が無ければsupport範囲とnon-goalを新しいADRへ固定する
+      （[ADR 0045](adr/0045-rc3-phase-gate-support.md)。correction適用後support）。
+- [x] 実問題があれば完了扱いせず、correction versionと新ADRを立てる
+      （P1×2はgate内correction: CLI 6面完全実装＋run store実体化、receipt replayの
+      per-receipt prefix意味論＋双方向比較。ADR 0045 Decision 2）。
+- [x] plan、evidence、Control、artifact、testが全て完了してからarchiveする。
+
+RC3-J成果: [ADR 0045](adr/0045-rc3-phase-gate-support.md)（correction適用後support・claim境界・
+持ち越し所有の裁定・相互digest binding）。詳細は
+[RC3-J Phase gate](evidence/2026-07-17-rc3-j-phase-gate.md)。
 
 ## Controlと配置
 
