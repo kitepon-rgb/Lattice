@@ -10,6 +10,11 @@ if (args.length === 1 && args[0] === '--version') {
   process.stdout.write(`${packageJson.version}\n`);
 } else if (args.length === 2 && args[0] === 'doctor' && args[1] === '--json') {
   process.stdout.write(`${JSON.stringify(buildBootstrapDiagnostics())}\n`);
+} else if (args.length === 2 && args[0] === 'factory-diagnostics' && args[1] === '--json') {
+  const { buildFactoryDiagnostics } = await import('../src/factory-diagnostics.mjs');
+  const diagnostics = await buildFactoryDiagnostics();
+  process.stdout.write(`${JSON.stringify(diagnostics)}\n`);
+  process.exitCode = diagnostics.overall === 'ok' ? 0 : 1;
 } else {
   process.exitCode = await runRuntimeCli({
     argv: args,
