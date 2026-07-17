@@ -125,6 +125,9 @@ if (nodeVersionGuard.blocked) {
       // to do here on a clean resolve.
       await server.start();
     } catch (err) {
+      // opt-in runtime error store（既定OFF・config有効時のみ）。観測失敗はstderr一行のbest-effort。
+      const { observeRuntimeError } = await import('../src/runtime-errors.mjs');
+      observeRuntimeError('LATTICE.MCP_SERVER_FAILED');
       startupFailure('MCP_STARTUP_FAILED', err instanceof Error ? err.message : String(err));
     }
   }

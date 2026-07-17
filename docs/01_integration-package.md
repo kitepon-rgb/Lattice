@@ -55,6 +55,17 @@ subagent executor・packet `isolation_contract`・fingerprint境界検証・diff
 - 単独Codegraph配線の退役はdotagents側plan L7が所有（同一planで原子的・shadow同等性gate前提）。
   `codegraph_*` tool名のv1据え置きと改名ADRの起票条件はADR 0049 Decision 2が正
 
+## 5.5 native factory diagnosticsとruntime error store（工場必須要件・実装済み）
+
+- diagnostics: `lattice factory-diagnostics --json`（schema `lattice.native_factory_diagnostics.v1`・
+  check 5本・overall failed→exit 1・read-only・秘密なし）。正典は`src/factory-diagnostics.mjs`
+- runtime error store: `lattice runtime-errors <snapshot|ack|diagnostics|resolve|reopen|compact> --json`
+  （schema `lattice.runtime_errors.v1`。Caveat同型の工場契約）。**opt-in**＝工場共有config
+  `~/.config/dotagents/factory-reporter.json`の`collection.enabled`のみが収集を有効化し、
+  reporting（BugHub送信）はdotagents adapter所有で本storeは外部送信しない（collection/reporting分離）。
+  固定catalog 5 code・fingerprint集約・cursor/ack・resolved+ack済み30日compact・POSIX owner-only検査で
+  fail closed。正典は`src/runtime-errors.mjs`
+
 ## 6. 編入の前提条件（残余リスク恒久化・回帰条件）
 
 正典: [ADR 0051 Decision 5](adr/0051-rc4-phase-gate-support.md)＋
