@@ -9,7 +9,7 @@ import { SqliteDatabase } from './sqlite-adapter';
 /**
  * Current schema version
  */
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 /**
  * Migration definition
@@ -147,6 +147,36 @@ const migrations: Migration[] = [
       db.exec(`
         CREATE INDEX IF NOT EXISTS idx_unresolved_status ON unresolved_refs(status);
         CREATE INDEX IF NOT EXISTS idx_unresolved_failed_tail ON unresolved_refs(name_tail) WHERE status = 'failed';
+      `);
+    },
+  },
+  {
+    version: 9,
+    description:
+      'Persist resolution confidence and resolvedBy as their own edges columns (ADR 0048) — previously they only lived in edges.metadata JSON, invisible to index-level filtering/corroboration',
+    up: (db) => {
+      // ALTER TABLE has no IF NOT EXISTS, so guard for idempotency — a database
+      // created from current schema.sql already has the columns (matters when
+      // migrations are re-run from an older recorded version, same pattern as
+      // v8 above). Keep the definitions in lockstep with schema.sql.
+      const cols = db.prepare('PRAGMA table_info(edges)').all() as Array<{ name: string }>;
+      const hasColumn = (name: string) => cols.some((c) => c.name === name);
+      if (!hasColumn('confidence')) {
+        db.exec('ALTER TABLE edges ADD COLUMN confidence REAL');
+      }
+      if (!hasColumn('resolved_by')) {
+        db.exec('ALTER TABLE edges ADD COLUMN resolved_by TEXT');
+      }
+      // Backfill from the JSON metadata every resolved edge already carries —
+      // only new/re-resolved edges will populate the columns directly going
+      // forward, so existing rows would otherwise read NULL forever.
+      db.exec(`
+        UPDATE edges SET confidence = json_extract(metadata, '$.confidence')
+        WHERE metadata IS NOT NULL AND confidence IS NULL
+      `);
+      db.exec(`
+        UPDATE edges SET resolved_by = json_extract(metadata, '$.resolvedBy')
+        WHERE metadata IS NOT NULL AND resolved_by IS NULL
       `);
     },
   },

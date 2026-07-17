@@ -42,6 +42,24 @@ const SUPERTYPE_BEARING_KINDS = new Set<Node['kind']>([
 const CHAIN_LANGUAGES = new Set(['java', 'kotlin', 'csharp', 'swift', 'rust', 'go', 'scala', 'dart', 'objc', 'pascal']);
 const SCOPED_CHAIN_LANGUAGES = new Set(['rust']);
 
+/**
+ * Languages Strategy 3's cross-*language* name-match gate applies between
+ * (ADR 0048, revised). js/ts/python all have explicit import semantics, but
+ * js<->ts is one family (see LANGUAGE_FAMILY in name-matcher.ts — ArkTS too),
+ * so the gate only fires when the ref and target languages are BOTH in this
+ * set AND belong to different families (i.e. python paired with js/ts).
+ * Same-language cross-file matches (js calling js) are intentionally left
+ * alone here — see the gate's own comment at the Strategy 3 call site for why
+ * (several existing features — destructured store actions, receiver-typed
+ * method calls, DI-constructor calls — legitimately rely on it; file-level
+ * corroboration for THEIR false positives is handled downstream by
+ * getDependentFilePaths / getDependencyFilePaths filtering on resolvedBy —
+ * see UNCORROBORATED_FILTER_LANGUAGES in src/db/queries.ts, a mirror of this
+ * same set for the same reason (import/require is these 3 languages' only
+ * legal cross-file binding mechanism; keep both lists in lockstep).
+ */
+const CROSS_LANGUAGE_GATE_FAMILY = new Set(['javascript', 'typescript', 'python']);
+
 /** The extractor's chained-receiver encoding: `<inner>().<method>`. */
 const CHAIN_SHAPE = /^(.+)\(\)\.(\w+)$/;
 
@@ -911,6 +929,31 @@ export class ReferenceResolver {
         // linkable symbol) — without this, a Python script's `split()` lands
         // on some module's `split = ...` binding as a low-confidence match.
         nameResult = null;
+      } else if (
+        // Cross-*language* bare-name match between two of {javascript,
+        // typescript, python} (ADR 0048). js/ts are the same family
+        // (sameLanguageFamily) so a js<->ts hit is NOT gated here — only a
+        // genuine language crossing between this set is. Same logic as the
+        // nix rule above: Python can't symbolically call a JS/TS binding
+        // (interop is subprocess/CLI, never a linkable symbol) — without
+        // this, a Python script's bare `read()`/`decode()`/`flush()` landed
+        // on whichever unrelated .mjs file's same-named export happened to
+        // exist (real FP: `advisory-hook.py -> *.mjs`, resolvedBy
+        // exact-match, confidence 0.5). Same-language cross-file matches
+        // (js calling js, or import-aware destructuring/receiver-typed
+        // calls) are legitimate, existing, regression-tested behavior and
+        // are intentionally left alone — file-level corroboration for THOSE
+        // false positives is handled downstream by getDependentFilePaths /
+        // getDependencyFilePaths filtering on edges.resolvedBy instead.
+        target &&
+        target.filePath !== ref.filePath &&
+        target.language !== ref.language &&
+        CROSS_LANGUAGE_GATE_FAMILY.has(ref.language) &&
+        CROSS_LANGUAGE_GATE_FAMILY.has(target.language) &&
+        !sameLanguageFamily(target.language, ref.language) &&
+        nameResult.resolvedBy !== 'file-path'
+      ) {
+        nameResult = null;
       }
     }
     if (nameResult) {
@@ -988,6 +1031,8 @@ export class ReferenceResolver {
         kind,
         line: ref.original.line,
         column: ref.original.column,
+        confidence: ref.confidence,
+        resolvedBy: ref.resolvedBy,
         metadata: {
           confidence: ref.confidence,
           resolvedBy: ref.resolvedBy,

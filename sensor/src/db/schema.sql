@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS edges (
     line INTEGER,
     col INTEGER,
     provenance TEXT DEFAULT NULL,
+    confidence REAL, -- resolution confidence (0.0-1.0), mirrors metadata.confidence — v9
+    resolved_by TEXT, -- resolution strategy name, mirrors metadata.resolvedBy — v9
     FOREIGN KEY (source) REFERENCES nodes(id) ON DELETE CASCADE,
     FOREIGN KEY (target) REFERENCES nodes(id) ON DELETE CASCADE
 );

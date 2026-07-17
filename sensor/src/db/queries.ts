@@ -86,6 +86,8 @@ interface EdgeRow {
   line: number | null;
   col: number | null;
   provenance: string | null;
+  confidence: number | null;
+  resolved_by: string | null;
 }
 
 interface FileRow {
@@ -112,6 +114,45 @@ interface UnresolvedRefRow {
   status: string;
   name_tail: string;
 }
+
+/**
+ * `edges.resolved_by` strategy names that resolve a name WITHOUT verifying
+ * that any import/require/include path actually connects the two files —
+ * bare project-wide name lookup (`exact-match`, `fuzzy`), receiver-word/
+ * proximity heuristics (`instance-method`), or "the only candidate with this
+ * name" uniqueness (`function-ref`, cross-file case). ADR 0048 defines the
+ * file-level dependency graph's ground truth as the transitive import
+ * closure — a file pair connected ONLY by edges resolved through one of
+ * these strategies has no corroborating import path and is, by that
+ * definition, a false positive in the file-level projection (though the
+ * underlying SYMBOL edge is left alone — it still has explore/callers
+ * value). `file-path` (path-suffix verified), `import` (explicit import
+ * mapping), `qualified-name` (structural qualified-name/path match), and
+ * `framework` (convention-verified, e.g. route/decorator matching) all stay
+ * corroborated. See {@link getDependentFilePaths} / {@link getDependencyFilePaths}.
+ */
+const UNCORROBORATED_RESOLVED_BY = new Set(['exact-match', 'fuzzy', 'instance-method', 'function-ref']);
+/** Pre-built `NOT IN (...)` SQL literal for {@link UNCORROBORATED_RESOLVED_BY} — the set is a fixed, code-defined list (never user input), so inlining as quoted literals is safe. */
+const UNCORROBORATED_RESOLVED_BY_SQL_LIST = [...UNCORROBORATED_RESOLVED_BY].map((s) => `'${s}'`).join(', ');
+
+/**
+ * Mirror of `CROSS_LANGUAGE_GATE_FAMILY` in `src/resolution/index.ts` — same
+ * language set, same reason: javascript/typescript/python are the only
+ * languages here whose ONLY legal cross-file binding mechanism is an
+ * explicit import/require (no ambient package/namespace/module visibility).
+ * Go/Java/C#/Swift/etc. let same-package (Go), same-namespace (C#), or
+ * same-package (Java)/same-module (Swift) files reference each other with NO
+ * import statement at all — for those languages, requiring `resolved_by IN
+ * ('import', ...)` would reject a correct, ambient, import-less reference as
+ * if it were a false positive. So the uncorroborated-resolved_by filter
+ * below only applies to edges whose SOURCE file is one of these 3 languages.
+ * Kept as an independent literal (not imported) to avoid a resolution<->db
+ * module dependency; keep both lists in lockstep if either changes.
+ */
+const UNCORROBORATED_FILTER_LANGUAGES = new Set(['javascript', 'typescript', 'python']);
+const UNCORROBORATED_FILTER_LANGUAGES_SQL_LIST = [...UNCORROBORATED_FILTER_LANGUAGES]
+  .map((s) => `'${s}'`)
+  .join(', ');
 
 /**
  * Last segment of a (possibly dotted/qualified) reference name — the part a
@@ -155,6 +196,31 @@ function rowToNode(row: NodeRow): Node {
 }
 
 /**
+ * Resolve the confidence value to persist for an edge: prefer the typed
+ * `edge.confidence` field, falling back to `metadata.confidence` for edges
+ * built before the dedicated column existed (or that only ever set it via
+ * metadata). Returns null when neither is a finite number, so the column
+ * stays NULL rather than storing `NaN`/`undefined` (#Lattice ADR 0048).
+ */
+function resolveEdgeConfidence(edge: Edge): number | null {
+  const raw = edge.confidence ?? (edge.metadata?.confidence as number | undefined);
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+}
+
+/**
+ * Resolve the resolvedBy value to persist for an edge: prefer the typed
+ * `edge.resolvedBy` field, falling back to `metadata.resolvedBy` for edges
+ * built before the dedicated column existed. Returns null when neither is a
+ * non-empty string (ADR 0048's file-level corroboration filter treats NULL
+ * as corroborated — see getDependentFilePaths/getDependencyFilePaths — so an
+ * edge with no strategy on record is never wrongly excluded).
+ */
+function resolveEdgeResolvedBy(edge: Edge): string | null {
+  const raw = edge.resolvedBy ?? (edge.metadata?.resolvedBy as string | undefined);
+  return typeof raw === 'string' && raw.length > 0 ? raw : null;
+}
+
+/**
  * Convert database row to Edge object
  */
 function rowToEdge(row: EdgeRow): Edge {
@@ -166,6 +232,8 @@ function rowToEdge(row: EdgeRow): Edge {
     line: row.line ?? undefined,
     column: row.col ?? undefined,
     provenance: row.provenance as Edge['provenance'],
+    confidence: row.confidence ?? undefined,
+    resolvedBy: row.resolved_by ?? undefined,
   };
 }
 
@@ -500,12 +568,14 @@ export class QueryBuilder {
             edge.line ?? null,
             edge.column ?? null,
             edge.provenance ?? null,
+            resolveEdgeConfidence(edge),
+            resolveEdgeResolvedBy(edge),
           ]);
         }
         this.runBatched(
           'insertEdges',
-          'INSERT OR IGNORE INTO edges (source, target, kind, metadata, line, col, provenance) VALUES ',
-          '(?,?,?,?,?,?,?)',
+          'INSERT OR IGNORE INTO edges (source, target, kind, metadata, line, col, provenance, confidence, resolved_by) VALUES ',
+          '(?,?,?,?,?,?,?,?,?)',
           rows
         );
       }
@@ -1627,8 +1697,8 @@ export class QueryBuilder {
   insertEdge(edge: Edge): void {
     if (!this.stmts.insertEdge) {
       this.stmts.insertEdge = this.db.prepare(`
-        INSERT OR IGNORE INTO edges (source, target, kind, metadata, line, col, provenance)
-        VALUES (@source, @target, @kind, @metadata, @line, @col, @provenance)
+        INSERT OR IGNORE INTO edges (source, target, kind, metadata, line, col, provenance, confidence, resolved_by)
+        VALUES (@source, @target, @kind, @metadata, @line, @col, @provenance, @confidence, @resolvedBy)
       `);
     }
 
@@ -1640,6 +1710,8 @@ export class QueryBuilder {
       line: edge.line ?? null,
       col: edge.column ?? null,
       provenance: edge.provenance ?? null,
+      confidence: resolveEdgeConfidence(edge),
+      resolvedBy: resolveEdgeResolvedBy(edge),
     });
   }
 
@@ -1670,12 +1742,14 @@ export class QueryBuilder {
           edge.line ?? null,
           edge.column ?? null,
           edge.provenance ?? null,
+          resolveEdgeConfidence(edge),
+          resolveEdgeResolvedBy(edge),
         ]);
       }
       this.runBatched(
         'insertEdges',
-        'INSERT OR IGNORE INTO edges (source, target, kind, metadata, line, col, provenance) VALUES ',
-        '(?,?,?,?,?,?,?)',
+        'INSERT OR IGNORE INTO edges (source, target, kind, metadata, line, col, provenance, confidence, resolved_by) VALUES ',
+        '(?,?,?,?,?,?,?,?,?)',
         rows
       );
     })();
@@ -1780,7 +1854,13 @@ export class QueryBuilder {
       JOIN nodes src ON src.id = e.source
       WHERE tgt.file_path = ?
         AND e.kind != 'contains'
-        AND src.file_path != ?`;
+        AND src.file_path != ?
+        AND (
+          e.kind = 'imports'
+          OR src.language NOT IN (${UNCORROBORATED_FILTER_LANGUAGES_SQL_LIST})
+          OR e.resolved_by IS NULL
+          OR e.resolved_by NOT IN (${UNCORROBORATED_RESOLVED_BY_SQL_LIST})
+        )`;
     const rows = this.db.prepare(sql).all(filePath, filePath) as Array<{ fp: string }>;
     return rows.map((r) => r.fp);
   }
@@ -1798,7 +1878,13 @@ export class QueryBuilder {
       JOIN nodes tgt ON tgt.id = e.target
       WHERE src.file_path = ?
         AND e.kind != 'contains'
-        AND tgt.file_path != ?`;
+        AND tgt.file_path != ?
+        AND (
+          e.kind = 'imports'
+          OR src.language NOT IN (${UNCORROBORATED_FILTER_LANGUAGES_SQL_LIST})
+          OR e.resolved_by IS NULL
+          OR e.resolved_by NOT IN (${UNCORROBORATED_RESOLVED_BY_SQL_LIST})
+        )`;
     const rows = this.db.prepare(sql).all(filePath, filePath) as Array<{ fp: string }>;
     return rows.map((r) => r.fp);
   }

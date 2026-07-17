@@ -223,6 +223,12 @@ export interface Edge {
 
   /** How this edge was created */
   provenance?: 'tree-sitter' | 'scip' | 'heuristic';
+
+  /** Resolution confidence (0.0-1.0). Mirrors metadata.confidence for resolved edges. */
+  confidence?: number;
+
+  /** Resolution strategy name (e.g. 'import', 'exact-match'). Mirrors metadata.resolvedBy for resolved edges. */
+  resolvedBy?: string;
 }
 
 /**
