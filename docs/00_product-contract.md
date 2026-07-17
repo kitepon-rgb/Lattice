@@ -45,3 +45,16 @@ blockerは、破られる要求／不変条件、因果経路、再現証拠、�
 
 空repoにはCodegraph indexが存在しないため、最初のscaffoldだけboundary manifestを免除する。
 bootstrap source作成直後、初期環境commitより前にCodegraphを初期化し、それ以後のsource TODOは通常契約へ従う。
+
+## MCP面（session code intelligence・ADR 0049）
+
+CLI 6面とは別種の公開面として、sensorのMCP server（entrypoint `bin/lattice-mcp`）を提供する。
+plan／witness契約が消費するevidenceはCLI面・portable projectionのみであり、MCP tool出力は
+根拠にしない——graph系evidenceは`plan verify`の独立再計算＋canonical digest一致が機械的に強制し、
+手動evidence fieldへ入ったMCP由来テキストは人間入力と同格の未検証assertionとして扱う。
+
+MCP serverはhost sessionのstdio子プロセス（session寿命）、共有daemonはclient refcount＋
+idle timeoutで自動終了するcache工程であり、どちらも自律的なdispatch・製品状態への書込を行わない
+（書込はproject cache `.codegraph/`へのwatcher再indexとLattice固有のglobal管理領域・socket
+rendezvous nodeに限る）。「常駐サービス化はしない」非目標はorchestration面の規定であり、
+MCP server提供と矛盾しない。MCP面は外部networkへ一切通信しない（v1受入条件）。
