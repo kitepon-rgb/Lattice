@@ -1,0 +1,49 @@
+{
+ "schema": "lattice.runtime_plan.v1",
+ "plan_ref": "plan-rc4-stage2-landing-e1-e1",
+ "plan_epoch": 1,
+ "request_digest": "ecb9776728de350b33243493e06fc1c08c05303320a6d8a022fa786ebff1b38a",
+ "base_sha": "97a931a5c18fe5a7571bd9e645b3bd2c78b73c59",
+ "nodes": [
+  {
+   "todo_id": "TA"
+  },
+  {
+   "todo_id": "TB"
+  },
+  {
+   "todo_id": "TC"
+  },
+  {
+   "todo_id": "TD"
+  },
+  {
+   "todo_id": "TF"
+  }
+ ],
+ "precedence": [],
+ "conflicts": [
+  {
+   "todo_ids": [
+    "TA",
+    "TB"
+   ],
+   "resource_id": "own-path-0d0e825891fc8d9d"
+  }
+ ],
+ "capacity": {
+  "executors": 2
+ },
+ "manifest_digests": {
+  "TA": "dd5a59185eaa02fc3b8b14d35359f40d36b1b1a714334fac3c81b8602c830b17",
+  "TB": "b4b09ba23707ca7959ded82d426c33c8bc40f0580a19b035c0ceb83c29053a49",
+  "TC": "63adc22577d68dfbd6e14492f66371acf1399f9bd3e2f9a0fce80fb76ae71cdd",
+  "TD": "faf5c65e92966def9dfdd7523463aa0ffeb297cd4600ab3cc2f327c01a999863",
+  "TF": "687339d332b9809868707a753b9d90d099590d6990523ee856f8f753b49ea841"
+ },
+ "claim": {
+  "mode": "exact_minimum"
+ },
+ "predecessor_refs": [],
+ "plan_digest": "964f480152a932d8e914646e7a94026ecd66c2bfa508ccc66ac1c8a767ec0550"
+}

@@ -1,0 +1,21 @@
+{
+ "schema": "lattice.rc4.stage1_dogfood_manifest.v1",
+ "run_id": "rc4s1-actual-01",
+ "clone": {
+  "lattice_root": "/Users/kite/Developer/Lattice",
+  "clone_base_sha": "97a931a5c18fe5a7571bd9e645b3bd2c78b73c59"
+ },
+ "document_digests": {
+  "request.json": "f7e0996f463321da854d4a94ba475558006601c752c2aa98ee5be23ca0fefc67",
+  "plan.json": "2d0f12aece7bd00feff46de578d5533a8c60f3759b45ea8dfaba50c2a8396249",
+  "new-plan.json": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+  "manifests.json": "7dc4df205c0654ef6fe8b3329351ec20f5dee67b6eb967f384defd6445bbf4bc",
+  "packets.json": "65ba364392ea7f4a175ccf42bbdcdd4e61dcf9ea06eba977a8fcf9c7415980a3",
+  "hold-decision.json": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+  "plan-diff.json": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+  "events.json": "b963ef9560d1fbd9b7c0374da8b54de8b512de85a911c80fe8bfb4e735f032de",
+  "provider-runs.json": "e82442c418ba15c1051fb1390db5a84461e9992370395cfd94461ecedd002384",
+  "diagnostics.json": "0703c1b81b62b611b1ba17a9265a77e2cadb489bbfe5721b02fb82d32dcca10a",
+  "patches.json": "0734316b3f52bbb2044989e968dcb78e72675d4bf99e693ac780aff78642ee95"
+ }
+}

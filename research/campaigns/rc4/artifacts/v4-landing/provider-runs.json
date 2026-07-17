@@ -1,0 +1,77 @@
+[
+ {
+  "todo_id": "TA",
+  "executor_handle": "stage2-TA-h1",
+  "state": "dispatched_in_flight",
+  "provider": "claude-implementer-subagent",
+  "spec": "stage1-report-reimplementation"
+ },
+ {
+  "todo_id": "TC",
+  "executor_handle": "stage2-TC-h1",
+  "state": "dispatched_in_flight",
+  "provider": "claude-implementer-subagent",
+  "spec": "stage1-report-reimplementation"
+ },
+ {
+  "todo_id": "TC",
+  "executor_handle": "stage2-TC-h1",
+  "state": "terminal_reported",
+  "provider": "claude-implementer-subagent",
+  "duration_ms": 72122,
+  "tool_uses": 7
+ },
+ {
+  "todo_id": "TA",
+  "executor_handle": "stage2-TA-h1",
+  "state": "terminal_reported",
+  "provider": "claude-implementer-subagent",
+  "duration_ms": 470231,
+  "tool_uses": 19
+ },
+ {
+  "todo_id": "TB",
+  "executor_handle": "stage2-TB-h1",
+  "state": "dispatched_in_flight",
+  "provider": "claude-implementer-subagent",
+  "spec": "stage1-report-reimplementation"
+ },
+ {
+  "todo_id": "TD",
+  "executor_handle": "stage2-TD-h1",
+  "state": "dispatched_in_flight",
+  "provider": "claude-implementer-subagent",
+  "spec": "stage1-report-reimplementation"
+ },
+ {
+  "todo_id": "TD",
+  "executor_handle": "stage2-TD-h1",
+  "state": "terminal_reported",
+  "provider": "claude-implementer-subagent",
+  "duration_ms": 55683,
+  "tool_uses": 6
+ },
+ {
+  "todo_id": "TF",
+  "executor_handle": "stage2-TF-h1",
+  "state": "dispatched_in_flight",
+  "provider": "claude-implementer-subagent",
+  "spec": "stage1-report-reimplementation"
+ },
+ {
+  "todo_id": "TF",
+  "executor_handle": "stage2-TF-h1",
+  "state": "terminal_reported",
+  "provider": "claude-implementer-subagent",
+  "duration_ms": 69005,
+  "tool_uses": 8
+ },
+ {
+  "todo_id": "TB",
+  "executor_handle": "stage2-TB-h1",
+  "state": "terminal_reported",
+  "provider": "claude-implementer-subagent",
+  "duration_ms": 272055,
+  "tool_uses": 21
+ }
+]

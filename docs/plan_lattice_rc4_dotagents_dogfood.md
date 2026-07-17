@@ -136,15 +136,26 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
 
 ## Stage 2 — 正規repoへの着地（review経路・H gate毎batch）
 
-- [ ] 着地対象batch（小粒・可逆・非制御盤fileから開始）をオーナーと合意し、H gate承認を
+- [x] 着地対象batch（小粒・可逆・非制御盤fileから開始）をオーナーと合意し、H gate承認を
       batchごとに記録する。
-- [ ] Lattice受入済みreceiptのpatchを、親が従来のreview→pathspec commitで着地する
+  - 2026-07-18: 着地窓オーナー承認「やれ」。batch 3件のH task（approval snapshot付き）を
+    Controlへ記録・全finalize（rev 4-9）
+- [x] Lattice受入済みreceiptのpatchを、親が従来のreview→pathspec commitで着地する
       （Latticeによる直接commit/push禁止を維持）。
-- [ ] 着地後のdotagents full gate（当該repoの正規test/lint）greenと、境界事故0を確認する。
-- [ ] n batch（最低3、うち1つは並列2 TODO以上の同時進行）を完了し、wall-clock・rework・
+  - 前段でP1欠陥を発見・即時修理（receiptにpatch本文が無い→`b61ee3d`で捕獲・bind検査追加）。
+    着地run `v4-landing`（19 check green）の全5 patchを親が実読reviewし、
+    [Stage 2着地evidence](evidence/2026-07-18-rc4-stage2-landing.md)の3 batchで着地
+- [x] 着地後のdotagents full gate（当該repoの正規test/lint）greenと、境界事故0を確認する。
+  - batchごとmake lint PASS＋focused green、最後に`make ci` exit 0（隔離HOME検証含む）。
+    着地はH承認済み6 fileのみ＝逸脱0。push済み（dotagents `e117ac5`/`8a3befd`/`b248c46`）
+- [x] n batch（最低3、うち1つは並列2 TODO以上の同時進行）を完了し、wall-clock・rework・
       手戻りを実測保存する。
+  - 3 batch（batch2=並列受理対TD+TF・batch3=conflict対TA+TB統合）。着地本体約15分・
+    rework=patch捕獲欠陥起因の再走約16分・それ以外の手戻り0（evidence実測サマリ）
 - [ ] Phase gate: full CI、Fable read-only Phase反証、support／refute ADR（0047想定）、
       plan archive（RC3-Jの作法を継承）。
+  - full CIはgreen済み（2026-07-18）。残: `fable`×high refuter・クロスprovider検証・
+    support/refute ADR・knowledge return・Control finalize
 
 ## 編入判定とCodegraph単独配線の退役（方向性の固定）
 
