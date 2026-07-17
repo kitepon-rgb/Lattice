@@ -1,10 +1,42 @@
 {
-  "name": "@kitepon/lattice",
+  "name": "@quolu/lattice",
   "version": "0.1.0",
-  "private": true,
+  "description": "Lattice — parallel TODO graph compiler and conflict-aware orchestration runtime with isolated executor landing",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kitepon-rgb/Lattice.git"
+  },
   "engines": {
     "node": ">=22.13"
+  },
+  "bin": {
+    "lattice": "bin/lattice.mjs",
+    "lattice-mcp": "bin/lattice-mcp.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "sensor/dist",
+    "sensor/package.json",
+    "sensor/LICENSE",
+    "sensor/NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.3.0",
+    "commander": "^14.0.2",
+    "fast-string-width": "^3.0.2",
+    "fast-wrap-ansi": "^0.2.0",
+    "ignore": "^7.0.5",
+    "jsonc-parser": "^3.3.1",
+    "picomatch": "^4.0.3",
+    "sisteransi": "^1.0.5",
+    "tree-sitter-wasms": "^0.1.11",
+    "web-tree-sitter": "^0.25.3"
   },
   "scripts": {
     "test": "node --test test/*.mjs test/integration/*.mjs",
