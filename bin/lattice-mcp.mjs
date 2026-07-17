@@ -28,7 +28,21 @@
  *      paths — direct/proxy/daemon alike); session-established failures are
  *      MCP protocol errors and never reach this file (MCPServer keeps the
  *      process alive for those).
+ *   ④ Node version guard (wave2レビューでのスコープ外発見の修理): this bin
+ *      imports `../sensor/dist/index.js` directly, bypassing the sensor
+ *      CLI's own Node-version guard (sensor/src/bin/codegraph.ts, guarding
+ *      against a Node 25.x V8 turboshaft WASM JIT Zone allocator OOM during
+ *      tree-sitter grammar compilation, and a MIN_NODE_MAJOR floor). This
+ *      file re-applies the SAME check — reusing thresholds/banners from
+ *      `sensor/dist/bin/node-version-check.js` via `../src/node-version-
+ *      guard.mjs`, never duplicating them — as the very first thing this
+ *      script does, before argv parsing or the sensor import. That ordering
+ *      also covers the internal daemon re-invoke path (②): the daemon
+ *      re-execs this same file, so it re-enters at the top and hits the
+ *      guard again unconditionally.
  */
+
+import { evaluateNodeVersionGuard } from '../src/node-version-guard.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v1';
 
@@ -78,22 +92,40 @@ function parseArgs(argv) {
   return { path };
 }
 
-const parsed = parseArgs(process.argv.slice(2));
+// Node version guard (④) — runs before anything else, including argv
+// parsing, so it also covers the internal daemon re-invoke form (②) which
+// re-execs this exact file. Same semantics as the sensor CLI: nodeMajor >=
+// 25 or < MIN_NODE_MAJOR blocks unless CODEGRAPH_ALLOW_UNSAFE_NODE is set,
+// in which case the banner is shown for visibility only and startup
+// continues.
+const nodeVersionGuard = evaluateNodeVersionGuard(
+  process.versions.node,
+  Boolean(process.env.CODEGRAPH_ALLOW_UNSAFE_NODE),
+);
+if (nodeVersionGuard.banner) {
+  process.stderr.write(`${nodeVersionGuard.banner}\n`);
+}
 
-if (parsed.error) {
-  usageFailure(parsed.error);
+if (nodeVersionGuard.blocked) {
+  startupFailure('NODE_VERSION_UNSUPPORTED', nodeVersionGuard.banner);
 } else {
-  try {
-    const { MCPServer } = await import('../sensor/dist/index.js');
-    const server = new MCPServer(parsed.path);
-    // MCPServer.start() resolves only when startup itself declined to serve
-    // (there is no such path today — every mode keeps the process alive via
-    // stdin/net.Server and exits through its own process.exit calls) or
-    // throws on a genuine startup failure (e.g. the sentinel-version fatal
-    // in MCPServer.start — ADR 0049 Decision 3(c)). Either way, nothing more
-    // to do here on a clean resolve.
-    await server.start();
-  } catch (err) {
-    startupFailure('MCP_STARTUP_FAILED', err instanceof Error ? err.message : String(err));
+  const parsed = parseArgs(process.argv.slice(2));
+
+  if (parsed.error) {
+    usageFailure(parsed.error);
+  } else {
+    try {
+      const { MCPServer } = await import('../sensor/dist/index.js');
+      const server = new MCPServer(parsed.path);
+      // MCPServer.start() resolves only when startup itself declined to serve
+      // (there is no such path today — every mode keeps the process alive via
+      // stdin/net.Server and exits through its own process.exit calls) or
+      // throws on a genuine startup failure (e.g. the sentinel-version fatal
+      // in MCPServer.start — ADR 0049 Decision 3(c)). Either way, nothing more
+      // to do here on a clean resolve.
+      await server.start();
+    } catch (err) {
+      startupFailure('MCP_STARTUP_FAILED', err instanceof Error ? err.message : String(err));
+    }
   }
 }

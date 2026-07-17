@@ -7,6 +7,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { evaluateNodeVersionGuard } from '../../src/node-version-guard.mjs';
+
 // ADR 0049 Decision 8 — lattice-mcp bin契約の統合検証（実プロセス）。
 //
 //   ① stdoutはMCP protocol frame専用（診断は全てstderr）
@@ -92,15 +94,25 @@ async function waitForFile(filePath, timeoutMs) {
   return false;
 }
 
+// Node version guard(④, lattice-mcp.mjs)は起動時にargv解析より前に走るため、
+// このusage違反テストはCODEGRAPH_ALLOW_UNSAFE_NODEでガードを迂回する — でない
+// とテスト実行ホストのNodeがサポート対象外の場合、usage違反(exit 2)に届く前に
+// version guardのblock(exit 1)で止まってしまう。ガードそのものの境界は
+// test/node-version-guard.test.mjsで固定している。
+const UNSAFE_NODE_ENV = { ...process.env, CODEGRAPH_ALLOW_UNSAFE_NODE: '1' };
+
 test('lattice-mcp: 未知のフラグはstartup前のusage違反としてexit 2', () => {
-  const result = spawnSync(process.execPath, [MCP_BIN, '--totally-unknown-flag'], { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [MCP_BIN, '--totally-unknown-flag'], { encoding: 'utf8', env: UNSAFE_NODE_ENV });
   assert.equal(result.status, 2);
   assert.equal(result.stdout, '');
-  assert.match(result.stderr, /^lattice-mcp:/);
+  // ホストNodeがサポート対象外の場合、override有効でも可視化のためbannerが
+  // 先に書かれる(sensor CLIと同一意味論)。よってusage違反メッセージが必ず
+  // stderrの絶対先頭に来るとは限らないため、行頭一致で見る。
+  assert.match(result.stderr, /^lattice-mcp:/m);
 });
 
 test('lattice-mcp: --path に値が無いのはusage違反でexit 2', () => {
-  const result = spawnSync(process.execPath, [MCP_BIN, '--path'], { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [MCP_BIN, '--path'], { encoding: 'utf8', env: UNSAFE_NODE_ENV });
   assert.equal(result.status, 2);
 });
 
@@ -115,7 +127,13 @@ test(
     // out of this particular test; the daemon re-invoke path has its own test.
     const child = spawn(process.execPath, [MCP_BIN, '--path', root], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, CODEGRAPH_NO_DAEMON: '1' },
+      // CODEGRAPH_ALLOW_UNSAFE_NODE: same override as UNSAFE_NODE_ENV above —
+      // this exercises the JSON-RPC round trip regardless of whether the
+      // test-runner's own Node major happens to be inside the supported
+      // range; the version guard's block/override boundary is covered
+      // separately (test/node-version-guard.test.mjs, plus the dedicated
+      // spawn test below).
+      env: { ...process.env, CODEGRAPH_NO_DAEMON: '1', CODEGRAPH_ALLOW_UNSAFE_NODE: '1' },
     });
     t.after(() => { try { child.kill(); } catch { /* already gone */ } });
     const client = jsonRpcClient(child);
@@ -171,8 +189,13 @@ test(
     // sensor/src/mcp/index.ts spawnDetachedDaemon). If lattice-mcp.mjs
     // rejected that re-invoke form, the daemon could never bind and this
     // project would be silently pinned to direct mode forever.
+    // CODEGRAPH_ALLOW_UNSAFE_NODE is set on the launcher's own env — the
+    // daemon re-invoke (spawnDetachedDaemon) inherits `process.env` when it
+    // re-execs this same bin (sensor/src/mcp/index.ts), so this override
+    // propagates to both the launcher AND the detached daemon it spawns.
     const child = spawn(process.execPath, [MCP_BIN, '--path', root], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, CODEGRAPH_ALLOW_UNSAFE_NODE: '1' },
     });
     t.after(() => { try { child.kill(); } catch { /* already gone */ } });
     const client = jsonRpcClient(child);
@@ -196,5 +219,33 @@ test(
     const lock = JSON.parse(readFileSync(pidPath, 'utf8'));
     assert.equal(lock.version, '1.4.1-lattice.1');
     t.after(() => { try { process.kill(lock.pid, 'SIGTERM'); } catch { /* already gone */ } });
+  },
+);
+
+test(
+  'lattice-mcp: override無し・サポート対象外Nodeでのspawnはexit 1 + stderrにlattice.cli_error.v1(code=NODE_VERSION_UNSUPPORTED)',
+  () => {
+    // 実プロセスのNode majorはこのテストランナーのNode binaryそのもの —
+    // 差し替えできない。CIは(package.json記載どおり)Node 22で走るため、通常
+    // このホストではガードがblockしない側(サポート対象内)になり、この分岐は
+    // 早期returnでskipする。境界(24/25/20/19、override有無)はすべて
+    // test/node-version-guard.test.mjsのunit testで固定済み。
+    // このホスト(開発機、Node 26系)のようにサポート対象外Nodeで動く場合だけ、
+    // override無し経路のexit 1 + lattice.cli_error.v1を実プロセスで確認する。
+    const guard = evaluateNodeVersionGuard(process.versions.node, false);
+    if (!guard.blocked) {
+      return;
+    }
+
+    const result = spawnSync(process.execPath, [MCP_BIN, '--path', '/does/not/matter'], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+
+    const lines = result.stderr.trim().split('\n');
+    const jsonLine = lines[lines.length - 1];
+    const payload = JSON.parse(jsonLine);
+    assert.equal(payload.schema, 'lattice.cli_error.v1');
+    assert.equal(payload.code, 'NODE_VERSION_UNSUPPORTED');
+    assert.match(payload.message, /Unsupported Node\.js version/);
   },
 );
