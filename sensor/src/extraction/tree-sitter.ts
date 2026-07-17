@@ -32,6 +32,12 @@ import { MyBatisExtractor } from './mybatis-extractor';
 import { CfmlExtractor } from './cfml-extractor';
 import { tryKernelExtract } from './kernel';
 import {
+  isDynamicImportCall,
+  isRequireCall,
+  foldDynamicImportArg,
+  DYNAMIC_IMPORT_UNRESOLVED_MARKER,
+} from './dynamic-import';
+import {
   getAllFrameworkResolvers,
   getApplicableFrameworks,
 } from '../resolution/frameworks';
@@ -3675,6 +3681,50 @@ export class TreeSitterExtractor {
 
     const callerId = this.nodeStack[this.nodeStack.length - 1];
     if (!callerId) return;
+
+    // JS/TS dynamic `import(<expr>)` and CommonJS `require(<expr>)` (ADR
+    // 0048, Lattice sensor correctness fix b). `extractCall` is the single
+    // dispatch point BOTH call walkers funnel through — the top-level
+    // `visitNode` ladder (line ~1238) and the function-body-only
+    // `visitForCallsAndStructure` inside `visitFunctionBody` (line ~5133,
+    // which never invokes the language extractor's `visitNode` hook at all)
+    // — so branching here, unlike the Lua/Ruby `require()` precedent's
+    // `visitNode` hook, also reaches a dynamic import/require nested inside
+    // any function/arrow body (the oracle shape: `const loadControl = () =>
+    // import(CONTROL_LIB)`). tsx/jsx share the javascript/typescript
+    // extractor objects (see languages/index.ts) but are distinct `language`
+    // values, so both variants are listed; arkts has its own extractor and
+    // is out of this fix's scope.
+    if (
+      (this.language === 'javascript' || this.language === 'typescript' ||
+        this.language === 'jsx' || this.language === 'tsx') &&
+      (isDynamicImportCall(node) || isRequireCall(node, this.source))
+    ) {
+      const folded = foldDynamicImportArg(node, this.source, this.filePath);
+      const rawText = getNodeText(node, this.source).trim().slice(0, 100);
+      // Folding failure is NOT silently dropped: a visible `import` node
+      // records the raw (unfoldable) call text, and the unresolved
+      // reference uses a sentinel name that can never accidentally
+      // name-match a real symbol/import — it always ends up parked as
+      // status='failed', never a fabricated edge (ADR 0048's no-silent-
+      // fallback requirement).
+      const referenceName = folded ?? DYNAMIC_IMPORT_UNRESOLVED_MARKER;
+      this.createNode('import', referenceName, node, { signature: rawText });
+      this.unresolvedReferences.push({
+        fromNodeId: callerId,
+        referenceName,
+        referenceKind: 'imports',
+        line: node.startPosition.row + 1,
+        column: node.startPosition.column,
+      });
+      // Claimed — do NOT fall through to the generic call-reference logic
+      // below (which would otherwise, for `require`, try to emit a bogus
+      // `calls` ref to the builtin name "require"; `import(...)`'s callee
+      // has no identifier text at all today, so it's currently a silent
+      // no-op, but claiming it explicitly keeps that guaranteed rather than
+      // incidental).
+      return;
+    }
 
     // VB.NET: `foo(args)` is syntactically ambiguous between a call and an
     // index read, so the grammar parses non-empty parens as

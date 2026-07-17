@@ -1542,6 +1542,51 @@ export function resolveViaImport(
     }
   }
 
+  // JS/TS RAW relative specifier fallback (ADR 0048, Lattice sensor
+  // correctness fix b). The loop above only matches `imp.localName` — the
+  // BOUND identifier a static `import` statement's binding refs carry
+  // (emitted separately by emitImportBindingRefs) — never the raw specifier
+  // TEXT the `imports`-kind ref itself carries (`extractImport`'s
+  // `moduleName`, or a dynamic `import(...)`/`require(...)`'s folded
+  // argument, which has no bound identifier to match against at all). A
+  // dynamic `require('./x')` with no extension was therefore always
+  // unresolved: matchByFilePath's Strategy-3 fallback needs the specifier's
+  // basename to equal a real file's exact name, which fails without the
+  // extension `resolveImportPath` would have appended.
+  //
+  // Mirrors the C/C++ #include / COBOL copybook / PHP include / Nix
+  // path-import branches above (same function, same "resolve the ref's own
+  // text as a path, land on the file" shape) — same layer, same pattern.
+  //
+  // Gated to `./`/`../`-prefixed specifiers only: a bare specifier
+  // (`react`, `node:path`, `lodash/get`) is npm's resolution domain, not
+  // this graph's — without this gate, a project file that coincidentally
+  // shares a package's name would wrongly land an edge. Only fires after
+  // the localName loop above already tried and failed, so it never shadows
+  // a static import's normal (bound-identifier) resolution.
+  if (
+    ref.referenceKind === 'imports' &&
+    (ref.language === 'javascript' || ref.language === 'typescript' ||
+      ref.language === 'jsx' || ref.language === 'tsx') &&
+    (ref.referenceName.startsWith('./') || ref.referenceName.startsWith('../'))
+  ) {
+    const resolvedPath = resolveImportPath(ref.referenceName, ref.filePath, ref.language, context);
+    if (resolvedPath) {
+      const basename = resolvedPath.split('/').pop()!;
+      const fileNode = context
+        .getNodesByName(basename)
+        .find((n) => n.kind === 'file' && n.filePath === resolvedPath);
+      if (fileNode) {
+        return {
+          original: ref,
+          targetNodeId: fileNode.id,
+          confidence: 0.9,
+          resolvedBy: 'import',
+        };
+      }
+    }
+  }
+
   return null;
 }
 
