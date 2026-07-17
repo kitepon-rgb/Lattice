@@ -16,6 +16,7 @@ import {
   terminalStage1Receipt,
   verifyStage1ArtifactOnDisk,
 } from '../../src/rc4-stage1-dogfood.mjs';
+import { digestArtifact } from '../../src/artifact-contracts.mjs';
 import { selfDigest } from '../../src/runtime-contracts.mjs';
 import { projectRuntimeState } from '../../src/runtime-projection.mjs';
 
@@ -177,4 +178,35 @@ test('RC4 Stage 1 dogfood driverはconflict pairの自然serializationを閉ル�
 
   // 二重発行禁止（no-overwrite）。
   await assert.rejects(publishStage1Artifact({ stateDir, artifactRoot }));
+});
+
+test('patch bind強化（ADR 0051 Decision 4）: checkpoint改竄・本文改竄・digest欠落はfail closedする', async () => {
+  const patchesPath = path.join(artifactRoot, 'patches.json');
+  const manifestPath = path.join(artifactRoot, 'dogfood-manifest.json');
+  const originalPatches = await readFile(patchesPath, 'utf8');
+  const originalManifest = await readFile(manifestPath, 'utf8');
+
+  // manifest digestを整合させて書き換える＝digest検査を通過させ、bind検査そのものを直撃する。
+  const tamperWith = async (mutate) => {
+    const patches = JSON.parse(originalPatches);
+    mutate(patches);
+    const manifest = JSON.parse(originalManifest);
+    manifest.document_digests['patches.json'] = digestArtifact(patches);
+    await writeFile(patchesPath, `${JSON.stringify(patches, null, 1)}\n`);
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 1)}\n`);
+    const verification = await verifyStage1ArtifactOnDisk({ artifactRoot });
+    const bind = verification.checks.find((check) => check.id === 'patches_bound_to_accepted_receipts');
+    assert.equal(bind.passed, false);
+    assert.equal(verification.valid, false);
+    await writeFile(patchesPath, originalPatches);
+    await writeFile(manifestPath, originalManifest);
+  };
+
+  await tamperWith((patches) => { patches['T1-a1-r1'].checkpoint_digest = 'f'.repeat(64); });
+  await tamperWith((patches) => { patches['T1-a1-r1'].patch = patches['T1-a1-r1'].patch.replace('shared = 1', 'shared = 9'); });
+  await tamperWith((patches) => { delete patches['T1-a1-r1'].patch_sha256; });
+
+  // 復元後はgreenへ戻る（tamper検査自体が壊していないことの確認）。
+  const restored = await verifyStage1ArtifactOnDisk({ artifactRoot });
+  assert.equal(restored.valid, true, JSON.stringify(restored.failed_conditions));
 });

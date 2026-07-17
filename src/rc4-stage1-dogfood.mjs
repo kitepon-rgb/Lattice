@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rename, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -379,6 +380,9 @@ export async function terminalStage1Receipt({ stateDir, todoId, planKey }) {
     checkpoint_digest: lastCheckpoint.checkpoint_digest,
     paths: receipt.observed_diff.map(({ path: p }) => p),
     patch: patchBytes,
+    // ADR 0051 Decision 4: path一致だけではpatch本文の取り違え・破損を検出できない。
+    // 捕獲bytesのdigestを併記し、verifierが保存bytesから再計算して束縛を検査する。
+    patch_sha256: createHash('sha256').update(patchBytes).digest('hex'),
   };
   let cleanup = { cleanup_ok: true, residual_paths: [] };
   try {
@@ -630,13 +634,26 @@ export async function verifyStage1ArtifactOnDisk({ artifactRoot }) {
       receiptByld.set(event.payload.receipt_id, event);
     }
     const receiptEvents = events.filter((event) => event.kind === 'receipt_recorded');
-    const patchesOk = [...receiptByld.keys()].every((receiptId) => {
+    // ADR 0051 Decision 4の強化: path照合に加え、(a) checkpoint_digest／todo_idを
+    // receipt_recorded payloadと照合し、(b) patch bytesのsha256を再計算して保存digestと
+    // 突合する。(b)は世代判定＝1 entryでもpatch_sha256を持つartifactは全entryへ必須
+    // （旧v4-landing世代＝全entry不在は(a)までで検査し、per-entryのfail-openを作らない）。
+    const patchEntries = Object.values(patches);
+    const shaGeneration = patchEntries.some((entry) => entry.patch_sha256 !== undefined);
+    const patchesOk = patchEntries.length > 0 && [...receiptByld.keys()].every((receiptId) => {
       const patch = patches[receiptId];
       if (patch === undefined || typeof patch.patch !== 'string' || patch.patch.length === 0) return false;
       const recorded = receiptEvents.find((event) => event.payload.receipt_id === receiptId);
       if (recorded === undefined) return false;
+      if (patch.checkpoint_digest !== recorded.payload.checkpoint_digest) return false;
+      if (patch.todo_id !== recorded.payload.todo_id) return false;
       const receiptPaths = [...recorded.payload.observed_diff.map(({ path: p }) => p)].sort();
-      return JSON.stringify([...patch.paths].sort()) === JSON.stringify(receiptPaths);
+      if (JSON.stringify([...patch.paths].sort()) !== JSON.stringify(receiptPaths)) return false;
+      if (shaGeneration) {
+        if (typeof patch.patch_sha256 !== 'string') return false;
+        return createHash('sha256').update(patch.patch).digest('hex') === patch.patch_sha256;
+      }
+      return true;
     });
     checks.push({ id: 'patches_bound_to_accepted_receipts', passed: patchesOk });
   }
