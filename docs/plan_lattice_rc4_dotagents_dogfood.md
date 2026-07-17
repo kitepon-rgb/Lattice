@@ -156,3 +156,10 @@ Codegraph fork改良はL2、MCP面新設はL3）で行い、本planはLattice側
   H: Stage 1以降の全actual dispatch batch、Stage 2の着地。
 - 監査はRC3の作法を継承する: 各段の契約クリティカルcommit前に異provider review 1回、
   Phase完了時にFable read-only反証1回。監査は増殖させない。
+
+## Maintenance queue（非クリティカル欠陥。Phase通常TODO後のmaintenance wave一回で処理）
+
+- [ ] sensor: Lua/Luau/Rubyの`require()`検出は`visitNode`フック実装のため**関数本体内の
+      requireを拾えない**（偽陰性。sensor改良(b) 2026-07-17実装中に発見・JS/TSと同型の穴）。
+      対処はJS/TS同様`extractCall`合流点への移設。最小再現: 関数内`require 'mod'`を持つ
+      Lua/Rubyファイルをindexし、imports辺が出ないこと。所有repo: Lattice（sensor/）
