@@ -152,25 +152,19 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
       手戻りを実測保存する。
   - 3 batch（batch2=並列受理対TD+TF・batch3=conflict対TA+TB統合）。着地本体約15分・
     rework=patch捕獲欠陥起因の再走約16分・それ以外の手戻り0（evidence実測サマリ）
-- [ ] Phase gate: full CI、Fable read-only Phase反証、support／refute ADR（0047想定）、
+- [x] Phase gate: full CI、Fable read-only Phase反証、support／refute ADR（0047想定→実番号0051）、
       plan archive（RC3-Jの作法を継承）。
-  - full CIはgreen済み（2026-07-18）。残: `fable`×high refuter・クロスprovider検証・
-    support/refute ADR・knowledge return・Control finalize
+  - 2026-07-18完了: full CI両repo green・`fable`×high refuter=**条件付きsupport**・
+    クロスprovider検証（codex_review・指摘2件採用是正）・knowledge return（caveat＋契約正典還流）。
+    一次記録は[L5 Phase gate evidence](evidence/2026-07-18-rc4-l5-phase-gate.md)、
+    裁定は[ADR 0051](adr/0051-rc4-phase-gate-support.md)。Control finalize・archive・plan archive実施
 
 ## 編入判定とCodegraph単独配線の退役（方向性の固定）
 
-RC4がsupportで閉じた場合の後続は次の方向で進める（**実行はすべてdotagents所有の導入plan＝
-`dotagents/docs/plan_lattice-factory-integration.md`（Phase L6編入wave・L7 wire v4退役。
-Codegraph fork改良はL2、MCP面新設はL3）で行い、本planはLattice側の提供物と条件だけを定義する**）：
-
-- [ ] Lattice側は編入パッケージ要件を文書化する: CLI 6面の安定契約（ADR 0044 Decision 8）、
-      schema一覧（ADR 0044 Decision 2＋ADR 0045 Decision 4）、run store／artifact規約、
-      executor adapter契約（claude-native等）、Codegraph同梱方針（正規CLI/SDK・MIT notice維持）。
-- [ ] dotagents側の導入planに委ねる項目を明記する: core product編入の配線、単独導入Codegraph
-      （host配線・MCP・session設定）の退役手順と互換期間、rollback、BugHub往復。
-      **単独Codegraph削除はLatticeの編入と同一planで原子的に行い、移行期間中は二重配線を許す。**
-- [ ] 退役の前提条件を固定する: Lattice経由でCodegraphの既存用途（session内code intelligence）が
-      同等以上に提供できること。できない用途が残る場合は残存配線を明示して部分退役に留める。
+RC4は**条件付きsupport**で閉じた（[ADR 0051](adr/0051-rc4-phase-gate-support.md)）。
+本節の未消化3項目は消さずに**dotagents導入plan＝`dotagents/docs/plan_lattice-factory-integration.md`へ
+移管済み**（ADR 0051 Decision 6）: 編入パッケージ要件の文書化はPhase L6の先頭TODO、退役手順・互換期間・
+前提条件（同等以上のshadow実証）は既存のL6/L7条項が正。本planでは追跡しない。
 
 ## 成功条件（要約）
 
@@ -202,6 +196,10 @@ Codegraph fork改良はL2、MCP面新設はL3）で行い、本planはLattice側
   Phase完了時にFable read-only反証1回。監査は増殖させない。
 
 ## Maintenance queue（非クリティカル欠陥。Phase通常TODO後のmaintenance wave一回で処理）
+
+> 2026-07-18: 本queueはplan archiveに伴い、下記2件＋patch bind検証強化（ADR 0051 Decision 4）の
+> 計3件を`dotagents/docs/plan_lattice-factory-integration.md`のmaintenance queueへ移管した。
+> 以後の消化はdotagents側planが正。
 
 - [ ] sensor: Lua/Luau/Rubyの`require()`検出は`visitNode`フック実装のため**関数本体内の
       requireを拾えない**（偽陰性。sensor改良(b) 2026-07-17実装中に発見・JS/TSと同型の穴）。

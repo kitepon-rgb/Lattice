@@ -53,7 +53,7 @@ executor実行は56〜470秒/件（計約16分・5 dispatch＋wave裁定3回）�
 - rework: patch捕獲欠陥起因の再走約16分（上記）。それ以外の手戻り0（apply失敗0・test fail 0）
 - 3 batch・うち1 batchは並列2 TODO同時進行分＝L5の最低要件を充足
 
-## 残（L5 Phase gate・未実施）
+## 残（L5 Phase gate）→ 2026-07-18完了
 
-full CIはgreen済み。**`fable`×high refuter 1回・クロスprovider検証1回・support/refute ADR・
-knowledge return・Control finalize**が未実施＝L5を閉じる最終gateとして次の作業単位で行う。
+全gate装置を完了した。結果は[L5 Phase gate evidence](2026-07-18-rc4-l5-phase-gate.md)、
+裁定は[ADR 0051](../adr/0051-rc4-phase-gate-support.md)（条件付きsupport・claim境界付き）が正。
