@@ -1,0 +1,104 @@
+{
+ "schema": "lattice.run_request.v1",
+ "request_id": "rc4-stage1-e1-hold",
+ "repo": {
+  "base_sha": "ee0afa9fe11bae2d69220921027b14e999ed58ca",
+  "root_kind": "git-worktree"
+ },
+ "capacity": {
+  "executors": 2
+ },
+ "todos": [
+  {
+   "todo_id": "TD"
+  },
+  {
+   "todo_id": "TF"
+  }
+ ],
+ "manual_witness": {
+  "TD": {
+   "owns": [
+    {
+     "kind": "path",
+     "target": "tests/orchestrate/quota-snapshot.test.mjs"
+    }
+   ],
+   "reads": [],
+   "writes": [
+    "tests/orchestrate/quota-snapshot.test.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-aff-qstest",
+      "expect": {
+       "kind": "affected",
+       "path": "tests/orchestrate/quota-snapshot.test.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "tests/orchestrate/quota-snapshot.test.mjs"
+   ],
+   "unknowns": []
+  },
+  "TF": {
+   "owns": [
+    {
+     "kind": "path",
+     "target": "tests/orchestrate/rate-selector.test.mjs"
+    }
+   ],
+   "reads": [],
+   "writes": [
+    "tests/orchestrate/rate-selector.test.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-aff-rstest",
+      "expect": {
+       "kind": "affected",
+       "path": "tests/orchestrate/rate-selector.test.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "tests/orchestrate/rate-selector.test.mjs"
+   ],
+   "unknowns": []
+  }
+ },
+ "codegraph_query_set": {
+  "queries": [
+   {
+    "id": "q-status",
+    "operation": "status"
+   },
+   {
+    "id": "q-aff-qstest",
+    "operation": "affected",
+    "target": "tests/orchestrate/quota-snapshot.test.mjs"
+   },
+   {
+    "id": "q-aff-rstest",
+    "operation": "affected",
+    "target": "tests/orchestrate/rate-selector.test.mjs"
+   }
+  ]
+ },
+ "executor_capability": {
+  "adapters": [
+   "actual-agent"
+  ]
+ },
+ "claim_mode": "exact_minimum",
+ "request_digest": "4836a4a8af77adf8d5d3d0d94df9f476a0882bb6c7d3077107ca4a0cf0d41a1e"
+}

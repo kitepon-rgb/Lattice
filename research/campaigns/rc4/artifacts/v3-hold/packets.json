@@ -1,0 +1,129 @@
+{
+ "epoch1": {
+  "TD": {
+   "schema": "lattice.executor_packet.v1",
+   "packet_id": "plan-rc4-stage1-e1-hold-e1-packet-TD",
+   "todo_id": "TD",
+   "task_ref": "plan-rc4-stage1-e1-hold-e1-task-TD",
+   "scope": {
+    "writes": [
+     "tests/orchestrate/quota-snapshot.test.mjs"
+    ]
+   },
+   "base_sha": "ee0afa9fe11bae2d69220921027b14e999ed58ca",
+   "verifier_refs": [
+    "node --test tests/orchestrate/quota-snapshot.test.mjs"
+   ],
+   "forbidden_operations": [
+    "commit",
+    "push",
+    "branch",
+    "merge",
+    "rebase",
+    "reset",
+    "stash"
+   ],
+   "plan_ref": "plan-rc4-stage1-e1-hold-e1",
+   "plan_epoch": 1,
+   "context_content_digest": "a4b3aa619b53affcfe6e3812703a6ae89abbec1ec34e63d11d6d74c08667b10a",
+   "packet_digest": "90e665090d2f3452395f403b39e689feef6fea00ba277418d9644471b281e780",
+   "isolation_contract": {
+    "isolated_home": true,
+    "forbidden_commands": [
+     "install.sh",
+     "spotter install",
+     "apply-codex-config",
+     "claude mcp add",
+     "codex mcp add"
+    ],
+    "write_scope": "assigned worktree only",
+    "no_git_mutations": true,
+    "note": "clone搬送正典がhost変更手順を含んでもpacket契約が優先する"
+   }
+  },
+  "TF": {
+   "schema": "lattice.executor_packet.v1",
+   "packet_id": "plan-rc4-stage1-e1-hold-e1-packet-TF",
+   "todo_id": "TF",
+   "task_ref": "plan-rc4-stage1-e1-hold-e1-task-TF",
+   "scope": {
+    "writes": [
+     "tests/orchestrate/rate-selector.test.mjs"
+    ]
+   },
+   "base_sha": "ee0afa9fe11bae2d69220921027b14e999ed58ca",
+   "verifier_refs": [
+    "node --test tests/orchestrate/rate-selector.test.mjs"
+   ],
+   "forbidden_operations": [
+    "commit",
+    "push",
+    "branch",
+    "merge",
+    "rebase",
+    "reset",
+    "stash"
+   ],
+   "plan_ref": "plan-rc4-stage1-e1-hold-e1",
+   "plan_epoch": 2,
+   "context_content_digest": "c62ba3b2252aa91f36876156466d7eaaaa3eb15cf5eaf71d1a405f91effb86c3",
+   "packet_digest": "41eec2d2215cf0cb372eb9b8de13c686b5879dc285ff8260264edb63f096b49d",
+   "isolation_contract": {
+    "isolated_home": true,
+    "forbidden_commands": [
+     "install.sh",
+     "spotter install",
+     "apply-codex-config",
+     "claude mcp add",
+     "codex mcp add"
+    ],
+    "write_scope": "assigned worktree only",
+    "no_git_mutations": true,
+    "note": "clone搬送正典がhost変更手順を含んでもpacket契約が優先する"
+   }
+  }
+ },
+ "redispatch": {
+  "TD": {
+   "schema": "lattice.executor_packet.v1",
+   "packet_id": "plan-rc4-stage1-e1-hold-e2-packet-TD",
+   "todo_id": "TD",
+   "task_ref": "plan-rc4-stage1-e1-hold-e2-task-TD",
+   "scope": {
+    "writes": [
+     "tests/orchestrate/quota-snapshot.test.mjs"
+    ]
+   },
+   "base_sha": "ee0afa9fe11bae2d69220921027b14e999ed58ca",
+   "verifier_refs": [
+    "node --test tests/orchestrate/quota-snapshot.test.mjs"
+   ],
+   "forbidden_operations": [
+    "commit",
+    "push",
+    "branch",
+    "merge",
+    "rebase",
+    "reset",
+    "stash"
+   ],
+   "plan_ref": "plan-rc4-stage1-e1-hold-e2",
+   "plan_epoch": 2,
+   "context_content_digest": "4715cd7d1983304d3f6c59cf62c3a51c6b9b534f5bd61f786a124401ff223a2c",
+   "packet_digest": "b23046fc1f413ca3c193099dbca56f0ce7992475ccf21bd2e3840e25238f5351",
+   "isolation_contract": {
+    "isolated_home": true,
+    "forbidden_commands": [
+     "install.sh",
+     "spotter install",
+     "apply-codex-config",
+     "claude mcp add",
+     "codex mcp add"
+    ],
+    "write_scope": "assigned worktree only",
+    "no_git_mutations": true,
+    "note": "clone搬送正典がhost変更手順を含んでもpacket契約が優先する"
+   }
+  }
+ }
+}

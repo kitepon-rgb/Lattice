@@ -97,23 +97,42 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
 
 ## Stage 1 — disposable cloneでの閉ループ（実タスク・不着地）
 
-- [ ] ADR 0046をcommitしてからControl初期化（H task承認snapshot含む。RC3-Iの作法を継承）。
-- [ ] **executor隔離の必須条件を満たす**（ADR 0046のpacket契約へ焼き込む。親plan L4）:
+- [x] ADR 0046をcommitしてからControl初期化（H task承認snapshot含む。RC3-Iの作法を継承）。
+  - 2026-07-17: Control `lattice-rc4-dotagents-v1`（rev 0-2）・H task `RC4-S1-stage1-dogfood-v1`
+    approval snapshot付き
+- [x] **executor隔離の必須条件を満たす**（ADR 0046のpacket契約へ焼き込む。親plan L4）:
       隔離HOMEでexecutorを実行し、packetで`install.sh`・`spotter install`・`apply-codex-config`・
       `mcp add`系の実行を禁止する。**根拠**: cloneはdotagentsの生きたオンボーディング正典
       （CLAUDE.md→@AGENTS.md）を搬送し、Claude executorが自動読込する。その正典は「新規エントリ追加後は
       `install.sh`再実行が必要」等のhost変更手順を実行可能な形で含む。`install.sh`はHERE解決＋`ln -sfn`のため、
       clone内で実行されるとhostの`~/.claude`系symlinkがtmpdirを向き、clone廃棄後にdangling化する。
       RC3のDecision 9.2「executorはisolated worktreeだけへ書く」はこのvectorを検出しない。
-- [ ] dotagents disposable cloneをdogfood targetに、実小粒タスク（docs更新・test追加・
+  - 2026-07-17: 隔離HOMEは認証不能（credential取扱いは統括権限外）のためオーナー裁定「2でいい」で
+    [ADR 0050](adr/0050-stage1-executor-isolation-implementation.md)の実装形（subagent executor＋
+    packet `isolation_contract`＋前後fingerprint境界検証＋diff observer）へ確定。禁止コマンドは
+    全packetへ焼き込み（artifact検査 `isolation_contract_complete`で機械検証）
+- [x] dotagents disposable cloneをdogfood targetに、実小粒タスク（docs更新・test追加・
       adapter表更新など非破壊系）でrun request＋witnessを作成する。
-- [ ] actual executor 2+へ隔離dispatchし、閉ループ（観測→競合→hold→carry-over→vN+1→
+  - 2026-07-17: round 1（TA/TB/TC・control-record交差）＋round 2（TD/TF・注入用）。
+    witness作法はStage 0 compile判定裁定evidence §3を適用しdrift 0
+- [x] actual executor 2+へ隔離dispatchし、閉ループ（観測→競合→hold→carry-over→vN+1→
       redispatch→受入）を実タスクで完遂する（注入competitionは1件以上、自然発生も記録）。
-- [ ] `control-record.mjs`級の巨大fileへTODOが集中するケースを意図的に含め、Latticeの答え
+  - 2026-07-17完了: [Stage 1 evidence](evidence/2026-07-17-rc4-stage1-dogfood.md)。round 1＝
+    conflict serialization（TA受理→TB dispatch・受理3/3）、round 2＝注入scope_violation→
+    hold {TD}/continue {TF}→vN+1→TF carry-over受理→TD redispatch受理。**自然発生も記録**＝
+    TD executorの実API障害をunknownとして同一handle回収（演出でない実観測）
+- [x] `control-record.mjs`級の巨大fileへTODOが集中するケースを意図的に含め、Latticeの答え
       （serial判定またはseam候補）と親の納得度を記録する。seam laneへ入る場合は
       predeclared treatmentの適用可否だけを判定し、制御盤の実分割はRC4非目標とする。
-- [ ] artifact v3（実repo dogfood）をatomic発行し、artifact-only verificationをgreenにする。
-- [ ] Stage 2 gateを裁定する: 境界事故0・受入품質・witnessコスト再実測。
+  - 2026-07-17: TA×TB＝3,711行`control-record.test.mjs`共有write→serial判定。親裁定＝妥当・
+    過剰serialなし・見逃し0（evidence「照合」節）。seam laneは非発火（注入holdは
+    intentional_serial lane）
+- [x] artifact v3（実repo dogfood）をatomic発行し、artifact-only verificationをgreenにする。
+  - 2026-07-17: `v3`（16 check green）＋`v3-hold`（17 check green・hold replay含む）
+- [x] Stage 2 gateを裁定する: 境界事故0・受入품質・witnessコスト再実測。
+  - 2026-07-17裁定（evidence「Stage 2 gate裁定」節）: 境界事故0（dotagents正典dirty 0・
+    `~/.claude`/`~/.agents`無変化）・receipt 5/5 accepted・witnessコストは閉ループ支配項に
+    ならず（支配項はexecutor実行61〜512秒/件）。**Stage 2へ進んでよい**（着地窓はオーナー合意待ち）
 
 ## Stage 2 — 正規repoへの着地（review経路・H gate毎batch）
 

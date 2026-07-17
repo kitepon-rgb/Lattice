@@ -1,0 +1,51 @@
+[
+ {
+  "todo_id": "TD",
+  "executor_handle": "stage1-TD-h1",
+  "state": "dispatched_in_flight",
+  "provider": "claude-implementer-subagent",
+  "known_injection": "scopewrite docs/rc4s1-injection-canary.md",
+  "dispatched_at": "2026-07-17T14:40:00Z"
+ },
+ {
+  "todo_id": "TF",
+  "executor_handle": "stage1-TF-h1",
+  "state": "dispatched_in_flight",
+  "provider": "claude-implementer-subagent",
+  "dispatched_at": "2026-07-17T14:40:00Z"
+ },
+ {
+  "todo_id": "TF",
+  "executor_handle": "stage1-TF-h1",
+  "state": "terminal_reported",
+  "provider": "claude-implementer-subagent",
+  "duration_ms": 69130,
+  "tool_uses": 6
+ },
+ {
+  "todo_id": "TD",
+  "executor_handle": "stage1-TD-h1",
+  "state": "terminal_reported",
+  "provider": "claude-implementer-subagent",
+  "duration_ms": 171800,
+  "tool_uses": 9,
+  "recovered_from": "unknown_provider_error_same_handle_recovery"
+ },
+ {
+  "todo_id": "TD",
+  "executor_handle": "stage1-TD-h2",
+  "state": "dispatched_in_flight",
+  "provider": "claude-implementer-subagent",
+  "attempt": 2,
+  "dispatched_at": "2026-07-17T15:05:00Z"
+ },
+ {
+  "todo_id": "TD",
+  "executor_handle": "stage1-TD-h2",
+  "state": "terminal_reported",
+  "provider": "claude-implementer-subagent",
+  "attempt": 2,
+  "duration_ms": 61442,
+  "tool_uses": 7
+ }
+]

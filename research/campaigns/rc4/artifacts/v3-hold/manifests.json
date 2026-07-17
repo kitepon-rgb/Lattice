@@ -1,0 +1,66 @@
+{
+ "TD": {
+  "schema": "lattice.boundary_manifest.v2",
+  "todo_id": "TD",
+  "owns": [
+   {
+    "kind": "path",
+    "target": "tests/orchestrate/quota-snapshot.test.mjs"
+   }
+  ],
+  "reads": [],
+  "writes": [
+   "tests/orchestrate/quota-snapshot.test.mjs"
+  ],
+  "resources": [],
+  "state_effects": [],
+  "unknowns": [],
+  "affected_tests": [
+   "tests/orchestrate/quota-snapshot.test.mjs"
+  ],
+  "graph_evidence": [
+   {
+    "query_id": "q-aff-qstest",
+    "operation": "affected",
+    "status": "ready",
+    "result_digest": "e7feb6822c1a034c054ae814f9d89ad507586f04166feccd03e0ea5cd09dfcf1"
+   }
+  ],
+  "witness_provenance": {
+   "own-path-ca92b1f29ef342bb": "codegraph"
+  },
+  "manifest_digest": "faf5c65e92966def9dfdd7523463aa0ffeb297cd4600ab3cc2f327c01a999863"
+ },
+ "TF": {
+  "schema": "lattice.boundary_manifest.v2",
+  "todo_id": "TF",
+  "owns": [
+   {
+    "kind": "path",
+    "target": "tests/orchestrate/rate-selector.test.mjs"
+   }
+  ],
+  "reads": [],
+  "writes": [
+   "tests/orchestrate/rate-selector.test.mjs"
+  ],
+  "resources": [],
+  "state_effects": [],
+  "unknowns": [],
+  "affected_tests": [
+   "tests/orchestrate/rate-selector.test.mjs"
+  ],
+  "graph_evidence": [
+   {
+    "query_id": "q-aff-rstest",
+    "operation": "affected",
+    "status": "ready",
+    "result_digest": "5439f1e5bcc01f0c8af62762486b059e361252bad1eefe8e5dc6ffca69a0799d"
+   }
+  ],
+  "witness_provenance": {
+   "own-path-f160fe11c765f9d4": "codegraph"
+  },
+  "manifest_digest": "687339d332b9809868707a753b9d90d099590d6990523ee856f8f753b49ea841"
+ }
+}

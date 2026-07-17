@@ -1,0 +1,21 @@
+{
+ "schema": "lattice.runtime_plan_diff.v1",
+ "old_plan_ref": "plan-rc4-stage1-e1-hold-e1",
+ "new_plan_ref": "plan-rc4-stage1-e1-hold-e2",
+ "accepted_checkpoints": [],
+ "invalidated_contexts": [
+  "TD"
+ ],
+ "carried_over": [
+  "TF"
+ ],
+ "redispatched": [
+  "TD"
+ ],
+ "node_edge_diff": {
+  "added_nodes": [],
+  "removed_nodes": [],
+  "added_conflicts": 0
+ },
+ "diff_digest": "73d365a2a09eb29056930bbda6504dad793dd47477a84cb23e3f245e6b26c3fd"
+}

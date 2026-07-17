@@ -1,0 +1,164 @@
+{
+ "schema": "lattice.run_request.v1",
+ "request_id": "rc4-stage1-e1",
+ "repo": {
+  "base_sha": "ee0afa9fe11bae2d69220921027b14e999ed58ca",
+  "root_kind": "git-worktree"
+ },
+ "capacity": {
+  "executors": 2
+ },
+ "todos": [
+  {
+   "todo_id": "TA"
+  },
+  {
+   "todo_id": "TB"
+  },
+  {
+   "todo_id": "TC"
+  }
+ ],
+ "manual_witness": {
+  "TA": {
+   "owns": [
+    {
+     "kind": "path",
+     "target": "tests/orchestrate/control-record.test.mjs"
+    }
+   ],
+   "reads": [
+    "lib/orchestrate/control-record.mjs"
+   ],
+   "writes": [
+    "tests/orchestrate/control-record.test.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-path-crtest",
+      "expect": {
+       "kind": "path",
+       "path": "tests/orchestrate/control-record.test.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "tests/orchestrate/control-record.test.mjs"
+   ],
+   "unknowns": []
+  },
+  "TB": {
+   "owns": [
+    {
+     "kind": "path",
+     "target": "bin/orchestrate-run.mjs"
+    },
+    {
+     "kind": "path",
+     "target": "tests/orchestrate/control-record.test.mjs"
+    }
+   ],
+   "reads": [
+    "lib/orchestrate/control-record.mjs"
+   ],
+   "writes": [
+    "bin/orchestrate-run.mjs",
+    "tests/orchestrate/control-record.test.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-aff-bin",
+      "expect": {
+       "kind": "affected",
+       "path": "bin/orchestrate-run.mjs"
+      }
+     },
+     {
+      "query_id": "q-path-crtest",
+      "expect": {
+       "kind": "path",
+       "path": "tests/orchestrate/control-record.test.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "tests/orchestrate/control-record.test.mjs",
+    "tests/orchestrate/executor-contracts.test.mjs",
+    "tests/orchestrate/quota-adapter.test.mjs",
+    "tests/orchestrate/quota-snapshot.test.mjs",
+    "tests/orchestrate/rate-selector.test.mjs",
+    "tests/orchestrate/worker-report-skeleton.test.mjs"
+   ],
+   "unknowns": []
+  },
+  "TC": {
+   "owns": [
+    {
+     "kind": "path",
+     "target": "tests/orchestrate/executor-adapters.test.mjs"
+    }
+   ],
+   "reads": [
+    "lib/orchestrate/executor-adapters.mjs"
+   ],
+   "writes": [
+    "tests/orchestrate/executor-adapters.test.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-aff-eatest",
+      "expect": {
+       "kind": "affected",
+       "path": "tests/orchestrate/executor-adapters.test.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "tests/orchestrate/executor-adapters.test.mjs"
+   ],
+   "unknowns": []
+  }
+ },
+ "codegraph_query_set": {
+  "queries": [
+   {
+    "id": "q-status",
+    "operation": "status"
+   },
+   {
+    "id": "q-aff-bin",
+    "operation": "affected",
+    "target": "bin/orchestrate-run.mjs"
+   },
+   {
+    "id": "q-aff-eatest",
+    "operation": "affected",
+    "target": "tests/orchestrate/executor-adapters.test.mjs"
+   },
+   {
+    "id": "q-path-crtest",
+    "operation": "query",
+    "target": "tests/orchestrate/control-record.test.mjs"
+   }
+  ]
+ },
+ "executor_capability": {
+  "adapters": [
+   "actual-agent"
+  ]
+ },
+ "claim_mode": "exact_minimum",
+ "request_digest": "06740dfc70a55f980c36d8166a07b216c860bd7aa2a10bedfec12a363c19e285"
+}

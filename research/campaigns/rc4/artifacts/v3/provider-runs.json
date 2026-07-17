@@ -1,0 +1,47 @@
+[
+ {
+  "todo_id": "TA",
+  "executor_handle": "stage1-TA-h1",
+  "state": "dispatched_in_flight",
+  "provider": "claude-implementer-subagent",
+  "dispatched_at": "2026-07-17T13:56:00Z"
+ },
+ {
+  "todo_id": "TC",
+  "executor_handle": "stage1-TC-h1",
+  "state": "dispatched_in_flight",
+  "provider": "claude-implementer-subagent",
+  "dispatched_at": "2026-07-17T13:56:00Z"
+ },
+ {
+  "todo_id": "TC",
+  "executor_handle": "stage1-TC-h1",
+  "state": "terminal_reported",
+  "provider": "claude-implementer-subagent",
+  "duration_ms": 155867,
+  "tool_uses": 13
+ },
+ {
+  "todo_id": "TA",
+  "executor_handle": "stage1-TA-h1",
+  "state": "terminal_reported",
+  "provider": "claude-implementer-subagent",
+  "duration_ms": 325371,
+  "tool_uses": 16
+ },
+ {
+  "todo_id": "TB",
+  "executor_handle": "stage1-TB-h1",
+  "state": "dispatched_in_flight",
+  "provider": "claude-implementer-subagent",
+  "dispatched_at": "2026-07-17T14:12:00Z"
+ },
+ {
+  "todo_id": "TB",
+  "executor_handle": "stage1-TB-h1",
+  "state": "terminal_reported",
+  "provider": "claude-implementer-subagent",
+  "duration_ms": 512324,
+  "tool_uses": 17
+ }
+]

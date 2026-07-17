@@ -1,0 +1,41 @@
+{
+ "schema": "lattice.runtime_plan.v1",
+ "plan_ref": "plan-rc4-stage1-e1-e1",
+ "plan_epoch": 1,
+ "request_digest": "06740dfc70a55f980c36d8166a07b216c860bd7aa2a10bedfec12a363c19e285",
+ "base_sha": "ee0afa9fe11bae2d69220921027b14e999ed58ca",
+ "nodes": [
+  {
+   "todo_id": "TA"
+  },
+  {
+   "todo_id": "TB"
+  },
+  {
+   "todo_id": "TC"
+  }
+ ],
+ "precedence": [],
+ "conflicts": [
+  {
+   "todo_ids": [
+    "TA",
+    "TB"
+   ],
+   "resource_id": "own-path-0d0e825891fc8d9d"
+  }
+ ],
+ "capacity": {
+  "executors": 2
+ },
+ "manifest_digests": {
+  "TA": "dd5a59185eaa02fc3b8b14d35359f40d36b1b1a714334fac3c81b8602c830b17",
+  "TB": "b4b09ba23707ca7959ded82d426c33c8bc40f0580a19b035c0ceb83c29053a49",
+  "TC": "63adc22577d68dfbd6e14492f66371acf1399f9bd3e2f9a0fce80fb76ae71cdd"
+ },
+ "claim": {
+  "mode": "exact_minimum"
+ },
+ "predecessor_refs": [],
+ "plan_digest": "95dad131b134960403ae05b294cf9c3c73d8d76681e174ac0047b967956cffd7"
+}

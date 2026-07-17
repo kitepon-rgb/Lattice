@@ -1,0 +1,26 @@
+{
+ "schema": "lattice.hold_decision.v1",
+ "decision_id": "hold-rc4s1-actual-01-seq8",
+ "finding": {
+  "sequence": 7,
+  "kind": "scope_violation",
+  "todo_ids": [
+   "TD"
+  ],
+  "path": "docs/rc4s1-injection-canary.md"
+ },
+ "frozen_prefix_digest": "7055437e291187bfe3298531ef09de999ee72c809267b2a0d28641d1bb4ea99e",
+ "affected_closure": [
+  "TD"
+ ],
+ "hold_set": [
+  "TD"
+ ],
+ "continue_set": [
+  "TF"
+ ],
+ "evidence_digests": [
+  "ee01bb7b13c40acf5d95bd99b248a44b64e4c7b281209941bdcd6815e0ccd292"
+ ],
+ "decision_digest": "ee9b079b7c772e044645e7a17083dea7da54a5866300c43d5bc7257790e843cf"
+}
