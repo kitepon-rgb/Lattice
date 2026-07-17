@@ -202,7 +202,8 @@ test('witness unknownはBOUNDARY_UNKNOWNのtyped errorでexit 1になり planを
   assert.equal(error.code, 'BOUNDARY_UNKNOWN');
   // ADR 0052 Decision 1: typed失敗はthrow側のdetail（unknown内訳）をv2 envelopeで運ぶ。
   assert.ok(error.detail !== undefined && typeof error.detail === 'object');
-  assert.ok(JSON.stringify(error.detail).includes('semantic_probe'));
+  assert.ok(Array.isArray(error.detail.unknowns) && error.detail.unknowns.length > 0);
+  assert.equal(error.detail.unknowns[0].todo_id, 'T1');
 });
 
 test('改竄planと別request planはtyped errorでexit 1になる', async () => {
