@@ -160,6 +160,15 @@ test('RC4 Stage 1 dogfood driverはconflict pairの自然serializationを閉ル�
   const verification = await verifyStage1ArtifactOnDisk({ artifactRoot });
   assert.equal(verification.valid, true, JSON.stringify(verification.failed_conditions));
   assert.ok(verification.checks.some((check) => check.id === 'isolation_contract_complete' && check.passed));
+  assert.ok(verification.checks.some((check) => check.id === 'patches_bound_to_accepted_receipts' && check.passed));
+
+  // Stage 2着地素材: 受理receiptごとにpatch本文が保存され、pathがreceiptとbindされている。
+  const patches = JSON.parse(await readFile(path.join(artifactRoot, 'patches.json'), 'utf8'));
+  for (const receiptId of ['T1-a1-r1', 'T2-a1-r1']) {
+    assert.equal(patches[receiptId].todo_id, receiptId.slice(0, 2));
+    assert.deepEqual(patches[receiptId].paths, ['shared.mjs']);
+    assert.match(patches[receiptId].patch, /shared = [12]/);
+  }
 
   const events = JSON.parse(await readFile(path.join(artifactRoot, 'events.json'), 'utf8'));
   const state = projectRuntimeState({ events });

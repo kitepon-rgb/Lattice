@@ -361,6 +361,25 @@ export async function terminalStage1Receipt({ stateDir, todoId, planKey }) {
     payload: receipt,
     recordedAt: RUN_TIMESTAMP,
   }));
+  // Stage 2着地素材: worktree破棄前にpatch本文を捕獲する。receipt schemaは不変のまま
+  // （replay契約を壊さない）、patchはstate/artifactの別文書として保存し、
+  // receipt_idとcheckpoint_digestでreceiptへbindする。捕獲失敗はfail loud
+  // （Stage 1受理はできたのに着地素材が無い、という無言の欠損を作らない）。
+  await run('git', ['add', '-A'], worktree.worktree_path);
+  const patchBytes = await run(
+    'git',
+    ['-c', 'core.quotepath=false', 'diff', '--cached', '--binary'],
+    worktree.worktree_path,
+  );
+  if (patchBytes.length === 0) fail(`patch捕獲が空: ${todoId}（observed_diffと矛盾）`);
+  if (state.patches === undefined) state.patches = {};
+  state.patches[receipt.receipt_id] = {
+    receipt_id: receipt.receipt_id,
+    todo_id: todoId,
+    checkpoint_digest: lastCheckpoint.checkpoint_digest,
+    paths: receipt.observed_diff.map(({ path: p }) => p),
+    patch: patchBytes,
+  };
   let cleanup = { cleanup_ok: true, residual_paths: [] };
   try {
     await run('git', ['worktree', 'remove', '--force', worktree.worktree_path], state.cloneRoot);
@@ -465,6 +484,7 @@ export async function publishStage1Artifact({ stateDir, artifactRoot }) {
     'events.json': state.events,
     'provider-runs.json': state.provider_runs,
     'diagnostics.json': state.diagnostics,
+    'patches.json': state.patches ?? {},
   };
   const manifestEntries = {};
   for (const [name, document] of Object.entries(documents)) {
@@ -598,6 +618,28 @@ export async function verifyStage1ArtifactOnDisk({ artifactRoot }) {
       JSON.stringify(event.payload).includes('provider_handle') === false
     )),
   });
+  // Stage 2着地素材: patches.jsonがある場合（patch捕獲実装後のartifact）、
+  // accepted receiptごとにpatch entryが存在し、receipt observed_diffのpathと
+  // 一致することを要求する。旧artifact（v3/v3-hold・patches.json不在）は
+  // manifest記載文書のみ検査する既存規則のまま。
+  if (Object.hasOwn(manifest.document_digests, 'patches.json')) {
+    const patches = documents['patches.json'];
+    const receiptByld = new Map();
+    for (const event of events) {
+      if (event.kind !== 'receipt_accepted') continue;
+      receiptByld.set(event.payload.receipt_id, event);
+    }
+    const receiptEvents = events.filter((event) => event.kind === 'receipt_recorded');
+    const patchesOk = [...receiptByld.keys()].every((receiptId) => {
+      const patch = patches[receiptId];
+      if (patch === undefined || typeof patch.patch !== 'string' || patch.patch.length === 0) return false;
+      const recorded = receiptEvents.find((event) => event.payload.receipt_id === receiptId);
+      if (recorded === undefined) return false;
+      const receiptPaths = [...recorded.payload.observed_diff.map(({ path: p }) => p)].sort();
+      return JSON.stringify([...patch.paths].sort()) === JSON.stringify(receiptPaths);
+    });
+    checks.push({ id: 'patches_bound_to_accepted_receipts', passed: patchesOk });
+  }
   // ADR 0046 Decision 2: 全executor packetがisolation_contractを完備していること。
   const packetsDocument = documents['packets.json'];
   const allPacketGroups = [packetsDocument.epoch1, packetsDocument.redispatch].filter((group) => group !== null);
