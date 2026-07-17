@@ -49,7 +49,10 @@ function projectHash(projectRoot: string): string {
  * path without talking to each other.
  */
 function tmpdirSocketPath(projectRoot: string): string {
-  return path.join(os.tmpdir(), `codegraph-${projectHash(projectRoot)}.sock`);
+  // ADR 0049 Decision 3(b): `lattice-sensor-` (not the shared upstream
+  // `codegraph-` prefix) so a relocated Lattice socket can't collide with —
+  // or be mistaken for — a third-party CodeGraph daemon's tmpdir fallback.
+  return path.join(os.tmpdir(), `lattice-sensor-${projectHash(projectRoot)}.sock`);
 }
 
 /**
@@ -68,7 +71,9 @@ function tmpdirSocketPath(projectRoot: string): string {
  */
 export function getDaemonSocketCandidates(projectRoot: string): string[] {
   if (process.platform === 'win32') {
-    return [`\\\\.\\pipe\\codegraph-${projectHash(projectRoot)}`];
+    // ADR 0049 Decision 3(b): same `lattice-sensor-` prefix rationale as the
+    // POSIX tmpdir fallback above — the pipe namespace is machine-global too.
+    return [`\\\\.\\pipe\\lattice-sensor-${projectHash(projectRoot)}`];
   }
   const inProject = path.join(getCodeGraphDir(projectRoot), 'daemon.sock');
   const tmp = tmpdirSocketPath(projectRoot);

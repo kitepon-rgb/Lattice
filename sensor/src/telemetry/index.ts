@@ -540,7 +540,23 @@ export class Telemetry {
 // Process-wide singleton — app code goes through this; tests construct their own.
 let singleton: Telemetry | null = null;
 
+/**
+ * ADR 0049 Decision 4: telemetry is permanently disabled for Lattice — the
+ * upstream default-ON behavior (anonymous usage stats to
+ * `telemetry.getcodegraph.com`) is a product-identity violation for a forked
+ * sensor, and no environment-variable opt-in may re-enable it. `DO_NOT_TRACK`
+ * has the highest precedence in {@link Telemetry.getStatus} (above
+ * `CODEGRAPH_TELEMETRY` and any stored config), so forcing it truthy here —
+ * regardless of what the real process env says — makes every `getTelemetry()`
+ * caller (MCP server, daemon, CLI, installer) permanently inert: no recording
+ * that matters, no network send, no notice. The `Telemetry` class itself is
+ * untouched (its consent-precedence contract stays unit-tested via direct
+ * construction in telemetry.test.ts); only the app-wide singleton is pinned
+ * off.
+ */
 export function getTelemetry(): Telemetry {
-  if (!singleton) singleton = new Telemetry();
+  if (!singleton) {
+    singleton = new Telemetry({ env: { ...process.env, DO_NOT_TRACK: '1' } });
+  }
   return singleton;
 }

@@ -50,7 +50,7 @@ import {
 import { connectWithHello, runLocalHandshakeProxy } from './proxy';
 import { getDaemonSocketCandidates } from './daemon-paths';
 import { getTelemetry } from '../telemetry';
-import { checkForUpdateInBackground } from '../upgrade/update-check';
+import { CodeGraphPackageVersion } from './version';
 import { EARLY_PPID } from './early-ppid';
 import { supervisionLostReason, parsePpidPollMs, parseHostPpid } from './ppid-watchdog';
 import { installMainThreadWatchdog, WatchdogHandle } from './liveness-watchdog';
@@ -224,18 +224,34 @@ export class MCPServer {
    * mode — a misbehaving daemon must never block a session from starting.
    */
   async start(): Promise<void> {
+    // ADR 0049 Decision 3(c): a package.json read failure resolves to the
+    // "0.0.0-unknown" sentinel (see version.ts) — historically a silent
+    // fallback that always mismatches the daemon hello handshake. Under the
+    // Lattice product-identity contract that's a build defect, not a
+    // degraded-but-working state: fail loudly at MCP server startup instead
+    // of shipping a server that can never rendezvous with its own daemon.
+    if (CodeGraphPackageVersion === '0.0.0-unknown') {
+      process.stderr.write(
+        '[Lattice sensor] Fatal: could not read package.json to resolve the running ' +
+        'version (got the "0.0.0-unknown" sentinel). This indicates a broken or ' +
+        'incomplete install — refusing to start rather than silently mismatching every ' +
+        'daemon handshake.\n'
+      );
+      process.exit(1);
+    }
+
     // Long-lived process (direct / proxy / daemon alike): flush buffered
     // telemetry opportunistically. Fire-and-forget + unref'd — adds nothing
-    // to the handshake path and never keeps the process alive.
+    // to the handshake path and never keeps the process alive. (Telemetry is
+    // permanently disabled for Lattice — see src/telemetry/index.ts — so this
+    // is a no-op left in place for structural parity with upstream.)
     getTelemetry().startInterval();
 
-    // #1243: the MCP config launches the local binary, so a server left
-    // running drifts behind releases with no signal. Refresh the shared
-    // update-check cache in the background and log ONE stderr notice when a
-    // newer version exists (stderr only — stdout is the protocol channel).
-    // The notice also reaches the agent via the initialize instructions and
-    // codegraph_status. Fire-and-forget: adds nothing to the handshake path.
-    checkForUpdateInBackground();
+    // ADR 0049 Decision 4: upstream's background update-check against GitHub
+    // (`checkForUpdateInBackground`) is removed from the MCP startup path —
+    // the MCP surface must not perform any outbound network call, and an
+    // upstream self-upgrade would silently overwrite Lattice's own fork
+    // improvements. Lattice's own release channel owns updates.
 
     // The detached daemon process itself. Checked before the opt-out so the
     // daemon honors the same env it was spawned with (it never sets NO_DAEMON).

@@ -76,7 +76,7 @@ describe('getDaemonSocketCandidates (#997)', () => {
     expect(candidates).toHaveLength(2);
     expect(candidates[0]).toBe(path.join(root, '.codegraph', 'daemon.sock'));
     expect(candidates[1]!.startsWith(os.tmpdir())).toBe(true);
-    expect(path.basename(candidates[1]!)).toMatch(/^codegraph-[0-9a-f]{16}\.sock$/);
+    expect(path.basename(candidates[1]!)).toMatch(/^lattice-sensor-[0-9a-f]{16}\.sock$/);
   });
 
   it.runIf(POSIX)('drops straight to [tmpdir] when the in-project path is too long', () => {
@@ -100,7 +100,7 @@ describe('getDaemonSocketCandidates (#997)', () => {
   it.runIf(!POSIX)('returns a single named pipe on Windows', () => {
     const candidates = getDaemonSocketCandidates('C:/dev/proj');
     expect(candidates).toHaveLength(1);
-    expect(candidates[0]!.startsWith('\\\\.\\pipe\\codegraph-')).toBe(true);
+    expect(candidates[0]!.startsWith('\\\\.\\pipe\\lattice-sensor-')).toBe(true);
   });
 
   it('getDaemonSocketPath returns the preferred candidate (index 0)', () => {

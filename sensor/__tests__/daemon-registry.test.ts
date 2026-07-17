@@ -37,8 +37,13 @@ describe('daemon-registry', () => {
     process.env.HOME = tmpHome; // os.homedir() honors HOME (POSIX) ...
     process.env.USERPROFILE = tmpHome; // ... and USERPROFILE (Windows)
     // Sanity: the registry must resolve under our temp home, or the test would
-    // pollute the real ~/.codegraph.
+    // pollute the real ~/.lattice.
     expect(getRegistryDir().startsWith(tmpHome)).toBe(true);
+    // ADR 0049 Decision 3(b): the registry is Lattice-specific
+    // (`~/.lattice/sensor/daemons`), NOT the shared upstream
+    // `~/.codegraph/daemons` — pin the exact suffix so a regression back to
+    // the shared path (re-enabling cross-product `stop --all`) fails loudly.
+    expect(getRegistryDir()).toBe(path.join(tmpHome, '.lattice', 'sensor', 'daemons'));
   });
 
   afterEach(() => {

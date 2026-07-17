@@ -29,7 +29,6 @@ import { watchDisabledReason } from '../sync/watch-policy';
 import { isGitRepo, isSyncHookInstalled, installGitSyncHook } from '../sync/git-hooks';
 import { getCodeGraphDir, codeGraphDirName } from '../directory';
 import { getTelemetry, TELEMETRY_DOCS } from '../telemetry';
-import { maybeOfferBetaSignup } from './beta-signup';
 
 // Backwards-compat: keep these named exports — downstream code may
 // import them. The shim in `config-writer.ts` continues to re-export
@@ -267,16 +266,9 @@ export async function runInstallerWithOptions(opts: RunInstallerOptions): Promis
     });
   }
 
-  // Step 5½: CodeGraph Pro beta opt-in — the same waitlist as the
-  // getcodegraph.com homepage form, offered once per machine at the end of a
-  // successful install (and after `codegraph upgrade` — the shared gate in
-  // maybeOfferBetaSignup means whichever asks first is the ONLY ask ever).
-  // Strictly opt-in (user answers yes AND types an email), never shown under
-  // --yes, and any yes/no answer is stored so nothing re-asks. Cancel or a
-  // failed submit stores nothing, so a later install/upgrade may offer again.
-  if (!useDefaults && installedIds.length > 0) {
-    await maybeOfferBetaSignup({ source: 'cli-install' });
-  }
+  // ADR 0049 Decision 4: upstream's "CodeGraph Pro beta" waitlist prompt
+  // (interactive POST to getcodegraph.com) is removed — Lattice must not
+  // solicit signups for, or send data to, the upstream project's endpoints.
 
   // Step 6: install wires up agents only — it deliberately does NOT index.
   // Building the per-project graph is the user's explicit `codegraph init`

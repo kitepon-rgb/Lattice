@@ -2409,43 +2409,27 @@ program
 /**
  * codegraph upgrade [version]
  *
- * Self-update, however CodeGraph was installed (bundle via install.sh/.ps1,
- * npm-global, npx, or a source checkout). See ../upgrade for the detection and
- * per-method upgrade logic.
+ * ADR 0049 Decision 4: upstream's self-update path (bundle install.sh/.ps1
+ * download, npm reinstall, GitHub release resolution) is disabled for
+ * Lattice — running it would silently overwrite this fork's ADR 0047/0048
+ * improvements with an upstream CodeGraph build and reach
+ * raw.githubusercontent.com / api.github.com / GitHub release assets, which
+ * the MCP surface contract forbids. The command stays registered (so it
+ * doesn't look unrecognized) but refuses to run and points at Lattice's own
+ * release channel instead of dispatching to ../upgrade.
  */
 program
   .command('upgrade [version]')
-  .description('Update CodeGraph to the latest release (or a specific version)')
+  .description('Disabled on Lattice — see the Lattice release channel instead of upstream CodeGraph')
   .option('--check', 'Check whether an update is available without installing')
   .option('-f, --force', 'Reinstall even if already on the target version')
-  .action(async (versionArg: string | undefined, options: { check?: boolean; force?: boolean }) => {
-    const up = await import('../upgrade');
-    const method = up.detectInstallMethod({
-      filename: __filename,
-      platform: process.platform,
-      cwd: process.cwd(),
-    });
-    const pin = versionArg || process.env.CODEGRAPH_VERSION || undefined;
-    const code = await up.runUpgrade(
-      { version: pin, check: options.check, force: options.force },
-      {
-        currentVersion: packageJson.version,
-        method,
-        resolveLatest: () => up.resolveLatestVersion(),
-        run: up.defaultRun,
-        capture: up.defaultCapture,
-        hasCommand: up.hasCommand,
-        log: (m: string) => console.log(m),
-        warn: (m: string) => warn(m),
-        error: (m: string) => error(m),
-        platform: process.platform,
-        offerBetaSignup: async () => {
-          const { maybeOfferBetaSignup } = await import('../installer/beta-signup');
-          await maybeOfferBetaSignup({ source: 'cli-upgrade' });
-        },
-      }
+  .action(async () => {
+    error(
+      'Disabled: `codegraph upgrade` self-updates from the upstream CodeGraph project ' +
+      '(GitHub releases / npm), which would overwrite Lattice sensor\'s own fork changes. ' +
+      'Update Lattice through its own release channel instead.'
     );
-    process.exit(code);
+    process.exit(1);
   });
 
 /**

@@ -20,7 +20,6 @@ import { SERVER_INSTRUCTIONS, SERVER_INSTRUCTIONS_NO_ROOT_INDEX } from './server
 import { CodeGraphPackageVersion } from './version';
 import { findNearestCodeGraphRoot } from '../directory';
 import { getTelemetry, ClientInfo } from '../telemetry';
-import { getUpdateNotice } from '../upgrade/update-check';
 
 /**
  * MCP Server Info — kept on the session because some clients log it. The
@@ -34,19 +33,18 @@ export const SERVER_INFO = {
 };
 
 /**
- * Instructions for the `initialize` response, with the update-availability
- * notice appended when one is known (#1243). Exported so the proxy's local
- * handshake sends the IDENTICAL payload — same convention as SERVER_INFO.
- * `getUpdateNotice` is a memoized synchronous cache read, so the #172
- * respond-fast contract holds; when no notice exists the instructions are
- * byte-identical to the bare constants.
+ * Instructions for the `initialize` response, with an optional notice
+ * appended (`notice` non-null). Exported so the proxy's local handshake
+ * sends the IDENTICAL payload — same convention as SERVER_INFO.
  *
- * Test-authoring note: on a machine whose real `~/.codegraph` cache knows a
- * newer release, spawned servers append the notice — a test asserting exact
- * instructions equality must set `CODEGRAPH_NO_UPDATE_CHECK=1` in the spawn
- * env or it will fail only in the weeks after a release ships.
+ * ADR 0049 Decision 4: the upstream update-availability notice (#1243,
+ * `getUpdateNotice()`) is no longer wired to the default parameter here — the
+ * MCP surface must not mix an upstream-GitHub-sourced update notice into
+ * agent-visible instructions. `notice` defaults to `null`, so callers that
+ * pass only `base` get byte-identical instructions; the parameter itself
+ * stays for tests and any future Lattice-owned notice.
  */
-export function initializeInstructions(base: string, notice: string | null = getUpdateNotice()): string {
+export function initializeInstructions(base: string, notice: string | null = null): string {
   if (!notice) return base;
   return (
     `${base}\n\n---\n${notice} This server keeps running the old version until ` +

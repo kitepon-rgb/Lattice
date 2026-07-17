@@ -5,8 +5,9 @@
  * Every per-project daemon already writes an authoritative lockfile at
  * `<root>/.codegraph/daemon.pid`. That's enough to stop ONE daemon you can name,
  * but there's no central place to find them ALL — which `list` and `stop --all`
- * need. So each daemon also drops a tiny record under `~/.codegraph/daemons/` on
- * start and removes it on graceful shutdown.
+ * need. So each daemon also drops a tiny record under `~/.lattice/sensor/daemons/`
+ * (ADR 0049 Decision 3(b) — Lattice-specific, not the shared upstream
+ * `~/.codegraph/daemons/`) on start and removes it on graceful shutdown.
  *
  * The registry is a DISCOVERY index, never a source of truth: the live pid is.
  * A SIGKILL'd daemon can't remove its own record, so readers prune any record
@@ -35,11 +36,18 @@ export interface DaemonRecord {
 }
 
 /**
- * `~/.codegraph/daemons` — GLOBAL, keyed off the home install dir. (The
+ * `~/.lattice/sensor/daemons` — GLOBAL, keyed off the home dir. (The
  * `CODEGRAPH_DIR` env var only renames the per-project index dir, not this.)
+ *
+ * ADR 0049 Decision 3(b): this used to live under the shared upstream
+ * `~/.codegraph/daemons`, which let a third-party CodeGraph install's
+ * `stop --all` discover and kill Lattice's daemons (and vice versa) purely
+ * because they wrote records into the same machine-global directory. Moving
+ * it under a Lattice-specific path removes that shared discovery surface —
+ * each product's registry now only ever lists its own daemons.
  */
 export function getRegistryDir(): string {
-  return path.join(os.homedir(), '.codegraph', 'daemons');
+  return path.join(os.homedir(), '.lattice', 'sensor', 'daemons');
 }
 
 function recordPath(root: string): string {
