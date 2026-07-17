@@ -1,0 +1,11 @@
+# NOTICE — sensor/ の出自
+
+このディレクトリは CodeGraph (https://github.com/colbymchenry/codegraph) を
+Lattice の構造 sensor として吸収したものである（Lattice ADR 0047 / 0048）。
+
+- upstream: @colbymchenry/codegraph（MIT License — 同梱の LICENSE を保持）
+- 吸収時点: upstream commit 04ab45c91fff97263d2d305ecb2908bce80bd159 (2026-07-17)
+- 取り込み方法: `git archive`（pristine tree。改変は吸収後の履歴が持つ）
+- 取り込み時の唯一の改変: upstream `CLAUDE.md` → `docs/UPSTREAM-CLAUDE.md` へ移動
+  （Lattice 内での AI セッションへ upstream 正典が自動注入されるのを防ぐ。内容は不変）
+- upstream 追従方針（cherry-pick 基準）は吸収実装時に明文化する（ADR 0048 Decision 4）
