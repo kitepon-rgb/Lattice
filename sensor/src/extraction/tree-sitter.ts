@@ -38,6 +38,12 @@ import {
   DYNAMIC_IMPORT_UNRESOLVED_MARKER,
 } from './dynamic-import';
 import {
+  collectChildProcessBindings,
+  resolveChildProcessCallee,
+  resolveInvokesTargets,
+  type ChildProcessBindings,
+} from './spawn-invokes';
+import {
   getAllFrameworkResolvers,
   getApplicableFrameworks,
 } from '../resolution/frameworks';
@@ -3634,6 +3640,10 @@ export class TreeSitterExtractor {
   private erlangSelfMacros = new Set<string>();
   private erlangAtomMacros = new Map<string, string>();
 
+  /** Per-file memoized `child_process` spawn-family binding table (ADR 0048, sensor fix c/1). See `collectChildProcessBindings`. */
+  private childProcessBindingsFile = '';
+  private childProcessBindings: ChildProcessBindings = { localFns: new Map(), namespaces: new Set() };
+
   private resolveErlangGenServerTarget(target: SyntaxNode): string | null {
     const ownModule = (this.filePath.split('/').pop() ?? '').replace(/\.erl$/, '');
     if (target.type === 'atom') {
@@ -3724,6 +3734,42 @@ export class TreeSitterExtractor {
       // no-op, but claiming it explicitly keeps that guaranteed rather than
       // incidental).
       return;
+    }
+
+    // JS/TS `child_process` process-spawn invocation (ADR 0048, Lattice
+    // sensor correctness fix c/1). `spawnSync(process.execPath, [BIN, ...])`
+    // starts a brand-new OS process — no `calls` edge can ever represent
+    // reaching `BIN`, so it was invisible to `affected`/blast-radius (the
+    // oracle shape: `tests/orchestrate/helpers.mjs` spawning
+    // `bin/orchestrate-run.mjs`). Emitted as a NEW edge kind (`invokes`,
+    // `resolved_by='spawn-path'`) rather than folded into `calls` semantics.
+    // Unlike the dynamic-import branch above, this does NOT claim/early-
+    // return: the generic call-reference logic below still runs and emits
+    // its normal (usually name-unresolved) `calls` ref to the local callee
+    // name (`spawnSync`, `fork`, ...), exactly as it did before this fix —
+    // `invokes` is an ADDITIONAL edge, not a replacement.
+    if (
+      (this.language === 'javascript' || this.language === 'typescript' ||
+        this.language === 'jsx' || this.language === 'tsx') &&
+      node.type === 'call_expression'
+    ) {
+      if (this.childProcessBindingsFile !== this.filePath) {
+        this.childProcessBindingsFile = this.filePath;
+        this.childProcessBindings = collectChildProcessBindings(node, this.source);
+      }
+      const canonicalFn = resolveChildProcessCallee(node, this.source, this.childProcessBindings);
+      if (canonicalFn) {
+        const targets = resolveInvokesTargets(canonicalFn, node, this.source, this.filePath);
+        for (const target of targets) {
+          this.unresolvedReferences.push({
+            fromNodeId: callerId,
+            referenceName: target.referenceName,
+            referenceKind: 'invokes',
+            line: node.startPosition.row + 1,
+            column: node.startPosition.column,
+          });
+        }
+      }
     }
 
     // VB.NET: `foo(args)` is syntactically ambiguous between a call and an

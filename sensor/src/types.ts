@@ -66,6 +66,7 @@ export const EDGE_KINDS = [
   'instantiates',    // Creates instance of class
   'overrides',       // Method overrides parent method
   'decorates',       // Decorator applied to symbol
+  'invokes',         // JS/TS child_process spawn/fork launches another file as a new OS process (ADR 0048, sensor fix c/1)
 ] as const;
 
 export type EdgeKind = (typeof EDGE_KINDS)[number];

@@ -104,6 +104,19 @@ export function foldDynamicImportArg(
   return foldExpr(args[0]!, source, filePath, 0, new Set());
 }
 
+/**
+ * Public entry point into the same constant-folding logic `foldDynamicImportArg`
+ * uses, for a single already-selected argument node (no argument-count gating).
+ * Reused by spawn-invokes.ts (Lattice sensor correctness fix c/1, ADR 0048) to
+ * fold `child_process` spawn/fork target arguments — a `fork(mod, args, opts)`
+ * call legitimately takes more than one argument, unlike `import()`/`require()`,
+ * so the caller must select the argument node itself rather than going through
+ * `foldDynamicImportArg`'s exactly-one-argument gate.
+ */
+export function foldConstantExpr(node: SyntaxNode, source: string, filePath: string): string | null {
+  return foldExpr(node, source, filePath, 0, new Set());
+}
+
 function foldExpr(
   node: SyntaxNode,
   source: string,

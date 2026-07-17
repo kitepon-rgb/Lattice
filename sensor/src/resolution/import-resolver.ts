@@ -1587,6 +1587,38 @@ export function resolveViaImport(
     }
   }
 
+  // `invokes` edges (ADR 0048, Lattice sensor correctness fix c/1). The
+  // extractor (spawn-invokes.ts's `resolveInvokesTargets`) already folded
+  // the child_process spawn/fork target argument to a full project-relative,
+  // EXTENSION-INCLUDED path — unlike a JS import specifier there is no
+  // module-resolution algorithm to run here (no extension inference, no
+  // index.js lookup, no package.json/node_modules search): spawn's argument
+  // domain is mostly external binaries, so guessing at resolution would risk
+  // a wrong edge. Exact `filePath` match only. Anything that doesn't land on
+  // a real project file — an external command like `git`, or the
+  // `<spawn:unresolved>` fork sentinel — naturally fails to match and stays
+  // unresolved: no edge, which is the CORRECT behavior for a spawned
+  // external command (spec case iii), not a bug to special-case around.
+  if (
+    ref.referenceKind === 'invokes' &&
+    (ref.language === 'javascript' || ref.language === 'typescript' ||
+      ref.language === 'jsx' || ref.language === 'tsx')
+  ) {
+    const basename = ref.referenceName.split('/').pop() ?? '';
+    const fileNode = context
+      .getNodesByName(basename)
+      .find((n) => n.kind === 'file' && n.filePath === ref.referenceName);
+    if (fileNode) {
+      return {
+        original: ref,
+        targetNodeId: fileNode.id,
+        confidence: 0.95,
+        resolvedBy: 'spawn-path',
+      };
+    }
+    return null;
+  }
+
   return null;
 }
 

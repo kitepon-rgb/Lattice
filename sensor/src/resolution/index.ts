@@ -853,6 +853,17 @@ export class ReferenceResolver {
       return this.gateLanguage(matchFunctionRef(ref, this.context), ref);
     }
 
+    // `invokes` (ADR 0048, sensor fix c/1) resolves ONLY through
+    // resolveViaImport's exact-file-path branch — never the framework or
+    // name-matching strategies. The reference name is a folded child_process
+    // argv string ('git', 'node', a project-relative path): an external
+    // command whose name coincides with some project symbol must NOT
+    // name-match into an edge (fix (a)'s no-name-match-fallback principle;
+    // same rule as #660's PHP include paths below).
+    if (ref.referenceKind === 'invokes') {
+      return this.gateLanguage(resolveViaImport(ref, this.context), ref);
+    }
+
     // JVM FQN imports skip framework/name-matcher: `import com.example.Bar`
     // resolves directly through the qualifiedName index, which is unambiguous
     // even when several `Bar` classes exist in different packages.
