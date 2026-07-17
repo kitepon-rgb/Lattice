@@ -1,10 +1,14 @@
 # Lattice RC4 — dotagents実戦dogfood（staged real-repo campaign）
 
-- Status: Draft（docs-only。execution開始時にElastic Controlを初期化する）
+- Status: Active（execution開始。Control初期化はStage 1開始時）
 - Date: 2026-07-17
 - 前提Decision: [ADR 0044](adr/0044-rc3-runtime-contract.md)・[ADR 0045](adr/0045-rc3-phase-gate-support.md)
-- 予定Decision: ADR 0046（RC4開始時に本planの契約を不変化し、ADR 0044 Decision 9.5の
-  writer target制限をstage条件付きで上書きする）
+- 予定Decision: ADR 0046（**Stage 1開始時**に本planの契約を不変化し、ADR 0044 Decision 9.5の
+  writer target制限をstage条件付きで上書きする。Stage 0は9.5非抵触のため先行してよい）
+- **親裁定（2026-07-17オーナー裁定）**: Latticeはdotagents統括の直轄コア製品となった。本planの親正本は
+  dotagents `docs/plan_lattice-factory-integration.md`（Phase L1〜L5が本planのStage 0〜2に対応）。
+  「Lattice側統括→dotagents側統括への依頼・返答」構造は解体済み——両者は同一統括であり、
+  本planは実行計画、親planが裁定と編入契約を持つ。
 
 ## 目的
 
@@ -32,11 +36,14 @@ sensorへ統合・退役される（編入・配線・退役の実行はdotagent
 ## 非目標
 
 - Latticeの研究思想・スキーマをdotagentsの工場規則（憲法・orchestrate正典）へ直接書き戻すこと
-  （AGENTS.md所有境界。編入は正式な導入planでdotagents側が行う）。
-- 自動dispatch常駐サービス化、push／remote作成、CI hook常設（すべて編入後のdotagents所有）。
+  （直轄化後も維持。編入は親planを起点にし、正典への還流は編入受入後に別途裁定する）。
+- 自動dispatch常駐サービス化、CI hook常設（編入後の親plan所有）。**MCP面の新設は非目標ではない**
+  （親plan Phase L3。MCP serverはsession寿命のstdio serverであり、自動dispatch常駐basicとは別物）。
 - multi-provider actual executorの網羅（RC3の非目標を継承。必要になれば別campaign）。
-- Codegraph本体の改変・fork（従来どおり正規CLI/SDKのみ。公開面不足の再現時はADR 0044系の
-  裁定どおり別repoの所有fork）。
+- ~~Codegraph本体の改変・fork~~ — **2026-07-17のオーナー裁定で撤回**。Codegraphは完全吸収・置換の対象で、
+  公開面・情報量の不足が実測で再現した場合はfork＋改良する（MIT・notice維持）。ただし
+  **fork判断はStage 0の実測を根拠にする**——それまでは第三者製品として正規CLI/SDKのみ使う（予断で改造しない）。
+  裁定と改良は親plan Phase L2が所有する。
 
 ## 所有境界とDecision 9.5の扱い
 
@@ -52,15 +59,24 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
 ## Stage 0 — read-only実測（witnessコストと判定品質）
 
 - [ ] dotagentsの実TODO候補からbatch（TODO 6〜10件、`control-record.mjs`系・adapter系・docs系を
-      混在）をオーナーと選定し、batch定義をevidenceへ記録する。
+      混在）をオーナーと選定し、batch定義をevidenceへ記録する。**凍結不要の運用合意（オーナー裁定
+      2026-07-17）**: Stage 0はread-only判定のみでdotagents側の消化を止めない。activeレーンのTODOから
+      出してよく、判定のstale化はそれ自体を実測記録とする（stale化の頻度も実戦データである）。
+- [ ] batch定義evidenceへ**dotagents私有caveatの該当エントリを添付する**:
+      `orchestrate-run-worker-run-record-approach-family-ref-null`（`lineage.approach_family_ref: null`が
+      BUDGET_UNKNOWNで拒否される・reproduced）、`orchestrate-run-cli-internal-error-lib`
+      （INTERNAL_ERRORは未適用と限らずlib直呼びで実因確認・tentative）。既知の罠を再走しない。
 - [ ] 各TODOのboundary witnessを親が実際に作成し、**作成時間・参照した証拠・書けなかった項目**を
       1件ずつ実測記録する（丸め・事後推定の禁止）。
-- [ ] dotagents cloneへ`codegraph init`し、`lattice plan compile`で全batchをcompileする
+- [ ] **Lattice側clone/copy上にだけ**`codegraph init`し、`lattice plan compile`で全batchをcompileする
       （non-dispatchableはcode込みで記録。unknownの内訳＝Codegraph盲点／witness不足を分類する）。
+      **dotagents正規repoにindexを作らない**——`.codegraph/`は存在せずgitignore対象外のため、
+      live repoでの`init`は「正規repoへの書込ゼロ」契約違反かつdirtyを生む（実測確認済み）。
 - [ ] 判定品質の照合: conflict／wave／unknown判定を親が1件ずつ「妥当／過剰serial／見逃し」で
       裁定し、**見逃し0件**を確認する（見逃しは即refute条件）。
 - [ ] shell hooks・markdown憲法・巨大単一fileなど**call graph非可視の結合**がwitnessで表現
-      できたかを個別に記録する（RC4の主要リスク領域）。
+      できたかを個別に記録し、**Codegraph盲点の発生頻度を定量化する**（RC4の主要リスク領域であり、
+      同時に親plan L2のfork判断の一次データ。「不足している」を勘でなく数字で示す）。
 - [ ] Stage 1 gateを裁定する: witnessコスト閾値・unknown率・判定一致率の実測値に基づき、
       Stage 1のtarget（dotagents cloneで進むか、先に中リスクrepoで肩慣らしするか）を決定し、
       根拠付きでevidenceへ記録する。
@@ -68,6 +84,13 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
 ## Stage 1 — disposable cloneでの閉ループ（実タスク・不着地）
 
 - [ ] ADR 0046をcommitしてからControl初期化（H task承認snapshot含む。RC3-Iの作法を継承）。
+- [ ] **executor隔離の必須条件を満たす**（ADR 0046のpacket契約へ焼き込む。親plan L4）:
+      隔離HOMEでexecutorを実行し、packetで`install.sh`・`spotter install`・`apply-codex-config`・
+      `mcp add`系の実行を禁止する。**根拠**: cloneはdotagentsの生きたオンボーディング正典
+      （CLAUDE.md→@AGENTS.md）を搬送し、Claude executorが自動読込する。その正典は「新規エントリ追加後は
+      `install.sh`再実行が必要」等のhost変更手順を実行可能な形で含む。`install.sh`はHERE解決＋`ln -sfn`のため、
+      clone内で実行されるとhostの`~/.claude`系symlinkがtmpdirを向き、clone廃棄後にdangling化する。
+      RC3のDecision 9.2「executorはisolated worktreeだけへ書く」はこのvectorを検出しない。
 - [ ] dotagents disposable cloneをdogfood targetに、実小粒タスク（docs更新・test追加・
       adapter表更新など非破壊系）でrun request＋witnessを作成する。
 - [ ] actual executor 2+へ隔離dispatchし、閉ループ（観測→競合→hold→carry-over→vN+1→
@@ -92,8 +115,9 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
 
 ## 編入判定とCodegraph単独配線の退役（方向性の固定）
 
-RC4がsupportで閉じた場合の後続は次の方向で進める（**実行はすべてdotagents所有の導入planで行い、
-本planはLattice側の提供物と条件だけを定義する**）：
+RC4がsupportで閉じた場合の後続は次の方向で進める（**実行はすべてdotagents所有の導入plan＝
+`dotagents/docs/plan_lattice-factory-integration.md`（Phase L6編入wave・L7 wire v4退役。
+Codegraph fork改良はL2、MCP面新設はL3）で行い、本planはLattice側の提供物と条件だけを定義する**）：
 
 - [ ] Lattice側は編入パッケージ要件を文書化する: CLI 6面の安定契約（ADR 0044 Decision 8）、
       schema一覧（ADR 0044 Decision 2＋ADR 0045 Decision 4）、run store／artifact規約、
