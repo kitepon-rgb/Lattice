@@ -26,7 +26,7 @@ import { EARLY_PPID } from './early-ppid';
 import { supervisionLostReason } from './ppid-watchdog';
 import { armStartupHandshakeTimeout } from './startup-handshake';
 import { treatStdinFailureAsShutdown } from './stdin-teardown';
-import { CodeGraphPackageVersion } from './version';
+import { CodeGraphPackageVersion, isLatticeVersion } from './version';
 import { SERVER_INFO, PROTOCOL_VERSION, initializeInstructions } from './session';
 import { SERVER_INSTRUCTIONS } from './server-instructions';
 import { getStaticTools } from './tools';
@@ -105,6 +105,21 @@ export async function runProxy(
   }
 
   if (hello.codegraph !== expectedVersion) {
+    // ADR 0049 Decision 5(3): bisect the mismatch. No `-lattice.` marker means
+    // this socket is occupied by a DIFFERENT product's daemon (third-party
+    // CodeGraph) — attaching to it (or silently falling back past it) would
+    // let a tool call execute inside a foreign process. Fail closed instead.
+    if (!isLatticeVersion(hello.codegraph)) {
+      process.stderr.write(
+        `[Lattice sensor] Fatal: found a non-Lattice daemon on ${socketPath} ` +
+        `(hello version "${hello.codegraph}" lacks the "-lattice." marker) — this looks ` +
+        'like a third-party CodeGraph daemon bound at the same socket path. Refusing to ' +
+        'attach or silently fall back to direct mode; stop the foreign daemon (or clear ' +
+        'the stale socket) before retrying.\n'
+      );
+      socket.destroy();
+      return { outcome: 'fallback-needed', reason: 'foreign-product' };
+    }
     process.stderr.write(
       `[CodeGraph MCP] Found a daemon on ${socketPath} but version (${hello.codegraph}) ` +
       `differs from ours (${expectedVersion}); falling back to direct mode.\n`
@@ -133,7 +148,7 @@ export async function runProxy(
 export async function connectWithHello(
   socketPath: string,
   expectedVersion: string = CodeGraphPackageVersion,
-): Promise<net.Socket | 'version-mismatch' | null> {
+): Promise<net.Socket | 'version-mismatch' | 'foreign-product' | null> {
   if (process.platform !== 'win32' && !fs.existsSync(socketPath)) return null;
   const socket = net.createConnection(socketPath);
   socket.setEncoding('utf8');
@@ -153,8 +168,25 @@ export async function connectWithHello(
     return null; // no daemon yet — caller should keep polling
   }
   if (hello.codegraph !== expectedVersion) {
-    // A daemon IS up but it's the wrong version — definitive, not a "not yet".
-    // Don't poll; the caller serves in-process so we never run stale-vs-new.
+    // ADR 0049 Decision 5(3): bisect the mismatch by product identity, not just
+    // version. No `-lattice.` marker → a THIRD-PARTY CodeGraph daemon owns this
+    // socket — definitive, and NOT safe to silently degrade past: the caller
+    // must fail closed rather than risk a cross-product attach or a tool call
+    // racing a foreign daemon.
+    if (!isLatticeVersion(hello.codegraph)) {
+      process.stderr.write(
+        `[Lattice sensor] Fatal: found a non-Lattice daemon on ${socketPath} ` +
+        `(hello version "${hello.codegraph}" lacks the "-lattice." marker) — this looks ` +
+        'like a third-party CodeGraph daemon bound at the same socket path. Refusing to ' +
+        'attach or silently fall back to direct mode; stop the foreign daemon (or clear ' +
+        'the stale socket) before retrying.\n'
+      );
+      socket.destroy();
+      return 'foreign-product';
+    }
+    // A daemon IS up but it's the wrong (same-product) version — definitive,
+    // not a "not yet". Don't poll; the caller serves in-process (direct,
+    // reason: version-skew) so we never run stale-vs-new against the same DB.
     process.stderr.write(
       `[CodeGraph MCP] Found a daemon on ${socketPath} but version (${hello.codegraph}) ` +
       `differs from ours (${expectedVersion}); serving this session in-process.\n`
@@ -187,12 +219,26 @@ function sendClientHello(socket: net.Socket): void {
 
 type JsonRpc = Record<string, unknown>;
 
+/**
+ * Result of the background daemon-connect attempt, as reported to the
+ * local-handshake proxy (ADR 0049 Decision 5④). Either a live daemon socket,
+ * or a typed fallback reason the proxy records in the direct-mode engine's
+ * `mode`/`reason` — or (Decision 5③) the definitive "this socket belongs to a
+ * different product" signal that must fail the session closed rather than
+ * silently degrade.
+ */
+export type DaemonSocketOutcome =
+  | net.Socket
+  | 'foreign-product'
+  | { fallbackReason: 'no-daemon' | 'version-skew' };
+
 /** Dependencies the local-handshake proxy needs, injected by MCPServer (which
  *  owns the daemon-spawn machinery and the engine factory). */
 export interface LocalHandshakeDeps {
   /** Probe → spawn → retry → hello-verify; resolves a connected daemon socket,
-   *  or null when the daemon path is genuinely unavailable (→ in-process fallback). */
-  getDaemonSocket(): Promise<net.Socket | null>;
+   *  a typed fallback reason for in-process direct mode, or 'foreign-product'
+   *  when a non-Lattice daemon occupies the socket (session must fail closed). */
+  getDaemonSocket(): Promise<DaemonSocketOutcome>;
   /** Lazily create an in-process engine — used ONLY if the daemon never comes up,
    *  preserving the "a broken daemon never wedges a session" guarantee. */
   makeEngine(): MCPEngine;
@@ -225,6 +271,12 @@ export async function runLocalHandshakeProxy(deps: LocalHandshakeDeps): Promise<
   let engine: MCPEngine | null = null;
   let engineReady: Promise<void> | null = null;
   let shuttingDown = false;
+  // ADR 0049 Decision 5④: the reason direct mode is being served, recorded
+  // into the engine's execution mode the moment it's created so `codegraph_status`
+  // can report it machine-readably. Reassigned to 'connection-lost' if a
+  // previously-ready daemon dies mid-session (#662) before direct mode is
+  // reached for the first time.
+  let directModeReason: 'no-daemon' | 'version-skew' | 'connection-lost' = 'no-daemon';
   // Requests forwarded to the daemon and not yet answered, keyed by JSON-RPC id.
   // If the daemon dies mid-session (#662 — e.g. an MCP host SIGTERM's it when a
   // new session starts), these would otherwise hang forever; we re-serve them
@@ -249,8 +301,21 @@ export async function runLocalHandshakeProxy(deps: LocalHandshakeDeps): Promise<
     process.exit(0);
   };
   const ensureEngine = (): Promise<void> => {
-    if (!engine) engine = deps.makeEngine();
-    if (!engineReady) engineReady = engine.ensureInitialized(deps.root).catch(() => { /* degraded */ });
+    if (!engine) {
+      engine = deps.makeEngine();
+      // ADR 0049 Decision 5④: record the typed direct-mode reason at the
+      // moment we commit to serving in-process, so codegraph_status reports
+      // it even if the reason later changes (e.g. a subsequent connection-lost
+      // never retroactively edits an already-open engine's declared reason).
+      engine.setExecutionMode('direct', directModeReason);
+    }
+    // ADR 0049 Decision 5②: `ensureInitialized` no longer swallows an open
+    // failure silently — its own try/catch (engine.ts `doInitialize`) records
+    // the failure via `ToolHandler.setOpenFailure` so the NEXT tool call
+    // fails closed via `getCodeGraph()`, instead of this promise's rejection
+    // (which never actually fires — `doInitialize` never rethrows) being the
+    // only signal. This `.catch` is defensive belt-and-braces only.
+    if (!engineReady) engineReady = engine.ensureInitialized(deps.root).catch(() => { /* recorded via setOpenFailure; see above */ });
     return engineReady;
   };
   // Daemon-unavailable fallback: serve a client message in-process.
@@ -346,8 +411,35 @@ export async function runLocalHandshakeProxy(deps: LocalHandshakeDeps): Promise<
   });
 
   // ---- daemon connection (background) ----
-  let socket: net.Socket | null = null;
-  try { socket = await deps.getDaemonSocket(); } catch { socket = null; }
+  let socketOutcome: DaemonSocketOutcome | null = null;
+  try { socketOutcome = await deps.getDaemonSocket(); } catch { socketOutcome = { fallbackReason: 'no-daemon' }; }
+
+  if (socketOutcome === 'foreign-product') {
+    // ADR 0049 Decision 5③: this project's daemon socket is occupied by a
+    // DIFFERENT product (no `-lattice.` marker in its hello) — the definitive
+    // half of the hello bisection. `connectWithHello`/`getDaemonSocket` already
+    // wrote the diagnostic to stderr; here we refuse to continue the session
+    // rather than silently degrade to direct mode (which would mask the
+    // collision and risk a later attach into the foreign daemon). Any client
+    // messages buffered so far (at most `initialize`, already answered from
+    // static local-handshake constants — no tool call can have completed yet)
+    // are dropped with the process rather than served.
+    process.stderr.write(
+      '[Lattice sensor] Fatal: refusing to continue this MCP session — see the daemon hello ' +
+      'mismatch diagnostic above. Stop the foreign daemon (or clear the stale socket under ' +
+      "this project's .codegraph/) and retry.\n"
+    );
+    process.exitCode = 1;
+    process.exit(1);
+    return;
+  }
+
+  const socket = socketOutcome instanceof net.Socket ? socketOutcome : null;
+  if (!socket) {
+    directModeReason = socketOutcome && typeof socketOutcome === 'object' && 'fallbackReason' in socketOutcome
+      ? socketOutcome.fallbackReason
+      : 'no-daemon';
+  }
 
   // `!socket.destroyed`: the connect-window error guard above can absorb an
   // 'error' that already destroyed the socket before we got here (#974) — treat
@@ -384,6 +476,7 @@ export async function runLocalHandshakeProxy(deps: LocalHandshakeDeps): Promise<
     const onDaemonLost = (): void => {
       if (shuttingDown || daemonStatus !== 'ready') return; // host teardown, or already handled
       daemonStatus = 'failed';
+      directModeReason = 'connection-lost';
       try { daemonSocket?.destroy(); } catch { /* ignore */ }
       daemonSocket = null;
       process.stderr.write(

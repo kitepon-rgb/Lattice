@@ -47,7 +47,7 @@ import {
   isProcessAlive,
   tryAcquireDaemonLock,
 } from './daemon';
-import { connectWithHello, runLocalHandshakeProxy } from './proxy';
+import { connectWithHello, runLocalHandshakeProxy, DaemonSocketOutcome } from './proxy';
 import { getDaemonSocketCandidates } from './daemon-paths';
 import { getTelemetry } from '../telemetry';
 import { CodeGraphPackageVersion } from './version';
@@ -101,6 +101,26 @@ function daemonOptOutSet(): boolean {
 function daemonInternalSet(): boolean {
   const raw = process.env[DAEMON_INTERNAL_ENV];
   return !!raw && raw !== '0' && raw.toLowerCase() !== 'false';
+}
+
+/**
+ * ADR 0049 Decision 5①④: map the prose reason `startDirect` already carried
+ * (used for the CODEGRAPH_MCP_DEBUG log line) onto the enumerated
+ * machine-readable reason codegraph_status reports. Falls back to the
+ * generic 'no-daemon' for any reason string not in the enumerated list
+ * (defensive — every current caller passes one of the three below).
+ */
+function mapDirectReason(reason: string): string {
+  switch (reason) {
+    case 'CODEGRAPH_NO_DAEMON set':
+      return 'opt-out';
+    case 'no .codegraph/ root found':
+      return 'no-root-index';
+    case 'proxy path threw':
+      return 'proxy-setup-failed';
+    default:
+      return 'no-daemon';
+  }
 }
 
 /**
@@ -328,6 +348,9 @@ export class MCPServer {
       process.stderr.write(`[CodeGraph MCP] Direct mode: ${reason}.\n`);
     }
     this.engine = new MCPEngine();
+    // ADR 0049 Decision 5④: record the machine-readable direct-mode reason so
+    // codegraph_status can report it without relying on stderr prose.
+    this.engine.setExecutionMode('direct', mapDirectReason(reason));
     const transport = new StdioTransport();
     this.session = new MCPSession(transport, this.engine, {
       explicitProjectPath: this.projectPath,
@@ -430,28 +453,36 @@ export class MCPServer {
     const connectAnyCandidate = async (): Promise<Awaited<ReturnType<typeof connectWithHello>>> => {
       for (const candidate of candidates) {
         const s = await connectWithHello(candidate);
-        // A wrong-version daemon IS up — definitive; propagate so the caller
-        // serves in-process instead of spawning + polling for 6s. Don't keep
-        // probing fallbacks past it.
-        if (s === 'version-mismatch') return s;
+        // A wrong-version (same-product) daemon, or a different product
+        // entirely, IS up — both definitive; propagate so the caller serves
+        // in-process (or fails closed) instead of spawning + polling for 6s.
+        // Don't keep probing fallbacks past either.
+        if (s === 'version-mismatch' || s === 'foreign-product') return s;
         if (s) return s;
       }
       return null;
     };
-    const getDaemonSocket = async () => {
+    const getDaemonSocket = async (): Promise<DaemonSocketOutcome> => {
       // Fast path: a daemon may already be listening (on either candidate).
       const probe = await connectAnyCandidate();
-      if (probe === 'version-mismatch') return null; // definitive — serve in-process, don't poll for 6s
+      // ADR 0049 Decision 5③: a different product's daemon — propagate
+      // verbatim so the local-handshake proxy fails the session closed
+      // instead of silently falling back to direct mode.
+      if (probe === 'foreign-product') return 'foreign-product';
+      // Same-product version skew — definitive, serve in-process (direct,
+      // reason: version-skew), don't poll for 6s.
+      if (probe === 'version-mismatch') return { fallbackReason: 'version-skew' };
       if (probe) return probe;
       // None reachable — spawn one (detached) and poll for its bind.
       spawnDetachedDaemon(root);
       for (let attempt = 0; attempt < DAEMON_CONNECT_MAX_RETRIES; attempt++) {
         await sleep(DAEMON_CONNECT_RETRY_DELAY_MS);
         const s = await connectAnyCandidate();
-        if (s === 'version-mismatch') return null;
+        if (s === 'foreign-product') return 'foreign-product';
+        if (s === 'version-mismatch') return { fallbackReason: 'version-skew' };
         if (s) return s;
       }
-      return null; // never bound — the proxy serves this session in-process
+      return { fallbackReason: 'no-daemon' }; // never bound — the proxy serves this session in-process
     };
     await runLocalHandshakeProxy({ getDaemonSocket, makeEngine: () => new MCPEngine(), root });
   }

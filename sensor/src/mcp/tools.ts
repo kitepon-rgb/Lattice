@@ -7,6 +7,7 @@
 import type CodeGraph from '../index';
 import type { QueryPool } from './query-pool';
 import { findNearestCodeGraphRoot } from '../directory';
+import { CodeGraphPackageVersion } from './version';
 // Lazy-load the heavy CodeGraph chain off the MCP startup path — see the same
 // helper in engine.ts. ToolHandler must load to answer tools/list (static
 // schemas), but it must NOT drag in sqlite/query layers before the daemon binds;
@@ -49,6 +50,20 @@ export class NotIndexedError extends Error {}
  * retry guidance — abandoning this path is the desired agent reaction.
  */
 export class PathRefusalError extends Error {}
+
+/**
+ * ADR 0049 Decision 5②: a genuine malfunction opening the default project's
+ * index — DB open failure, schema mismatch, integrity error, or lock
+ * contention — as OPPOSED to the project simply having no `.codegraph/` at
+ * all (that stays {@link NotIndexedError}, the success-shaped guidance case).
+ * This is fail-closed by design: it stays `isError: true` (via `execute`'s
+ * catch, same as {@link PathRefusalError}) rather than the NotIndexedError
+ * success-shaped guidance, because silently degrading to "no default
+ * project" here would hide a broken index behind text that reads as "just
+ * run `codegraph init`" — actively misleading for a project that WAS
+ * indexed and IS now broken.
+ */
+export class IndexOpenError extends Error {}
 import { resolve as resolvePath } from 'path';
 
 /** Maximum output length to prevent context bloat (characters) */
@@ -699,7 +714,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: 'codegraph_status',
-    description: 'Index health check (files / nodes / edges). Skip unless debugging.',
+    description: 'Index health check (files / nodes / edges) AND the version/execution-mode declaration surface: reports the running Lattice sensor version, the index schema stats, and a machine-readable `mode: daemon|direct` + `reason` field describing how this session is served (see ADR 0049). Skip unless debugging.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -835,6 +850,19 @@ export class ToolHandler {
   // main loop stays free for the MCP transport under concurrent load. Null in
   // direct/in-process mode (one client, no concurrency to parallelize).
   private queryPool: QueryPool | null = null;
+  // ADR 0049 Decision 5②: the reason the DEFAULT project's index failed to
+  // open (DB open failure, schema mismatch, integrity error, lock
+  // contention) — set by the engine's init path, distinct from "no
+  // .codegraph/ found" (which leaves this null and falls through to
+  // NotIndexedError's success-shaped guidance). Cleared on a successful
+  // {@link setDefaultCodeGraph}.
+  private openFailure: Error | null = null;
+  // ADR 0049 Decision 5④: this session's execution mode, reported by
+  // codegraph_status as a machine-readable field. Defaults to a direct/
+  // no-daemon placeholder — every real caller (MCPServer.startDirect, the
+  // shared Daemon, the local-handshake proxy's fallback engine) calls
+  // {@link setExecutionMode} before any tool call can reach a live engine.
+  private executionMode: { mode: 'daemon' | 'direct'; reason: string } = { mode: 'direct', reason: 'no-daemon' };
 
   constructor(private cg: CodeGraph | null) {}
 
@@ -849,10 +877,39 @@ export class ToolHandler {
   }
 
   /**
-   * Update the default CodeGraph instance (e.g. after lazy initialization)
+   * Update the default CodeGraph instance (e.g. after lazy initialization).
+   * A successful open supersedes any previously recorded open failure.
    */
   setDefaultCodeGraph(cg: CodeGraph): void {
     this.cg = cg;
+    this.openFailure = null;
+  }
+
+  /**
+   * ADR 0049 Decision 5②: record that the DEFAULT project's index failed to
+   * open for a reason OTHER than "no .codegraph/ found" — the engine calls
+   * this from its init catch block. `getCodeGraph()` throws it (fail closed)
+   * instead of the NotIndexedError guidance the next time a tool call needs
+   * the default project, so the failure surfaces as `isError: true` rather
+   * than being silently absorbed into "just run codegraph init" prose.
+   */
+  setOpenFailure(err: Error | null): void {
+    this.openFailure = err;
+  }
+
+  /**
+   * ADR 0049 Decision 5④: record this session's execution mode
+   * (`daemon`/`direct`) and the typed reason direct mode was chosen (or
+   * `'daemon'` when routed through the shared daemon). Surfaced verbatim by
+   * `codegraph_status`.
+   */
+  setExecutionMode(mode: 'daemon' | 'direct', reason: string): void {
+    this.executionMode = { mode, reason };
+  }
+
+  /** The execution mode last recorded via {@link setExecutionMode}. */
+  getExecutionMode(): { mode: 'daemon' | 'direct'; reason: string } {
+    return this.executionMode;
   }
 
   /**
@@ -1029,6 +1086,21 @@ export class ToolHandler {
   private getCodeGraph(projectPath?: string): CodeGraph {
     if (!projectPath) {
       if (!this.cg) {
+        // ADR 0049 Decision 5②: a recorded open failure (DB open error,
+        // schema mismatch, integrity error, lock contention) is a genuine
+        // malfunction, NOT "no index" — fail closed (isError: true via
+        // execute()'s catch-all) instead of falling into the success-shaped
+        // NotIndexedError guidance below, which would misleadingly read as
+        // "this project just isn't indexed yet".
+        if (this.openFailure) {
+          throw new IndexOpenError(
+            `The default project's CodeGraph index failed to open: ${this.openFailure.message}\n` +
+            'This is a genuine malfunction (corrupt/locked database, schema mismatch, or ' +
+            'similar) — NOT a missing index. Retry the call once; if it persists, the index ' +
+            'may need to be rebuilt (`codegraph init` after removing `.codegraph/`) or a ' +
+            'stale lock cleared.'
+          );
+        }
         const searched = this.defaultProjectHint ?? process.cwd();
         throw new NotIndexedError(
           'No CodeGraph project is loaded for this session.\n' +
@@ -4081,7 +4153,18 @@ export class ToolHandler {
     if (mismatch) {
       lines.push(`> ⚠ ${worktreeMismatchWarning(mismatch).replace(/\n/g, '\n> ')}`, '');
     }
+    // ADR 0049 Decision 5④: machine-readable execution-mode declaration —
+    // `mode: daemon|direct` plus a typed `reason` (`daemon` when routed
+    // through the shared daemon; `opt-out`/`no-root-index`/`no-daemon`/
+    // `connection-lost`/`version-skew`/`proxy-setup-failed` for direct). Kept
+    // as plain `key: value` lines (not buried in prose) so a caller can parse
+    // them without depending on the surrounding Markdown.
+    const executionMode = this.executionMode;
     lines.push(
+      `**Lattice sensor version:** ${CodeGraphPackageVersion}`,
+      `mode: ${executionMode.mode}`,
+      `reason: ${executionMode.reason}`,
+      '',
       `**Files indexed:** ${stats.fileCount}`,
       `**Total nodes:** ${stats.nodeCount}`,
       `**Total edges:** ${stats.edgeCount}`,

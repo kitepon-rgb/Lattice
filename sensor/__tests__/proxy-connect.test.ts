@@ -63,8 +63,23 @@ describe('connectWithHello — socket is never left without an error listener (#
     expect(() => socket.emit('error', new Error('simulated ECONNRESET'))).not.toThrow();
   });
 
-  it.runIf(process.platform !== 'win32')('still reports version-mismatch (and that path does not throw)', async () => {
+  // ADR 0049 Decision 5③: a hello version WITHOUT the `-lattice.` marker is a
+  // DIFFERENT product (third-party CodeGraph) — 'foreign-product', not
+  // 'version-mismatch'. Updated from the pre-ADR-0049 expectation (that test
+  // predates product-identity separation, when any version mismatch meant
+  // "the same product, a different build").
+  it.runIf(process.platform !== 'win32')('reports foreign-product for a mismatch with no -lattice. marker (and that path does not throw)', async () => {
     const { sockPath } = await fakeDaemon('0.0.0-not-our-version');
+    const result = await connectWithHello(sockPath);
+    expect(result).toBe('foreign-product');
+  });
+
+  // ADR 0049 Decision 5③: a hello version WITH the marker but different from
+  // ours is the SAME product at a different build (e.g. a self-update left a
+  // stale daemon running) — safe to bisect to the pre-existing
+  // 'version-mismatch' degrade-to-direct path.
+  it.runIf(process.platform !== 'win32')('still reports version-mismatch for a same-product version skew (and that path does not throw)', async () => {
+    const { sockPath } = await fakeDaemon('1.4.1-lattice.999');
     const result = await connectWithHello(sockPath);
     expect(result).toBe('version-mismatch');
   });

@@ -34,3 +34,17 @@ function readPackageVersion(): string {
 }
 
 export const CodeGraphPackageVersion = readPackageVersion();
+
+/**
+ * ADR 0049 Decision 3(a)/5(3): whether a version string carries the Lattice
+ * product-identity marker (`-lattice.`). Used to bisect a daemon hello
+ * mismatch into two structurally different situations:
+ *   - marker present  → same product, different build (e.g. a self-update
+ *     left a stale daemon running) → safe to degrade to direct mode.
+ *   - marker absent    → a DIFFERENT product's daemon (third-party CodeGraph)
+ *     is bound at this socket path → NOT safe to silently fall back to; the
+ *     proxy must fail closed instead of risking a cross-product attach.
+ */
+export function isLatticeVersion(version: string): boolean {
+  return version.includes('-lattice.');
+}

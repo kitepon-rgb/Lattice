@@ -116,6 +116,17 @@ export class MCPEngine {
     return this.toolHandler;
   }
 
+  /**
+   * ADR 0049 Decision 5④: record this engine's execution mode (`daemon` vs.
+   * `direct` + a typed reason), delegated straight through to the
+   * ToolHandler so `codegraph_status` can report it. Callers: `MCPServer`
+   * (direct mode), `Daemon` (daemon mode), and the local-handshake proxy's
+   * fallback engine (direct mode, various reasons).
+   */
+  setExecutionMode(mode: 'daemon' | 'direct', reason: string): void {
+    this.toolHandler.setExecutionMode(mode, reason);
+  }
+
   /** Whether the default project's CodeGraph is open. */
   hasDefaultCodeGraph(): boolean {
     return this.toolHandler.hasDefaultCodeGraph();
@@ -172,8 +183,16 @@ export class MCPEngine {
       this.startWatching();
       this.catchUpSync();
       this.maybeStartPool(resolvedRoot);
-    } catch {
-      // Still failing — caller will try again on the next tool call.
+    } catch (err) {
+      // ADR 0049 Decision 5②: a `.codegraph/` root WAS found (this is the
+      // retry-sync path, only reached once `findNearestCodeGraphRoot`
+      // succeeded above) but opening it failed — a genuine malfunction (DB
+      // open error, schema mismatch, integrity error, lock contention), not
+      // "no index". Record it so the next tool call fails closed instead of
+      // silently reading as NotIndexedError's success-shaped "run codegraph
+      // init" guidance. Still failing — caller will try again on the next
+      // tool call, which re-attempts the open (clearing this on success).
+      this.toolHandler.setOpenFailure(err instanceof Error ? err : new Error(String(err)));
     }
   }
 
@@ -218,6 +237,13 @@ export class MCPEngine {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       process.stderr.write(`[CodeGraph MCP] Failed to open project at ${resolvedRoot}: ${msg}\n`);
+      // ADR 0049 Decision 5②: `.codegraph/` WAS found (findNearestCodeGraphRoot
+      // succeeded above) but opening it threw — fail closed on the next tool
+      // call instead of letting `getCodeGraph()`'s default-not-loaded branch
+      // read this as "no index" and hand back success-shaped guidance. The
+      // stderr line above stays for operators tailing logs; this is the
+      // machine-readable half, consumed by ToolHandler.getCodeGraph().
+      this.toolHandler.setOpenFailure(err instanceof Error ? err : new Error(msg));
     }
   }
 

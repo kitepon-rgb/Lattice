@@ -232,6 +232,62 @@ describe('No-error policy on expected conditions', () => {
       expect(res.content[0]!.text).not.toMatch(/retry the call once/);
     }
   );
+
+  // ADR 0049 Decision 5②: fail closed on a genuine open malfunction of the
+  // DEFAULT project (DB open error, schema mismatch, integrity error, lock
+  // contention) — as opposed to "no .codegraph/ found" (the NotIndexedError
+  // success-shaped guidance covered by the sibling tests above). The engine's
+  // init path calls ToolHandler.setOpenFailure when this happens (see
+  // engine.ts doInitialize / retryInitializeSync); this test exercises the
+  // ToolHandler contract directly, without needing a real broken database.
+  it('a recorded default-project open failure fails CLOSED (isError: true), NOT the NotIndexedError success shape', async () => {
+    const handler = new ToolHandler(null);
+    handler.setOpenFailure(new Error('database disk image is malformed'));
+
+    const res = await handler.execute('codegraph_search', { query: 'anything' });
+
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toMatch(/database disk image is malformed/);
+    expect(res.content[0]!.text).toMatch(/genuine malfunction/);
+    // Must NOT read as the "just run codegraph init" guidance — that would
+    // misleadingly imply the project simply isn't indexed.
+    expect(res.content[0]!.text).not.toMatch(/No CodeGraph project is loaded/);
+  });
+
+  it('a successful setDefaultCodeGraph clears a previously recorded open failure', async () => {
+    const handler = new ToolHandler(null);
+    handler.setOpenFailure(new Error('stale failure from a previous attempt'));
+    const cg = await CodeGraph.init(tempDir, { index: true });
+    try {
+      handler.setDefaultCodeGraph(cg);
+      const res = await handler.execute('codegraph_search', { query: 'anything' });
+      expect(res.isError).toBeUndefined();
+    } finally {
+      cg.close();
+    }
+  });
+
+  // ADR 0049 Decision 5④: codegraph_status's machine-readable execution-mode
+  // declaration, exercised directly against ToolHandler (the daemon/proxy/
+  // direct integration coverage lives in mcp-daemon.test.ts).
+  it('codegraph_status reports the execution mode set via setExecutionMode', async () => {
+    const cg = await CodeGraph.init(tempDir, { index: true });
+    try {
+      const handler = new ToolHandler(cg);
+      handler.setExecutionMode('direct', 'no-root-index');
+      const res = await handler.execute('codegraph_status', {});
+      expect(res.isError).toBeUndefined();
+      expect(res.content[0]!.text).toMatch(/mode: direct/);
+      expect(res.content[0]!.text).toMatch(/reason: no-root-index/);
+
+      handler.setExecutionMode('daemon', 'daemon');
+      const res2 = await handler.execute('codegraph_status', {});
+      expect(res2.content[0]!.text).toMatch(/mode: daemon/);
+      expect(res2.content[0]!.text).toMatch(/reason: daemon/);
+    } finally {
+      cg.close();
+    }
+  });
 });
 
 describe('search kind filter', () => {

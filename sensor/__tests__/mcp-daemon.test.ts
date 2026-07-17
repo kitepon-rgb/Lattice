@@ -336,17 +336,23 @@ describe('Shared MCP daemon (issue #411)', () => {
     expect(isAlive(livePid!)).toBe(true);
   }, 40000);
 
-  it('proxy falls back to direct mode on a daemon version mismatch', async () => {
+  // ADR 0049 Decision 5③ (hello bisection): a mismatched hello version with
+  // the `-lattice.` marker is the SAME product at a different build (e.g. a
+  // stale daemon surviving a self-update) — safe to degrade to direct mode.
+  // Updated from the pre-ADR-0049 `0.0.0-mismatch` fixture, which (having no
+  // marker) is now the OTHER half of the bisection — see the
+  // 'foreign-product' test below, which covers exactly that case.
+  it('proxy falls back to direct mode on a same-product daemon version skew', async () => {
     const net = await import('net');
     const sockPath = getDaemonSocketPath(realRoot);
     // Plant a live-pid lockfile so the launcher treats the lock as held, and a
-    // mini-server that answers with a mismatched-version hello.
+    // mini-server that answers with a mismatched-but-marked-version hello.
     fs.writeFileSync(
       path.join(realRoot, '.codegraph', 'daemon.pid'),
-      JSON.stringify({ pid: process.pid, version: '0.0.0-mismatch', socketPath: sockPath, startedAt: Date.now() }),
+      JSON.stringify({ pid: process.pid, version: '1.4.1-lattice.999', socketPath: sockPath, startedAt: Date.now() }),
     );
     const miniServer = net.createServer((sock) => {
-      sock.write(JSON.stringify({ codegraph: '0.0.0-mismatch', pid: 1, socketPath: sockPath, protocol: 1 }) + '\n');
+      sock.write(JSON.stringify({ codegraph: '1.4.1-lattice.999', pid: 1, socketPath: sockPath, protocol: 1 }) + '\n');
     });
     await new Promise<void>((resolve) => miniServer.listen(sockPath, () => resolve()));
 
@@ -363,6 +369,44 @@ describe('Shared MCP daemon (issue #411)', () => {
         () => server.stderr.some((l) => l.includes('serving this session in-process')),
         6000,
       );
+      // ADR 0049 Decision 5④: the direct-mode engine reports the typed
+      // version-skew reason machine-readably via codegraph_status.
+      sendMessage(server.child, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'codegraph_status', arguments: {} } });
+      const statusResp = await waitFor(() => findResponse(server.stdout, 2), 15000);
+      const statusText = statusResp.result.content[0].text as string;
+      expect(statusText).toContain('mode: direct');
+      expect(statusText).toContain('reason: version-skew');
+    } finally {
+      await new Promise<void>((resolve) => miniServer.close(() => resolve()));
+    }
+  }, 30000);
+
+  // ADR 0049 Decision 5③: a mismatched hello WITHOUT the `-lattice.` marker is
+  // a DIFFERENT product's daemon (third-party CodeGraph) occupying this
+  // project's socket — the proxy must fail the session closed rather than
+  // silently degrade to direct mode (which would risk a later cross-product
+  // attach and mask the collision from the operator).
+  it('proxy fails the session closed on a foreign (non-Lattice) daemon at the socket path', async () => {
+    const net = await import('net');
+    const sockPath = getDaemonSocketPath(realRoot);
+    fs.writeFileSync(
+      path.join(realRoot, '.codegraph', 'daemon.pid'),
+      JSON.stringify({ pid: process.pid, version: '0.0.0-mismatch', socketPath: sockPath, startedAt: Date.now() }),
+    );
+    const miniServer = net.createServer((sock) => {
+      sock.write(JSON.stringify({ codegraph: '0.0.0-mismatch', pid: 1, socketPath: sockPath, protocol: 1 }) + '\n');
+    });
+    await new Promise<void>((resolve) => miniServer.listen(sockPath, () => resolve()));
+
+    try {
+      const server = spawnServer(tempDir);
+      servers.push(server);
+      const exitCode = await new Promise<number | null>((resolve) => {
+        server.child.once('exit', (code) => resolve(code));
+      });
+      expect(exitCode).toBe(1);
+      expect(server.stderr.some((l) => l.includes('non-Lattice daemon'))).toBe(true);
+      expect(server.stderr.some((l) => l.includes('refusing to continue this MCP session'))).toBe(true);
     } finally {
       await new Promise<void>((resolve) => miniServer.close(() => resolve()));
     }
@@ -432,8 +476,9 @@ describe('Shared MCP daemon (issue #411)', () => {
 
     // A warm call goes through the daemon.
     sendMessage(server.child, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'codegraph_status', arguments: {} } });
+    let warmResp: { result?: { content: Array<{ text: string }> } } | undefined;
     try {
-      await waitFor(() => findResponse(server.stdout, 2), 30000, 25, 'warm tools/call via daemon');
+      warmResp = await waitFor(() => findResponse(server.stdout, 2), 30000, 25, 'warm tools/call via daemon');
     } catch (e) {
       // This is the wait that historically flaked — surface WHERE the request
       // died: proxy side (stderr) or daemon side (daemon.log).
@@ -444,6 +489,11 @@ describe('Shared MCP daemon (issue #411)', () => {
         `--- proxy stderr tail ---\n${server.stderr.slice(-15).join('')}\n--- daemon.log tail ---\n${daemonLog}`
       );
     }
+
+    // ADR 0049 Decision 5④: the warm call went through the daemon, so it
+    // reports `mode: daemon` machine-readably.
+    expect(warmResp?.result?.content[0]?.text).toContain('mode: daemon');
+    expect(warmResp?.result?.content[0]?.text).toContain('reason: daemon');
 
     // Kill the daemon out from under the live proxy.
     process.kill(daemonPid, 'SIGTERM');
@@ -456,5 +506,9 @@ describe('Shared MCP daemon (issue #411)', () => {
     const resp = await waitFor(() => findResponse(server.stdout, 3), 15000);
     expect(resp.result !== undefined || resp.error !== undefined).toBe(true);
     expect(isAlive(server.child.pid!)).toBe(true);
+    // ADR 0049 Decision 5④: after the daemon dies mid-session, the in-process
+    // failover engine reports `mode: direct`/`reason: connection-lost`.
+    expect(resp.result?.content[0]?.text).toContain('mode: direct');
+    expect(resp.result?.content[0]?.text).toContain('reason: connection-lost');
   }, 45000);
 });

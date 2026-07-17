@@ -195,6 +195,11 @@ export class Daemon {
     // disables it here too.
     this.engine = new MCPEngine({ queryPool: true });
     this.engine.setProjectPathHint(projectRoot);
+    // ADR 0049 Decision 5④: this engine IS the shared daemon serving
+    // sessions over the socket — codegraph_status must report `mode: daemon`
+    // for any call routed here (vs. a proxy's own in-process fallback engine,
+    // which is a separate MCPEngine with `mode: direct`).
+    this.engine.setExecutionMode('daemon', 'daemon');
   }
 
   /**
