@@ -1,5 +1,11 @@
 # RC4 Stage 0 — witness実測とCodegraph判定品質（batch b1・中間記録）
 
+> **訂正（2026-07-17・[ADR 0048](../adr/0048-stage0-ground-truth-correction.md)）**: 本文書の真値4件は
+> 過少（直接importのみ計上）。推移的閉包による訂正後真値は**7件**（depth=1は偽陰性4、depth=5は
+> 真陽性6・偽陽性6・偽陰性1）。HEAD `04ab45c` 実ビルド再測定でv1.4.1と出力同一を確認。
+> depth=1の「正解」はimport追跡でなく`reject`名の偶然一致（`calls`辺8本・`imports`辺0本）による。
+> 「真値を返すdepthが存在しない」の結論は訂正後も成立。本文は履歴として保持する。
+
 - Date: 2026-07-17
 - batch定義: [2026-07-17-rc4-stage0-batch.md](2026-07-17-rc4-stage0-batch.md)（T1〜T6）
 - target: dotagents clone（`73947b3`）on macOS ext4。正規repoへの書込ゼロ、`codegraph init`はclone上のみ

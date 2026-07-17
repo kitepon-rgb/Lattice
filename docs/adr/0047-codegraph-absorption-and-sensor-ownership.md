@@ -1,6 +1,7 @@
 # 0047 — Codegraphを吸収してsensorを自前所有する（L2 fork裁定）
 
 - Status: Accepted / Immutable
+- 訂正: 根拠数値（真値4件・upstream停止）は誤り。[ADR 0048](0048-stage0-ground-truth-correction.md)が訂正を所有する（裁定本文は不変）
 - Date: 2026-07-17
 - 裁定者: オーナー（2026-07-17 chat。「２を選ぶんだ。Codegraphは、Latticeに完全に吸収される。
   LatticeがCodegraphの立ち位置も奪い取るんだ」）
