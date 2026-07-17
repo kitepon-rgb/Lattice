@@ -25,7 +25,7 @@ function findDescendant(node: SyntaxNode, type: string): SyntaxNode | null {
  *     (the dominant idiom in Roblox code, where the argument is an instance path
  *     rather than a string — use the trailing field as the module name).
  */
-function requireModule(callNode: SyntaxNode, source: string): string | null {
+export function requireModule(callNode: SyntaxNode, source: string): string | null {
   // function_call > name: <callee>, arguments: arguments
   const name = getChildByField(callNode, 'name');
   // A dotted/colon callee (e.g. `socket.connect`) is dot/method_index_expression,

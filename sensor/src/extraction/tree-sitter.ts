@@ -37,6 +37,7 @@ import {
   foldDynamicImportArg,
   DYNAMIC_IMPORT_UNRESOLVED_MARKER,
 } from './dynamic-import';
+import { requireModule as luaRequireModule } from './languages/lua';
 import {
   collectChildProcessBindings,
   resolveChildProcessCallee,
@@ -3734,6 +3735,76 @@ export class TreeSitterExtractor {
       // no-op, but claiming it explicitly keeps that guaranteed rather than
       // incidental).
       return;
+    }
+
+    // Lua/Luau `require(...)` nested inside a function body. The Lua/Ruby
+    // `require()` precedent this file's header comment warns about (see
+    // dynamic-import.ts) — top-level `require(...)` is claimed by the
+    // language extractor's `visitNode` hook (luaExtractor.visitNode, in the
+    // main declaration-level `visitNode` ladder) before it ever reaches
+    // `extractCall`, but `visitForCallsAndStructure` (the function-body
+    // walker) never invokes that hook and only funnels calls through
+    // `extractCall` — so a `require` called from inside a function/method
+    // body produced no `imports` edge at all. Because a top-level require is
+    // always claimed upstream, this branch only ever fires for the nested
+    // case (no double-emit risk). Mirrors luaExtractor.visitNode's `emit`
+    // closure exactly so nested and top-level requires produce identical
+    // node/edge shapes.
+    if (
+      (this.language === 'lua' || this.language === 'luau') &&
+      node.type === 'function_call'
+    ) {
+      const mod = luaRequireModule(node, this.source);
+      if (mod) {
+        this.createNode('import', mod, node, {
+          signature: getNodeText(node, this.source).trim().slice(0, 100),
+        });
+        this.unresolvedReferences.push({
+          fromNodeId: callerId,
+          referenceName: mod,
+          referenceKind: 'imports',
+          line: node.startPosition.row + 1,
+          column: node.startPosition.column,
+        });
+        return;
+      }
+    }
+
+    // Ruby `require`/`require_relative` nested inside a function body. Same
+    // false-negative shape as the Lua branch above: a top-level `call` node
+    // matching Ruby's `importTypes` is claimed by `extractImport` in the
+    // main `visitNode` ladder (which both records the raw module-name ref
+    // via the language hook AND calls `emitRubyRequireRefs` for the
+    // resolved file-path ref) before `extractCall` ever sees it, but
+    // `visitForCallsAndStructure` skips `extractImport` entirely. Reproduces
+    // both emissions here so nested requires get the same pair of edges as
+    // top-level ones; only ever reached for the nested case for the same
+    // reason as above.
+    if (this.language === 'ruby' && node.type === 'call') {
+      const identifier = node.namedChildren.find((c) => c.type === 'identifier');
+      const methodName = identifier ? getNodeText(identifier, this.source) : '';
+      if (methodName === 'require' || methodName === 'require_relative') {
+        const argList = node.namedChildren.find((c) => c.type === 'argument_list');
+        const stringNode = argList?.namedChildren.find((c) => c.type === 'string');
+        const stringContent = stringNode?.namedChildren.find((c) => c.type === 'string_content');
+        if (stringContent) {
+          const moduleName = getNodeText(stringContent, this.source);
+          if (moduleName) {
+            this.createNode('import', moduleName, node, {
+              signature: getNodeText(node, this.source).trim(),
+            });
+            this.unresolvedReferences.push({
+              fromNodeId: callerId,
+              referenceName: moduleName,
+              referenceKind: 'imports',
+              line: node.startPosition.row + 1,
+              column: node.startPosition.column,
+            });
+          }
+        }
+        this.emitRubyRequireRefs(node, callerId);
+        return;
+      }
     }
 
     // JS/TS `child_process` process-spawn invocation (ADR 0048, Lattice

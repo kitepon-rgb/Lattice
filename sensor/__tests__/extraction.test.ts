@@ -2754,6 +2754,51 @@ require_relative 'helper'
       expect(names).toContain('yaml');
       expect(names).toContain('helper');
     });
+
+    // Regression: `require`/`require_relative` called from INSIDE a method
+    // body was invisible. Top-level `require` is claimed by extractImport
+    // in the main declaration-level visitNode ladder; a method body is
+    // walked by visitForCallsAndStructure, which funnels every call through
+    // extractCall only — so a nested require produced no `imports` node/ref
+    // at all before this fix (the Lua/Ruby `require()` false-negative noted
+    // in dynamic-import.ts, fixed at the same extractCall choke point the
+    // JS/TS dynamic-import() precedent uses).
+    it('should extract require called from inside a method body', () => {
+      const code = `
+class Loader
+  def load_json
+    require 'json'
+  end
+end
+`;
+      const result = extractFromSource('loader.rb', code);
+
+      const importNode = result.nodes.find((n) => n.kind === 'import' && n.name === 'json');
+      expect(importNode).toBeDefined();
+      const importRefs = result.unresolvedReferences
+        .filter((r) => r.referenceKind === 'imports')
+        .map((r) => r.referenceName);
+      expect(importRefs).toContain('json');
+    });
+
+    it('should extract require_relative called from inside a method body', () => {
+      const code = `
+class Loader
+  def boot
+    require_relative 'fetcher'
+  end
+end
+`;
+      const result = extractFromSource('lib/app/loader.rb', code);
+
+      const importRefs = result.unresolvedReferences
+        .filter((r) => r.referenceKind === 'imports')
+        .map((r) => r.referenceName);
+      // Same two-ref shape as a top-level require_relative: the raw name AND
+      // the directory-resolved `.rb` file path.
+      expect(importRefs).toContain('fetcher');
+      expect(importRefs).toContain('lib/app/fetcher.rb');
+    });
   });
 
   describe('Ruby modules', () => {
@@ -5577,6 +5622,45 @@ end
     expect(reached.some((p) => p.endsWith('app/worker.rb'))).toBe(true);
     expect(reached.some((p) => p.endsWith('app/boot.rb'))).toBe(true);
   });
+
+  // Regression: a `require_relative` called from INSIDE a method body (a
+  // lazy-load pattern) was invisible end-to-end — no `imports` node/ref was
+  // ever emitted, so the required file showed zero dependents even after
+  // full graph resolution.
+  it('resolves require_relative called from inside a method body to the required file', async () => {
+    const lib = path.join(tempDir, 'lib');
+    fs.mkdirSync(path.join(lib, 'app'), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(lib, 'app', 'fetcher.rb'),
+      `module App
+  class Fetcher
+    def fetch; end
+  end
+end
+`
+    );
+    fs.writeFileSync(
+      path.join(lib, 'app', 'boot.rb'),
+      `module App
+  class Boot
+    def self.load
+      require_relative "fetcher"
+    end
+  end
+end
+`
+    );
+
+    cg = CodeGraph.initSync(tempDir);
+    await cg.indexAll();
+    cg.resolveReferences();
+
+    const fetcher = cg.getNodesByKind('file').find((n) => n.filePath.endsWith('app/fetcher.rb'));
+    expect(fetcher, 'fetcher.rb indexed').toBeDefined();
+    const reached = [...cg.getImpactRadius(fetcher!.id, 2).nodes.values()].map((n) => n.filePath ?? '');
+    expect(reached.some((p) => p.endsWith('app/boot.rb'))).toBe(true);
+  });
 });
 
 describe('C++ free-function name extraction', () => {
@@ -6346,6 +6430,28 @@ describe('Lua/Luau require resolution', () => {
     const helpDeps = cg.getFileDependents(helper!.filePath);
     expect(cfgDeps.some((p) => p.endsWith('myapp/init.lua')), 'dotted Lua require resolves to the module').toBe(true);
     expect(helpDeps.some((p) => p.endsWith('src/init.luau')), 'instance-path Luau require resolves to the module').toBe(true);
+  });
+
+  // Regression: `require(...)` called from INSIDE a function body (the common
+  // lazy-load pattern) was invisible end-to-end — no `imports` node/ref was
+  // emitted, so the required module showed zero dependents even after full
+  // graph resolution.
+  it('resolves a Lua require called from inside a function body', async () => {
+    fs.mkdirSync(path.join(tempDir, 'lua/myapp'), { recursive: true });
+    fs.writeFileSync(path.join(tempDir, 'lua/myapp/config.lua'), `local M = {}\nfunction M.setup() end\nreturn M\n`);
+    fs.writeFileSync(
+      path.join(tempDir, 'lua/myapp/init.lua'),
+      `local function loadConfig()\n  local config = require("myapp.config")\n  return config\nend\nreturn loadConfig\n`
+    );
+
+    cg = CodeGraph.initSync(tempDir);
+    await cg.indexAll();
+    cg.resolveReferences();
+
+    const config = cg.getNodesByKind('file').find((n) => n.filePath.endsWith('myapp/config.lua'));
+    expect(config, 'config.lua file node').toBeDefined();
+    const cfgDeps = cg.getFileDependents(config!.filePath);
+    expect(cfgDeps.some((p) => p.endsWith('myapp/init.lua')), 'nested Lua require resolves to the module').toBe(true);
   });
 });
 
@@ -8187,6 +8293,29 @@ require("side.effect")
       const imports = last!.nodes.filter((n) => n.kind === 'import').map((n) => n.name);
       expect(imports).toContain('module.7');
     });
+
+    // Regression: a `require(...)` called from INSIDE a function body was
+    // invisible. Top-level `require` is claimed by the language extractor's
+    // `visitNode` hook in the main declaration-level `visitNode` ladder; a
+    // function body is walked by visitForCallsAndStructure, which funnels
+    // every call through extractCall only — so a nested require produced no
+    // `imports` node/ref at all before this fix (fixed at the same
+    // extractCall choke point the JS/TS dynamic-import() precedent uses).
+    it('should extract require() called from inside a function body', () => {
+      const code = `
+local function loadSocket()
+  local socket = require("socket")
+  return socket
+end
+`;
+      const result = extractFromSource('lazy.lua', code);
+      const imports = result.nodes.filter((n) => n.kind === 'import').map((n) => n.name);
+      expect(imports).toContain('socket');
+      const ref = result.unresolvedReferences.find(
+        (r) => r.referenceKind === 'imports' && r.referenceName === 'socket'
+      );
+      expect(ref).toBeDefined();
+    });
   });
 
   describe('Call extraction', () => {
@@ -8270,6 +8399,24 @@ local count = 0
       expect(imports).toContain('Signal'); // Roblox instance-path require
       const vars = result.nodes.filter((n) => n.kind === 'variable').map((n) => n.name);
       expect(vars).toContain('count');
+    });
+
+    // Regression: Luau inherits require detection from luaExtractor, so it
+    // shares the same nested-function-body false negative as plain Lua.
+    it('should extract require() called from inside a function body', () => {
+      const code = `
+local function loadSignal(): unknown
+	local Signal = require(script.Parent.Signal)
+	return Signal
+end
+`;
+      const result = extractFromSource('lazy.luau', code);
+      const imports = result.nodes.filter((n) => n.kind === 'import').map((n) => n.name);
+      expect(imports).toContain('Signal');
+      const ref = result.unresolvedReferences.find(
+        (r) => r.referenceKind === 'imports' && r.referenceName === 'Signal'
+      );
+      expect(ref).toBeDefined();
     });
   });
 });
