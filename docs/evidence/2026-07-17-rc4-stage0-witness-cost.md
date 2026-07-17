@@ -38,11 +38,14 @@
 | 情報源 | 件数 | 内訳 |
 |---|---|---|
 | 親（私）の初稿宣言 | 1 | control-record.test.mjs のみ |
-| **import経路の実在検証**（grep実測） | **4** | control-record / executor-contracts / placement-policy / worker-report-skeleton |
-| Codegraph `depth=1` | 3 | 全て真陽性（直接importer） |
+| **import経路の実在検証**（grep実測＝真値） | **4** | control-record / executor-contracts / placement-policy / worker-report-skeleton |
+| Codegraph `depth=1` | 3 | 真陽性のみ。ただし**worker-report-skeletonを落とす＝偽陰性1** |
 | Codegraph `depth=2` | 7 | |
 | Codegraph `depth=3` | 11 | |
 | **Codegraph `depth=5`（既定・Latticeが使う値）** | **12** | 真陽性4＋**偽陽性8** |
+
+**どのdepthも真値4件を返さない。** depth=1は過少（偽陰性1）、depth=5は過剰（偽陽性8）。
+ダイヤルに正解の位置が存在しない。
 
 偽陽性8件の内訳と根拠:
 
@@ -58,8 +61,26 @@ Codegraphの`affected`は README で「Traces import dependencies **transitively
 co-change heuristicではない。したがってこれは意味論の相違ではなく**精度の欠損**である。
 既定`--depth 5`のfan-out（`totalDependentsTraversed: 30`）が無関係testを巻き込む。
 
-**`depth=1`は真陽性のみ3件を返す＝改良の方向は「索引を増やす」ではなく「既定depthの過剰を抑える／
-depthを表現可能にする」。**
+### depthでは直らない（2026-07-17訂正）
+
+本文書の初版はここで「`depth=1`は真陽性のみ3件を返す＝改良の方向は既定depthの過剰を抑える／
+depthを表現可能にすること」と結論した。**この結論は誤りであり撤回する**（オーナー指摘を受けて再測定）。
+
+`depth=1`の3件は「真陽性のみ」だが「真陽性の全部」ではない——`worker-report-skeleton.test.mjs`
+（`loadControl()`＝helpers経由の`import(CONTROL_LIB)`で実際にcontrol-recordを使う）を落とす。
+すなわち**真値4件を返すdepthは存在しない**（1→3件で偽陰性、5→12件で偽陽性8）。
+
+理由: グラフが**両方向に壊れている**。
+- **余計な辺**: factory-scan系がcontrol-recordからdepth≤5で到達可能。import経路は実在しない＝
+  存在してはならない辺がグラフにある。
+- **欠けた辺**: `import(CONTROL_LIB)`（`join()`で計算されるパスの動的import）を解決しきれていない。
+
+depthは大域的な閾値であり、**辺ごとの誤りを閾値で補正することは原理的にできない**。上げれば偽陽性、
+下げれば偽陰性が出る。したがってLattice側にdepth表現を足す案（初版の含意）は回避策ですらなく
+**機能しない**——depth=1を渡せば、正しい4件のwitnessに対して逆方向のdriftが出るだけである。
+
+**結論: 改良対象はパラメータではなくグラフ構築そのもの（余計な辺の除去＋動的import解決）。
+sensorをLattice内へ吸収して自前で直す以外に成立する道がない。**
 
 ### T4: `lib/orchestrate/executor-adapters.mjs`
 
@@ -80,19 +101,24 @@ Codegraph観測: **0件**。binはどのtestからもimportされず、`spawnOrc
 ## 4. Latticeが被る構造的帰結
 
 - `codegraph-adapter.mjs:306`は`['affected', targetPath, '--path', '.', '--json']`を渡す＝
-  **`--depth`を指定しない＝既定5**。`lattice.run_request.v1`のquery schemaにdepth概念が無く、
-  `depth=1`相当を要求する手段が存在しない。
+  **`--depth`を指定しない＝既定5**。`lattice.run_request.v1`のquery schemaにdepth概念が無い。
+  ただし上記のとおり**depthを表現できても解決しない**ため、これは欠陥の主因ではない。
 - exact一致契約と組み合わさると、**dispatchable planを得るには親がCodegraphの誤答（偽陽性8件）を
   witnessへ書き写す**しかない。witnessは「観測の写経」になり、親の判断を記録する意味を失う。
-- 一方でexact一致契約そのものは正しい（drift検出の要）。**壊れているのはsensorの精度であって契約ではない。**
+  本測定ではそれを行わず、未達のまま記録した。
+- 一方でexact一致契約そのものは正しい（drift検出の要）。**壊れているのはsensorであって契約ではない。**
 
 ## 5. 親plan（dotagents）へ返す判断材料
 
-- 親plan Phase L2「Codegraph fork＋改良」の対象は、当初想定の「call graph外結合の索引化」（=偽陰性側）
-  **だけではない**。実測では**偽陽性側（既定depthのfan-out）が先に効いた**。改良の第一目標は
-  精度制御（depth表現・fan-out抑制）であり、次が非可視結合（spawn・markdown・設定）の索引化である。
-- fork判断の根拠データとして、本測定は「Codegraphの情報は不足しているだけでなく、既定設定では
-  **誤っている**」を示す。オーナー仮説（Codegraph自身の改良が要る）を支持する。
+- 親plan Phase L2「Codegraph fork＋改良」の対象は、当初想定の「call graph外結合の索引化」
+  （=偽陰性側）**だけではない**。実測ではグラフ構築そのものが**両方向に壊れている**:
+  (a) 存在しないimport経路の辺（偽陽性）、(b) 計算パスの動的importの未解決（偽陰性）、
+  (c) spawn駆動の結合が構造的に不可視（`bin/orchestrate-run.mjs`のaffected 0件）。
+  改良の対象はパラメータ調整ではなく**グラフ構築のcorrectness**である。
+- fork判断の根拠データとして、本測定は「Codegraphの情報は不足しているだけでなく、
+  **誤っており、かつ設定では直せない**」を示す。オーナー仮説（Codegraph自身の改良が要る）を
+  実測で支持し、L2 forkが**唯一成立する道**であることを示す（回避策は機能しないか、
+  Latticeの中核主張=drift検出を殺す）。
 
 ## 6. 未達（正直な記録）
 
