@@ -1,7 +1,7 @@
 # RC3-D — generic front-endとplan CLI実装
 
 - 日付: 2026-07-17
-- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../plan_lattice_rc3_runtime_vertical_slice.md) RC3-D節
+- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../archive/plan_lattice_rc3_runtime_vertical_slice.md) RC3-D節
 - 契約: ADR 0044 Decision 2（schema fail closed）・8（CLI surface）・10.4/10.5（identity純度・check列挙）・11（RC2 fixture再利用）
 - Control: `lattice-rc3-runtime-v1`（task `RC3-D-front-end-and-plan-cli-v1`、review run `RC3-D-implementation-review-run-01-v1`）
 

@@ -3,7 +3,7 @@
 - 日付: 2026-07-17
 - Control: `lattice-rc3-runtime-v1`（Task `RC3-C-runtime-contract-and-event-verifier-v1` revision 17、
   review Task `RC3-C-implementation-review-v1` revision 18、review run受入 revision 24）
-- 対象plan: [RC3 runtime vertical slice計画](../plan_lattice_rc3_runtime_vertical_slice.md) RC3-C
+- 対象plan: [RC3 runtime vertical slice計画](../archive/plan_lattice_rc3_runtime_vertical_slice.md) RC3-C
 - 契約: [ADR 0044](../adr/0044-rc3-runtime-contract.md)
 - RC1／RC2 source・test・fixture・canonical artifact変更: 0。RC2公開済みschema変更: 0。
 

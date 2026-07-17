@@ -1,7 +1,7 @@
 # RC3-G — 後発競合のselective holdとplan vN+1 recompile
 
 - 日付: 2026-07-17
-- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../plan_lattice_rc3_runtime_vertical_slice.md) RC3-G節
+- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../archive/plan_lattice_rc3_runtime_vertical_slice.md) RC3-G節
 - 契約: ADR 0044 Decision 6（intake freeze・affected closure）・7（全plan失効とcarry-overの両立）
 - Control: `lattice-rc3-runtime-v1`（task `RC3-G-hold-recompile-v1`、review run `RC3-G-implementation-review-run-01-v1`）
 

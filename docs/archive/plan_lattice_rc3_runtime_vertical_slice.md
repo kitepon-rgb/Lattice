@@ -4,7 +4,7 @@
 - 作成日: 2026-07-16
 - plan version: `lattice-runtime-rc3-v1`
 - predecessor plan: `lattice-research-campaign-2-v1`（`docs/plan_lattice.md`、Phase-supported）
-- predecessor Decision: [ADR 0043](adr/0043-rc2-v4-phase-gate-support.md)
+- predecessor Decision: [ADR 0043](../adr/0043-rc2-v4-phase-gate-support.md)
 - canonical predecessor artifact: `research/campaigns/rc2/artifacts/v4`
 - writer境界: `/Users/kite/Developer/Lattice`のみ
 
@@ -317,8 +317,8 @@ exact照合する。
 - [x] ADR 0044へRC3 contract Decisionを固定し、既存ADRへ追記しない。
 - [x] plan／ADR／baseline evidenceだけをpathspec付きdocs commitにする。
 
-RC3-A成果: [ADR 0044](adr/0044-rc3-runtime-contract.md)（10 schema・event契約・rebind規則・再利用裁定、
-異provider refuter 8 P1 objection全採用の反証記録を含む）、[RC3 baseline evidence](evidence/2026-07-16-rc3-baseline.md)。
+RC3-A成果: [ADR 0044](../adr/0044-rc3-runtime-contract.md)（10 schema・event契約・rebind規則・再利用裁定、
+異provider refuter 8 P1 objection全採用の反証記録を含む）、[RC3 baseline evidence](../evidence/2026-07-16-rc3-baseline.md)。
 
 ### RC3-B — characterization safety netを先行する
 
@@ -331,7 +331,7 @@ RC3-A成果: [ADR 0044](adr/0044-rc3-runtime-contract.md)（10 schema・event契
 
 RC3-B成果: green 7（互換replay 12／14／15／15／15 checks、CLI fail-closed characterization、event store scope
 integration）、intentional expected-red 17（全件`ERR_MODULE_NOT_FOUND`のみ、対象は`src/runtime-event-store.mjs`と
-`src/runtime-decision-verifier.mjs`）。詳細は[RC3 characterization safety net](evidence/2026-07-17-rc3-characterization-safety-net.md)。
+`src/runtime-decision-verifier.mjs`）。詳細は[RC3 characterization safety net](../evidence/2026-07-17-rc3-characterization-safety-net.md)。
 
 ### RC3-C — versioned runtime contractとevent verifier
 
@@ -346,7 +346,7 @@ RC3-C成果: 加算module 4（`src/runtime-contracts.mjs`／`src/runtime-event-s
 `src/runtime-decision-verifier.mjs`）。RC3-B expected-red 17は期待変更なしで全green化。異provider review
 （codex-sidecar `review`、gpt-5.6-sol×high）の10 finding（P0×3・P1×6・P2×1）を全件採用し、fail-closed方向の
 修正と敵対test 10件を加算した。RC3対象41 test green・`npm run check` pass。詳細は
-[RC3 runtime contract実装](evidence/2026-07-17-rc3-runtime-contract-implementation.md)。
+[RC3 runtime contract実装](../evidence/2026-07-17-rc3-runtime-contract-implementation.md)。
 
 ### RC3-D — generic front-endとplan CLI
 
@@ -365,8 +365,8 @@ CLI配線（`bin/lattice.mjs`）。CLI reject経路はDecision 8の承認済み�
 `--version`／`doctor --json`は不変。異provider review（codex-sidecar、gpt-5.6-sol×high）の12 finding
 （P0×3・P1×6・P2×3）を10採用・1条件付き・1棄却で裁定し、fail-closed修正と敵対test 7件を加算した。
 CLI envelope schema（`lattice.plan_compile_result.v1`等）の正式所有はRC3-J最終ADRで裁定する。
-詳細は[RC3-D front-end/CLI実装](evidence/2026-07-17-rc3-d-front-end-cli.md)。maintenance: Phase開始baseline red 6件を
-[RC2 config epoch裁定](evidence/2026-07-17-rc3-maintenance-rc2-codegraph-config-epoch.md)で修理した（commit `355b4cb`）。
+詳細は[RC3-D front-end/CLI実装](../evidence/2026-07-17-rc3-d-front-end-cli.md)。maintenance: Phase開始baseline red 6件を
+[RC2 config epoch裁定](../evidence/2026-07-17-rc3-maintenance-rc2-codegraph-config-epoch.md)で修理した（commit `355b4cb`）。
 
 ### RC3-E — ready-frontier runtimeとscripted executor
 
@@ -383,7 +383,7 @@ hold requestはconflict_found＋即時intake_frozenで証拠化し、競合発�
 異provider review（codex-sidecar、gpt-5.6-sol×high）のP0×1・P1×7・P2×1を、P0（frontier集合のproducer/verifier
 divergence）はverifier側の意味論補完（terminal/dispatched除外、redispatchはRC3-G所有）として採用、P1は全採用、
 P2（unknown観測の証拠化）はrun_event.v1のkind集合変更を要するためRC3-J ADRの裁定事項として保存した。
-詳細は[RC3-E runtime engine実装](evidence/2026-07-17-rc3-e-runtime-engine.md)。
+詳細は[RC3-E runtime engine実装](../evidence/2026-07-17-rc3-e-runtime-engine.md)。
 
 ### RC3-F — isolated worktree executorとdiff observer
 
@@ -401,7 +401,7 @@ engine／verifierへのcheckpoint binding・conflict分類の拡張。実git wor
 checkpoint_mismatch、freeze、idempotent再分類）をgreenで固定。異provider review P0×4・P1×5・P2×1は、
 P0-2の「別process sandbox必須」だけをplan Non-goals（malicious executor非対象・cooperative前提）により
 棄却してcanonical fingerprint検出guardへ置換し、他は全採用した。
-詳細は[RC3-F worktree executor実装](evidence/2026-07-17-rc3-f-worktree-executor.md)。
+詳細は[RC3-F worktree executor実装](../evidence/2026-07-17-rc3-f-worktree-executor.md)。
 
 ### RC3-G — 後発競合、selective hold、recompile
 
@@ -422,7 +422,7 @@ verifier再計算とのexact一致を自己検査し、divergenceは即例外。
 event不在・finding scope非交差・sources再実証を通過した場合だけ発行され、証明不能TODOは
 holdへ戻る。contextは全TODOで一斉失効し、carried-overはrebindで再認可される。
 異provider review P0×1・P1×5・P2×1を全採用（P1-4は「旧epoch receiptはrecompile前に旧planで裁定」
-を正規経路として固定）。詳細は[RC3-G hold/recompile実装](evidence/2026-07-17-rc3-g-hold-recompile.md)。
+を正規経路として固定）。詳細は[RC3-G hold/recompile実装](../evidence/2026-07-17-rc3-g-hold-recompile.md)。
 
 ### RC3-H — scripted closed-loop campaign
 
@@ -437,12 +437,12 @@ holdへ戻る。contextは全TODOで一斉失効し、carried-overはrebindで�
 - [x] related gateを一回実行し、失敗scopeだけを収束させる。
 
 RC3-H成果: `src/rc3-scripted-campaign.mjs`と正典artifact
-[research/campaigns/rc3/artifacts/v1](../research/campaigns/rc3/artifacts/v1)（8条件・disk再検証54 check green・
+[research/campaigns/rc3/artifacts/v1](../../research/campaigns/rc3/artifacts/v1)（8条件・disk再検証54 check green・
 cost実測付き）。late conflictは継続TODOのvN+1受理まで、irreducible conflictは実行中発見→recompile→
 intentional serial redispatchまでの閉ループを保存。異provider review P0×1・P1×6・P2×1を採用し、
 artifact-only verifierを「8条件完全性・期待/実測の再比較・actual主張のevents再計算・変異bytesからの
 corruption再判定・path containment」まで硬化した。詳細は
-[RC3-H scripted campaign](evidence/2026-07-17-rc3-h-scripted-campaign.md)。
+[RC3-H scripted campaign](../evidence/2026-07-17-rc3-h-scripted-campaign.md)。
 
 ### RC3-I — actual multi-agent dogfood
 
@@ -462,9 +462,9 @@ corruption再判定・path containment」まで硬化した。詳細は
       （実測duration・tool_uses・retry系譜をprovider ledgerへ）。
 
 RC3-I成果: `src/rc3-actual-dogfood.mjs`（状態fileベースstep driver）と正典artifact
-[research/campaigns/rc3/artifacts/v2](../research/campaigns/rc3/artifacts/v2)（disk再検証16 check green・
+[research/campaigns/rc3/artifacts/v2](../../research/campaigns/rc3/artifacts/v2)（disk再検証16 check green・
 worktree残存0）。RC3-I driverの独立反証はRC3-JのPhase反証へ集約する（監査の増殖防止）。
-詳細は[RC3-I actual dogfood](evidence/2026-07-17-rc3-i-actual-dogfood.md)。
+詳細は[RC3-I actual dogfood](../evidence/2026-07-17-rc3-i-actual-dogfood.md)。
 
 ### RC3-J — Phase gate
 
@@ -475,15 +475,15 @@ worktree残存0）。RC3-I driverの独立反証はRC3-JのPhase反証へ集約�
 - [x] H1-RC3と全成功条件を対象にPhase反証を一回行う（独立digest再計算実装つき。
       H0-a〜d／f／g棄却、P1×2採用・修理、P2×8はADRのclaim境界へ裁定、棄却0）。
 - [x] P0／P1が無ければsupport範囲とnon-goalを新しいADRへ固定する
-      （[ADR 0045](adr/0045-rc3-phase-gate-support.md)。correction適用後support）。
+      （[ADR 0045](../adr/0045-rc3-phase-gate-support.md)。correction適用後support）。
 - [x] 実問題があれば完了扱いせず、correction versionと新ADRを立てる
       （P1×2はgate内correction: CLI 6面完全実装＋run store実体化、receipt replayの
       per-receipt prefix意味論＋双方向比較。ADR 0045 Decision 2）。
 - [x] plan、evidence、Control、artifact、testが全て完了してからarchiveする。
 
-RC3-J成果: [ADR 0045](adr/0045-rc3-phase-gate-support.md)（correction適用後support・claim境界・
+RC3-J成果: [ADR 0045](../adr/0045-rc3-phase-gate-support.md)（correction適用後support・claim境界・
 持ち越し所有の裁定・相互digest binding）。詳細は
-[RC3-J Phase gate](evidence/2026-07-17-rc3-j-phase-gate.md)。
+[RC3-J Phase gate](../evidence/2026-07-17-rc3-j-phase-gate.md)。
 
 ## Controlと配置
 

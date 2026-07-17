@@ -1,7 +1,7 @@
 # RC3-I — actual multi-agent dogfood
 
 - 日付: 2026-07-17
-- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../plan_lattice_rc3_runtime_vertical_slice.md) RC3-I節
+- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../archive/plan_lattice_rc3_runtime_vertical_slice.md) RC3-I節
 - 契約: ADR 0044 Decision 9.5（H gate・disposable dogfood target・opaque handle・重複dispatch禁止）
 - Control: `lattice-rc3-runtime-v1`（H task `RC3-I-actual-dogfood-v1`、approval snapshot付き、rev 71）
 - 正典artifact: `research/campaigns/rc3/artifacts/v2`

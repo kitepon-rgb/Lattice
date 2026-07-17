@@ -1,7 +1,7 @@
 # RC3-J — Phase gate（反証・correction・support裁定）
 
 - 日付: 2026-07-17
-- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../plan_lattice_rc3_runtime_vertical_slice.md) RC3-J節
+- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../archive/plan_lattice_rc3_runtime_vertical_slice.md) RC3-J節
 - 裁定: [ADR 0045](../adr/0045-rc3-phase-gate-support.md)
 - Control: `lattice-rc3-runtime-v1`（task `RC3-J-phase-gate-v1`、refutation run）
 

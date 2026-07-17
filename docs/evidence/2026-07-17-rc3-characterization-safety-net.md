@@ -2,7 +2,7 @@
 
 - 日付: 2026-07-17
 - Control: `lattice-rc3-runtime-v1`（Task `RC3-B-characterization-safety-net-v1`、revision 14で記録）
-- 対象plan: [RC3 runtime vertical slice計画](../plan_lattice_rc3_runtime_vertical_slice.md) RC3-B
+- 対象plan: [RC3 runtime vertical slice計画](../archive/plan_lattice_rc3_runtime_vertical_slice.md) RC3-B
 - 契約: [ADR 0044](../adr/0044-rc3-runtime-contract.md)
 - production source（`src/`・`bin/`）変更: 0。RC1／RC2のtest・fixture・canonical artifact変更: 0。
 - 実装形態: F受入を親が直接実施（Worker委譲なし。物量が受入コストを下回るため）。

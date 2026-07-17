@@ -1,7 +1,7 @@
 # RC3 baseline evidence
 
 - 観測日: 2026-07-16
-- 対象plan: [RC3 runtime vertical slice計画](../plan_lattice_rc3_runtime_vertical_slice.md)（`lattice-runtime-rc3-v1`）
+- 対象plan: [RC3 runtime vertical slice計画](../archive/plan_lattice_rc3_runtime_vertical_slice.md)（`lattice-runtime-rc3-v1`）
 - 対象Control: `lattice-rc3-runtime-v1`
 - Decision: [ADR 0044](../adr/0044-rc3-runtime-contract.md)
 

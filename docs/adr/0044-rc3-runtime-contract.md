@@ -4,7 +4,7 @@
 - Date: 2026-07-16
 - Scope: RC3-A contract Decision（plan `lattice-runtime-rc3-v1`の全Phaseが従うruntime契約）
 - Predecessors: [ADR 0043](0043-rc2-v4-phase-gate-support.md)、[製品契約v0](../00_product-contract.md)
-- Plan: [RC3 runtime vertical slice計画](../plan_lattice_rc3_runtime_vertical_slice.md)
+- Plan: [RC3 runtime vertical slice計画](../archive/plan_lattice_rc3_runtime_vertical_slice.md)
 - Baseline evidence: [RC3 baseline](../evidence/2026-07-16-rc3-baseline.md)
 
 ## Context

@@ -1,7 +1,7 @@
 # RC3-E — ready-frontier runtime engineとscripted executor
 
 - 日付: 2026-07-17
-- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../plan_lattice_rc3_runtime_vertical_slice.md) RC3-E節
+- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../archive/plan_lattice_rc3_runtime_vertical_slice.md) RC3-E節
 - 契約: ADR 0044 Decision 3（event store／projection）・4（frontier分離）・7.4（receipt帰属）・9（adapter境界）
 - Control: `lattice-rc3-runtime-v1`（task `RC3-E-ready-frontier-runtime-v1`、review run `RC3-E-implementation-review-run-01-v1`）
 

@@ -1,7 +1,7 @@
 # RC3-H — scripted closed-loop campaign
 
 - 日付: 2026-07-17
-- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../plan_lattice_rc3_runtime_vertical_slice.md) RC3-H節・条件表
+- plan: [plan_lattice_rc3_runtime_vertical_slice.md](../archive/plan_lattice_rc3_runtime_vertical_slice.md) RC3-H節・条件表
 - 契約: ADR 0044 Decision 10（artifact root・atomic no-overwrite・identity純度）・11（RC2再利用とseam binding）
 - Control: `lattice-rc3-runtime-v1`（task `RC3-H-scripted-campaign-v1`、review run `RC3-H-implementation-review-run-01-v1`）
 - 正典artifact: `research/campaigns/rc3/artifacts/v1`（atomic発行済み・disk再検証54 check green）
