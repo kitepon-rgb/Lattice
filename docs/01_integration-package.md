@@ -10,7 +10,8 @@
 正典: [ADR 0044 Decision 8](adr/0044-rc3-runtime-contract.md)。
 
 - 面: `lattice plan compile / plan verify / run start / run observe / run status / event verify`
-  （＋既存`--version`／`doctor --json`）
+  （＋既存`--version`。`doctor --json`は[ADR 0052](adr/0052-cli-error-v2-and-doctor-retirement.md)で
+  退役＝typed失敗envelopeも`lattice.cli_error.v2`（optional `detail`）へ更新済み）
 - stdout=versioned JSONのみ・診断はstderr・exit 0/1/2契約・fail closed・暗黙provider fallbackなし
 - envelope schema（`plan_compile_result.v1`等8種）の所有は[ADR 0045 Decision 4](adr/0045-rc3-phase-gate-support.md)
 - 既知の未解消: `cli_error.v1`がcompile失敗の`detail`を落とす（maintenance queue移管済み。

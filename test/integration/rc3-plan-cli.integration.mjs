@@ -184,7 +184,7 @@ test('base sha不一致はSTALE_BASEのtyped errorでexit 1になる', async () 
   assert.equal(result.status, 1);
   assert.equal(result.stdout, '');
   const error = JSON.parse(result.stderr);
-  assert.equal(error.schema, 'lattice.cli_error.v1');
+  assert.equal(error.schema, 'lattice.cli_error.v2');
   assert.equal(error.code, 'STALE_BASE');
 });
 
@@ -198,7 +198,11 @@ test('witness unknownはBOUNDARY_UNKNOWNのtyped errorでexit 1になり planを
   assert.equal(result.status, 1);
   assert.equal(result.stdout, '');
   const error = JSON.parse(result.stderr);
+  assert.equal(error.schema, 'lattice.cli_error.v2');
   assert.equal(error.code, 'BOUNDARY_UNKNOWN');
+  // ADR 0052 Decision 1: typed失敗はthrow側のdetail（unknown内訳）をv2 envelopeで運ぶ。
+  assert.ok(error.detail !== undefined && typeof error.detail === 'object');
+  assert.ok(JSON.stringify(error.detail).includes('semantic_probe'));
 });
 
 test('改竄planと別request planはtyped errorでexit 1になる', async () => {

@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { buildBootstrapDiagnostics } from '../src/bootstrap.mjs';
 import { runRuntimeCli } from '../src/runtime-cli.mjs';
 import packageJson from '../package.json' with { type: 'json' };
 
@@ -8,8 +7,6 @@ const args = process.argv.slice(2);
 
 if (args.length === 1 && args[0] === '--version') {
   process.stdout.write(`${packageJson.version}\n`);
-} else if (args.length === 2 && args[0] === 'doctor' && args[1] === '--json') {
-  process.stdout.write(`${JSON.stringify(buildBootstrapDiagnostics())}\n`);
 } else if (args.length === 2 && args[0] === 'factory-diagnostics' && args[1] === '--json') {
   const { buildFactoryDiagnostics } = await import('../src/factory-diagnostics.mjs');
   const diagnostics = await buildFactoryDiagnostics();
@@ -26,10 +23,10 @@ if (args.length === 1 && args[0] === '--version') {
       stderr: process.stderr,
     });
   } catch (error) {
-    // typed契約（cli_error.v1＋exit 1/2）の外へ漏れた例外＝内部故障。opt-in時のみ観測を残す。
+    // typed契約（cli_error.v2＋exit 1/2）の外へ漏れた例外＝内部故障。opt-in時のみ観測を残す。
     const { observeRuntimeError } = await import('../src/runtime-errors.mjs');
     observeRuntimeError('LATTICE.CLI_INTERNAL_FAILED', { version: packageJson.version });
-    process.stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v1', code: 'INTERNAL_FAILURE', message: error?.constructor?.name ?? 'Error' })}\n`);
+    process.stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v2', code: 'INTERNAL_FAILURE', message: error?.constructor?.name ?? 'Error' })}\n`);
     process.exitCode = 1;
   }
 }
@@ -37,7 +34,7 @@ if (args.length === 1 && args[0] === '--version') {
 async function runRuntimeErrorsCli(rest) {
   const runtimeErrors = await import('../src/runtime-errors.mjs');
   const usage = () => {
-    process.stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v1', code: 'USAGE', message: 'usage: lattice runtime-errors <snapshot [--after-cursor N] [--limit N]|ack <cursor>|diagnostics|resolve <fingerprint>|reopen <fingerprint>|compact> --json' })}\n`);
+    process.stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v2', code: 'USAGE', message: 'usage: lattice runtime-errors <snapshot [--after-cursor N] [--limit N]|ack <cursor>|diagnostics|resolve <fingerprint>|reopen <fingerprint>|compact> --json' })}\n`);
     return 2;
   };
   const options = { version: packageJson.version };
@@ -72,7 +69,7 @@ async function runRuntimeErrorsCli(rest) {
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
   } catch (error) {
-    process.stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v1', code: 'RUNTIME_ERRORS_FAILED', message: error?.message ?? 'unknown' })}\n`);
+    process.stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v2', code: 'RUNTIME_ERRORS_FAILED', message: error?.message ?? 'unknown' })}\n`);
     return 1;
   }
 }

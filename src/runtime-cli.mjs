@@ -46,16 +46,17 @@ import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
 const MAX_INPUT_BYTES = 8_388_608;
 const COMPILE_RESULT_SCHEMA = 'lattice.plan_compile_result.v1';
 const VERIFY_RESULT_SCHEMA = 'lattice.plan_verify_result.v1';
-const CLI_ERROR_SCHEMA = 'lattice.cli_error.v1';
+const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 // run event storeはDecision 10.1のLattice-owned root配下に置く。
 const RUN_STORE_ROOT = ['research', 'runs', 'rc3'];
 const KNOWN_ADAPTERS = Object.freeze(['scripted', 'isolated-worktree', 'actual-agent']);
 
 class CliContractError extends Error {
-  constructor(code, message) {
+  constructor(code, message, detail) {
     super(message);
     this.name = 'CliContractError';
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -67,7 +68,10 @@ function usageFailure(stderr, args) {
 
 function typedFailure(stderr, code, message, detail) {
   const payload = { schema: CLI_ERROR_SCHEMA, code, message };
-  if (detail !== undefined) payload.detail = detail;
+  // ADR 0052 Decision 1: detailは非空plain objectの場合だけ出す（null・非object・空objectは省略）。
+  if (detail !== null && typeof detail === 'object' && !Array.isArray(detail) && Object.keys(detail).length > 0) {
+    payload.detail = detail;
+  }
   stderr.write(`${JSON.stringify(payload)}\n`);
   return 1;
 }
@@ -357,7 +361,7 @@ async function runObserve({ runDir, stdout }) {
   const { events } = await readRunStore(runDir);
   const chain = verifyRunEventChain({ events });
   if (!chain.valid) {
-    throw new CliContractError('EVENT_CHAIN_INVALID', 'event chainが不正', chain.failed_conditions);
+    throw new CliContractError('EVENT_CHAIN_INVALID', 'event chainが不正', { failed_conditions: chain.failed_conditions });
   }
   const state = projectRuntimeState({ events });
   const output = {
@@ -381,7 +385,7 @@ async function runStatus({ runDir, stdout }) {
   const { events, meta, compileArtifact } = await readRunStore(runDir);
   const chain = verifyRunEventChain({ events });
   if (!chain.valid) {
-    throw new CliContractError('EVENT_CHAIN_INVALID', 'event chainが不正', chain.failed_conditions);
+    throw new CliContractError('EVENT_CHAIN_INVALID', 'event chainが不正', { failed_conditions: chain.failed_conditions });
   }
   const state = projectRuntimeState({ events });
   const frontier = computeReadyFrontier({ plan: compileArtifact.plan, events });
@@ -438,13 +442,14 @@ async function eventVerify({ runDir, stdout }) {
   output.result_digest = digestArtifact(output);
   stdout.write(`${JSON.stringify(output)}\n`);
   if (failed.length > 0) {
-    throw new CliContractError('EVENT_VERIFICATION_FAILED', 'event検証が失敗', failed);
+    // ADR 0052 Decision 1: failed_conditionsはstdoutのevent_verification.v1が既に持つ＝detailで二重化しない。
+    throw new CliContractError('EVENT_VERIFICATION_FAILED', 'event検証が失敗');
   }
   return 0;
 }
 
 /**
- * `--version`／`doctor --json`以外の全argvを受け、exit codeを返す。
+ * `--version`以外の全argvを受け、exit codeを返す（`doctor --json`はADR 0052で退役済み）。
  * exact argument contract: 位置・順序・件数の完全一致だけを受理する。
  */
 export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {

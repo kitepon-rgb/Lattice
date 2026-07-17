@@ -223,7 +223,7 @@ test(
 );
 
 test(
-  'lattice-mcp: override無し・サポート対象外Nodeでのspawnはexit 1 + stderrにlattice.cli_error.v1(code=NODE_VERSION_UNSUPPORTED)',
+  'lattice-mcp: override無し・サポート対象外Nodeでのspawnはexit 1 + stderrにlattice.cli_error.v2(code=NODE_VERSION_UNSUPPORTED)',
   () => {
     // 実プロセスのNode majorはこのテストランナーのNode binaryそのもの —
     // 差し替えできない。CIは(package.json記載どおり)Node 22で走るため、通常
@@ -231,7 +231,7 @@ test(
     // 早期returnでskipする。境界(24/25/20/19、override有無)はすべて
     // test/node-version-guard.test.mjsのunit testで固定済み。
     // このホスト(開発機、Node 26系)のようにサポート対象外Nodeで動く場合だけ、
-    // override無し経路のexit 1 + lattice.cli_error.v1を実プロセスで確認する。
+    // override無し経路のexit 1 + lattice.cli_error.v2を実プロセスで確認する。
     const guard = evaluateNodeVersionGuard(process.versions.node, false);
     if (!guard.blocked) {
       return;
@@ -244,7 +244,7 @@ test(
     const lines = result.stderr.trim().split('\n');
     const jsonLine = lines[lines.length - 1];
     const payload = JSON.parse(jsonLine);
-    assert.equal(payload.schema, 'lattice.cli_error.v1');
+    assert.equal(payload.schema, 'lattice.cli_error.v2');
     assert.equal(payload.code, 'NODE_VERSION_UNSUPPORTED');
     assert.match(payload.message, /Unsupported Node\.js version/);
   },

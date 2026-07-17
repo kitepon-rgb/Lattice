@@ -6,7 +6,7 @@
  * `codegraph serve --mcp` starts (see sensor/src/bin/codegraph.ts `serve`
  * command and sensor/src/mcp/index.ts `MCPServer`). Deliberately a SEPARATE
  * bin from `bin/lattice.mjs`: the CLI 6 面 axioms (stdout versioned JSON 1
- * 行, exit 0/1/2, `lattice.cli_error.v1`) apply ONLY to lattice.mjs, never
+ * 行, exit 0/1/2, `lattice.cli_error.v2`) apply ONLY to lattice.mjs, never
  * to this MCP surface (ADR 0049 Decision 1/8).
  *
  * Contract (ADR 0049 Decision 8):
@@ -22,7 +22,7 @@
  *      unable to ever start, silently pinning every session to direct mode
  *      (the exact silent-degradation trap the ADR calls out).
  *   ③ Exit semantics: usage violation before startup = exit 2; startup
- *      scrutiny failure = exit 1 + one `lattice.cli_error.v1` line on
+ *      scrutiny failure = exit 1 + one `lattice.cli_error.v2` line on
  *      stderr; normal session end = exit 0 (delegated entirely to
  *      MCPServer, which calls process.exit on every one of its lifecycle
  *      paths — direct/proxy/daemon alike); session-established failures are
@@ -44,7 +44,7 @@
 
 import { evaluateNodeVersionGuard } from '../src/node-version-guard.mjs';
 
-const CLI_ERROR_SCHEMA = 'lattice.cli_error.v1';
+const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 
 /** Usage violation BEFORE startup — exit 2, plain-text stderr (mirrors bin/lattice.mjs's own usageFailure shape). */
 function usageFailure(message) {
@@ -52,7 +52,7 @@ function usageFailure(message) {
   process.exitCode = 2;
 }
 
-/** Startup-time scrutiny failure — exit 1, one lattice.cli_error.v1 JSON line on stderr. */
+/** Startup-time scrutiny failure — exit 1, one lattice.cli_error.v2 JSON line on stderr. */
 function startupFailure(code, message) {
   const payload = { schema: CLI_ERROR_SCHEMA, code, message };
   process.stderr.write(`${JSON.stringify(payload)}\n`);

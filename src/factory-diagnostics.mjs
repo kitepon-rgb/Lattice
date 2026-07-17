@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
  * - schema `lattice.native_factory_diagnostics.v1`: exact key・bounded・秘密なしJSON。
  * - read-only: provider・network・run store書込・index生成を一切行わない。
  * - 非0意味論: overall `failed` → exit 1。CLI usage違反は既存contractどおり exit 2。
- * - 既存 `doctor --json`（bootstrap diagnostics・RC3特性化で凍結）は変更しない加算面。
+ * - 本面が健全性の唯一の診断正本（旧`doctor --json`はADR 0052で退役済み）。
  */
 
 const SCHEMA = 'lattice.native_factory_diagnostics.v1';
