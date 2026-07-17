@@ -1,0 +1,321 @@
+{
+ "schema": "lattice.run_request.v1",
+ "request_id": "rc4-stage0-dotagents-b1",
+ "repo": {
+  "base_sha": "73947b3289dd7533fef33b2c8ca973e032e9da60",
+  "root_kind": "git-worktree"
+ },
+ "capacity": {
+  "executors": 3
+ },
+ "todos": [
+  {
+   "todo_id": "T1"
+  },
+  {
+   "todo_id": "T2"
+  },
+  {
+   "todo_id": "T3"
+  },
+  {
+   "todo_id": "T4"
+  },
+  {
+   "todo_id": "T5"
+  },
+  {
+   "todo_id": "T6"
+  }
+ ],
+ "manual_witness": {
+  "T1": {
+   "owns": [
+    {
+     "kind": "path",
+     "target": "lib/orchestrate/control-record.mjs"
+    }
+   ],
+   "reads": [
+    "docs/elastic-orchestrator-archive-decision-history.md",
+    "docs/adr/0060-file-evidence-resume-history-retention.md",
+    "docs/plan_factory-master.md"
+   ],
+   "writes": [
+    "lib/orchestrate/control-record.mjs",
+    "shared/orchestrate/control-record.md",
+    "tests/orchestrate/control-record.test.mjs",
+    "docs/adr/0061-finalization-archive-evidence-ruling.md"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-t1-lib",
+      "expect": {
+       "kind": "affected",
+       "path": "lib/orchestrate/control-record.mjs"
+      }
+     },
+     {
+      "query_id": "q-t1-tests",
+      "expect": {
+       "kind": "affected",
+       "path": "tests/orchestrate/control-record.test.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "tests/orchestrate/control-record.test.mjs"
+   ],
+   "unknowns": [
+    {
+     "kind": "ruling-dependent-writes",
+     "ref": "不変Decision(2026-07-15)上書き時はADR新設で行い旧文書はwritesに入らない（裁定前未確定）"
+    },
+    {
+     "kind": "doc-code-coupling",
+     "ref": "shared/orchestrate/control-record.md（正典）とlib実装の意味的結合はcall graph非可視"
+    }
+   ]
+  },
+  "T2": {
+   "owns": [
+    {
+     "kind": "path",
+     "target": "bin/orchestrate-run.mjs"
+    }
+   ],
+   "reads": [
+    "lib/orchestrate/control-record.mjs"
+   ],
+   "writes": [
+    "bin/orchestrate-run.mjs",
+    "lib/orchestrate/control-record.mjs",
+    "tests/orchestrate/control-record.test.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-t2-bin",
+      "expect": {
+       "kind": "affected",
+       "path": "bin/orchestrate-run.mjs"
+      }
+     },
+     {
+      "query_id": "q-t2-lib",
+      "expect": {
+       "kind": "affected",
+       "path": "lib/orchestrate/control-record.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "tests/orchestrate/control-record.test.mjs"
+   ],
+   "unknowns": [
+    {
+     "kind": "design-dependent-writes",
+     "ref": "binの出力整形で済むかbriefManifest/resumeCheckのshape変更まで要るか未確定。lib変更ならT1とcontrol-record.mjs・同一test fileで交差"
+    }
+   ]
+  },
+  "T3": {
+   "owns": [],
+   "reads": [
+    "docs/plan_factory-master.md",
+    "docs/plan_bughub-factory-integration.md",
+    "lib/factory/contract.mjs"
+   ],
+   "writes": [
+    "docs/plan_factory-master.md"
+   ],
+   "resources": [
+    "servermanager-repo",
+    "bughub-production"
+   ],
+   "state_effects": [
+    {
+     "resource_id": "servermanager-repo",
+     "kind": "external_effect"
+    },
+    {
+     "resource_id": "bughub-production",
+     "kind": "external_effect"
+    }
+   ],
+   "codegraph_provenance": {
+    "queries": []
+   },
+   "affected_tests": [],
+   "unknowns": [
+    {
+     "kind": "cross-repo-write",
+     "ref": "ServerManager repo: adapter/schema/認証の実装本体（本repo境界の外）"
+    },
+    {
+     "kind": "h-gate-dependency",
+     "ref": "本番BugHub schema変更はH承認後のみ＝dispatch可否が承認へ従属"
+    }
+   ]
+  },
+  "T4": {
+   "owns": [
+    {
+     "kind": "path",
+     "target": "lib/orchestrate/executor-adapters.mjs"
+    }
+   ],
+   "reads": [
+    "shared/orchestrate/executor-adapters.md",
+    "docs/02_models.md",
+    "docs/adr/0045-o3-consultation-multiprovider-schema.md"
+   ],
+   "writes": [
+    "lib/orchestrate/executor-adapters.mjs",
+    "shared/orchestrate/executor-adapters.md",
+    "tests/orchestrate/executor-adapters.test.mjs"
+   ],
+   "resources": [],
+   "state_effects": [],
+   "codegraph_provenance": {
+    "queries": [
+     {
+      "query_id": "q-t4-adapters",
+      "expect": {
+       "kind": "affected",
+       "path": "lib/orchestrate/executor-adapters.mjs"
+      }
+     }
+    ]
+   },
+   "affected_tests": [
+    "tests/orchestrate/executor-adapters.test.mjs"
+   ],
+   "unknowns": [
+    {
+     "kind": "h-gate-dependency",
+     "ref": "live実model dispatchはH gate後のみ（本TODOは非H整備限定）"
+    },
+    {
+     "kind": "indirect-coupling",
+     "ref": "executor-contracts.mjs registry経由の間接結合は要確認"
+    }
+   ]
+  },
+  "T5": {
+   "owns": [],
+   "reads": [
+    "docs/queue_memory-promotion.md"
+   ],
+   "writes": [
+    "docs/queue_memory-promotion.md"
+   ],
+   "resources": [
+    "opencclaw-repo"
+   ],
+   "state_effects": [
+    {
+     "resource_id": "opencclaw-repo",
+     "kind": "external_effect"
+    }
+   ],
+   "codegraph_provenance": {
+    "queries": []
+   },
+   "affected_tests": [],
+   "unknowns": [
+    {
+     "kind": "cross-repo-write",
+     "ref": "OpenCClaw bellbot deploy手順書＝還流先の実体（本repo境界の外）"
+    },
+    {
+     "kind": "codegraph-blind-spot",
+     "ref": "markdownのみでcall graph証拠ゼロ（意図的包含）"
+    }
+   ]
+  },
+  "T6": {
+   "owns": [],
+   "reads": [
+    "docs/queue_memory-promotion.md"
+   ],
+   "writes": [
+    "docs/queue_memory-promotion.md"
+   ],
+   "resources": [
+    "opencclaw-repo"
+   ],
+   "state_effects": [
+    {
+     "resource_id": "opencclaw-repo",
+     "kind": "external_effect"
+    }
+   ],
+   "codegraph_provenance": {
+    "queries": []
+   },
+   "affected_tests": [],
+   "unknowns": [
+    {
+     "kind": "cross-repo-write",
+     "ref": "OpenCClaw Phase 10A-15関連docs＝還流先の実体（本repo境界の外）"
+    },
+    {
+     "kind": "docs-file-overlap",
+     "ref": "T5と同一ファイル（queue_memory-promotion.md）への書込＝docs系交差（意図的包含）"
+    },
+    {
+     "kind": "codegraph-blind-spot",
+     "ref": "markdownのみでcall graph証拠ゼロ"
+    }
+   ]
+  }
+ },
+ "codegraph_query_set": {
+  "queries": [
+   {
+    "id": "q-status",
+    "operation": "status"
+   },
+   {
+    "id": "q-t1-lib",
+    "operation": "affected",
+    "target": "lib/orchestrate/control-record.mjs"
+   },
+   {
+    "id": "q-t1-tests",
+    "operation": "affected",
+    "target": "tests/orchestrate/control-record.test.mjs"
+   },
+   {
+    "id": "q-t2-bin",
+    "operation": "affected",
+    "target": "bin/orchestrate-run.mjs"
+   },
+   {
+    "id": "q-t2-lib",
+    "operation": "affected",
+    "target": "lib/orchestrate/control-record.mjs"
+   },
+   {
+    "id": "q-t4-adapters",
+    "operation": "affected",
+    "target": "lib/orchestrate/executor-adapters.mjs"
+   }
+  ]
+ },
+ "executor_capability": {
+  "adapters": [
+   "actual-agent"
+  ]
+ },
+ "claim_mode": "exact_minimum",
+ "request_digest": "428ec9759e452925897cc5ec8efe8ef077aacb0e7d3f91c17ee7f8addd351c45"
+}
