@@ -58,28 +58,42 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
 
 ## Stage 0 — read-only実測（witnessコストと判定品質）
 
-- [ ] dotagentsの実TODO候補からbatch（TODO 6〜10件、`control-record.mjs`系・adapter系・docs系を
+- [x] dotagentsの実TODO候補からbatch（TODO 6〜10件、`control-record.mjs`系・adapter系・docs系を
       混在）をオーナーと選定し、batch定義をevidenceへ記録する。**凍結不要の運用合意（オーナー裁定
       2026-07-17）**: Stage 0はread-only判定のみでdotagents側の消化を止めない。activeレーンのTODOから
       出してよく、判定のstale化はそれ自体を実測記録とする（stale化の頻度も実戦データである）。
-- [ ] batch定義evidenceへ**dotagents私有caveatの該当エントリを添付する**:
+      — 2026-07-17完了: [batch定義evidence](evidence/2026-07-17-rc4-stage0-batch.md)（T1〜T6・オーナーGO）
+- [x] batch定義evidenceへ**dotagents私有caveatの該当エントリを添付する**:
       `orchestrate-run-worker-run-record-approach-family-ref-null`（`lineage.approach_family_ref: null`が
       BUDGET_UNKNOWNで拒否される・reproduced）、`orchestrate-run-cli-internal-error-lib`
       （INTERNAL_ERRORは未適用と限らずlib直呼びで実因確認・tentative）。既知の罠を再走しない。
-- [ ] 各TODOのboundary witnessを親が実際に作成し、**作成時間・参照した証拠・書けなかった項目**を
+      — 2026-07-17完了: batch定義evidence「添付caveat」節（5エントリ）
+- [x] 各TODOのboundary witnessを親が実際に作成し、**作成時間・参照した証拠・書けなかった項目**を
       1件ずつ実測記録する（丸め・事後推定の禁止）。
-- [ ] **Lattice側clone/copy上にだけ**`codegraph init`し、`lattice plan compile`で全batchをcompileする
+      — 2026-07-17完了: [witness実測](evidence/2026-07-17-rc4-stage0-witness-cost.md)（17〜36秒/件・
+      書けなかった項目1件ずつ・ADR 0048で真値訂正）
+- [x] **Lattice側clone/copy上にだけ**`codegraph init`し、`lattice plan compile`で全batchをcompileする
       （non-dispatchableはcode込みで記録。unknownの内訳＝Codegraph盲点／witness不足を分類する）。
       **dotagents正規repoにindexを作らない**——`.codegraph/`は存在せずgitignore対象外のため、
       live repoでの`init`は「正規repoへの書込ゼロ」契約違反かつdirtyを生む（実測確認済み）。
-- [ ] 判定品質の照合: conflict／wave／unknown判定を親が1件ずつ「妥当／過剰serial／見逃し」で
+      — 2026-07-17完了: 改良前sensorはAFFECTED_TEST_DRIFTで停止（witness実測evidence）。L2改良後
+      sensorで全batch再compile＝[compile判定裁定](evidence/2026-07-17-rc4-stage0-compile-adjudication.md)
+      （request A dispatchable・request B BOUNDARY_UNKNOWN、いずれもcode込み記録）
+- [x] 判定品質の照合: conflict／wave／unknown判定を親が1件ずつ「妥当／過剰serial／見逃し」で
       裁定し、**見逃し0件**を確認する（見逃しは即refute条件）。
-- [ ] shell hooks・markdown憲法・巨大単一fileなど**call graph非可視の結合**がwitnessで表現
+      — 2026-07-17完了: compile判定裁定evidence §4〜5（conflict 3件妥当・wave妥当・過剰serial 0・
+      独立grep全数照合で**見逃し0**・unknown分類一致6/6）
+- [x] shell hooks・markdown憲法・巨大単一fileなど**call graph非可視の結合**がwitnessで表現
       できたかを個別に記録し、**Codegraph盲点の発生頻度を定量化する**（RC4の主要リスク領域であり、
       同時に親plan L2のfork判断の一次データ。「不足している」を勘でなく数字で示す）。
-- [ ] Stage 1 gateを裁定する: witnessコスト閾値・unknown率・判定一致率の実測値に基づき、
+      — 2026-07-17完了: 前半（witness実測＝ADR 0047/0048のfork判断一次データ）＋後半（md主体は
+      `codegraph_empty` typed unknown、shell結合は(c2)クラス実例3件、compile判定裁定evidence §1・§5）
+- [x] Stage 1 gateを裁定する: witnessコスト閾値・unknown率・判定一致率の実測値に基づき、
       Stage 1のtarget（dotagents cloneで進むか、先に中リスクrepoで肩慣らしするか）を決定し、
       根拠付きでevidenceへ記録する。
+      — 2026-07-17裁定: compile判定裁定evidence §7（witness≤3分/件・drift写経0・dispatchable系
+      unknown率0・判定一致100%維持。target＝dotagents disposable cloneへ直行、dispatchable
+      3 TODO×capacity 2×2 waves最小構成、witness作法§3とrequest分割規則§5を焼き込み）
 
 ## Stage 1 — disposable cloneでの閉ループ（実タスク・不着地）
 
@@ -163,3 +177,9 @@ Codegraph fork改良はL2、MCP面新設はL3）で行い、本planはLattice側
       requireを拾えない**（偽陰性。sensor改良(b) 2026-07-17実装中に発見・JS/TSと同型の穴）。
       対処はJS/TS同様`extractCall`合流点への移設。最小再現: 関数内`require 'mod'`を持つ
       Lua/Rubyファイルをindexし、imports辺が出ないこと。所有repo: Lattice（sensor/）
+- [ ] CLI: `lattice plan compile`のtyped失敗が`cli_error.v1`の`code`/`message`だけを出し、
+      compile resultの`detail`（BOUNDARY_UNKNOWNのunknown内訳・AFFECTED_TEST_DRIFTのmismatches）を
+      落とす。診断にlib直呼びが必要だった（Stage 0後半 2026-07-17実測）。fail closed自体は正しく
+      P0/P1非該当。対処候補: `cli_error.v1`へ`detail`を追加（schema変更＝ADR 0044 Decision 8の
+      envelope暫定契約の正式化と同時に裁定）。最小再現: unknown入りwitnessでcompile→stderr JSONに
+      内訳が無い。所有repo: Lattice（src/runtime-cli.mjs）
