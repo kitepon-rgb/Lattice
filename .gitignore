@@ -11,3 +11,6 @@ coverage/
 
 # RC3 run event store（Decision 10.1のLattice-owned runtime state。commitしない）
 research/runs/
+
+# Generated TODO projections are reproducible; the TODO store itself is tracked.
+.lattice/generated/

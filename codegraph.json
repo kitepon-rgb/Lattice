@@ -1,1 +1,1 @@
-{"exclude":["research/campaigns/**/artifacts/**/identity/","research/runs/"]}
+{"exclude":["research/campaigns/**/artifacts/**/identity/","research/runs/",".lattice/todo/",".lattice/generated/"]}
