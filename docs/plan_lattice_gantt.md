@@ -204,12 +204,15 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
     受入は親gate再実行で確定（委譲契約の「子にcommitさせない」再教育要）。
   - 2026-07-18完了（`9f2daaf`+`804c6e9`）: dag-chain汎用層＋todo-chain adapter・ADR追補後wire適合・
     fixture 14件＋1,024 DAG brute-force照合・独立反証（sol×high）通過
-- [ ] `todo verify`・`todo snapshot --rebuild`のCLI面（ADR 0053契約表）＋crash matrix fixture
+- [x] `todo verify`・`todo snapshot --rebuild`のCLI面（ADR 0053契約表）＋crash matrix fixture
       （journal健全×snapshot欠落/stale→read-only投影継続・writer拒否）
+  - 2026-07-18完了（`1badb08`）: Decision 6 exact wire・exit境界・verify非更新digest固定・52 test green
 - [x] codegraph coverage分離（store=tracked・生成HTML=gitignore）のintegration testを
       レンダラ実装より先に置く
   - 2026-07-18完了（`a7f3c77`）: .gitignore/codegraph.json追従＋probe方式integration test（6不変条件）
-- [ ] focused gate green
+- [x] focused gate green
+  - 2026-07-18完了: G2全面gate（todo-store/todo-chain/todo-cli/rc3-characterization）66件green＋check green
+    をmain上で親再実行。**G2完了**——次はG3（レンダラ。R5設計調書済み・Markdown AST依存の裁定が着手時判断）
 
 ### G3 — SVG/HTMLレンダラ実装（A・左右ペイン＋散文埋込・全plan統合・started/done両時刻表示を含む）
 - [ ] §1スケッチを基にした純文字列構築レンダラ＋`lattice todo gantt` CLI配線
