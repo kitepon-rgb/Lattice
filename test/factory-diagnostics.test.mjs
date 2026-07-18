@@ -22,6 +22,12 @@ test('本repoではoverall okの正規schemaを返しexact keyで検証が通る
     diagnostics.checks.map((entry) => entry.id),
     ['package_version', 'node_runtime', 'cli_surface', 'mcp_entry', 'sensor_attribution'],
   );
+  const nodeRuntime = diagnostics.checks.find(({ id }) => id === 'node_runtime');
+  assert.match(nodeRuntime.detail, /satisfies engines\.node floor >=22\.13$/u);
+  const belowFloor = await buildFactoryDiagnostics({ nodeVersion: 'v22.12.99' });
+  assert.equal(belowFloor.checks.find(({ id }) => id === 'node_runtime').status, 'failed');
+  assert.equal(belowFloor.checks.find(({ id }) => id === 'node_runtime').detail,
+    'v22.12.99 is below engines.node floor >=22.13');
   assert.equal(validateFactoryDiagnostics(diagnostics), true);
 });
 
@@ -38,7 +44,9 @@ test('壊れたrootでは該当checkがfailedになりoverall failedとexit 1へ
   const brokenRoot = await mkdtemp(path.join(os.tmpdir(), 'lattice-diag-'));
   try {
     await mkdir(path.join(brokenRoot, 'bin'), { recursive: true });
-    await writeFile(path.join(brokenRoot, 'package.json'), JSON.stringify({ version: '0.0.0-unknown' }));
+    await writeFile(path.join(brokenRoot, 'package.json'), JSON.stringify({
+      version: '0.0.0-unknown', engines: { node: '>=22.13 || <25' },
+    }));
     const diagnostics = await buildFactoryDiagnostics({ rootDir: brokenRoot });
     assert.equal(diagnostics.overall, 'failed');
     assert.equal(diagnostics.version, '0.0.0-unknown');

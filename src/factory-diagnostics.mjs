@@ -17,7 +17,7 @@ const MAX_DETAIL_LENGTH = 256;
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const UNKNOWN_VERSION_SENTINEL = '0.0.0-unknown';
 const NODE_VERSION_PATTERN = /^v(\d+)\.(\d+)\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
-const ENGINES_FLOOR_PATTERN = /^>=(\d+)(?:\.(\d+))?(?:\.\d+)?$/;
+const ENGINES_FLOOR_RANGE_PATTERN = /^(>=(\d+)(?:\.(\d+))?(?:\.\d+)?)(?: +<\d+(?:\.\d+){0,2})?$/;
 const CHECK_IDS = Object.freeze([
   'package_version',
   'node_runtime',
@@ -70,17 +70,18 @@ function checkNodeRuntime(nodeVersion, enginesNode) {
   if (!runtime) {
     return check('node_runtime', false, 'node version is unreadable');
   }
-  const floor = ENGINES_FLOOR_PATTERN.exec(enginesNode ?? '');
+  const floor = ENGINES_FLOOR_RANGE_PATTERN.exec(enginesNode ?? '');
   if (!floor) {
     return check('node_runtime', false, 'package.json engines.node floor is unreadable');
   }
   const [major, minor] = [Number(runtime[1]), Number(runtime[2])];
-  const [floorMajor, floorMinor] = [Number(floor[1]), Number(floor[2] ?? '0')];
+  const [floorMajor, floorMinor] = [Number(floor[2]), Number(floor[3] ?? '0')];
   const satisfied = major > floorMajor || (major === floorMajor && minor >= floorMinor);
   return check(
     'node_runtime',
     satisfied,
-    satisfied ? `${nodeVersion} satisfies engines.node ${enginesNode}` : `${nodeVersion} is below engines.node ${enginesNode}`,
+    satisfied ? `${nodeVersion} satisfies engines.node floor ${floor[1]}`
+      : `${nodeVersion} is below engines.node floor ${floor[1]}`,
   );
 }
 
