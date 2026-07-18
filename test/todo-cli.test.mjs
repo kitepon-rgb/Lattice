@@ -241,6 +241,11 @@ test('todo namespaceの未知subcommand・不足・余剰・重複・順序違�
     ['todo', 'verify', '--plan', 'main', '--plan', 'main'],
     ['todo', 'snapshot', '--plan', 'main', '--rebuild'],
     ['todo', 'snapshot', '--rebuild', '--plan', 'main', 'extra'],
+    ['todo', 'migrate'],
+    ['todo', 'migrate', '--input'],
+    ['todo', 'migrate', '--input', '/tmp/extraction.json'],
+    ['todo', 'migrate', 'extraction.json', '--input'],
+    ['todo', 'migrate', '--input', 'extraction.json', 'extra'],
   ];
   for (const args of malformed) {
     const before = await storeDigest(root);

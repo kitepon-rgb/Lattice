@@ -1,0 +1,272 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  mkdtemp, readFile, readdir, rm, writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import test from 'node:test';
+
+import { todoSelfDigest } from '../src/todo-contracts.mjs';
+import {
+  compileTodoExtraction,
+  validateTodoExtraction,
+} from '../src/todo-migration.mjs';
+import {
+  TodoStoreError,
+  createTodoStoreWriter,
+  initializeTodoStore,
+  readTodoStore,
+} from '../src/todo-store.mjs';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const FIXTURE_ROOT = path.join(REPO_ROOT, 'test', 'fixtures', 'todo-migration');
+const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
+const NOW = '2026-07-18T00:00:00.000Z';
+const ACTOR = Object.freeze({ host: 'host-1', session: 'session-1', agent: 'agent-1' });
+
+const task = (taskId) => ({
+  task_id: taskId, title: taskId, lane: 'main', narrative_ref: null, compile_binding: null,
+});
+
+async function fixture(name) {
+  return JSON.parse(await readFile(path.join(FIXTURE_ROOT, name), 'utf8'));
+}
+
+function pinnedPlanCommit(root) {
+  const blob = spawnSync('git', ['hash-object', '-w', '--stdin'], {
+    cwd: root,
+    input: '# Imported plan\n- [x] A1 or U1\n- [ ] A2\n',
+    encoding: 'utf8',
+  });
+  assert.equal(blob.status, 0, blob.stderr);
+  const tree = spawnSync('git', ['mktree'], {
+    cwd: root,
+    input: `100644 blob ${blob.stdout.trim()}\tplan.md\n`,
+    encoding: 'utf8',
+  });
+  assert.equal(tree.status, 0, tree.stderr);
+  const commit = spawnSync('git', ['hash-object', '-t', 'commit', '-w', '--stdin'], {
+    cwd: root,
+    input: `tree ${tree.stdout.trim()}\nauthor Fixture <fixture@example.invalid> 1760000000 +0000\ncommitter Fixture <fixture@example.invalid> 1760000000 +0000\n\nfixture\n`,
+    encoding: 'utf8',
+  });
+  assert.equal(commit.status, 0, commit.stderr);
+  return commit.stdout.trim();
+}
+
+async function workspace(context) {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-todo-migration-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: root }).status, 0);
+  await initializeTodoStore({
+    repoRoot: root,
+    writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    projectId: 'project-1',
+    repositories: [{ repo_id: 'self', path: '.' }],
+    plans: [{
+      plan: {
+        schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'main', plan_version: 'v1',
+        predecessor_plan_digest: null, tasks: [task('T1')], hard_dependencies: [], joins: [],
+      },
+      genesis: { actor: ACTOR, recorded_at: NOW },
+    }],
+    now: NOW,
+  });
+  return root;
+}
+
+function bindCommit(value, sourceCommit) {
+  const bound = structuredClone(value);
+  for (const entry of bound.tasks) entry.source.source_commit = sourceCommit;
+  bound.extraction_digest = todoSelfDigest(bound, 'extraction_digest');
+  return bound;
+}
+
+async function writeInput(root, name, value) {
+  const ref = `${name}.json`;
+  await writeFile(path.join(root, ref), `${JSON.stringify(value)}\n`);
+  return ref;
+}
+
+function runCli(root, inputRef) {
+  const result = spawnSync(process.execPath, [CLI, 'todo', 'migrate', '--input', inputRef], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1' },
+  });
+  assert.equal(result.error, undefined);
+  return result;
+}
+
+async function storeDigest(root) {
+  const entries = [];
+  async function visit(directory, prefix = '') {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const ref = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) await visit(path.join(directory, entry.name), ref);
+      else entries.push([ref, await readFile(path.join(directory, entry.name))]);
+    }
+  }
+  await visit(path.join(root, '.lattice', 'todo'));
+  entries.sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  const hash = createHash('sha256');
+  for (const [ref, bytes] of entries) hash.update(ref).update('\0').update(bytes).update('\0');
+  return hash.digest('hex');
+}
+
+function assertExactKeys(value, expected) {
+  assert.deepEqual(Object.keys(value).sort(), [...expected].sort());
+}
+
+test('schema documentと正常/時刻unknown/曖昧fixtureはv1 exact contractを表す', async () => {
+  const schema = JSON.parse(await readFile(
+    path.join(REPO_ROOT, 'docs', 'schemas', 'lattice.todo_extraction.v1.schema.json'),
+    'utf8',
+  ));
+  assert.equal(schema.title, 'lattice.todo_extraction.v1');
+  assert.equal(schema.additionalProperties, false);
+  for (const name of ['valid.json', 'missing-time-unknown.json', 'ambiguous.json']) {
+    const value = await fixture(name);
+    assert.equal(validateTodoExtraction(value), true, name);
+    assert.equal(value.extraction_digest, todoSelfDigest(value, 'extraction_digest'));
+  }
+  const missing = await fixture('missing-time-unknown.json');
+  assert.equal(missing.tasks[0].completion.completed_at, 'unknown_requires_evidence');
+});
+
+test('R7難所18例はsource階層と移行context、明示edge/joinを失わずschemaへ載る', async () => {
+  const value = await fixture('r7-hard-cases.json');
+  assert.equal(validateTodoExtraction(value), true);
+  assert.equal(value.tasks.length, 18);
+  assert.equal(new Set(value.tasks.map((entry) => entry.source.origin_plan_ref)).size, 6);
+  assert.equal(value.tasks.some((entry) => entry.source.checkbox_state === 'absent'), true);
+  assert.equal(value.tasks.some((entry) => entry.source.checkbox_state === 'ambiguous'), true);
+  assert.equal(value.tasks.some((entry) => entry.source.parent_task_id !== null), true);
+  assert.equal(value.tasks.some((entry) => entry.migration_context.carry_over_ref !== null), true);
+  assert.equal(value.tasks.some((entry) => entry.migration_context.h_required), true);
+  assert.equal(value.tasks.some((entry) => entry.migration_context.condition !== null), true);
+  assert.equal(value.tasks.some((entry) => entry.migration_context.external_canonical_ref !== null), true);
+  assert.equal(value.tasks.some((entry) => entry.disposition === 'exclude_superseded'), true);
+  assert.equal(value.tasks.some((entry) => entry.disposition === 'exclude_compatibility_record'), true);
+  assert.equal(value.hard_dependencies.length, 1);
+  assert.equal(value.joins.length, 1);
+
+  const compatibilityOnly = {
+    ...value,
+    plan_key: 'compatibility-only',
+    tasks: [value.tasks.find(({ task_id }) => task_id === 'R7-13')],
+    hard_dependencies: [],
+    joins: [],
+    extraction_digest: '',
+  };
+  compatibilityOnly.extraction_digest = todoSelfDigest(compatibilityOnly, 'extraction_digest');
+  assert.equal(validateTodoExtraction(compatibilityOnly), true);
+  assert.throws(() => compileTodoExtraction(compatibilityOnly, '/repo'), (error) => error instanceof TodoStoreError
+    && error.code === 'MIGRATION_EMPTY' && error.detail.reason === 'no_registered_tasks');
+});
+
+test('schema違反、task duplicate、done_mode矛盾fixtureはfail closed', async () => {
+  for (const name of ['schema-violation.json', 'duplicate-task.json', 'done-mode-contradiction.json']) {
+    assert.equal(validateTodoExtraction(await fixture(name)), false, name);
+  }
+});
+
+test('unknown_requires_evidenceは全体拒否し、裁定後JSONを再compileできる', async () => {
+  const value = await fixture('ambiguous.json');
+  assert.throws(() => compileTodoExtraction(value, '/repo'), (error) => error instanceof TodoStoreError
+    && error.code === 'MIGRATION_UNRESOLVED'
+    && error.detail.reason === 'unknown_requires_evidence'
+    && error.detail.task_ids[0] === 'Q1');
+
+  value.tasks[0].disposition = 'register_pending';
+  value.extraction_digest = todoSelfDigest(value, 'extraction_digest');
+  const request = compileTodoExtraction(value, '/repo');
+  assert.deepEqual(request.plan.tasks.map(({ task_id }) => task_id), ['Q1', 'Q2']);
+  assert.deepEqual(request.completedTasks, []);
+});
+
+test('todo migrateは検証済みJSONをappendImportedPlanへ一度だけ登録しexact resultを返す', async (context) => {
+  const root = await workspace(context);
+  const input = bindCommit(await fixture('valid.json'), pinnedPlanCommit(root));
+  const inputRef = await writeInput(root, 'valid', input);
+  const first = runCli(root, inputRef);
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(first.stderr, '');
+  assert.match(first.stdout, /^\{.*\}\n$/u);
+  const result = JSON.parse(first.stdout);
+  assertExactKeys(result, [
+    'schema', 'project_id', 'plan_key', 'plan_version', 'extraction_digest',
+    'imported_task_count', 'completed_task_count', 'plan_ref', 'journal_ref', 'snapshot_ref',
+    'topology_digest', 'journal_head_digest', 'result_digest',
+  ]);
+  assert.equal(result.schema, 'lattice.todo_migrate_result.v1');
+  assert.equal(result.imported_task_count, 2);
+  assert.equal(result.completed_task_count, 1);
+  assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
+  const store = await readTodoStore({ repoRoot: root, now: NOW });
+  const archive = store.members.find(({ descriptor }) => descriptor.plan_key === 'archive');
+  assert.deepEqual(archive.tasks.map(({ task_id, status }) => [task_id, status]), [
+    ['A1', 'done'], ['A2', 'pending'],
+  ]);
+  assert.equal(archive.journal.events[0].payload.historical_import, true);
+
+  const beforeDuplicate = await storeDigest(root);
+  const duplicate = runCli(root, inputRef);
+  assert.equal(duplicate.status, 1);
+  assert.equal(duplicate.stdout, '');
+  const error = JSON.parse(duplicate.stderr);
+  assert.equal(error.code, 'STORE_WRITE_CONFLICT');
+  assert.equal(error.detail.reason, 'plan_key_already_imported');
+  assert.equal(await storeDigest(root), beforeDuplicate);
+});
+
+test('履歴時刻欠落は現在時刻で埋めずunknownのhistorical doneとして登録する', async (context) => {
+  const root = await workspace(context);
+  const input = bindCommit(await fixture('missing-time-unknown.json'), pinnedPlanCommit(root));
+  const result = runCli(root, await writeInput(root, 'unknown-time', input));
+  assert.equal(result.status, 0, result.stderr);
+  const store = await readTodoStore({ repoRoot: root, now: NOW });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === 'unknown-time');
+  const done = member.journal.events.find(({ kind }) => kind === 'done');
+  assert.equal(done.payload.done_mode, 'historical_import');
+  assert.equal(done.payload.completed_at, 'unknown_requires_evidence');
+  assert.equal(member.tasks[0].done_at, null);
+});
+
+test('曖昧・schema違反・duplicate・done_mode矛盾はtyped exit 1でstore bytes不変', async (context) => {
+  const root = await workspace(context);
+  for (const [name, code] of [
+    ['ambiguous.json', 'MIGRATION_UNRESOLVED'],
+    ['schema-violation.json', 'INVALID_TODO_EXTRACTION'],
+    ['duplicate-task.json', 'INVALID_TODO_EXTRACTION'],
+    ['done-mode-contradiction.json', 'INVALID_TODO_EXTRACTION'],
+  ]) {
+    const inputRef = await writeInput(root, name.replace('.json', ''), await fixture(name));
+    const before = await storeDigest(root);
+    const result = runCli(root, inputRef);
+    assert.equal(result.status, 1, `${name}: ${result.stderr}`);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /^\{.*\}\n$/u);
+    const error = JSON.parse(result.stderr);
+    assert.equal(error.schema, 'lattice.cli_error.v2');
+    assert.equal(error.code, code);
+    assert.equal(await storeDigest(root), before, name);
+  }
+});
+
+test('JSON objectのduplicate keyもparse後上書きへ丸めず拒否する', async (context) => {
+  const root = await workspace(context);
+  const inputRef = 'duplicate-key.json';
+  await writeFile(path.join(root, inputRef), await readFile(path.join(FIXTURE_ROOT, inputRef)));
+  const before = await storeDigest(root);
+  const result = runCli(root, inputRef);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  const error = JSON.parse(result.stderr);
+  assert.equal(error.code, 'INVALID_JSON');
+  assert.equal(error.detail.reason, 'duplicate_key');
+  assert.equal(await storeDigest(root), before);
+});

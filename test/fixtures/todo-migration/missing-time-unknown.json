@@ -1,0 +1,39 @@
+{
+  "schema": "lattice.todo_extraction.v1",
+  "project_id": "project-1",
+  "plan_key": "unknown-time",
+  "plan_version": "v1",
+  "actor": { "host": "host-1", "session": "session-1", "agent": "agent-1" },
+  "recorded_at": "2026-07-18T00:00:00.000Z",
+  "tasks": [
+    {
+      "task_id": "U1",
+      "title": "Checked item without a completion timestamp",
+      "lane": "archive",
+      "narrative_ref": null,
+      "compile_binding": null,
+      "disposition": "register_done",
+      "completion": { "done_mode": "historical_import", "completed_at": "unknown_requires_evidence" },
+      "source": {
+        "origin_plan_ref": "plan.md",
+        "origin_line": 2,
+        "source_commit": "1111111111111111111111111111111111111111",
+        "heading_path": ["Archive"],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "checked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": ["commit hash is not completion-time evidence"],
+        "notes": ["No completion timestamp was present at the source line"]
+      }
+    }
+  ],
+  "hard_dependencies": [],
+  "joins": [],
+  "extraction_digest": "b710b54c2d29d05ec1f9428117a58a0fc611acbbf27ec15d66d6c3d735b0e06c"
+}

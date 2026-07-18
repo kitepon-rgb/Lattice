@@ -1,0 +1,13 @@
+{
+  "schema": "lattice.todo_extraction.v1",
+  "project_id": "project-1",
+  "plan_key": "invalid-extra-field",
+  "plan_version": "v1",
+  "actor": { "host": "host-1", "session": "session-1", "agent": "agent-1" },
+  "recorded_at": "2026-07-18T00:00:00.000Z",
+  "tasks": [],
+  "hard_dependencies": [],
+  "joins": [],
+  "markdown": "tool must never accept or interpret this field",
+  "extraction_digest": "e1c8d6112d766cf630188d2fb22d6c978193d87effd0ad444a1a385067f3e022"
+}

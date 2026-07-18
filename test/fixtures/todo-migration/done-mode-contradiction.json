@@ -1,0 +1,20 @@
+{
+  "schema": "lattice.todo_extraction.v1",
+  "project_id": "project-1",
+  "plan_key": "contradiction",
+  "plan_version": "v1",
+  "actor": { "host": "host-1", "session": "session-1", "agent": "agent-1" },
+  "recorded_at": "2026-07-18T00:00:00.000Z",
+  "tasks": [
+    {
+      "task_id": "C1", "title": "Import cannot claim authored completion", "lane": "archive", "narrative_ref": null,
+      "compile_binding": null, "disposition": "register_done",
+      "completion": { "done_mode": "authored", "completed_at": "2026-07-17T12:00:00.000Z" },
+      "source": { "origin_plan_ref": "plan.md", "origin_line": 2, "source_commit": "1111111111111111111111111111111111111111", "heading_path": [], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "checked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": [], "notes": [] }
+    }
+  ],
+  "hard_dependencies": [],
+  "joins": [],
+  "extraction_digest": "39c09a185e2d34a34d9f02ab46fe6331be1480667e1d778dabdbc84c2fc42bee"
+}

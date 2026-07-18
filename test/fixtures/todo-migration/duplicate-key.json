@@ -1,0 +1,13 @@
+{
+  "schema": "lattice.todo_extraction.v1",
+  "project_id": "project-1",
+  "plan_key": "first",
+  "plan_key": "second",
+  "plan_version": "v1",
+  "actor": { "host": "host-1", "session": "session-1", "agent": "agent-1" },
+  "recorded_at": "2026-07-18T00:00:00.000Z",
+  "tasks": [],
+  "hard_dependencies": [],
+  "joins": [],
+  "extraction_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+}

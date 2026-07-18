@@ -4,6 +4,7 @@ import {
   lstat, mkdir, open, readFile, realpath, rename, rm,
 } from 'node:fs/promises';
 import path from 'node:path';
+import { parseTree } from 'jsonc-parser';
 
 import {
   digestTodoArtifact,
@@ -22,9 +23,14 @@ import {
   readTodoStore,
   rebuildTodoSnapshot,
 } from './todo-store.mjs';
+import {
+  appendTodoExtraction,
+  validateTodoExtraction,
+} from './todo-migration.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_REF = '.lattice/generated/gantt.html';
+const MAX_MIGRATION_INPUT_BYTES = 8_388_608;
 
 function usageFailure(stderr, argv) {
   const received = argv.length === 0 ? '(none)' : argv.join(' ').replace(/[\r\n]/gu, ' ');
@@ -81,6 +87,87 @@ function mergedTopology(store) {
 
 function within(root, candidate) {
   return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
+function hasDuplicateJsonKey(node) {
+  if (node?.type === 'object') {
+    const keys = new Set();
+    for (const property of node.children ?? []) {
+      const [key, value] = property.children ?? [];
+      if (keys.has(key?.value) || hasDuplicateJsonKey(value)) return true;
+      keys.add(key?.value);
+    }
+  } else if (node?.type === 'array') {
+    return (node.children ?? []).some(hasDuplicateJsonKey);
+  }
+  return false;
+}
+
+async function readMigrationInput(repoRoot, inputRef) {
+  const canonicalRoot = await realpath(repoRoot);
+  const absolute = path.resolve(canonicalRoot, inputRef);
+  if (!within(canonicalRoot, absolute) || absolute === canonicalRoot) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo', undefined, { input_ref: inputRef });
+  }
+  let stats;
+  try { stats = await lstat(absolute); } catch {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_missing', undefined, { input_ref: inputRef });
+  }
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'unsafe_input_path', undefined, { input_ref: inputRef });
+  }
+  const resolved = await realpath(absolute);
+  if (resolved !== absolute || !within(canonicalRoot, resolved)) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_alias_or_escape', undefined, { input_ref: inputRef });
+  }
+  if (stats.size > MAX_MIGRATION_INPUT_BYTES) {
+    throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
+  }
+  const bytes = await readFile(resolved);
+  if (bytes.length > MAX_MIGRATION_INPUT_BYTES) {
+    throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
+  }
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch {
+    throw new TodoStoreError('INVALID_JSON', 'invalid_utf8');
+  }
+  const parseErrors = [];
+  const tree = parseTree(text, parseErrors, { allowTrailingComma: false, disallowComments: true });
+  if (parseErrors.length > 0 || tree === undefined) {
+    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
+  }
+  if (hasDuplicateJsonKey(tree)) throw new TodoStoreError('INVALID_JSON', 'duplicate_key');
+  let extraction;
+  try { extraction = JSON.parse(text); } catch {
+    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
+  }
+  if (!validateTodoExtraction(extraction)) {
+    throw new TodoStoreError('INVALID_TODO_EXTRACTION', 'schema_invalid');
+  }
+  return extraction;
+}
+
+async function migrate({ repoRoot, inputRef }) {
+  const extraction = await readMigrationInput(repoRoot, inputRef);
+  const imported = await appendTodoExtraction({ repoRoot, extraction });
+  const registered = extraction.tasks.filter(({ disposition }) => disposition.startsWith('register_'));
+  const result = {
+    schema: 'lattice.todo_migrate_result.v1',
+    project_id: imported.plan.project_id,
+    plan_key: imported.plan.plan_key,
+    plan_version: imported.plan.plan_version,
+    extraction_digest: extraction.extraction_digest,
+    imported_task_count: registered.length,
+    completed_task_count: extraction.tasks.filter(({ disposition }) => disposition === 'register_done').length,
+    plan_ref: imported.descriptor.plan_ref,
+    journal_ref: imported.descriptor.journal_ref,
+    snapshot_ref: imported.descriptor.snapshot_ref,
+    topology_digest: imported.plan.topology_digest,
+    journal_head_digest: imported.events.at(-1).event_digest,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
 }
 
 async function readNarrative(repoRoot, ref) {
@@ -298,6 +385,9 @@ export async function runTodoCli({ argv, cwd, stdout, stderr }) {
   } else if (argv.length === 3 && argv[0] === 'gantt' && argv[1] === '--out'
     && isTodoRef(argv[2])) {
     action = (repoRoot) => gantt({ repoRoot, outputRef: argv[2] });
+  } else if (argv.length === 3 && argv[0] === 'migrate' && argv[1] === '--input'
+    && isTodoRef(argv[2])) {
+    action = (repoRoot) => migrate({ repoRoot, inputRef: argv[2] });
   }
   if (action === null) return usageFailure(stderr, argv);
 

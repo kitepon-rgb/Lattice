@@ -1,0 +1,221 @@
+import {
+  TODO_LIMITS,
+  exactRecord,
+  isStrictTodoTimestamp,
+  isTodoDigest,
+  isTodoIdentifier,
+  isTodoRef,
+  todoSelfDigest,
+} from './todo-contracts.mjs';
+import {
+  TodoStoreError,
+  appendImportedPlan,
+  createTodoStoreWriter,
+} from './todo-store.mjs';
+
+export const TODO_EXTRACTION_SCHEMA = 'lattice.todo_extraction.v1';
+
+const DISPOSITIONS = new Set([
+  'register_pending',
+  'register_done',
+  'exclude_superseded',
+  'exclude_compatibility_record',
+  'unknown_requires_evidence',
+]);
+const CHECKBOX_STATES = new Set(['checked', 'unchecked', 'absent', 'ambiguous']);
+const COMMIT_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+function boundedText(value, maximumBytes = 16_384) {
+  return typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= maximumBytes;
+}
+
+function nullableText(value) {
+  return value === null || boundedText(value);
+}
+
+function actor(value) {
+  return exactRecord(value, ['host', 'session', 'agent'])
+    && [value.host, value.session, value.agent].every(isTodoIdentifier);
+}
+
+function nodeRef(value) {
+  return (exactRecord(value, ['project_id', 'plan_key', 'task_id'])
+    || exactRecord(value, ['project_id', 'plan_key', 'task_id', 'expected_topology_digest']))
+    && isTodoIdentifier(value.project_id) && isTodoIdentifier(value.plan_key)
+    && isTodoIdentifier(value.task_id)
+    && (value.expected_topology_digest === undefined || isTodoDigest(value.expected_topology_digest));
+}
+
+function refKey(value) {
+  return `${value.project_id}\0${value.plan_key}\0${value.task_id}`;
+}
+
+function sortedStrictly(values, key = (value) => value) {
+  return values.every((value, index) => index === 0 || key(values[index - 1]) < key(value));
+}
+
+function sourceLocation(value) {
+  return exactRecord(value, [
+    'origin_plan_ref', 'origin_line', 'source_commit', 'heading_path', 'markdown_depth',
+    'parent_task_id', 'checkbox_state',
+  ]) && isTodoRef(value.origin_plan_ref) && Number.isSafeInteger(value.origin_line) && value.origin_line >= 1
+    && COMMIT_OID.test(value.source_commit)
+    && Array.isArray(value.heading_path) && value.heading_path.length <= 32
+    && value.heading_path.every((part) => boundedText(part, 1_024))
+    && Number.isSafeInteger(value.markdown_depth) && value.markdown_depth >= 0 && value.markdown_depth <= 64
+    && (value.parent_task_id === null || isTodoIdentifier(value.parent_task_id))
+    && CHECKBOX_STATES.has(value.checkbox_state);
+}
+
+function migrationContext(value) {
+  return exactRecord(value, [
+    'external_canonical_ref', 'carry_over_ref', 'h_required', 'condition', 'evidence_refs', 'notes',
+  ]) && nullableText(value.external_canonical_ref) && nullableText(value.carry_over_ref)
+    && typeof value.h_required === 'boolean' && nullableText(value.condition)
+    && Array.isArray(value.evidence_refs) && value.evidence_refs.length <= 64
+    && value.evidence_refs.every((entry) => boundedText(entry, 4_096))
+    && Array.isArray(value.notes) && value.notes.length <= 64
+    && value.notes.every((entry) => boundedText(entry, 4_096));
+}
+
+function completion(value) {
+  return exactRecord(value, ['done_mode', 'completed_at'])
+    && value.done_mode === 'historical_import'
+    && (value.completed_at === 'unknown_requires_evidence' || isStrictTodoTimestamp(value.completed_at));
+}
+
+function extractionTask(value) {
+  if (!exactRecord(value, [
+    'task_id', 'title', 'lane', 'narrative_ref', 'compile_binding', 'disposition',
+    'completion', 'source', 'migration_context',
+  ]) || !isTodoIdentifier(value.task_id) || !boundedText(value.title)
+    || !isTodoIdentifier(value.lane) || (value.narrative_ref !== null && !isTodoRef(value.narrative_ref))
+    || value.compile_binding !== null || !DISPOSITIONS.has(value.disposition)
+    || !sourceLocation(value.source) || !migrationContext(value.migration_context)) return false;
+  return value.disposition === 'register_done' ? completion(value.completion) : value.completion === null;
+}
+
+function validateEdges(value) {
+  return Array.isArray(value) && value.length <= TODO_LIMITS.edgesPerPlan
+    && value.every((edge) => exactRecord(edge, ['from', 'to']) && nodeRef(edge.from) && nodeRef(edge.to))
+    && sortedStrictly(value, (edge) => `${refKey(edge.from)}\0${refKey(edge.to)}`);
+}
+
+function validateJoins(value) {
+  return Array.isArray(value) && value.length <= TODO_LIMITS.joinsPerPlan
+    && value.every((join) => exactRecord(join, ['id', 'after', 'before'])
+      && isTodoIdentifier(join.id) && Array.isArray(join.after) && join.after.length > 0
+      && join.after.length <= TODO_LIMITS.tasksPerPlan && join.after.every(nodeRef)
+      && sortedStrictly(join.after, refKey) && nodeRef(join.before))
+    && sortedStrictly(value, (join) => join.id);
+}
+
+function registeredTaskIds(value) {
+  return new Set(value.tasks
+    .filter(({ disposition }) => disposition === 'register_pending' || disposition === 'register_done')
+    .map(({ task_id }) => task_id));
+}
+
+function localRefsResolve(value) {
+  const registered = registeredTaskIds(value);
+  const local = (ref) => ref.project_id !== value.project_id || ref.plan_key !== value.plan_key
+    || registered.has(ref.task_id);
+  return value.hard_dependencies.every((edge) => local(edge.from) && local(edge.to))
+    && value.joins.every((join) => local(join.before) && join.after.every(local));
+}
+
+/** Exact, bounded validation for the AI-authored G4 intermediate artifact. */
+export function validateTodoExtraction(value) {
+  try {
+    if (!exactRecord(value, [
+      'schema', 'project_id', 'plan_key', 'plan_version', 'actor', 'recorded_at',
+      'tasks', 'hard_dependencies', 'joins', 'extraction_digest',
+    ]) || value.schema !== TODO_EXTRACTION_SCHEMA || !isTodoIdentifier(value.project_id)
+      || !isTodoIdentifier(value.plan_key) || !isTodoIdentifier(value.plan_version)
+      || !actor(value.actor) || !isStrictTodoTimestamp(value.recorded_at)
+      || !Array.isArray(value.tasks) || value.tasks.length === 0
+      || value.tasks.length > TODO_LIMITS.tasksPerPlan || !value.tasks.every(extractionTask)
+      || !sortedStrictly(value.tasks, (task) => task.task_id)
+      || new Set(value.tasks.map(({ task_id }) => task_id)).size !== value.tasks.length
+      || !validateEdges(value.hard_dependencies) || !validateJoins(value.joins)
+      || !isTodoDigest(value.extraction_digest)
+      || value.extraction_digest !== todoSelfDigest(value, 'extraction_digest')) return false;
+
+    const taskIds = new Set(value.tasks.map(({ task_id }) => task_id));
+    if (value.tasks.some((task) => task.source.parent_task_id === task.task_id
+      || (task.source.parent_task_id !== null && !taskIds.has(task.source.parent_task_id)))) return false;
+    return localRefsResolve(value);
+  } catch {
+    return false;
+  }
+}
+
+export function todoExtractionImportSource(task) {
+  return {
+    schema: 'lattice.todo_import_source.v1',
+    origin_plan_ref: task.source.origin_plan_ref,
+    origin_line: task.source.origin_line,
+    source_commit: task.source.source_commit,
+  };
+}
+
+/**
+ * Translate an already-extracted artifact into appendImportedPlan input.
+ * No Markdown is read or interpreted here. Unresolved records stop the whole
+ * transaction so the owner can adjudicate the JSON and rerun the same command.
+ */
+export function compileTodoExtraction(value, repoRoot) {
+  if (!validateTodoExtraction(value)) {
+    throw new TodoStoreError('INVALID_TODO_EXTRACTION', 'schema_invalid');
+  }
+  const unresolved = value.tasks
+    .filter(({ disposition }) => disposition === 'unknown_requires_evidence')
+    .map(({ task_id }) => task_id);
+  if (unresolved.length > 0) {
+    throw new TodoStoreError('MIGRATION_UNRESOLVED', 'unknown_requires_evidence', undefined, {
+      task_ids: unresolved,
+    });
+  }
+
+  const registered = value.tasks.filter(({ disposition }) => disposition.startsWith('register_'));
+  if (registered.length === 0) {
+    throw new TodoStoreError('MIGRATION_EMPTY', 'no_registered_tasks');
+  }
+  return {
+    repoRoot,
+    writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    plan: {
+      schema: 'lattice.todo_plan.v1',
+      project_id: value.project_id,
+      plan_key: value.plan_key,
+      plan_version: value.plan_version,
+      predecessor_plan_digest: null,
+      tasks: registered.map((task) => ({
+        task_id: task.task_id,
+        title: task.title,
+        lane: task.lane,
+        narrative_ref: task.narrative_ref,
+        compile_binding: null,
+      })),
+      hard_dependencies: value.hard_dependencies,
+      joins: value.joins,
+    },
+    genesis: {
+      actor: value.actor,
+      recorded_at: value.recorded_at,
+      provenance: null,
+    },
+    completedTasks: registered
+      .filter(({ disposition }) => disposition === 'register_done')
+      .map((task) => ({
+        task_id: task.task_id,
+        completed_at: task.completion.completed_at,
+        evidence: todoExtractionImportSource(task),
+      })),
+  };
+}
+
+export async function appendTodoExtraction({ repoRoot, extraction }) {
+  const request = compileTodoExtraction(extraction, repoRoot);
+  return appendImportedPlan(request);
+}

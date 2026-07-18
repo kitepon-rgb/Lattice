@@ -1,0 +1,70 @@
+{
+  "schema": "lattice.todo_extraction.v1",
+  "project_id": "project-1",
+  "plan_key": "archive",
+  "plan_version": "v1",
+  "actor": { "host": "host-1", "session": "session-1", "agent": "agent-1" },
+  "recorded_at": "2026-07-18T00:00:00.000Z",
+  "tasks": [
+    {
+      "task_id": "A1",
+      "title": "Completed historical task",
+      "lane": "archive",
+      "narrative_ref": null,
+      "compile_binding": null,
+      "disposition": "register_done",
+      "completion": { "done_mode": "historical_import", "completed_at": "2026-07-17T12:00:00.000Z" },
+      "source": {
+        "origin_plan_ref": "plan.md",
+        "origin_line": 2,
+        "source_commit": "1111111111111111111111111111111111111111",
+        "heading_path": ["Archive"],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "checked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": ["plan.md:2"],
+        "notes": []
+      }
+    },
+    {
+      "task_id": "A2",
+      "title": "Pending historical task",
+      "lane": "archive",
+      "narrative_ref": null,
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "plan.md",
+        "origin_line": 3,
+        "source_commit": "1111111111111111111111111111111111111111",
+        "heading_path": ["Archive"],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": []
+      }
+    }
+  ],
+  "hard_dependencies": [
+    {
+      "from": { "project_id": "project-1", "plan_key": "archive", "task_id": "A1" },
+      "to": { "project_id": "project-1", "plan_key": "archive", "task_id": "A2" }
+    }
+  ],
+  "joins": [],
+  "extraction_digest": "76888279bd12c79ff8358d8d545fbfca3b9b4e1e32c7015cfc4777b836144ac4"
+}

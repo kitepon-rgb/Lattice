@@ -1,0 +1,65 @@
+{
+  "schema": "lattice.todo_extraction.v1",
+  "project_id": "project-1",
+  "plan_key": "ambiguous",
+  "plan_version": "v1",
+  "actor": { "host": "host-1", "session": "session-1", "agent": "agent-1" },
+  "recorded_at": "2026-07-18T00:00:00.000Z",
+  "tasks": [
+    {
+      "task_id": "Q1",
+      "title": "Checked parent with a remaining canary",
+      "lane": "archive",
+      "narrative_ref": null,
+      "compile_binding": null,
+      "disposition": "unknown_requires_evidence",
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "plan.md",
+        "origin_line": 2,
+        "source_commit": "1111111111111111111111111111111111111111",
+        "heading_path": ["Archive"],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "ambiguous"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": true,
+        "condition": "Owner must decide whether the remaining canary is part of this task",
+        "evidence_refs": ["plan.md:2"],
+        "notes": []
+      }
+    },
+    {
+      "task_id": "Q2",
+      "title": "Unambiguous pending item keeps the plan non-empty after adjudication",
+      "lane": "archive",
+      "narrative_ref": null,
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "plan.md",
+        "origin_line": 3,
+        "source_commit": "1111111111111111111111111111111111111111",
+        "heading_path": ["Archive"],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": []
+      }
+    }
+  ],
+  "hard_dependencies": [],
+  "joins": [],
+  "extraction_digest": "6e5a9a3ad81bbe111c75f616388c2847593b75d13ba3adbc3e39edabac40ae75"
+}

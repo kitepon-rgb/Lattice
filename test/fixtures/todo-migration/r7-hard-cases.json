@@ -1,0 +1,117 @@
+{
+  "schema": "lattice.todo_extraction.v1",
+  "project_id": "dotagents",
+  "plan_key": "r7-hard-cases",
+  "plan_version": "v1",
+  "actor": { "host": "host-1", "session": "session-1", "agent": "agent-1" },
+  "recorded_at": "2026-07-18T00:00:00.000Z",
+  "tasks": [
+    {
+      "task_id": "R7-01", "title": "Numbered checkbox", "lane": "migration", "narrative_ref": "docs/plan_bughub-factory-integration.md", "compile_binding": null, "disposition": "register_pending", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_bughub-factory-integration.md", "origin_line": 431, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Wave 0", "Windows"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": ["0b. [ ]"], "notes": ["Numbered checkbox; not a bullet-only record"] }
+    },
+    {
+      "task_id": "R7-02", "title": "Checked parent with remaining canary", "lane": "migration", "narrative_ref": "docs/plan_bughub-factory-integration.md", "compile_binding": null, "disposition": "unknown_requires_evidence", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_bughub-factory-integration.md", "origin_line": 473, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Wave 9", "Canary"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "ambiguous" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": true, "condition": "Mac restart canary remains", "evidence_refs": ["docs/plan_bughub-factory-integration.md:473"], "notes": ["Checked marker alone cannot decide completion"] }
+    },
+    {
+      "task_id": "R7-03", "title": "Partially complete parent", "lane": "migration", "narrative_ref": "docs/plan_bughub-factory-integration.md", "compile_binding": null, "disposition": "unknown_requires_evidence", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_bughub-factory-integration.md", "origin_line": 452, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Wave 9", "Host apply"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": true, "condition": "Implementation child is done but host acceptance child is pending", "evidence_refs": ["docs/plan_bughub-factory-integration.md:453", "docs/plan_bughub-factory-integration.md:454"], "notes": ["Mixed child status must not be collapsed into parent status"] }
+    },
+    {
+      "task_id": "R7-04", "title": "Completed record with carry-over", "lane": "migration", "narrative_ref": "docs/plan_bughub-factory-integration.md", "compile_binding": null, "disposition": "register_done", "completion": { "done_mode": "historical_import", "completed_at": "unknown_requires_evidence" },
+      "source": { "origin_plan_ref": "docs/plan_bughub-factory-integration.md", "origin_line": 482, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Wave 9", "Pi5"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "checked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": "H後のPi5再観測", "h_required": true, "condition": null, "evidence_refs": ["docs/plan_bughub-factory-integration.md:482"], "notes": ["Residual work has a distinct acceptance target"] }
+    },
+    {
+      "task_id": "R7-05", "title": "Host approval pending", "lane": "migration", "narrative_ref": "docs/plan_bughub-factory-integration.md", "compile_binding": null, "disposition": "register_pending", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_bughub-factory-integration.md", "origin_line": 454, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Wave 9", "Host apply"], "markdown_depth": 1, "parent_task_id": "R7-03", "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": true, "condition": "H approval required before real host apply", "evidence_refs": [], "notes": ["Implementation and host application stay separate"] }
+    },
+    {
+      "task_id": "R7-06", "title": "Superseded by external Lattice plan", "lane": "migration", "narrative_ref": "docs/plan_lattice-factory-integration.md", "compile_binding": null, "disposition": "exclude_superseded", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_lattice-factory-integration.md", "origin_line": 267, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Lattice", "SUPERSEDED"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "checked" },
+      "migration_context": { "external_canonical_ref": "Lattice G1-G5 active plan", "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": ["docs/plan_lattice-factory-integration.md:278"], "notes": ["Do not double-register the old TODO"] }
+    },
+    {
+      "task_id": "R7-07", "title": "Conditional phase", "lane": "migration", "narrative_ref": "docs/plan_lattice-factory-integration.md", "compile_binding": null, "disposition": "unknown_requires_evidence", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_lattice-factory-integration.md", "origin_line": 333, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["L6", "Conditional"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": "support -> L6; refute -> freeze L6 and later", "evidence_refs": ["docs/plan_lattice-factory-integration.md:357", "docs/plan_lattice-factory-integration.md:361"], "notes": ["Not representable as an unconditional order edge"] }
+    },
+    {
+      "task_id": "R7-08", "title": "Multi-repo and multi-Control acceptance", "lane": "migration", "narrative_ref": "docs/plan_observer-factory-integration.md", "compile_binding": null, "disposition": "unknown_requires_evidence", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_observer-factory-integration.md", "origin_line": 104, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Phase 2", "Acceptance"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "ambiguous" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": true, "condition": "All repo and Control receipts plus parent acceptance are required", "evidence_refs": ["docs/plan_observer-factory-integration.md:109"], "notes": ["Cannot be normalized into one repo receipt"] }
+    },
+    {
+      "task_id": "R7-09", "title": "Checkbox-less completed work", "lane": "migration", "narrative_ref": "docs/queue_memory-promotion.md", "compile_binding": null, "disposition": "register_done", "completion": { "done_mode": "historical_import", "completed_at": "unknown_requires_evidence" },
+      "source": { "origin_plan_ref": "docs/queue_memory-promotion.md", "origin_line": 17, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Consumed"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "absent" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": ["docs/queue_memory-promotion.md:17"], "notes": ["Historical work exists without a checkbox"] }
+    },
+    {
+      "task_id": "R7-10", "title": "Unchecked item with observation date", "lane": "migration", "narrative_ref": "docs/queue_memory-promotion.md", "compile_binding": null, "disposition": "register_pending", "completion": null,
+      "source": { "origin_plan_ref": "docs/queue_memory-promotion.md", "origin_line": 44, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Queue"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": ["observation date at source line"], "notes": ["The date is not a completion timestamp"] }
+    },
+    {
+      "task_id": "R7-11", "title": "Checked work with later H gate", "lane": "migration", "narrative_ref": "docs/plan_factory-master.md", "compile_binding": null, "disposition": "unknown_requires_evidence", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_factory-master.md", "origin_line": 412, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Lane R", "Live host"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "checked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": true, "condition": "Real model request, credentials, and live host gate remain", "evidence_refs": ["docs/plan_factory-master.md:414"], "notes": ["Checked implementation does not imply host acceptance"] }
+    },
+    {
+      "task_id": "R7-12", "title": "Cross-document receipt aggregation", "lane": "migration", "narrative_ref": "docs/plan_factory-master.md", "compile_binding": null, "disposition": "unknown_requires_evidence", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_factory-master.md", "origin_line": 578, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Join", "Host receipt"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "ambiguous" },
+      "migration_context": { "external_canonical_ref": "docs/plan_observer-factory-integration.md host receipt", "carry_over_ref": null, "h_required": true, "condition": "Close only with the same host receipt in the linked plan", "evidence_refs": ["docs/plan_factory-master.md:594"], "notes": ["Cross-document identity needs owner adjudication"] }
+    },
+    {
+      "task_id": "R7-13", "title": "Compatibility placeholder", "lane": "migration", "narrative_ref": "docs/plan_elastic-orchestrator.md", "compile_binding": null, "disposition": "exclude_compatibility_record", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_elastic-orchestrator.md", "origin_line": 3, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Compatibility"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "absent" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": ["docs/plan_elastic-orchestrator.md:7"], "notes": ["Document declares that it is not a second plan authority"] }
+    },
+    {
+      "task_id": "R7-14", "title": "Arrow is an operation sequence", "lane": "migration", "narrative_ref": "docs/queue_memory-promotion.md", "compile_binding": null, "disposition": "register_pending", "completion": null,
+      "source": { "origin_plan_ref": "docs/queue_memory-promotion.md", "origin_line": 5, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Procedure"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "absent" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": [], "notes": ["Do not turn every arrow into a dependency"] }
+    },
+    {
+      "task_id": "R7-15", "title": "Prose prerequisites", "lane": "migration", "narrative_ref": "docs/plan_bughub-factory-integration.md", "compile_binding": null, "disposition": "unknown_requires_evidence", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_bughub-factory-integration.md", "origin_line": 463, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Wave 9", "Prerequisites"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": "post-update gate fail 3 and other prose blockers must be adjudicated", "evidence_refs": ["post-update gate fail 3"], "notes": ["Keep unchecked until every prerequisite is resolved"] }
+    },
+    {
+      "task_id": "R7-16", "title": "Fail-closed prose gate", "lane": "migration", "narrative_ref": "docs/plan_observer-factory-integration.md", "compile_binding": null, "disposition": "register_pending", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_observer-factory-integration.md", "origin_line": 169, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Phase 3", "Gate"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": "Return to blocked when verification is absent", "evidence_refs": [], "notes": ["Gate semantics are preserved; checkbox hierarchy does not reconstruct them"] }
+    },
+    {
+      "task_id": "R7-17", "title": "ASCII DAG with parallel and join semantics", "lane": "migration", "narrative_ref": "docs/plan_observer-factory-integration.md", "compile_binding": null, "disposition": "register_pending", "completion": null,
+      "source": { "origin_plan_ref": "docs/plan_observer-factory-integration.md", "origin_line": 51, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Phase topology"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "absent" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": ["docs/plan_observer-factory-integration.md:70"], "notes": ["Explicit edge and join below are AI-adjudicated; same-writer exclusion remains a note"] }
+    },
+    {
+      "task_id": "R7-18", "title": "Child artifact has a distinct acceptance grain", "lane": "migration", "narrative_ref": "docs/plan_bughub-factory-integration.md", "compile_binding": null, "disposition": "register_done", "completion": { "done_mode": "historical_import", "completed_at": "unknown_requires_evidence" },
+      "source": { "origin_plan_ref": "docs/plan_bughub-factory-integration.md", "origin_line": 303, "source_commit": "1111111111111111111111111111111111111111", "heading_path": ["Wave 6", "Acceptance"], "markdown_depth": 1, "parent_task_id": "R7-02", "checkbox_state": "checked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": ["docs/plan_bughub-factory-integration.md:297"], "notes": ["Implementation, receipt, publish, and host verification retain distinct artifact meaning"] }
+    }
+  ],
+  "hard_dependencies": [
+    {
+      "from": { "project_id": "dotagents", "plan_key": "r7-hard-cases", "task_id": "R7-14" },
+      "to": { "project_id": "dotagents", "plan_key": "r7-hard-cases", "task_id": "R7-17" }
+    }
+  ],
+  "joins": [
+    {
+      "id": "r7-observer-join",
+      "after": [
+        { "project_id": "dotagents", "plan_key": "r7-hard-cases", "task_id": "R7-14" },
+        { "project_id": "dotagents", "plan_key": "r7-hard-cases", "task_id": "R7-17" }
+      ],
+      "before": { "project_id": "dotagents", "plan_key": "r7-hard-cases", "task_id": "R7-18" }
+    }
+  ],
+  "extraction_digest": "948c40dcfa03c9059425564314e23d4cf802b899bd69df553eb4c161de3613bf"
+}

@@ -1,0 +1,25 @@
+{
+  "schema": "lattice.todo_extraction.v1",
+  "project_id": "project-1",
+  "plan_key": "duplicate",
+  "plan_version": "v1",
+  "actor": { "host": "host-1", "session": "session-1", "agent": "agent-1" },
+  "recorded_at": "2026-07-18T00:00:00.000Z",
+  "tasks": [
+    {
+      "task_id": "D1", "title": "First", "lane": "archive", "narrative_ref": null,
+      "compile_binding": null, "disposition": "register_pending", "completion": null,
+      "source": { "origin_plan_ref": "plan.md", "origin_line": 2, "source_commit": "1111111111111111111111111111111111111111", "heading_path": [], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": [], "notes": [] }
+    },
+    {
+      "task_id": "D1", "title": "Second", "lane": "archive", "narrative_ref": null,
+      "compile_binding": null, "disposition": "register_pending", "completion": null,
+      "source": { "origin_plan_ref": "plan.md", "origin_line": 3, "source_commit": "1111111111111111111111111111111111111111", "heading_path": [], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": [], "notes": [] }
+    }
+  ],
+  "hard_dependencies": [],
+  "joins": [],
+  "extraction_digest": "6b390522d662e9ef6153f84c37fc9f2ce55196c02219f079f1ee403890d5c17e"
+}
