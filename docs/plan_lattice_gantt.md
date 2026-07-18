@@ -27,6 +27,20 @@ ToDoのDAGを所有しており、**足りないのはcritical path projection�
     `renderStandaloneHTML`（inline style・data属性＋最小scriptでhover/click詳細とstatus filter）。
     status色: pending=#94a3b8 / in-progress=#3b82f6 / done=#16a34a / blocked=#dc2626・critical赤太縁。
 
+## 1.5 オーナー裁定（2026-07-18・authoring方式）
+
+1. **Markdownを常設的に解釈してガント化する方式は採らない**。Claude/Codexの
+   ToDo書式に統一性がなく、柔軟解釈は品質欠陥の再生産になる。
+2. **既存planのMarkdown取り込みは一回きりの移行変換**とする。変換で順序・依存が
+   曖昧な項目は推測で埋めず、`unknown_requires_evidence`と同思想でfail closedし、
+   オーナー／親の裁定で確定してから登録する。
+3. **定常はToDoを最初から構造化データとして書く**。ただしAIにJSONを手書きさせず、
+   **CLI経由でのみ書ける**契約にする（例: `lattice todo add --after <id>` 型）。
+   順序違反・依存欠落・evidenceなしdoneはツールが書込時に拒否する。
+4. **正本の二層構造**: 工程（task・依存・status・evidence ref）は構造化store、
+   散文（背景・裁定・非目標・罠）はMarkdownのままnodeからリンク。既存planの
+   checkbox列は移行完了後に廃止し、mdは散文専用へ痩せる。
+
 ## 2. 設計（実装契約の骨子。詳細はG1のADRで裁定）
 
 - **新公開面**: `lattice plan gantt`（名称はADRで確定）。入力=compile済み`plan_graph.v1`
@@ -55,9 +69,9 @@ ToDoのDAGを所有しており、**足りないのはcritical path projection�
 - [ ] 自己完結検証fixture（出力HTMLに`http(s)://`参照ゼロ・単一file・ブラウザ表示smoke）
 - [ ] focused/related gate green
 
-### G4 — dotagents消費者接続と受入（dotagents側・親queue 23の受入条件）
-- [ ] dotagents ToDo md（master plan queue・子計画チェック）→`plan_input.v1`写像adapterの範囲裁定
-      （md直読をLattice本体に入れない。dotagents側adapterで構造化して渡す）
+### G4 — 一回きり移行変換＋authoring CLI契約（dotagents側受入・§1.5裁定に従う）
+- [ ] 既存plan mdの**一回きり移行変換**（AI変換＋曖昧項目はunknownでfail closed→裁定後登録。常設のmd解釈pipelineは作らない）
+- [ ] **authoring CLI契約の設計**: ToDo追加・遷移（start/done/block）をCLI経由に限定し、順序違反（`--out-of-order --reason`なし）・依存欠落・evidenceなしdoneを書込時拒否する
 - [ ] **受入: dotagents master planの実workloadをガント表示し、クリティカルパスと現在地が
       ブラウザで一目で判ること（オーナー目視）**
 - [ ] status遷移enforcement（順序違反fail closed・evidence必須done）の設計を別waveとして起票
