@@ -215,22 +215,26 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
     をmain上で親再実行。**G2完了**——次はG3（レンダラ。R5設計調書済み・Markdown AST依存の裁定が着手時判断）
 
 ### G3 — SVG/HTMLレンダラ実装（A・左右ペイン＋散文埋込・全plan統合・started/done両時刻表示を含む）
-- [ ] §1スケッチを基にした純文字列構築レンダラ＋`lattice todo gantt` CLI配線
+- [x] §1スケッチを基にした純文字列構築レンダラ＋`lattice todo gantt` CLI配線
       （ADR 0044 surface規約・安定パス出力＋repo相対`output_ref`のstdout result JSON）。
       レイアウトはlane優先＋交差低減（barycentric等）・既定表示はcritical＋選択node入出辺の
       段階開示・folding（§1.7-3⑧）
-- [ ] Markdown埋込はAST→allow-list rendererで実装（raw HTML/任意URL無効化・script JSONは
+- [x] Markdown埋込はAST→allow-list rendererで実装（raw HTML/任意URL無効化・script JSONは
       Unicode escape・`innerHTML`不使用・節byte上限）。XSS fixture（`javascript:`・`//host`・
       `data:`・`</script>`脱出・SVG event属性→全拒否）
-- [ ] 右ペインの3状態実装（§1.6-2: 既定=全散文一覧／選択=該当散文／最上部「全文表示へ戻る」
+- [x] 右ペインの3状態実装（§1.6-2: 既定=全散文一覧／選択=該当散文／最上部「全文表示へ戻る」
       ボタン。全文一覧は表示切替のみで再生成しない＝埋込済み節の表示制御で実現）
-- [ ] 自己完結検証fixture（network参照の**allow-list検査**〈全URL-bearing属性・CSS・
+- [x] 自己完結検証fixture（network参照の**allow-list検査**〈全URL-bearing属性・CSS・
       protocol-relative含む〉・単一file・meta CSP `default-src 'none'`基調）＋
       file://直開きsmoke（開発者確認。オーナー目視はG4）
-- [ ] スケール・性能fixture（上限値ちょうどtask 2,000/edge 8,000の存在証明＋境界値N-1/N/N+1・
+- [x] スケール・性能fixture（上限値ちょうどtask 2,000/edge 8,000の存在証明＋境界値N-1/N/N+1・
       長鎖・幅広層・完全二部層・高fan-out・Unicode膨張・超過時`TODO_SCALE_EXCEEDED`）＋
       keyboard/ARIA最低線（イベント委譲controller・inline handler禁止）
-- [ ] focused/related gate green
+- [x] focused/related gate green
+  - G3全項目 2026-07-18完了（`72108ae`〜`1cc255a`）: layoutエンジン（WB）・Markdown renderer
+    unified/remark-parse/remark-gfm採用（WA・統括裁定）・SVG/HTML組立＋CLI（WC）。main gate 91件green・
+    実store→CLI→HTML生成→file://直開きの開発者smoke通過（構造検査9点PASS）。オーナー目視はG4。
+    並列委譲はG2と同じオーナー個別上書き方式（明示ファイル集合の非交差worktree）をG3へ延長適用
 
 ### G4 — 一回きり移行変換＋オーナー受入（dotagents側受入・§1.5裁定に従う）
 
