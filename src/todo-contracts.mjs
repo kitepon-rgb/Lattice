@@ -122,6 +122,13 @@ function evidence(value) {
     && nullableDigest(value.anchor_digest);
 }
 
+export function validateTodoImportSource(value) {
+  return exactRecord(value, ['schema', 'origin_plan_ref', 'origin_line', 'source_commit'])
+    && value.schema === 'lattice.todo_import_source.v1' && isTodoRef(value.origin_plan_ref)
+    && Number.isSafeInteger(value.origin_line) && value.origin_line >= 1
+    && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value.source_commit);
+}
+
 export function validateTodoPlan(value) {
   try {
     if (!exactRecord(value, [
@@ -159,9 +166,12 @@ export function validateEvidenceDescriptor(value) { return evidence(value); }
 
 function validPayload(event) {
   const payload = event.payload;
-  if (event.kind === 'plan_genesis') return exactRecord(payload, [
+  if (event.kind === 'plan_genesis') return (exactRecord(payload, [
     'plan_digest', 'topology_digest', 'predecessor_plan_digest', 'task_migration',
-  ]) && isTodoDigest(payload.plan_digest) && isTodoDigest(payload.topology_digest)
+  ]) || exactRecord(payload, [
+    'plan_digest', 'topology_digest', 'predecessor_plan_digest', 'task_migration', 'historical_import',
+  ])) && (payload.historical_import === undefined || payload.historical_import === true)
+    && isTodoDigest(payload.plan_digest) && isTodoDigest(payload.topology_digest)
     && nullableDigest(payload.predecessor_plan_digest) && Array.isArray(payload.task_migration)
     && payload.task_migration.length <= TODO_LIMITS.tasksPerPlan
     && payload.task_migration.every((entry) => exactRecord(entry, ['from_task_id', 'to_task_id'])
@@ -169,7 +179,20 @@ function validPayload(event) {
   if (event.kind === 'start') return exactRecord(payload, ['override_reason']) && nullableText(payload.override_reason);
   if (event.kind === 'block') return exactRecord(payload, ['reason']) && nullableText(payload.reason) && payload.reason !== null;
   if (event.kind === 'unblock') return exactRecord(payload, []);
-  if (event.kind === 'done') return exactRecord(payload, ['evidence']) && evidence(payload.evidence);
+  if (event.kind === 'done' && payload?.done_mode === 'authored') {
+    return exactRecord(payload, ['done_mode', 'imported', 'evidence'])
+      && payload.imported === false && evidence(payload.evidence);
+  }
+  if (event.kind === 'done' && payload?.done_mode === 'historical_import') {
+    return exactRecord(payload, ['done_mode', 'imported', 'status', 'completed_at', 'evidence'])
+      && payload.imported === true && payload.status === 'done'
+      && (payload.completed_at === 'unknown_requires_evidence' || isStrictTodoTimestamp(payload.completed_at))
+      && validateTodoImportSource(payload.evidence);
+  }
+  if (event.kind === 'done' && payload?.done_mode === 'evidence_promotion') {
+    return exactRecord(payload, ['done_mode', 'imported', 'target_done_digest', 'evidence'])
+      && payload.imported === true && isTodoDigest(payload.target_done_digest) && evidence(payload.evidence);
+  }
   if (event.kind === 'reopen') return exactRecord(payload, ['reason', 'target_done_digest', 'override_reason'])
     && nullableText(payload.reason) && payload.reason !== null && isTodoDigest(payload.target_done_digest)
     && nullableText(payload.override_reason);
@@ -225,11 +248,12 @@ export function validateTodoSnapshot(value) {
       && isTodoDigest(value.journal_head_digest) && Array.isArray(value.tasks)
       && value.tasks.length > 0 && value.tasks.length <= TODO_LIMITS.tasksPerPlan
       && value.tasks.every((entry) => exactRecord(entry, [
-        'task_id', 'status', 'started_at', 'done_at', 'blocked_reason', 'evidence', 'evidence_unverified',
+        'task_id', 'status', 'started_at', 'done_at', 'blocked_reason', 'evidence', 'evidence_unverified', 'imported',
       ]) && isTodoIdentifier(entry.task_id) && ['pending', 'in-progress', 'blocked', 'done'].includes(entry.status)
         && (entry.started_at === null || isStrictTodoTimestamp(entry.started_at))
         && (entry.done_at === null || isStrictTodoTimestamp(entry.done_at)) && nullableText(entry.blocked_reason)
-        && (entry.evidence === null || evidence(entry.evidence)) && typeof entry.evidence_unverified === 'boolean')
+        && (entry.evidence === null || evidence(entry.evidence) || validateTodoImportSource(entry.evidence))
+        && typeof entry.evidence_unverified === 'boolean' && typeof entry.imported === 'boolean')
       && value.tasks.every((entry, index) => index === 0 || value.tasks[index - 1].task_id < entry.task_id)
       && isTodoDigest(value.snapshot_digest) && value.snapshot_digest === todoSelfDigest(value, 'snapshot_digest');
   } catch { return false; }

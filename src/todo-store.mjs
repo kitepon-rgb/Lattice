@@ -13,6 +13,7 @@ import {
   isTodoDigest,
   todoSelfDigest,
   validateEvidenceDescriptor,
+  validateTodoImportSource,
   validateTodoEvent,
   validateTodoManifest,
   validateTodoPlan,
@@ -178,7 +179,8 @@ async function readJournal(repoRoot, journalRef) {
 }
 
 function taskState(taskId) {
-  return { task_id: taskId, status: 'pending', started_at: null, done_at: null, blocked_reason: null, evidence: null, evidence_unverified: false };
+  return { task_id: taskId, status: 'pending', started_at: null, done_at: null, blocked_reason: null,
+    evidence: null, evidence_unverified: false, imported: false };
 }
 
 function localPredecessors(plan, taskId) {
@@ -199,9 +201,11 @@ function localSuccessors(plan, taskId) {
   return plan.tasks.map(({ task_id }) => task_id).filter((candidate) => localPredecessors(plan, candidate).includes(taskId));
 }
 
-function replay(plan, events, { now = new Date(), verifyEvidence } = {}) {
+function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSource } = {}) {
   const states = new Map(plan.tasks.map(({ task_id }) => [task_id, taskState(task_id)]));
   const doneDigest = new Map();
+  const completion = new Map();
+  const importedGenesis = events[0]?.payload.historical_import === true;
   let previousTime = null;
   for (const event of events) {
     if (event.project_id !== plan.project_id || event.plan_key !== plan.plan_key || event.plan_version !== plan.plan_version) {
@@ -232,9 +236,30 @@ function replay(plan, events, { now = new Date(), verifyEvidence } = {}) {
       if (state.status !== 'blocked') fail('STORE_INCONSISTENT', 'invalid_unblock_transition');
       state.status = 'in-progress'; state.blocked_reason = null;
     } else if (event.kind === 'done') {
-      if (state.status !== 'in-progress' || !dependenciesDone) fail('STORE_INCONSISTENT', 'invalid_done_transition');
-      if (verifyEvidence) verifyEvidence(event.payload.evidence);
-      state.status = 'done'; state.done_at = event.recorded_at; state.evidence = event.payload.evidence;
+      if (event.payload.done_mode === 'authored') {
+        if (state.status !== 'in-progress' || !dependenciesDone) fail('STORE_INCONSISTENT', 'invalid_done_transition');
+        if (verifyEvidence) verifyEvidence(event.payload.evidence);
+        state.status = 'done'; state.done_at = event.recorded_at; state.evidence = event.payload.evidence;
+        state.imported = false;
+        completion.set(event.task_id, { mode: 'authored', completed_at: event.recorded_at });
+      } else if (event.payload.done_mode === 'historical_import') {
+        if (!importedGenesis || state.status !== 'pending') fail('STORE_INCONSISTENT', 'invalid_historical_import_transition');
+        if (verifyImportSource) verifyImportSource(event.payload.evidence);
+        state.status = 'done'; state.done_at = event.payload.completed_at === 'unknown_requires_evidence'
+          ? null : event.payload.completed_at;
+        state.evidence = event.payload.evidence; state.imported = true;
+        completion.set(event.task_id, { mode: 'historical_import', completed_at: event.payload.completed_at });
+      } else {
+        const current = completion.get(event.task_id);
+        if (state.status !== 'done' || current?.mode !== 'historical_import'
+          || current.completed_at !== 'unknown_requires_evidence'
+          || doneDigest.get(event.task_id) !== event.payload.target_done_digest) {
+          fail('STORE_INCONSISTENT', 'invalid_evidence_promotion');
+        }
+        if (verifyEvidence) verifyEvidence(event.payload.evidence);
+        state.evidence = event.payload.evidence;
+        completion.set(event.task_id, { mode: 'evidence_promotion', completed_at: current.completed_at });
+      }
       doneDigest.set(event.task_id, event.event_digest);
     } else if (event.kind === 'reopen') {
       if (state.status !== 'done' || doneDigest.get(event.task_id) !== event.payload.target_done_digest) {
@@ -243,6 +268,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence } = {}) {
       const startedSuccessor = localSuccessors(plan, event.task_id).some((id) => states.get(id).status !== 'pending');
       if (startedSuccessor && event.payload.override_reason === null) fail('STORE_INCONSISTENT', 'reopen_has_started_successor');
       state.status = 'in-progress'; state.done_at = null; state.evidence = null;
+      completion.delete(event.task_id);
     }
   }
   return [...states.values()].sort((left, right) => left.task_id < right.task_id ? -1 : left.task_id > right.task_id ? 1 : 0);
@@ -320,6 +346,34 @@ function evidenceVerifier(manifest, repoRoot, hard) {
   };
 }
 
+function importSourceVerifier(repoRoot, hard) {
+  return (descriptor) => {
+    if (!validateTodoImportSource(descriptor)) fail('STORE_INCONSISTENT', 'import_source_descriptor_invalid');
+    try {
+      const commitType = execFileSync('git', ['cat-file', '-t', descriptor.source_commit], {
+        cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      if (commitType !== 'commit') throw new Error('not commit');
+      const objectSpec = `${descriptor.source_commit}:${descriptor.origin_plan_ref}`;
+      const blobType = execFileSync('git', ['cat-file', '-t', objectSpec], {
+        cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      if (blobType !== 'blob') throw new Error('not blob');
+      const blob = execFileSync('git', ['cat-file', 'blob', objectSpec], {
+        cwd: repoRoot, encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: TODO_LIMITS.narrativeSectionBytes + 1,
+      });
+      const lineCount = blob.length === 0 ? 0
+        : blob.reduce((count, byte) => count + (byte === 0x0a ? 1 : 0), blob.at(-1) === 0x0a ? 0 : 1);
+      if (descriptor.origin_line > lineCount) throw new Error('line outside blob');
+      return true;
+    } catch {
+      if (hard) fail('STORE_INCONSISTENT', 'import_source_unverified');
+      return false;
+    }
+  };
+}
+
 export async function readTodoStore(options = {}) {
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
   const manifest = await readArtifact(repoRoot, MANIFEST_REF, {
@@ -339,13 +393,19 @@ export async function readTodoStore(options = {}) {
       fail('STORE_INCONSISTENT', 'manifest_journal_head_mismatch');
     }
     const verifyEvidence = evidenceVerifier(manifest, repoRoot, options.forWrite === true);
+    const verifyImportSource = importSourceVerifier(repoRoot, options.forWrite === true);
     const tasks = replay(plan, journal.events, {
       now: options.now ? new Date(options.now) : new Date(),
       verifyEvidence: options.forWrite === true ? verifyEvidence : undefined,
+      verifyImportSource: options.forWrite === true ? verifyImportSource : undefined,
     });
     const expectedSnapshot = snapshotFor(plan, journal.events, structuredClone(tasks));
     // Read-time evidence failure is annotation, never store rejection.
-    for (const task of tasks) if (task.evidence !== null && !verifyEvidence(task.evidence)) task.evidence_unverified = true;
+    for (const task of tasks) if (task.evidence !== null) {
+      const verified = validateTodoImportSource(task.evidence)
+        ? verifyImportSource(task.evidence) : verifyEvidence(task.evidence);
+      if (!verified) task.evidence_unverified = true;
+    }
     let snapshot = null;
     let snapshotStale = false;
     try {
@@ -383,6 +443,11 @@ async function atomicWrite(absolute, bytes) {
   }
 }
 
+async function fsyncDirectory(absolute) {
+  const directory = await open(absolute, 'r');
+  try { await directory.sync(); } finally { await directory.close(); }
+}
+
 async function withLock(repoRoot, callback) {
   const root = path.join(repoRoot, STORE_ROOT_REF);
   await mkdir(root, { recursive: true });
@@ -407,12 +472,15 @@ export async function rebuildTodoSnapshot(options = {}) {
 
 function nextEvent(input, storeMember) {
   const previous = storeMember.journal.events.at(-1);
+  const payload = input.kind === 'done' && exactRecord(input.payload, ['evidence'])
+    ? { done_mode: 'authored', imported: false, evidence: input.payload.evidence }
+    : input.payload;
   const event = {
     schema: 'lattice.todo_event.v1', project_id: storeMember.plan.project_id,
     plan_key: storeMember.plan.plan_key, plan_version: storeMember.plan.plan_version,
     sequence: previous.sequence + 1, previous_digest: previous.event_digest,
     kind: input.kind, task_id: input.task_id, actor: input.actor, recorded_at: input.recorded_at,
-    provenance: input.provenance ?? null, payload: input.payload, event_digest: '',
+    provenance: input.provenance ?? null, payload, event_digest: '',
   };
   event.event_digest = todoSelfDigest(event, 'event_digest');
   if (!validateTodoEvent(event)) throw new TypeError('todo event input violates lattice.todo_event.v1');
@@ -427,9 +495,14 @@ export async function appendTodoEvent(options = {}) {
     const member = store.members.find(({ descriptor }) => descriptor.plan_key === options.planKey);
     if (!member) fail('STORE_INCONSISTENT', 'plan_not_active');
     const event = nextEvent(options.event, member);
+    if (event.kind === 'done' && event.payload.done_mode === 'historical_import') {
+      fail('STORE_WRITE_CONFLICT', 'historical_import_writer_required');
+    }
     // Validate the prospective history, including hard evidence and transitions, before any write.
     replay(member.plan, [...member.journal.events, event], {
-      now: options.now ? new Date(options.now) : new Date(), verifyEvidence: evidenceVerifier(store.manifest, repoRoot, true),
+      now: options.now ? new Date(options.now) : new Date(),
+      verifyEvidence: evidenceVerifier(store.manifest, repoRoot, true),
+      verifyImportSource: importSourceVerifier(repoRoot, true),
     });
     const eventBytes = canonicalLine(event);
     const activeRef = member.descriptor.journal_ref;
@@ -446,7 +519,9 @@ export async function appendTodoEvent(options = {}) {
       await atomicWrite(activeAbsolute, Buffer.concat([member.journal.activeBytes, eventBytes]));
     }
     const tasks = replay(member.plan, [...member.journal.events, event], {
-      now: options.now ? new Date(options.now) : new Date(), verifyEvidence: evidenceVerifier(store.manifest, repoRoot, false),
+      now: options.now ? new Date(options.now) : new Date(),
+      verifyEvidence: evidenceVerifier(store.manifest, repoRoot, false),
+      verifyImportSource: importSourceVerifier(repoRoot, false),
     });
     const snapshot = snapshotFor(member.plan, [...member.journal.events, event], tasks);
     await atomicWrite(path.resolve(repoRoot, member.descriptor.snapshot_ref), canonicalLine(snapshot));
@@ -475,12 +550,117 @@ export function buildPlanGenesis(plan, input) {
     kind: 'plan_genesis', task_id: null, actor: input.actor, recorded_at: input.recorded_at,
     provenance: input.provenance ?? null,
     payload: { plan_digest: plan.plan_digest, topology_digest: plan.topology_digest,
-      predecessor_plan_digest: plan.predecessor_plan_digest, task_migration: input.task_migration ?? [] },
+      predecessor_plan_digest: plan.predecessor_plan_digest, task_migration: input.task_migration ?? [],
+      ...(input.historical_import === true ? { historical_import: true } : {}) },
     event_digest: '',
   };
   event.event_digest = todoSelfDigest(event, 'event_digest');
   if (!validateTodoEvent(event)) throw new TypeError('genesis input violates lattice.todo_event.v1');
   return event;
+}
+
+function buildHistoricalDone(plan, previous, input, genesis) {
+  const event = {
+    schema: 'lattice.todo_event.v1', project_id: plan.project_id, plan_key: plan.plan_key,
+    plan_version: plan.plan_version, sequence: previous.sequence + 1, previous_digest: previous.event_digest,
+    kind: 'done', task_id: input.task_id, actor: input.actor ?? genesis.actor,
+    recorded_at: input.recorded_at ?? genesis.recorded_at, provenance: input.provenance ?? null,
+    payload: { done_mode: 'historical_import', imported: true, status: 'done',
+      completed_at: input.completed_at, evidence: input.evidence }, event_digest: '',
+  };
+  event.event_digest = todoSelfDigest(event, 'event_digest');
+  if (!validateTodoEvent(event)) throw new TypeError('historical done input violates lattice.todo_event.v1');
+  return event;
+}
+
+async function protocolStage(options, stage) {
+  if (typeof options.onProtocolStage === 'function') await options.onProtocolStage(stage);
+}
+
+/** G4-only atomic addition of one imported plan to an existing manifest. */
+export async function appendImportedPlan(options = {}) {
+  requireWriter(options.writer, 'g4-migration');
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  return withLock(repoRoot, async () => {
+    // 1. Validate canonical manifest bytes and every current member before preparing output.
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
+    const expectedManifestDigest = store.manifest.manifest_digest;
+    await protocolStage(options, 'manifest_validated');
+
+    // 2. A plan key is never overwritten, merged, or treated as an idempotent success.
+    const existing = store.members.find(({ descriptor }) => descriptor.plan_key === options.plan?.plan_key);
+    if (existing) {
+      const imported = existing.journal.events[0]?.payload.historical_import === true;
+      fail('STORE_WRITE_CONFLICT', imported ? 'plan_key_already_imported' : 'plan_key_already_exists');
+    }
+    await protocolStage(options, 'plan_key_absent');
+
+    const plan = buildTodoPlan(options.plan);
+    if (plan.project_id !== store.project_id || plan.predecessor_plan_digest !== null) {
+      throw new TypeError('imported plan must be a project-local genesis plan');
+    }
+    const genesis = buildPlanGenesis(plan, { ...options.genesis, historical_import: true });
+    const events = [genesis];
+    for (const input of options.completedTasks ?? []) events.push(buildHistoricalDone(plan, events.at(-1), input, genesis));
+    const verifyImportSource = importSourceVerifier(repoRoot, true);
+    const tasks = replay(plan, events, {
+      now: options.now ? new Date(options.now) : new Date(), verifyImportSource,
+    });
+    const prospective = [...store.members, { plan }];
+    validateMergedGraph(prospective);
+    const snapshot = snapshotFor(plan, events, tasks);
+
+    const base = `${STORE_ROOT_REF}/plans/${plan.plan_key}/${plan.plan_version}`;
+    const planRef = `${base}/plan.json`;
+    const journalRef = `${base}/journal/active.jsonl`;
+    const snapshotRef = `${base}/snapshot.json`;
+    const transactionRef = `${STORE_ROOT_REF}/transactions/${plan.plan_key}-${plan.plan_version}`;
+    const transactionAbsolute = path.resolve(repoRoot, transactionRef);
+    const finalBaseAbsolute = path.resolve(repoRoot, base);
+    // These paths can only be leftovers from a transaction whose plan key is still absent.
+    await rm(transactionAbsolute, { recursive: true, force: true });
+    await rm(finalBaseAbsolute, { recursive: true, force: true });
+
+    // 3. All future member artifacts are durable while still outside manifest membership.
+    const stagedPlan = path.join(transactionAbsolute, 'plan.json');
+    const stagedJournal = path.join(transactionAbsolute, 'active.jsonl');
+    const stagedSnapshot = path.join(transactionAbsolute, 'snapshot.json');
+    await atomicWrite(stagedPlan, canonicalLine(plan));
+    await atomicWrite(stagedJournal, Buffer.concat(events.map(canonicalLine)));
+    await atomicWrite(stagedSnapshot, canonicalLine(snapshot));
+    await protocolStage(options, 'staging_fsynced');
+
+    // 4. Re-read canonical manifest bytes under the lock and compare the captured digest.
+    const currentManifest = await readArtifact(repoRoot, MANIFEST_REF, {
+      code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
+    });
+    if (currentManifest.manifest_digest !== expectedManifestDigest) {
+      fail('STORE_WRITE_CONFLICT', 'manifest_digest_changed');
+    }
+    await protocolStage(options, 'manifest_cas_matched');
+
+    // 5. Pre-activation paths remain invisible until the final manifest rename.
+    await mkdir(path.dirname(path.resolve(repoRoot, planRef)), { recursive: true });
+    await mkdir(path.dirname(path.resolve(repoRoot, journalRef)), { recursive: true });
+    await rename(stagedPlan, path.resolve(repoRoot, planRef));
+    await rename(stagedJournal, path.resolve(repoRoot, journalRef));
+    await rename(stagedSnapshot, path.resolve(repoRoot, snapshotRef));
+    await fsyncDirectory(path.dirname(path.resolve(repoRoot, planRef)));
+    await fsyncDirectory(path.dirname(path.resolve(repoRoot, journalRef)));
+    await protocolStage(options, 'pre_activation_renamed');
+
+    const descriptor = { plan_key: plan.plan_key, active_plan_version: plan.plan_version,
+      plan_ref: planRef, journal_ref: journalRef, snapshot_ref: snapshotRef,
+      topology_digest: plan.topology_digest, journal_head_digest: events.at(-1).event_digest };
+    currentManifest.members.push(descriptor);
+    currentManifest.members.sort((left, right) => left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1 : 0);
+    currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');
+    if (!validateTodoManifest(currentManifest)) throw new TypeError('import activation manifest invalid');
+    await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(currentManifest));
+    await protocolStage(options, 'manifest_activated');
+    await rm(transactionAbsolute, { recursive: true, force: true });
+    return { plan, genesis, events, snapshot, descriptor };
+  });
 }
 
 export async function initializeTodoStore(options = {}) {

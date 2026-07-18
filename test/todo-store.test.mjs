@@ -11,9 +11,11 @@ import {
   canonicalizeTodoArtifact, isStrictTodoTimestamp, todoSelfDigest,
 } from '../src/todo-contracts.mjs';
 import {
-  TodoStoreError, appendTodoEvent, buildTodoPlan, createTodoStoreWriter,
+  TodoStoreError, appendImportedPlan, appendTodoEvent, buildTodoPlan, createTodoStoreWriter,
   createSuccessorTodoPlan, initializeTodoStore, readTodoStore, rebuildTodoSnapshot,
 } from '../src/todo-store.mjs';
+import { projectTodoChainV1 } from '../src/todo-chain.mjs';
+import { layoutTodoGantt } from '../src/todo-gantt-layout.mjs';
 
 const NOW = '2026-07-18T00:00:00.000Z';
 const ACTOR = Object.freeze({ host: 'host-1', session: 'session-1', agent: 'agent-1' });
@@ -49,6 +51,46 @@ async function bytes(root, refValue) { return readFile(path.join(root, refValue)
 async function expectCode(promise, code, reason) {
   await assert.rejects(promise, (error) => error instanceof TodoStoreError
     && error.code === code && (reason === undefined || error.detail.reason === reason));
+}
+
+function pinnedMarkdownCommit(root) {
+  const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+    cwd: root, input: '# Imported plan\n- [x] A1\n- [x] A2\n', encoding: 'utf8',
+  }).trim();
+  const tree = execFileSync('git', ['mktree'], {
+    cwd: root, input: `100644 blob ${blob}\tplan.md\n`, encoding: 'utf8',
+  }).trim();
+  return execFileSync('git', ['hash-object', '-t', 'commit', '-w', '--stdin'], {
+    cwd: root,
+    input: `tree ${tree}\nauthor Fixture <fixture@example.invalid> 1760000000 +0000\ncommitter Fixture <fixture@example.invalid> 1760000000 +0000\n\nfixture\n`,
+    encoding: 'utf8',
+  }).trim();
+}
+
+function importedPlanRequest(root, overrides = {}) {
+  const sourceCommit = overrides.sourceCommit ?? pinnedMarkdownCommit(root);
+  const source = (origin_line) => ({ schema: 'lattice.todo_import_source.v1', origin_plan_ref: 'plan.md',
+    origin_line, source_commit: sourceCommit });
+  return {
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }), now: NOW,
+    plan: { schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'archive', plan_version: 'v1',
+      predecessor_plan_digest: null, tasks: [task('A1'), task('A2')],
+      hard_dependencies: [{ from: ref('A1', 'archive'), to: ref('A2', 'archive') }], joins: [] },
+    genesis: { actor: ACTOR, recorded_at: NOW },
+    completedTasks: [
+      { task_id: 'A2', completed_at: 'unknown_requires_evidence', evidence: source(3) },
+      { task_id: 'A1', completed_at: NOW, evidence: source(2) },
+    ],
+    ...overrides,
+  };
+}
+
+function todoTopology(store) {
+  return {
+    nodes: store.members.flatMap(({ plan }) => plan.tasks.map(({ task_id }) => ref(task_id, plan.plan_key))),
+    hard_edges: store.members.flatMap(({ plan }) => plan.hard_dependencies),
+    joins: store.members.flatMap(({ plan }) => plan.joins),
+  };
 }
 
 test('todo timestampはmillisecond UTCのparse→toISOString byte一致だけを受理する', () => {
@@ -291,4 +333,136 @@ test('topology変更はactive file上書きでなくsuccessor versionを発行�
   const result = await readTodoStore({ repoRoot: root, now: NOW });
   assert.equal(result.members[0].plan.plan_version, 'v2');
   assert.deepEqual(await bytes(root, planRef), oldPlan);
+});
+
+for (const stage of [
+  'manifest_validated', 'plan_key_absent', 'staging_fsynced',
+  'manifest_cas_matched', 'pre_activation_renamed', 'manifest_activated',
+]) {
+  test(`historical import crash recovery: ${stage}`, async (context) => {
+    const root = await workspace(context);
+    const request = importedPlanRequest(root, {
+      onProtocolStage(current) { if (current === stage) throw new Error(`crash:${stage}`); },
+    });
+    await assert.rejects(appendImportedPlan(request), new RegExp(`crash:${stage}`, 'u'));
+    const afterCrash = await readTodoStore({ repoRoot: root, now: NOW });
+    if (stage === 'manifest_activated') {
+      assert.deepEqual(afterCrash.members.map(({ descriptor }) => descriptor.plan_key), ['archive', 'main']);
+      await expectCode(appendImportedPlan(importedPlanRequest(root)), 'STORE_WRITE_CONFLICT', 'plan_key_already_imported');
+    } else {
+      assert.deepEqual(afterCrash.members.map(({ descriptor }) => descriptor.plan_key), ['main']);
+      await appendImportedPlan(importedPlanRequest(root));
+      assert.deepEqual((await readTodoStore({ repoRoot: root, now: NOW })).members
+        .map(({ descriptor }) => descriptor.plan_key), ['archive', 'main']);
+    }
+  });
+}
+
+test('historical import manifest digest CAS不一致はstagingをmember化せず無変更拒否する', async (context) => {
+  const root = await workspace(context);
+  const request = importedPlanRequest(root, { onProtocolStage: async (stage) => {
+    if (stage !== 'staging_fsynced') return;
+    const manifest = JSON.parse((await bytes(root, manifestRef)).toString('utf8'));
+    manifest.repositories.push({ repo_id: 'secondary', path: '.' });
+    manifest.repositories.sort((left, right) => left.repo_id < right.repo_id ? -1 : 1);
+    manifest.manifest_digest = todoSelfDigest(manifest, 'manifest_digest');
+    await writeFile(path.join(root, manifestRef), `${canonicalizeTodoArtifact(manifest)}\n`);
+  } });
+  await expectCode(appendImportedPlan(request), 'STORE_WRITE_CONFLICT', 'manifest_digest_changed');
+  assert.deepEqual((await readTodoStore({ repoRoot: root, now: NOW })).members
+    .map(({ descriptor }) => descriptor.plan_key), ['main']);
+});
+
+test('historical importはimport済みとauthored既存plan_keyを区別して再取込拒否する', async (context) => {
+  const root = await workspace(context);
+  await appendImportedPlan(importedPlanRequest(root));
+  await expectCode(appendImportedPlan(importedPlanRequest(root)), 'STORE_WRITE_CONFLICT', 'plan_key_already_imported');
+  const mainPlan = { schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'main', plan_version: 'v1',
+    predecessor_plan_digest: null, tasks: [task('T1')], hard_dependencies: [], joins: [] };
+  await expectCode(appendImportedPlan(importedPlanRequest(root, { plan: mainPlan })),
+    'STORE_WRITE_CONFLICT', 'plan_key_already_exists');
+});
+
+test('historical doneは通常writerから追加できず、import source不在はverify用annotation/hard拒否へ分離する', async (context) => {
+  const root = await workspace(context);
+  const sourceCommit = pinnedMarkdownCommit(root);
+  await appendImportedPlan(importedPlanRequest(root, { sourceCommit }));
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  const archive = (await readTodoStore({ repoRoot: root, now: NOW })).members
+    .find(({ descriptor }) => descriptor.plan_key === 'archive');
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'archive', now: NOW,
+    event: { kind: 'done', task_id: 'A1', actor: ACTOR, recorded_at: NOW,
+      payload: archive.journal.events[1].payload } }),
+  'STORE_WRITE_CONFLICT', 'historical_import_writer_required');
+  await unlink(path.join(root, '.git', 'objects', sourceCommit.slice(0, 2), sourceCommit.slice(2)));
+  const readable = await readTodoStore({ repoRoot: root, now: NOW });
+  assert.equal(readable.members.find(({ descriptor }) => descriptor.plan_key === 'archive')
+    .tasks.every(({ evidence_unverified }) => evidence_unverified), true);
+  await expectCode(readTodoStore({ repoRoot: root, now: NOW, forWrite: true }),
+    'STORE_INCONSISTENT', 'import_source_unverified');
+});
+
+test('historical doneはlatent start付きdoneとしてchain/ganttへ投影し依存順を捏造しない', async (context) => {
+  const root = await workspace(context);
+  const result = await appendImportedPlan(importedPlanRequest(root));
+  assert.equal(result.genesis.payload.historical_import, true);
+  const store = await readTodoStore({ repoRoot: root, now: NOW });
+  const archive = store.members.find(({ descriptor }) => descriptor.plan_key === 'archive');
+  assert.deepEqual(archive.tasks.map(({ task_id, status, started_at, done_at, imported }) =>
+    [task_id, status, started_at, done_at, imported]), [
+    ['A1', 'done', null, NOW, true], ['A2', 'done', null, null, true],
+  ]);
+  const chain = projectTodoChainV1(todoTopology(store));
+  const layout = layoutTodoGantt(store, chain);
+  assert.deepEqual(layout.nodes.filter(({ ref: taskRef }) => taskRef.plan_key === 'archive')
+    .map(({ ref: taskRef, status }) => [taskRef.task_id, status]), [['A1', 'done'], ['A2', 'done']]);
+});
+
+test('unknown historical doneは正規evidenceへ新eventで昇格しreopenでin-progressへ戻る', async (context) => {
+  const root = await workspace(context);
+  const imported = await appendImportedPlan(importedPlanRequest(root));
+  const sourceEvent = imported.events.find(({ task_id }) => task_id === 'A2');
+  const sourceBytes = Buffer.from('promoted evidence\n');
+  await writeFile(path.join(root, 'promoted.txt'), sourceBytes);
+  const oid = execFileSync('git', ['hash-object', '-w', 'promoted.txt'], { cwd: root, encoding: 'utf8' }).trim();
+  const evidence = { evidence_id: 'promoted', repo_id: 'self', path: 'promoted.txt', git_blob_oid: oid,
+    content_digest: createHash('sha256').update(sourceBytes).digest('hex'), media_type: 'text/plain', anchor_digest: null };
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  const promotion = await appendTodoEvent({ repoRoot: root, writer, planKey: 'archive', now: NOW,
+    event: { kind: 'done', task_id: 'A2', actor: ACTOR, recorded_at: NOW,
+      payload: { done_mode: 'evidence_promotion', imported: true,
+        target_done_digest: sourceEvent.event_digest, evidence } } });
+  let state = (await readTodoStore({ repoRoot: root, now: NOW })).members
+    .find(({ descriptor }) => descriptor.plan_key === 'archive').tasks.find(({ task_id }) => task_id === 'A2');
+  assert.equal(state.status, 'done'); assert.deepEqual(state.evidence, evidence); assert.equal(state.done_at, null);
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'archive', now: NOW,
+    event: { kind: 'reopen', task_id: 'A2', actor: ACTOR, recorded_at: NOW,
+      payload: { reason: 'correct history', target_done_digest: promotion.event.event_digest, override_reason: null } } });
+  state = (await readTodoStore({ repoRoot: root, now: NOW })).members
+    .find(({ descriptor }) => descriptor.plan_key === 'archive').tasks.find(({ task_id }) => task_id === 'A2');
+  assert.equal(state.status, 'in-progress'); assert.equal(state.started_at, null); assert.equal(state.evidence, null);
+  assert.equal(state.imported, true);
+});
+
+test('authored doneはpending/blockedを許さず従来のhard evidence検証も維持する', async (context) => {
+  const root = await workspace(context);
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  const invalidEvidence = { evidence_id: 'missing', repo_id: 'self', path: 'missing.txt', git_blob_oid: 'f'.repeat(40),
+    content_digest: 'e'.repeat(64), media_type: 'text/plain', anchor_digest: null };
+  const authored = { done_mode: 'authored', imported: false, evidence: invalidEvidence };
+  const before = await bytes(root, journalRef);
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'done', task_id: 'T1', actor: ACTOR, recorded_at: NOW, payload: authored } }),
+  'STORE_INCONSISTENT', 'invalid_done_transition');
+  assert.deepEqual(await bytes(root, journalRef), before);
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T1', actor: ACTOR, recorded_at: NOW, payload: { override_reason: null } } });
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'done', task_id: 'T1', actor: ACTOR, recorded_at: NOW, payload: authored } }),
+  'STORE_INCONSISTENT', 'evidence_unverified');
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'block', task_id: 'T1', actor: ACTOR, recorded_at: NOW, payload: { reason: 'blocked' } } });
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'done', task_id: 'T1', actor: ACTOR, recorded_at: NOW, payload: authored } }),
+  'STORE_INCONSISTENT', 'invalid_done_transition');
 });
