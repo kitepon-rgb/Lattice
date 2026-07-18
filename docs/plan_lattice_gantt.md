@@ -195,13 +195,16 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
       ＝2026-07-18統括裁定でADRへ追従）
 - [ ] timestamp strict round-trip parser（既存validatorの`2026-02-30`受理欠陥をここで解消し、
       既存契約側の影響有無も確認）
-- [ ] 最長依存鎖の**非列挙projection**（`todo_chain.v1`: 最大深さ・最長鎖所属node/edge和集合・
+- [x] 最長依存鎖の**非列挙projection**（`todo_chain.v1`: 最大深さ・最長鎖所属node/edge和集合・
       本数count＋overflow・代表鎖≤8・assumptions field）純関数＋fixture
       （分岐/join/複数最長鎖/空graph/merge後cycle拒否/完全二部層の爆発耐性）
+  - 2026-07-18完了（`9f2daaf`+`804c6e9`）: dag-chain汎用層＋todo-chain adapter・ADR追補後wire適合・
+    fixture 14件＋1,024 DAG brute-force照合・独立反証（sol×high）通過
 - [ ] `todo verify`・`todo snapshot --rebuild`のCLI面（ADR 0053契約表）＋crash matrix fixture
       （journal健全×snapshot欠落/stale→read-only投影継続・writer拒否）
-- [ ] codegraph coverage分離（store=tracked・生成HTML=gitignore）のintegration testを
+- [x] codegraph coverage分離（store=tracked・生成HTML=gitignore）のintegration testを
       レンダラ実装より先に置く
+  - 2026-07-18完了（`a7f3c77`）: .gitignore/codegraph.json追従＋probe方式integration test（6不変条件）
 - [ ] focused gate green
 
 ### G3 — SVG/HTMLレンダラ実装（A・左右ペイン＋散文埋込・全plan統合・started/done両時刻表示を含む）
