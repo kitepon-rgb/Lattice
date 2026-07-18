@@ -1,9 +1,9 @@
 import { canonicalizeArtifact } from './artifact-contracts.mjs';
 import {
   RUN_EVENT_KINDS,
-  selfDigest,
   validateRunEvent,
 } from './runtime-contracts.mjs';
+import { digestWithoutField, verifyLinearHashChain } from './hash-chain.mjs';
 
 // RC3 event store契約（ADR 0044 Decision 3）。
 // event storeはrun単位のappend-only canonical event列であり、`sequence`は0起点の
@@ -64,7 +64,7 @@ export function digestRunEvent(event) {
   if (event === null || typeof event !== 'object' || Array.isArray(event)) {
     throw new TypeError('run event契約違反: eventはplain objectでなければならない');
   }
-  return selfDigest(event, 'event_digest');
+  return digestWithoutField(event, 'event_digest', canonicalizeArtifact);
 }
 
 /**
@@ -134,7 +134,7 @@ export function verifyRunEventChain(options = {}) {
       sequence: 0,
       previous_digest: null,
     };
-    probe.event_digest = selfDigest(probe, 'event_digest');
+    probe.event_digest = digestWithoutField(probe, 'event_digest', canonicalizeArtifact);
     return validateRunEvent(probe);
   });
   checks.push(check('event_shape', shapeOk));
@@ -145,9 +145,12 @@ export function verifyRunEventChain(options = {}) {
   const knownKindOk = shapeOk && events.every((event) => RUN_EVENT_KINDS.includes(event.kind));
   checks.push(check('unknown_kind', knownKindOk));
 
-  const eventDigestOk = shapeOk && events.every((event) => (
-    event.event_digest === selfDigest(event, 'event_digest')
-  ));
+  const sharedFailures = shapeOk ? verifyLinearHashChain({
+    entries: events,
+    canonicalize: canonicalizeArtifact,
+    digestField: 'event_digest',
+  }) : new Set();
+  const eventDigestOk = shapeOk && !sharedFailures.has('event_digest_mismatch');
   checks.push(check('event_digest_mismatch', eventDigestOk));
 
   const redactionOk = shapeOk && events.every((event) => (
@@ -155,11 +158,7 @@ export function verifyRunEventChain(options = {}) {
   ));
   checks.push(check('payload_redaction', redactionOk));
 
-  // 保存配列の物理順序はsequence順と一致しなければならない（append-only列の
-  // 保存bytes自体が順序judgementと矛盾しないための条件。ADR 0044 Decision 3.4）。
-  const storageOrderOk = shapeOk && events.every((event, index) => (
-    index === 0 || events[index - 1].sequence < event.sequence
-  ));
+  const storageOrderOk = shapeOk && !sharedFailures.has('storage_order');
   checks.push(check('storage_order', storageOrderOk));
 
   let duplicateOk = shapeOk;
@@ -168,38 +167,11 @@ export function verifyRunEventChain(options = {}) {
   let genesisOk = shapeOk;
   let chainOk = shapeOk;
   if (shapeOk) {
-    const bySequence = new Map();
-    for (const event of events) {
-      const bytes = canonicalizeArtifact(event);
-      const seen = bySequence.get(event.sequence);
-      if (seen === undefined) {
-        bySequence.set(event.sequence, { first: event, bytes: new Set([bytes]), count: 1 });
-      } else {
-        seen.count += 1;
-        seen.bytes.add(bytes);
-      }
-    }
-    for (const entry of bySequence.values()) {
-      if (entry.count > 1 && entry.bytes.size === 1) duplicateOk = false;
-      if (entry.bytes.size > 1) forkOk = false;
-    }
-
-    const sequences = [...bySequence.keys()].sort((left, right) => left - right);
-    gapOk = sequences[0] === 0
-      && sequences.every((sequence, index) => sequence === index);
-    genesisOk = bySequence.get(0) !== undefined
-      && bySequence.get(0).first.previous_digest === null
-      && events.every((event) => (event.sequence === 0) === (event.previous_digest === null));
-
-    for (const [index, sequence] of sequences.entries()) {
-      if (index === 0) continue;
-      const previous = bySequence.get(sequences[index - 1]).first;
-      const current = bySequence.get(sequence).first;
-      if (current.previous_digest !== previous.event_digest) {
-        chainOk = false;
-        break;
-      }
-    }
+    duplicateOk = !sharedFailures.has('duplicate_event');
+    forkOk = !sharedFailures.has('sequence_fork');
+    gapOk = !sharedFailures.has('sequence_gap');
+    genesisOk = !sharedFailures.has('genesis_binding');
+    chainOk = !sharedFailures.has('digest_chain_mismatch');
   }
   checks.push(check('duplicate_event', duplicateOk));
   checks.push(check('sequence_fork', forkOk));
