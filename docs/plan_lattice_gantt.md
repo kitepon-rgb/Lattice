@@ -180,12 +180,19 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
       ADR末尾「反証記録」節へ収容済み・親（dotagents Phase LG）へ裁定結果を還流済み
 
 ### G2 — store契約＋最長依存鎖projection実装（A・契約正本はADR 0053）
+
+（並列化記録 2026-07-18: G2はオーナー個別上書きにより、Lattice run経由でなく「writerごとの
+専用worktree＋明示ファイル集合の非交差」で並列委譲する。恒久変更ではなく本waveに限る）
 - [ ] 工程store契約の実装（schema validation・JSONL byte契約・digest・読取層。G1裁定に従う。
       書込はG4移行toolとG5 authoring CLIだけが行う。既存runtime event storeは流用せず
       汎用chain helperへ抽出して共有）
 - [ ] byte-level fail closed fixture（duplicate key・invalid UTF-8・BOM/CRLF・truncated write・
-      merge marker・symlink escape・schema version混在・genesis欠落・上限超過→全拒否）＋
-      journal/snapshot不整合fixture（`STORE_INCONSISTENT`）
+      merge marker・symlink escape・schema version混在・genesis欠落・上限超過→全拒否。
+      byte-level fail closedの適用対象は**journal側**であり、snapshot単独のbyte破損は
+      `snapshot_stale`＝rebuild可能として扱う）＋journal健全×snapshot欠落/stale/不一致は
+      reader継続＋`snapshot_stale:true`のfixture（ADR 0053:63-71優先。`STORE_INCONSISTENT`は
+      manifest・plan・cross-plan graph等「journal投影そのものを信頼できない」違反に限定
+      ＝2026-07-18統括裁定でADRへ追従）
 - [ ] timestamp strict round-trip parser（既存validatorの`2026-02-30`受理欠陥をここで解消し、
       既存契約側の影響有無も確認）
 - [ ] 最長依存鎖の**非列挙projection**（`todo_chain.v1`: 最大深さ・最長鎖所属node/edge和集合・
