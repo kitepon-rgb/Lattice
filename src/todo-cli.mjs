@@ -1,6 +1,22 @@
 import { execFileSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import {
+  lstat, mkdir, open, readFile, realpath, rename, rm,
+} from 'node:fs/promises';
+import path from 'node:path';
 
-import { isTodoIdentifier, todoSelfDigest } from './todo-contracts.mjs';
+import {
+  digestTodoArtifact,
+  isTodoIdentifier,
+  isTodoRef,
+  todoSelfDigest,
+} from './todo-contracts.mjs';
+import { projectTodoChainV1 } from './todo-chain.mjs';
+import { layoutTodoGantt } from './todo-gantt-layout.mjs';
+import {
+  renderTodoGanttHtml,
+  TODO_GANTT_RENDERER_VERSION,
+} from './todo-gantt-html.mjs';
 import {
   TodoStoreError,
   readTodoStore,
@@ -8,6 +24,7 @@ import {
 } from './todo-store.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
+const DEFAULT_GANTT_REF = '.lattice/generated/gantt.html';
 
 function usageFailure(stderr, argv) {
   const received = argv.length === 0 ? '(none)' : argv.join(' ').replace(/[\r\n]/gu, ' ');
@@ -48,6 +65,163 @@ function selectMembers(store, requestedPlanKey) {
     throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active');
   }
   return [member];
+}
+
+function taskRef(plan, taskId) {
+  return { project_id: plan.project_id, plan_key: plan.plan_key, task_id: taskId };
+}
+
+function mergedTopology(store) {
+  return {
+    nodes: store.members.flatMap(({ plan }) => plan.tasks.map(({ task_id: taskId }) => taskRef(plan, taskId))),
+    hard_edges: store.members.flatMap(({ plan }) => plan.hard_dependencies),
+    joins: store.members.flatMap(({ plan }) => plan.joins),
+  };
+}
+
+function within(root, candidate) {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
+async function readNarrative(repoRoot, ref) {
+  const canonicalRoot = await realpath(repoRoot);
+  const absolute = path.resolve(canonicalRoot, ref);
+  if (!within(canonicalRoot, absolute)) {
+    throw new TodoStoreError('STORE_INCONSISTENT', 'narrative_path_outside_repo', undefined, { ref });
+  }
+  let stats;
+  try { stats = await lstat(absolute); } catch {
+    throw new TodoStoreError('STORE_INCONSISTENT', 'narrative_missing', undefined, { ref });
+  }
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw new TodoStoreError('STORE_INCONSISTENT', 'unsafe_narrative_path', undefined, { ref });
+  }
+  const resolved = await realpath(absolute);
+  if (resolved !== absolute || !within(canonicalRoot, resolved)) {
+    throw new TodoStoreError('STORE_INCONSISTENT', 'narrative_path_alias_or_escape', undefined, { ref });
+  }
+  const bytes = await readFile(resolved);
+  let markdown;
+  try { markdown = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch {
+    throw new TodoStoreError('STORE_INCONSISTENT', 'narrative_invalid_utf8', undefined, { ref });
+  }
+  return { markdown, content_digest: createHash('sha256').update(bytes).digest('hex') };
+}
+
+async function loadNarratives(store, repoRoot) {
+  const content = new Map();
+  const bindings = [];
+  const narratives = [];
+  for (const member of store.members) for (const task of member.plan.tasks) {
+    const ref = taskRef(member.plan, task.task_id);
+    if (task.narrative_ref === null) {
+      bindings.push({ ...ref, narrative_ref: null, content_digest: null });
+      narratives.push({ ref, markdown: '', narrative_ref: null, content_digest: null });
+      continue;
+    }
+    let loaded = content.get(task.narrative_ref);
+    if (loaded === undefined) {
+      loaded = await readNarrative(repoRoot, task.narrative_ref);
+      content.set(task.narrative_ref, loaded);
+    }
+    bindings.push({ ...ref, narrative_ref: task.narrative_ref, content_digest: loaded.content_digest });
+    narratives.push({ ref, markdown: loaded.markdown, narrative_ref: task.narrative_ref,
+      content_digest: loaded.content_digest });
+  }
+  return { narratives, bindings };
+}
+
+async function resolveOutput(repoRoot, outputRef) {
+  const canonicalRoot = await realpath(repoRoot);
+  const absolute = path.resolve(canonicalRoot, outputRef);
+  if (!within(canonicalRoot, absolute) || absolute === canonicalRoot) {
+    throw new TodoStoreError('OUTPUT_PATH_INVALID', 'output_path_outside_repo', undefined, { output_ref: outputRef });
+  }
+  let cursor = path.dirname(absolute);
+  const missing = [];
+  while (cursor !== canonicalRoot) {
+    try {
+      const stats = await lstat(cursor);
+      if (stats.isSymbolicLink() || !stats.isDirectory()) {
+        throw new TodoStoreError('OUTPUT_PATH_INVALID', 'unsafe_output_parent', undefined, { output_ref: outputRef });
+      }
+      const resolved = await realpath(cursor);
+      if (resolved !== cursor || !within(canonicalRoot, resolved)) {
+        throw new TodoStoreError('OUTPUT_PATH_INVALID', 'output_parent_alias_or_escape', undefined, { output_ref: outputRef });
+      }
+      break;
+    } catch (error) {
+      if (error instanceof TodoStoreError) throw error;
+      if (error?.code !== 'ENOENT') throw error;
+      missing.push(cursor);
+      cursor = path.dirname(cursor);
+    }
+  }
+  let target;
+  try { target = await lstat(absolute); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  if (target !== undefined && (target.isSymbolicLink() || !target.isFile())) {
+    throw new TodoStoreError('OUTPUT_PATH_INVALID', 'unsafe_output_target', undefined, { output_ref: outputRef });
+  }
+  return { absolute, missing };
+}
+
+async function atomicWriteOutput(repoRoot, outputRef, html) {
+  const { absolute } = await resolveOutput(repoRoot, outputRef);
+  await mkdir(path.dirname(absolute), { recursive: true });
+  // Re-resolve after mkdir so a raced alias cannot redirect the write.
+  const checked = await resolveOutput(repoRoot, outputRef);
+  const temporary = path.join(path.dirname(checked.absolute),
+    `.${path.basename(checked.absolute)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
+  let handle;
+  try {
+    handle = await open(temporary, 'wx', 0o600);
+    await handle.writeFile(html, 'utf8');
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await rename(temporary, checked.absolute);
+  } finally {
+    if (handle) await handle.close();
+    await rm(temporary, { force: true });
+  }
+}
+
+async function gantt({ repoRoot, outputRef }) {
+  const store = await readTodoStore({ repoRoot });
+  const topology = mergedTopology(store);
+  const chain = projectTodoChainV1(topology);
+  const layout = layoutTodoGantt(store, chain);
+  const narrative = await loadNarratives(store, repoRoot);
+  const memberBindings = store.members.map((member) => ({
+    plan_key: member.descriptor.plan_key,
+    topology_digest: member.plan.topology_digest,
+    journal_head_digest: member.journal.events.at(-1).event_digest,
+  }));
+  const metadata = {
+    manifest_digest: store.manifest.manifest_digest,
+    member_bindings: memberBindings,
+    narrative_bindings_digest: digestTodoArtifact(narrative.bindings),
+    chain_digest: digestTodoArtifact(chain),
+    layout_digest: digestTodoArtifact(layout),
+    renderer_version: TODO_GANTT_RENDERER_VERSION,
+  };
+  const rendered = renderTodoGanttHtml({ readModel: store, layout, narratives: narrative.narratives, metadata });
+  await atomicWriteOutput(repoRoot, outputRef, rendered.html);
+  const result = {
+    schema: 'lattice.todo_gantt_result.v1',
+    project_id: store.project_id,
+    output_ref: outputRef,
+    manifest_digest: metadata.manifest_digest,
+    member_bindings: memberBindings,
+    narrative_bindings_digest: metadata.narrative_bindings_digest,
+    chain_digest: metadata.chain_digest,
+    layout_digest: metadata.layout_digest,
+    renderer_version: TODO_GANTT_RENDERER_VERSION,
+    html_digest: rendered.html_digest,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
 }
 
 async function verify({ repoRoot, requestedPlanKey }) {
@@ -119,6 +293,11 @@ export async function runTodoCli({ argv, cwd, stdout, stderr }) {
   } else if (argv.length === 4 && argv[0] === 'snapshot' && argv[1] === '--rebuild'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
     action = (repoRoot) => rebuildSnapshot({ repoRoot, planKey: argv[3] });
+  } else if (argv.length === 1 && argv[0] === 'gantt') {
+    action = (repoRoot) => gantt({ repoRoot, outputRef: DEFAULT_GANTT_REF });
+  } else if (argv.length === 3 && argv[0] === 'gantt' && argv[1] === '--out'
+    && isTodoRef(argv[2])) {
+    action = (repoRoot) => gantt({ repoRoot, outputRef: argv[2] });
   }
   if (action === null) return usageFailure(stderr, argv);
 
@@ -127,7 +306,8 @@ export async function runTodoCli({ argv, cwd, stdout, stderr }) {
     stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
   } catch (error) {
-    if (error instanceof TodoStoreError) return typedFailure(stderr, error);
+    if (error instanceof TodoStoreError || (typeof error?.code === 'string'
+      && error.detail !== null && typeof error.detail === 'object')) return typedFailure(stderr, error);
     if (error instanceof TypeError) {
       return typedFailure(stderr, {
         code: 'CONTRACT_VIOLATION',
