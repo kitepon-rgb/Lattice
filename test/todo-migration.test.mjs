@@ -249,8 +249,13 @@ test('todo migrateはstrict/unknown開始時刻を輸入しstatus active_setとg
 
   const status = projectTodoStatus(store);
   assert.deepEqual(status.active_set, [
-    { plan_key: 'active-import', task_id: 'P1', label: 'Strict historical start' },
-    { plan_key: 'active-import', task_id: 'P2', label: 'Unknown historical start' },
+    {
+      plan_key: 'active-import', task_id: 'P1', label: 'Strict historical start', unmet_dependencies: [],
+    },
+    {
+      plan_key: 'active-import', task_id: 'P2', label: 'Unknown historical start',
+      unmet_dependencies: [{ plan_key: 'active-import', task_id: 'P1' }],
+    },
   ]);
   const topology = {
     nodes: store.members.flatMap(({ plan }) => plan.tasks.map(({ task_id: taskId }) => ({

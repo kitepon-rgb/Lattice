@@ -6,7 +6,7 @@ import {
   todoSelfDigest,
 } from './todo-contracts.mjs';
 
-export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v1';
+export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v2';
 export const TODO_STATUS_LIST_LIMIT = 2_000;
 export const TODO_STATUS_LABEL_LIMIT = 160;
 export const TODO_STATUS_REASON_LIMIT = 512;
@@ -77,6 +77,18 @@ function taskEntry(value) {
     && isTodoStatusBoundedText(value.label, TODO_STATUS_LABEL_LIMIT);
 }
 
+function taskRefEntry(value) {
+  return exactRecord(value, ['plan_key', 'task_id'])
+    && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.task_id);
+}
+
+function activeTaskEntry(value) {
+  return exactRecord(value, ['plan_key', 'task_id', 'label', 'unmet_dependencies'])
+    && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.task_id)
+    && isTodoStatusBoundedText(value.label, TODO_STATUS_LABEL_LIMIT)
+    && boundedList(value.unmet_dependencies, taskRefEntry);
+}
+
 function blockedEntry(value) {
   return exactRecord(value, ['plan_key', 'task_id', 'reason'])
     && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.task_id)
@@ -93,13 +105,13 @@ function boundedList(value, validator) {
   return Array.isArray(value) && value.length <= TODO_STATUS_LIST_LIMIT && value.every(validator);
 }
 
-/** dotagents lattice-hook.py parse_statusと同じwire shapeを検証し、digestも再計算する。 */
+/** todo status v2 wire shapeを検証し、digestも再計算する。 */
 export function validateTodoStatusResult(value) {
   try {
     return exactRecord(value, [
       'schema', 'project_id', 'active_set', 'next_ready', 'blocked', 'member_heads', 'result_digest',
     ]) && value.schema === TODO_STATUS_SCHEMA && isTodoIdentifier(value.project_id)
-      && boundedList(value.active_set, taskEntry) && boundedList(value.next_ready, taskEntry)
+      && boundedList(value.active_set, activeTaskEntry) && boundedList(value.next_ready, taskEntry)
       && boundedList(value.blocked, blockedEntry) && boundedList(value.member_heads, memberHead)
       && isTodoDigest(value.result_digest)
       && value.result_digest === todoSelfDigest(value, 'result_digest');
@@ -184,7 +196,17 @@ export function projectTodoStatus(readModel) {
   const blocked = [];
   for (const node of nodes.values()) {
     const task = { plan_key: node.plan_key, task_id: node.task_id, label: node.label };
-    if (node.status === 'in-progress') activeSet.push(task);
+    if (node.status === 'in-progress') {
+      const unmetDependencies = [...incoming.get(node.key)]
+        .filter((key) => nodes.get(key).status !== 'done')
+        .map((key) => {
+          const predecessor = nodes.get(key);
+          return { plan_key: predecessor.plan_key, task_id: predecessor.task_id };
+        })
+        .sort(compareTaskEntries);
+      enforceListLimit('active_set.unmet_dependencies', unmetDependencies);
+      activeSet.push({ ...task, unmet_dependencies: unmetDependencies });
+    }
     if (node.status === 'pending'
       && [...incoming.get(node.key)].every((key) => nodes.get(key).status === 'done')) nextReady.push(task);
     if (node.status === 'blocked') {

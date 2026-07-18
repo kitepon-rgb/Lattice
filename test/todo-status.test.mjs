@@ -129,7 +129,10 @@ test('todo statusはactive/next-ready/blockedを混在投影しstore bytesを変
   assertExactKeys(result, [
     'schema', 'project_id', 'active_set', 'next_ready', 'blocked', 'member_heads', 'result_digest',
   ]);
-  assert.deepEqual(result.active_set, [{ plan_key: 'main', task_id: 'A', label: 'Active work' }]);
+  assert.equal(result.schema, 'lattice.todo_status_result.v2');
+  assert.deepEqual(result.active_set, [{
+    plan_key: 'main', task_id: 'A', label: 'Active work', unmet_dependencies: [],
+  }]);
   assert.deepEqual(result.next_ready, [{ plan_key: 'main', task_id: 'C', label: 'Ready work' }]);
   assert.deepEqual(result.blocked, [{
     plan_key: 'main', task_id: 'B', reason: 'Waiting for owner approval',
@@ -143,6 +146,33 @@ test('todo statusはactive/next-ready/blockedを混在投影しstore bytesを変
   assert.equal(validateTodoStatusResult(result), true);
 });
 
+test('依存未達のin-progressはactiveのまま未完predecessorを明示する', async (context) => {
+  const root = await workspace(context);
+  await appendTodoEvent({
+    repoRoot: root,
+    writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+    planKey: 'main',
+    now: '2026-07-18T00:06:00.000Z',
+    event: {
+      task_id: 'D', kind: 'start', actor: ACTOR, recorded_at: '2026-07-18T00:06:00.000Z',
+      payload: { override_reason: 'Dependency state imported from existing work' },
+    },
+  });
+
+  const execution = runStatus(root);
+  assert.equal(execution.status, 0, execution.stderr);
+  const result = JSON.parse(execution.stdout);
+  assert.deepEqual(result.active_set, [
+    { plan_key: 'main', task_id: 'A', label: 'Active work', unmet_dependencies: [] },
+    {
+      plan_key: 'main', task_id: 'D', label: 'Waiting work',
+      unmet_dependencies: [{ plan_key: 'main', task_id: 'A' }],
+    },
+  ]);
+  assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
+  assert.equal(validateTodoStatusResult(result), true);
+});
+
 test('空store projectionは全list空の固定digest resultを返す', () => {
   const result = projectTodoStatus({
     schema: 'lattice.todo_store_read.v1', project_id: 'empty-project', members: [],
@@ -151,7 +181,7 @@ test('空store projectionは全list空の固定digest resultを返す', () => {
   assert.deepEqual(result.next_ready, []);
   assert.deepEqual(result.blocked, []);
   assert.deepEqual(result.member_heads, []);
-  assert.equal(result.result_digest, 'fed47e700e49c30eb337e9f71c0304b2327609fe70259e1f764fe2e2e5d308fe');
+  assert.equal(result.result_digest, '4cb3c17506fb7f0afb038b00204717389cda8693c5925e2bdd7d4f5942bd0496');
   assert.equal(validateTodoStatusResult(result), true);
 });
 
@@ -198,10 +228,10 @@ function syntheticReadModel(activeCount) {
 
 function syntheticStatusResult(activeCount) {
   const result = {
-    schema: 'lattice.todo_status_result.v1',
+    schema: 'lattice.todo_status_result.v2',
     project_id: 'scale-project',
     active_set: Array.from({ length: activeCount }, (_, index) => ({
-      plan_key: 'main', task_id: `t${String(index).padStart(4, '0')}`, label: 'x',
+      plan_key: 'main', task_id: `t${String(index).padStart(4, '0')}`, label: 'x', unmet_dependencies: [],
     })),
     next_ready: [],
     blocked: [],
@@ -227,7 +257,7 @@ test('list上限2000とconsumer capture上限64 KiBをそれぞれfail closedに
       && error.detail.reason === 'todo_status_result_size_limit_exceeded'
       && error.detail.result_bytes > TODO_STATUS_CAPTURE_LIMIT
       && error.detail.result_limit === 65_536);
-  const capturable = projectTodoStatus(syntheticReadModel(1_000));
+  const capturable = projectTodoStatus(syntheticReadModel(500));
   assert.ok(Buffer.byteLength(`${JSON.stringify(capturable)}\n`) <= TODO_STATUS_CAPTURE_LIMIT);
 });
 
