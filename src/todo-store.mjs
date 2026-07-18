@@ -11,6 +11,7 @@ import {
   exactRecord,
   isStrictTodoTimestamp,
   isTodoDigest,
+  isTodoIdentifier,
   todoSelfDigest,
   validateEvidenceDescriptor,
   validateTodoImportSource,
@@ -346,32 +347,123 @@ function evidenceVerifier(manifest, repoRoot, hard) {
   };
 }
 
+function pinnedSourceLine(repoRoot, source) {
+  const commitType = execFileSync('git', ['cat-file', '-t', source.source_commit], {
+    cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+  if (commitType !== 'commit') throw new Error('not commit');
+  const objectSpec = `${source.source_commit}:${source.origin_plan_ref}`;
+  const blobType = execFileSync('git', ['cat-file', '-t', objectSpec], {
+    cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+  if (blobType !== 'blob') throw new Error('not blob');
+  const blob = execFileSync('git', ['cat-file', 'blob', objectSpec], {
+    cwd: repoRoot, encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'],
+    maxBuffer: TODO_LIMITS.narrativeSectionBytes + 1,
+  });
+  let start = 0;
+  let line = 1;
+  for (let index = 0; index < blob.length; index += 1) {
+    if (blob[index] !== 0x0a) continue;
+    if (line === source.origin_line) return blob.subarray(start, index);
+    start = index + 1;
+    line += 1;
+  }
+  if (start < blob.length && line === source.origin_line) return blob.subarray(start);
+  throw new Error('line outside blob');
+}
+
+function markdownCheckboxState(lineBytes) {
+  if (lineBytes.length >= 3 && lineBytes[0] === 0xef && lineBytes[1] === 0xbb && lineBytes[2] === 0xbf) return null;
+  let line;
+  try { line = new TextDecoder('utf-8', { fatal: true }).decode(lineBytes); } catch { return null; }
+  const match = /^[\t ]*(?:[-+*]|\d+[.)])[\t ]+\[([ xX])\](?:[\t ]+.*)?$/u.exec(line);
+  if (match === null) return null;
+  return match[1] === ' ' ? 'unchecked' : 'checked';
+}
+
 function importSourceVerifier(repoRoot, hard) {
   return (descriptor) => {
     if (!validateTodoImportSource(descriptor)) fail('STORE_INCONSISTENT', 'import_source_descriptor_invalid');
     try {
-      const commitType = execFileSync('git', ['cat-file', '-t', descriptor.source_commit], {
-        cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-      if (commitType !== 'commit') throw new Error('not commit');
-      const objectSpec = `${descriptor.source_commit}:${descriptor.origin_plan_ref}`;
-      const blobType = execFileSync('git', ['cat-file', '-t', objectSpec], {
-        cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-      if (blobType !== 'blob') throw new Error('not blob');
-      const blob = execFileSync('git', ['cat-file', 'blob', objectSpec], {
-        cwd: repoRoot, encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'],
-        maxBuffer: TODO_LIMITS.narrativeSectionBytes + 1,
-      });
-      const lineCount = blob.length === 0 ? 0
-        : blob.reduce((count, byte) => count + (byte === 0x0a ? 1 : 0), blob.at(-1) === 0x0a ? 0 : 1);
-      if (descriptor.origin_line > lineCount) throw new Error('line outside blob');
+      pinnedSourceLine(repoRoot, descriptor);
       return true;
     } catch {
       if (hard) fail('STORE_INCONSISTENT', 'import_source_unverified');
       return false;
     }
   };
+}
+
+function narrativeAnchorSource(value) {
+  return exactRecord(value, [
+    'task_id', 'origin_plan_ref', 'origin_line', 'source_commit', 'checkbox_state',
+  ]) && isTodoIdentifier(value.task_id)
+    && ['checked', 'unchecked', 'absent', 'ambiguous'].includes(value.checkbox_state)
+    && validateTodoImportSource({
+      schema: 'lattice.todo_import_source.v1', origin_plan_ref: value.origin_plan_ref,
+      origin_line: value.origin_line, source_commit: value.source_commit,
+    });
+}
+
+function materializeImportedNarrativeAnchors(repoRoot, planInput, sources) {
+  if (sources === undefined) return planInput;
+  if (planInput?.schema !== 'lattice.todo_plan.v2' || !Array.isArray(sources)
+    || sources.length > TODO_LIMITS.tasksPerPlan || !sources.every(narrativeAnchorSource)) {
+    throw new TypeError('imported narrative anchor sources are invalid');
+  }
+  const byTask = new Map(sources.map((source) => [source.task_id, source]));
+  if (byTask.size !== sources.length
+    || sources.some(({ task_id: taskId }) => !planInput.tasks.some((task) => task.task_id === taskId))) {
+    throw new TypeError('imported narrative anchor sources do not match plan tasks');
+  }
+  return {
+    ...planInput,
+    tasks: planInput.tasks.map((task) => {
+      const source = byTask.get(task.task_id);
+      let narrativeAnchor = null;
+      if (source !== undefined && task.narrative_ref === source.origin_plan_ref
+        && ['checked', 'unchecked'].includes(source.checkbox_state)) {
+        try {
+          const line = pinnedSourceLine(repoRoot, source);
+          if (markdownCheckboxState(line) === source.checkbox_state) {
+            narrativeAnchor = {
+              origin_plan_ref: source.origin_plan_ref,
+              origin_line: source.origin_line,
+              source_commit: source.source_commit,
+              source_line_digest: sha256Bytes(line),
+            };
+          }
+        } catch {
+          narrativeAnchor = null;
+        }
+      }
+      return { ...task, narrative_anchor: narrativeAnchor };
+    }),
+  };
+}
+
+function verifyPlanNarrativeAnchors(repoRoot, plan, trustedPlan = null) {
+  if (plan.schema !== 'lattice.todo_plan.v2') return;
+  const trusted = new Map((trustedPlan?.schema === 'lattice.todo_plan.v2' ? trustedPlan.tasks : [])
+    .map((task) => [task.task_id, task.narrative_anchor]));
+  for (const task of plan.tasks) {
+    const anchor = task.narrative_anchor;
+    if (anchor === null) continue;
+    const previous = trusted.get(task.task_id);
+    if (previous !== undefined
+      && canonicalizeTodoArtifact(previous) === canonicalizeTodoArtifact(anchor)) continue;
+    try {
+      const line = pinnedSourceLine(repoRoot, anchor);
+      if (sha256Bytes(line) !== anchor.source_line_digest || markdownCheckboxState(line) === null) {
+        throw new Error('anchor mismatch');
+      }
+    } catch {
+      fail('STORE_INCONSISTENT', 'narrative_anchor_unverified', {
+        plan_key: plan.plan_key, task_id: task.task_id,
+      });
+    }
+  }
 }
 
 export async function readTodoStore(options = {}) {
@@ -539,7 +631,7 @@ export function buildTodoPlan(input) {
     tasks: plan.tasks, hard_dependencies: plan.hard_dependencies, joins: plan.joins,
   });
   plan.plan_digest = todoSelfDigest(plan, 'plan_digest');
-  if (!validateTodoPlan(plan)) throw new TypeError('todo plan input violates lattice.todo_plan.v1');
+  if (!validateTodoPlan(plan)) throw new TypeError('todo plan input violates its declared schema');
   return plan;
 }
 
@@ -595,10 +687,14 @@ export async function appendImportedPlan(options = {}) {
     }
     await protocolStage(options, 'plan_key_absent');
 
-    const plan = buildTodoPlan(options.plan);
+    const planInput = materializeImportedNarrativeAnchors(
+      repoRoot, options.plan, options.narrativeAnchorSources,
+    );
+    const plan = buildTodoPlan(planInput);
     if (plan.project_id !== store.project_id || plan.predecessor_plan_digest !== null) {
       throw new TypeError('imported plan must be a project-local genesis plan');
     }
+    verifyPlanNarrativeAnchors(repoRoot, plan);
     const genesis = buildPlanGenesis(plan, { ...options.genesis, historical_import: true });
     const events = [genesis];
     for (const input of options.completedTasks ?? []) events.push(buildHistoricalDone(plan, events.at(-1), input, genesis));
@@ -673,6 +769,7 @@ export async function initializeTodoStore(options = {}) {
     const members = [];
     for (const entry of options.plans) {
       const plan = buildTodoPlan(entry.plan);
+      verifyPlanNarrativeAnchors(repoRoot, plan);
       const genesis = buildPlanGenesis(plan, entry.genesis);
       const base = `${STORE_ROOT_REF}/plans/${plan.plan_key}/${plan.plan_version}`;
       const planRef = `${base}/plan.json`; const journalRef = `${base}/journal/active.jsonl`; const snapshotRef = `${base}/snapshot.json`;
@@ -709,6 +806,10 @@ export async function createSuccessorTodoPlan(options = {}) {
     if (plan.project_id !== store.project_id || plan.plan_key !== previous.plan.plan_key) {
       throw new TypeError('successor identity must match active plan');
     }
+    if (previous.plan.schema === 'lattice.todo_plan.v2' && plan.schema !== 'lattice.todo_plan.v2') {
+      throw new TypeError('todo plan schema cannot regress from v2 to v1');
+    }
+    verifyPlanNarrativeAnchors(repoRoot, plan, previous.plan);
     const migration = options.genesis.task_migration ?? [];
     const oldIds = previous.plan.tasks.map(({ task_id }) => task_id).sort();
     const migrationIds = migration.map(({ from_task_id }) => from_task_id).sort();

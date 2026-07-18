@@ -107,10 +107,27 @@ function compileBinding(value) {
     && isTodoDigest(value.topology_digest) && /^[0-9a-f]{40}$/u.test(value.base_sha));
 }
 
-function task(value) {
+function taskV1(value) {
   return exactRecord(value, ['task_id', 'title', 'lane', 'narrative_ref', 'compile_binding'])
     && isTodoIdentifier(value.task_id) && nullableText(value.title) && isTodoIdentifier(value.lane)
     && (value.narrative_ref === null || isTodoRef(value.narrative_ref)) && compileBinding(value.compile_binding);
+}
+
+export function validateTodoNarrativeAnchor(value) {
+  return exactRecord(value, ['origin_plan_ref', 'origin_line', 'source_commit', 'source_line_digest'])
+    && isTodoRef(value.origin_plan_ref) && Number.isSafeInteger(value.origin_line) && value.origin_line >= 1
+    && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value.source_commit)
+    && isTodoDigest(value.source_line_digest);
+}
+
+function taskV2(value) {
+  return exactRecord(value, [
+    'task_id', 'title', 'lane', 'narrative_ref', 'narrative_anchor', 'compile_binding',
+  ]) && isTodoIdentifier(value.task_id) && nullableText(value.title) && isTodoIdentifier(value.lane)
+    && (value.narrative_ref === null || isTodoRef(value.narrative_ref))
+    && (value.narrative_anchor === null || (validateTodoNarrativeAnchor(value.narrative_anchor)
+      && value.narrative_ref === value.narrative_anchor.origin_plan_ref))
+    && compileBinding(value.compile_binding);
 }
 
 function evidence(value) {
@@ -131,14 +148,16 @@ export function validateTodoImportSource(value) {
 
 export function validateTodoPlan(value) {
   try {
+    const taskValidator = value?.schema === 'lattice.todo_plan.v1' ? taskV1
+      : value?.schema === 'lattice.todo_plan.v2' ? taskV2 : null;
     if (!exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'plan_version', 'predecessor_plan_digest',
       'tasks', 'hard_dependencies', 'joins', 'topology_digest', 'plan_digest',
-    ]) || value.schema !== 'lattice.todo_plan.v1' || !isTodoIdentifier(value.project_id)
+    ]) || taskValidator === null || !isTodoIdentifier(value.project_id)
       || !isTodoIdentifier(value.plan_key) || !isTodoIdentifier(value.plan_version)
       || !nullableDigest(value.predecessor_plan_digest) || !Array.isArray(value.tasks)
       || value.tasks.length === 0 || value.tasks.length > TODO_LIMITS.tasksPerPlan
-      || !value.tasks.every(task) || new Set(value.tasks.map(({ task_id }) => task_id)).size !== value.tasks.length
+      || !value.tasks.every(taskValidator) || new Set(value.tasks.map(({ task_id }) => task_id)).size !== value.tasks.length
       || !Array.isArray(value.hard_dependencies) || value.hard_dependencies.length > TODO_LIMITS.edgesPerPlan
       || !value.hard_dependencies.every((edge) => exactRecord(edge, ['from', 'to']) && nodeRef(edge.from) && nodeRef(edge.to))
       || !Array.isArray(value.joins) || value.joins.length > TODO_LIMITS.joinsPerPlan

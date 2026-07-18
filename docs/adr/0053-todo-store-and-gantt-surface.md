@@ -50,11 +50,12 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
 - 新schema族（すべてexact key・bounded・canonical serialization・fail closed）:
   - `lattice.todo_manifest.v1` — project単位のstore一覧（Decision 4）
   - `lattice.todo_plan.v1` — 1計画のtopology（task・hard dependency・join・lane・散文ref）
+  - `lattice.todo_plan.v2` — v1 topology＋taskごとのimmutableなMarkdown行anchor（Decision 2b）
   - `lattice.todo_event.v1` — 遷移journalの1行（Decision 2）
   - `lattice.todo_snapshot.v1` — materialized projection（Decision 2）
   - `lattice.todo_chain.v1` — 最長依存鎖projection（Decision 7）
   - `lattice.todo_gantt_result.v1`ほかCLI result族（Decision 6）
-- **joinの意味論**: todo_plan.v1のjoinは既存planJoinと同形の`{id, after[], before}`・
+- **joinの意味論**: todo_plan.v1/v2のjoinは既存planJoinと同形の`{id, after[], before}`・
   **all-of barrier**（`after`の全taskがdoneで充足）とする。start可否・最長依存鎖・閉包検査は
   この意味論で判定する。
 - **source変更taskのoptional `compile_binding`**: boundary_manifest digest・compiled plan digest・
@@ -96,7 +97,7 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
   表現する（Decision 2a）。
   各eventは`sequence`・`previous_digest`・`actor`・timestamp・optional `provenance`を持つ。
   - `plan_genesis`: **journalの第0 event**。plan_version・（successorの場合）旧version digest＋
-    task移行map・対応するtodo_plan.v1のdigestを持ち、successorでは`previous_digest`を旧journal
+    task移行map・対応するtodo_plan.v1/v2のdigestを持ち、successorでは`previous_digest`を旧journal
     head digestへbindする。
   - `start`: pendingのみ受理。依存（hard dependency・join）未充足なら拒否。強行は
     `override_reason`必須field付きでのみ許す。
@@ -130,7 +131,7 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
   （task追加・削除・依存変更）の唯一の入口は**`lattice todo revise`**で、1回の呼び出しが変更batchを
   受けてsuccessor plan versionを1回発行する（軽いCRUDに見せない。Codex opinion#7）。削除taskは
   移行mapで明示的に`removed`と宣言し、残存taskの依存が削除taskを指す場合はfail closed。
-  **書込順序契約**: successor発行は①新todo_plan.v1書込→②新journal（plan_genesis）書込→
+  **書込順序契約**: successor発行は①新todo_plan.v1/v2書込→②新journal（plan_genesis）書込→
   ③manifest更新（activation）の順。readerはmanifestが指すgenesis/plan欠落を全拒否＝途中クラッシュは
   「新version未発行」へ倒れる。**activation gateで全inbound cross-plan refを検査**し、破れがあれば
   activationを拒否する（Codex opinion#3）。
@@ -213,6 +214,40 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
   同じ強度でhard検証する。いずれもjournal eventとして通常のsequence、previous digest、event digest、
   canonical bytes、segment chain、rotation、CAS規律に完全に従う。
 
+### 2b. `todo_plan.v2` narrative anchor（2026-07-18・G4-R11追補）
+
+- **wireと正本境界**: `lattice.todo_plan.v2`を新設し、top-level exact keysとtask以外の意味論は
+  v1を継承する。v2 taskのexact keysは`task_id, title, lane, narrative_ref, narrative_anchor,
+  compile_binding`。`narrative_anchor`は`null`またはexact keys `origin_plan_ref, origin_line,
+  source_commit, source_line_digest`で、refは正規repo相対path、lineは1始まりsafe integer、commitは
+  lowercase完全長40/64桁object ID、line digestはlowercase 64桁SHA-256とする。非null時は
+  `narrative_ref === origin_plan_ref`を必須とする。anchorはtask配列とともにtopology/plan digestの
+  preimageへ入り、statusの正本は従来どおりjournalだけである。
+- **immutable version規律とv1互換**: readerはv1/v2をschema dispatchで読み、active v1 planを暗黙に
+  v2へ書換えない。v1はanchor無しのrenderer fallbackとして読み続け、anchor化はowner指示による
+  successorまたは一回きりreimportだけで行う。anchorの追加・変更・task間移動はtopology変更であり
+  successor versionを必須とする。v2からv1へのschema退行は禁止する。既に検証済みの同一task・同一anchorを
+  successorが保持する場合はpinned objectの再取得を要求せず、新規または変更anchorだけを発行時にhard検証する。
+- **migration materialization**: `lattice.todo_extraction.v1`は変更しない。G4 import transaction内で
+  registered taskの`source.origin_plan_ref/origin_line/source_commit/checkbox_state`を使い、pinned
+  `source_commit:origin_plan_ref` blobの固定行をLF byte `0x0a`で区切って取得する。行末LFを含まないexact
+  line bytesのSHA-256を`source_line_digest`とし、UTF-8 Markdown checkbox list itemで、extractionの
+  checked/unchecked stateと一致し、かつtaskの`narrative_ref`とpathが一致する場合だけanchorを作る。
+  commit/path/lineを取得できない、非checkbox、state矛盾、path不一致、checkbox absent/ambiguousは
+  importを推測で埋めず`narrative_anchor: null`として登録する。title・heading・近傍文・同文検索・offset
+  修復はすべて禁止する。historical doneのDecision 2a evidence hard検証はこのfallbackで緩和しない。
+- **発行時検証と読取後のobject欠落**: import/initialize/successor writerが新しい非null anchorを発行する
+  ときは、source commitがcommit、pathがblob、固定行がcheckbox item、exact line digestが宣言値と一致する
+  ことをactivation前にhard検証し、不一致は`STORE_INCONSISTENT`・`narrative_anchor_unverified`で無変更拒否する。
+  activation後にshallow/prune等でpinned Git objectが取得不能になってもplan/journalの読取を拒否しない。
+- **表示時fail closed（renderer実装の受入契約）**: current worktreeのsafeな`narrative_ref`をLF正規化せず
+  fixed lineで取り出し、line digest一致、Markdown AST `listItem.position.start.line`一致、checkbox node、
+  同一document内のline claim一意性をすべて満たす場合だけstatus markを元行内へ埋め込む。anchor欠落、
+  path不一致、line欠落、digest不一致、非checkbox、duplicate claim、AST location欠落では行内化を一切せず、
+  Markdown本文を無変更で表示してdocument先頭のWARN＋末尾の別置きtask stateへ落とす。current text driftは
+  store破損ではないため`STORE_INCONSISTENT`にせず、structured warning reasonとsorted outcomeをganttの
+  narrative binding/result digestへ束縛する。別行探索・title fuzzy match・候補選択による再配置は禁止する。
+
 ### 3. 配置・git・coverage分離
 
 - store正本は**`.lattice/todo/`配下・git tracked**（gitignore不可。「GitHubが真実」の親運用に乗せる）。
@@ -232,7 +267,7 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
   （監査#4-7決定文案を全量採用。遷移ごとのmanifest更新は単一小file・同一lock内で許容）。
   統合readerは全memberをexactにロードし、欠落・余剰・重複active version・dangling/self edge・
   join欠落・merge後cycleを検査、一件でもあれば部分graphを返さない。glob discoveryは行わない。
-- **laneの正本はtodo_plan.v1**（topologyの一部・immutable）。manifestはlaneを宣言せず、表示順の
+- **laneの正本はtodo_plan.v1/v2**（topologyの一部・immutable）。manifestはlaneを宣言せず、表示順の
   並べ替えのみ生成時オプションで許す。laneはpresentation-only projectionで、edge・最長依存鎖・
   capacityを生成しない。global capacity schedulingはv1非対象（監査#4-8）。
 - **Git分岐はfast-forward onlyで受理**: merge commit・複数head・sequence renumber・digest手動

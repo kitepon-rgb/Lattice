@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-import { todoSelfDigest } from '../src/todo-contracts.mjs';
+import { digestTodoArtifact, todoSelfDigest } from '../src/todo-contracts.mjs';
 import {
   compileTodoExtraction,
   validateTodoExtraction,
@@ -184,13 +184,18 @@ test('unknown_requires_evidenceは全体拒否し、裁定後JSONを再compile�
   value.tasks[0].disposition = 'register_pending';
   value.extraction_digest = todoSelfDigest(value, 'extraction_digest');
   const request = compileTodoExtraction(value, '/repo');
+  assert.equal(request.plan.schema, 'lattice.todo_plan.v2');
   assert.deepEqual(request.plan.tasks.map(({ task_id }) => task_id), ['Q1', 'Q2']);
+  assert.deepEqual(request.plan.tasks.map(({ narrative_anchor }) => narrative_anchor), [null, null]);
+  assert.deepEqual(request.narrativeAnchorSources.map(({ task_id }) => task_id), ['Q1', 'Q2']);
   assert.deepEqual(request.completedTasks, []);
 });
 
 test('todo migrateは検証済みJSONをappendImportedPlanへ一度だけ登録しexact resultを返す', async (context) => {
   const root = await workspace(context);
-  const input = bindCommit(await fixture('valid.json'), pinnedPlanCommit(root));
+  const extracted = await fixture('valid.json');
+  for (const task of extracted.tasks) task.narrative_ref = 'plan.md';
+  const input = bindCommit(extracted, pinnedPlanCommit(root));
   const inputRef = await writeInput(root, 'valid', input);
   const first = runCli(root, inputRef);
   assert.equal(first.status, 0, first.stderr);
@@ -208,6 +213,22 @@ test('todo migrateは検証済みJSONをappendImportedPlanへ一度だけ登録�
   assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const archive = store.members.find(({ descriptor }) => descriptor.plan_key === 'archive');
+  assert.equal(archive.plan.schema, 'lattice.todo_plan.v2');
+  assert.deepEqual(archive.plan.tasks.map(({ task_id, narrative_anchor: anchor }) => [task_id, anchor]), [
+    ['A1', {
+      origin_plan_ref: 'plan.md', origin_line: 2, source_commit: input.tasks[0].source.source_commit,
+      source_line_digest: createHash('sha256').update('- [x] A1 or U1').digest('hex'),
+    }],
+    ['A2', {
+      origin_plan_ref: 'plan.md', origin_line: 3, source_commit: input.tasks[1].source.source_commit,
+      source_line_digest: createHash('sha256').update('- [ ] A2').digest('hex'),
+    }],
+  ]);
+  assert.equal(archive.plan.topology_digest, digestTodoArtifact({
+    project_id: archive.plan.project_id, plan_key: archive.plan.plan_key,
+    plan_version: archive.plan.plan_version, tasks: archive.plan.tasks,
+    hard_dependencies: archive.plan.hard_dependencies, joins: archive.plan.joins,
+  }));
   assert.deepEqual(archive.tasks.map(({ task_id, status }) => [task_id, status]), [
     ['A1', 'done'], ['A2', 'pending'],
   ]);
@@ -230,10 +251,28 @@ test('履歴時刻欠落は現在時刻で埋めずunknownのhistorical doneと�
   assert.equal(result.status, 0, result.stderr);
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === 'unknown-time');
+  assert.equal(member.plan.schema, 'lattice.todo_plan.v2');
+  assert.equal(member.plan.tasks[0].narrative_anchor, null);
   const done = member.journal.events.find(({ kind }) => kind === 'done');
   assert.equal(done.payload.done_mode, 'historical_import');
   assert.equal(done.payload.completed_at, 'unknown_requires_evidence');
   assert.equal(member.tasks[0].done_at, null);
+});
+
+test('anchor sourceを取得できないpending taskは推定せずnull anchorで登録する', async (context) => {
+  const root = await workspace(context);
+  const input = await fixture('valid.json');
+  input.plan_key = 'anchor-missing';
+  input.tasks = [input.tasks.find(({ task_id }) => task_id === 'A2')];
+  input.tasks[0].narrative_ref = 'plan.md';
+  input.hard_dependencies = [];
+  input.extraction_digest = todoSelfDigest(input, 'extraction_digest');
+  const result = runCli(root, await writeInput(root, 'anchor-missing', input));
+  assert.equal(result.status, 0, result.stderr);
+  const store = await readTodoStore({ repoRoot: root, now: NOW });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === 'anchor-missing');
+  assert.equal(member.plan.schema, 'lattice.todo_plan.v2');
+  assert.equal(member.plan.tasks[0].narrative_anchor, null);
 });
 
 test('曖昧・schema違反・duplicate・done_mode矛盾はtyped exit 1でstore bytes不変', async (context) => {

@@ -161,8 +161,9 @@ export function todoExtractionImportSource(task) {
 
 /**
  * Translate an already-extracted artifact into appendImportedPlan input.
- * No Markdown is read or interpreted here. Unresolved records stop the whole
- * transaction so the owner can adjudicate the JSON and rerun the same command.
+ * Source locations are passed to the importer but no Markdown is read here.
+ * Unresolved records stop the whole transaction so the owner can adjudicate
+ * the JSON and rerun the same command.
  */
 export function compileTodoExtraction(value, repoRoot) {
   if (!validateTodoExtraction(value)) {
@@ -185,7 +186,7 @@ export function compileTodoExtraction(value, repoRoot) {
     repoRoot,
     writer: createTodoStoreWriter({ caller: 'g4-migration' }),
     plan: {
-      schema: 'lattice.todo_plan.v1',
+      schema: 'lattice.todo_plan.v2',
       project_id: value.project_id,
       plan_key: value.plan_key,
       plan_version: value.plan_version,
@@ -195,11 +196,19 @@ export function compileTodoExtraction(value, repoRoot) {
         title: task.title,
         lane: task.lane,
         narrative_ref: task.narrative_ref,
+        narrative_anchor: null,
         compile_binding: null,
       })),
       hard_dependencies: value.hard_dependencies,
       joins: value.joins,
     },
+    narrativeAnchorSources: registered.map((task) => ({
+      task_id: task.task_id,
+      origin_plan_ref: task.source.origin_plan_ref,
+      origin_line: task.source.origin_line,
+      source_commit: task.source.source_commit,
+      checkbox_state: task.source.checkbox_state,
+    })),
     genesis: {
       actor: value.actor,
       recorded_at: value.recorded_at,

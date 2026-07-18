@@ -106,6 +106,8 @@ test('canonical journalを唯一正本としてplanとsnapshotを束縛して読
   const result = await readTodoStore({ repoRoot: root, now: NOW });
   assert.equal(result.schema, 'lattice.todo_store_read.v1');
   assert.equal(result.snapshot_stale, false);
+  assert.equal(result.members[0].plan.schema, 'lattice.todo_plan.v1');
+  assert.equal(Object.hasOwn(result.members[0].plan.tasks[0], 'narrative_anchor'), false);
   assert.deepEqual(result.members[0].tasks.map(({ task_id, status }) => [task_id, status]), [['T1', 'pending'], ['T2', 'pending']]);
 });
 
@@ -324,15 +326,30 @@ test('topology変更はactive file上書きでなくsuccessor versionを発行�
   const root = await workspace(context); const oldPlan = await bytes(root, planRef);
   const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
   const current = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  const sourceCommit = pinnedMarkdownCommit(root);
   await createSuccessorTodoPlan({ repoRoot: root, writer, planKey: 'main', now: NOW,
-    plan: { schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'main', plan_version: 'v2',
-      predecessor_plan_digest: current.plan.plan_digest, tasks: [task('T1'), task('T3')], hard_dependencies: [], joins: [] },
+    plan: { schema: 'lattice.todo_plan.v2', project_id: 'project-1', plan_key: 'main', plan_version: 'v2',
+      predecessor_plan_digest: current.plan.plan_digest, tasks: [
+        { ...task('T1'), narrative_ref: 'plan.md', narrative_anchor: {
+          origin_plan_ref: 'plan.md', origin_line: 2, source_commit: sourceCommit,
+          source_line_digest: createHash('sha256').update('- [x] A1').digest('hex'),
+        } },
+        { ...task('T3'), narrative_anchor: null },
+      ], hard_dependencies: [], joins: [] },
     genesis: { actor: ACTOR, recorded_at: NOW, task_migration: [
       { from_task_id: 'T1', to_task_id: 'T1' }, { from_task_id: 'T2', to_task_id: 'removed' },
     ] } });
   const result = await readTodoStore({ repoRoot: root, now: NOW });
+  assert.equal(result.members[0].plan.schema, 'lattice.todo_plan.v2');
   assert.equal(result.members[0].plan.plan_version, 'v2');
   assert.deepEqual(await bytes(root, planRef), oldPlan);
+  await assert.rejects(createSuccessorTodoPlan({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    plan: { schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'main', plan_version: 'v3',
+      predecessor_plan_digest: result.members[0].plan.plan_digest, tasks: [task('T1'), task('T3')],
+      hard_dependencies: [], joins: [] },
+    genesis: { actor: ACTOR, recorded_at: NOW, task_migration: [
+      { from_task_id: 'T1', to_task_id: 'T1' }, { from_task_id: 'T3', to_task_id: 'T3' },
+    ] } }), /cannot regress from v2 to v1/u);
 });
 
 for (const stage of [
@@ -381,6 +398,27 @@ test('historical importはimport済みとauthored既存plan_keyを区別して�
     predecessor_plan_digest: null, tasks: [task('T1')], hard_dependencies: [], joins: [] };
   await expectCode(appendImportedPlan(importedPlanRequest(root, { plan: mainPlan })),
     'STORE_WRITE_CONFLICT', 'plan_key_already_exists');
+});
+
+test('todo_plan.v2のanchor hash不一致はactivation前にfail closedする', async (context) => {
+  const root = await workspace(context);
+  const sourceCommit = pinnedMarkdownCommit(root);
+  const request = importedPlanRequest(root, { sourceCommit });
+  request.plan = {
+    ...request.plan,
+    schema: 'lattice.todo_plan.v2',
+    tasks: request.plan.tasks.map((entry, index) => ({
+      ...entry,
+      narrative_ref: 'plan.md',
+      narrative_anchor: {
+        origin_plan_ref: 'plan.md', origin_line: index + 2, source_commit: sourceCommit,
+        source_line_digest: '0'.repeat(64),
+      },
+    })),
+  };
+  await expectCode(appendImportedPlan(request), 'STORE_INCONSISTENT', 'narrative_anchor_unverified');
+  assert.deepEqual((await readTodoStore({ repoRoot: root, now: NOW })).members
+    .map(({ descriptor }) => descriptor.plan_key), ['main']);
 });
 
 test('historical doneは通常writerから追加できず、import source不在はverify用annotation/hard拒否へ分離する', async (context) => {
