@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,11 +16,12 @@ import {
   TodoGanttRenderError,
 } from '../src/todo-gantt-html.mjs';
 import { TODO_MARKDOWN_SECTION_MAX_BYTES } from '../src/todo-markdown-renderer.mjs';
+import { verifyNarrativeAnchors } from '../src/todo-narrative-anchor.mjs';
 import {
   createTodoStoreWriter,
   initializeTodoStore,
 } from '../src/todo-store.mjs';
-import { todoSelfDigest } from '../src/todo-contracts.mjs';
+import { digestTodoArtifact, todoSelfDigest } from '../src/todo-contracts.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
@@ -50,10 +52,10 @@ function topology(read) {
   };
 }
 
-function renderFixture(read, narratives = []) {
+function renderFixture(read, narratives = [], anchorOutcomes = []) {
   const chain = projectTodoChainV1(topology(read));
   const layout = layoutTodoGantt(read, chain);
-  return renderTodoGanttHtml({ readModel: read, layout, narratives });
+  return renderTodoGanttHtml({ readModel: read, layout, narratives, anchorOutcomes });
 }
 
 async function workspace(context, title = 'T1') {
@@ -79,6 +81,49 @@ async function workspace(context, title = 'T1') {
     }],
   });
   return root;
+}
+
+async function anchoredWorkspace(context) {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-gantt-anchor-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: root }).status, 0);
+  const markdown = '# Plan\n- [ ] Anchored task\n';
+  await writeFile(path.join(root, 'plan.md'), markdown);
+  const blob = spawnSync('git', ['hash-object', '-w', '--stdin'], {
+    cwd: root, input: markdown, encoding: 'utf8',
+  });
+  assert.equal(blob.status, 0, blob.stderr);
+  const tree = spawnSync('git', ['mktree'], {
+    cwd: root, input: `100644 blob ${blob.stdout.trim()}\tplan.md\n`, encoding: 'utf8',
+  });
+  assert.equal(tree.status, 0, tree.stderr);
+  const commit = spawnSync('git', ['hash-object', '-t', 'commit', '-w', '--stdin'], {
+    cwd: root,
+    input: `tree ${tree.stdout.trim()}\nauthor Fixture <fixture@example.invalid> 1760000000 +0000\ncommitter Fixture <fixture@example.invalid> 1760000000 +0000\n\nfixture\n`,
+    encoding: 'utf8',
+  });
+  assert.equal(commit.status, 0, commit.stderr);
+  const task = {
+    task_id: 'T1', title: 'Anchored task', lane: 'main', narrative_ref: 'plan.md',
+    narrative_anchor: {
+      origin_plan_ref: 'plan.md', origin_line: 2, source_commit: commit.stdout.trim(),
+      source_line_digest: createHash('sha256').update('- [ ] Anchored task').digest('hex'),
+    },
+    compile_binding: null,
+  };
+  await initializeTodoStore({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }], now: NOW,
+    plans: [{
+      plan: {
+        schema: 'lattice.todo_plan.v2', project_id: 'project-1', plan_key: 'main',
+        plan_version: 'v2', predecessor_plan_digest: null, tasks: [task],
+        hard_dependencies: [], joins: [],
+      },
+      genesis: { actor: ACTOR, recorded_at: NOW },
+    }],
+  });
+  return { root, markdown };
 }
 
 async function graphWorkspace(context) {
@@ -135,6 +180,17 @@ test('small real store E2E generates the default self-contained gantt and exact 
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v4');
+  const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
+  assert.equal(result.narrative_bindings_digest, digestTodoArtifact([{
+    project_id: 'project-1',
+    plan_key: 'main',
+    task_id: 'T1',
+    narrative_ref: 'narrative.md',
+    content_digest: createHash('sha256').update(narrativeBytes).digest('hex'),
+    anchored: false,
+    reason: 'anchor_missing',
+  }]));
   assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
   assert.equal(path.isAbsolute(result.output_ref), false);
   assert.equal(JSON.stringify(result).includes('file://'), false);
@@ -148,12 +204,31 @@ test('small real store E2E generates the default self-contained gantt and exact 
   assert.match(html, /class="document-status status-pending" role="img" aria-label="未着手">☐/u);
 });
 
+test('v2 anchor成立のCLI ganttはoutcomeをbinding digestと行内markの両方へ一度で束縛する', async (context) => {
+  const { root, markdown } = await anchoredWorkspace(context);
+  const execution = run(root, ['todo', 'gantt']);
+  assert.equal(execution.status, 0, execution.stderr);
+  const result = JSON.parse(execution.stdout);
+  assert.deepEqual(Object.keys(result), [
+    'schema', 'project_id', 'output_ref', 'manifest_digest', 'member_bindings',
+    'narrative_bindings_digest', 'chain_digest', 'layout_digest', 'renderer_version',
+    'html_digest', 'result_digest',
+  ]);
+  assert.equal(result.narrative_bindings_digest, digestTodoArtifact([{
+    project_id: 'project-1', plan_key: 'main', task_id: 'T1', narrative_ref: 'plan.md',
+    content_digest: createHash('sha256').update(markdown).digest('hex'), anchored: true, reason: null,
+  }]));
+  const html = await readFile(path.join(root, result.output_ref), 'utf8');
+  assert.match(html, /class="document-status status-pending" data-narrative-key=/u);
+  assert.doesNotMatch(html, /class="task-line"|class="narrative-warning"/u);
+});
+
 test('real store smoke draws every edge and emits compact nodes plus concise category totals', async (context) => {
   const root = await graphWorkspace(context);
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v3');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v4');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
@@ -168,6 +243,7 @@ test('real store smoke draws every edge and emits compact nodes plus concise cat
   assert.ok(positions.get('T1') < positions.get('T2'));
   assert.ok(positions.get('T2') < positions.get('T3'));
   assert.match(html, /class="document-status status-pending"[^>]*>☐<\/span>/u);
+  assert.doesNotMatch(html, /class="narrative-warning"/u);
   assert.match(html, /\.narrative-body\{[^}]*max-width:72ch[^}]*font-size:13\.5px[^}]*font-weight:400[^}]*line-height:1\.6/u);
   assert.match(html, /\.task-line h2\{[^}]*font-size:16px[^}]*font-weight:600/u);
   assert.match(html, /\.plan-title\{[^}]*font-size:19px[^}]*font-weight:650/u);
@@ -201,10 +277,14 @@ test('right pane reads as a Markdown document while retaining all/selected/reset
   assert.equal((output.html.match(/<h1>Intent<\/h1>/gu) ?? []).length, 1);
   assert.match(output.html, /data-view-state="all"/u);
   assert.match(output.html, /<button type="button" data-show-all>全文表示へ戻る<\/button>/u);
+  assert.match(output.html, /const narrativeTargets=\[\.\.\.root\.querySelectorAll\('\[data-narrative-key\]'\)\]/u);
+  assert.match(output.html, /const taskLines=\[\.\.\.root\.querySelectorAll\('\.task-line\[data-narrative-key\]'\)\]/u);
+  assert.doesNotMatch(output.html, /const taskLines=\[\.\.\.root\.querySelectorAll\('\[data-narrative-key\]'\)\]/u);
   assert.match(output.html, /line\.hidden=line\.dataset\.narrativeKey!==key/u);
   assert.match(output.html, /item\.section\.hidden=!item\.lines\.some/u);
   assert.match(output.html, /event\.key==='Enter'\|\|event\.key===' '/u);
   assert.match(output.html, /event\.key==='Escape'/u);
+  assert.match(output.html, /const target=narrativeTargets\.find\(line=>line\.dataset\.narrativeKey===key\);target\?\.scrollIntoView\(\{block:'start'\}\)/u);
   assert.equal((output.html.match(/root\.addEventListener\('click'/gu) ?? []).length, 1);
   assert.equal((output.html.match(/root\.addEventListener\('keydown'/gu) ?? []).length, 1);
   assert.match(output.html, /class="diagram-scroll" data-diagram-scroll tabindex="0"/u);
@@ -214,9 +294,47 @@ test('right pane reads as a Markdown document while retaining all/selected/reset
   assert.match(output.html, /<div class="narrative-document"><section class="plan-document"><h1 class="plan-title"><code>main<\/code><\/h1>/u);
   assert.match(output.html, /<h2>Acceptance<\/h2>/u);
   assert.match(output.html, /class="markdown-checkbox" role="img" aria-label="unchecked">☐/u);
+  assert.match(output.html, /\.next-ready-node \.node-surface\{stroke:var\(--accent\);stroke-width:2;stroke-dasharray:4 3\}/u);
+  assert.match(output.html, /aria-label="main\/T0000: Task 0; 未着手（着手可）"/u);
+  assert.match(output.html, /<tspan class="node-id">T0000<\/tspan> Task 0/u);
+  assert.match(output.html, /\.dependency-edge \.edge-arrow\{fill:var\(--text-secondary\);opacity:\.7\}/u);
+  assert.doesNotMatch(output.html, /<p class="notice">/u);
+  assert.match(output.html, /<span class="diagram-note">最長依存鎖はunit-weight/u);
+  assert.match(output.html, /body\{display:grid;grid-template-rows:minmax\(0,1fr\)/u);
+  assert.match(output.html, /\[data-view-state="all"\] \.narrative-pane>\.toolbar\{display:none\}/u);
   assert.doesNotMatch(output.html, /class="task-facts"|class="evidence"|<dl|<dt>/u);
   assert.equal(output.html.includes('innerHTML'), false);
   assert.doesNotMatch(output.html, /\son[a-z]+\s*=/iu);
+});
+
+test('verified anchorはcheckbox行内へ状態を置き、不成立taskはWARNと末尾task-lineへfail closedする', () => {
+  const read = readFixture(3);
+  const markdown = '# Plan\n- [ ] pending task\n- [ ] blocked task\n- [ ] drifted task';
+  const lineDigest = (line) => createHash('sha256').update(line).digest('hex');
+  for (const [index, task] of read.members[0].plan.tasks.entries()) {
+    task.narrative_ref = 'plan.md';
+    task.narrative_anchor = {
+      origin_plan_ref: 'plan.md',
+      origin_line: index + 2,
+      source_commit: '1'.repeat(40),
+      source_line_digest: lineDigest(index === 2 ? '- [ ] stale task' : markdown.split('\n')[index + 1]),
+    };
+  }
+  Object.assign(read.members[0].tasks[1], { status: 'blocked', blocked_reason: null });
+  const narratives = read.members[0].plan.tasks.map(({ task_id }) => ({
+    ref: ref(task_id), narrative_ref: 'plan.md', markdown,
+  }));
+  const outcomes = verifyNarrativeAnchors({ readModel: read, narratives });
+  const html = renderFixture(read, narratives, outcomes).html;
+
+  assert.match(html, /class="document-status status-pending" data-narrative-key="\[&quot;project-1&quot;,&quot;main&quot;,&quot;T0000&quot;\]"[^>]*>☐<\/span><p>pending task<\/p>/u);
+  assert.match(html, /class="document-status status-blocked"[^>]*>⛔<\/span><p>blocked task<\/p><span class="blocked-reason"> — 理由未記録<\/span>/u);
+  assert.match(html, /行内表示不可: <code>T0002<\/code> — digest_mismatch/u);
+  assert.match(html, /class="markdown-checkbox" role="img" aria-label="unchecked">☐<\/span><p>drifted task<\/p>/u);
+  assert.equal((html.match(/class="task-line"/gu) ?? []).length, 1);
+  assert.match(html, /class="task-line"[^>]*><span[^>]*>☐<\/span><h2>Task 2<\/h2>/u);
+  assert.ok(html.indexOf('class="narrative-warning"') < html.indexOf('class="narrative-body"'));
+  assert.ok(html.indexOf('class="narrative-body"') < html.indexOf('class="task-line"'));
 });
 
 test('SVG renders compact status nodes, every edge, join marker, and hierarchical summary without timestamps', () => {

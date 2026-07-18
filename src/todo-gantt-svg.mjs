@@ -59,6 +59,13 @@ function truncateLabel(value, maximum = 17) {
   return `${result}…`;
 }
 
+function visibleNodeLabel(taskId, title, maximum = 14) {
+  const id = String(taskId);
+  if (stringWidth(id) >= maximum) return { id: truncateLabel(id, maximum), title: '' };
+  const titleWidth = maximum - stringWidth(id) - 1;
+  return { id, title: titleWidth <= 0 ? '' : truncateLabel(title, titleWidth) };
+}
+
 function renderNode(node) {
   if (!node.visible || node.geometry === null) return '';
   const { x, y, width, height } = node.geometry;
@@ -70,9 +77,12 @@ function renderNode(node) {
   const key = nodeKey(node.ref);
   const label = `${node.ref.plan_key}/${node.ref.task_id}: ${node.title}`;
   const presentation = STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' };
+  const visibleLabel = visibleNodeLabel(node.ref.task_id, node.title);
+  const readyLabel = node.visibility.next_ready ? '（着手可）' : '';
   const statusBar = node.status === 'in-progress'
     ? `<line class="status-bar" x1="${x + 5}" y1="${y + 6}" x2="${x + 5}" y2="${y + height - 6}"></line>` : '';
-  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(`${label}; ${presentation.label}`)}"><rect class="node-surface" x="${x}" y="${y}" width="${width}" height="${height}" rx="4"></rect>${statusBar}<text class="status-mark" x="${x + 10}" y="${y + 22}">${escapeSvgText(presentation.mark)}</text><text class="node-title" x="${x + 34}" y="${y + 22}">${escapeSvgText(truncateLabel(node.title, 14))}</text><title>${escapeSvgText(`${label} — ${presentation.label}`)}</title></g>`;
+  const visibleTitle = visibleLabel.title === '' ? '' : ` ${escapeSvgText(visibleLabel.title)}`;
+  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(`${label}; ${presentation.label}${readyLabel}`)}"><rect class="node-surface" x="${x}" y="${y}" width="${width}" height="${height}" rx="4"></rect>${statusBar}<text class="status-mark" x="${x + 10}" y="${y + 22}">${escapeSvgText(presentation.mark)}</text><text class="node-title" x="${x + 34}" y="${y + 22}"><tspan class="node-id">${escapeSvgText(visibleLabel.id)}</tspan>${visibleTitle}</text><title>${escapeSvgText(`${label} — ${presentation.label}`)}</title></g>`;
 }
 
 function summaryLabel(value, maximum = 25) {

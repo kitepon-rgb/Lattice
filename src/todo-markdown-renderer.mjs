@@ -109,10 +109,17 @@ function renderNode(node, path, state, context = {}) {
       return `<${tag}${start}>${renderChildren(node, path, state, context)}</${tag}>`;
     }
     case 'listItem': {
-      const checkbox = context.taskCheckboxes === true && typeof node.checked === 'boolean'
-        ? `<span class="markdown-checkbox" role="img" aria-label="${node.checked ? 'checked' : 'unchecked'}">${node.checked ? '☑' : '☐'}</span>` : '';
+      const line = node.position?.start?.line;
+      const taskState = context.taskCheckboxes === true && typeof node.checked === 'boolean'
+        && Number.isSafeInteger(line) ? context.taskStatesByLine?.get(line) : undefined;
+      const checkbox = taskState === undefined
+        ? (context.taskCheckboxes === true && typeof node.checked === 'boolean'
+          ? `<span class="markdown-checkbox" role="img" aria-label="${node.checked ? 'checked' : 'unchecked'}">${node.checked ? '☑' : '☐'}</span>` : '')
+        : `<span class="document-status status-${escapeHtml(String(taskState.status))}" data-narrative-key="${escapeHtml(String(taskState.narrativeKey))}" role="img" aria-label="${escapeHtml(String(taskState.label))}">${escapeHtml(String(taskState.mark))}</span>`;
       const taskClass = checkbox === '' ? '' : ' class="markdown-task"';
-      return `<li${taskClass}>${checkbox}${renderChildren(node, path, state, context)}</li>`;
+      const blockedReason = taskState?.status === 'blocked'
+        ? `<span class="blocked-reason"> — ${escapeHtml(String(taskState.blockedReason ?? '理由未記録'))}</span>` : '';
+      return `<li${taskClass}>${checkbox}${renderChildren(node, path, state, context)}${blockedReason}</li>`;
     }
     case 'strong':
       return `<strong>${renderChildren(node, path, state)}</strong>`;
@@ -204,7 +211,7 @@ export function renderTodoMarkdown(markdown) {
   return renderTodoMarkdownAst(markdownParser.parse(markdown));
 }
 
-export function renderTodoMarkdownDocument(markdown) {
+export function parseTodoMarkdownDocument(markdown) {
   if (typeof markdown !== 'string') {
     throw new TodoMarkdownRenderError(
       'TODO_MARKDOWN_INVALID_INPUT',
@@ -215,7 +222,17 @@ export function renderTodoMarkdownDocument(markdown) {
   if (actualBytes > TODO_MARKDOWN_SECTION_MAX_BYTES) {
     throw new TodoMarkdownSectionTooLargeError(actualBytes);
   }
-  const tree = markdownParser.parse(markdown);
+  return markdownParser.parse(markdown);
+}
+
+export function renderTodoMarkdownDocument(markdown, { taskStatesByLine = new Map() } = {}) {
+  if (!(taskStatesByLine instanceof Map)) {
+    throw new TodoMarkdownRenderError(
+      'TODO_MARKDOWN_INVALID_OPTIONS',
+      'taskStatesByLine must be a Map',
+    );
+  }
+  const tree = parseTodoMarkdownDocument(markdown);
   if (!isNode(tree) || tree.type !== 'root') {
     throw new TodoMarkdownRenderError(
       'TODO_MARKDOWN_INVALID_AST',
@@ -224,7 +241,7 @@ export function renderTodoMarkdownDocument(markdown) {
   }
   const state = { discarded: [] };
   return {
-    html: renderNode(tree, 'root', state, { taskCheckboxes: true }),
+    html: renderNode(tree, 'root', state, { taskCheckboxes: true, taskStatesByLine }),
     discarded: state.discarded,
   };
 }

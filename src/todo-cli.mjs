@@ -18,6 +18,7 @@ import {
   renderTodoGanttHtml,
   TODO_GANTT_RENDERER_VERSION,
 } from './todo-gantt-html.mjs';
+import { verifyNarrativeAnchors } from './todo-narrative-anchor.mjs';
 import {
   TodoStoreError,
   readTodoStore,
@@ -284,6 +285,18 @@ async function gantt({ repoRoot, outputRef }) {
   const chain = projectTodoChainV1(topology);
   const layout = layoutTodoGantt(store, chain);
   const narrative = await loadNarratives(store, repoRoot);
+  const anchorOutcomes = verifyNarrativeAnchors({
+    readModel: store,
+    narratives: narrative.narratives,
+  });
+  const outcomesByRef = new Map(anchorOutcomes.map((entry) => [
+    JSON.stringify([entry.ref.project_id, entry.ref.plan_key, entry.ref.task_id]), entry,
+  ]));
+  const narrativeBindings = narrative.bindings.map((entry) => {
+    const key = JSON.stringify([entry.project_id, entry.plan_key, entry.task_id]);
+    const anchor = outcomesByRef.get(key);
+    return { ...entry, anchored: anchor.anchored, reason: anchor.reason };
+  });
   const memberBindings = store.members.map((member) => ({
     plan_key: member.descriptor.plan_key,
     topology_digest: member.plan.topology_digest,
@@ -292,12 +305,18 @@ async function gantt({ repoRoot, outputRef }) {
   const metadata = {
     manifest_digest: store.manifest.manifest_digest,
     member_bindings: memberBindings,
-    narrative_bindings_digest: digestTodoArtifact(narrative.bindings),
+    narrative_bindings_digest: digestTodoArtifact(narrativeBindings),
     chain_digest: digestTodoArtifact(chain),
     layout_digest: digestTodoArtifact(layout),
     renderer_version: TODO_GANTT_RENDERER_VERSION,
   };
-  const rendered = renderTodoGanttHtml({ readModel: store, layout, narratives: narrative.narratives, metadata });
+  const rendered = renderTodoGanttHtml({
+    readModel: store,
+    layout,
+    narratives: narrative.narratives,
+    anchorOutcomes,
+    metadata,
+  });
   await atomicWriteOutput(repoRoot, outputRef, rendered.html);
   const result = {
     schema: 'lattice.todo_gantt_result.v1',
