@@ -11,6 +11,9 @@
   以下「監査#N-M」はレーンN指摘Mを指す）
 - 反証: `fable`スポット諮問・`fable`×high refuter・クロスprovider Codex opinion（sol×xhigh）各1回。
   指摘と反映は末尾「反証記録」節
+- 同日追補（2026-07-18・G2-W4）: G2設計調書への独立反証を受け、error taxonomy、
+  `lattice.todo_chain.v1` wire、`todo verify`／`todo snapshot`成功resultとtodo CLI exit境界を精密化した。
+  既存のAccepted裁定とscopeは変更しない
 
 ## Context
 
@@ -61,12 +64,24 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
 ### 2. store正本規律（journal唯一正本・closed状態機械）
 
 - **journalが唯一の正本**。snapshotは破棄可能なmaterialized projection。**journal破損と
-  snapshot不整合は別扱いにする**（Codex opinion#1）:
-  - journal（現segment＋sealed segments）の検証失敗＝正本破損＝`STORE_CORRUPT`で全拒否。
-  - journalが健全でsnapshotが欠落・stale・不一致＝**readerは検証済みjournalからのread-only
-    投影で読み続けられる**（結果に`snapshot_stale: true`を明示）。暗黙のsnapshot書換えはせず、
-    修復は明示的・決定的な`lattice todo snapshot --rebuild`（journal replayのみを根拠）だけが行う。
-    writerはsnapshot再整合まで新規mutationを拒否する。
+  snapshot不整合は別扱いにする**（Codex opinion#1、2026-07-18 G2-W4追補）:
+  - `STORE_CORRUPT`: 現segment／sealed segmentのraw bytes、行canonicality、schema、上限、genesis、
+    sequence／digest link、segment連結のいずれかが不正で、journal正本を検証・replayできない状態。
+    snapshotの状態によらずreader・writer・render・verifyを全拒否する。
+  - `STORE_INCONSISTENT`: **journal自体は健全だが、その投影を信頼できない整合性違反に限定する**。
+    manifest／planのraw bytes・schema・self-digest不正、active plan／genesis binding／topology digestの不一致、
+    欠落・余剰・重複active version、dangling／self edge、join closure違反、merge後cycle、
+    cross-plan topology binding不一致を含む。
+    `binding_stale`は独立したtop-level error codeではなく、この最後の違反を表す`cli_error.v2.detail.reason`
+    の値とする。一件でもあれば部分投影を返さずreader・writer・render・verifyを全拒否する。
+  - `snapshot_stale`: journalが健全で、snapshotだけが欠落、旧head、projection/digest/body不一致、または
+    **snapshot単独のbyte異常**（invalid UTF-8、BOM、CR、duplicate key、trailing bytes、merge marker、
+    truncated write、schema混在、non-canonical bytes、snapshot上限超過を含む）で採用不能な状態。
+    error codeではなく成功resultのbooleanである。**readerは検証済みjournalからのread-only投影で
+    読み続け**、`snapshot_stale: true`を返す。暗黙のsnapshot書換えはせず、修復は明示的・決定的な
+    `lattice todo snapshot --rebuild`（journal replayのみを根拠）だけが行う。writerはsnapshot再整合まで
+    新規mutationを拒否する。expected pathがsymlink、repo外、非regular fileである場合は
+    `snapshot_stale`へ丸めず、下記path containment規律によりhard rejectする。
   - snapshotは`projection_version`・`through_sequence`・`journal_head_digest`・`snapshot_digest`を
     必須とし、健全時のreaderはreplay結果とのcanonical exact一致を要求する（監査#4-1）。
   - **commit point**: mutationの耐久化はjournal segmentのfsync＋atomic rename完了時点と定義する。
@@ -122,9 +137,11 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
 - **compactionはseal/rotationのみ**: 過去segmentは開始/終了sequence・前segment head digest・
   segment digestを持つimmutable fileとして残す。prefix破棄・真正な履歴削除はv1で禁止
   （別schema・別ADR。監査#4-5）。
-- **byte-level fail closed**: raw bytesのfatal UTF-8 decode・BOM/CR/duplicate key/trailing bytes/
-  merge marker/truncated write/schema version混在/genesis欠落/上限超過を全拒否。path検査は
-  lstat/realpathでsymlink・repo外・非regular fileを拒否（監査#4-14）。
+- **journal側byte-level fail closed**: 現segment／sealed segment raw bytesのfatal UTF-8 decode・
+  BOM/CR/duplicate key/trailing bytes/merge marker/truncated write/schema version混在/genesis欠落/
+  上限超過は`STORE_CORRUPT`で全拒否する。この全拒否規則をsnapshot単独byte異常へは適用せず、
+  上記`snapshot_stale`として隔離する。全artifactのpath検査はlstat/realpathでsymlink・repo外・
+  非regular fileを拒否する（監査#4-14、2026-07-18 G2-W4追補）。
 
 ### 3. 配置・git・coverage分離
 
@@ -193,13 +210,32 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
 | `todo done` | `--plan <key> --task <id> --evidence <descriptor.json path>` | 同上 | G5 |
 | `todo reopen` | `--plan <key> --task <id> --reason <text> [--override-reason <text>]` | 同上（`target_done_digest`は内部で最新doneへ解決しeventへ記録） | G5 |
 | `todo revise` | `--plan <key> --input <revision.json path>` | `todo_revise_result.v1`（successor version発行の唯一入口） | G5 |
-| `todo verify` | `[--plan <key>]`（既定=全member） | `todo_verify_result.v1`（bytes・chain・遷移・evidence hard検証のlocal検証まで所有。CI attestationはCIの領分） | G2 |
-| `todo snapshot` | `--rebuild --plan <key>` | `todo_snapshot_result.v1` | G2 |
+| `todo verify` | `[--plan <key>]`（既定=全member） | `lattice.todo_verify_result.v1`（bytes・chain・遷移・evidence hard検証のlocal検証まで所有。CI attestationはCIの領分） | G2 |
+| `todo snapshot` | `--rebuild --plan <key>` | `lattice.todo_snapshot_result.v1` | G2 |
 | `todo gantt` | `[--out <repo相対ref>]`（既定`.lattice/generated/gantt.html`） | `todo_gantt_result.v1` | G3 |
 | `todo reconcile` | `--input <resolution.json path>` | `todo_reconcile_result.v1`（手順詳細はG5着手時の追補で固定） | G5 |
 
 - CAS期待値は引数に持たない（lock内内部取得。Decision 2）。mutation系はdry-runを持たない
   （fail closedが既定で、成功以外はstoreへ触れないため）。
+- **G2成功result wire（2026-07-18 G2-W4追補）**: 以下はすべてexact-key objectで、digestは
+  lowercase 64桁SHA-256、sequenceはnon-negative safe integer、refはrepo相対、member配列は
+  `plan_key`の後述text順、`project_id`／`plan_key`はtodo族のbounded identifierとする。
+  各`schema` fieldは項目名と同じ完全修飾literal、`result_digest`は同fieldを除くobjectの
+  canonical digestである。
+  - `lattice.todo_verify_result.v1`のexact keysは`schema, project_id, requested_plan_key,
+    verified_members, snapshot_stale, result_digest`。`requested_plan_key`は全member検証時`null`、
+    `--plan`指定時はそのbounded identifier。`verified_members[]`のexact keysは`plan_key,
+    topology_digest, journal_head_digest, through_sequence, snapshot_stale`。top-level
+    `snapshot_stale`はmember値の論理OR（空memberは許さない）で、stale memberがあってもjournal replayに
+    よる検証成功ならexit 0とする。
+  - `lattice.todo_snapshot_result.v1`のexact keysは`schema, project_id, plan_key, snapshot_ref,
+    through_sequence, journal_head_digest, snapshot_digest, result_digest`。成功時の`snapshot_ref`は
+    `.lattice/todo/`配下の再構築済みsnapshotを指し、`snapshot_digest`は実際に確定したcanonical bytesへ
+    束縛する。current snapshotの再構築も同じbytes・同じresultを返す。
+- **todo CLIだけのexit wire（2026-07-18 G2-W4追補）**: ADR 0044 Decision 8を継承し、exit 0は
+  stdoutへ成功result JSON一行、exit 1はstdout空・stderrへ`lattice.cli_error.v2` JSON一行、exit 2は
+  usage違反としてstdout空・stderrへ人間向け診断一行を返す。`cli_error.v2`は**`lattice todo`面では
+  exit 1に限定**し、exit 2へJSON envelopeを出さない。exit 1/2はいずれもstore bytes不変とする。
 - `todo gantt`のstdoutは**repo相対`output_ref`**＋input束縛digest群。絶対file://パスをportable
   resultへ入れない（解決はstderr診断またはdotagents hook側。監査#1-2）。result digestは単数でなく、
   sorted member manifest・各store head・active topology・evidence／埋込散文content digest・
@@ -208,14 +244,14 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
   追加し、routing非回帰testを置く。`src/runtime-cli.mjs`のstale docstring（v1表記）もG2で追従修正
   （監査#1-9）。
 
-### 7. 最長依存鎖projection（「critical path」の語を廃す）
+### 7. 最長依存鎖projection（旧称を廃す）
 
-- 監査#5-5のとおり、無duration DAGのhard_need最長鎖はcritical pathではない。v1は監査二択の
+- 監査#5-5のとおり、無duration DAGのhard_need最長鎖を実時間の律速経路と呼ぶことはできない。v1は監査二択の
   どちらでもない**第三案**を採る: 全taskをunit-durationとみなし、**hard dependency＋join制約のみ**を
   辺集合とするlongest path構造を導出する。conflict系edgeは無向で経路に載らず（監査#1-3）、
   capacityはv1非目標のため辺集合に含めない。
-- 名称は日本語**「最長依存鎖」**・英語**`longest dependency chain`**とする。「critical path」も
-  「critical chain」も使わない（後者はGoldratt CCPMの資源制約込み術語で誤読を輸入する。
+- 名称は日本語**「最長依存鎖」**・英語**`longest dependency chain`**とする。実時間律速や
+  資源制約込みを意味する既存の工程管理術語は使わない（Goldratt CCPM由来の誤読も輸入しない。
   fable諮問判断2・Codex opinion#6）。UI・受入文言も「最長依存鎖」を使い、表示には
   「unit-weightの構造深さであり実時間・資源律速ではない」旨を常時明記する。
 - `todo_chain.v1`は**非列挙projection**とする（Codex opinion#5。最長鎖の全列挙は2,000 task内でも
@@ -223,6 +259,45 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
   ③最長鎖本数（上限付きcount＋overflow flag）④deterministicな代表鎖を最大8本。
   `assumptions`固定literal field（`unit_duration: true`・`capacity_ignored: true`・
   `conflict_ignored: true`）を必須で持つ。
+- **`lattice.todo_chain.v1` wire（2026-07-18 G2-W4追補）**: exact keysは`schema,
+  maximum_dependency_depth, longest_chain_node_refs, longest_chain_edges, longest_chain_count, limits,
+  representative_chains, assumptions`で、`schema`はliteral `lattice.todo_chain.v1`。node refは
+  exact keys `project_id, plan_key, task_id`、edgeは
+  exact keys `from, to`（両方node ref）、`longest_chain_count`はexact keys `count, overflow`、`limits`は
+  exact keys `count_cap, representative_limit`、`assumptions`は上記3 literalだけを持つ。空graphは深さ0、
+  count 0／overflow false、3 arrayとも空。非空graphの深さは最長鎖のnode数とする。node unionはnode順、
+  edge unionは`from`後`to`のnode順、各代表鎖内はpath順、代表鎖配列は次項のDFS発見順でcanonical化し、
+  入力node／edge／join配列の順序に依存させない。深さ、count、`limits`の2値はnon-negative safe integer
+  （ただし`count_cap`は次項の正数範囲）とする。
+- **比較規則とoptions**: node refのtuple comparatorは`project_id`→`plan_key`→`task_id`の順に、
+  最初に異なるfieldで比較する。各textはECMAScriptの抽象関係比較と同じUTF-16 code unit辞書順
+  （`left < right`／`left > right`。locale、case folding、Unicode normalizationなし）とする。
+  optionsはexact keys `countCap`／`representativeLimit`のみ（各keyは省略可）、既定値はそれぞれ
+  1,000,000／8。`countCap`は1以上`Number.MAX_SAFE_INTEGER - 1`以下のsafe integer、
+  `representativeLimit`は0以上8以下のsafe integerに限定し、unknown key・範囲外・非整数をfail closedする。
+  wireの`limits`には採用した値をsnake_caseで記録する。最大8本というAccepted裁定をoptionで拡張しない。
+- **DPと飽和**: hard edgeとjoinの各`after_i -> before`を展開後、同一`(from,to)`を一度だけ数える。
+  sourceでは`down[v]=waysDown[v]=1`、それ以外は`down[v]=1+max(down[p])`かつ
+  `waysDown[v]=Σ waysDown[p] where down[p]+1===down[v]`。sinkでは`up[v]=waysUp[v]=1`、
+  それ以外は`up[v]=1+max(up[s])`かつ`waysUp[v]=Σ waysUp[s] where up[s]+1===up[v]`。
+  `D=max(down[v])`、`count=Σ waysDown[v] where down[v]===D`とする。各加算は
+  `sat(a,b)=min(countCap+1,a+b)`で即時飽和し、内部値`countCap+1`を唯一のoverflow sentinelとする。
+  実装は`a+b`を先にunsafe integer化せず、`a > countCap+1-b`を先に判定してsentinelへ飽和させる。
+  wireは`count=min(internalCount,countCap)`、`overflow=(internalCount===countCap+1)`を返す。
+  node採用条件は`down[v]+up[v]-1===D`、edge `u -> v`の採用条件は
+  `down[u]+up[v]===D`である。
+- **代表鎖の決定規則**: 開始nodeは`down[v]===1 && up[v]===D`を満たすものをtuple順に走査する。
+  各nodeでは`up[s]+1===up[v]`を満たすsuccessorだけをtuple順にdepth-firstで辿り、sink到達時に
+  1本emitする。全開始nodeをまたぐ単一のDFS発見順で`representativeLimit`本に達した直後に打ち切り、
+  limit 0なら探索せず空arrayを返す。これにより最長suffixを維持した最長鎖の辞書順先頭N本だけを
+  列挙し、残りを生成しない。
+- **計算量・必須fixture**: DP自体は`O(V+E)`時間・空間、canonical sortingを含む全体は
+  `O((V+E) log(V+E))`時間・`O(V+E)`空間を上限とする。G2 fixtureにはshortcut付きDAG、真のcountが
+  capちょうど／cap+1、9本以上の分岐で先頭8本のexact順、hard edgeとjoin展開edgeの重複、
+  node／edge／join入力permutation間のcanonical bytes一致を必須追加する。爆発fixtureは
+  `S`、幅2の層`L1..L999`、`T`からなり、`S`から`L1`の2node全て、隣接する各幅2層間の完全二部、
+  `L999`の2node全てから`T`へ接続するものと固定する（task 2,000、edge 3,996、深さ1,001、
+  真のcount `2^999`）。
 - 統合graphはmerge後に独立DAG validatorを通してから投影する。「現在地」は単一点でなく
   **active set**（in-progress集合）＋next-ready（依存充足済みpending）＋blocked reasonを
   別視覚要素として描く。
@@ -260,13 +335,13 @@ plan_graph既存schemaのin-place変更（必要ならv2化＋wire級別裁定�
   一回きり移行＋オーナー受入、G5がauthoring/reopen/revise/reconcile CLI・hook・cutoverを実装する
   （wave正本は実装計画）。
 - dotagents側は受入・配線・憲法規範化のみを所有する（Phase LG対応表どおり）。
-- 「critical path」の語は本ADRで廃したため、実装計画・親計画の受入文言は「最長依存鎖」へ追従させる。
+- 廃した旧称は実装・実装計画・親計画の受入文言に用いず、「最長依存鎖」へ追従させる。
 - open item（G5着手時に追補ADRで固定）: reconcileのresolution.json契約・手順詳細・部分再発行の
   可否。revise input（revision.json）のfield契約。
 - 既存timestamp validatorの`2026-02-30`受理はtodo族外の既存欠陥として残る。G2で影響を確認し、
   変更するならADR改訂（本ADRは適用をtodo族に限定）。
 
-## 反証記録（G1作法の3枚ガードレール）
+## 反証記録（G1作法の3枚ガードレール＋同日G2追補）
 
 1. **`fable`スポット諮問**: 判断1（todo namespace）支持／判断2（名称）条件付き支持／判断3
    （reopen不在）**反対→採用を覆しreopenを第6 kindとして導入**／判断4（スケール上限）条件付き
@@ -280,5 +355,13 @@ plan_graph既存schemaのin-place変更（必要ならv2化＋wire級別裁定�
    `target_done_digest`）③cross-plan refの`expected_topology_digest`束縛④単一writer前提の明文化と
    受理matrix⑤最長依存鎖の非列挙projection——**全て本文へ反映**。P1×3（CLI契約表・名称・evidence
    `git_blob_oid`）も反映。スケール上限の意味論（安全上限≠可読性）を反映。
+4. **G2設計調書への独立反証（2026-07-18・G2-W4同日追補）**: 成立した①count recurrence／
+   最終集計式不足、②tuple比較・開始node・DFS打切り順不足、③option値域不足、④差分を検出するfixture不足を
+   Decision 7へ反映した。`STORE_INCONSISTENT`未裁定とsnapshot byte異常の読取衝突をDecision 2、
+   G2成功resultのexact wireとtodo面exit 1/2境界をDecision 6へ反映した。反証不成立だったnode／edge
+   採用式、join展開、爆発fixture期待値は変更せず根拠を明文化した。G2 checklist未被覆の指摘は実装未完の
+   証拠であってAccepted方針の反証ではないためscope縮小に使わず、Consequences記載どおりG2の実装・fixture・
+   focused gate義務として維持する。
 
-3枚とも「骨格は支持・細部P0解消が条件」で一致し、全指摘を反映済み。以上をもってAcceptedとする。
+先行3枚は「骨格は支持・細部P0解消が条件」で一致し、同日追補の成立findingも上記へ反映した。
+Accepted裁定を維持し、G2実装は追補後wireを受入条件とする。
