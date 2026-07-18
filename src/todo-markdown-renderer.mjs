@@ -114,8 +114,8 @@ function renderNode(node, path, state, context = {}) {
         && Number.isSafeInteger(line) ? context.taskStatesByLine?.get(line) : undefined;
       const checkbox = taskState === undefined
         ? (context.taskCheckboxes === true && typeof node.checked === 'boolean'
-          ? `<span class="markdown-checkbox" role="img" aria-label="${node.checked ? 'checked' : 'unchecked'}">${node.checked ? '☑' : '☐'}</span>` : '')
-        : `<span class="document-status status-${escapeHtml(String(taskState.status))}" data-narrative-key="${escapeHtml(String(taskState.narrativeKey))}" role="img" aria-label="${escapeHtml(String(taskState.label))}">${escapeHtml(String(taskState.mark))}</span>`;
+          ? `<span title="状態表示（更新は lattice todo CLI）" class="markdown-checkbox" role="img" aria-label="${node.checked ? 'checked' : 'unchecked'}">${node.checked ? '☑' : '☐'}</span>` : '')
+        : `<span title="状態表示（更新は lattice todo CLI）" class="document-status status-${escapeHtml(String(taskState.status))}" data-narrative-key="${escapeHtml(String(taskState.narrativeKey))}" role="img" aria-label="${escapeHtml(String(taskState.label))}">${escapeHtml(String(taskState.mark))}</span>`;
       const taskClass = checkbox === '' ? '' : ' class="markdown-task"';
       const blockedReason = taskState?.status === 'blocked'
         ? `<span class="blocked-reason"> — ${escapeHtml(String(taskState.blockedReason ?? '理由未記録'))}</span>` : '';

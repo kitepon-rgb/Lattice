@@ -180,7 +180,7 @@ test('small real store E2E generates the default self-contained gantt and exact 
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v5');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v6');
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
   assert.equal(result.narrative_bindings_digest, digestTodoArtifact([{
     project_id: 'project-1',
@@ -228,7 +228,7 @@ test('real store smoke draws every edge and emits compact nodes plus concise cat
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v5');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v6');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
@@ -292,15 +292,37 @@ test('right pane reads as a Markdown document while retaining all/selected/reset
   assert.match(output.html, /data-zoom-action="fit">全体表示/u);
   assert.match(output.html, /zoom<1&&zoom\*1\.25>=1\?1:zoom\*1\.25/u);
   assert.match(output.html, /zoom>1&&zoom\/1\.25<=1\?1:zoom\/1\.25/u);
-  assert.match(output.html, /\.diagram-scroll\{[^}]*max-width:100%;overflow:auto/u);
-  assert.match(output.html, /grid-template-columns:minmax\(0,58%\)/u);
+  assert.match(output.html, /scroller\.scrollTo\(0,0\)/u);
+  assert.match(output.html, /\.diagram-scroll\{[^}]*max-width:calc\(100% - 16px\);margin:8px;overflow:auto[^}]*border:1px solid rgba\(217,216,212,\.5\)/u);
+  assert.match(output.html, /grid-template-columns:minmax\(0,var\(--split,58%\)\) auto minmax\(24rem,1fr\)/u);
+  assert.match(output.html, /<div class="pane-divider" data-pane-divider aria-hidden="true"><\/div>/u);
+  assert.match(output.html, /\.pane-divider\{width:8px;cursor:col-resize;background:rgba\(217,216,212,\.5\);touch-action:none\}/u);
+  assert.match(output.html, /@media\(max-width:900px\)\{body\{display:block;height:auto\}\.shell\{display:block\}\.pane-divider\{display:none\}/u);
+  assert.match(output.html, /root\.addEventListener\('pointerdown'/u);
+  assert.match(output.html, /root\.addEventListener\('pointermove'/u);
+  assert.match(output.html, /root\.addEventListener\('pointerup'/u);
+  assert.match(output.html, /paneDivider\.setPointerCapture\(event\.pointerId\)/u);
+  assert.match(output.html, /Math\.max\(30,Math\.min\(75,/u);
+  assert.match(output.html, /shell\.style\.setProperty\('--split',percent\+'%'\)/u);
+  assert.match(output.html, /root\.addEventListener\('dblclick',event=>\{const paneDivider=[^}]+shell\.style\.setProperty\('--split','58%'\)/u);
   assert.match(output.html, /<div class="narrative-document"><section class="plan-document"><h1 class="plan-title"><code>main<\/code><\/h1>/u);
   assert.match(output.html, /<h2>Acceptance<\/h2>/u);
   assert.match(output.html, /class="markdown-checkbox" role="img" aria-label="unchecked">☐/u);
+  assert.match(output.html, /<span title="状態表示（更新は lattice todo CLI）" class="markdown-checkbox"/u);
+  assert.match(output.html, /\.document-status\{[^}]*cursor:default/u);
+  assert.match(output.html, /\.markdown-checkbox\{[^}]*cursor:default/u);
   assert.match(output.html, /\.next-ready-node \.node-surface\{stroke:var\(--accent\);stroke-width:2;stroke-dasharray:4 3\}/u);
   assert.match(output.html, /aria-label="main\/T0000: Task 0; 未着手（着手可）"/u);
   assert.match(output.html, /<tspan class="node-id">T0000<\/tspan> Task 0/u);
   assert.match(output.html, /\.dependency-edge \.edge-arrow\{fill:var\(--text-secondary\);opacity:\.7\}/u);
+  assert.match(output.html, /class="summary-lane" data-lane-key="\[&quot;main&quot;,&quot;lane-0&quot;\]" role="button" tabindex="0" aria-pressed="false"/u);
+  assert.match(output.html, /data-node-key="[^"]+" data-lane-key="\[&quot;main&quot;,&quot;lane-0&quot;\]"/u);
+  assert.match(output.html, /\.lane-dimmed\{opacity:\.35\}/u);
+  assert.doesNotMatch(output.html, /\.summary-lane:focus\{/u);
+  assert.doesNotMatch(output.html, /\.summary-lane:focus-visible\{/u);
+  assert.doesNotMatch(output.html, /\.summary-lane\[aria-pressed="true"\] \.summary-chip/u);
+  assert.match(output.html, /const toggleLane=\(key\)=>applyLane\(activeLaneKey===key\?null:key\)/u);
+  assert.match(output.html, /edge\.dataset\.fromLaneKey!==key&&edge\.dataset\.toLaneKey!==key/u);
   assert.doesNotMatch(output.html, /<p class="notice">/u);
   assert.match(output.html, /<span class="diagram-note">最長依存鎖はunit-weight/u);
   assert.match(output.html, /body\{display:grid;grid-template-rows:minmax\(0,1fr\)/u);
@@ -330,7 +352,7 @@ test('verified anchorはcheckbox行内へ状態を置き、不成立taskはWARN�
   const outcomes = verifyNarrativeAnchors({ readModel: read, narratives });
   const html = renderFixture(read, narratives, outcomes).html;
 
-  assert.match(html, /class="document-status status-pending" data-narrative-key="\[&quot;project-1&quot;,&quot;main&quot;,&quot;T0000&quot;\]"[^>]*>☐<\/span><p>pending task<\/p>/u);
+  assert.match(html, /<span title="状態表示（更新は lattice todo CLI）" class="document-status status-pending" data-narrative-key="\[&quot;project-1&quot;,&quot;main&quot;,&quot;T0000&quot;\]"[^>]*>☐<\/span><p>pending task<\/p>/u);
   assert.match(html, /class="document-status status-blocked"[^>]*>⛔<\/span><p>blocked task<\/p><span class="blocked-reason"> — 理由未記録<\/span>/u);
   assert.match(html, /行内表示不可: <code>T0002<\/code> — digest_mismatch/u);
   assert.match(html, /class="markdown-checkbox" role="img" aria-label="unchecked">☐<\/span><p>drifted task<\/p>/u);

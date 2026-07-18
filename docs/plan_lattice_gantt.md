@@ -250,6 +250,13 @@ isolated HOME検証green）が並行着地済みで、実host適用はH待ち。
 箱縮小・横スクロール・チップ簡潔化・デザイン仕様適用・右ペイン=元Markdown文書）。G4残は
 抽出JSON作成（走行中）→NPM配布→オーナー目視受入H。）
 
+（進行記録 2026-07-19: UI磨き込みをLattice単独セッションで消化——renderer v4
+（narrative_anchor行内状態マーク＝ADR 0053 2b実装＋backlog優先度1〜6・`e2033ed`）→
+v5（ズームUX・`596fef2`）→v6（チップ⇔lane減光・状態マークtooltip・fit原点スクロール・
+図領域輪郭線・左右ペイン境界のドラッグリサイズ・チップ強調はUA focusリングへ委譲）。
+各段はオーナー目視検分を通過。`@quolu/lattice@0.3.0`公開済み（`8d155b4`・tag v0.3.0）、
+v6はv0.4.0として公開。消化台帳は[ui-review-backlog.md](ui-review-backlog.md)が正。）
+
 依存ゲート: **G1 Accepted → G2 store読み書き面 → G3レンダラ → G4着手**。
 repo交差の段階: Lattice commit → NPM配布/version pin → dotagents側配線 → オーナーH受入 → host適用。
 rollback: G4開始前に両repoのHEAD・対象path・digestを記録し、受入失敗時は

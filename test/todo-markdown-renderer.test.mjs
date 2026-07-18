@@ -12,7 +12,7 @@ import {
 
 test('文書表示はGFM checkbox行を安全な静的markとして維持する', () => {
   assert.deepEqual(renderTodoMarkdownDocument('- [ ] pending\n- [x] done'), {
-    html: '<ul><li class="markdown-task"><span class="markdown-checkbox" role="img" aria-label="unchecked">☐</span><p>pending</p></li><li class="markdown-task"><span class="markdown-checkbox" role="img" aria-label="checked">☑</span><p>done</p></li></ul>',
+    html: '<ul><li class="markdown-task"><span title="状態表示（更新は lattice todo CLI）" class="markdown-checkbox" role="img" aria-label="unchecked">☐</span><p>pending</p></li><li class="markdown-task"><span title="状態表示（更新は lattice todo CLI）" class="markdown-checkbox" role="img" aria-label="checked">☑</span><p>done</p></li></ul>',
     discarded: [],
   });
 });

@@ -27,6 +27,10 @@ function nodeKey(ref) {
   return JSON.stringify([ref.project_id, ref.plan_key, ref.task_id]);
 }
 
+function laneKey(planKey, lane) {
+  return JSON.stringify([planKey, lane]);
+}
+
 function points(route) {
   return route.map(([x, y]) => `${x},${y}`).join(' ');
 }
@@ -36,16 +40,18 @@ function arrowHead(route) {
   return `<polygon class="edge-arrow" points="${x},${y} ${x - 3},${y - 6} ${x + 3},${y - 6}"></polygon>`;
 }
 
-function renderEdge(edge) {
+function renderEdge(edge, laneKeysByNode) {
   if (!edge.visible || edge.route === null) return '';
   const classes = ['dependency-edge'];
   if (edge.visibility.longest_dependency_chain) classes.push('longest-chain-edge');
   if (edge.visibility.selected_incident) classes.push('selected-incident-edge');
+  const fromLaneKey = laneKeysByNode.get(nodeKey(edge.from));
+  const toLaneKey = laneKeysByNode.get(nodeKey(edge.to));
   const join = edge.join_ids.length === 0 ? '' : (() => {
     const [x, y] = edge.route[Math.floor(edge.route.length / 2)];
     return `<g class="join-marker" aria-label="join ${escapeSvgAttribute(edge.join_ids.join(', '))}"><polygon points="${x},${y - 6} ${x + 6},${y} ${x},${y + 6} ${x - 6},${y}"></polygon><title>${escapeSvgText(edge.join_ids.join(', '))}</title></g>`;
   })();
-  return `<g class="${classes.join(' ')}" data-edge-id="${escapeSvgAttribute(edge.id)}"><polyline points="${points(edge.route)}"></polyline>${arrowHead(edge.route)}${join}</g>`;
+  return `<g class="${classes.join(' ')}" data-edge-id="${escapeSvgAttribute(edge.id)}" data-from-lane-key="${escapeSvgAttribute(fromLaneKey)}" data-to-lane-key="${escapeSvgAttribute(toLaneKey)}"><polyline points="${points(edge.route)}"></polyline>${arrowHead(edge.route)}${join}</g>`;
 }
 
 function truncateLabel(value, maximum = 17) {
@@ -75,6 +81,7 @@ function renderNode(node) {
   if (node.visibility.next_ready) classes.push('next-ready-node');
   if (node.visibility.selected) classes.push('selected-node');
   const key = nodeKey(node.ref);
+  const nodeLaneKey = laneKey(node.ref.plan_key, node.lane);
   const label = `${node.ref.plan_key}/${node.ref.task_id}: ${node.title}`;
   const presentation = STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' };
   const visibleLabel = visibleNodeLabel(node.ref.task_id, node.title);
@@ -82,7 +89,7 @@ function renderNode(node) {
   const statusBar = node.status === 'in-progress'
     ? `<line class="status-bar" x1="${x + 5}" y1="${y + 6}" x2="${x + 5}" y2="${y + height - 6}"></line>` : '';
   const visibleTitle = visibleLabel.title === '' ? '' : ` ${escapeSvgText(visibleLabel.title)}`;
-  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(`${label}; ${presentation.label}${readyLabel}`)}"><rect class="node-surface" x="${x}" y="${y}" width="${width}" height="${height}" rx="4"></rect>${statusBar}<text class="status-mark" x="${x + 10}" y="${y + 22}">${escapeSvgText(presentation.mark)}</text><text class="node-title" x="${x + 34}" y="${y + 22}"><tspan class="node-id">${escapeSvgText(visibleLabel.id)}</tspan>${visibleTitle}</text><title>${escapeSvgText(`${label} — ${presentation.label}`)}</title></g>`;
+  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" data-lane-key="${escapeSvgAttribute(nodeLaneKey)}" tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(`${label}; ${presentation.label}${readyLabel}`)}"><rect class="node-surface" x="${x}" y="${y}" width="${width}" height="${height}" rx="4"></rect>${statusBar}<text class="status-mark" x="${x + 10}" y="${y + 22}">${escapeSvgText(presentation.mark)}</text><text class="node-title" x="${x + 34}" y="${y + 22}"><tspan class="node-id">${escapeSvgText(visibleLabel.id)}</tspan>${visibleTitle}</text><title>${escapeSvgText(`${label} — ${presentation.label}`)}</title></g>`;
 }
 
 function summaryLabel(value, maximum = 25) {
@@ -111,7 +118,8 @@ function renderTodoSummary(layout) {
     markup.push(`<g class="summary-plan-group" aria-label="${escapeSvgAttribute(`${plan.plan_key} — ${plan.task_count} ToDo、${laneChips.length} lanes`)}"><rect class="summary-container" x="${groupX}" y="8" width="${groupWidth}" height="72" rx="8"></rect><g class="summary-plan" aria-label="${escapeSvgAttribute(`${plan.plan_key} — ${plan.task_count} ToDo`)}"><rect class="summary-chip plan-chip" x="${groupX + 8}" y="16" width="${summaryChipWidth(planLabel, 152)}" height="24" rx="9999"></rect><text x="${groupX + 20}" y="33">${escapeSvgText(planLabel)}</text><title>${escapeSvgText(`${plan.plan_key}: ${plan.task_count} ToDo`)}</title></g>`);
     let laneX = groupX + 8;
     for (const chip of laneChips) {
-      markup.push(`<g class="summary-lane" aria-label="${escapeSvgAttribute(`${chip.lane.lane} — ${chip.lane.task_count} ToDo`)}"><rect class="summary-chip lane-chip" x="${laneX}" y="48" width="${chip.width}" height="24" rx="9999"></rect><text x="${laneX + 12}" y="65">${escapeSvgText(chip.label)}</text><title>${escapeSvgText(`${chip.fullLabel} ToDo`)}</title></g>`);
+      const key = laneKey(chip.lane.plan_key, chip.lane.lane);
+      markup.push(`<g class="summary-lane" data-lane-key="${escapeSvgAttribute(key)}" role="button" tabindex="0" aria-pressed="false" aria-label="${escapeSvgAttribute(`${chip.lane.lane} — ${chip.lane.task_count} ToDo`)}"><rect class="summary-chip lane-chip" x="${laneX}" y="48" width="${chip.width}" height="24" rx="9999"></rect><text x="${laneX + 12}" y="65">${escapeSvgText(chip.label)}</text><title>${escapeSvgText(`${chip.fullLabel} ToDo`)}</title></g>`);
       laneX += chip.width + 8;
     }
     markup.push('</g>');
@@ -129,6 +137,9 @@ export function renderTodoGanttSvg(layout, options = {}) {
   const contentOffset = summary.height;
   const width = Math.max(240, layout.bounds.width + 40, summary.width + 12);
   const height = Math.max(240, layout.bounds.height + contentOffset + 32);
+  const laneKeysByNode = new Map(layout.nodes.map((node) => [
+    nodeKey(node.ref), laneKey(node.ref.plan_key, node.lane),
+  ]));
   const nodes = layout.nodes.map((node) => {
     if (node.geometry === null) return '';
     return renderNode({ ...node, geometry: { ...node.geometry, y: node.geometry.y + contentOffset } });
@@ -136,6 +147,6 @@ export function renderTodoGanttSvg(layout, options = {}) {
   // Edge coordinates need the same vertical offset as nodes.
   const shiftedEdges = layout.edges.map((edge) => renderEdge(edge.route === null ? edge : {
     ...edge, route: edge.route.map(([x, y]) => [x, y + contentOffset]),
-  })).join('');
+  }, laneKeysByNode)).join('');
   return `<svg class="todo-gantt" data-gantt-svg data-svg-width="${width}" data-svg-height="${height}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="group" aria-label="Todo dependency gantt"><desc>最長依存鎖はunit-weightの構造深さであり実時間・資源律速ではない。</desc>${summary.markup}<g class="edge-layer">${shiftedEdges}</g><g class="node-layer">${nodes}</g></svg>`;
 }
