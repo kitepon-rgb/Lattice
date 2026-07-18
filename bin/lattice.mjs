@@ -14,6 +14,14 @@ if (args.length === 1 && args[0] === '--version') {
   process.exitCode = diagnostics.overall === 'ok' ? 0 : 1;
 } else if (args[0] === 'runtime-errors') {
   process.exitCode = await runRuntimeErrorsCli(args.slice(1));
+} else if (args[0] === 'todo') {
+  const { runTodoCli } = await import('../src/todo-cli.mjs');
+  process.exitCode = await runTodoCli({
+    argv: args.slice(1),
+    cwd: process.cwd(),
+    stdout: process.stdout,
+    stderr: process.stderr,
+  });
 } else {
   try {
     process.exitCode = await runRuntimeCli({

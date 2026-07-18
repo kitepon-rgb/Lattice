@@ -34,7 +34,7 @@ import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
  *
  * - stdout: versioned JSON 1行のみ。診断はstderr。
  * - exit 0: 成功（artifact refとdigestを含むversioned JSON）。
- * - exit 1: typed契約失敗。stderrへ`lattice.cli_error.v1` JSON 1行。
+ * - exit 1: typed契約失敗。stderrへ`lattice.cli_error.v2` JSON 1行。
  * - exit 2: usage違反（未知command、引数の欠落・重複・余剰・順序不正）。
  * - `--executor`等の暗黙fallbackを持たず、未実装surfaceはusage違反として拒否する。
  *
