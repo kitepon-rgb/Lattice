@@ -50,10 +50,10 @@ const ARTIFACT_ROOTS = Object.freeze({
 });
 const CODEGRAPH_CONFIG_REPO_PATH = 'codegraph.json';
 const CODEGRAPH_CONFIG_ARTIFACT_PATH = 'identity/codegraph-config.json';
-// live実行は現在ratifiedなconfig（ADR 0044 Decision 10.3 epoch）との完全一致だけを受理する。
+// live実行は現在ratifiedなconfig（ADR 0053 Decision 3 epoch）との完全一致だけを受理する。
 // 過去epochのartifact検証はrc2-artifact-set.mjsのratified epoch allowlistが担う。
 const CODEGRAPH_CONFIG_BYTES = Buffer.from(
-  '{"exclude":["research/campaigns/**/artifacts/**/identity/","research/runs/"]}\n',
+  '{"exclude":["research/campaigns/**/artifacts/**/identity/","research/runs/",".lattice/todo/",".lattice/generated/"]}\n',
   'utf8',
 );
 const V2_ONLY_ARTIFACT_PATHS = Object.freeze([

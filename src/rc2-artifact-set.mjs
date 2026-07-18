@@ -68,6 +68,11 @@ const CODEGRAPH_CONFIG_EPOCHS = Object.freeze([
     '{"exclude":["research/campaigns/**/artifacts/**/identity/","research/runs/"]}\n',
     'utf8',
   ),
+  // ADR 0053 Decision 3 epoch（Lattice TODO state／generated artifact除外、G2以降のfresh実行）
+  Buffer.from(
+    '{"exclude":["research/campaigns/**/artifacts/**/identity/","research/runs/",".lattice/todo/",".lattice/generated/"]}\n',
+    'utf8',
+  ),
 ]);
 
 const V1_IDENTITY_PATHS = Object.freeze([
