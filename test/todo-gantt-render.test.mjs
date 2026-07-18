@@ -115,6 +115,13 @@ function run(root, args) {
   return spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8' });
 }
 
+function taskNodeY(html) {
+  const positions = new Map();
+  const pattern = /<g class="todo-node[^"]*"[^>]*aria-label="[^"]*\/([^:&]+):[^"]*"><rect class="node-surface" x="[^"]+" y="([^"]+)"/gu;
+  for (const match of html.matchAll(pattern)) positions.set(match[1], Number(match[2]));
+  return positions;
+}
+
 test('small real store E2E generates the default self-contained gantt and exact binding result', async (context) => {
   const root = await workspace(context);
   const execution = run(root, ['todo', 'gantt']);
@@ -146,7 +153,7 @@ test('real store smoke draws every edge and emits compact nodes plus concise cat
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v2');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v3');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
@@ -157,6 +164,9 @@ test('real store smoke draws every edge and emits compact nodes plus concise cat
   assert.doesNotMatch(html, /hidden edges|folded edges|data-fold-state|bundle-badge/u);
   assert.doesNotMatch(html, /class="node-time"|S:|D:|Started at|Done at/u);
   assert.doesNotMatch(html, /class="task-facts"|class="evidence"|<dl|<dt>/u);
+  const positions = taskNodeY(html);
+  assert.ok(positions.get('T1') < positions.get('T2'));
+  assert.ok(positions.get('T2') < positions.get('T3'));
   assert.match(html, /class="document-status status-pending"[^>]*>☐<\/span>/u);
   assert.match(html, /\.narrative-body\{[^}]*max-width:72ch[^}]*font-size:13\.5px[^}]*font-weight:400[^}]*line-height:1\.6/u);
   assert.match(html, /\.task-line h2\{[^}]*font-size:16px[^}]*font-weight:600/u);

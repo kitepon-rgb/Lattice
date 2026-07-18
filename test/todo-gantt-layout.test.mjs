@@ -44,15 +44,15 @@ test('small branch/join/multi-lane DAG has a deterministic coordinate snapshot',
     id: `${nodeRef.plan_key}/${nodeRef.task_id}`, wave, row, visible, geometry,
   })), [
     { id: 'alpha/A', wave: 0, row: 0, visible: true, geometry: { x: 16, y: 16, width: 160, height: 34 } },
-    { id: 'alpha/B', wave: 1, row: 1, visible: true, geometry: { x: 224, y: 64, width: 160, height: 34 } },
-    { id: 'alpha/C', wave: 1, row: 0, visible: true, geometry: { x: 224, y: 16, width: 160, height: 34 } },
-    { id: 'beta/D', wave: 2, row: 0, visible: true, geometry: { x: 432, y: 16, width: 160, height: 34 } },
+    { id: 'alpha/B', wave: 1, row: 1, visible: true, geometry: { x: 224, y: 98, width: 160, height: 34 } },
+    { id: 'alpha/C', wave: 1, row: 0, visible: true, geometry: { x: 16, y: 98, width: 160, height: 34 } },
+    { id: 'beta/D', wave: 2, row: 0, visible: true, geometry: { x: 16, y: 180, width: 160, height: 34 } },
   ]);
   assert.deepEqual(result.edges.map(({ kinds, join_ids, visible, route }) => ({ kinds, join_ids, visible, route })), [
-    { kinds: ['hard'], join_ids: [], visible: true, route: [[176, 33], [200, 33], [200, 81], [224, 81]] },
-    { kinds: ['hard'], join_ids: [], visible: true, route: [[176, 33], [200, 33], [200, 33], [224, 33]] },
-    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[384, 81], [408, 81], [408, 33], [432, 33]] },
-    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[384, 33], [408, 33], [408, 33], [432, 33]] },
+    { kinds: ['hard'], join_ids: [], visible: true, route: [[96, 50], [96, 74], [304, 74], [304, 98]] },
+    { kinds: ['hard'], join_ids: [], visible: true, route: [[96, 50], [96, 74], [96, 74], [96, 98]] },
+    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[304, 132], [304, 156], [96, 156], [96, 180]] },
+    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[96, 132], [96, 156], [96, 156], [96, 180]] },
   ]);
   assert.deepEqual(result.sweep, { method: 'stable_median', rounds: 4, tie_break: 'previous_position_then_task_ref' });
   assert.equal(JSON.stringify(result).includes('critical'), false);

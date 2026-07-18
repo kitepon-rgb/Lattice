@@ -5,8 +5,8 @@ const SWEEP_ROUNDS = 4;
 const GEOMETRY = Object.freeze({
   left: 16,
   top: 16,
-  wave_gap: 208,
-  row_gap: 48,
+  wave_gap: 82,
+  lane_gap: 208,
   node_width: 160,
   node_height: 34,
 });
@@ -231,12 +231,12 @@ function orderLayers(nodes, wave, incoming, outgoing) {
   return layers;
 }
 
-function crossingCount(edges, wave, row) {
+function crossingCount(edges, wave, transversePosition) {
   const groups = new Map();
   for (const edge of edges) {
     const pair = `${wave.get(edge.from)}\0${wave.get(edge.to)}`;
     if (!groups.has(pair)) groups.set(pair, []);
-    groups.get(pair).push([row.get(edge.from), row.get(edge.to)]);
+    groups.get(pair).push([transversePosition.get(edge.from), transversePosition.get(edge.to)]);
   }
   let total = 0;
   for (const group of groups.values()) {
@@ -260,8 +260,10 @@ export function layoutTodoGantt(readModel, chainProjection) {
   const { nodes, nodesByKey, edges } = normalizeInput(readModel, chainProjection);
   const { incoming, outgoing, wave } = assignWaves(nodes, nodesByKey, edges);
   const layers = orderLayers(nodes, wave, incoming, outgoing);
-  const row = new Map();
-  for (const layer of layers) for (let index = 0; index < layer.length; index += 1) row.set(layer[index], index);
+  const transversePosition = new Map();
+  for (const layer of layers) {
+    for (let index = 0; index < layer.length; index += 1) transversePosition.set(layer[index], index);
+  }
 
   const longestNodeKeys = new Set(chainProjection.longest_chain_node_refs.map((ref, index) => {
     const key = refKey(refOf(ref, `longest_chain_node_refs[${index}]`));
@@ -287,15 +289,15 @@ export function layoutTodoGantt(readModel, chainProjection) {
   const projectedNodes = nodes.map((node) => {
     const visible = visibleKeys.has(node.key);
     const geometry = visible ? {
-      x: GEOMETRY.left + wave.get(node.key) * GEOMETRY.wave_gap,
-      y: GEOMETRY.top + row.get(node.key) * GEOMETRY.row_gap,
+      x: GEOMETRY.left + transversePosition.get(node.key) * GEOMETRY.lane_gap,
+      y: GEOMETRY.top + wave.get(node.key) * GEOMETRY.wave_gap,
       width: GEOMETRY.node_width,
       height: GEOMETRY.node_height,
     } : null;
     if (geometry !== null) coordinates.set(node.key, geometry);
     return {
       ref: { ...node.ref }, title: node.title, lane: node.lane, status: node.status,
-      wave: wave.get(node.key), row: row.get(node.key), visible,
+      wave: wave.get(node.key), row: transversePosition.get(node.key), visible,
       visibility: {
         longest_dependency_chain: longestNodeKeys.has(node.key),
         active: node.status === 'in-progress', next_ready: readyKeys.has(node.key),
@@ -309,12 +311,12 @@ export function layoutTodoGantt(readModel, chainProjection) {
     const onLongestChain = longestEdgeKeys.has(edge.key);
     const from = coordinates.get(edge.from);
     const to = coordinates.get(edge.to);
-    const startX = from.x + from.width;
-    const startY = from.y + Math.floor(from.height / 2);
-    const endX = to.x;
-    const endY = to.y + Math.floor(to.height / 2);
-    const channelX = startX + Math.max(16, Math.floor((endX - startX) / 2));
-    const route = [[startX, startY], [channelX, startY], [channelX, endY], [endX, endY]];
+    const startX = from.x + Math.floor(from.width / 2);
+    const startY = from.y + from.height;
+    const endX = to.x + Math.floor(to.width / 2);
+    const endY = to.y;
+    const channelY = startY + Math.max(16, Math.floor((endY - startY) / 2));
+    const route = [[startX, startY], [startX, channelY], [endX, channelY], [endX, endY]];
     return {
       id: `edge-${index}`, from: { ...nodesByKey.get(edge.from).ref }, to: { ...nodesByKey.get(edge.to).ref },
       kinds: [...edge.kinds].sort(compareText), join_ids: [...edge.joinIds].sort(compareText),
@@ -337,9 +339,10 @@ export function layoutTodoGantt(readModel, chainProjection) {
     sweep: { method: 'stable_median', rounds: SWEEP_ROUNDS, tie_break: 'previous_position_then_task_ref' },
     bounds: {
       width: nodes.length === 0 ? 0 : GEOMETRY.left * 2
-        + (layers.length - 1) * GEOMETRY.wave_gap + GEOMETRY.node_width,
+        + (Math.max(...layers.map((layer) => layer.length)) - 1) * GEOMETRY.lane_gap
+        + GEOMETRY.node_width,
       height: nodes.length === 0 ? 0 : GEOMETRY.top * 2
-        + (Math.max(...layers.map((layer) => layer.length)) - 1) * GEOMETRY.row_gap + GEOMETRY.node_height,
+        + (layers.length - 1) * GEOMETRY.wave_gap + GEOMETRY.node_height,
       wave_count: layers.length,
     },
     nodes: projectedNodes,
@@ -349,7 +352,7 @@ export function layoutTodoGantt(readModel, chainProjection) {
       lanes: [...laneMap.values()],
     },
     metrics: {
-      crossing_count: crossingCount(edges, wave, row),
+      crossing_count: crossingCount(edges, wave, transversePosition),
       visible_node_count: visibleKeys.size,
       visible_edge_count: projectedEdges.filter(({ visible }) => visible).length,
       task_count: nodes.length,

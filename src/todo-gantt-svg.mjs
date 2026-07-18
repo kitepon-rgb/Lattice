@@ -33,7 +33,7 @@ function points(route) {
 
 function arrowHead(route) {
   const [x, y] = route.at(-1);
-  return `<polygon class="edge-arrow" points="${x},${y} ${x - 6},${y - 3} ${x - 6},${y + 3}"></polygon>`;
+  return `<polygon class="edge-arrow" points="${x},${y} ${x - 3},${y - 6} ${x + 3},${y - 6}"></polygon>`;
 }
 
 function renderEdge(edge) {
@@ -117,7 +117,7 @@ export function renderTodoGanttSvg(layout, options = {}) {
   }
   const summary = renderTodoSummary(layout);
   const contentOffset = summary.height;
-  const width = Math.max(760, layout.bounds.width + 40, summary.width + 12);
+  const width = Math.max(240, layout.bounds.width + 40, summary.width + 12);
   const height = Math.max(240, layout.bounds.height + contentOffset + 32);
   const nodes = layout.nodes.map((node) => {
     if (node.geometry === null) return '';
