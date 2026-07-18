@@ -238,6 +238,12 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
 
 ### G4 — 一回きり移行変換＋オーナー受入（dotagents側受入・§1.5裁定に従う）
 
+（進行記録 2026-07-18: 移行tool実装W6が契約欠落2点で正しくblock→統括裁定でADR 0053へDecision 2a
+（historical import・done_mode closed union・evidence昇格）を追補（`7029bc1`）→store API実装済み
+（`ad1b585`・crash matrix 48 test）。**次の一手＝W6再開**: 抽出JSONschema（`lattice.todo_extraction.v1`）
+確定と`todo migrate` CLI実装。以降はNPM配布/pin→dotagents配線（設計調書はdotagentsセッション
+scratchpad `g4-r9-wiring-design.md`）→オーナー目視受入H）
+
 依存ゲート: **G1 Accepted → G2 store読み書き面 → G3レンダラ → G4着手**。
 repo交差の段階: Lattice commit → NPM配布/version pin → dotagents側配線 → オーナーH受入 → host適用。
 rollback: G4開始前に両repoのHEAD・対象path・digestを記録し、受入失敗時は
