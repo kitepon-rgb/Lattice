@@ -1,0 +1,21 @@
+{
+  "schema": "lattice.todo_extraction.v2",
+  "project_id": "project-1",
+  "plan_key": "contradiction-done",
+  "plan_version": "v1",
+  "actor": { "host": "host-1", "session": "session-1", "agent": "agent-1" },
+  "recorded_at": "2026-07-18T00:00:00.000Z",
+  "tasks": [
+    {
+      "task_id": "P1", "title": "Contradictory done", "lane": "main", "narrative_ref": "plan.md", "compile_binding": null,
+      "disposition": "register_in_progress",
+      "start": { "start_mode": "historical_import", "status": "in-progress", "started_at": "unknown_requires_evidence" },
+      "completion": { "done_mode": "historical_import", "completed_at": "unknown_requires_evidence" },
+      "source": { "origin_plan_ref": "plan.md", "origin_line": 4, "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "heading_path": ["Imported plan"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": [], "notes": [] }
+    }
+  ],
+  "hard_dependencies": [],
+  "joins": [],
+  "extraction_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+}

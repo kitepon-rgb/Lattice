@@ -228,8 +228,22 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
     if (state === undefined) fail('STORE_INCONSISTENT', 'event_task_missing');
     const dependenciesDone = localPredecessors(plan, event.task_id).every((id) => states.get(id)?.status === 'done');
     if (event.kind === 'start') {
-      if (state.status !== 'pending' || (!dependenciesDone && event.payload.override_reason === null)) fail('STORE_INCONSISTENT', 'invalid_start_transition');
-      state.status = 'in-progress'; state.started_at = event.recorded_at;
+      if (event.payload.start_mode === 'historical_import') {
+        if (!importedGenesis || state.status !== 'pending') {
+          fail('STORE_INCONSISTENT', 'invalid_historical_import_start_transition');
+        }
+        if (verifyImportSource) verifyImportSource(event.payload.evidence);
+        state.status = 'in-progress';
+        state.started_at = event.payload.started_at === 'unknown_requires_evidence'
+          ? null : event.payload.started_at;
+        state.evidence = event.payload.evidence;
+        state.imported = true;
+      } else {
+        if (state.status !== 'pending' || (!dependenciesDone && event.payload.override_reason === null)) {
+          fail('STORE_INCONSISTENT', 'invalid_start_transition');
+        }
+        state.status = 'in-progress'; state.started_at = event.recorded_at;
+      }
     } else if (event.kind === 'block') {
       if (state.status !== 'in-progress') fail('STORE_INCONSISTENT', 'invalid_block_transition');
       state.status = 'blocked'; state.blocked_reason = event.payload.reason;
@@ -587,7 +601,8 @@ export async function appendTodoEvent(options = {}) {
     const member = store.members.find(({ descriptor }) => descriptor.plan_key === options.planKey);
     if (!member) fail('STORE_INCONSISTENT', 'plan_not_active');
     const event = nextEvent(options.event, member);
-    if (event.kind === 'done' && event.payload.done_mode === 'historical_import') {
+    if ((event.kind === 'start' && event.payload.start_mode === 'historical_import')
+      || (event.kind === 'done' && event.payload.done_mode === 'historical_import')) {
       fail('STORE_WRITE_CONFLICT', 'historical_import_writer_required');
     }
     // Validate the prospective history, including hard evidence and transitions, before any write.
@@ -665,6 +680,30 @@ function buildHistoricalDone(plan, previous, input, genesis) {
   return event;
 }
 
+function buildHistoricalStart(plan, previous, input, genesis) {
+  const event = {
+    schema: 'lattice.todo_event.v1', project_id: plan.project_id, plan_key: plan.plan_key,
+    plan_version: plan.plan_version, sequence: previous.sequence + 1, previous_digest: previous.event_digest,
+    kind: 'start', task_id: input.task_id, actor: input.actor ?? genesis.actor,
+    recorded_at: input.recorded_at ?? genesis.recorded_at, provenance: input.provenance ?? null,
+    payload: { start_mode: 'historical_import', imported: true, status: 'in-progress',
+      started_at: input.started_at, evidence: input.evidence }, event_digest: '',
+  };
+  event.event_digest = todoSelfDigest(event, 'event_digest');
+  if (!validateTodoEvent(event)) throw new TypeError('historical start input violates lattice.todo_event.v1');
+  return event;
+}
+
+function historicalImportInputs(value, timestampKey) {
+  const required = ['task_id', timestampKey, 'evidence'];
+  const allowed = new Set([...required, 'actor', 'recorded_at', 'provenance']);
+  return Array.isArray(value) && value.length <= TODO_LIMITS.tasksPerPlan
+    && value.every((entry) => entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+      && Object.getPrototypeOf(entry) === Object.prototype
+      && required.every((key) => Object.hasOwn(entry, key))
+      && Object.keys(entry).every((key) => allowed.has(key)));
+}
+
 async function protocolStage(options, stage) {
   if (typeof options.onProtocolStage === 'function') await options.onProtocolStage(stage);
 }
@@ -697,7 +736,21 @@ export async function appendImportedPlan(options = {}) {
     verifyPlanNarrativeAnchors(repoRoot, plan);
     const genesis = buildPlanGenesis(plan, { ...options.genesis, historical_import: true });
     const events = [genesis];
-    for (const input of options.completedTasks ?? []) events.push(buildHistoricalDone(plan, events.at(-1), input, genesis));
+    const inProgressTasks = options.inProgressTasks ?? [];
+    const completedTasks = options.completedTasks ?? [];
+    if (!historicalImportInputs(inProgressTasks, 'started_at')
+      || !historicalImportInputs(completedTasks, 'completed_at')) {
+      fail('STORE_INCONSISTENT', 'historical_import_disposition_invalid');
+    }
+    const inProgressIds = new Set(inProgressTasks.map(({ task_id: taskId }) => taskId));
+    const completedIds = new Set(completedTasks.map(({ task_id: taskId }) => taskId));
+    if (inProgressIds.size !== inProgressTasks.length
+      || completedIds.size !== completedTasks.length
+      || [...inProgressIds].some((taskId) => completedIds.has(taskId))) {
+      fail('STORE_INCONSISTENT', 'historical_import_disposition_conflict');
+    }
+    for (const input of inProgressTasks) events.push(buildHistoricalStart(plan, events.at(-1), input, genesis));
+    for (const input of completedTasks) events.push(buildHistoricalDone(plan, events.at(-1), input, genesis));
     const verifyImportSource = importSourceVerifier(repoRoot, true);
     const tasks = replay(plan, events, {
       now: options.now ? new Date(options.now) : new Date(), verifyImportSource,

@@ -195,6 +195,12 @@ function validPayload(event) {
     && payload.task_migration.length <= TODO_LIMITS.tasksPerPlan
     && payload.task_migration.every((entry) => exactRecord(entry, ['from_task_id', 'to_task_id'])
       && isTodoIdentifier(entry.from_task_id) && (entry.to_task_id === 'removed' || isTodoIdentifier(entry.to_task_id)));
+  if (event.kind === 'start' && payload?.start_mode === 'historical_import') {
+    return exactRecord(payload, ['start_mode', 'imported', 'status', 'started_at', 'evidence'])
+      && payload.imported === true && payload.status === 'in-progress'
+      && (payload.started_at === 'unknown_requires_evidence' || isStrictTodoTimestamp(payload.started_at))
+      && validateTodoImportSource(payload.evidence);
+  }
   if (event.kind === 'start') return exactRecord(payload, ['override_reason']) && nullableText(payload.override_reason);
   if (event.kind === 'block') return exactRecord(payload, ['reason']) && nullableText(payload.reason) && payload.reason !== null;
   if (event.kind === 'unblock') return exactRecord(payload, []);

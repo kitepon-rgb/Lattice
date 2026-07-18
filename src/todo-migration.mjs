@@ -14,14 +14,16 @@ import {
 } from './todo-store.mjs';
 
 export const TODO_EXTRACTION_SCHEMA = 'lattice.todo_extraction.v1';
+export const TODO_EXTRACTION_SCHEMA_V2 = 'lattice.todo_extraction.v2';
 
-const DISPOSITIONS = new Set([
+const V1_DISPOSITIONS = new Set([
   'register_pending',
   'register_done',
   'exclude_superseded',
   'exclude_compatibility_record',
   'unknown_requires_evidence',
 ]);
+const V2_DISPOSITIONS = new Set([...V1_DISPOSITIONS, 'register_in_progress']);
 const CHECKBOX_STATES = new Set(['checked', 'unchecked', 'absent', 'ambiguous']);
 const COMMIT_OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
@@ -84,15 +86,29 @@ function completion(value) {
     && (value.completed_at === 'unknown_requires_evidence' || isStrictTodoTimestamp(value.completed_at));
 }
 
-function extractionTask(value) {
-  if (!exactRecord(value, [
+function historicalStart(value) {
+  return exactRecord(value, ['start_mode', 'status', 'started_at'])
+    && value.start_mode === 'historical_import' && value.status === 'in-progress'
+    && (value.started_at === 'unknown_requires_evidence' || isStrictTodoTimestamp(value.started_at));
+}
+
+function extractionTask(value, schema) {
+  const v2 = schema === TODO_EXTRACTION_SCHEMA_V2;
+  const keys = [
     'task_id', 'title', 'lane', 'narrative_ref', 'compile_binding', 'disposition',
     'completion', 'source', 'migration_context',
-  ]) || !isTodoIdentifier(value.task_id) || !boundedText(value.title)
+  ];
+  if (v2) keys.push('start');
+  if (!exactRecord(value, keys) || !isTodoIdentifier(value.task_id) || !boundedText(value.title)
     || !isTodoIdentifier(value.lane) || (value.narrative_ref !== null && !isTodoRef(value.narrative_ref))
-    || value.compile_binding !== null || !DISPOSITIONS.has(value.disposition)
+    || value.compile_binding !== null || !(v2 ? V2_DISPOSITIONS : V1_DISPOSITIONS).has(value.disposition)
     || !sourceLocation(value.source) || !migrationContext(value.migration_context)) return false;
-  return value.disposition === 'register_done' ? completion(value.completion) : value.completion === null;
+  if (!v2) return value.disposition === 'register_done' ? completion(value.completion) : value.completion === null;
+  if (value.disposition === 'register_done') return value.start === null && completion(value.completion);
+  if (value.disposition === 'register_in_progress') {
+    return historicalStart(value.start) && value.completion === null;
+  }
+  return value.start === null && value.completion === null;
 }
 
 function validateEdges(value) {
@@ -112,7 +128,7 @@ function validateJoins(value) {
 
 function registeredTaskIds(value) {
   return new Set(value.tasks
-    .filter(({ disposition }) => disposition === 'register_pending' || disposition === 'register_done')
+    .filter(({ disposition }) => disposition.startsWith('register_'))
     .map(({ task_id }) => task_id));
 }
 
@@ -127,14 +143,17 @@ function localRefsResolve(value) {
 /** Exact, bounded validation for the AI-authored G4 intermediate artifact. */
 export function validateTodoExtraction(value) {
   try {
+    const schema = value?.schema;
     if (!exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'plan_version', 'actor', 'recorded_at',
       'tasks', 'hard_dependencies', 'joins', 'extraction_digest',
-    ]) || value.schema !== TODO_EXTRACTION_SCHEMA || !isTodoIdentifier(value.project_id)
+    ]) || ![TODO_EXTRACTION_SCHEMA, TODO_EXTRACTION_SCHEMA_V2].includes(schema)
+      || !isTodoIdentifier(value.project_id)
       || !isTodoIdentifier(value.plan_key) || !isTodoIdentifier(value.plan_version)
       || !actor(value.actor) || !isStrictTodoTimestamp(value.recorded_at)
       || !Array.isArray(value.tasks) || value.tasks.length === 0
-      || value.tasks.length > TODO_LIMITS.tasksPerPlan || !value.tasks.every(extractionTask)
+      || value.tasks.length > TODO_LIMITS.tasksPerPlan
+      || !value.tasks.every((task) => extractionTask(task, schema))
       || !sortedStrictly(value.tasks, (task) => task.task_id)
       || new Set(value.tasks.map(({ task_id }) => task_id)).size !== value.tasks.length
       || !validateEdges(value.hard_dependencies) || !validateJoins(value.joins)
@@ -219,6 +238,13 @@ export function compileTodoExtraction(value, repoRoot) {
       .map((task) => ({
         task_id: task.task_id,
         completed_at: task.completion.completed_at,
+        evidence: todoExtractionImportSource(task),
+      })),
+    inProgressTasks: registered
+      .filter(({ disposition }) => disposition === 'register_in_progress')
+      .map((task) => ({
+        task_id: task.task_id,
+        started_at: task.start.started_at,
         evidence: todoExtractionImportSource(task),
       })),
   };

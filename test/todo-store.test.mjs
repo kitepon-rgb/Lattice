@@ -456,6 +456,52 @@ test('historical doneはlatent start付きdoneとしてchain/ganttへ投影し�
     .map(({ ref: taskRef, status }) => [taskRef.task_id, status]), [['A1', 'done'], ['A2', 'done']]);
 });
 
+test('historical startはappendImportedPlanだけがactiveとして輸入しdone重複を無変更拒否する', async (context) => {
+  const root = await workspace(context);
+  const request = importedPlanRequest(root);
+  const activeSource = request.completedTasks.find(({ task_id: taskId }) => taskId === 'A1').evidence;
+  request.inProgressTasks = [{
+    task_id: 'A1', started_at: 'unknown_requires_evidence', evidence: activeSource,
+  }];
+  request.completedTasks = request.completedTasks.filter(({ task_id: taskId }) => taskId === 'A2');
+  const imported = await appendImportedPlan(request);
+  const start = imported.events.find(({ kind }) => kind === 'start');
+  assert.deepEqual(start.payload, {
+    start_mode: 'historical_import', imported: true, status: 'in-progress',
+    started_at: 'unknown_requires_evidence', evidence: activeSource,
+  });
+  const archive = (await readTodoStore({ repoRoot: root, now: NOW })).members
+    .find(({ descriptor }) => descriptor.plan_key === 'archive');
+  assert.deepEqual(archive.tasks.map(({ task_id, status, started_at, evidence, imported: fromImport }) => (
+    [task_id, status, started_at, evidence, fromImport]
+  )), [
+    ['A1', 'in-progress', null, activeSource, true],
+    ['A2', 'done', null, request.completedTasks[0].evidence, true],
+  ]);
+
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'archive', now: NOW,
+    event: { kind: 'start', task_id: 'A1', actor: ACTOR, recorded_at: NOW, payload: start.payload } }),
+  'STORE_WRITE_CONFLICT', 'historical_import_writer_required');
+
+  const conflictingRoot = await workspace(context);
+  const conflicting = importedPlanRequest(conflictingRoot);
+  conflicting.inProgressTasks = [{ task_id: 'A1', started_at: NOW,
+    evidence: conflicting.completedTasks.find(({ task_id: taskId }) => taskId === 'A1').evidence }];
+  await expectCode(appendImportedPlan(conflicting), 'STORE_INCONSISTENT', 'historical_import_disposition_conflict');
+  assert.deepEqual((await readTodoStore({ repoRoot: conflictingRoot, now: NOW })).members
+    .map(({ descriptor }) => descriptor.plan_key), ['main']);
+
+  const blockedRoot = await workspace(context);
+  const blocked = importedPlanRequest(blockedRoot);
+  const blockedSource = blocked.completedTasks.find(({ task_id: taskId }) => taskId === 'A1').evidence;
+  blocked.completedTasks = blocked.completedTasks.filter(({ task_id: taskId }) => taskId === 'A2');
+  blocked.inProgressTasks = [{ task_id: 'A1', started_at: NOW, evidence: blockedSource, status: 'blocked' }];
+  await expectCode(appendImportedPlan(blocked), 'STORE_INCONSISTENT', 'historical_import_disposition_invalid');
+  assert.deepEqual((await readTodoStore({ repoRoot: blockedRoot, now: NOW })).members
+    .map(({ descriptor }) => descriptor.plan_key), ['main']);
+});
+
 test('unknown historical doneは正規evidenceへ新eventで昇格しreopenでin-progressへ戻る', async (context) => {
   const root = await workspace(context);
   const imported = await appendImportedPlan(importedPlanRequest(root));

@@ -1,0 +1,39 @@
+{
+  "schema": "lattice.todo_extraction.v2",
+  "project_id": "project-1",
+  "plan_key": "active-import",
+  "plan_version": "v1",
+  "actor": { "host": "host-1", "session": "session-1", "agent": "agent-1" },
+  "recorded_at": "2026-07-18T00:00:00.000Z",
+  "tasks": [
+    {
+      "task_id": "P1",
+      "title": "Strict historical start",
+      "lane": "main",
+      "narrative_ref": "plan.md",
+      "compile_binding": null,
+      "disposition": "register_in_progress",
+      "start": { "start_mode": "historical_import", "status": "in-progress", "started_at": "2026-07-17T12:00:00.000Z" },
+      "completion": null,
+      "source": { "origin_plan_ref": "plan.md", "origin_line": 4, "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "heading_path": ["Imported plan"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": ["plan.md:4"], "notes": [] }
+    },
+    {
+      "task_id": "P2",
+      "title": "Unknown historical start",
+      "lane": "main",
+      "narrative_ref": "plan.md",
+      "compile_binding": null,
+      "disposition": "register_in_progress",
+      "start": { "start_mode": "historical_import", "status": "in-progress", "started_at": "unknown_requires_evidence" },
+      "completion": null,
+      "source": { "origin_plan_ref": "plan.md", "origin_line": 5, "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "heading_path": ["Imported plan"], "markdown_depth": 0, "parent_task_id": null, "checkbox_state": "unchecked" },
+      "migration_context": { "external_canonical_ref": null, "carry_over_ref": null, "h_required": false, "condition": null, "evidence_refs": ["plan.md:5"], "notes": ["開始時刻は推定しない"] }
+    }
+  ],
+  "hard_dependencies": [
+    { "from": { "project_id": "project-1", "plan_key": "active-import", "task_id": "P1" }, "to": { "project_id": "project-1", "plan_key": "active-import", "task_id": "P2" } }
+  ],
+  "joins": [],
+  "extraction_digest": "abec118e59b628e2e9cdfa4d727545c64a04fb18e595a30bf1ad760000235618"
+}

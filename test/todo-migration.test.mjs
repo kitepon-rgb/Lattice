@@ -14,6 +14,9 @@ import {
   compileTodoExtraction,
   validateTodoExtraction,
 } from '../src/todo-migration.mjs';
+import { projectTodoChainV1 } from '../src/todo-chain.mjs';
+import { layoutTodoGantt } from '../src/todo-gantt-layout.mjs';
+import { projectTodoStatus } from '../src/todo-status.mjs';
 import {
   TodoStoreError,
   createTodoStoreWriter,
@@ -38,7 +41,7 @@ async function fixture(name) {
 function pinnedPlanCommit(root) {
   const blob = spawnSync('git', ['hash-object', '-w', '--stdin'], {
     cwd: root,
-    input: '# Imported plan\n- [x] A1 or U1\n- [ ] A2\n',
+    input: '# Imported plan\n- [x] A1 or U1\n- [ ] A2\n- [ ] P1\n- [ ] P2\n',
     encoding: 'utf8',
   });
   assert.equal(blob.status, 0, blob.stderr);
@@ -137,6 +140,25 @@ test('schema documentと正常/時刻unknown/曖昧fixtureはv1 exact contract�
   assert.equal(missing.tasks[0].completion.completed_at, 'unknown_requires_evidence');
 });
 
+test('extraction v1は不変のままv2だけが輸入in-progressと開始時刻unknownを表す', async () => {
+  const schema = JSON.parse(await readFile(
+    path.join(REPO_ROOT, 'docs', 'schemas', 'lattice.todo_extraction.v2.schema.json'),
+    'utf8',
+  ));
+  assert.equal(schema.title, 'lattice.todo_extraction.v2');
+  assert.equal(schema.additionalProperties, false);
+  const value = await fixture('in-progress.json');
+  assert.equal(validateTodoExtraction(value), true);
+  assert.equal(value.extraction_digest, todoSelfDigest(value, 'extraction_digest'));
+  assert.deepEqual(value.tasks.map(({ start }) => start.started_at), [
+    '2026-07-17T12:00:00.000Z', 'unknown_requires_evidence',
+  ]);
+  const v1Shape = structuredClone(value);
+  v1Shape.schema = 'lattice.todo_extraction.v1';
+  v1Shape.extraction_digest = todoSelfDigest(v1Shape, 'extraction_digest');
+  assert.equal(validateTodoExtraction(v1Shape), false);
+});
+
 test('R7難所18例はsource階層と移行context、明示edge/joinを失わずschemaへ載る', async () => {
   const value = await fixture('r7-hard-cases.json');
   assert.equal(validateTodoExtraction(value), true);
@@ -169,7 +191,10 @@ test('R7難所18例はsource階層と移行context、明示edge/joinを失わず
 });
 
 test('schema違反、task duplicate、done_mode矛盾fixtureはfail closed', async () => {
-  for (const name of ['schema-violation.json', 'duplicate-task.json', 'done-mode-contradiction.json']) {
+  for (const name of [
+    'schema-violation.json', 'duplicate-task.json', 'done-mode-contradiction.json',
+    'in-progress-done-contradiction.json', 'in-progress-blocked-contradiction.json',
+  ]) {
     assert.equal(validateTodoExtraction(await fixture(name)), false, name);
   }
 });
@@ -189,6 +214,51 @@ test('unknown_requires_evidenceは全体拒否し、裁定後JSONを再compile�
   assert.deepEqual(request.plan.tasks.map(({ narrative_anchor }) => narrative_anchor), [null, null]);
   assert.deepEqual(request.narrativeAnchorSources.map(({ task_id }) => task_id), ['Q1', 'Q2']);
   assert.deepEqual(request.completedTasks, []);
+  assert.deepEqual(request.inProgressTasks, []);
+});
+
+test('todo migrateはstrict/unknown開始時刻を輸入しstatus active_setとganttへactive投影する', async (context) => {
+  const root = await workspace(context);
+  const input = bindCommit(await fixture('in-progress.json'), pinnedPlanCommit(root));
+  const execution = runCli(root, await writeInput(root, 'in-progress', input));
+  assert.equal(execution.status, 0, execution.stderr);
+  assert.equal(execution.stderr, '');
+  const result = JSON.parse(execution.stdout);
+  assert.equal(result.imported_task_count, 2);
+  assert.equal(result.completed_task_count, 0);
+
+  const store = await readTodoStore({ repoRoot: root, now: NOW });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === 'active-import');
+  assert.deepEqual(member.tasks.map(({ task_id, status, started_at, imported }) => (
+    [task_id, status, started_at, imported]
+  )), [
+    ['P1', 'in-progress', '2026-07-17T12:00:00.000Z', true],
+    ['P2', 'in-progress', null, true],
+  ]);
+  const starts = member.journal.events.filter(({ kind }) => kind === 'start');
+  assert.deepEqual(starts.map(({ payload }) => payload.started_at), [
+    '2026-07-17T12:00:00.000Z', 'unknown_requires_evidence',
+  ]);
+  assert.equal(starts.every(({ payload }) => payload.start_mode === 'historical_import'
+    && payload.status === 'in-progress' && payload.imported === true), true);
+
+  const status = projectTodoStatus(store);
+  assert.deepEqual(status.active_set, [
+    { plan_key: 'active-import', task_id: 'P1', label: 'Strict historical start' },
+    { plan_key: 'active-import', task_id: 'P2', label: 'Unknown historical start' },
+  ]);
+  const topology = {
+    nodes: store.members.flatMap(({ plan }) => plan.tasks.map(({ task_id: taskId }) => ({
+      project_id: plan.project_id, plan_key: plan.plan_key, task_id: taskId,
+    }))),
+    hard_edges: store.members.flatMap(({ plan }) => plan.hard_dependencies),
+    joins: store.members.flatMap(({ plan }) => plan.joins),
+  };
+  const layout = layoutTodoGantt(store, projectTodoChainV1(topology));
+  assert.deepEqual(layout.nodes.filter(({ ref }) => ref.plan_key === 'active-import')
+    .map(({ ref, status: taskStatus, visibility }) => [ref.task_id, taskStatus, visibility.active]), [
+    ['P1', 'in-progress', true], ['P2', 'in-progress', true],
+  ]);
 });
 
 test('todo migrateは検証済みJSONをappendImportedPlanへ一度だけ登録しexact resultを返す', async (context) => {
@@ -282,6 +352,8 @@ test('曖昧・schema違反・duplicate・done_mode矛盾はtyped exit 1でstore
     ['schema-violation.json', 'INVALID_TODO_EXTRACTION'],
     ['duplicate-task.json', 'INVALID_TODO_EXTRACTION'],
     ['done-mode-contradiction.json', 'INVALID_TODO_EXTRACTION'],
+    ['in-progress-done-contradiction.json', 'INVALID_TODO_EXTRACTION'],
+    ['in-progress-blocked-contradiction.json', 'INVALID_TODO_EXTRACTION'],
   ]) {
     const inputRef = await writeInput(root, name.replace('.json', ''), await fixture(name));
     const before = await storeDigest(root);
