@@ -125,6 +125,20 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
 - **result digestの束縛**: `gantt_result`のsource digestは単数でなく、sorted member
   manifest・各store head・active topology・evidence／埋込Markdown content digest・
   projection／renderer versionを含むversioned preimageへ束縛する（§1.7・evidence補記）。
+- **セッション中authoringの意味論（2026-07-18整理。監査決定文案の帰結を運用像へ固定）**:
+  - **status遷移（start/done/block）は軽い日常動作**: journalへ1 event追記＋snapshot再生成。
+    書込はCASで、並行セッションと競合したら`STORE_WRITE_CONFLICT`で無変更拒否（自動retryせず
+    読み直してから打ち直す）。
+  - **ToDo新規作成・依存変更は意図的に重い**: topology eventをjournalへ混ぜず、successor plan
+    versionの発行になる。新genesisが旧version digest＋node移行mapへ束縛され、
+    「セッション中に計画の形を変えた」ことが世代として消せない形で残る。
+  - **真実性の3段階**: working treeの未commit書込=`unattested`表示 → commit → CIの
+    `todo verify`通過=accepted。ガントはunattestedも描くがacceptedと表示上区別する。
+    commitと遷移の食い違いはStop hookがWARN。
+  - この非対称の狙い: 「AIが会話の勢いでToDoを書き換えて計画が溶ける」を構造で殺す。
+    status更新は摩擦ゼロ、計画変更は痕跡必須。
+  - ガントHTMLは静的生成物で自動更新されない。**再生成のタイミング（遷移成功後のhook自動
+    再生成を含む）はG5のhook設計で裁定**する。
 - **read-only第一級**: ToDoに変更がなくてもstore読取→描画だけを実行できる。描画はstoreを変更しない。
 - **status**: statusはjournalの`started_at`／`done_at`（§1.6-4）の投影。遷移の書込強制
   （順序違反fail closed・evidence必須done）はG5のauthoring CLIが所有し、v1描画は
@@ -217,6 +231,8 @@ rollback: G4開始前に両repoのHEAD・対象path・digestを記録し、受�
       読取時再検証をCI必須gateへ入れて初めて強制になる（§1.7・storeレーン落とし穴5）
 - [ ] hook接続: SessionStart=storeから現在地・次pending注入／Stop=commitあるのに遷移なしをWARN
       （§1.6-7②。正本はdotagents・isolated HOME検証）
+- [ ] ガント再生成タイミングの裁定（§2セッション中意味論: on-demandのみか、遷移成功後の
+      hook自動再生成を足すか。自動化する場合も描画失敗で遷移自体を巻き戻さない＝表示は投影）
 - [ ] **cutover gate（一回で切替）**: 移行済みplanのcheckbox列廃止＋store正本化＋憲法
       「計画文書の作法」へ「工程はLattice store・散文はMarkdown」を規範化（§1.5-4。正本は
       dotagents `shared/constitution.md`）を同一gateで実施し、二重正本期間を作らない
