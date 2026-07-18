@@ -180,7 +180,7 @@ test('small real store E2E generates the default self-contained gantt and exact 
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v4');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v5');
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
   assert.equal(result.narrative_bindings_digest, digestTodoArtifact([{
     project_id: 'project-1',
@@ -228,7 +228,7 @@ test('real store smoke draws every edge and emits compact nodes plus concise cat
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v4');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v5');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
@@ -288,7 +288,10 @@ test('right pane reads as a Markdown document while retaining all/selected/reset
   assert.equal((output.html.match(/root\.addEventListener\('click'/gu) ?? []).length, 1);
   assert.equal((output.html.match(/root\.addEventListener\('keydown'/gu) ?? []).length, 1);
   assert.match(output.html, /class="diagram-scroll" data-diagram-scroll tabindex="0"/u);
+  assert.match(output.html, /data-zoom-action="reset">等倍<\/button>/u);
   assert.match(output.html, /data-zoom-action="fit">全体表示/u);
+  assert.match(output.html, /zoom<1&&zoom\*1\.25>=1\?1:zoom\*1\.25/u);
+  assert.match(output.html, /zoom>1&&zoom\/1\.25<=1\?1:zoom\/1\.25/u);
   assert.match(output.html, /\.diagram-scroll\{[^}]*max-width:100%;overflow:auto/u);
   assert.match(output.html, /grid-template-columns:minmax\(0,58%\)/u);
   assert.match(output.html, /<div class="narrative-document"><section class="plan-document"><h1 class="plan-title"><code>main<\/code><\/h1>/u);
