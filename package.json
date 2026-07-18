@@ -34,14 +34,17 @@
     "ignore": "^7.0.5",
     "jsonc-parser": "^3.3.1",
     "picomatch": "^4.0.3",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
     "sisteransi": "^1.0.5",
     "tree-sitter-wasms": "^0.1.11",
+    "unified": "^11.0.5",
     "web-tree-sitter": "^0.25.3"
   },
   "scripts": {
     "test": "node --test test/*.mjs test/integration/*.mjs",
     "test:sensor": "npm --prefix sensor test",
-    "check": "node --check bin/lattice.mjs && node --check bin/lattice-mcp.mjs && node --check src/factory-diagnostics.mjs && node --check src/runtime-errors.mjs && node --check src/runtime-contracts.mjs && node --check src/runtime-event-store.mjs && node --check src/hash-chain.mjs && node --check src/dag-chain.mjs && node --check src/todo-contracts.mjs && node --check src/todo-chain.mjs && node --check src/todo-store.mjs && node --check src/todo-cli.mjs && node --check src/runtime-projection.mjs && node --check src/runtime-decision-verifier.mjs && node --check src/runtime-front-end.mjs && node --check src/runtime-cli.mjs && node --check src/rc3-dogfood-scaffold.mjs && node --check src/runtime-engine.mjs && node --check src/runtime-scripted-executor.mjs && node --check src/runtime-diff-observer.mjs && node --check src/runtime-worktree-executor.mjs && node --check src/runtime-hold-recompile.mjs && node --check src/rc3-scripted-campaign.mjs && node --check src/rc3-actual-dogfood.mjs && node --check src/rc4-stage1-dogfood.mjs && node --check research/fixtures/dispatch-record/src/dispatch-record.mjs && node --check test/research-dispatch-record.test.mjs",
+    "check": "node --check bin/lattice.mjs && node --check bin/lattice-mcp.mjs && node --check src/factory-diagnostics.mjs && node --check src/runtime-errors.mjs && node --check src/runtime-contracts.mjs && node --check src/runtime-event-store.mjs && node --check src/hash-chain.mjs && node --check src/dag-chain.mjs && node --check src/todo-contracts.mjs && node --check src/todo-chain.mjs && node --check src/todo-store.mjs && node --check src/todo-cli.mjs && node --check src/todo-markdown-renderer.mjs && node --check src/runtime-projection.mjs && node --check src/runtime-decision-verifier.mjs && node --check src/runtime-front-end.mjs && node --check src/runtime-cli.mjs && node --check src/rc3-dogfood-scaffold.mjs && node --check src/runtime-engine.mjs && node --check src/runtime-scripted-executor.mjs && node --check src/runtime-diff-observer.mjs && node --check src/runtime-worktree-executor.mjs && node --check src/runtime-hold-recompile.mjs && node --check src/rc3-scripted-campaign.mjs && node --check src/rc3-actual-dogfood.mjs && node --check src/rc4-stage1-dogfood.mjs && node --check research/fixtures/dispatch-record/src/dispatch-record.mjs && node --check test/research-dispatch-record.test.mjs",
     "ci": "npm run test && npm run test:sensor && npm run check"
   }
 }
