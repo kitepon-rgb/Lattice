@@ -27,6 +27,7 @@ import {
   appendTodoExtraction,
   validateTodoExtraction,
 } from './todo-migration.mjs';
+import { projectTodoStatus } from './todo-status.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_REF = '.lattice/generated/gantt.html';
@@ -168,6 +169,10 @@ async function migrate({ repoRoot, inputRef }) {
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
+}
+
+async function status({ repoRoot }) {
+  return projectTodoStatus(await readTodoStore({ repoRoot }));
 }
 
 async function readNarrative(repoRoot, ref) {
@@ -372,7 +377,9 @@ export async function runTodoCli({ argv, cwd, stdout, stderr }) {
   }
 
   let action = null;
-  if (argv.length === 1 && argv[0] === 'verify') {
+  if (argv.length === 1 && argv[0] === 'status') {
+    action = (repoRoot) => status({ repoRoot });
+  } else if (argv.length === 1 && argv[0] === 'verify') {
     action = (repoRoot) => verify({ repoRoot, requestedPlanKey: null });
   } else if (argv.length === 3 && argv[0] === 'verify' && argv[1] === '--plan'
     && isTodoIdentifier(argv[2])) {

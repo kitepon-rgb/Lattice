@@ -236,6 +236,7 @@ test('todo namespaceの未知subcommand・不足・余剰・重複・順序違�
   const malformed = [
     ['todo'],
     ['todo', 'unknown'],
+    ['todo', 'status', 'extra'],
     ['todo', 'verify', '--plan'],
     ['todo', 'verify', '--plan', 'main', 'extra'],
     ['todo', 'verify', '--plan', 'main', '--plan', 'main'],
