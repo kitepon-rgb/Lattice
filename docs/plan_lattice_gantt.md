@@ -266,7 +266,9 @@ rollback: G4開始前に両repoのHEAD・対象path・digestを記録し、受�
       常設のmd解釈pipelineは作らない。storeへの初回書込はこのtoolが担う）。
       対象planのcheckbox inventory・履歴時刻の変換規則（欠落はunknown、推定で埋めない）・
       `unknown_requires_evidence`項目の裁定記録と再登録手順を含む
-- [ ] NPM配布・version pin・dotagents側での`lattice` CLI利用可能化（既存の工場更新経路に乗せる）
+- [x] NPM配布・version pin・dotagents側での`lattice` CLI利用可能化（既存の工場更新経路に乗せる）
+  - 2026-07-19完了: `@quolu/lattice@0.3.0`（`8d155b4`）→`0.4.0`（`54f1cbd`・renderer v6）公開。
+    dotagents updater pinを0.4.0へ更新（dotagents `6cfbf9b`）・global install実測`lattice --version`=0.4.0
 - [ ] dotagents側アクセス配線: SessionStart hookがガントの安定パスと現在地を毎session案内
       （§1.6-6。正本はdotagents settings断片・isolated HOME検証を通す）
 - [ ] **受入: dotagents master planの実workloadをガント表示し、最長依存鎖と現在地（active set＋
