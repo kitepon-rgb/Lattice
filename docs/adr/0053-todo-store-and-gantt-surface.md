@@ -14,6 +14,9 @@
 - 同日追補（2026-07-18・G2-W4）: G2設計調書への独立反証を受け、error taxonomy、
   `lattice.todo_chain.v1` wire、`todo verify`／`todo snapshot`成功resultとtodo CLI exit境界を精密化した。
   既存のAccepted裁定とscopeは変更しない
+- 同日追補（2026-07-18・G4-W7）: G4移行tool実装で判明した、既存storeへのplan追加と
+  完了済みtaskの履歴取込の契約欠落を補い、migration wave限定のhistorical importと後日の
+  evidence昇格を裁定した。journal唯一正本、closedな遷移6 kind、単一writer運用は変更しない
 
 ## Context
 
@@ -84,10 +87,13 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
     `snapshot_stale`へ丸めず、下記path containment規律によりhard rejectする。
   - snapshotは`projection_version`・`through_sequence`・`journal_head_digest`・`snapshot_digest`を
     必須とし、健全時のreaderはreplay結果とのcanonical exact一致を要求する（監査#4-1）。
-  - **commit point**: mutationの耐久化はjournal segmentのfsync＋atomic rename完了時点と定義する。
-    snapshot・manifestの更新はその後段で、クラッシュしても正本は失われない（crash matrixを
-    G2 fixtureで固定する）。
+  - **commit point**: 既存memberへのmutationの耐久化はjournal segmentのfsync＋atomic rename完了時点と
+    定義する。snapshot・manifestの更新はその後段で、クラッシュしても正本は失われない（crash matrixを
+    G2 fixtureで固定する）。まだmemberでないplanを追加するhistorical importだけは、staged plan／journalを
+    manifest memberとして可視化するmanifest CASを外部可視性のcommit pointとする（Decision 2a）。
 - **遷移kindはclosed集合6種**: `plan_genesis | start | block | unblock | done | reopen`。
+  G4 historical importとG5 evidence昇格もこの集合を増やさず、`done`のclosed payload variantとして
+  表現する（Decision 2a）。
   各eventは`sequence`・`previous_digest`・`actor`・timestamp・optional `provenance`を持つ。
   - `plan_genesis`: **journalの第0 event**。plan_version・（successorの場合）旧version digest＋
     task移行map・対応するtodo_plan.v1のdigestを持ち、successorでは`previous_digest`を旧journal
@@ -96,15 +102,21 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
     `override_reason`必須field付きでのみ許す。
   - `block`: in-progressのみ受理（未start・done後・blocked中の重複blockは拒否）。`reason`必須。
   - `unblock`: blockedのみ受理。**復帰先はin-progress**（blockはstart済みが前提のため）。
-  - `done`: in-progressのみ受理（blocked中は拒否＝unblock先行必須）。**依存充足をdone時にも
-    再検査**し、evidence descriptor必須（Decision 5）。重複doneは拒否。
+  - `done`: 通常のauthored completionはin-progressのみ受理（blocked中は拒否＝unblock先行必須）。
+    **依存充足をdone時にも再検査**し、evidence descriptor必須（Decision 5）。通常の重複doneは拒否。
+    migration専用のpending→doneと、statusを変えないdone→doneのevidence昇格はDecision 2aの
+    discriminator・writer・受理条件をすべて満たす場合だけのclosed例外であり、authored受理条件を
+    緩めない。
   - `reopen`: doneのみ受理。`reason`必須・**`target_done_digest`必須**（取り消すdone eventへの
     束縛）。元doneのevidenceはjournalに残り、statusはin-progressへ戻る。**当該doneを依存根拠に
     start済みの後続taskが存在する場合は拒否**し、強行は`override_reason`型でのみ許す
     （fable諮問判断3・Codex opinion#2。AIの誤doneは高頻度に起きる前提で、訂正を軽い前方遷移として
     提供しないと誤doneが正史に残る）。
-  - **status投影は関数**: pending（start無し）／in-progress（start済み・未done・非blocked）／
-    blocked（start済み・block未解除）／done。blocked未start・done∧blockedは遷移表上構成不能。
+  - **status投影は関数**: pending（startも有効なhistorical import doneも無し）／in-progress
+    （start済み・未done・非blocked）／blocked（start済み・block未解除）／done。historical import doneは
+    latentなstarted状態を含むdoneとして投影し、evidence昇格はstatusを変えない。これによりimported doneを
+    `reopen`した場合も従来どおりin-progressへ戻り、偽のstart event／開始時刻は作らない。
+    blocked未start・done∧blockedは遷移表上構成不能。
 - `started_at`/`done_at`は表示・監査用のlocal-untrusted値で、順序・有効性の根拠にしない。
   todo族のtimestampはstrict round-trip parser（`YYYY-MM-DDTHH:mm:ss.sssZ`・実在暦日）で検証し、
   clock reversal・過大future skewはtyped anomalyとして拒否する（監査#4-11）。**適用はtodo族限定**。
@@ -142,6 +154,64 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
   上限超過は`STORE_CORRUPT`で全拒否する。この全拒否規則をsnapshot単独byte異常へは適用せず、
   上記`snapshot_stale`として隔離する。全artifactのpath検査はlstat/realpathでsymlink・repo外・
   非regular fileを拒否する（監査#4-14、2026-07-18 G2-W4追補）。
+
+### 2a. G4 migration wave限定historical import（2026-07-18・G4-W7同日追補）
+
+- **入口と一回きり性**: historical importは`g4-migration` writerだけが呼べる内部writer operation
+  `appendImportedPlan`であり、公開の常設authoring CLIではない。入力Markdownを解釈してよいのはこの
+  migration waveの変換時だけで、wave完了後は入口を退役させる。Markdownからjournalを継続同期する
+  読替え・watcher・再取込pipelineは
+  作らない。import用`plan_genesis`は`historical_import: true`を必須markとして持ち、これをplan単位の
+  import完了印とする。plan単位の完了後は同じ`plan_key`の再importを、入力digestが同じ場合も成功扱いにせず
+  `STORE_WRITE_CONFLICT`（`detail.reason: plan_key_already_imported`）で無変更拒否する。import由来でない
+  同一`plan_key`が既にあれば`detail.reason: plan_key_already_exists`で同じく無変更拒否する。
+- **既存storeへの原子的plan追加**: store scoped lock内で、①現manifestのraw bytes・schema・self-digestと
+  全memberを検証、②`plan_key`が既存memberに無いことを確認、③todo_planと第0 `plan_genesis`から始まる
+  journalを非memberのtransaction staging領域へ書いてfsync、④lock内で取得したmanifest digestを
+  expected valueとして再照合、⑤plan／journalを確定pathへrenameしてから、旧member全件＋新member1件を
+  含むmanifestをtemp書込・fsync・atomic renameする。⑤のmanifest renameだけが新planの可視化commit pointで、
+  readerは旧manifestまたは新manifestの全体だけを見る。CAS不一致は`STORE_WRITE_CONFLICT`でmanifestを
+  変更せず、staging artifactはmemberとして扱わない。クラッシュ回復はmanifestに未掲載のtransaction
+  staging artifactまたはtransaction所有のpre-activation確定pathをmemberとして読まず、破棄して
+  再実行できる。manifest掲載後は再実行を上記冪等拒否とする。同一
+  `plan_key`の既存plan（import由来か否か）への上書き・merge・successor化もこの入口では拒否する。
+- **`done` payloadのclosed union**: `done`は共通event envelopeに加え、`done_mode`で次の3 variantを
+  discriminator付きexact-key unionとして持つ。`imported`はprojectionにも保存し、authored completionと
+  import由来completionを機械判別できる。
+  - `done_mode: authored`: `imported: false`とDecision 5の正規`evidence`を持つ。受理matrixは従来どおり
+    in-progress→doneだけで、Decision 5のwrite時hard検証を一切緩めない。
+  - `done_mode: historical_import`: `imported: true`、literal `status: done`、`completed_at`、`evidence`を持つ。
+    `completed_at`はtodo族のstrict timestampまたはliteral `unknown_requires_evidence`だけを受理する。
+    `evidence`は下記`lattice.todo_import_source.v1`でなければならない。`g4-migration` writerが新planを
+    原子的追加する同一transaction内でのみpending→doneを受理し、通常writer、既存member、import完了後の
+    journal headでは拒否する。依存未充足の歴史状態を現在の順序規律へ捏造しないため、このvariantは
+    start／依存充足を要求しないが、その例外は`imported: true`の履歴に固定され、後続taskの通常start／doneは
+    import後のprojectionに対して従来どおり依存を検査する。genesis直後は全task pendingであり、移行元で
+    完了済みのtaskごとにこのeventをappendしてdoneへ投影する。未完了taskはpendingのまま残す。
+  - `done_mode: evidence_promotion`: `imported: true`、`target_done_digest`、Decision 5の正規`evidence`を
+    持つ。対象が最新有効completionである`historical_import` done、かつその`completed_at`が
+    `unknown_requires_evidence`である場合だけdone→doneを受理する。statusと元の`completed_at`は変えず、
+    projection上のevidenceを昇格先へ更新する。元eventと移行元descriptorはjournalに残す。
+- **移行元descriptor**: `lattice.todo_import_source.v1`のexact keysは`schema, origin_plan_ref,
+  origin_line, source_commit`。`schema`は同名literal、`origin_plan_ref`はstoreのproject repoを基準とする
+  移行元plan Markdownの正規化済みrepo相対path、`origin_line`はGit blobをLFで区切った1始まりの
+  safe integer、`source_commit`は移行時に固定した
+  完全長lowercase Git commit object id（省略形は禁止）とする。import時はcommit objectの存在、
+  当該commitでpathがblobに解決すること、lineがblobの行範囲内であることをhard検証する。descriptorは
+  移行元の完了記載を指す監査出典で
+  あって、Decision 5のcompletion evidenceへ暗黙変換しない。
+- **G5 evidence昇格**: `lattice todo evidence promote --plan <key> --task <id> --evidence
+  <descriptor.json path>`をG5 authoring CLIに追加し、成功resultは`todo_mutation_result.v1`とする。
+  writerはlock内で対象import doneを解決し、そのdigestを`target_done_digest`へ記録して、正規evidenceを
+  Decision 5どおりhard検証した後に`evidence_promotion` eventをappendする。対象不一致、既昇格、authored
+  done、strict timestampを持つimport doneへの適用は無変更拒否する。昇格は常に新eventであり、segment・
+  snapshot・元eventの履歴改変ではない。
+- **verify規律**: `todo verify`は未昇格のimported doneについて、移行元descriptorのcanonical schema、
+  pinned commit、commit時点のpath→blob、line範囲の整合までをhard検証し、Markdown文言の再解釈や
+  Decision 5 descriptorの後付け推測をしない。authored doneは従来どおりDecision 5をhard検証する。
+  昇格済みimported doneは移行元descriptorの整合に加え、promotion eventの正規evidenceをauthored doneと
+  同じ強度でhard検証する。いずれもjournal eventとして通常のsequence、previous digest、event digest、
+  canonical bytes、segment chain、rotation、CAS規律に完全に従う。
 
 ### 3. 配置・git・coverage分離
 
@@ -208,6 +278,7 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
 | `todo block` | `--plan <key> --task <id> --reason <text>` | 同上 | G5 |
 | `todo unblock` | `--plan <key> --task <id>` | 同上 | G5 |
 | `todo done` | `--plan <key> --task <id> --evidence <descriptor.json path>` | 同上 | G5 |
+| `todo evidence promote` | `--plan <key> --task <id> --evidence <descriptor.json path>` | 同上（imported doneの正規evidence昇格） | G5 |
 | `todo reopen` | `--plan <key> --task <id> --reason <text> [--override-reason <text>]` | 同上（`target_done_digest`は内部で最新doneへ解決しeventへ記録） | G5 |
 | `todo revise` | `--plan <key> --input <revision.json path>` | `todo_revise_result.v1`（successor version発行の唯一入口） | G5 |
 | `todo verify` | `[--plan <key>]`（既定=全member） | `lattice.todo_verify_result.v1`（bytes・chain・遷移・evidence hard検証のlocal検証まで所有。CI attestationはCIの領分） | G2 |
@@ -332,8 +403,8 @@ plan_graph既存schemaのin-place変更（必要ならv2化＋wire級別裁定�
 ## Consequences
 
 - G2はDecision 1〜5・6の`verify`/`snapshot`面・7を実装、G3が`todo gantt`（8・9含む）、G4が
-  一回きり移行＋オーナー受入、G5がauthoring/reopen/revise/reconcile CLI・hook・cutoverを実装する
-  （wave正本は実装計画）。
+  Decision 2aの一回きり移行＋オーナー受入、G5がauthoring/evidence昇格/reopen/revise/reconcile
+  CLI・hook・cutoverを実装する（wave正本は実装計画）。
 - dotagents側は受入・配線・憲法規範化のみを所有する（Phase LG対応表どおり）。
 - 廃した旧称は実装・実装計画・親計画の受入文言に用いず、「最長依存鎖」へ追従させる。
 - open item（G5着手時に追補ADRで固定）: reconcileのresolution.json契約・手順詳細・部分再発行の
@@ -341,7 +412,21 @@ plan_graph既存schemaのin-place変更（必要ならv2化＋wire級別裁定�
 - 既存timestamp validatorの`2026-02-30`受理はtodo族外の既存欠陥として残る。G2で影響を確認し、
   変更するならADR改訂（本ADRは適用をtodo族に限定）。
 
-## 反証記録（G1作法の3枚ガードレール＋同日G2追補）
+## G4-W7追補セルフチェック
+
+| 統括裁定／不変条件 | 契約化した箇所 | 自己矛盾チェック |
+|---|---|---|
+| 既存storeへの原子的plan追加、manifest CAS、同一`plan_key`拒否 | Decision 2a「入口と一回きり性」「既存storeへの原子的plan追加」 | manifest rename前は非member、rename後だけ全体可視。既存member mutationのjournal commit pointとは対象を分離した |
+| import専用done、strict timestampまたは`unknown_requires_evidence`、固定出典、機械判別 | Decision 2a「`done` payloadのclosed union」「移行元descriptor」 | 第7 kindを増やさず`done_mode`でclosed union化。authoredは`imported: false`、移行由来は`true` |
+| G5で正規evidenceへ昇格、履歴非改変、verify強度の分離 | Decision 2a「G5 evidence昇格」「verify規律」、Decision 6 CLI表 | 昇格はtarget digest付き新`done` event。authored hard検証は維持し、import緩和は固定出典の整合に限定した |
+| migration waveだけの一回きり入口、再import拒否、常設Markdown pipeline禁止 | Decision 2a「入口と一回きり性」 | 同一入力もsuccessへ丸めずtyped conflict。wave後退役を明記した |
+| journal唯一正本、taxonomy、単一writer、遷移6 kindを弱めない | Decision 2および2a、Decision 4 | 全import／promotion eventが通常chain・digest・CASに従い、writerは`g4-migration`へさらに限定。既存error codeと6 kind内で表現した |
+| historical import後の状態機械 | Decision 2「status投影は関数」、Decision 2aの受理matrix | import doneはlatent startedを持つため、既存`reopen`のdone→in-progressと両立。後続の通常遷移は従来の依存検査を受ける |
+
+上表の確認により、統括裁定4点はすべて本文のnormative ruleへ落ち、未裁定の常設取込面や履歴書換えを
+導入していない。
+
+## 反証記録（G1作法の3枚ガードレール＋同日G2／G4追補）
 
 1. **`fable`スポット諮問**: 判断1（todo namespace）支持／判断2（名称）条件付き支持／判断3
    （reopen不在）**反対→採用を覆しreopenを第6 kindとして導入**／判断4（スケール上限）条件付き
@@ -362,6 +447,12 @@ plan_graph既存schemaのin-place変更（必要ならv2化＋wire級別裁定�
    採用式、join展開、爆発fixture期待値は変更せず根拠を明文化した。G2 checklist未被覆の指摘は実装未完の
    証拠であってAccepted方針の反証ではないためscope縮小に使わず、Consequences記載どおりG2の実装・fixture・
    focused gate義務として維持する。
+5. **G4実装blockからの契約欠落発見（2026-07-18・G4-W7同日追補）**: `g4-migration` writerには
+   既存storeへplanを追加するAPIがなく、genesisが全task pending固定のため、移行元の完了537件
+   （うち92.4%は完了時刻不明）を正規journalへ表現できず、実装がfail closedで停止した。これは実装上の
+   workaround不足ではなく、原子的member追加、historical completion、時刻不明値、出典検証、再登録、
+   一回きり性のAccepted契約が欠けていた反証である。Decision 2／2a、Decision 6、Consequencesへ追補し、
+   第7 event kindや常設Markdown pipelineを導入せず解消した。
 
-先行3枚は「骨格は支持・細部P0解消が条件」で一致し、同日追補の成立findingも上記へ反映した。
-Accepted裁定を維持し、G2実装は追補後wireを受入条件とする。
+先行3枚は「骨格は支持・細部P0解消が条件」で一致し、同日G2追補の成立findingとG4実装blockで判明した
+契約欠落も上記へ反映した。Accepted裁定を維持し、G2実装は追補後wire、G4移行はDecision 2aを受入条件とする。
