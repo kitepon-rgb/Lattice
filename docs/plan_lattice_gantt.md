@@ -238,6 +238,8 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
 
 ### G4 — 一回きり移行変換＋オーナー受入（dotagents側受入・§1.5裁定に従う）
 
+UI実装と受入の正典は[デザイン仕様](06_design-spec.md)に従う。
+
 （進行記録 2026-07-18: 移行tool着地（`1daaff2`）——`lattice.todo_extraction.v1`確定＋
 `todo migrate` CLI・fixture 8件（R7難所18例を含む）・todo gate 108/108。NPM配布準備として
 root enginesを`>=22.13 <25`へ整合（`7137f91`）。`todo status` CLI着地（`bf73689`）——
