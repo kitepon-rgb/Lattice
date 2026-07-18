@@ -1,6 +1,6 @@
 {
   "name": "@quolu/lattice",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Lattice — parallel TODO graph compiler and conflict-aware orchestration runtime with isolated executor landing",
   "type": "module",
   "license": "MIT",
