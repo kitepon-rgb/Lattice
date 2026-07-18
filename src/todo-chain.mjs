@@ -58,10 +58,43 @@ function requireArray(value, context) {
   return value;
 }
 
+function normalizeOptions(options) {
+  if (options === undefined) options = {};
+  if (!isPlainObject(options)) {
+    fail('TODO_CHAIN_INVALID_OPTIONS', 'options must be an object');
+  }
+  const allowedKeys = new Set(['countCap', 'representativeLimit']);
+  for (const key of Reflect.ownKeys(options)) {
+    if (typeof key !== 'string' || !allowedKeys.has(key)) {
+      fail('TODO_CHAIN_INVALID_OPTIONS', `unknown option: ${String(key)}`);
+    }
+  }
+
+  const countCap = Object.hasOwn(options, 'countCap') ? options.countCap : 1_000_000;
+  const representativeLimit = Object.hasOwn(options, 'representativeLimit')
+    ? options.representativeLimit
+    : 8;
+  if (!Number.isSafeInteger(countCap) || countCap < 1 || countCap >= Number.MAX_SAFE_INTEGER) {
+    fail(
+      'TODO_CHAIN_INVALID_OPTIONS',
+      'countCap must be a safe integer from 1 through Number.MAX_SAFE_INTEGER - 1',
+    );
+  }
+  if (
+    !Number.isSafeInteger(representativeLimit)
+    || representativeLimit < 0
+    || representativeLimit > 8
+  ) {
+    fail('TODO_CHAIN_INVALID_OPTIONS', 'representativeLimit must be a safe integer from 0 through 8');
+  }
+  return { countCap, representativeLimit };
+}
+
 export function projectTodoChainV1(
   mergedTodoTopology,
-  { countCap = 1_000_000, representativeLimit = 8 } = {},
+  options,
 ) {
+  const { countCap, representativeLimit } = normalizeOptions(options);
   if (!isPlainObject(mergedTodoTopology)) {
     fail('TODO_CHAIN_INVALID_TOPOLOGY', 'mergedTodoTopology must be an object');
   }
@@ -135,6 +168,10 @@ export function projectTodoChainV1(
       to: toRef(to),
     })),
     longest_chain_count: analysis.longestChainCount,
+    limits: {
+      count_cap: countCap,
+      representative_limit: representativeLimit,
+    },
     representative_chains: analysis.representativeChains.map((chain) => chain.map(toRef)),
     assumptions: { ...ASSUMPTIONS },
   };

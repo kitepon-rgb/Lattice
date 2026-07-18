@@ -22,16 +22,20 @@ function defaultCompare(left, right) {
 }
 
 function assertOptions(countCap, representativeLimit) {
-  if (!Number.isSafeInteger(countCap) || countCap < 0 || countCap >= Number.MAX_SAFE_INTEGER) {
+  if (!Number.isSafeInteger(countCap) || countCap < 1 || countCap >= Number.MAX_SAFE_INTEGER) {
     throw new DagChainError(
       'DAG_INVALID_COUNT_CAP',
-      'countCap must be a non-negative safe integer below Number.MAX_SAFE_INTEGER',
+      'countCap must be a positive safe integer below Number.MAX_SAFE_INTEGER',
     );
   }
-  if (!Number.isSafeInteger(representativeLimit) || representativeLimit < 0) {
+  if (
+    !Number.isSafeInteger(representativeLimit)
+    || representativeLimit < 0
+    || representativeLimit > 8
+  ) {
     throw new DagChainError(
       'DAG_INVALID_REPRESENTATIVE_LIMIT',
-      'representativeLimit must be a non-negative safe integer',
+      'representativeLimit must be a safe integer from 0 through 8',
     );
   }
 }
@@ -122,8 +126,7 @@ function enumerateRepresentatives({
     eligibleSuccessors.set(
       node,
       successors.get(node).filter((successor) => (
-        down.get(node) + up.get(successor) === maximumDepth
-        && up.get(successor) === up.get(node) - 1
+        up.get(successor) + 1 === up.get(node)
       )),
     );
   }
@@ -223,8 +226,8 @@ export function analyzeDagChains(
 
   let saturatedCount = 0;
   for (const node of nodes) {
-    if (down.get(node) === 1 && up.get(node) === maximumDepth) {
-      saturatedCount = saturatedAdd(saturatedCount, waysUp.get(node), saturationPoint);
+    if (down.get(node) === maximumDepth) {
+      saturatedCount = saturatedAdd(saturatedCount, waysDown.get(node), saturationPoint);
     }
   }
 
@@ -243,7 +246,7 @@ export function analyzeDagChains(
     longestChainEdges,
     longestChainCount: {
       count: Math.min(saturatedCount, countCap),
-      overflow: saturatedCount > countCap,
+      overflow: saturatedCount === saturationPoint,
     },
     representativeChains: enumerateRepresentatives({
       orderedNodes,
