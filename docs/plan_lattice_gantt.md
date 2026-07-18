@@ -64,8 +64,8 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
 4. **着手・終了の両フラグ必須**: 遷移journalに`started_at`／`done_at`（＋evidence ref）を
    独立に持ち、statusはその投影。バー上に両時刻を表示する。
 5. **クリティカルパス表現必須**（§1スケッチどおりhard_need chainの強調）。
-6. **アクセス性**: `lattice plan gantt`（仮称・G1で確定）が安定パス（gitignore対象の生成物root・
-   G1論点③）へ再生成してrepo相対`output_ref`を返し、SessionStart hookが絶対file://パスへ解決して
+6. **アクセス性**: `lattice todo gantt`（ADR 0053で確定）が安定パス（`.lattice/generated/`・
+   gitignored）へ再生成してrepo相対`output_ref`を返し、SessionStart hookが絶対file://パスへ解決して
    現在地と併せて毎session案内する。
 7. **AIが自然に使う仕組み（3枚重ね）**: ①authoring CLIをcheckbox手書きより低摩擦にする
    ②hook接続（SessionStart=storeから現在地・次pending注入、Stop=commitあるのに遷移なしをWARN）
@@ -98,7 +98,14 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
 4. **既存欠陥の発見**: timestamp validatorが`2026-02-30`を受理（regex＋`Date.parse`のみ）。
    G2のstrict round-trip parserで解消する。
 
-## 2. 設計（実装契約の骨子。詳細はG1のADRで裁定）
+## 2. 設計（実装契約の骨子）
+
+> **G1裁定済み（2026-07-18・[ADR 0053](adr/0053-todo-store-and-gantt-surface.md)・Accepted）**。
+> 以後の契約正本はADR 0053であり、本節・§1.6の表現と食い違う場合はADRが勝つ。主な確定:
+> 新`todo_store.v1`族（既存系列拡張は却下）・CLIは`lattice todo <sub>`名前空間（描画は
+> `lattice todo gantt`）・遷移kind 6種（`plan_genesis/start/block/unblock/done/reopen`）・
+> topology変更は`todo revise`によるsuccessor version発行のみ・「critical path」の語を廃し
+> **「最長依存鎖（longest dependency chain）」**の非列挙projection・v1は単一writer運用前提。
 
 - **新公開面**: `lattice plan gantt`（名称はADRで確定・本計画内はこの仮称で統一）。
   入力=工程store（§1.6-1）＋graph構造、出力=**単一の自己完結静的HTML**
@@ -146,8 +153,8 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
 
 ## 3. 実行TODO
 
-### G1 — 契約裁定（F・契約クリティカル）
-- [ ] ADR起草。論点（§1.7のP0裁定9系統＋evidence決定文案を一次入力とする）:
+### G1 — 契約裁定（F・契約クリティカル）**←2026-07-18完了（[ADR 0053](adr/0053-todo-store-and-gantt-surface.md)・Accepted）**
+- [x] ADR起草。論点（§1.7のP0裁定9系統＋evidence決定文案を一次入力とする）:
       ①**storeとplan_input/plan_graphの関係**（§2参照。監査推奨=新`todo_store.v1`＋optional
       compile bindingの採否。全plan familyの互換表〈v1/v2/runtime_plan〉と、Ganttが読む
       canonical directed graphの一択を含む）
@@ -166,13 +173,13 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
       ⑦error意味論（cli_error.v2準拠）・authoring CLIのexact argv/exit matrix/store無変更保証・
       既存面matrix（CLI 6面・runtime-errors・`--version`・`factory-diagnostics`・MCP）との責務分離
       作法: `fable`スポット諮問＋`fable`×high refuter 1回＋クロスprovider `codex_opinion` 1回
-- [ ] 非目標をADRへ固定: 常駐化・外部SaaS・Markdown正本との二重管理・duration推定・自動再配置・
-      global capacity scheduling・v1での真正な履歴削除
-- [ ] **G1のdone条件**: ADRファイルがdocs/adrへ存在しAccepted・上記論点に未裁定ゼロ・
-      諮問/refuter/cross-provider記録がevidenceへ収容済み・親（dotagents Phase LG）へ
-      裁定結果を還流済み
+- [x] 非目標をADRへ固定: 常駐化・外部SaaS・Markdown正本との二重管理・duration推定・自動再配置・
+      global capacity scheduling・v1での真正な履歴削除（＋単一writer運用前提を追加固定）
+- [x] **G1のdone条件**: ADRファイルがdocs/adrへ存在しAccepted・上記論点に未裁定ゼロ
+      （open item=reconcile/revise入力契約はG5追補と明示裁定）・諮問/refuter/cross-provider記録は
+      ADR末尾「反証記録」節へ収容済み・親（dotagents Phase LG）へ裁定結果を還流済み
 
-### G2 — store契約＋critical path projection実装（A）
+### G2 — store契約＋最長依存鎖projection実装（A・契約正本はADR 0053）
 - [ ] 工程store契約の実装（schema validation・JSONL byte契約・digest・読取層。G1裁定に従う。
       書込はG4移行toolとG5 authoring CLIだけが行う。既存runtime event storeは流用せず
       汎用chain helperへ抽出して共有）
@@ -181,14 +188,17 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
       journal/snapshot不整合fixture（`STORE_INCONSISTENT`）
 - [ ] timestamp strict round-trip parser（既存validatorの`2026-02-30`受理欠陥をここで解消し、
       既存契約側の影響有無も確認）
-- [ ] critical path（またはG1裁定後の名称）純関数＋versioned projection＋fixture
-      （分岐/join/複数最長鎖/空graph/merge後cycle拒否。§2の二択裁定に従う）
+- [ ] 最長依存鎖の**非列挙projection**（`todo_chain.v1`: 最大深さ・最長鎖所属node/edge和集合・
+      本数count＋overflow・代表鎖≤8・assumptions field）純関数＋fixture
+      （分岐/join/複数最長鎖/空graph/merge後cycle拒否/完全二部層の爆発耐性）
+- [ ] `todo verify`・`todo snapshot --rebuild`のCLI面（ADR 0053契約表）＋crash matrix fixture
+      （journal健全×snapshot欠落/stale→read-only投影継続・writer拒否）
 - [ ] codegraph coverage分離（store=tracked・生成HTML=gitignore）のintegration testを
       レンダラ実装より先に置く
 - [ ] focused gate green
 
 ### G3 — SVG/HTMLレンダラ実装（A・左右ペイン＋散文埋込・全plan統合・started/done両時刻表示を含む）
-- [ ] §1スケッチを基にした純文字列構築レンダラ＋`lattice plan gantt` CLI配線
+- [ ] §1スケッチを基にした純文字列構築レンダラ＋`lattice todo gantt` CLI配線
       （ADR 0044 surface規約・安定パス出力＋repo相対`output_ref`のstdout result JSON）。
       レイアウトはlane優先＋交差低減（barycentric等）・既定表示はcritical＋選択node入出辺の
       段階開示・folding（§1.7-3⑧）
@@ -200,7 +210,8 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
 - [ ] 自己完結検証fixture（network参照の**allow-list検査**〈全URL-bearing属性・CSS・
       protocol-relative含む〉・単一file・meta CSP `default-src 'none'`基調）＋
       file://直開きsmoke（開発者確認。オーナー目視はG4）
-- [ ] スケール・可読性fixture（300/1,000 node規模のレイアウト破綻・超過時fail closed/集約）＋
+- [ ] スケール・性能fixture（上限値ちょうどtask 2,000/edge 8,000の存在証明＋境界値N-1/N/N+1・
+      長鎖・幅広層・完全二部層・高fan-out・Unicode膨張・超過時`TODO_SCALE_EXCEEDED`）＋
       keyboard/ARIA最低線（イベント委譲controller・inline handler禁止）
 - [ ] focused/related gate green
 
@@ -218,14 +229,15 @@ rollback: G4開始前に両repoのHEAD・対象path・digestを記録し、受�
 - [ ] NPM配布・version pin・dotagents側での`lattice` CLI利用可能化（既存の工場更新経路に乗せる）
 - [ ] dotagents側アクセス配線: SessionStart hookがガントの安定パスと現在地を毎session案内
       （§1.6-6。正本はdotagents settings断片・isolated HOME検証を通す）
-- [ ] **受入: dotagents master planの実workloadをガント表示し、クリティカルパス（G1裁定後の
-      名称）と現在地がブラウザで一目で判ること（オーナー目視）**。受入証跡とreject/retry記録を
+- [ ] **受入: dotagents master planの実workloadをガント表示し、最長依存鎖と現在地（active set＋
+      next-ready）がブラウザで一目で判ること（オーナー目視）**。受入証跡とreject/retry記録を
       evidenceへ残す
 
 ### G5 — authoring CLI＋enforcement＋定着（A→dotagents側規範化）
-- [ ] **authoring CLI実装**: ToDo追加・遷移（start/done/block/unblock。遷移表はG1裁定）を
-      CLI経由に限定し、順序違反（`--out-of-order --reason`なし）・依存欠落・evidenceなしdoneを
-      書込時拒否する（§1.5-3）。topology変更はsuccessor plan version経由（§1.7-3③）
+- [ ] **authoring CLI実装**（ADR 0053契約表）: 遷移verb（start/done/block/unblock/reopen）＋
+      topology変更の唯一入口`todo revise`（successor version発行）＋`todo reconcile`。順序違反
+      （`--override-reason`なし）・依存欠落・evidenceなしdone・blocked中doneを書込時拒否。
+      reconcile/reviseの入力契約（resolution.json/revision.json）は着手時に追補ADRで固定（open item）
 - [ ] **enforcementの実体はCI/`todo verify`**: 「CLI経由のみ」はファイル権限では強制できない
       （手編集・Git mergeを防げない）。journal・snapshot・依存・done evidence・compile bindingの
       読取時再検証をCI必須gateへ入れて初めて強制になる（§1.7・storeレーン落とし穴5）
