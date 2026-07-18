@@ -52,8 +52,13 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
    ②Lattice既存契約（versioned JSON＋digest束縛）と同じ監査道具が効く
    ③1行1itemのcanonical serializationでgit diffレビュー可。
    形は current snapshot＋append-only遷移journal。SQLは実測で並行書込み限界が出た時の別裁定。
-2. **左右ペインUI**: 左＝ガント、右＝選択nodeの散文（背景・裁定・受入条件・evidence）。
+2. **左右ペインUI**: 左＝ガント、右＝散文。右ペインの動作（オーナー要求 2026-07-18追記）:
+   - **非選択時（既定）**: 全taskの散文を従来の計画書のように**全文一覧表示**する
+     （ガントを開く＝計画書を読む体験を置き換える）
+   - **task選択時**: 該当taskの散文（背景・裁定・受入条件・evidence）だけへ切替
+   - **右ペイン最上部に「全文表示へ戻る」ボタン**を常設し、1クリックで既定へ復帰
    自己完結要件を保つため、生成時にnodeがリンクするMarkdown節をHTML内へ埋め込む。
+   各行の左端はtaskの短いラベル（1行）とし、長文は右ペインが担当する。
 3. **プロジェクト内の全ToDo統合表示**: master＋全子計画のstoreを1グラフへmergeし、
    レーン／計画でグルーピングする。
 4. **着手・終了の両フラグ必須**: 遷移journalに`started_at`／`done_at`（＋evidence ref）を
@@ -176,6 +181,8 @@ ToDoのDAGを所有しており、**足りないのは工程store（status正本
 - [ ] Markdown埋込はAST→allow-list rendererで実装（raw HTML/任意URL無効化・script JSONは
       Unicode escape・`innerHTML`不使用・節byte上限）。XSS fixture（`javascript:`・`//host`・
       `data:`・`</script>`脱出・SVG event属性→全拒否）
+- [ ] 右ペインの3状態実装（§1.6-2: 既定=全散文一覧／選択=該当散文／最上部「全文表示へ戻る」
+      ボタン。全文一覧は表示切替のみで再生成しない＝埋込済み節の表示制御で実現）
 - [ ] 自己完結検証fixture（network参照の**allow-list検査**〈全URL-bearing属性・CSS・
       protocol-relative含む〉・単一file・meta CSP `default-src 'none'`基調）＋
       file://直開きsmoke（開発者確認。オーナー目視はG4）
