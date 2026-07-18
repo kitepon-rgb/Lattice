@@ -204,6 +204,10 @@ export function compileTodoExtraction(value, repoRoot) {
   return {
     repoRoot,
     writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    initializeIfMissing: {
+      projectId: value.project_id,
+      repositories: [{ repo_id: 'self', path: '.' }],
+    },
     plan: {
       schema: 'lattice.todo_plan.v2',
       project_id: value.project_id,

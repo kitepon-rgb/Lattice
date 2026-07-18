@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile,
+  lstat, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -30,10 +30,15 @@ const ref = (taskId, planKey = 'main', projectId = 'project-1', expected) => ({
   ...(expected === undefined ? {} : { expected_topology_digest: expected }),
 });
 
-async function workspace(context, overrides = {}) {
+async function bareWorkspace(context) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-todo-store-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   execFileSync('git', ['init', '--quiet'], { cwd: root });
+  return root;
+}
+
+async function workspace(context, overrides = {}) {
+  const root = await bareWorkspace(context);
   const plan = overrides.plan ?? {
     schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'main', plan_version: 'v1',
     predecessor_plan_digest: null, tasks: [task('T1'), task('T2')],
@@ -388,6 +393,19 @@ test('historical import manifest digest CAS不一致はstagingをmember化せず
   await expectCode(appendImportedPlan(request), 'STORE_WRITE_CONFLICT', 'manifest_digest_changed');
   assert.deepEqual((await readTodoStore({ repoRoot: root, now: NOW })).members
     .map(({ descriptor }) => descriptor.plan_key), ['main']);
+});
+
+test('bootstrap importはparent準備後の失敗でも.latticeとstagingを全rollbackする', async (context) => {
+  const root = await bareWorkspace(context);
+  const request = importedPlanRequest(root, {
+    initializeIfMissing: { projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }] },
+    onProtocolStage(stage) {
+      if (stage === 'bootstrap_parent_prepared') throw new Error('bootstrap registration failed');
+    },
+  });
+  await assert.rejects(appendImportedPlan(request), /bootstrap registration failed/u);
+  await assert.rejects(lstat(path.join(root, '.lattice')), { code: 'ENOENT' });
+  assert.deepEqual((await readdir(root)).filter((name) => name.startsWith('.lattice-todo-bootstrap-')), []);
 });
 
 test('historical importはimport済みとauthored既存plan_keyを区別して再取込拒否する', async (context) => {

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
-  lstat, mkdir, open, readFile, readdir, realpath, rename, rm,
+  lstat, mkdir, open, readFile, readdir, realpath, rename, rm, rmdir,
 } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -704,14 +704,120 @@ function historicalImportInputs(value, timestampKey) {
       && Object.keys(entry).every((key) => allowed.has(key)));
 }
 
+function prepareImportedArtifacts(repoRoot, options, projectId, memberPlans) {
+  const planInput = materializeImportedNarrativeAnchors(
+    repoRoot, options.plan, options.narrativeAnchorSources,
+  );
+  const plan = buildTodoPlan(planInput);
+  if (plan.project_id !== projectId || plan.predecessor_plan_digest !== null) {
+    throw new TypeError('imported plan must be a project-local genesis plan');
+  }
+  verifyPlanNarrativeAnchors(repoRoot, plan);
+  const genesis = buildPlanGenesis(plan, { ...options.genesis, historical_import: true });
+  const events = [genesis];
+  const inProgressTasks = options.inProgressTasks ?? [];
+  const completedTasks = options.completedTasks ?? [];
+  if (!historicalImportInputs(inProgressTasks, 'started_at')
+    || !historicalImportInputs(completedTasks, 'completed_at')) {
+    fail('STORE_INCONSISTENT', 'historical_import_disposition_invalid');
+  }
+  const inProgressIds = new Set(inProgressTasks.map(({ task_id: taskId }) => taskId));
+  const completedIds = new Set(completedTasks.map(({ task_id: taskId }) => taskId));
+  if (inProgressIds.size !== inProgressTasks.length
+    || completedIds.size !== completedTasks.length
+    || [...inProgressIds].some((taskId) => completedIds.has(taskId))) {
+    fail('STORE_INCONSISTENT', 'historical_import_disposition_conflict');
+  }
+  for (const input of inProgressTasks) events.push(buildHistoricalStart(plan, events.at(-1), input, genesis));
+  for (const input of completedTasks) events.push(buildHistoricalDone(plan, events.at(-1), input, genesis));
+  const verifyImportSource = importSourceVerifier(repoRoot, true);
+  const tasks = replay(plan, events, {
+    now: options.now ? new Date(options.now) : new Date(), verifyImportSource,
+  });
+  validateMergedGraph([...memberPlans, { plan }]);
+  return { plan, genesis, events, tasks, snapshot: snapshotFor(plan, events, tasks) };
+}
+
+async function bootstrapImportedPlan(repoRoot, options) {
+  const initialization = options.initializeIfMissing;
+  if (!exactRecord(initialization, ['projectId', 'repositories'])
+    || initialization.projectId !== options.plan?.project_id) {
+    throw new TypeError('historical import initialization input invalid');
+  }
+  const prepared = prepareImportedArtifacts(repoRoot, options, initialization.projectId, []);
+  const { plan, genesis, events, snapshot } = prepared;
+  const base = `${STORE_ROOT_REF}/plans/${plan.plan_key}/${plan.plan_version}`;
+  const planRef = `${base}/plan.json`;
+  const journalRef = `${base}/journal/active.jsonl`;
+  const snapshotRef = `${base}/snapshot.json`;
+  const descriptor = { plan_key: plan.plan_key, active_plan_version: plan.plan_version,
+    plan_ref: planRef, journal_ref: journalRef, snapshot_ref: snapshotRef,
+    topology_digest: plan.topology_digest, journal_head_digest: events.at(-1).event_digest };
+  const manifest = { schema: 'lattice.todo_manifest.v1', project_id: initialization.projectId,
+    repositories: initialization.repositories, members: [descriptor], manifest_digest: '' };
+  manifest.manifest_digest = todoSelfDigest(manifest, 'manifest_digest');
+  if (!validateTodoManifest(manifest)) throw new TypeError('manifest input violates lattice.todo_manifest.v1');
+
+  const stage = path.join(repoRoot, `.lattice-todo-bootstrap-${process.pid}-${randomBytes(6).toString('hex')}`);
+  const latticeRoot = path.join(repoRoot, '.lattice');
+  const storeRoot = path.join(repoRoot, STORE_ROOT_REF);
+  let createdLatticeRoot = false;
+  let activated = false;
+  try {
+    await mkdir(stage, { mode: 0o700 });
+    const stagedBase = path.join(stage, 'plans', plan.plan_key, plan.plan_version);
+    await atomicWrite(path.join(stagedBase, 'plan.json'), canonicalLine(plan));
+    await atomicWrite(path.join(stagedBase, 'journal', 'active.jsonl'), Buffer.concat(events.map(canonicalLine)));
+    await atomicWrite(path.join(stagedBase, 'snapshot.json'), canonicalLine(snapshot));
+    await atomicWrite(path.join(stage, 'manifest.json'), canonicalLine(manifest));
+    await protocolStage(options, 'bootstrap_staged');
+
+    try {
+      const state = await lstat(latticeRoot);
+      if (state.isSymbolicLink() || !state.isDirectory()) fail('STORE_INCONSISTENT', 'unsafe_lattice_root');
+    } catch (error) {
+      if (error instanceof TodoStoreError) throw error;
+      if (error?.code !== 'ENOENT') throw error;
+      await mkdir(latticeRoot, { mode: 0o700 });
+      createdLatticeRoot = true;
+      await fsyncDirectory(repoRoot);
+    }
+    await protocolStage(options, 'bootstrap_parent_prepared');
+    try { await rename(stage, storeRoot); }
+    catch (error) {
+      if (['EEXIST', 'ENOTEMPTY'].includes(error?.code)) {
+        fail('STORE_WRITE_CONFLICT', 'store_bootstrap_raced');
+      }
+      throw error;
+    }
+    activated = true;
+    await fsyncDirectory(latticeRoot);
+    await protocolStage(options, 'bootstrap_activated');
+    return { plan, genesis, events, snapshot, descriptor };
+  } finally {
+    if (!activated) await rm(stage, { recursive: true, force: true });
+    if (!activated && createdLatticeRoot) {
+      try { await rmdir(latticeRoot); }
+      catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error?.code)) throw error; }
+    }
+  }
+}
+
 async function protocolStage(options, stage) {
   if (typeof options.onProtocolStage === 'function') await options.onProtocolStage(stage);
 }
 
-/** G4-only atomic addition of one imported plan to an existing manifest. */
+/** G4-only atomic import, with optional all-or-nothing store bootstrap. */
 export async function appendImportedPlan(options = {}) {
   requireWriter(options.writer, 'g4-migration');
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  if (options.initializeIfMissing !== undefined) {
+    try { await lstat(path.join(repoRoot, STORE_ROOT_REF)); }
+    catch (error) {
+      if (error?.code === 'ENOENT') return bootstrapImportedPlan(repoRoot, options);
+      throw error;
+    }
+  }
   return withLock(repoRoot, async () => {
     // 1. Validate canonical manifest bytes and every current member before preparing output.
     const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
@@ -726,38 +832,9 @@ export async function appendImportedPlan(options = {}) {
     }
     await protocolStage(options, 'plan_key_absent');
 
-    const planInput = materializeImportedNarrativeAnchors(
-      repoRoot, options.plan, options.narrativeAnchorSources,
+    const { plan, genesis, events, snapshot } = prepareImportedArtifacts(
+      repoRoot, options, store.project_id, store.members.map(({ plan: memberPlan }) => ({ plan: memberPlan })),
     );
-    const plan = buildTodoPlan(planInput);
-    if (plan.project_id !== store.project_id || plan.predecessor_plan_digest !== null) {
-      throw new TypeError('imported plan must be a project-local genesis plan');
-    }
-    verifyPlanNarrativeAnchors(repoRoot, plan);
-    const genesis = buildPlanGenesis(plan, { ...options.genesis, historical_import: true });
-    const events = [genesis];
-    const inProgressTasks = options.inProgressTasks ?? [];
-    const completedTasks = options.completedTasks ?? [];
-    if (!historicalImportInputs(inProgressTasks, 'started_at')
-      || !historicalImportInputs(completedTasks, 'completed_at')) {
-      fail('STORE_INCONSISTENT', 'historical_import_disposition_invalid');
-    }
-    const inProgressIds = new Set(inProgressTasks.map(({ task_id: taskId }) => taskId));
-    const completedIds = new Set(completedTasks.map(({ task_id: taskId }) => taskId));
-    if (inProgressIds.size !== inProgressTasks.length
-      || completedIds.size !== completedTasks.length
-      || [...inProgressIds].some((taskId) => completedIds.has(taskId))) {
-      fail('STORE_INCONSISTENT', 'historical_import_disposition_conflict');
-    }
-    for (const input of inProgressTasks) events.push(buildHistoricalStart(plan, events.at(-1), input, genesis));
-    for (const input of completedTasks) events.push(buildHistoricalDone(plan, events.at(-1), input, genesis));
-    const verifyImportSource = importSourceVerifier(repoRoot, true);
-    const tasks = replay(plan, events, {
-      now: options.now ? new Date(options.now) : new Date(), verifyImportSource,
-    });
-    const prospective = [...store.members, { plan }];
-    validateMergedGraph(prospective);
-    const snapshot = snapshotFor(plan, events, tasks);
 
     const base = `${STORE_ROOT_REF}/plans/${plan.plan_key}/${plan.plan_version}`;
     const planRef = `${base}/plan.json`;

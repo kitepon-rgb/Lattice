@@ -330,6 +330,7 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
 
 | subcommand | argv | result schema | wave |
 |---|---|---|---|
+| `todo migrate` | `--input <extraction.json path>` | `lattice.todo_migrate_result.v1`（store未存在時は抽出`project_id`＋self repositoryで完全storeをstagingし、import成功時だけ`.lattice/todo`へdirectory rename。失敗時は初期化を含め無変更） | G4 |
 | `todo start` | `--plan <key> --task <id> [--override-reason <text>]` | `todo_mutation_result.v1` | G5 |
 | `todo block` | `--plan <key> --task <id> --reason <text>` | 同上 | G5 |
 | `todo unblock` | `--plan <key> --task <id>` | 同上 | G5 |

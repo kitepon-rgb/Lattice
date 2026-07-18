@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  mkdtemp, readFile, readdir, rm, writeFile,
+  lstat, mkdtemp, readFile, readdir, rm, writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -60,10 +60,15 @@ function pinnedPlanCommit(root) {
   return commit.stdout.trim();
 }
 
-async function workspace(context) {
+async function bareWorkspace(context) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-todo-migration-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: root }).status, 0);
+  return root;
+}
+
+async function workspace(context) {
+  const root = await bareWorkspace(context);
   await initializeTodoStore({
     repoRoot: root,
     writer: createTodoStoreWriter({ caller: 'g4-migration' }),
@@ -261,7 +266,35 @@ test('todo migrateはstrict/unknown開始時刻を輸入しstatus active_setとg
   ]);
 });
 
-test('todo migrateは検証済みJSONをappendImportedPlanへ一度だけ登録しexact resultを返す', async (context) => {
+test('todo migrateは未初期化repoへ抽出project_idのstoreとimport planを一括登録する', async (context) => {
+  const root = await bareWorkspace(context);
+  const input = bindCommit(await fixture('valid.json'), pinnedPlanCommit(root));
+  const execution = runCli(root, await writeInput(root, 'bootstrap-success', input));
+  assert.equal(execution.status, 0, execution.stderr);
+  assert.equal(execution.stderr, '');
+  const result = JSON.parse(execution.stdout);
+  assert.equal(result.project_id, input.project_id);
+  assert.equal(result.plan_key, input.plan_key);
+  const store = await readTodoStore({ repoRoot: root, now: NOW });
+  assert.equal(store.project_id, input.project_id);
+  assert.deepEqual(store.manifest.repositories, [{ repo_id: 'self', path: '.' }]);
+  assert.deepEqual(store.members.map(({ descriptor }) => descriptor.plan_key), ['archive']);
+  assert.deepEqual((await readdir(root)).filter((name) => name.startsWith('.lattice-todo-bootstrap-')), []);
+});
+
+test('未初期化repoの登録失敗は初期化directoryもbootstrap stagingも残さない', async (context) => {
+  const root = await bareWorkspace(context);
+  const execution = runCli(root, await writeInput(root, 'bootstrap-failure', await fixture('valid.json')));
+  assert.equal(execution.status, 1);
+  assert.equal(execution.stdout, '');
+  const error = JSON.parse(execution.stderr);
+  assert.equal(error.code, 'STORE_INCONSISTENT');
+  assert.equal(error.detail.reason, 'import_source_unverified');
+  await assert.rejects(lstat(path.join(root, '.lattice')), { code: 'ENOENT' });
+  assert.deepEqual((await readdir(root)).filter((name) => name.startsWith('.lattice-todo-bootstrap-')), []);
+});
+
+test('既存store経路のtodo migrateは検証済みJSONを一度だけ追加しexact resultを返す', async (context) => {
   const root = await workspace(context);
   const extracted = await fixture('valid.json');
   for (const task of extracted.tasks) task.narrative_ref = 'plan.md';
