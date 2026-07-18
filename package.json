@@ -9,7 +9,7 @@
     "url": "git+https://github.com/kitepon-rgb/Lattice.git"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.13 <25"
   },
   "bin": {
     "lattice": "bin/lattice.mjs",
