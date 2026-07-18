@@ -3,12 +3,12 @@ const EDGE_LIMIT = 8_000;
 const SWEEP_ROUNDS = 4;
 
 const GEOMETRY = Object.freeze({
-  left: 40,
-  top: 40,
-  wave_gap: 240,
-  row_gap: 64,
-  node_width: 168,
-  node_height: 36,
+  left: 16,
+  top: 16,
+  wave_gap: 208,
+  row_gap: 48,
+  node_width: 160,
+  node_height: 34,
 });
 
 export class TodoGanttLayoutError extends Error {
@@ -53,32 +53,6 @@ function compareRefs(left, right) {
 
 function groupKey(planKey, lane) {
   return JSON.stringify([planKey, lane]);
-}
-
-function normalizeFold(fold) {
-  if (fold === undefined) fold = {};
-  if (!plain(fold)) fail('TODO_LAYOUT_INVALID_FOLD', 'fold must be an object');
-  const allowed = new Set(['expanded_plans', 'expanded_lanes', 'selected_node']);
-  for (const key of Reflect.ownKeys(fold)) {
-    if (typeof key !== 'string' || !allowed.has(key)) {
-      fail('TODO_LAYOUT_INVALID_FOLD', `unknown fold field: ${String(key)}`);
-    }
-  }
-  const expandedPlans = fold.expanded_plans ?? [];
-  const expandedLanes = fold.expanded_lanes ?? [];
-  if (!Array.isArray(expandedPlans) || expandedPlans.some((entry) => typeof entry !== 'string')) {
-    fail('TODO_LAYOUT_INVALID_FOLD', 'expanded_plans must be a string array');
-  }
-  if (!Array.isArray(expandedLanes) || expandedLanes.some((entry) => !plain(entry)
-    || typeof entry.plan_key !== 'string' || typeof entry.lane !== 'string')) {
-    fail('TODO_LAYOUT_INVALID_FOLD', 'expanded_lanes must contain plan_key/lane records');
-  }
-  return {
-    expandedPlans: new Set(expandedPlans),
-    expandedLanes: new Set(expandedLanes.map(({ plan_key: planKey, lane }) => groupKey(planKey, lane))),
-    selectedRef: fold.selected_node === undefined || fold.selected_node === null
-      ? null : refOf(fold.selected_node, 'selected_node'),
-  };
 }
 
 function normalizeInput(readModel, chainProjection) {
@@ -282,8 +256,7 @@ function crossingCount(edges, wave, row) {
   return total;
 }
 
-export function layoutTodoGantt(readModel, chainProjection, fold) {
-  const normalizedFold = normalizeFold(fold);
+export function layoutTodoGantt(readModel, chainProjection) {
   const { nodes, nodesByKey, edges } = normalizeInput(readModel, chainProjection);
   const { incoming, outgoing, wave } = assignWaves(nodes, nodesByKey, edges);
   const layers = orderLayers(nodes, wave, incoming, outgoing);
@@ -305,27 +278,10 @@ export function layoutTodoGantt(readModel, chainProjection, fold) {
     }
     return key;
   }));
-  const selectedKey = normalizedFold.selectedRef === null ? null : refKey(normalizedFold.selectedRef);
-  if (selectedKey !== null && !nodesByKey.has(selectedKey)) {
-    fail('TODO_LAYOUT_INVALID_FOLD', 'selected_node is absent from the read model');
-  }
-
   const readyKeys = new Set(nodes.filter((node) => node.status === 'pending'
     && incoming.get(node.key).every((predecessor) => nodesByKey.get(predecessor).status === 'done'))
     .map(({ key }) => key));
-  const visibleKeys = new Set();
-  for (const node of nodes) {
-    if (longestNodeKeys.has(node.key) || node.status === 'in-progress' || readyKeys.has(node.key)
-      || normalizedFold.expandedPlans.has(node.ref.plan_key)
-      || normalizedFold.expandedLanes.has(groupKey(node.ref.plan_key, node.lane))) {
-      visibleKeys.add(node.key);
-    }
-  }
-  if (selectedKey !== null) {
-    visibleKeys.add(selectedKey);
-    for (const key of incoming.get(selectedKey)) visibleKeys.add(key);
-    for (const key of outgoing.get(selectedKey)) visibleKeys.add(key);
-  }
+  const visibleKeys = new Set(nodes.map(({ key }) => key));
 
   const coordinates = new Map();
   const projectedNodes = nodes.map((node) => {
@@ -343,93 +299,55 @@ export function layoutTodoGantt(readModel, chainProjection, fold) {
       visibility: {
         longest_dependency_chain: longestNodeKeys.has(node.key),
         active: node.status === 'in-progress', next_ready: readyKeys.has(node.key),
-        selected: node.key === selectedKey,
+        selected: false,
       },
       geometry,
     };
   });
 
   const projectedEdges = edges.map((edge, index) => {
-    const selectedIncident = selectedKey !== null && (edge.from === selectedKey || edge.to === selectedKey);
     const onLongestChain = longestEdgeKeys.has(edge.key);
-    const visible = (onLongestChain || selectedIncident)
-      && visibleKeys.has(edge.from) && visibleKeys.has(edge.to);
-    let route = null;
-    if (visible) {
-      const from = coordinates.get(edge.from);
-      const to = coordinates.get(edge.to);
-      const startX = from.x + from.width;
-      const startY = from.y + Math.floor(from.height / 2);
-      const endX = to.x;
-      const endY = to.y + Math.floor(to.height / 2);
-      const channelX = startX + Math.max(16, Math.floor((endX - startX) / 2));
-      route = [[startX, startY], [channelX, startY], [channelX, endY], [endX, endY]];
-    }
+    const from = coordinates.get(edge.from);
+    const to = coordinates.get(edge.to);
+    const startX = from.x + from.width;
+    const startY = from.y + Math.floor(from.height / 2);
+    const endX = to.x;
+    const endY = to.y + Math.floor(to.height / 2);
+    const channelX = startX + Math.max(16, Math.floor((endX - startX) / 2));
+    const route = [[startX, startY], [channelX, startY], [channelX, endY], [endX, endY]];
     return {
       id: `edge-${index}`, from: { ...nodesByKey.get(edge.from).ref }, to: { ...nodesByKey.get(edge.to).ref },
       kinds: [...edge.kinds].sort(compareText), join_ids: [...edge.joinIds].sort(compareText),
-      visible, visibility: { longest_dependency_chain: onLongestChain, selected_incident: selectedIncident }, route,
+      visible: true, visibility: { longest_dependency_chain: onLongestChain, selected_incident: false }, route,
     };
   });
 
   const planMap = new Map();
   const laneMap = new Map();
   for (const node of nodes) {
-    if (!planMap.has(node.ref.plan_key)) planMap.set(node.ref.plan_key, { total: 0, visible: 0 });
-    const plan = planMap.get(node.ref.plan_key); plan.total += 1; if (visibleKeys.has(node.key)) plan.visible += 1;
+    if (!planMap.has(node.ref.plan_key)) planMap.set(node.ref.plan_key, 0);
+    planMap.set(node.ref.plan_key, planMap.get(node.ref.plan_key) + 1);
     const key = groupKey(node.ref.plan_key, node.lane);
-    if (!laneMap.has(key)) laneMap.set(key, { plan_key: node.ref.plan_key, lane: node.lane, total: 0, visible: 0 });
-    const lane = laneMap.get(key); lane.total += 1; if (visibleKeys.has(node.key)) lane.visible += 1;
+    if (!laneMap.has(key)) laneMap.set(key, { plan_key: node.ref.plan_key, lane: node.lane, task_count: 0 });
+    laneMap.get(key).task_count += 1;
   }
-  const hiddenIncident = new Map([...laneMap.keys()].map((key) => [key, 0]));
-  for (let index = 0; index < edges.length; index += 1) if (!projectedEdges[index].visible) {
-    const from = nodesByKey.get(edges[index].from);
-    const to = nodesByKey.get(edges[index].to);
-    hiddenIncident.set(groupKey(from.ref.plan_key, from.lane), hiddenIncident.get(groupKey(from.ref.plan_key, from.lane)) + 1);
-    if (groupKey(from.ref.plan_key, from.lane) !== groupKey(to.ref.plan_key, to.lane)) {
-      hiddenIncident.set(groupKey(to.ref.plan_key, to.lane), hiddenIncident.get(groupKey(to.ref.plan_key, to.lane)) + 1);
-    }
-  }
-
-  const bundleMap = new Map();
-  for (let index = 0; index < edges.length; index += 1) if (!projectedEdges[index].visible) {
-    const edge = edges[index];
-    const from = nodesByKey.get(edge.from);
-    const to = nodesByKey.get(edge.to);
-    const value = {
-      from_wave: wave.get(edge.from), to_wave: wave.get(edge.to),
-      from_group: { plan_key: from.ref.plan_key, lane: from.lane },
-      to_group: { plan_key: to.ref.plan_key, lane: to.lane },
-    };
-    const key = JSON.stringify(value);
-    if (!bundleMap.has(key)) bundleMap.set(key, { ...value, hidden_edge_count: 0 });
-    bundleMap.get(key).hidden_edge_count += 1;
-  }
-
   return {
     schema: 'lattice.todo_gantt_layout.v1',
     assumptions: { logical_time: 'dependency_wave', duration_estimation: false, lane_is_presentation_only: true },
     sweep: { method: 'stable_median', rounds: SWEEP_ROUNDS, tie_break: 'previous_position_then_task_ref' },
     bounds: {
-      width: nodes.length === 0 ? 0 : GEOMETRY.left * 2 + layers.length * GEOMETRY.wave_gap,
-      height: nodes.length === 0 ? 0 : GEOMETRY.top * 2 + Math.max(...layers.map((layer) => layer.length)) * GEOMETRY.row_gap,
+      width: nodes.length === 0 ? 0 : GEOMETRY.left * 2
+        + (layers.length - 1) * GEOMETRY.wave_gap + GEOMETRY.node_width,
+      height: nodes.length === 0 ? 0 : GEOMETRY.top * 2
+        + (Math.max(...layers.map((layer) => layer.length)) - 1) * GEOMETRY.row_gap + GEOMETRY.node_height,
       wave_count: layers.length,
     },
     nodes: projectedNodes,
     edges: projectedEdges,
     groups: {
-      plans: [...planMap.entries()].map(([plan_key, value]) => ({
-        plan_key, expanded: normalizedFold.expandedPlans.has(plan_key),
-        task_count: value.total, visible_task_count: value.visible, hidden_task_count: value.total - value.visible,
-      })),
-      lanes: [...laneMap.entries()].map(([key, value]) => ({
-        plan_key: value.plan_key, lane: value.lane,
-        expanded: normalizedFold.expandedLanes.has(key) || normalizedFold.expandedPlans.has(value.plan_key),
-        task_count: value.total, visible_task_count: value.visible, hidden_task_count: value.total - value.visible,
-        hidden_incident_edge_count: hiddenIncident.get(key),
-      })),
+      plans: [...planMap.entries()].map(([plan_key, task_count]) => ({ plan_key, task_count })),
+      lanes: [...laneMap.values()],
     },
-    bundles: [...bundleMap.values()].sort((left, right) => compareText(JSON.stringify(left), JSON.stringify(right))),
     metrics: {
       crossing_count: crossingCount(edges, wave, row),
       visible_node_count: visibleKeys.size,

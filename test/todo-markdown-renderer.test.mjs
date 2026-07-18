@@ -4,10 +4,18 @@ import test from 'node:test';
 import {
   renderTodoMarkdown,
   renderTodoMarkdownAst,
+  renderTodoMarkdownDocument,
   serializeJsonForScript,
   TODO_MARKDOWN_SECTION_MAX_BYTES,
   TodoMarkdownSectionTooLargeError,
 } from '../src/todo-markdown-renderer.mjs';
+
+test('文書表示はGFM checkbox行を安全な静的markとして維持する', () => {
+  assert.deepEqual(renderTodoMarkdownDocument('- [ ] pending\n- [x] done'), {
+    html: '<ul><li class="markdown-task"><span class="markdown-checkbox" role="img" aria-label="unchecked">☐</span><p>pending</p></li><li class="markdown-task"><span class="markdown-checkbox" role="img" aria-label="checked">☑</span><p>done</p></li></ul>',
+    discarded: [],
+  });
+});
 
 test('正常系snapshot: 見出し・リスト・コード・絶対HTTPリンクを固定出力する', () => {
   const markdown = [

@@ -1,8 +1,17 @@
+import stringWidth from 'fast-string-width';
+
 const STATUS_CLASSES = Object.freeze({
   pending: 'status-pending',
   'in-progress': 'status-in-progress',
   blocked: 'status-blocked',
   done: 'status-done',
+});
+
+const STATUS_PRESENTATION = Object.freeze({
+  pending: Object.freeze({ mark: '☐', label: '未着手' }),
+  'in-progress': Object.freeze({ mark: '▶', label: '作業中' }),
+  blocked: Object.freeze({ mark: '⛔', label: 'ブロック中' }),
+  done: Object.freeze({ mark: '✅', label: '完了' }),
 });
 
 export function escapeSvgText(value) {
@@ -24,7 +33,7 @@ function points(route) {
 
 function arrowHead(route) {
   const [x, y] = route.at(-1);
-  return `<polygon class="edge-arrow" points="${x},${y} ${x - 9},${y - 5} ${x - 9},${y + 5}"></polygon>`;
+  return `<polygon class="edge-arrow" points="${x},${y} ${x - 6},${y - 3} ${x - 6},${y + 3}"></polygon>`;
 }
 
 function renderEdge(edge) {
@@ -34,16 +43,23 @@ function renderEdge(edge) {
   if (edge.visibility.selected_incident) classes.push('selected-incident-edge');
   const join = edge.join_ids.length === 0 ? '' : (() => {
     const [x, y] = edge.route[Math.floor(edge.route.length / 2)];
-    return `<g class="join-marker" aria-label="join ${escapeSvgAttribute(edge.join_ids.join(', '))}"><polygon points="${x},${y - 7} ${x + 7},${y} ${x},${y + 7} ${x - 7},${y}"></polygon><title>${escapeSvgText(edge.join_ids.join(', '))}</title></g>`;
+    return `<g class="join-marker" aria-label="join ${escapeSvgAttribute(edge.join_ids.join(', '))}"><polygon points="${x},${y - 6} ${x + 6},${y} ${x},${y + 6} ${x - 6},${y}"></polygon><title>${escapeSvgText(edge.join_ids.join(', '))}</title></g>`;
   })();
   return `<g class="${classes.join(' ')}" data-edge-id="${escapeSvgAttribute(edge.id)}"><polyline points="${points(edge.route)}"></polyline>${arrowHead(edge.route)}${join}</g>`;
 }
 
-function shortTimestamp(value) {
-  return typeof value === 'string' && value.length >= 16 ? `${value.slice(5, 10)} ${value.slice(11, 16)}Z` : '—';
+function truncateLabel(value, maximum = 17) {
+  const source = String(value);
+  if (stringWidth(source) <= maximum) return source;
+  let result = '';
+  for (const character of source) {
+    if (stringWidth(`${result}${character}…`) > maximum) break;
+    result += character;
+  }
+  return `${result}…`;
 }
 
-function renderNode(node, taskState) {
+function renderNode(node) {
   if (!node.visible || node.geometry === null) return '';
   const { x, y, width, height } = node.geometry;
   const classes = ['todo-node', STATUS_CLASSES[node.status] ?? 'status-unknown'];
@@ -53,27 +69,45 @@ function renderNode(node, taskState) {
   if (node.visibility.selected) classes.push('selected-node');
   const key = nodeKey(node.ref);
   const label = `${node.ref.plan_key}/${node.ref.task_id}: ${node.title}`;
-  const started = shortTimestamp(taskState?.started_at);
-  const done = shortTimestamp(taskState?.done_at);
-  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(`${label}; status ${node.status}; started ${taskState?.started_at ?? 'none'}; done ${taskState?.done_at ?? 'none'}`)}"><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="6"></rect><text x="${x + 8}" y="${y + 14}">${escapeSvgText(node.title)}</text><text class="node-time" x="${x + 8}" y="${y + 29}">${escapeSvgText(`S:${started} D:${done}`)}</text><title>${escapeSvgText(`${label} — ${node.status}; started ${taskState?.started_at ?? '—'}; done ${taskState?.done_at ?? '—'}`)}</title></g>`;
+  const presentation = STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' };
+  const statusBar = node.status === 'in-progress'
+    ? `<line class="status-bar" x1="${x + 5}" y1="${y + 6}" x2="${x + 5}" y2="${y + height - 6}"></line>` : '';
+  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(`${label}; ${presentation.label}`)}"><rect class="node-surface" x="${x}" y="${y}" width="${width}" height="${height}" rx="4"></rect>${statusBar}<text class="status-mark" x="${x + 10}" y="${y + 22}">${escapeSvgText(presentation.mark)}</text><text class="node-title" x="${x + 34}" y="${y + 22}">${escapeSvgText(truncateLabel(node.title, 14))}</text><title>${escapeSvgText(`${label} — ${presentation.label}`)}</title></g>`;
 }
 
-function renderGroupBadges(layout) {
-  const badges = [];
-  let y = 22;
+function summaryLabel(value, maximum = 25) {
+  return truncateLabel(value, maximum);
+}
+
+function summaryChipWidth(label, minimum = 116) {
+  return Math.max(minimum, Math.min(216, 24 + stringWidth(label) * 7));
+}
+
+function renderTodoSummary(layout) {
+  const markup = [];
+  let groupX = 16;
   for (const plan of layout.groups.plans) {
-    badges.push(`<g class="group-badge plan-badge" data-fold-state="${plan.expanded ? 'expanded' : 'folded'}"><rect x="8" y="${y - 14}" width="220" height="20" rx="10"></rect><text x="18" y="${y}">${escapeSvgText(`${plan.plan_key}: ${plan.visible_task_count}/${plan.task_count} tasks${plan.hidden_task_count > 0 ? ` (+${plan.hidden_task_count} folded)` : ''}`)}</text></g>`);
-    y += 24;
+    const lanes = layout.groups.lanes.filter((lane) => lane.plan_key === plan.plan_key);
+    const laneChips = lanes.map((lane) => {
+      const fullLabel = `${lane.lane} ${lane.task_count}`;
+      const label = summaryLabel(fullLabel);
+      return { lane, fullLabel, label, width: summaryChipWidth(label) };
+    });
+    const childrenWidth = laneChips.reduce((total, chip) => total + chip.width, 0)
+      + Math.max(0, laneChips.length - 1) * 8;
+    const planLabel = summaryLabel(`${plan.plan_key} · ${plan.task_count} ToDo`);
+    const contentWidth = Math.max(summaryChipWidth(planLabel, 152), childrenWidth);
+    const groupWidth = contentWidth + 16;
+    markup.push(`<g class="summary-plan-group" aria-label="${escapeSvgAttribute(`${plan.plan_key} — ${plan.task_count} ToDo、${laneChips.length} lanes`)}"><rect class="summary-container" x="${groupX}" y="8" width="${groupWidth}" height="72" rx="8"></rect><g class="summary-plan" aria-label="${escapeSvgAttribute(`${plan.plan_key} — ${plan.task_count} ToDo`)}"><rect class="summary-chip plan-chip" x="${groupX + 8}" y="16" width="${summaryChipWidth(planLabel, 152)}" height="24" rx="9999"></rect><text x="${groupX + 20}" y="33">${escapeSvgText(planLabel)}</text><title>${escapeSvgText(`${plan.plan_key}: ${plan.task_count} ToDo`)}</title></g>`);
+    let laneX = groupX + 8;
+    for (const chip of laneChips) {
+      markup.push(`<g class="summary-lane" aria-label="${escapeSvgAttribute(`${chip.lane.lane} — ${chip.lane.task_count} ToDo`)}"><rect class="summary-chip lane-chip" x="${laneX}" y="48" width="${chip.width}" height="24" rx="9999"></rect><text x="${laneX + 12}" y="65">${escapeSvgText(chip.label)}</text><title>${escapeSvgText(`${chip.fullLabel} ToDo`)}</title></g>`);
+      laneX += chip.width + 8;
+    }
+    markup.push('</g>');
+    groupX += groupWidth + 16;
   }
-  for (const lane of layout.groups.lanes) {
-    badges.push(`<g class="group-badge lane-badge" data-fold-state="${lane.expanded ? 'expanded' : 'folded'}"><rect x="236" y="${y - 14}" width="280" height="20" rx="10"></rect><text x="246" y="${y}">${escapeSvgText(`${lane.plan_key}/${lane.lane}: ${lane.visible_task_count}/${lane.task_count}; ${lane.hidden_incident_edge_count} hidden edges`)}</text></g>`);
-    y += 24;
-  }
-  for (const bundle of layout.bundles) {
-    badges.push(`<text class="bundle-badge" x="524" y="${y}">${escapeSvgText(`${bundle.from_group.plan_key}/${bundle.from_group.lane} → ${bundle.to_group.plan_key}/${bundle.to_group.lane}: ${bundle.hidden_edge_count} folded edges`)}</text>`);
-    y += 20;
-  }
-  return { markup: badges.join(''), height: y + 8 };
+  return { markup: `<g class="todo-summary" aria-label="カテゴリ別ToDo集計表">${markup.join('')}</g>`, height: 96, width: groupX };
 }
 
 export function renderTodoGanttSvg(layout, options = {}) {
@@ -81,21 +115,17 @@ export function renderTodoGanttSvg(layout, options = {}) {
     || !Array.isArray(layout.nodes) || !Array.isArray(layout.edges)) {
     throw new TypeError('layout must be lattice.todo_gantt_layout.v1');
   }
-  const badges = renderGroupBadges(layout);
-  const contentOffset = Math.max(40, badges.height);
-  const width = Math.max(760, layout.bounds.width + 40);
+  const summary = renderTodoSummary(layout);
+  const contentOffset = summary.height;
+  const width = Math.max(760, layout.bounds.width + 40, summary.width + 12);
   const height = Math.max(240, layout.bounds.height + contentOffset + 32);
-  const taskStates = options.taskStates instanceof Map ? options.taskStates : new Map();
   const nodes = layout.nodes.map((node) => {
     if (node.geometry === null) return '';
-    return renderNode(
-      { ...node, geometry: { ...node.geometry, y: node.geometry.y + contentOffset } },
-      taskStates.get(nodeKey(node.ref)),
-    );
+    return renderNode({ ...node, geometry: { ...node.geometry, y: node.geometry.y + contentOffset } });
   }).join('');
   // Edge coordinates need the same vertical offset as nodes.
   const shiftedEdges = layout.edges.map((edge) => renderEdge(edge.route === null ? edge : {
     ...edge, route: edge.route.map(([x, y]) => [x, y + contentOffset]),
   })).join('');
-  return `<svg class="todo-gantt" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="group" aria-label="Todo dependency gantt"><desc>最長依存鎖はunit-weightの構造深さであり実時間・資源律速ではない。</desc>${badges.markup}<g class="edge-layer">${shiftedEdges}</g><g class="node-layer">${nodes}</g></svg>`;
+  return `<svg class="todo-gantt" data-gantt-svg data-svg-width="${width}" data-svg-height="${height}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="group" aria-label="Todo dependency gantt"><desc>最長依存鎖はunit-weightの構造深さであり実時間・資源律速ではない。</desc>${summary.markup}<g class="edge-layer">${shiftedEdges}</g><g class="node-layer">${nodes}</g></svg>`;
 }

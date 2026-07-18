@@ -10,6 +10,7 @@ import { projectTodoChainV1 } from '../src/todo-chain.mjs';
 import { layoutTodoGantt, TodoGanttLayoutError } from '../src/todo-gantt-layout.mjs';
 import {
   renderTodoGanttHtml,
+  TODO_GANTT_HTML_MAX_BYTES,
   TODO_GANTT_PROSE_MAX_BYTES,
   TodoGanttRenderError,
 } from '../src/todo-gantt-html.mjs';
@@ -60,7 +61,7 @@ async function workspace(context, title = 'T1') {
   context.after(() => rm(root, { recursive: true, force: true }));
   assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: root }).status, 0);
   await writeFile(path.join(root, 'narrative.md'), [
-    '# Background', '', title, '', '[unsafe](javascript:alert(1))',
+    '# Background', '', title, '', '- [ ] Follow-up', '', '[unsafe](javascript:alert(1))',
     '<svg onload=alert(2)>', '</script><script>alert(3)</script>',
     '[web](https://example.com/path)',
   ].join('\n'));
@@ -73,6 +74,36 @@ async function workspace(context, title = 'T1') {
         plan_version: 'v1', predecessor_plan_digest: null,
         tasks: [{ task_id: 'T1', title, lane: 'main', narrative_ref: 'narrative.md', compile_binding: null }],
         hard_dependencies: [], joins: [],
+      },
+      genesis: { actor: ACTOR, recorded_at: NOW },
+    }],
+  });
+  return root;
+}
+
+async function graphWorkspace(context) {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-gantt-graph-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: root }).status, 0);
+  const tasks = [
+    { task_id: 'T1', title: 'Recon', lane: 'recon', narrative_ref: null, compile_binding: null },
+    { task_id: 'T2', title: 'Implement', lane: 'impl', narrative_ref: null, compile_binding: null },
+    { task_id: 'T3', title: 'Verify', lane: 'verify', narrative_ref: null, compile_binding: null },
+    { task_id: 'T4', title: 'Alternate', lane: 'impl', narrative_ref: null, compile_binding: null },
+  ];
+  await initializeTodoStore({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }], now: NOW,
+    plans: [{
+      plan: {
+        schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'main',
+        plan_version: 'v1', predecessor_plan_digest: null, tasks,
+        hard_dependencies: [
+          { from: ref('T1'), to: ref('T2') },
+          { from: ref('T1'), to: ref('T4') },
+          { from: ref('T2'), to: ref('T3') },
+        ],
+        joins: [],
       },
       genesis: { actor: ACTOR, recorded_at: NOW },
     }],
@@ -105,6 +136,36 @@ test('small real store E2E generates the default self-contained gantt and exact 
   assert.match(html, /data-node-key=/u);
   assert.match(html, /tabindex="0" role="button" aria-selected="false"/u);
   assert.match(html, /unit-weightの構造深さであり実時間・資源律速ではない/u);
+  assert.match(html, /<h1>Background<\/h1>/u);
+  assert.match(html, /class="markdown-checkbox" role="img" aria-label="unchecked">☐/u);
+  assert.match(html, /class="document-status status-pending" role="img" aria-label="未着手">☐/u);
+});
+
+test('real store smoke draws every edge and emits compact nodes plus concise category totals', async (context) => {
+  const root = await graphWorkspace(context);
+  const execution = run(root, ['todo', 'gantt']);
+  assert.equal(execution.status, 0, execution.stderr);
+  const result = JSON.parse(execution.stdout);
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v2');
+  const html = await readFile(path.join(root, result.output_ref), 'utf8');
+  assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
+  assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
+  assert.match(html, /class="summary-plan"[^>]*aria-label="main — 4 ToDo"/u);
+  assert.match(html, /class="summary-lane"[^>]*aria-label="impl — 2 ToDo"/u);
+  assert.ok(html.indexOf('class="summary-plan"') < html.indexOf('class="summary-lane"'));
+  assert.doesNotMatch(html, /main\/(?:recon|impl|verify)/u);
+  assert.doesNotMatch(html, /hidden edges|folded edges|data-fold-state|bundle-badge/u);
+  assert.doesNotMatch(html, /class="node-time"|S:|D:|Started at|Done at/u);
+  assert.doesNotMatch(html, /class="task-facts"|class="evidence"|<dl|<dt>/u);
+  assert.match(html, /class="document-status status-pending"[^>]*>☐<\/span>/u);
+  assert.match(html, /\.narrative-body\{[^}]*max-width:72ch[^}]*font-size:13\.5px[^}]*font-weight:400[^}]*line-height:1\.6/u);
+  assert.match(html, /\.task-line h2\{[^}]*font-size:16px[^}]*font-weight:600/u);
+  assert.match(html, /\.plan-title\{[^}]*font-size:19px[^}]*font-weight:650/u);
+  const palette = [...new Set(html.match(/#[0-9a-f]{6}/gu) ?? [])].sort();
+  assert.deepEqual(palette, [
+    '#0b0b0b', '#0ca30c', '#2a78d6', '#52514e', '#d03b3b', '#d9d8d4', '#f4f4f2', '#fcfcfb',
+  ]);
+  assert.doesNotMatch(html, /#7c3aed|drop-shadow|font-size:30px/u);
 });
 
 test('custom output remains repo-relative and traversal/absolute refs are usage failures', async (context) => {
@@ -119,35 +180,64 @@ test('custom output remains repo-relative and traversal/absolute refs are usage 
   }
 });
 
-test('right pane has all/selected/reset states with one delegated keyboard/click controller', () => {
-  const output = renderFixture(readFixture(2));
+test('right pane reads as a Markdown document while retaining all/selected/reset states', () => {
+  const read = readFixture(2);
+  for (const task of read.members[0].plan.tasks) task.narrative_ref = 'plan.md';
+  const markdown = '# Intent\n\n- [ ] Keep the document flow\n\n## Acceptance\n\nOrdinary prose.';
+  const output = renderFixture(read, read.members[0].plan.tasks.map(({ task_id }) => ({
+    ref: ref(task_id), narrative_ref: 'plan.md', markdown,
+  })));
   assert.equal((output.html.match(/data-narrative-key=/gu) ?? []).length, 2);
+  assert.equal((output.html.match(/<h1>Intent<\/h1>/gu) ?? []).length, 1);
   assert.match(output.html, /data-view-state="all"/u);
   assert.match(output.html, /<button type="button" data-show-all>全文表示へ戻る<\/button>/u);
-  assert.match(output.html, /section\.hidden=section\.dataset\.narrativeKey!==key/u);
+  assert.match(output.html, /line\.hidden=line\.dataset\.narrativeKey!==key/u);
+  assert.match(output.html, /item\.section\.hidden=!item\.lines\.some/u);
   assert.match(output.html, /event\.key==='Enter'\|\|event\.key===' '/u);
   assert.match(output.html, /event\.key==='Escape'/u);
   assert.equal((output.html.match(/root\.addEventListener\('click'/gu) ?? []).length, 1);
   assert.equal((output.html.match(/root\.addEventListener\('keydown'/gu) ?? []).length, 1);
+  assert.match(output.html, /class="diagram-scroll" data-diagram-scroll tabindex="0"/u);
+  assert.match(output.html, /data-zoom-action="fit">全体表示/u);
+  assert.match(output.html, /\.diagram-scroll\{[^}]*max-width:100%;overflow:auto/u);
+  assert.match(output.html, /grid-template-columns:minmax\(0,58%\)/u);
+  assert.match(output.html, /<div class="narrative-document"><section class="plan-document"><h1 class="plan-title"><code>main<\/code><\/h1>/u);
+  assert.match(output.html, /<h2>Acceptance<\/h2>/u);
+  assert.match(output.html, /class="markdown-checkbox" role="img" aria-label="unchecked">☐/u);
+  assert.doesNotMatch(output.html, /class="task-facts"|class="evidence"|<dl|<dt>/u);
   assert.equal(output.html.includes('innerHTML'), false);
   assert.doesNotMatch(output.html, /\son[a-z]+\s*=/iu);
 });
 
-test('SVG renders status bars, longest-chain edges, join marker, folding badges, and both timestamps', () => {
+test('SVG renders compact status nodes, every edge, join marker, and hierarchical summary without timestamps', () => {
   const T0 = ref('T0000'); const T1 = ref('T0001'); const T2 = ref('T0002');
-  const read = readFixture(3, [{ from: T0, to: T1 }]);
+  const read = readFixture(4, [{ from: T0, to: T1 }]);
   read.members[0].plan.joins = [{ id: 'join-all', after: [T0, T1], before: T2 }];
   Object.assign(read.members[0].tasks[0], { status: 'done', started_at: NOW, done_at: NOW });
   Object.assign(read.members[0].tasks[1], { status: 'in-progress', started_at: NOW });
-  read.members[0].tasks[2].status = 'blocked';
+  Object.assign(read.members[0].tasks[2], { status: 'blocked', blocked_reason: 'Waiting for owner' });
   const html = renderFixture(read).html;
   assert.match(html, /class="todo-node status-done longest-chain-node/u);
   assert.match(html, /class="todo-node status-in-progress longest-chain-node active-node/u);
   assert.match(html, /class="todo-node status-blocked longest-chain-node/u);
+  assert.match(html, /class="status-mark"[^>]*>☐<\/text>/u);
+  assert.match(html, /class="status-mark"[^>]*>▶<\/text>/u);
+  assert.match(html, /class="status-mark"[^>]*>✅<\/text>/u);
+  assert.match(html, /class="status-mark"[^>]*>⛔<\/text>/u);
   assert.match(html, /class="dependency-edge longest-chain-edge/u);
+  assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.match(html, /class="join-marker" aria-label="join join-all"/u);
-  assert.match(html, /class="group-badge plan-badge" data-fold-state="folded"/u);
-  assert.match(html, /S:07-18 00:00Z D:07-18 00:00Z/u);
+  assert.match(html, /class="todo-summary" aria-label="カテゴリ別ToDo集計表"/u);
+  assert.match(html, /class="summary-plan"[^>]*><rect[^>]*class="summary-chip plan-chip"/u);
+  assert.match(html, /class="summary-lane"/u);
+  assert.match(html, /class="summary-plan-group"[^>]*><rect class="summary-container"/u);
+  assert.doesNotMatch(html, /class="summary-connector"/u);
+  assert.match(html, /class="status-bar"/u);
+  assert.match(html, /class="blocked-reason">— Waiting for owner<\/span>/u);
+  assert.doesNotMatch(html, /main\/lane-/u);
+  assert.doesNotMatch(html, /hidden edges|folded edges|data-fold-state|bundle-badge/u);
+  assert.doesNotMatch(html, /class="node-time"|S:07-18|D:07-18|Started at|Done at/u);
+  assert.doesNotMatch(html, /class="task-facts"|class="evidence"|<dl|<dt>/u);
 });
 
 test('XSS through narrative and task title is inert in the final document', async (context) => {
@@ -173,7 +263,8 @@ test('task/edge scale limit accepts 2,000/8,000 and rejects N+1', { timeout: 15_
   }
   const atLimit = readFixture(2_000, edges.slice(0, 8_000));
   const rendered = renderFixture(atLimit);
-  assert.ok(rendered.html_bytes > 0);
+  assert.equal((rendered.html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 8_000);
+  assert.ok(rendered.html_bytes > 0 && rendered.html_bytes <= TODO_GANTT_HTML_MAX_BYTES);
   assert.throws(() => layoutTodoGantt(readFixture(2_001), projectTodoChainV1(topology(readFixture(2_001)))),
     (error) => error instanceof TodoGanttLayoutError && error.code === 'TODO_SCALE_EXCEEDED');
   const overEdges = readFixture(2_000, edges);

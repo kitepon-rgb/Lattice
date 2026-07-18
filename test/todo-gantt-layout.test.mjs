@@ -25,8 +25,8 @@ function fixture(plans, hardEdges = [], joins = []) {
   };
 }
 
-function layoutOf(input, fold) {
-  return layoutTodoGantt(input.read, projectTodoChainV1(input.topology), fold);
+function layoutOf(input) {
+  return layoutTodoGantt(input.read, projectTodoChainV1(input.topology));
 }
 
 test('small branch/join/multi-lane DAG has a deterministic coordinate snapshot', () => {
@@ -43,16 +43,16 @@ test('small branch/join/multi-lane DAG has a deterministic coordinate snapshot',
   assert.deepEqual(result.nodes.map(({ ref: nodeRef, wave, row, visible, geometry }) => ({
     id: `${nodeRef.plan_key}/${nodeRef.task_id}`, wave, row, visible, geometry,
   })), [
-    { id: 'alpha/A', wave: 0, row: 0, visible: true, geometry: { x: 40, y: 40, width: 168, height: 36 } },
-    { id: 'alpha/B', wave: 1, row: 1, visible: true, geometry: { x: 280, y: 104, width: 168, height: 36 } },
-    { id: 'alpha/C', wave: 1, row: 0, visible: true, geometry: { x: 280, y: 40, width: 168, height: 36 } },
-    { id: 'beta/D', wave: 2, row: 0, visible: true, geometry: { x: 520, y: 40, width: 168, height: 36 } },
+    { id: 'alpha/A', wave: 0, row: 0, visible: true, geometry: { x: 16, y: 16, width: 160, height: 34 } },
+    { id: 'alpha/B', wave: 1, row: 1, visible: true, geometry: { x: 224, y: 64, width: 160, height: 34 } },
+    { id: 'alpha/C', wave: 1, row: 0, visible: true, geometry: { x: 224, y: 16, width: 160, height: 34 } },
+    { id: 'beta/D', wave: 2, row: 0, visible: true, geometry: { x: 432, y: 16, width: 160, height: 34 } },
   ]);
   assert.deepEqual(result.edges.map(({ kinds, join_ids, visible, route }) => ({ kinds, join_ids, visible, route })), [
-    { kinds: ['hard'], join_ids: [], visible: true, route: [[208, 58], [244, 58], [244, 122], [280, 122]] },
-    { kinds: ['hard'], join_ids: [], visible: true, route: [[208, 58], [244, 58], [244, 58], [280, 58]] },
-    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[448, 122], [484, 122], [484, 58], [520, 58]] },
-    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[448, 58], [484, 58], [484, 58], [520, 58]] },
+    { kinds: ['hard'], join_ids: [], visible: true, route: [[176, 33], [200, 33], [200, 81], [224, 81]] },
+    { kinds: ['hard'], join_ids: [], visible: true, route: [[176, 33], [200, 33], [200, 33], [224, 33]] },
+    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[384, 81], [408, 81], [408, 33], [432, 33]] },
+    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[384, 33], [408, 33], [408, 33], [432, 33]] },
   ]);
   assert.deepEqual(result.sweep, { method: 'stable_median', rounds: 4, tie_break: 'previous_position_then_task_ref' });
   assert.equal(JSON.stringify(result).includes('critical'), false);
@@ -67,14 +67,14 @@ test('stable median sweep reduces crossings versus task-ref naive order', () => 
     dependency(ref('C'), ref('X')),
   ];
   const input = fixture([{ plan_key: 'plan', tasks: [...sourceIds, ...targetIds].map((id) => ({ id, lane: 'same' })) }], edges);
-  const result = layoutOf(input, { expanded_plans: ['plan'] });
+  const result = layoutOf(input);
   const naiveCrossings = 3;
   assert.equal(result.metrics.crossing_count, 0);
   assert.ok(result.metrics.crossing_count < naiveCrossings);
   assert.deepEqual(result.nodes.filter(({ wave }) => wave === 1).sort((a, b) => a.row - b.row).map(({ ref: nodeRef }) => nodeRef.task_id), ['Z', 'Y', 'X']);
 });
 
-test('fold projection always expands longest chain, active, next-ready and selected incident edges', () => {
+test('layout has no folding projection and always exposes every task and dependency', () => {
   const A = ref('A');
   const B = ref('B');
   const C = ref('C');
@@ -91,22 +91,20 @@ test('fold projection always expands longest chain, active, next-ready and selec
   const folded = layoutOf(input);
   const visibility = Object.fromEntries(folded.nodes.map((node) => [node.ref.task_id, node.visible]));
   assert.deepEqual(visibility, { A: true, B: true, C: true, D: true, E: true });
-  // E is on a longest dependency chain in this graph; add an isolated folded node to prove hiding.
+  // An isolated task is still drawn: the generated surface has no folded task/edge projection.
   input.read.members[0].plan.tasks.push({ task_id: 'F', lane: 'two', title: 'F' });
   input.read.members[0].tasks.push({ task_id: 'F', status: 'blocked' });
   input.topology.nodes.push(ref('F'));
   const withHidden = layoutOf(input);
-  assert.equal(withHidden.nodes.find((node) => node.ref.task_id === 'F').visible, false);
-  assert.equal(withHidden.groups.lanes.find(({ lane }) => lane === 'two').hidden_task_count, 1);
-
-  const laneExpanded = layoutOf(input, { expanded_lanes: [{ plan_key: 'plan', lane: 'two' }] });
-  assert.equal(laneExpanded.nodes.find((node) => node.ref.task_id === 'F').visible, true);
-
-  const selected = layoutOf(input, { selected_node: E });
-  const selectedEdges = selected.edges.filter(({ visible }) => visible);
-  assert.ok(selectedEdges.some((edge) => edge.from.task_id === 'D' && edge.to.task_id === 'E'));
-  assert.equal(selected.nodes.find((node) => node.ref.task_id === 'E').visibility.selected, true);
-  assert.ok(selected.bundles.every(({ hidden_edge_count }) => hidden_edge_count > 0));
+  assert.equal(withHidden.nodes.find((node) => node.ref.task_id === 'F').visible, true);
+  assert.equal(withHidden.metrics.visible_node_count, withHidden.metrics.task_count);
+  assert.equal(withHidden.metrics.visible_edge_count, withHidden.metrics.edge_count);
+  assert.deepEqual(withHidden.groups.plans, [{ plan_key: 'plan', task_count: 6 }]);
+  assert.deepEqual(withHidden.groups.lanes, [
+    { plan_key: 'plan', lane: 'one', task_count: 2 },
+    { plan_key: 'plan', lane: 'two', task_count: 4 },
+  ]);
+  assert.doesNotMatch(JSON.stringify(withHidden), /fold|hidden|bundle/u);
 });
 
 test('input member/task/edge/join permutations produce byte-identical output', () => {

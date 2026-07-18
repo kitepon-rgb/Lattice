@@ -86,7 +86,7 @@ function renderNode(node, path, state, context = {}) {
 
   switch (node.type) {
     case 'root':
-      return renderChildren(node, path, state);
+      return renderChildren(node, path, state, context);
     case 'text':
       return renderText(node, path, state);
     case 'heading': {
@@ -106,10 +106,14 @@ function renderNode(node, path, state, context = {}) {
       if (tag === 'ol' && Number.isSafeInteger(node.start) && node.start > 1) {
         start = ` start="${node.start}"`;
       }
-      return `<${tag}${start}>${renderChildren(node, path, state)}</${tag}>`;
+      return `<${tag}${start}>${renderChildren(node, path, state, context)}</${tag}>`;
     }
-    case 'listItem':
-      return `<li>${renderChildren(node, path, state)}</li>`;
+    case 'listItem': {
+      const checkbox = context.taskCheckboxes === true && typeof node.checked === 'boolean'
+        ? `<span class="markdown-checkbox" role="img" aria-label="${node.checked ? 'checked' : 'unchecked'}">${node.checked ? '☑' : '☐'}</span>` : '';
+      const taskClass = checkbox === '' ? '' : ' class="markdown-task"';
+      return `<li${taskClass}>${checkbox}${renderChildren(node, path, state, context)}</li>`;
+    }
     case 'strong':
       return `<strong>${renderChildren(node, path, state)}</strong>`;
     case 'emphasis':
@@ -119,7 +123,7 @@ function renderNode(node, path, state, context = {}) {
     case 'code':
       return `<pre><code>${renderText(node, path, state)}</code></pre>`;
     case 'blockquote':
-      return `<blockquote>${renderChildren(node, path, state)}</blockquote>`;
+      return `<blockquote>${renderChildren(node, path, state, context)}</blockquote>`;
     case 'link': {
       const href = safeHttpUrl(node.url);
       const label = renderChildren(node, path, state);
@@ -198,6 +202,31 @@ export function renderTodoMarkdown(markdown) {
     throw new TodoMarkdownSectionTooLargeError(actualBytes);
   }
   return renderTodoMarkdownAst(markdownParser.parse(markdown));
+}
+
+export function renderTodoMarkdownDocument(markdown) {
+  if (typeof markdown !== 'string') {
+    throw new TodoMarkdownRenderError(
+      'TODO_MARKDOWN_INVALID_INPUT',
+      'todo Markdown section must be a string',
+    );
+  }
+  const actualBytes = Buffer.byteLength(markdown, 'utf8');
+  if (actualBytes > TODO_MARKDOWN_SECTION_MAX_BYTES) {
+    throw new TodoMarkdownSectionTooLargeError(actualBytes);
+  }
+  const tree = markdownParser.parse(markdown);
+  if (!isNode(tree) || tree.type !== 'root') {
+    throw new TodoMarkdownRenderError(
+      'TODO_MARKDOWN_INVALID_AST',
+      'todo Markdown AST must be an mdast root node',
+    );
+  }
+  const state = { discarded: [] };
+  return {
+    html: renderNode(tree, 'root', state, { taskCheckboxes: true }),
+    discarded: state.discarded,
+  };
 }
 
 export function serializeJsonForScript(value) {
