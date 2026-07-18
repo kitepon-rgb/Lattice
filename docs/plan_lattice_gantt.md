@@ -266,6 +266,9 @@ rollback: G4開始前に両repoのHEAD・対象path・digestを記録し、受�
       next-ready）がブラウザで一目で判ること（オーナー目視）**。受入証跡とreject/retry記録を
       evidenceへ残す
 
+UI磨き込みbacklogは[ui-review-backlog.md](ui-review-backlog.md)が正。
+消化はLattice単独セッションで行い、契約（stdout schema・store wire）へ触れる場合だけdotagents側と調整する。
+
 ### G5 — authoring CLI＋enforcement＋定着（A→dotagents側規範化）
 - [ ] **authoring CLI実装**（ADR 0053契約表）: 遷移verb（start/done/block/unblock/reopen）＋
       topology変更の唯一入口`todo revise`（successor version発行）＋`todo reconcile`。順序違反
