@@ -21,6 +21,11 @@ import {
   validateTodoSnapshot,
 } from './todo-contracts.mjs';
 import { sha256Bytes, verifyLinearHashChain } from './hash-chain.mjs';
+import {
+  parseTodoSourceRef,
+  todoLegacyReconciliationDigest,
+  validateTodoRevision,
+} from './todo-revision.mjs';
 
 const STORE_ROOT_REF = '.lattice/todo';
 const MANIFEST_REF = `${STORE_ROOT_REF}/manifest.json`;
@@ -176,6 +181,11 @@ async function readJournal(repoRoot, journalRef) {
   if (events[0]?.kind !== 'plan_genesis' || events.slice(1).some(({ kind }) => kind === 'plan_genesis')) {
     fail('STORE_CORRUPT', 'genesis_missing_or_repeated');
   }
+  const successorSchema = events[0].schema === 'lattice.todo_event.v2';
+  if (events.slice(1).some(({ schema }) => schema !== 'lattice.todo_event.v1')
+    || (!successorSchema && events.some(({ schema }) => schema !== 'lattice.todo_event.v1'))) {
+    fail('STORE_CORRUPT', 'journal_schema_sequence_invalid');
+  }
   return { segments, events, activeBytes };
 }
 
@@ -221,6 +231,36 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
       if (event.payload.plan_digest !== plan.plan_digest || event.payload.topology_digest !== plan.topology_digest
         || event.payload.predecessor_plan_digest !== plan.predecessor_plan_digest) {
         fail('STORE_INCONSISTENT', 'genesis_plan_binding_mismatch');
+      }
+      if (event.schema === 'lattice.todo_event.v2') {
+        const projected = event.state_migration.map(({ from_task_id, to_task_id }) => ({
+          from_task_id, to_task_id,
+        }));
+        if (canonicalizeTodoArtifact(projected) !== canonicalizeTodoArtifact(event.payload.task_migration)) {
+          fail('STORE_INCONSISTENT', 'genesis_migration_projection_mismatch');
+        }
+        const activeTargets = event.state_migration
+          .filter(({ to_task_id }) => to_task_id !== 'removed').map(({ to_task_id }) => to_task_id);
+        if (new Set(activeTargets).size !== activeTargets.length
+          || activeTargets.some((taskId) => !states.has(taskId))) {
+          fail('STORE_INCONSISTENT', 'genesis_migration_target_invalid');
+        }
+        for (const migration of event.state_migration) {
+          if (migration.state_policy !== 'carry') continue;
+          const state = states.get(migration.to_task_id);
+          Object.assign(state, structuredClone(migration.state), { evidence_unverified: false });
+          if (state.evidence !== null) {
+            if (state.imported) {
+              if (verifyImportSource) verifyImportSource(state.evidence);
+            } else if (verifyEvidence) verifyEvidence(state.evidence);
+          }
+          if (state.status === 'done') {
+            doneDigest.set(migration.to_task_id, event.event_digest);
+            completion.set(migration.to_task_id, state.imported
+              ? { mode: 'historical_import', completed_at: state.done_at ?? 'unknown_requires_evidence' }
+              : { mode: 'authored', completed_at: state.done_at });
+          }
+        }
       }
       continue;
     }
@@ -499,6 +539,27 @@ export async function readTodoStore(options = {}) {
     if (journal.events.at(-1).event_digest !== descriptor.journal_head_digest) {
       fail('STORE_INCONSISTENT', 'manifest_journal_head_mismatch');
     }
+    let revision = null;
+    const genesis = journal.events[0];
+    if (genesis.schema === 'lattice.todo_event.v2') {
+      const revisionRef = path.posix.join(path.posix.dirname(descriptor.plan_ref), 'revision.json');
+      revision = await readArtifact(repoRoot, revisionRef, {
+        code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoRevision,
+      });
+      const migrationProjection = genesis.state_migration.map((entry) => ({
+        from_task_id: entry.from_task_id, to_task_id: entry.to_task_id,
+        state_policy: entry.state_policy,
+      }));
+      if (canonicalizeTodoArtifact(revision.desired_plan) !== canonicalizeTodoArtifact(plan)
+        || revision.revision_digest !== genesis.revision_digest
+        || revision.reconciliation.reconciliation_digest !== genesis.reconciliation_digest
+        || revision.predecessor.plan_digest !== genesis.payload.predecessor_plan_digest
+        || revision.predecessor.journal_head_digest !== genesis.previous_digest
+        || canonicalizeTodoArtifact(revision.task_migration)
+          !== canonicalizeTodoArtifact(migrationProjection)) {
+        fail('STORE_INCONSISTENT', 'revision_genesis_binding_mismatch');
+      }
+    }
     const verifyEvidence = evidenceVerifier(manifest, repoRoot, options.forWrite === true);
     const verifyImportSource = importSourceVerifier(repoRoot, options.forWrite === true);
     const tasks = replay(plan, journal.events, {
@@ -524,7 +585,7 @@ export async function readTodoStore(options = {}) {
       else throw error;
     }
     if (options.forWrite === true && snapshotStale) fail('STORE_WRITE_REFUSED', 'snapshot_stale');
-    loaded.push({ descriptor, plan, journal, snapshot: snapshotStale ? expectedSnapshot : snapshot,
+    loaded.push({ descriptor, plan, revision, journal, snapshot: snapshotStale ? expectedSnapshot : snapshot,
       tasks, snapshot_stale: snapshotStale });
   }
   validateMergedGraph(loaded);
@@ -696,6 +757,26 @@ export function buildPlanGenesis(plan, input) {
   };
   event.event_digest = todoSelfDigest(event, 'event_digest');
   if (!validateTodoEvent(event)) throw new TypeError('genesis input violates lattice.todo_event.v1');
+  return event;
+}
+
+export function buildRevisionGenesis(plan, input) {
+  const event = {
+    schema: 'lattice.todo_event.v2', project_id: plan.project_id, plan_key: plan.plan_key,
+    plan_version: plan.plan_version, sequence: 0, previous_digest: input.previous_digest,
+    kind: 'plan_genesis', task_id: null, actor: input.actor, recorded_at: input.recorded_at,
+    provenance: input.provenance ?? null,
+    payload: { plan_digest: plan.plan_digest, topology_digest: plan.topology_digest,
+      predecessor_plan_digest: plan.predecessor_plan_digest,
+      task_migration: input.state_migration.map(({ from_task_id, to_task_id }) => ({
+        from_task_id, to_task_id,
+      })) },
+    reconciliation_state: 'reconciled', revision_digest: input.revision_digest,
+    reconciliation_digest: input.reconciliation_digest,
+    state_migration: input.state_migration, event_digest: '',
+  };
+  event.event_digest = todoSelfDigest(event, 'event_digest');
+  if (!validateTodoEvent(event)) throw new TypeError('revision genesis violates lattice.todo_event.v2');
   return event;
 }
 
@@ -952,6 +1033,346 @@ export async function initializeTodoStore(options = {}) {
     // Activation is last: a crash before this point leaves the new store/version unpublished.
     await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(manifest));
     return readTodoStore({ repoRoot, now: options.now });
+  });
+}
+
+async function sourceItemBytes(repoRoot, sourceRef) {
+  const parsed = parseTodoSourceRef(sourceRef);
+  if (parsed === null) fail('RECONCILIATION_INCOMPLETE', 'source_ref_invalid', { source_ref: sourceRef });
+  const canonicalRoot = await realpath(repoRoot);
+  const absolute = path.resolve(canonicalRoot, parsed.path);
+  if (!absolute.startsWith(`${canonicalRoot}${path.sep}`)) {
+    fail('RECONCILIATION_INCOMPLETE', 'source_path_outside_repo', { source_ref: sourceRef });
+  }
+  let current = canonicalRoot;
+  for (const part of path.relative(canonicalRoot, absolute).split(path.sep)) {
+    current = path.join(current, part);
+    let state;
+    try { state = await lstat(current); }
+    catch { fail('RECONCILIATION_INCOMPLETE', 'source_path_missing', { source_ref: sourceRef }); }
+    if (state.isSymbolicLink()) {
+      fail('RECONCILIATION_INCOMPLETE', 'source_path_symlink', { source_ref: sourceRef });
+    }
+  }
+  const state = await lstat(absolute);
+  if (!state.isFile() || await realpath(absolute) !== absolute) {
+    fail('RECONCILIATION_INCOMPLETE', 'source_path_not_regular', { source_ref: sourceRef });
+  }
+  const bytes = await readFile(absolute);
+  decodeUtf8(bytes, 'RECONCILIATION_INCOMPLETE', 'source_invalid_utf8');
+  const lines = [];
+  let start = 0;
+  for (let index = 0; index <= bytes.length; index += 1) {
+    if (index === bytes.length || bytes[index] === 0x0a) {
+      lines.push(bytes.subarray(start, index));
+      start = index + 1;
+    }
+  }
+  const line = lines[parsed.line - 1];
+  if (line === undefined) fail('RECONCILIATION_INCOMPLETE', 'source_line_missing', { source_ref: sourceRef });
+  return line;
+}
+
+async function verifyRevisionSources(repoRoot, inventory) {
+  for (const entry of [...inventory.active, ...inventory.excluded_tombstones]) {
+    const line = await sourceItemBytes(repoRoot, entry.source_ref);
+    if (sha256Bytes(line) !== entry.source_digest) {
+      fail('RECONCILIATION_INCOMPLETE', 'source_digest_mismatch', { source_ref: entry.source_ref });
+    }
+    if (markdownCheckboxState(line) === null) {
+      fail('RECONCILIATION_INCOMPLETE', 'source_item_not_todo', { source_ref: entry.source_ref });
+    }
+  }
+}
+
+function mappedNodeRef(ref, plan, idMap) {
+  if (ref.project_id !== plan.project_id || ref.plan_key !== plan.plan_key) return ref;
+  return { ...ref, task_id: idMap.get(ref.task_id) ?? ref.task_id };
+}
+
+function localTaskRef(ref, plan, taskId) {
+  return ref.project_id === plan.project_id && ref.plan_key === plan.plan_key
+    && ref.task_id === taskId;
+}
+
+function taskSemantics(plan, taskId, idMap) {
+  const task = plan.tasks.find(({ task_id }) => task_id === taskId);
+  if (!task) return null;
+  const mapId = (id) => id === null ? null : idMap.get(id) ?? id;
+  const normalizedTask = {
+    task_id: mapId(task.task_id), title: task.title, lane: task.lane,
+    narrative_ref: task.narrative_ref, narrative_anchor: task.narrative_anchor ?? null,
+    compile_binding: task.compile_binding, parent_task_id: mapId(task.parent_task_id ?? null),
+  };
+  const edges = plan.hard_dependencies
+    .filter(({ from, to }) => localTaskRef(from, plan, taskId) || localTaskRef(to, plan, taskId))
+    .map(({ from, to }) => ({ from: mappedNodeRef(from, plan, idMap), to: mappedNodeRef(to, plan, idMap) }))
+    .sort((left, right) => canonicalizeTodoArtifact(left) < canonicalizeTodoArtifact(right) ? -1 : 1);
+  const joins = plan.joins
+    .filter(({ after, before }) => localTaskRef(before, plan, taskId)
+      || after.some((ref) => localTaskRef(ref, plan, taskId)))
+    .map((join) => ({ ...join,
+      after: join.after.map((ref) => mappedNodeRef(ref, plan, idMap))
+        .sort((left, right) => canonicalizeTodoArtifact(left) < canonicalizeTodoArtifact(right) ? -1 : 1),
+      before: mappedNodeRef(join.before, plan, idMap),
+    })).sort((left, right) => left.id < right.id ? -1 : 1);
+  return { task: normalizedTask, hard_dependencies: edges, joins };
+}
+
+function stateMigrationFor(previous, revision) {
+  const oldIds = previous.plan.tasks.map(({ task_id }) => task_id);
+  const migrationIds = revision.task_migration.map(({ from_task_id }) => from_task_id);
+  if (canonicalizeTodoArtifact([...oldIds].sort()) !== canonicalizeTodoArtifact([...migrationIds].sort())) {
+    fail('REVISION_INVALID', 'predecessor_task_migration_incomplete');
+  }
+  const idMap = new Map(revision.task_migration
+    .filter(({ to_task_id }) => to_task_id !== 'removed')
+    .map(({ from_task_id, to_task_id }) => [from_task_id, to_task_id]));
+  const states = new Map(previous.tasks.map((state) => [state.task_id, state]));
+  return revision.task_migration.map((migration) => {
+    if (migration.state_policy !== 'carry') return { ...migration, state: null };
+    const before = taskSemantics(previous.plan, migration.from_task_id, idMap);
+    const after = taskSemantics(revision.desired_plan, migration.to_task_id, new Map());
+    if (canonicalizeTodoArtifact(before) !== canonicalizeTodoArtifact(after)) {
+      fail('REVISION_INVALID', 'carry_semantics_changed', { from_task_id: migration.from_task_id });
+    }
+    const state = states.get(migration.from_task_id);
+    if (!state) fail('STORE_INCONSISTENT', 'predecessor_task_state_missing');
+    return { ...migration, state: {
+      status: state.status, started_at: state.started_at, done_at: state.done_at,
+      blocked_reason: state.blocked_reason, evidence: state.evidence, imported: state.imported,
+    } };
+  });
+}
+
+function revisionResult(revision, genesis) {
+  const result = {
+    schema: 'lattice.todo_revise_result.v1', project_id: revision.project_id,
+    plan_key: revision.plan_key, predecessor_plan_digest: revision.predecessor.plan_digest,
+    predecessor_journal_head_digest: revision.predecessor.journal_head_digest,
+    plan_version: revision.desired_plan.plan_version, plan_digest: revision.desired_plan.plan_digest,
+    topology_digest: revision.desired_plan.topology_digest, journal_head_digest: genesis.event_digest,
+    revision_digest: revision.revision_digest,
+    reconciliation_digest: revision.reconciliation.reconciliation_digest, result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
+async function exactFileOrNull(absolute) {
+  try {
+    const state = await lstat(absolute);
+    if (state.isSymbolicLink() || !state.isFile()) fail('REVISION_CONFLICT', 'revision_artifact_unsafe');
+    return readFile(absolute);
+  } catch (error) {
+    if (error instanceof TodoStoreError) throw error;
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function ensureSafeStoreDirectory(repoRoot, target) {
+  const requestedStoreRoot = path.resolve(repoRoot, STORE_ROOT_REF);
+  const requested = path.resolve(target);
+  if (requested !== requestedStoreRoot && !requested.startsWith(`${requestedStoreRoot}${path.sep}`)) {
+    fail('REVISION_CONFLICT', 'revision_directory_outside_store');
+  }
+  const canonicalRepoRoot = await realpath(repoRoot);
+  const storeRoot = path.resolve(canonicalRepoRoot, STORE_ROOT_REF);
+  const absolute = path.resolve(storeRoot, path.relative(requestedStoreRoot, requested));
+  let current = storeRoot;
+  const parts = path.relative(storeRoot, absolute).split(path.sep).filter(Boolean);
+  for (const part of ['', ...parts]) {
+    if (part !== '') current = path.join(current, part);
+    let state;
+    try { state = await lstat(current); }
+    catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      await mkdir(current, { mode: 0o700 });
+      await fsyncDirectory(path.dirname(current));
+      state = await lstat(current);
+    }
+    if (state.isSymbolicLink() || !state.isDirectory() || await realpath(current) !== current) {
+      fail('REVISION_CONFLICT', 'revision_directory_unsafe');
+    }
+  }
+}
+
+function parseRevisionMarker(bytes) {
+  return parseCanonicalJsonLine(bytes, {
+    code: 'REVISION_CONFLICT', reason: 'revision_marker_invalid',
+    maxBytes: TODO_LIMITS.snapshotBytes,
+    validate: (value) => exactRecord(value, ['schema', 'revision', 'genesis'])
+      && value.schema === 'lattice.todo_revision_transaction.v1'
+      && validateTodoRevision(value.revision) && validateTodoEvent(value.genesis),
+  });
+}
+
+async function rejectCompetingRevisionTransaction(repoRoot, revision) {
+  const root = path.join(repoRoot, STORE_ROOT_REF, 'transactions', 'revisions', revision.plan_key);
+  let names;
+  try {
+    const state = await lstat(root);
+    if (state.isSymbolicLink() || !state.isDirectory()) {
+      fail('REVISION_CONFLICT', 'revision_transaction_root_unsafe');
+    }
+    names = await readdir(root);
+  } catch (error) {
+    if (error instanceof TodoStoreError) throw error;
+    if (error?.code === 'ENOENT') return;
+    throw error;
+  }
+  for (const name of names) {
+    if (!isTodoIdentifier(name)) fail('REVISION_CONFLICT', 'revision_transaction_entry_invalid');
+    const markerBytes = await exactFileOrNull(path.join(root, name, 'marker.json'));
+    if (markerBytes === null) fail('REVISION_CONFLICT', 'revision_marker_missing');
+    const marker = parseRevisionMarker(markerBytes);
+    if (canonicalizeTodoArtifact(marker.revision.predecessor)
+        === canonicalizeTodoArtifact(revision.predecessor)
+      && marker.revision.revision_digest !== revision.revision_digest) {
+      fail('REVISION_CONFLICT', 'revision_bytes_conflict');
+    }
+  }
+}
+
+async function publishRevisionArtifact(staged, finalAbsolute, expected) {
+  const finalBytes = await exactFileOrNull(finalAbsolute);
+  if (finalBytes !== null) {
+    if (!finalBytes.equals(expected)) fail('REVISION_CONFLICT', 'revision_bytes_conflict');
+    return;
+  }
+  let stagedBytes = await exactFileOrNull(staged);
+  if (stagedBytes === null) {
+    await atomicWrite(staged, expected);
+    stagedBytes = expected;
+  }
+  if (!stagedBytes.equals(expected)) fail('REVISION_CONFLICT', 'revision_bytes_conflict');
+  await mkdir(path.dirname(finalAbsolute), { recursive: true });
+  await rename(staged, finalAbsolute);
+  await fsyncDirectory(path.dirname(finalAbsolute));
+}
+
+/** G5 revision transaction: exact successor, state migration, and manifest-CAS activation. */
+export async function applyTodoRevision(options = {}) {
+  requireWriter(options.writer, 'g5-authoring');
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const revision = options.revision;
+  if (!validateTodoRevision(revision)) fail('REVISION_INVALID', 'revision_schema_or_digest_invalid');
+  return withLock(repoRoot, async () => {
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
+    const previous = store.members.find(({ descriptor }) => descriptor.plan_key === revision.plan_key);
+    if (!previous || revision.project_id !== store.project_id) fail('STORE_INCONSISTENT', 'plan_not_active');
+    const activeGenesis = previous.journal.events[0];
+    if (previous.plan.plan_digest === revision.desired_plan.plan_digest
+      && activeGenesis.schema === 'lattice.todo_event.v2'
+      && activeGenesis.revision_digest === revision.revision_digest) {
+      const transaction = path.join(repoRoot, STORE_ROOT_REF, 'transactions', 'revisions',
+        revision.plan_key, revision.desired_plan.plan_version);
+      await rm(transaction, { recursive: true, force: true });
+      return revisionResult(revision, activeGenesis);
+    }
+    if (activeGenesis.schema === 'lattice.todo_event.v2'
+      && activeGenesis.payload.predecessor_plan_digest === revision.predecessor.plan_digest
+      && activeGenesis.previous_digest === revision.predecessor.journal_head_digest) {
+      fail('REVISION_CONFLICT', 'revision_bytes_conflict');
+    }
+    if (previous.plan.plan_digest !== revision.predecessor.plan_digest
+      || previous.plan.plan_version !== revision.predecessor.plan_version
+      || previous.journal.events.at(-1).event_digest !== revision.predecessor.journal_head_digest) {
+      fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
+    }
+    const predecessorReconciliationDigest = activeGenesis.schema === 'lattice.todo_event.v2'
+      ? activeGenesis.reconciliation_digest
+      : todoLegacyReconciliationDigest({
+        planDigest: previous.plan.plan_digest,
+        journalHeadDigest: previous.journal.events.at(-1).event_digest,
+      });
+    if (revision.reconciliation.predecessor_reconciliation_digest
+      !== predecessorReconciliationDigest) fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
+
+    await rejectCompetingRevisionTransaction(repoRoot, revision);
+    await verifyRevisionSources(repoRoot, revision.source_inventory);
+    verifyPlanNarrativeAnchors(repoRoot, revision.desired_plan, previous.plan);
+    const stateMigration = stateMigrationFor(previous, revision);
+    const prospective = store.members.map((member) => member === previous
+      ? { ...member, plan: revision.desired_plan } : member);
+    validateMergedGraph(prospective);
+
+    const candidateGenesis = buildRevisionGenesis(revision.desired_plan, {
+      previous_digest: revision.predecessor.journal_head_digest,
+      actor: options.actor, recorded_at: options.recordedAt,
+      provenance: options.provenance ?? null, state_migration: stateMigration,
+      revision_digest: revision.revision_digest,
+      reconciliation_digest: revision.reconciliation.reconciliation_digest,
+    });
+    const base = `${STORE_ROOT_REF}/plans/${revision.plan_key}/${revision.desired_plan.plan_version}`;
+    const revisionRef = `${base}/revision.json`;
+    const planRef = `${base}/plan.json`;
+    const journalRef = `${base}/journal/active.jsonl`;
+    const snapshotRef = `${base}/snapshot.json`;
+    const transactionRef = `${STORE_ROOT_REF}/transactions/revisions/${revision.plan_key}/${revision.desired_plan.plan_version}`;
+    const transaction = path.resolve(repoRoot, transactionRef);
+    const markerAbsolute = path.join(transaction, 'marker.json');
+    await ensureSafeStoreDirectory(repoRoot, transaction);
+    await ensureSafeStoreDirectory(repoRoot, path.dirname(path.resolve(repoRoot, planRef)));
+    const markerBytes = await exactFileOrNull(markerAbsolute);
+    let genesis = candidateGenesis;
+    if (markerBytes !== null) {
+      const marker = parseRevisionMarker(markerBytes);
+      if (canonicalizeTodoArtifact(marker.revision) !== canonicalizeTodoArtifact(revision)
+        || canonicalizeTodoArtifact(marker.genesis.state_migration)
+          !== canonicalizeTodoArtifact(stateMigration)) {
+        fail('REVISION_CONFLICT', 'revision_bytes_conflict');
+      }
+      genesis = marker.genesis;
+    } else {
+      await atomicWrite(markerAbsolute, canonicalLine({
+        schema: 'lattice.todo_revision_transaction.v1', revision, genesis,
+      }));
+    }
+    await protocolStage(options, 'revision_marker_durable');
+
+    const verifyEvidence = evidenceVerifier(store.manifest, repoRoot, true);
+    const verifyImportSource = importSourceVerifier(repoRoot, true);
+    const tasks = replay(revision.desired_plan, [genesis], {
+      now: options.now ? new Date(options.now) : new Date(), verifyEvidence, verifyImportSource,
+    });
+    const snapshot = snapshotFor(revision.desired_plan, [genesis], tasks);
+    const planBytes = canonicalLine(revision.desired_plan);
+    const journalBytes = canonicalLine(genesis);
+    const snapshotBytes = canonicalLine(snapshot);
+    await publishRevisionArtifact(path.join(transaction, 'revision.json'),
+      path.resolve(repoRoot, revisionRef), canonicalLine(revision));
+    await protocolStage(options, 'revision_input_durable');
+    await publishRevisionArtifact(path.join(transaction, 'plan.json'), path.resolve(repoRoot, planRef), planBytes);
+    await protocolStage(options, 'revision_plan_durable');
+    await publishRevisionArtifact(path.join(transaction, 'active.jsonl'), path.resolve(repoRoot, journalRef), journalBytes);
+    await protocolStage(options, 'revision_genesis_durable');
+    await publishRevisionArtifact(path.join(transaction, 'snapshot.json'), path.resolve(repoRoot, snapshotRef), snapshotBytes);
+    await protocolStage(options, 'revision_snapshot_durable');
+
+    const currentManifest = await readArtifact(repoRoot, MANIFEST_REF, {
+      code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
+    });
+    if (currentManifest.manifest_digest !== store.manifest.manifest_digest) {
+      fail('STORE_WRITE_CONFLICT', 'manifest_digest_changed');
+    }
+    const descriptor = currentManifest.members.find(({ plan_key }) => plan_key === revision.plan_key);
+    if (!descriptor || descriptor.active_plan_version !== revision.predecessor.plan_version
+      || descriptor.journal_head_digest !== revision.predecessor.journal_head_digest) {
+      fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
+    }
+    Object.assign(descriptor, {
+      active_plan_version: revision.desired_plan.plan_version, plan_ref: planRef,
+      journal_ref: journalRef, snapshot_ref: snapshotRef,
+      topology_digest: revision.desired_plan.topology_digest,
+      journal_head_digest: genesis.event_digest,
+    });
+    currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');
+    await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(currentManifest));
+    await protocolStage(options, 'revision_manifest_activated');
+    await rm(transaction, { recursive: true, force: true });
+    return revisionResult(revision, genesis);
   });
 }
 

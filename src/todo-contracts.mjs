@@ -263,10 +263,13 @@ function validCarriedState(value) {
     || typeof value.imported !== 'boolean') return false;
   if (value.status === 'pending') return value.started_at === null && value.done_at === null
     && value.blocked_reason === null && value.evidence === null && value.imported === false;
+  const activeEvidenceValid = value.imported
+    ? value.evidence === null || validateTodoImportSource(value.evidence)
+    : value.evidence === null;
   if (value.status === 'in-progress') return value.done_at === null && value.blocked_reason === null
-    && value.evidence === null;
+    && activeEvidenceValid;
   if (value.status === 'blocked') return value.done_at === null && value.blocked_reason !== null
-    && value.evidence === null;
+    && activeEvidenceValid;
   return value.blocked_reason === null && value.evidence !== null
     && (value.imported ? validateTodoImportSource(value.evidence) : evidence(value.evidence));
 }

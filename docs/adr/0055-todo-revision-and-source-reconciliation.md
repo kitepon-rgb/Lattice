@@ -127,8 +127,10 @@ reconciliation, revision_digest`
 
 - revision successor の journal genesis とその migration payload は `lattice.todo_event.v2` とする。
   v2 は v1 envelope を in-place 拡張しない別 schema であり、`reconciliation_state`, `revision_digest`,
-  `reconciliation_digest`, `state_migration` を versioned exact fields として追加する。v2 の reader は
-  v1/v2 を schema dispatch し、event chain 内で schema version 混在を許さない。
+  `reconciliation_digest`, `state_migration` を versioned exact fields として追加する。readerはv1/v2を
+  schema dispatchし、revision successorでは先頭のv2 genesis 1件と、それに続く既存v1 transitionだけを
+  許す。v2 transition、v1 genesisとの混在、2件目のgenesis、又はv2以外から始まるrevision successorを
+  拒否する。
 - `lattice.todo_event.v1` は legacy reader の受理集合と bytes を不変に保つ。v1 event の digest を v2
   preimage で再計算する、v1 genesis を補正する、snapshot から v1 event を復元する、又は既存 journal
   segment を rewrite することを禁止する。
@@ -156,7 +158,8 @@ reconciliation, revision_digest`
   `reset_pending`と`removed`は`state: null`、`carry`だけが次のexact stateを持つ。
 - carry stateのexact keysは`status, started_at, done_at, blocked_reason, evidence, imported`。
   statusは`pending | in-progress | blocked | done`。pendingは他5値がnull/null/null/null/false、
-  in-progressはdone/reason/evidenceがnull、blockedはnon-null reasonかつdone/evidenceがnull、doneは
+  in-progressはdone/reasonがnull、blockedはnon-null reasonかつdoneがnullとする。両者のevidenceは
+  authoredならnull、historical importなら元のimport source又はreopen後のnullを許す。doneは
   reason nullかつevidence non-nullとする。`started_at`/`done_at`はstrict timestamp又はnullで、
   historical unknownだけがnullを持てる。evidenceはauthored descriptor又はhistorical import source、
   `imported`はその種別と一致する。read-time注釈`evidence_unverified`はjournalへ保存せず再検証で導出する。
@@ -178,7 +181,8 @@ reconciliation, revision_digest`
 - lock 内で active manifest/plan/journal を canonical bytes から再読し、`predecessor` の plan digest/head と
   reconciliation anchor を CAS 検査する。stale predecessor は `STORE_WRITE_CONFLICT` の
   `detail.reason: stale_predecessor` とし、store bytes を変えない。
-- durability 順序は、非member staging に v3 plan、v2 genesis journal、snapshot を fsync して置き、全 read
+- durability 順序は、非member staging にcanonical revision input、v3 plan、v2 genesis journal、snapshot を
+  fsyncして置き、全 read
   back/verify を通した後、**manifest CAS rename を最終 commit point** とする。manifest 前の artifact は
   reader に見えず、crash recovery は ownership marker と revision digest を確認して安全に resume 又は
   garbage として隔離する。manifest 後は active member が plan/genesis/snapshot/reconciliation digest の
@@ -207,7 +211,9 @@ reconciliation, revision_digest`
   （inventory 又は source 解決不能）、`REVISION_CONFLICT`（同一 logical revision の異 bytes）を加える。
   CLI は ADR 0053 の exit wire に従い、failure では stdout 空、stderr の `lattice.cli_error.v2` 1 行、
   store bytes 不変とする。rollback は manifest commit 前なら非member staging の再実行可能な隔離、commit
-  後なら新たな successor revision のみで行い、active/legacy journal の巻戻しはしない。
+  後なら新たな successor revision のみで行い、active/legacy journal の巻戻しはしない。activation後も
+  successor version直下のimmutable `revision.json`を保持し、reader/verifyはplan、genesis、migration、
+  reconciliationとのexact bindingを再検証する。transaction markerだけを履歴正本にしてはならない。
 - `todo verify --plan` は v1/v2 plan/event を legacy schema として byte/digest exact に検証し、v3/v2
   successor では revision digest、deterministic plan version、migration 1回性、carry/reset/source-seeded
   projection、reconciliation state、source inventory count を追加検証する。`todo status` と `todo verify` は
