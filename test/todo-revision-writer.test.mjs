@@ -56,7 +56,9 @@ async function fixture(context) {
   return root;
 }
 
-async function revisionFor(root, { title = 'T1', migrationPolicy = 'carry' } = {}) {
+async function revisionFor(root, {
+  title = 'T1', migrationPolicy = 'carry', removeT5 = false,
+} = {}) {
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const previous = store.members[0];
   const predecessor = {
@@ -69,7 +71,9 @@ async function revisionFor(root, { title = 'T1', migrationPolicy = 'carry' } = {
     { from_task_id: 'T2', to_task_id: 'T2', state_policy: 'carry' },
     { from_task_id: 'T3', to_task_id: 'T3', state_policy: 'carry' },
     { from_task_id: 'T4', to_task_id: 'T4', state_policy: 'carry' },
-    { from_task_id: 'T5', to_task_id: 'T5', state_policy: 'reset_pending' },
+    removeT5
+      ? { from_task_id: 'T5', to_task_id: 'removed', state_policy: 'removed' }
+      : { from_task_id: 'T5', to_task_id: 'T5', state_policy: 'reset_pending' },
   ];
   const sourceInventory = {
     active: [
@@ -77,15 +81,21 @@ async function revisionFor(root, { title = 'T1', migrationPolicy = 'carry' } = {
       { task_id: 'T2', source_ref: 'plan.md#L2', source_digest: digest('- [ ] T2') },
       { task_id: 'T3', source_ref: 'plan.md#L3', source_digest: digest('- [ ] T3') },
       { task_id: 'T4', source_ref: 'plan.md#L4', source_digest: digest('- [ ] T4') },
-      { task_id: 'T5', source_ref: 'plan.md#L5', source_digest: digest('- [ ] T5') },
+      ...(removeT5 ? [] : [
+        { task_id: 'T5', source_ref: 'plan.md#L5', source_digest: digest('- [ ] T5') },
+      ]),
       { task_id: 'T6', source_ref: 'plan.md#L6', source_digest: digest('- [ ] T6') },
     ],
-    excluded_tombstones: [],
+    excluded_tombstones: removeT5 ? [{
+      source_ref: 'plan.md#L5', source_digest: digest('- [ ] T5'),
+      exclusion_reason: 'task removed by successor revision',
+    }] : [],
   };
   const desiredInput = {
     schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'main',
     plan_version: 'pending', predecessor_plan_digest: predecessor.plan_digest,
-    tasks: [task('T1', title), task('T2'), task('T3'), task('T4'), task('T5'), task('T6')],
+    tasks: [task('T1', title), task('T2'), task('T3'), task('T4'),
+      ...(removeT5 ? [] : [task('T5')]), task('T6')],
     hard_dependencies: [], joins: [],
   };
   desiredInput.plan_version = todoRevisionPlanVersion({
@@ -253,6 +263,41 @@ test('carryはpending・in-progress・blocked・doneを保ちresetとsource-seed
   assert.equal(states.get('T6').status, 'pending');
   assert.equal(member.journal.events[0].state_migration
     .find(({ from_task_id }) => from_task_id === 'T5').state, null);
+});
+
+test('removed taskはsuccessorから除外しpredecessor v1履歴とevidenceを不変保存する', async (context) => {
+  const root = await fixture(context);
+  const proof = Buffer.from('removed task proof\n');
+  const oid = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+    cwd: root, input: proof, encoding: 'utf8',
+  }).trim();
+  const evidence = {
+    evidence_id: 'ev-removed', repo_id: 'self', path: 'removed-proof.txt', git_blob_oid: oid,
+    content_digest: digest(proof), media_type: 'text/plain', anchor_digest: null,
+  };
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T5', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'done', task_id: 'T5', actor: ACTOR, recorded_at: NOW,
+      payload: { evidence } } });
+  const oldJournalRef = path.join(root, '.lattice/todo/plans/main/v1/journal/active.jsonl');
+  const oldJournal = await readFile(oldJournalRef);
+
+  const revision = await revisionFor(root, { removeT5: true });
+  await apply(root, revision);
+
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  assert.deepEqual(member.plan.tasks.map(({ task_id }) => task_id), ['T1', 'T2', 'T3', 'T4', 'T6']);
+  assert.equal(member.tasks.some(({ task_id }) => task_id === 'T5'), false);
+  assert.deepEqual(member.journal.events[0].state_migration
+    .find(({ from_task_id }) => from_task_id === 'T5'), {
+    from_task_id: 'T5', to_task_id: 'removed', state_policy: 'removed', state: null,
+  });
+  assert.deepEqual(await readFile(oldJournalRef), oldJournal);
+  const predecessorEvents = oldJournal.toString('utf8').trimEnd().split('\n').map(JSON.parse);
+  assert.deepEqual(predecessorEvents.slice(-2).map(({ kind }) => kind), ['start', 'done']);
+  assert.deepEqual(predecessorEvents.at(-1).payload.evidence, evidence);
 });
 
 test('historical importのdone・in-progress stateとsource evidenceもv2 genesisへcarryする', async (context) => {
