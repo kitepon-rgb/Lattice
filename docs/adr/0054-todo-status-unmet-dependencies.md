@@ -33,3 +33,12 @@ active を着手可能と誤読できる。
   依存未達として明示できる。
 - dotagents は自身の編入工程で v2 exact-key parser と表示を更新してから Lattice の pin を上げる。
   Lattice は dotagents の hook を同一 commit では変更しない。
+
+## 2026-07-19 revision successor追補
+
+ADR 0055のreconciliation公開に伴い、v1/v2を不変の履歴wireとして残したままCLI成功resultを
+`lattice.todo_status_result.v3`へ上げる。top-levelはv2と同じ、`member_heads[]`だけをexact keys
+`plan_key, plan_version, through_sequence, journal_head_digest, reconciliation_state, revision_digest,
+reconciliation_digest`へ拡張する。legacy v1 genesisは`registered_unreconciled`・revision null・導出anchor、
+revision v2 genesisは`reconciled`・保存revision/reconciliation digestを返す。active/next-ready/blockedと
+capture上限の意味論はv2から変えない。

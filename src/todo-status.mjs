@@ -5,8 +5,9 @@ import {
   isTodoIdentifier,
   todoSelfDigest,
 } from './todo-contracts.mjs';
+import { todoLegacyReconciliationDigest } from './todo-revision.mjs';
 
-export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v2';
+export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v3';
 export const TODO_STATUS_LIST_LIMIT = 2_000;
 export const TODO_STATUS_LABEL_LIMIT = 160;
 export const TODO_STATUS_REASON_LIMIT = 512;
@@ -96,16 +97,23 @@ function blockedEntry(value) {
 }
 
 function memberHead(value) {
-  return exactRecord(value, ['plan_key', 'through_sequence', 'journal_head_digest'])
-    && isTodoIdentifier(value.plan_key) && isNonNegativeSafeInteger(value.through_sequence)
-    && isTodoDigest(value.journal_head_digest);
+  return exactRecord(value, [
+    'plan_key', 'plan_version', 'through_sequence', 'journal_head_digest',
+    'reconciliation_state', 'revision_digest', 'reconciliation_digest',
+  ]) && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.plan_version)
+    && isNonNegativeSafeInteger(value.through_sequence) && isTodoDigest(value.journal_head_digest)
+    && ['registered_unreconciled', 'reconciled'].includes(value.reconciliation_state)
+    && (value.revision_digest === null || isTodoDigest(value.revision_digest))
+    && isTodoDigest(value.reconciliation_digest)
+    && ((value.reconciliation_state === 'registered_unreconciled' && value.revision_digest === null)
+      || (value.reconciliation_state === 'reconciled' && isTodoDigest(value.revision_digest)));
 }
 
 function boundedList(value, validator) {
   return Array.isArray(value) && value.length <= TODO_STATUS_LIST_LIMIT && value.every(validator);
 }
 
-/** todo status v2 wire shapeを検証し、digestも再計算する。 */
+/** todo status v3 wire shapeを検証し、digestも再計算する。 */
 export function validateTodoStatusResult(value) {
   try {
     return exactRecord(value, [
@@ -144,13 +152,23 @@ export function projectTodoStatus(readModel) {
       fail('TODO_STATUS_INVALID_INPUT', 'todo_status_member_invalid');
     }
     const head = member.journal.events.at(-1);
+    const genesis = member.journal.events[0];
     if (!plain(head) || !isNonNegativeSafeInteger(head.sequence) || !isTodoDigest(head.event_digest)) {
       fail('TODO_STATUS_INVALID_INPUT', 'todo_status_member_head_invalid');
     }
     memberHeads.push({
       plan_key: member.plan.plan_key,
+      plan_version: member.plan.plan_version,
       through_sequence: head.sequence,
       journal_head_digest: head.event_digest,
+      reconciliation_state: genesis.schema === 'lattice.todo_event.v2'
+        ? 'reconciled' : 'registered_unreconciled',
+      revision_digest: genesis.schema === 'lattice.todo_event.v2' ? genesis.revision_digest : null,
+      reconciliation_digest: genesis.schema === 'lattice.todo_event.v2'
+        ? genesis.reconciliation_digest
+        : todoLegacyReconciliationDigest({
+          planDigest: member.plan.plan_digest, journalHeadDigest: head.event_digest,
+        }),
     });
     const states = new Map(member.tasks.map((state) => [state.task_id, state]));
     for (const task of member.plan.tasks) {

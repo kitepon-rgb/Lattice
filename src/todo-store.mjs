@@ -1085,6 +1085,13 @@ async function verifyRevisionSources(repoRoot, inventory) {
   }
 }
 
+export async function verifyTodoRevisionSources(options = {}) {
+  const revision = options.revision;
+  if (!validateTodoRevision(revision)) fail('REVISION_INVALID', 'revision_schema_or_digest_invalid');
+  await verifyRevisionSources(path.resolve(options.repoRoot ?? process.cwd()), revision.source_inventory);
+  return true;
+}
+
 function mappedNodeRef(ref, plan, idMap) {
   if (ref.project_id !== plan.project_id || ref.plan_key !== plan.plan_key) return ref;
   return { ...ref, task_id: idMap.get(ref.task_id) ?? ref.task_id };

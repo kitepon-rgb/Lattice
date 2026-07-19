@@ -20,7 +20,9 @@ codex-sidecar diagnostics --project . --preset auditor --json
 Node.js 22.13以上を使用します。CodegraphとSpotterはproject単位で初期化し、生成stateの所有境界を守ります。
 
 TODO工程storeの読取は`lattice todo status`、検証は`lattice todo verify`、表示生成は
-`lattice todo gantt`を使います。状態を書き込む`start / block / unblock / done / evidence promote / reopen`
+`lattice todo gantt`を使います。topology/source reconciliationは
+`lattice todo revise --plan <key> --input <canonical-revision.json>`だけでsuccessor発行します。
+状態を書き込む`start / block / unblock / done / evidence promote / reopen / revise`
 では、監査actorとして次の3環境変数をすべて設定してください。
 
 ```bash

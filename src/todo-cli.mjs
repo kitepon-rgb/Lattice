@@ -7,6 +7,7 @@ import path from 'node:path';
 import { parseTree } from 'jsonc-parser';
 
 import {
+  canonicalizeTodoArtifact,
   digestTodoArtifact,
   isTodoIdentifier,
   isTodoRef,
@@ -23,16 +24,19 @@ import {
 import { verifyNarrativeAnchors } from './todo-narrative-anchor.mjs';
 import {
   appendTodoEvent,
+  applyTodoRevision,
   createTodoStoreWriter,
   TodoStoreError,
   readTodoStore,
   rebuildTodoSnapshot,
+  verifyTodoRevisionSources,
 } from './todo-store.mjs';
 import {
   appendTodoExtraction,
   validateTodoExtraction,
 } from './todo-migration.mjs';
 import { projectTodoStatus } from './todo-status.mjs';
+import { todoLegacyReconciliationDigest, validateTodoRevision } from './todo-revision.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_REF = '.lattice/generated/gantt.html';
@@ -158,6 +162,49 @@ async function readMigrationInput(repoRoot, inputRef) {
   return extraction;
 }
 
+async function readRevisionInput(repoRoot, inputRef) {
+  const canonicalRoot = await realpath(repoRoot);
+  const absolute = path.resolve(canonicalRoot, inputRef);
+  if (!within(canonicalRoot, absolute) || absolute === canonicalRoot) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo', undefined, { input_ref: inputRef });
+  }
+  let stats;
+  try { stats = await lstat(absolute); } catch {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_missing', undefined, { input_ref: inputRef });
+  }
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'unsafe_input_path', undefined, { input_ref: inputRef });
+  }
+  const resolved = await realpath(absolute);
+  if (resolved !== absolute || !within(canonicalRoot, resolved)) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_alias_or_escape', undefined, { input_ref: inputRef });
+  }
+  if (stats.size > MAX_MIGRATION_INPUT_BYTES) throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
+  const bytes = await readFile(resolved);
+  if (bytes.length > MAX_MIGRATION_INPUT_BYTES) throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch {
+    throw new TodoStoreError('INVALID_JSON', 'invalid_utf8');
+  }
+  if (!text.endsWith('\n') || text.startsWith('\uFEFF') || text.includes('\r')
+    || text.slice(0, -1).includes('\n')) {
+    throw new TodoStoreError('REVISION_INVALID', 'non_canonical_revision_bytes');
+  }
+  const parseErrors = [];
+  const tree = parseTree(text.slice(0, -1), parseErrors, { allowTrailingComma: false, disallowComments: true });
+  if (parseErrors.length > 0 || tree === undefined) throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
+  if (hasDuplicateJsonKey(tree)) throw new TodoStoreError('INVALID_JSON', 'duplicate_key');
+  let revision;
+  try { revision = JSON.parse(text.slice(0, -1)); } catch {
+    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
+  }
+  if (!validateTodoRevision(revision)) throw new TodoStoreError('REVISION_INVALID', 'revision_schema_or_digest_invalid');
+  if (text !== `${canonicalizeTodoArtifact(revision)}\n`) {
+    throw new TodoStoreError('REVISION_INVALID', 'non_canonical_revision_bytes');
+  }
+  return revision;
+}
+
 async function readEvidenceInput(repoRoot, inputRef) {
   if (!isTodoRef(inputRef)) {
     throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo', undefined, { input_ref: inputRef });
@@ -270,6 +317,17 @@ async function migrate({ repoRoot, inputRef }) {
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
+}
+
+async function revise({ repoRoot, env, planKey, inputRef }) {
+  const revision = await readRevisionInput(repoRoot, inputRef);
+  if (revision.plan_key !== planKey) {
+    throw new TodoStoreError('REVISION_INVALID', 'requested_plan_mismatch');
+  }
+  return applyTodoRevision({
+    repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), revision,
+    actor: mutationActor(env), recordedAt: new Date().toISOString(),
+  });
 }
 
 async function status({ repoRoot }) {
@@ -449,16 +507,32 @@ async function verify({ repoRoot, requestedPlanKey }) {
         task_id: unverified.task_id,
       });
     }
+    if (member.revision !== null) await verifyTodoRevisionSources({ repoRoot, revision: member.revision });
   }
-  const verifiedMembers = members.map((member) => ({
-    plan_key: member.descriptor.plan_key,
-    topology_digest: member.plan.topology_digest,
-    journal_head_digest: member.journal.events.at(-1).event_digest,
-    through_sequence: member.journal.events.at(-1).sequence,
-    snapshot_stale: member.snapshot_stale,
-  }));
+  const verifiedMembers = members.map((member) => {
+    const reconciled = member.revision !== null;
+    return {
+      plan_key: member.descriptor.plan_key,
+      plan_version: member.plan.plan_version,
+      topology_digest: member.plan.topology_digest,
+      journal_head_digest: member.journal.events.at(-1).event_digest,
+      through_sequence: member.journal.events.at(-1).sequence,
+      snapshot_stale: member.snapshot_stale,
+      reconciliation_state: reconciled ? 'reconciled' : 'registered_unreconciled',
+      revision_digest: reconciled ? member.revision.revision_digest : null,
+      reconciliation_digest: reconciled ? member.revision.reconciliation.reconciliation_digest
+        : todoLegacyReconciliationDigest({ planDigest: member.plan.plan_digest,
+          journalHeadDigest: member.journal.events.at(-1).event_digest }),
+      source_inventory_count: reconciled
+        ? member.revision.source_inventory.active.length
+          + member.revision.source_inventory.excluded_tombstones.length : null,
+      active_task_count: reconciled ? member.revision.source_inventory.active.length : null,
+      excluded_tombstone_count: reconciled
+        ? member.revision.source_inventory.excluded_tombstones.length : null,
+    };
+  });
   const result = {
-    schema: 'lattice.todo_verify_result.v1',
+    schema: 'lattice.todo_verify_result.v2',
     project_id: store.project_id,
     requested_plan_key: requestedPlanKey,
     verified_members: verifiedMembers,
@@ -518,6 +592,10 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   } else if (argv.length === 3 && argv[0] === 'migrate' && argv[1] === '--input'
     && isTodoRef(argv[2])) {
     action = (repoRoot) => migrate({ repoRoot, inputRef: argv[2] });
+  } else if (argv.length === 5 && argv[0] === 'revise'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--input' && isTodoRef(argv[4])) {
+    action = (repoRoot) => revise({ repoRoot, env, planKey: argv[2], inputRef: argv[4] });
   } else if ((argv.length === 5 || argv.length === 7) && argv[0] === 'start'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--task' && isTodoIdentifier(argv[4])

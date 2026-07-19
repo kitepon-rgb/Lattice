@@ -16,9 +16,17 @@ import {
 import {
   appendImportedPlan,
   appendTodoEvent,
+  buildTodoPlan,
   createTodoStoreWriter,
   initializeTodoStore,
+  readTodoStore,
 } from '../src/todo-store.mjs';
+import {
+  todoLegacyReconciliationDigest,
+  todoReconciliationDigest,
+  todoRevisionPlanVersion,
+  todoSourceInventoryDigest,
+} from '../src/todo-revision.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
@@ -181,6 +189,47 @@ async function writeCanonical(root, ref, value) {
   await writeFile(path.join(root, ref), `${canonicalizeTodoArtifact(value)}\n`);
 }
 
+async function revisionInput(root) {
+  await writeFile(path.join(root, 'plan.md'), '- [ ] T1\n- [ ] T2\n');
+  const previous = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  const predecessor = { plan_digest: previous.plan.plan_digest,
+    journal_head_digest: previous.journal.events.at(-1).event_digest,
+    plan_version: previous.plan.plan_version };
+  const taskMigration = [
+    { from_task_id: 'T1', to_task_id: 'T1', state_policy: 'carry' },
+    { from_task_id: 'T2', to_task_id: 'T2', state_policy: 'carry' },
+  ];
+  const sourceInventory = { active: [
+    { task_id: 'T1', source_ref: 'plan.md#L1',
+      source_digest: createHash('sha256').update('- [ ] T1').digest('hex') },
+    { task_id: 'T2', source_ref: 'plan.md#L2',
+      source_digest: createHash('sha256').update('- [ ] T2').digest('hex') },
+  ], excluded_tombstones: [] };
+  const v3task = (taskId) => ({ ...task(taskId), narrative_anchor: null, parent_task_id: null });
+  const desiredInput = { schema: 'lattice.todo_plan.v3', project_id: 'project-1',
+    plan_key: 'main', plan_version: 'pending', predecessor_plan_digest: predecessor.plan_digest,
+    tasks: [v3task('T1'), v3task('T2')], hard_dependencies: [{
+      from: { project_id: 'project-1', plan_key: 'main', task_id: 'T1' },
+      to: { project_id: 'project-1', plan_key: 'main', task_id: 'T2' },
+    }], joins: [] };
+  desiredInput.plan_version = todoRevisionPlanVersion({ projectId: 'project-1', planKey: 'main',
+    predecessor, desiredPlan: desiredInput, taskMigration, sourceInventory });
+  const desiredPlan = buildTodoPlan(desiredInput);
+  const predecessorReconciliationDigest = todoLegacyReconciliationDigest({
+    planDigest: predecessor.plan_digest, journalHeadDigest: predecessor.journal_head_digest,
+  });
+  const sourceInventoryDigest = todoSourceInventoryDigest(sourceInventory);
+  const reconciliation = { predecessor_reconciliation_digest: predecessorReconciliationDigest,
+    source_inventory_digest: sourceInventoryDigest,
+    reconciliation_digest: todoReconciliationDigest({ predecessorReconciliationDigest,
+      sourceInventoryDigest, predecessor, desiredPlanDigest: desiredPlan.plan_digest, taskMigration }) };
+  const revision = { schema: 'lattice.todo_revision.v1', project_id: 'project-1', plan_key: 'main',
+    predecessor, desired_plan: desiredPlan, task_migration: taskMigration,
+    source_inventory: sourceInventory, reconciliation, revision_digest: '' };
+  revision.revision_digest = todoSelfDigest(revision, 'revision_digest');
+  return revision;
+}
+
 function assertExactKeys(value, expected) {
   assert.deepEqual(Object.keys(value).sort(), [...expected].sort());
 }
@@ -192,16 +241,56 @@ test('todo verifyは全member/plan指定のexact result wireを一行で返す',
     assertExactKeys(output, [
       'schema', 'project_id', 'requested_plan_key', 'verified_members', 'snapshot_stale', 'result_digest',
     ]);
-    assert.equal(output.schema, 'lattice.todo_verify_result.v1');
+    assert.equal(output.schema, 'lattice.todo_verify_result.v2');
     assert.equal(output.project_id, 'project-1');
     assert.equal(output.requested_plan_key, args.length === 2 ? null : 'main');
     assert.equal(output.snapshot_stale, false);
     assert.equal(output.result_digest, todoSelfDigest(output, 'result_digest'));
     assert.equal(output.verified_members.length, 1);
     assertExactKeys(output.verified_members[0], [
-      'plan_key', 'topology_digest', 'journal_head_digest', 'through_sequence', 'snapshot_stale',
+      'plan_key', 'plan_version', 'topology_digest', 'journal_head_digest', 'through_sequence',
+      'snapshot_stale', 'reconciliation_state', 'revision_digest', 'reconciliation_digest',
+      'source_inventory_count', 'active_task_count', 'excluded_tombstone_count',
     ]);
+    assert.equal(output.verified_members[0].reconciliation_state, 'registered_unreconciled');
+    assert.equal(output.verified_members[0].revision_digest, null);
+    assert.equal(output.verified_members[0].source_inventory_count, null);
   }
+});
+
+test('todo reviseはcanonical revisionだけを発行しstatus/verifyへreconciled identityを公開する', async (context) => {
+  const root = await workspace(context);
+  const revision = await revisionInput(root);
+  await writeCanonical(root, 'revision.json', revision);
+  const output = successJson(runCli(root, ['todo', 'revise', '--plan', 'main', '--input', 'revision.json']));
+  assert.equal(output.schema, 'lattice.todo_revise_result.v1');
+  assert.equal(output.revision_digest, revision.revision_digest);
+  assert.equal(output.result_digest, todoSelfDigest(output, 'result_digest'));
+  const status = successJson(runCli(root, ['todo', 'status']));
+  assert.equal(status.member_heads[0].reconciliation_state, 'reconciled');
+  assert.equal(status.member_heads[0].revision_digest, revision.revision_digest);
+  const verified = successJson(runCli(root, ['todo', 'verify', '--plan', 'main']));
+  assert.equal(verified.verified_members[0].reconciliation_state, 'reconciled');
+  assert.equal(verified.verified_members[0].source_inventory_count, 2);
+  assert.equal(verified.verified_members[0].active_task_count, 2);
+  assert.equal(verified.verified_members[0].excluded_tombstone_count, 0);
+  await writeFile(path.join(root, 'plan.md'), '- [x] T1\n- [ ] T2\n');
+  const drifted = runCli(root, ['todo', 'verify', '--plan', 'main']);
+  assert.equal(drifted.status, 1);
+  assert.equal(drifted.stdout, '');
+  assert.equal(JSON.parse(drifted.stderr).code, 'RECONCILIATION_INCOMPLETE');
+});
+
+test('todo reviseはnon-canonical input bytesをstore無変更で拒否する', async (context) => {
+  const root = await workspace(context);
+  const revision = await revisionInput(root);
+  await writeFile(path.join(root, 'revision.json'), JSON.stringify(revision, null, 2));
+  const before = await storeDigest(root);
+  const result = runCli(root, ['todo', 'revise', '--plan', 'main', '--input', 'revision.json']);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.equal(JSON.parse(result.stderr).code, 'REVISION_INVALID');
+  assert.equal(await storeDigest(root), before);
 });
 
 test('authoring CLIはclosed遷移をappendしmutation resultをdigest束縛する', async (context) => {

@@ -129,7 +129,7 @@ test('todo statusはactive/next-ready/blockedを混在投影しstore bytesを変
   assertExactKeys(result, [
     'schema', 'project_id', 'active_set', 'next_ready', 'blocked', 'member_heads', 'result_digest',
   ]);
-  assert.equal(result.schema, 'lattice.todo_status_result.v2');
+  assert.equal(result.schema, 'lattice.todo_status_result.v3');
   assert.deepEqual(result.active_set, [{
     plan_key: 'main', task_id: 'A', label: 'Active work', unmet_dependencies: [],
   }]);
@@ -138,10 +138,17 @@ test('todo statusはactive/next-ready/blockedを混在投影しstore bytesを変
     plan_key: 'main', task_id: 'B', reason: 'Waiting for owner approval',
   }]);
   assert.equal(result.member_heads.length, 1);
-  assertExactKeys(result.member_heads[0], ['plan_key', 'through_sequence', 'journal_head_digest']);
+  assertExactKeys(result.member_heads[0], [
+    'plan_key', 'plan_version', 'through_sequence', 'journal_head_digest',
+    'reconciliation_state', 'revision_digest', 'reconciliation_digest',
+  ]);
   assert.equal(result.member_heads[0].plan_key, 'main');
+  assert.equal(result.member_heads[0].plan_version, 'v1');
   assert.equal(result.member_heads[0].through_sequence, 5);
+  assert.equal(result.member_heads[0].reconciliation_state, 'registered_unreconciled');
+  assert.equal(result.member_heads[0].revision_digest, null);
   assert.match(result.member_heads[0].journal_head_digest, /^[0-9a-f]{64}$/u);
+  assert.match(result.member_heads[0].reconciliation_digest, /^[0-9a-f]{64}$/u);
   assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
   assert.equal(validateTodoStatusResult(result), true);
 });
@@ -181,7 +188,7 @@ test('空store projectionは全list空の固定digest resultを返す', () => {
   assert.deepEqual(result.next_ready, []);
   assert.deepEqual(result.blocked, []);
   assert.deepEqual(result.member_heads, []);
-  assert.equal(result.result_digest, '4cb3c17506fb7f0afb038b00204717389cda8693c5925e2bdd7d4f5942bd0496');
+  assert.equal(result.result_digest, 'cc6be46f9e179ca78345a6787e11247b58cde8df71d8f0b7c96b326cffd19bb8');
   assert.equal(validateTodoStatusResult(result), true);
 });
 
@@ -214,13 +221,15 @@ function syntheticReadModel(activeCount) {
     members.push({
       descriptor: { plan_key: planKey },
       plan: {
-        project_id: 'scale-project', plan_key: planKey, tasks,
+        project_id: 'scale-project', plan_key: planKey, plan_version: 'v1',
+        plan_digest: 'c'.repeat(64), tasks,
         hard_dependencies: [], joins: [],
       },
       tasks: tasks.map(({ task_id: taskId }) => ({
         task_id: taskId, status: 'in-progress', blocked_reason: null,
       })),
-      journal: { events: [{ sequence: 0, event_digest: 'a'.repeat(64) }] },
+      journal: { events: [{ schema: 'lattice.todo_event.v1', sequence: 0,
+        event_digest: 'a'.repeat(64) }] },
     });
   }
   return { schema: 'lattice.todo_store_read.v1', project_id: 'scale-project', members };
@@ -228,7 +237,7 @@ function syntheticReadModel(activeCount) {
 
 function syntheticStatusResult(activeCount) {
   const result = {
-    schema: 'lattice.todo_status_result.v2',
+    schema: 'lattice.todo_status_result.v3',
     project_id: 'scale-project',
     active_set: Array.from({ length: activeCount }, (_, index) => ({
       plan_key: 'main', task_id: `t${String(index).padStart(4, '0')}`, label: 'x', unmet_dependencies: [],
@@ -272,8 +281,10 @@ test('consumer境界はPython同様code point数・control拒否・safe integer�
     schema: 'lattice.todo_store_read.v1', project_id: 'sequence-project',
     members: [{
       descriptor: { plan_key: 'main' },
-      plan: { project_id: 'sequence-project', plan_key: 'main', tasks: [], hard_dependencies: [], joins: [] },
-      tasks: [], journal: { events: [{ sequence: Number.MAX_SAFE_INTEGER, event_digest: 'b'.repeat(64) }] },
+      plan: { project_id: 'sequence-project', plan_key: 'main', plan_version: 'v1',
+        plan_digest: 'c'.repeat(64), tasks: [], hard_dependencies: [], joins: [] },
+      tasks: [], journal: { events: [{ schema: 'lattice.todo_event.v1',
+        sequence: Number.MAX_SAFE_INTEGER, event_digest: 'b'.repeat(64) }] },
     }],
   });
   assert.equal(maximumSequence.member_heads[0].through_sequence, 9_007_199_254_740_991);

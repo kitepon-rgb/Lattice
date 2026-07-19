@@ -65,6 +65,9 @@ MCP server提供と矛盾しない。MCP面は外部networkへ一切通信しな
 投影として扱う。読取CLIは`lattice todo status / verify / snapshot --rebuild / gantt`、一回きりの
 移行入口は`todo migrate`である。topologyとsource reconciliationの変更はfull desired-state successorを
 発行する`todo revise`だけが所有し、Markdown fallback、部分CRUD、独立`todo reconcile`を持たない。
+revision inputはcanonical JSON+LFの`lattice.todo_revision.v1`に限定し、成功は
+`lattice.todo_revise_result.v1`、statusはreconciliation identityを含む`lattice.todo_status_result.v3`、
+verifyはsource inventoryを再検査する`lattice.todo_verify_result.v2`を返す。
 
 通常の状態遷移は`todo start / block / unblock / done / evidence promote / reopen`のclosed面で行う。
 mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,
