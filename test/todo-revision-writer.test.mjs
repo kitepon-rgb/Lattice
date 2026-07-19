@@ -34,7 +34,7 @@ const task = (taskId, title = taskId) => ({
 const ref = (taskId) => ({ project_id: 'project-1', plan_key: 'main', task_id: taskId });
 const digest = (text) => createHash('sha256').update(text).digest('hex');
 
-async function fixture(context) {
+async function fixture(context, { hardDependencies = [] } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-revision-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   execFileSync('git', ['init', '--quiet'], { cwd: root });
@@ -48,7 +48,7 @@ async function fixture(context) {
         schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'main',
         plan_version: 'v1', predecessor_plan_digest: null,
         tasks: [task('T1'), task('T2'), task('T3'), task('T4'), task('T5')],
-        hard_dependencies: [], joins: [],
+        hard_dependencies: hardDependencies, joins: [],
       },
       genesis: { actor: ACTOR, recorded_at: NOW },
     }],
@@ -58,6 +58,8 @@ async function fixture(context) {
 
 async function revisionFor(root, {
   title = 'T1', migrationPolicy = 'carry', removeT5 = false,
+  removeT5Reason = 'task removed by successor revision', extraTombstones = [],
+  hardDependencies = [], t6Anchor = null, migrationPolicies = {},
 } = {}) {
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const previous = store.members[0];
@@ -67,10 +69,10 @@ async function revisionFor(root, {
     plan_version: previous.plan.plan_version,
   };
   const taskMigration = [
-    { from_task_id: 'T1', to_task_id: 'T1', state_policy: migrationPolicy },
-    { from_task_id: 'T2', to_task_id: 'T2', state_policy: 'carry' },
-    { from_task_id: 'T3', to_task_id: 'T3', state_policy: 'carry' },
-    { from_task_id: 'T4', to_task_id: 'T4', state_policy: 'carry' },
+    { from_task_id: 'T1', to_task_id: 'T1', state_policy: migrationPolicies.T1 ?? migrationPolicy },
+    { from_task_id: 'T2', to_task_id: 'T2', state_policy: migrationPolicies.T2 ?? 'carry' },
+    { from_task_id: 'T3', to_task_id: 'T3', state_policy: migrationPolicies.T3 ?? 'carry' },
+    { from_task_id: 'T4', to_task_id: 'T4', state_policy: migrationPolicies.T4 ?? 'carry' },
     removeT5
       ? { from_task_id: 'T5', to_task_id: 'removed', state_policy: 'removed' }
       : { from_task_id: 'T5', to_task_id: 'T5', state_policy: 'reset_pending' },
@@ -86,17 +88,21 @@ async function revisionFor(root, {
       ]),
       { task_id: 'T6', source_ref: 'plan.md#L6', source_digest: digest('- [ ] T6') },
     ],
-    excluded_tombstones: removeT5 ? [{
+    excluded_tombstones: [...(removeT5 ? [{
       source_ref: 'plan.md#L5', source_digest: digest('- [ ] T5'),
-      exclusion_reason: 'task removed by successor revision',
-    }] : [],
+      exclusion_reason: removeT5Reason,
+    }] : []), ...extraTombstones].sort((left, right) => left.source_ref.localeCompare(right.source_ref)),
   };
   const desiredInput = {
     schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'main',
     plan_version: 'pending', predecessor_plan_digest: predecessor.plan_digest,
     tasks: [task('T1', title), task('T2'), task('T3'), task('T4'),
-      ...(removeT5 ? [] : [task('T5')]), task('T6')],
-    hard_dependencies: [], joins: [],
+      ...(removeT5 ? [] : [task('T5')]), {
+        ...task('T6'),
+        narrative_ref: t6Anchor === null ? null : t6Anchor.origin_plan_ref,
+        narrative_anchor: t6Anchor,
+      }],
+    hard_dependencies: hardDependencies, joins: [],
   };
   desiredInput.plan_version = todoRevisionPlanVersion({
     projectId: 'project-1', planKey: 'main', predecessor, desiredPlan: desiredInput,
@@ -351,6 +357,71 @@ test('source inventoryはrepo内symlinkを辿らずactivation前に拒否する'
   await symlink('actual.md', path.join(root, 'plan.md'));
   await assert.rejects(apply(root, revision), (error) => error instanceof TodoStoreError
     && error.code === 'RECONCILIATION_INCOMPLETE' && error.detail.reason === 'source_path_symlink');
+});
+
+test('revision作成後にpredecessor journalが進んだ場合はstaleとしてactivation前に拒否する', async (context) => {
+  const root = await fixture(context);
+  const revision = await revisionFor(root);
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await assert.rejects(apply(root, revision), (error) => error instanceof TodoStoreError
+    && error.code === 'STORE_WRITE_CONFLICT' && error.detail.reason === 'stale_predecessor');
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  assert.equal(member.plan.plan_version, 'v1');
+  assert.equal(member.tasks.find(({ task_id }) => task_id === 'T1').status, 'in-progress');
+});
+
+test('successorで追加するnarrative anchorのdigest driftはactivation前に拒否する', async (context) => {
+  const root = await fixture(context);
+  const sourceCommit = pinnedLegacyCommit(root);
+  const revision = await revisionFor(root, { t6Anchor: {
+    origin_plan_ref: 'legacy.md', origin_line: 1, source_commit: sourceCommit,
+    source_line_digest: digest('- [ ] drifted'),
+  } });
+  await assert.rejects(apply(root, revision), (error) => error instanceof TodoStoreError
+    && error.code === 'STORE_INCONSISTENT' && error.detail.reason === 'narrative_anchor_unverified');
+  assert.equal((await readTodoStore({ repoRoot: root, now: NOW })).members[0].plan.plan_version, 'v1');
+});
+
+test('archive・superseded・全完了sourceはtombstoneとして固定しactive taskへ復活させない', async (context) => {
+  const root = await fixture(context);
+  await writeFile(path.join(root, 'plan.md'), [1, 2, 3, 4, 5, 6, 7, 8]
+    .map((index) => `- [ ] T${index}`).join('\n') + '\n');
+  const revision = await revisionFor(root, {
+    removeT5: true,
+    removeT5Reason: 'archived source excluded from successor',
+    extraTombstones: [
+      { source_ref: 'plan.md#L7', source_digest: digest('- [ ] T7'),
+        exclusion_reason: 'explicitly superseded source excluded from successor' },
+      { source_ref: 'plan.md#L8', source_digest: digest('- [ ] T8'),
+        exclusion_reason: 'fully completed source excluded from successor' },
+    ],
+  });
+  await apply(root, revision);
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  assert.equal(member.tasks.some(({ task_id }) => ['T5', 'T7', 'T8'].includes(task_id)), false);
+  assert.deepEqual(member.revision.source_inventory.excluded_tombstones
+    .map(({ source_ref, exclusion_reason }) => [source_ref, exclusion_reason]), [
+    ['plan.md#L5', 'archived source excluded from successor'],
+    ['plan.md#L7', 'explicitly superseded source excluded from successor'],
+    ['plan.md#L8', 'fully completed source excluded from successor'],
+  ]);
+});
+
+test('successor revisionはpredecessorの依存edgeを削除し新topologyだけを有効化する', async (context) => {
+  const dependency = { from: ref('T1'), to: ref('T2') };
+  const root = await fixture(context, { hardDependencies: [dependency] });
+  const unsafeCarry = await revisionFor(root, { hardDependencies: [] });
+  await assert.rejects(apply(root, unsafeCarry), (error) => error instanceof TodoStoreError
+    && error.code === 'REVISION_INVALID' && error.detail.reason === 'carry_semantics_changed');
+  const revision = await revisionFor(root, {
+    hardDependencies: [], migrationPolicies: { T1: 'reset_pending', T2: 'reset_pending' },
+  });
+  await apply(root, revision);
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  assert.deepEqual(member.plan.hard_dependencies, []);
+  assert.equal(member.plan.predecessor_plan_digest, revision.predecessor.plan_digest);
 });
 
 for (const stage of [
