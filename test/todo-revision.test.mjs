@@ -9,6 +9,7 @@ import { buildTodoPlan } from '../src/todo-store.mjs';
 import {
   todoLegacyReconciliationDigest,
   todoReconciliationDigest,
+  todoRevisionPlanVersion,
   todoSourceInventoryDigest,
   validateTodoRevision,
 } from '../src/todo-revision.mjs';
@@ -28,31 +29,35 @@ const task = (taskId, parentTaskId = null) => ({
   parent_task_id: parentTaskId,
 });
 
-function revisionFixture() {
+function revisionFixture({ taskMigration = [
+  { from_task_id: 'A1', to_task_id: 'P1', state_policy: 'carry' },
+  { from_task_id: 'A2', to_task_id: 'T1', state_policy: 'reset_pending' },
+] } = {}) {
   const predecessor = { plan_digest: DIGEST, journal_head_digest: HEAD, plan_version: 'v1' };
-  const desiredPlan = buildTodoPlan({
+  const desiredPlanInput = {
     schema: 'lattice.todo_plan.v3',
     project_id: 'project-1',
     plan_key: 'main',
-    plan_version: 'v2',
+    plan_version: 'pending',
     predecessor_plan_digest: DIGEST,
     tasks: [task('P1'), task('T1', 'P1')],
     hard_dependencies: [],
     joins: [],
-  });
-  const taskMigration = [
-    { from_task_id: 'A1', to_task_id: 'P1', state_policy: 'carry' },
-    { from_task_id: 'A2', to_task_id: 'T1', state_policy: 'reset_pending' },
-  ];
+  };
   const sourceInventory = {
     active: [
-      { task_id: 'P1', source_ref: 'docs/plan.md/P1', source_digest: '3'.repeat(64) },
-      { task_id: 'T1', source_ref: 'docs/plan.md/T1', source_digest: '4'.repeat(64) },
+      { task_id: 'P1', source_ref: 'docs/plan.md#L1', source_digest: '3'.repeat(64) },
+      { task_id: 'T1', source_ref: 'docs/plan.md#L2', source_digest: '4'.repeat(64) },
     ],
     excluded_tombstones: [{
-      source_ref: 'docs/plan.md/old', source_digest: '5'.repeat(64), exclusion_reason: 'retired',
+      source_ref: 'docs/plan.md#L3', source_digest: '5'.repeat(64), exclusion_reason: 'retired',
     }],
   };
+  desiredPlanInput.plan_version = todoRevisionPlanVersion({
+    projectId: 'project-1', planKey: 'main', predecessor, desiredPlan: desiredPlanInput,
+    taskMigration, sourceInventory,
+  });
+  const desiredPlan = buildTodoPlan(desiredPlanInput);
   const sourceInventoryDigest = todoSourceInventoryDigest(sourceInventory);
   const predecessorReconciliationDigest = todoLegacyReconciliationDigest({
     planDigest: predecessor.plan_digest,
@@ -93,6 +98,35 @@ test('todo_revision.v1はv3 desired state・inventory・reconciliationをexact d
     mutate(invalid);
     assert.equal(validateTodoRevision(invalid), false);
   }
+});
+
+test('revision plan versionは循環せず全入力から決まり移送先mergeを拒否する', () => {
+  const revision = revisionFixture();
+  const input = {
+    projectId: revision.project_id,
+    planKey: revision.plan_key,
+    predecessor: revision.predecessor,
+    desiredPlan: revision.desired_plan,
+    taskMigration: revision.task_migration,
+    sourceInventory: revision.source_inventory,
+  };
+  assert.equal(todoRevisionPlanVersion(input), revision.desired_plan.plan_version);
+  assert.equal(todoRevisionPlanVersion(input), todoRevisionPlanVersion(structuredClone(input)));
+
+  const changedInventory = structuredClone(input);
+  changedInventory.sourceInventory.active[0].source_digest = 'a'.repeat(64);
+  assert.notEqual(todoRevisionPlanVersion(changedInventory), revision.desired_plan.plan_version);
+
+  const merged = revisionFixture({ taskMigration: [
+    { from_task_id: 'A1', to_task_id: 'P1', state_policy: 'carry' },
+    { from_task_id: 'A2', to_task_id: 'P1', state_policy: 'reset_pending' },
+  ] });
+  assert.equal(validateTodoRevision(merged), false);
+
+  const malformedSource = structuredClone(revision);
+  malformedSource.source_inventory.active[0].source_ref = 'docs/plan.md';
+  malformedSource.revision_digest = todoSelfDigest(malformedSource, 'revision_digest');
+  assert.equal(validateTodoRevision(malformedSource), false);
 });
 
 test('legacy reconciliation anchorはv1 bytesを書換えずplan/head identityだけから決定する', () => {

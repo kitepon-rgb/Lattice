@@ -17,6 +17,37 @@ const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 const boundedText = (value) => typeof value === 'string' && value.length > 0
   && Buffer.byteLength(value) <= 16_384 && !/[\u0000-\u001f\u007f]/u.test(value);
 
+export function parseTodoSourceRef(value) {
+  if (typeof value !== 'string') return null;
+  const match = /^(.*)#L([1-9]\d*)$/u.exec(value);
+  if (match === null || !isTodoRef(match[1])) return null;
+  const line = Number(match[2]);
+  return Number.isSafeInteger(line) ? { path: match[1], line } : null;
+}
+
+export function todoRevisionPlanVersion({
+  projectId, planKey, predecessor, desiredPlan, taskMigration, sourceInventory,
+}) {
+  const versionDigest = digestTodoArtifact({
+    schema: 'lattice.todo_revision_version.v1',
+    project_id: projectId,
+    plan_key: planKey,
+    predecessor,
+    desired_topology: {
+      schema: desiredPlan.schema,
+      project_id: desiredPlan.project_id,
+      plan_key: desiredPlan.plan_key,
+      predecessor_plan_digest: desiredPlan.predecessor_plan_digest,
+      tasks: desiredPlan.tasks,
+      hard_dependencies: desiredPlan.hard_dependencies,
+      joins: desiredPlan.joins,
+    },
+    task_migration: taskMigration,
+    source_inventory: sourceInventory,
+  });
+  return `rev-${versionDigest.slice(0, 24)}`;
+}
+
 export function todoLegacyReconciliationDigest({ planDigest, journalHeadDigest }) {
   if (!isTodoDigest(planDigest) || !isTodoDigest(journalHeadDigest)) {
     throw new TypeError('legacy reconciliation anchor digest required');
@@ -59,6 +90,9 @@ function validPredecessor(value) {
 }
 
 function validTaskMigration(value) {
+  const activeTargets = Array.isArray(value)
+    ? value.filter(({ to_task_id }) => to_task_id !== 'removed').map(({ to_task_id }) => to_task_id)
+    : [];
   return Array.isArray(value) && value.length > 0 && value.length <= 512
     && value.every((entry) => exactRecord(entry, [
       'from_task_id', 'to_task_id', 'state_policy',
@@ -67,6 +101,7 @@ function validTaskMigration(value) {
       && ((entry.state_policy === 'removed' && entry.to_task_id === 'removed')
         || (['carry', 'reset_pending'].includes(entry.state_policy) && entry.to_task_id !== 'removed')))
     && new Set(value.map(({ from_task_id }) => from_task_id)).size === value.length
+    && new Set(activeTargets).size === activeTargets.length
     && value.every((entry, index) => index === 0
       || compareText(value[index - 1].from_task_id, entry.from_task_id) < 0);
 }
@@ -76,10 +111,11 @@ function validSourceInventory(value, desiredPlan) {
     || !Array.isArray(value.active) || !Array.isArray(value.excluded_tombstones)
     || value.active.length > 512 || value.excluded_tombstones.length > 2_048
     || !value.active.every((entry) => exactRecord(entry, ['task_id', 'source_ref', 'source_digest'])
-      && isTodoIdentifier(entry.task_id) && isTodoRef(entry.source_ref) && isTodoDigest(entry.source_digest))
+      && isTodoIdentifier(entry.task_id) && parseTodoSourceRef(entry.source_ref) !== null
+      && isTodoDigest(entry.source_digest))
     || !value.excluded_tombstones.every((entry) => exactRecord(entry, [
       'source_ref', 'source_digest', 'exclusion_reason',
-    ]) && isTodoRef(entry.source_ref) && isTodoDigest(entry.source_digest)
+    ]) && parseTodoSourceRef(entry.source_ref) !== null && isTodoDigest(entry.source_digest)
       && boundedText(entry.exclusion_reason))) return false;
   const taskIds = desiredPlan.tasks.map(({ task_id }) => task_id);
   const activeIds = value.active.map(({ task_id }) => task_id);
@@ -105,7 +141,11 @@ export function validateTodoRevision(value) {
       || value.desired_plan.predecessor_plan_digest !== value.predecessor.plan_digest
       || !validTaskMigration(value.task_migration)
       || !validSourceInventory(value.source_inventory, value.desired_plan)
-      || !exactRecord(value.reconciliation, [
+      || value.desired_plan.plan_version !== todoRevisionPlanVersion({
+        projectId: value.project_id, planKey: value.plan_key, predecessor: value.predecessor,
+        desiredPlan: value.desired_plan, taskMigration: value.task_migration,
+        sourceInventory: value.source_inventory,
+      }) || !exactRecord(value.reconciliation, [
         'predecessor_reconciliation_digest', 'source_inventory_digest', 'reconciliation_digest',
       ]) || !isTodoDigest(value.reconciliation.predecessor_reconciliation_digest)
       || value.reconciliation.source_inventory_digest !== todoSourceInventoryDigest(value.source_inventory)

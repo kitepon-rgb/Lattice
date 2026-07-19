@@ -75,6 +75,10 @@ reconciliation, revision_digest`
   させない。source inventory は Markdown 本文の writer-side 再解釈を許す schema ではない。
   `active`はdesired planのtask順（task ID昇順）、`excluded_tombstones`は`source_ref`昇順に固定し、
   logical inventoryが配列順だけで別revision identityになることを禁止する。
+  `source_ref`は`<repo相対path>#L<1-based line>`のexact grammarとし、pathはsymlinkを含まないrepo内
+  regular file、lineはcurrent worktreeのraw UTF-8をLFだけで分割した固定行である。`source_digest`は
+  行末LFを含まない当該raw line bytesのSHA-256。別行探索、title match、CR除去、Unicode正規化をしない。
+  ref不正、file/line欠落、digest不一致は`RECONCILIATION_INCOMPLETE`でactivation前に拒否する。
 - `reconciliation` の exact keys は `predecessor_reconciliation_digest, source_inventory_digest,
   reconciliation_digest`。前二者はそれぞれ predecessor の現在 reconciliation digest と本 input の
   inventory digest を束縛し、最後はそれら、predecessor、desired plan、migration を含む canonical
@@ -191,8 +195,13 @@ reconciliation, revision_digest`
 - 成功 result は `lattice.todo_revise_result.v1` とし、exact keys は `schema, project_id, plan_key,
   predecessor_plan_digest, predecessor_journal_head_digest, plan_version, plan_digest, topology_digest,
   journal_head_digest, revision_digest, reconciliation_digest, result_digest` とする。`plan_version` は
-  revision digest と predecessor identity を含む決定的 preimage から導く。同じ revision は同じ version
-  identity になり、時刻・乱数・retry 回数で変化しない。
+  循環を避けるため`plan_version`はrevision digestそのものから導かない。exact preimage
+  `{schema: lattice.todo_revision_version.v1, project_id, plan_key, predecessor, desired_topology,
+  task_migration, source_inventory}`のcanonical digest先頭24桁を`rev-`へ連結する。`desired_topology`は
+  desired planから`schema, project_id, plan_key, predecessor_plan_digest, tasks, hard_dependencies, joins`だけを
+  取り、`plan_version, topology_digest, plan_digest`を含めない。導出versionをdesired planへ設定してplan
+  digestを確定し、最後にreconciliation/revision digestを確定する。同じlogical revisionは同じversion
+  identityになり、時刻・乱数・retry回数で変化しない。入力version不一致は`REVISION_INVALID`で拒否する。
 - typed error は既存の `STORE_CORRUPT`、`STORE_INCONSISTENT`、`STORE_WRITE_CONFLICT` を維持し、revision
   専用の `REVISION_INVALID`（exact schema/digest/policy/parent/merge 違反）、`RECONCILIATION_INCOMPLETE`
   （inventory 又は source 解決不能）、`REVISION_CONFLICT`（同一 logical revision の異 bytes）を加える。
