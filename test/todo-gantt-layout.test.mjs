@@ -43,16 +43,16 @@ test('small branch/join/multi-lane DAG has a deterministic coordinate snapshot',
   assert.deepEqual(result.nodes.map(({ ref: nodeRef, wave, row, visible, geometry }) => ({
     id: `${nodeRef.plan_key}/${nodeRef.task_id}`, wave, row, visible, geometry,
   })), [
-    { id: 'alpha/A', wave: 0, row: 0, visible: true, geometry: { x: 16, y: 16, width: 160, height: 34 } },
-    { id: 'alpha/B', wave: 1, row: 1, visible: true, geometry: { x: 224, y: 98, width: 160, height: 34 } },
-    { id: 'alpha/C', wave: 1, row: 0, visible: true, geometry: { x: 16, y: 98, width: 160, height: 34 } },
-    { id: 'beta/D', wave: 2, row: 0, visible: true, geometry: { x: 16, y: 180, width: 160, height: 34 } },
+    { id: 'alpha/A', wave: 0, row: 0, visible: true, geometry: { x: 16, y: 16, width: 272, height: 68 } },
+    { id: 'alpha/B', wave: 1, row: 1, visible: true, geometry: { x: 312, y: 120, width: 272, height: 68 } },
+    { id: 'alpha/C', wave: 1, row: 0, visible: true, geometry: { x: 16, y: 120, width: 272, height: 68 } },
+    { id: 'beta/D', wave: 2, row: 0, visible: true, geometry: { x: 16, y: 224, width: 272, height: 68 } },
   ]);
   assert.deepEqual(result.edges.map(({ kinds, join_ids, visible, route }) => ({ kinds, join_ids, visible, route })), [
-    { kinds: ['hard'], join_ids: [], visible: true, route: [[96, 50], [96, 74], [304, 74], [304, 98]] },
-    { kinds: ['hard'], join_ids: [], visible: true, route: [[96, 50], [96, 74], [96, 74], [96, 98]] },
-    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[304, 132], [304, 156], [96, 156], [96, 180]] },
-    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[96, 132], [96, 156], [96, 156], [96, 180]] },
+    { kinds: ['hard'], join_ids: [], visible: true, route: [[152, 84], [152, 102], [448, 102], [448, 120]] },
+    { kinds: ['hard'], join_ids: [], visible: true, route: [[152, 84], [152, 102], [152, 102], [152, 120]] },
+    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[448, 188], [448, 206], [152, 206], [152, 224]] },
+    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[152, 188], [152, 206], [152, 206], [152, 224]] },
   ]);
   assert.deepEqual(result.sweep, { method: 'stable_median', rounds: 4, tie_break: 'previous_position_then_task_ref' });
   assert.equal(JSON.stringify(result).includes('critical'), false);

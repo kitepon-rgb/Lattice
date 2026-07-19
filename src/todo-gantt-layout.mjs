@@ -5,10 +5,10 @@ const SWEEP_ROUNDS = 4;
 const GEOMETRY = Object.freeze({
   left: 16,
   top: 16,
-  wave_gap: 82,
-  lane_gap: 208,
-  node_width: 160,
-  node_height: 34,
+  wave_gap: 104,
+  lane_gap: 296,
+  node_width: 272,
+  node_height: 68,
 });
 
 export class TodoGanttLayoutError extends Error {

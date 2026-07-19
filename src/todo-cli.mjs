@@ -14,6 +14,7 @@ import {
 } from './todo-contracts.mjs';
 import { projectTodoChainV1 } from './todo-chain.mjs';
 import { layoutTodoGantt } from './todo-gantt-layout.mjs';
+import { loadTodoGanttPresentation } from './todo-gantt-presentation.mjs';
 import {
   renderTodoGanttHtml,
   TODO_GANTT_RENDERER_VERSION,
@@ -281,6 +282,7 @@ async function atomicWriteOutput(repoRoot, outputRef, html) {
 
 async function gantt({ repoRoot, outputRef }) {
   const store = await readTodoStore({ repoRoot });
+  const presentation = await loadTodoGanttPresentation({ repoRoot, readModel: store });
   const topology = mergedTopology(store);
   const chain = projectTodoChainV1(topology);
   const layout = layoutTodoGantt(store, chain);
@@ -306,6 +308,7 @@ async function gantt({ repoRoot, outputRef }) {
     manifest_digest: store.manifest.manifest_digest,
     member_bindings: memberBindings,
     narrative_bindings_digest: digestTodoArtifact(narrativeBindings),
+    presentation_digest: presentation.presentation_digest,
     chain_digest: digestTodoArtifact(chain),
     layout_digest: digestTodoArtifact(layout),
     renderer_version: TODO_GANTT_RENDERER_VERSION,
@@ -315,6 +318,7 @@ async function gantt({ repoRoot, outputRef }) {
     layout,
     narratives: narrative.narratives,
     anchorOutcomes,
+    presentation,
     metadata,
   });
   await atomicWriteOutput(repoRoot, outputRef, rendered.html);

@@ -9,6 +9,7 @@ import test from 'node:test';
 
 import { projectTodoChainV1 } from '../src/todo-chain.mjs';
 import { layoutTodoGantt, TodoGanttLayoutError } from '../src/todo-gantt-layout.mjs';
+import { projectTodoGanttPresentation } from '../src/todo-gantt-presentation.mjs';
 import {
   renderTodoGanttHtml,
   TODO_GANTT_HTML_MAX_BYTES,
@@ -52,10 +53,11 @@ function topology(read) {
   };
 }
 
-function renderFixture(read, narratives = [], anchorOutcomes = []) {
+function renderFixture(read, narratives = [], anchorOutcomes = [], document = null) {
   const chain = projectTodoChainV1(topology(read));
   const layout = layoutTodoGantt(read, chain);
-  return renderTodoGanttHtml({ readModel: read, layout, narratives, anchorOutcomes });
+  const presentation = projectTodoGanttPresentation(read, document);
+  return renderTodoGanttHtml({ readModel: read, layout, narratives, anchorOutcomes, presentation });
 }
 
 async function workspace(context, title = 'T1') {
@@ -162,7 +164,7 @@ function run(root, args) {
 
 function taskNodeY(html) {
   const positions = new Map();
-  const pattern = /<g class="todo-node[^"]*"[^>]*aria-label="[^"]*\/([^:&]+):[^"]*"><rect class="node-surface" x="[^"]+" y="([^"]+)"/gu;
+  const pattern = /<g class="todo-node[^"]*"[^>]*data-task-id="([^"]+)"[^>]*><rect class="node-surface" x="[^"]+" y="([^"]+)"/gu;
   for (const match of html.matchAll(pattern)) positions.set(match[1], Number(match[2]));
   return positions;
 }
@@ -180,7 +182,7 @@ test('small real store E2E generates the default self-contained gantt and exact 
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v6');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v7');
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
   assert.equal(result.narrative_bindings_digest, digestTodoArtifact([{
     project_id: 'project-1',
@@ -198,10 +200,14 @@ test('small real store E2E generates the default self-contained gantt and exact 
   assert.match(html, /class="todo-gantt"/u);
   assert.match(html, /data-node-key=/u);
   assert.match(html, /tabindex="0" role="button" aria-selected="false"/u);
-  assert.match(html, /unit-weightの構造深さであり実時間・資源律速ではない/u);
-  assert.match(html, /<h1>Background<\/h1>/u);
-  assert.match(html, /class="markdown-checkbox" role="img" aria-label="unchecked">☐/u);
-  assert.match(html, /class="document-status status-pending" role="img" aria-label="未着手">☐/u);
+  assert.match(html, /構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・資源律速を表さない/u);
+  assert.match(html, /data-right-panel="task-index" hidden/u);
+  assert.match(html, /class="task-index-status status-pending" role="img" aria-label="未着手">☐<\/span>/u);
+  assert.match(html, /class="task-index-reference">工程 1<\/span>/u);
+  assert.doesNotMatch(html, /<h1>Background<\/h1>|class="markdown-checkbox"/u);
+  assert.match(html, /"presentation_digest":"[0-9a-f]{64}"/u);
+  assert.match(html, /"schema":"lattice\.todo_gantt_presentation_model\.v1"/u);
+  assert.match(html, /"task_id":"T1","display_number":"1","normalized_number":"1"/u);
 });
 
 test('v2 anchor成立のCLI ganttはoutcomeをbinding digestと行内markの両方へ一度で束縛する', async (context) => {
@@ -219,34 +225,48 @@ test('v2 anchor成立のCLI ganttはoutcomeをbinding digestと行内markの両�
     content_digest: createHash('sha256').update(markdown).digest('hex'), anchored: true, reason: null,
   }]));
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
-  assert.match(html, /class="document-status status-pending" data-narrative-key=/u);
-  assert.doesNotMatch(html, /class="task-line"|class="narrative-warning"/u);
+  assert.match(html, /class="task-index-status status-pending" role="img" aria-label="未着手">☐<\/span>/u);
+  assert.doesNotMatch(html, /class="task-line"|class="narrative-warning"|class="narrative-body"/u);
 });
 
-test('real store smoke draws every edge and emits compact nodes plus concise category totals', async (context) => {
+test('real store smoke draws every edge and emits readable nodes plus named category totals', async (context) => {
   const root = await graphWorkspace(context);
+  await writeFile(path.join(root, '.lattice', 'todo', 'gantt-presentation.json'), `${JSON.stringify({
+    schema: 'lattice.todo_gantt_presentation.v1',
+    project_id: 'project-1',
+    plans: [{
+      plan_key: 'main',
+      lanes: [
+        { lane: 'impl', name: '実装', description: '実装工程。' },
+        { lane: 'recon', name: '調査', description: '調査工程。' },
+        { lane: 'verify', name: '検証', description: '検証工程。' },
+      ],
+    }],
+  })}\n`);
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v6');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v7');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
   assert.match(html, /class="summary-plan"[^>]*aria-label="main — 4 ToDo"/u);
-  assert.match(html, /class="summary-lane"[^>]*aria-label="impl — 2 ToDo"/u);
+  assert.match(html, /class="summary-lane"[^>]*aria-label="impl — 実装、2 ToDo。実装工程。"/u);
+  assert.match(html, />impl · 実装 2<\/text>/u);
   assert.ok(html.indexOf('class="summary-plan"') < html.indexOf('class="summary-lane"'));
   assert.doesNotMatch(html, /main\/(?:recon|impl|verify)/u);
   assert.doesNotMatch(html, /hidden edges|folded edges|data-fold-state|bundle-badge/u);
-  assert.doesNotMatch(html, /class="node-time"|S:|D:|Started at|Done at/u);
-  assert.doesNotMatch(html, /class="task-facts"|class="evidence"|<dl|<dt>/u);
+  assert.doesNotMatch(html, /class="node-time"|>S:|>D:|Started at|Done at/u);
+  assert.doesNotMatch(html, /class="task-facts"|class="evidence"/u);
   const positions = taskNodeY(html);
   assert.ok(positions.get('T1') < positions.get('T2'));
   assert.ok(positions.get('T2') < positions.get('T3'));
-  assert.match(html, /class="document-status status-pending"[^>]*>☐<\/span>/u);
-  assert.doesNotMatch(html, /class="narrative-warning"/u);
-  assert.match(html, /\.narrative-body\{[^}]*max-width:72ch[^}]*font-size:13\.5px[^}]*font-weight:400[^}]*line-height:1\.6/u);
-  assert.match(html, /\.task-line h2\{[^}]*font-size:16px[^}]*font-weight:600/u);
-  assert.match(html, /\.plan-title\{[^}]*font-size:19px[^}]*font-weight:650/u);
+  assert.match(html, /class="task-index-status status-pending"[^>]*>☐<\/span>/u);
+  assert.equal((html.match(/class="task-index-status status-/gu) ?? []).length, 4);
+  assert.doesNotMatch(html, /class="narrative-warning"|class="narrative-body"/u);
+  assert.match(html, /\.task-index-list button\{[^}]*display:grid;width:100%/u);
+  assert.match(html, /\.task-index-list strong\{[^}]*font-size:13\.5px[^}]*font-weight:600/u);
+  assert.match(html, /\.task-index-plan h2\{[^}]*font-size:16px[^}]*font-weight:600/u);
   const palette = [...new Set(html.match(/#[0-9a-f]{6}/gu) ?? [])].sort();
   assert.deepEqual(palette, [
     '#0b0b0b', '#0ca30c', '#2a78d6', '#52514e', '#d03b3b', '#d9d8d4', '#f4f4f2', '#fcfcfb',
@@ -266,25 +286,49 @@ test('custom output remains repo-relative and traversal/absolute refs are usage 
   }
 });
 
-test('right pane reads as a Markdown document while retaining all/selected/reset states', () => {
-  const read = readFixture(2);
+test('right pane exposes overview/detail/current task index states while retaining navigation controls', () => {
+  const read = readFixture(2, [{ from: ref('T0000'), to: ref('T0001') }]);
   for (const task of read.members[0].plan.tasks) task.narrative_ref = 'plan.md';
+  Object.assign(read.members[0].tasks[1], { status: 'in-progress', started_at: NOW });
   const markdown = '# Intent\n\n- [ ] Keep the document flow\n\n## Acceptance\n\nOrdinary prose.';
   const output = renderFixture(read, read.members[0].plan.tasks.map(({ task_id }) => ({
     ref: ref(task_id), narrative_ref: 'plan.md', markdown,
-  })));
-  assert.equal((output.html.match(/data-narrative-key=/gu) ?? []).length, 2);
-  assert.equal((output.html.match(/<h1>Intent<\/h1>/gu) ?? []).length, 1);
-  assert.match(output.html, /data-view-state="all"/u);
-  assert.match(output.html, /<button type="button" data-show-all>全文表示へ戻る<\/button>/u);
-  assert.match(output.html, /const narrativeTargets=\[\.\.\.root\.querySelectorAll\('\[data-narrative-key\]'\)\]/u);
-  assert.match(output.html, /const taskLines=\[\.\.\.root\.querySelectorAll\('\.task-line\[data-narrative-key\]'\)\]/u);
-  assert.doesNotMatch(output.html, /const taskLines=\[\.\.\.root\.querySelectorAll\('\[data-narrative-key\]'\)\]/u);
-  assert.match(output.html, /line\.hidden=line\.dataset\.narrativeKey!==key/u);
-  assert.match(output.html, /item\.section\.hidden=!item\.lines\.some/u);
+  })), [], {
+    schema: 'lattice.todo_gantt_presentation.v1',
+    project_id: 'project-1',
+    plans: [{
+      plan_key: 'main',
+      lanes: [
+        { lane: 'lane-0', name: '調査', description: '調査工程。' },
+        { lane: 'lane-1', name: '実装', description: '実装工程。' },
+      ],
+    }],
+  });
+  assert.equal((output.html.match(/class="task-index-status status-/gu) ?? []).length, 2);
+  assert.equal((output.html.match(/<h1>Intent<\/h1>/gu) ?? []).length, 0);
+  assert.match(output.html, /data-view-state="overview"/u);
+  assert.match(output.html, /<button type="button" data-show-overview>概要<\/button>/u);
+  assert.match(output.html, /<button type="button" data-show-selected hidden>選択工程へ戻る<\/button>/u);
+  assert.match(output.html, /<button type="button" data-show-task-index>元Markdown全文<\/button>/u);
+  assert.match(output.html, /data-right-panel="overview"/u);
+  assert.match(output.html, /data-right-panel="details" hidden/u);
+  assert.match(output.html, /data-right-panel="task-index" hidden/u);
+  assert.equal((output.html.match(/class="task-detail" data-detail-key=/gu) ?? []).length, 2);
+  assert.match(output.html, /<div class="status-summary"><span>☐ 未着手 1<\/span><span>▶ 作業中 1<\/span>/u);
+  assert.match(output.html, /<strong>カテゴリ:<\/strong> lane-0 — 調査/u);
+  assert.match(output.html, /class="category-description">調査工程。<\/p>/u);
+  assert.match(output.html, /<h2>前提工程<\/h2>/u);
+  assert.match(output.html, /<h2>後続工程<\/h2>/u);
+  assert.match(output.html, /data-select-node-key="\[&quot;project-1&quot;,&quot;main&quot;,&quot;T0001&quot;\]"/u);
+  assert.match(output.html, /const detailPanels=\[\.\.\.root\.querySelectorAll\('\[data-detail-key\]'\)\]/u);
+  assert.match(output.html, /const showOverview=\(\)=>/u);
+  assert.match(output.html, /const showTaskIndex=\(\)=>/u);
+  assert.match(output.html, /const showSelected=\(\)=>/u);
+  assert.match(output.html, /selectedReturnButton\.hidden=name!=='task-index'\|\|selectedKey===null/u);
+  assert.match(output.html, /edge\.classList\.toggle\('selected-incident-edge',selected&&\(edge\.dataset\.fromNodeKey===selectedKey\|\|edge\.dataset\.toNodeKey===selectedKey\)\)/u);
   assert.match(output.html, /event\.key==='Enter'\|\|event\.key===' '/u);
   assert.match(output.html, /event\.key==='Escape'/u);
-  assert.match(output.html, /const target=narrativeTargets\.find\(line=>line\.dataset\.narrativeKey===key\);target\?\.scrollIntoView\(\{block:'start'\}\)/u);
+  assert.match(output.html, /const selectButton=event\.target\.closest\('\[data-select-node-key\]'\)/u);
   assert.equal((output.html.match(/root\.addEventListener\('click'/gu) ?? []).length, 1);
   assert.equal((output.html.match(/root\.addEventListener\('keydown'/gu) ?? []).length, 1);
   assert.match(output.html, /class="diagram-scroll" data-diagram-scroll tabindex="0"/u);
@@ -305,16 +349,20 @@ test('right pane reads as a Markdown document while retaining all/selected/reset
   assert.match(output.html, /Math\.max\(30,Math\.min\(75,/u);
   assert.match(output.html, /shell\.style\.setProperty\('--split',percent\+'%'\)/u);
   assert.match(output.html, /root\.addEventListener\('dblclick',event=>\{const paneDivider=[^}]+shell\.style\.setProperty\('--split','58%'\)/u);
-  assert.match(output.html, /<div class="narrative-document"><section class="plan-document"><h1 class="plan-title"><code>main<\/code><\/h1>/u);
-  assert.match(output.html, /<h2>Acceptance<\/h2>/u);
-  assert.match(output.html, /class="markdown-checkbox" role="img" aria-label="unchecked">☐/u);
-  assert.match(output.html, /<span title="状態表示（更新は lattice todo CLI）" class="markdown-checkbox"/u);
-  assert.match(output.html, /\.document-status\{[^}]*cursor:default/u);
-  assert.match(output.html, /\.markdown-checkbox\{[^}]*cursor:default/u);
+  assert.match(output.html, /data-right-panel="task-index" hidden><h1>全工程<\/h1>/u);
+  assert.match(output.html, /<section class="task-index-plan"><h2><code>main<\/code><\/h2><ol class="task-index-list">/u);
+  assert.match(output.html, /class="task-index-reference">工程 0000<\/span><strong>Task 0<\/strong>/u);
+  assert.match(output.html, /class="task-index-reference">工程 0001<\/span><strong>Task 1<\/strong>/u);
+  assert.ok(output.html.indexOf('<strong>Task 0</strong>') < output.html.indexOf('<strong>Task 1</strong>'));
+  assert.doesNotMatch(output.html, /Keep the document flow|<h2>Acceptance<\/h2>|class="markdown-checkbox"/u);
   assert.match(output.html, /\.next-ready-node \.node-surface\{stroke:var\(--accent\);stroke-width:2;stroke-dasharray:4 3\}/u);
-  assert.match(output.html, /aria-label="main\/T0000: Task 0; 未着手（着手可）"/u);
-  assert.match(output.html, /<tspan class="node-id">T0000<\/tspan> Task 0/u);
+  assert.match(output.html, /data-task-id="T0000" data-task-number="0000" data-task-number-normalized="0"/u);
+  assert.match(output.html, /aria-label="工程0000。未着手。lane-0、調査。Task 0。正規ID main\/T0000。依存関係上の候補"/u);
+  assert.match(output.html, /class="node-meta"[^>]*>未着手 · 工程 0000<\/text>/u);
+  assert.match(output.html, /<tspan[^>]*class="node-title-line">Task 0<\/tspan>/u);
   assert.match(output.html, /\.dependency-edge \.edge-arrow\{fill:var\(--text-secondary\);opacity:\.7\}/u);
+  assert.match(output.html, /data-from-node-key="\[&quot;project-1&quot;,&quot;main&quot;,&quot;T0000&quot;\]"/u);
+  assert.match(output.html, /data-to-node-key="\[&quot;project-1&quot;,&quot;main&quot;,&quot;T0001&quot;\]"/u);
   assert.match(output.html, /class="summary-lane" data-lane-key="\[&quot;main&quot;,&quot;lane-0&quot;\]" role="button" tabindex="0" aria-pressed="false"/u);
   assert.match(output.html, /data-node-key="[^"]+" data-lane-key="\[&quot;main&quot;,&quot;lane-0&quot;\]"/u);
   assert.match(output.html, /\.lane-dimmed\{opacity:\.35\}/u);
@@ -324,15 +372,21 @@ test('right pane reads as a Markdown document while retaining all/selected/reset
   assert.match(output.html, /const toggleLane=\(key\)=>applyLane\(activeLaneKey===key\?null:key\)/u);
   assert.match(output.html, /edge\.dataset\.fromLaneKey!==key&&edge\.dataset\.toLaneKey!==key/u);
   assert.doesNotMatch(output.html, /<p class="notice">/u);
-  assert.match(output.html, /<span class="diagram-note">最長依存鎖はunit-weight/u);
+  assert.match(output.html, /<title>Lattice 依存工程図<\/title>/u);
+  assert.match(output.html, /縦方向は時間ではなく、登録済み依存関係による工程段階/u);
+  assert.match(output.html, /class="diagram-legend"[^>]*aria-label="工程図の凡例"/u);
+  assert.match(output.html, /☐ 未着手/u);
+  assert.match(output.html, /破線枠: 依存関係上の候補/u);
+  assert.match(output.html, /太線: 構造上の最長依存鎖/u);
+  assert.match(output.html, /菱形: 複数工程の合流/u);
   assert.match(output.html, /body\{display:grid;grid-template-rows:minmax\(0,1fr\)/u);
-  assert.match(output.html, /\[data-view-state="all"\] \.narrative-pane>\.toolbar\{display:none\}/u);
-  assert.doesNotMatch(output.html, /class="task-facts"|class="evidence"|<dl|<dt>/u);
+  assert.doesNotMatch(output.html, /data-show-all|data-view-state="all"|data-view-state="selected"/u);
+  assert.doesNotMatch(output.html, /class="task-facts"|class="evidence"/u);
   assert.equal(output.html.includes('innerHTML'), false);
   assert.doesNotMatch(output.html, /\son[a-z]+\s*=/iu);
 });
 
-test('verified anchorはcheckbox行内へ状態を置き、不成立taskはWARNと末尾task-lineへfail closedする', () => {
+test('全工程一覧はanchor成否に依存せずstoreの現在状態と全文タイトルを登録順で表示する', () => {
   const read = readFixture(3);
   const markdown = '# Plan\n- [ ] pending task\n- [ ] blocked task\n- [ ] drifted task';
   const lineDigest = (line) => createHash('sha256').update(line).digest('hex');
@@ -352,17 +406,16 @@ test('verified anchorはcheckbox行内へ状態を置き、不成立taskはWARN�
   const outcomes = verifyNarrativeAnchors({ readModel: read, narratives });
   const html = renderFixture(read, narratives, outcomes).html;
 
-  assert.match(html, /<span title="状態表示（更新は lattice todo CLI）" class="document-status status-pending" data-narrative-key="\[&quot;project-1&quot;,&quot;main&quot;,&quot;T0000&quot;\]"[^>]*>☐<\/span><p>pending task<\/p>/u);
-  assert.match(html, /class="document-status status-blocked"[^>]*>⛔<\/span><p>blocked task<\/p><span class="blocked-reason"> — 理由未記録<\/span>/u);
-  assert.match(html, /行内表示不可: <code>T0002<\/code> — digest_mismatch/u);
-  assert.match(html, /class="markdown-checkbox" role="img" aria-label="unchecked">☐<\/span><p>drifted task<\/p>/u);
-  assert.equal((html.match(/class="task-line"/gu) ?? []).length, 1);
-  assert.match(html, /class="task-line"[^>]*><span[^>]*>☐<\/span><h2>Task 2<\/h2>/u);
-  assert.ok(html.indexOf('class="narrative-warning"') < html.indexOf('class="narrative-body"'));
-  assert.ok(html.indexOf('class="narrative-body"') < html.indexOf('class="task-line"'));
+  assert.equal((html.match(/class="task-index-status status-/gu) ?? []).length, 3);
+  assert.match(html, /class="task-index-status status-pending"[^>]*>☐<\/span><span class="task-index-reference">工程 0000<\/span><strong>Task 0<\/strong>/u);
+  assert.match(html, /class="task-index-status status-blocked"[^>]*>⛔<\/span><span class="task-index-reference">工程 0001<\/span><strong>Task 1<\/strong><span class="task-index-blocked-reason">— 理由未記録<\/span>/u);
+  assert.match(html, /class="task-index-reference">工程 0002<\/span><strong>Task 2<\/strong>/u);
+  assert.ok(html.indexOf('<strong>Task 0</strong>') < html.indexOf('<strong>Task 1</strong>'));
+  assert.ok(html.indexOf('<strong>Task 1</strong>') < html.indexOf('<strong>Task 2</strong>'));
+  assert.doesNotMatch(html, /pending task|blocked task|drifted task|class="anchor-diagnostics"|class="narrative-body"/u);
 });
 
-test('SVG renders compact status nodes, every edge, join marker, and hierarchical summary without timestamps', () => {
+test('SVG renders readable status nodes, every edge, join marker, and hierarchical summary without timestamps', () => {
   const T0 = ref('T0000'); const T1 = ref('T0001'); const T2 = ref('T0002');
   const read = readFixture(4, [{ from: T0, to: T1 }]);
   read.members[0].plan.joins = [{ id: 'join-all', after: [T0, T1], before: T2 }];
@@ -386,11 +439,11 @@ test('SVG renders compact status nodes, every edge, join marker, and hierarchica
   assert.match(html, /class="summary-plan-group"[^>]*><rect class="summary-container"/u);
   assert.doesNotMatch(html, /class="summary-connector"/u);
   assert.match(html, /class="status-bar"/u);
-  assert.match(html, /class="blocked-reason">— Waiting for owner<\/span>/u);
+  assert.match(html, /class="task-index-blocked-reason">— Waiting for owner<\/span>/u);
   assert.doesNotMatch(html, /main\/lane-/u);
   assert.doesNotMatch(html, /hidden edges|folded edges|data-fold-state|bundle-badge/u);
   assert.doesNotMatch(html, /class="node-time"|S:07-18|D:07-18|Started at|Done at/u);
-  assert.doesNotMatch(html, /class="task-facts"|class="evidence"|<dl|<dt>/u);
+  assert.doesNotMatch(html, /class="task-facts"|class="evidence"/u);
 });
 
 test('XSS through narrative and task title is inert in the final document', async (context) => {
