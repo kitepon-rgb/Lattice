@@ -458,8 +458,9 @@ function materializeImportedNarrativeAnchors(repoRoot, planInput, sources) {
 }
 
 function verifyPlanNarrativeAnchors(repoRoot, plan, trustedPlan = null) {
-  if (plan.schema !== 'lattice.todo_plan.v2') return;
-  const trusted = new Map((trustedPlan?.schema === 'lattice.todo_plan.v2' ? trustedPlan.tasks : [])
+  if (!['lattice.todo_plan.v2', 'lattice.todo_plan.v3'].includes(plan.schema)) return;
+  const trusted = new Map((['lattice.todo_plan.v2', 'lattice.todo_plan.v3'].includes(trustedPlan?.schema)
+    ? trustedPlan.tasks : [])
     .map((task) => [task.task_id, task.narrative_anchor]));
   for (const task of plan.tasks) {
     const anchor = task.narrative_anchor;
@@ -968,8 +969,14 @@ export async function createSuccessorTodoPlan(options = {}) {
     if (plan.project_id !== store.project_id || plan.plan_key !== previous.plan.plan_key) {
       throw new TypeError('successor identity must match active plan');
     }
-    if (previous.plan.schema === 'lattice.todo_plan.v2' && plan.schema !== 'lattice.todo_plan.v2') {
-      throw new TypeError('todo plan schema cannot regress from v2 to v1');
+    const schemaRank = new Map([
+      ['lattice.todo_plan.v1', 1], ['lattice.todo_plan.v2', 2], ['lattice.todo_plan.v3', 3],
+    ]);
+    if (schemaRank.get(plan.schema) < schemaRank.get(previous.plan.schema)) {
+      throw new TypeError(previous.plan.schema === 'lattice.todo_plan.v2'
+        && plan.schema === 'lattice.todo_plan.v1'
+        ? 'todo plan schema cannot regress from v2 to v1'
+        : 'todo plan schema cannot regress');
     }
     verifyPlanNarrativeAnchors(repoRoot, plan, previous.plan);
     const migration = options.genesis.task_migration ?? [];

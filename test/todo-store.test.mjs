@@ -25,6 +25,9 @@ const snapshotRef = '.lattice/todo/plans/main/v1/snapshot.json';
 const manifestRef = '.lattice/todo/manifest.json';
 
 const task = (taskId) => ({ task_id: taskId, title: taskId, lane: 'main', narrative_ref: null, compile_binding: null });
+const taskV3 = (taskId, parentTaskId = null) => ({
+  ...task(taskId), narrative_anchor: null, parent_task_id: parentTaskId,
+});
 const ref = (taskId, planKey = 'main', projectId = 'project-1', expected) => ({
   project_id: projectId, plan_key: planKey, task_id: taskId,
   ...(expected === undefined ? {} : { expected_topology_digest: expected }),
@@ -104,6 +107,21 @@ test('todo timestampはmillisecond UTCのparse→toISOString byte一致だけを
     '2026-02-30T00:00:00.000Z', '2026-07-18T00:00:00Z',
     '2026-07-18T00:00:00.00Z', '2026-07-18T09:00:00.000+09:00',
   ]) assert.equal(isStrictTodoTimestamp(value), false, value);
+});
+
+test('todo_plan.v3はparent存在・self禁止・cycle禁止をdigest込みで検証する', () => {
+  const input = {
+    schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'main', plan_version: 'v2',
+    predecessor_plan_digest: '1'.repeat(64), tasks: [taskV3('P1'), taskV3('T1', 'P1')],
+    hard_dependencies: [], joins: [],
+  };
+  const plan = buildTodoPlan(input);
+  assert.equal(plan.schema, 'lattice.todo_plan.v3');
+  for (const tasks of [
+    [taskV3('T1', 'missing')],
+    [taskV3('T1', 'T1')],
+    [taskV3('T1', 'T2'), taskV3('T2', 'T1')],
+  ]) assert.throws(() => buildTodoPlan({ ...input, tasks }), /declared schema/u);
 });
 
 test('canonical journalを唯一正本としてplanとsnapshotを束縛して読む', async (context) => {

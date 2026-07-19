@@ -146,10 +146,38 @@ export function validateTodoImportSource(value) {
     && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value.source_commit);
 }
 
+function taskV3(value) {
+  return exactRecord(value, [
+    'task_id', 'title', 'lane', 'narrative_ref', 'narrative_anchor', 'compile_binding',
+    'parent_task_id',
+  ]) && isTodoIdentifier(value.task_id) && nullableText(value.title) && isTodoIdentifier(value.lane)
+    && (value.narrative_ref === null || isTodoRef(value.narrative_ref))
+    && (value.narrative_anchor === null || (validateTodoNarrativeAnchor(value.narrative_anchor)
+      && value.narrative_ref === value.narrative_anchor.origin_plan_ref))
+    && compileBinding(value.compile_binding)
+    && (value.parent_task_id === null || isTodoIdentifier(value.parent_task_id));
+}
+
+function validParentGraph(tasks) {
+  const parents = new Map(tasks.map(({ task_id, parent_task_id }) => [task_id, parent_task_id]));
+  for (const [taskId, parentTaskId] of parents) {
+    if (parentTaskId !== null && (parentTaskId === taskId || !parents.has(parentTaskId))) return false;
+    const seen = new Set([taskId]);
+    let cursor = parentTaskId;
+    while (cursor !== null) {
+      if (seen.has(cursor)) return false;
+      seen.add(cursor);
+      cursor = parents.get(cursor);
+    }
+  }
+  return true;
+}
+
 export function validateTodoPlan(value) {
   try {
     const taskValidator = value?.schema === 'lattice.todo_plan.v1' ? taskV1
-      : value?.schema === 'lattice.todo_plan.v2' ? taskV2 : null;
+      : value?.schema === 'lattice.todo_plan.v2' ? taskV2
+        : value?.schema === 'lattice.todo_plan.v3' ? taskV3 : null;
     if (!exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'plan_version', 'predecessor_plan_digest',
       'tasks', 'hard_dependencies', 'joins', 'topology_digest', 'plan_digest',
@@ -164,7 +192,8 @@ export function validateTodoPlan(value) {
       || !value.joins.every((join) => exactRecord(join, ['id', 'after', 'before']) && isTodoIdentifier(join.id)
         && Array.isArray(join.after) && join.after.length > 0 && join.after.length <= TODO_LIMITS.tasksPerPlan
         && join.after.every(nodeRef) && nodeRef(join.before))
-      || !isTodoDigest(value.topology_digest) || !isTodoDigest(value.plan_digest)) return false;
+      || !isTodoDigest(value.topology_digest) || !isTodoDigest(value.plan_digest)
+      || (value.schema === 'lattice.todo_plan.v3' && !validParentGraph(value.tasks))) return false;
     if (value.tasks.some((entry, index) => index > 0 && compareText(value.tasks[index - 1].task_id, entry.task_id) >= 0)
       || value.hard_dependencies.some((edge, index) => index > 0
         && compareText(`${refKey(value.hard_dependencies[index - 1].from)}\0${refKey(value.hard_dependencies[index - 1].to)}`,
