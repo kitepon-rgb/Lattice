@@ -4,7 +4,7 @@
 - Control: `lattice-gantt-ui-v7`
 - 正本: `docs/plan_lattice_gantt.md` G4
 - 対象: Lattice local source → dotagents `.lattice/generated/gantt.html`
-- 状態: 実装・機械受入済み。実ブラウザ操作とオーナー目視は未受入
+- 状態: Accepted。機械受入＋オーナー目視受入済み
 
 ## 実装境界
 
@@ -72,7 +72,14 @@ node /Users/kite/Developer/Lattice/bin/lattice.mjs todo verify
 | snapshot | `072d4d1742816f31344eaea3fcb91d8ac26942fa08ed714e9290fed9c3108d4f` |
 | journal | `bc19600c0daa624da4871e8332a240843cccb24c1e9dd8149394d7017bcc9935` |
 
-## 未受入
+## オーナー目視受入
+
+2026-07-19、オーナーがdotagents実110件の生成HTMLを確認し、「工程表の見え方はまぁOK、続けて」と裁定した。
+「まぁ」は追加改善の余地を示す定性的評価として保持するが、G4の見た目をrejectする指摘はなく、次Phaseへ進む明示指示を伴うためAcceptedとする。
+
+受入直前にNode 26.5.0でrenderer focused 23/23を再実行し、全件greenを確認した。Node 26対応は`5cdfc58`で製品契約へ反映済みである。
+
+## 自動化できなかった実ブラウザ項目と受入裁定
 
 Codex in-app browserは対象`file://` URLをbrowser security policyで拒否した。別browser、localhost化、
 raw browser command等への迂回もpolicy上禁止されているため、次は未実行である。
@@ -82,6 +89,6 @@ raw browser command等への迂回もpolicy上禁止されているため、次�
 - Enter／Space／Escape、lane、zoom、splitterの実操作
 - 狭幅表示
 - console error／実resource request観測
-- オーナー目視受入
+- オーナー目視受入（上記のとおり別途完了）
 
-これらを成功扱いせず、G4最終受入checkboxとControl finalizationは開いたまま維持する。
+実click・狭幅・console観測は未実行のまま保持し、実施済みとは扱わない。一方、対応するcontroller・keyboard・self-contained契約はfocused 23件でgreen、見た目はオーナーが受入済みである。オーナーの次Phase続行裁定によりG4最終受入checkboxを閉じる。

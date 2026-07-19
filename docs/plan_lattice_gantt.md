@@ -283,7 +283,7 @@ rollback: G4開始前に両repoのHEAD・対象path・digestを記録し、受�
   - [x] nodeを状態＋工程番号＋2行題名へ拡張し、右ペインをoverview／選択工程detail／TODO store由来の
         元Markdown形式全工程一覧の3状態へ変更する。一覧は登録順・現在状態・工程番号・全文題名を表示し、
         narrative本文やanchor成否を内容源にしない。anchorのfail-closed検証と誤再束縛禁止は維持する
-  - [ ] dotagents実110件で工程番号参照、カテゴリ理解、前提／後続navigation、全工程一覧、keyboard、
+  - [x] dotagents実110件で工程番号参照、カテゴリ理解、前提／後続navigation、全工程一覧、keyboard、
         network 0、store不変を確認し、オーナー目視受入を得る
     - 2026-07-19実装・機械検証（[evidence](evidence/2026-07-19-gantt-renderer-v7-mechanical-acceptance.md)）:
       renderer v7 focused 23/23 green。dotagents local source生成で
@@ -292,7 +292,9 @@ rollback: G4開始前に両repoのHEAD・対象path・digestを記録し、受�
       36 digest mismatch／2 anchor missing、元Markdown本文の埋込み0、
       外部resource参照0を確認。`todo verify` green、manifest／plan／snapshot／journalのSHA-256は
       生成前後で完全一致。in-app browserは`file://` URL policyで拒否されたため、実ブラウザの
-      navigation／keyboard／狭幅表示とオーナー目視だけ未受入のまま残す。
+      navigation／keyboard／狭幅表示は未自動化のまま保持し、オーナー目視は下記裁定で閉じた。
+    - 2026-07-19オーナー目視受入: 「工程表の見え方はまぁOK、続けて」。実click等を実施済みへ
+      読み替えず、renderer controller契約23/23 green＋オーナー目視を受入根拠としてG4をAcceptedとした。
   - 非目標: task/store schema変更、工程番号CLI resolver、duration推定、completion依存のrenderer推論、
     anchor 38件の再束縛、publish／host rollout。completionの依存不足はsuccessor plan再compileの別課題
 
