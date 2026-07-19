@@ -36,7 +36,9 @@ import {
   validateTodoExtraction,
 } from './todo-migration.mjs';
 import { projectTodoStatus } from './todo-status.mjs';
-import { todoLegacyReconciliationDigest, validateTodoRevision } from './todo-revision.mjs';
+import {
+  parseTodoSourceRef, todoLegacyReconciliationDigest, validateTodoRevision,
+} from './todo-revision.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_REF = '.lattice/generated/gantt.html';
@@ -336,7 +338,9 @@ async function status({ repoRoot }) {
 
 async function readNarrative(repoRoot, ref) {
   const canonicalRoot = await realpath(repoRoot);
-  const absolute = path.resolve(canonicalRoot, ref);
+  const source = parseTodoSourceRef(ref);
+  const fileRef = source?.path ?? ref;
+  const absolute = path.resolve(canonicalRoot, fileRef);
   if (!within(canonicalRoot, absolute)) {
     throw new TodoStoreError('STORE_INCONSISTENT', 'narrative_path_outside_repo', undefined, { ref });
   }
@@ -351,7 +355,22 @@ async function readNarrative(repoRoot, ref) {
   if (resolved !== absolute || !within(canonicalRoot, resolved)) {
     throw new TodoStoreError('STORE_INCONSISTENT', 'narrative_path_alias_or_escape', undefined, { ref });
   }
-  const bytes = await readFile(resolved);
+  const fileBytes = await readFile(resolved);
+  let bytes = fileBytes;
+  if (source !== null) {
+    const lines = [];
+    let start = 0;
+    for (let index = 0; index <= fileBytes.length; index += 1) {
+      if (index === fileBytes.length || fileBytes[index] === 0x0a) {
+        lines.push(fileBytes.subarray(start, index));
+        start = index + 1;
+      }
+    }
+    bytes = lines[source.line - 1];
+    if (bytes === undefined) {
+      throw new TodoStoreError('STORE_INCONSISTENT', 'narrative_line_missing', undefined, { ref });
+    }
+  }
   let markdown;
   try { markdown = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch {
     throw new TodoStoreError('STORE_INCONSISTENT', 'narrative_invalid_utf8', undefined, { ref });

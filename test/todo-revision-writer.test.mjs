@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -18,6 +18,7 @@ import {
   readTodoStore,
 } from '../src/todo-store.mjs';
 import {
+  todoCutoverArchiveSourceRef,
   todoLegacyReconciliationDigest,
   todoReconciliationDigest,
   todoRevisionPlanVersion,
@@ -134,6 +135,83 @@ async function revisionFor(root, {
   return revision;
 }
 
+async function cutoverRevisionFor(root, {
+  twoFiles = false, badDigest = false, breakListStructure = false,
+} = {}) {
+  if (twoFiles) {
+    await writeFile(path.join(root, 'extra.md'), '- [ ] T6\n');
+    await writeFile(path.join(root, 'plan.md'), [1, 2, 3, 4, 5]
+      .map((index) => `- [ ] T${index}`).join('\n') + '\nT6はextra.mdへ記載\n');
+  }
+  const store = await readTodoStore({ repoRoot: root, now: NOW });
+  const previous = store.members[0];
+  const predecessor = {
+    plan_digest: previous.plan.plan_digest,
+    journal_head_digest: previous.journal.events.at(-1).event_digest,
+    plan_version: previous.plan.plan_version,
+  };
+  const taskMigration = ['T1', 'T2', 'T3', 'T4', 'T5'].map((taskId) => ({
+    from_task_id: taskId, to_task_id: taskId,
+    state_policy: taskId === 'T5' ? 'reset_pending' : 'carry_reconciled_metadata',
+  }));
+  const operations = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'].map((taskId, offset) => ({
+    task_id: taskId,
+    disposition: 'active',
+    source_ref: twoFiles && taskId === 'T6' ? 'extra.md#L1' : `plan.md#L${offset + 1}`,
+    source_digest: digest(`- [ ] ${taskId}`),
+    live_replacement: `- Lattice管理: ${taskId}`,
+  })).sort((left, right) => left.source_ref.localeCompare(right.source_ref));
+  if (badDigest) operations.at(-1).source_digest = 'f'.repeat(64);
+  if (breakListStructure) operations.at(-1).live_replacement = '<!-- Lattice管理 -->';
+  const sourceCutoverBatch = {
+    batch_id: 'batch-1', archive_ref: 'docs/archive/main-batch-1.md',
+    operations, batch_digest: '',
+  };
+  sourceCutoverBatch.batch_digest = todoSelfDigest(sourceCutoverBatch, 'batch_digest');
+  const sourceInventory = {
+    active: operations.map((operation, index) => ({
+      task_id: operation.task_id,
+      source_ref: todoCutoverArchiveSourceRef(sourceCutoverBatch, index),
+      source_digest: operation.source_digest,
+    })).sort((left, right) => left.task_id.localeCompare(right.task_id)),
+    excluded_tombstones: [],
+  };
+  const desiredInput = {
+    schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'main',
+    plan_version: 'pending', predecessor_plan_digest: predecessor.plan_digest,
+    tasks: ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'].map((taskId) => {
+      const index = operations.findIndex((operation) => operation.task_id === taskId);
+      return { ...task(taskId), narrative_ref: todoCutoverArchiveSourceRef(sourceCutoverBatch, index) };
+    }),
+    hard_dependencies: [], joins: [],
+  };
+  desiredInput.plan_version = todoRevisionPlanVersion({
+    projectId: 'project-1', planKey: 'main', predecessor, desiredPlan: desiredInput,
+    taskMigration, sourceInventory, sourceCutoverBatch,
+  });
+  const desiredPlan = buildTodoPlan(desiredInput);
+  const predecessorReconciliationDigest = todoLegacyReconciliationDigest({
+    planDigest: predecessor.plan_digest, journalHeadDigest: predecessor.journal_head_digest,
+  });
+  const sourceInventoryDigest = todoSourceInventoryDigest(sourceInventory);
+  const reconciliation = {
+    predecessor_reconciliation_digest: predecessorReconciliationDigest,
+    source_inventory_digest: sourceInventoryDigest,
+    reconciliation_digest: todoReconciliationDigest({
+      predecessorReconciliationDigest, sourceInventoryDigest, predecessor,
+      desiredPlanDigest: desiredPlan.plan_digest, taskMigration, sourceCutoverBatch,
+    }),
+  };
+  const revision = {
+    schema: 'lattice.todo_revision.v2', project_id: 'project-1', plan_key: 'main',
+    predecessor, desired_plan: desiredPlan, task_migration: taskMigration,
+    source_inventory: sourceInventory, source_cutover_batch: sourceCutoverBatch,
+    reconciliation, revision_digest: '',
+  };
+  revision.revision_digest = todoSelfDigest(revision, 'revision_digest');
+  return revision;
+}
+
 function pinnedLegacyCommit(root) {
   const content = '- [x] H1\n- [ ] H2\n';
   const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], {
@@ -186,6 +264,65 @@ async function historicalRevisionFor(root) {
 
 const apply = (root, revision, extra = {}) => applyTodoRevision({
   repoRoot: root, writer, revision, actor: ACTOR, recordedAt: NOW, now: NOW, ...extra,
+});
+
+test('v2 cutoverは複数ToDo・複数fileを一括移転してlive checkboxを断ち切る', async (context) => {
+  const root = await fixture(context);
+  const revision = await cutoverRevisionFor(root, { twoFiles: true });
+  await chmod(path.join(root, 'plan.md'), 0o1754);
+  const sourceMode = (await stat(path.join(root, 'plan.md'))).mode & 0o7777;
+  const result = await apply(root, revision);
+  assert.equal(result.schema, 'lattice.todo_revise_result.v2');
+  assert.equal(result.source_cutover.operation_count, 6);
+  assert.equal((await readFile(path.join(root, 'plan.md'), 'utf8')).match(/\[[ xX]\]/gu), null);
+  assert.equal((await readFile(path.join(root, 'extra.md'), 'utf8')).match(/\[[ xX]\]/gu), null);
+  assert.equal((await stat(path.join(root, 'plan.md'))).mode & 0o7777, sourceMode);
+  assert.equal((await stat(path.join(root, 'docs/archive/main-batch-1.md'))).mode & 0o777, 0o644);
+  const archive = await readFile(path.join(root, 'docs/archive/main-batch-1.md'), 'utf8');
+  assert.deepEqual(archive.split('\n').slice(5, 11), revision.source_cutover_batch.operations
+    .map(({ task_id }) => `- [ ] ${task_id}`));
+});
+
+test('v2 cutoverはbatch内1件の不一致でsource・archive・storeを全て無変更にする', async (context) => {
+  const root = await fixture(context);
+  const revision = await cutoverRevisionFor(root, { badDigest: true });
+  const beforeSource = await readFile(path.join(root, 'plan.md'));
+  const beforeManifest = await readFile(path.join(root, '.lattice/todo/manifest.json'));
+  await assert.rejects(apply(root, revision), (error) => error instanceof TodoStoreError
+    && error.code === 'RECONCILIATION_INCOMPLETE');
+  assert.deepEqual(await readFile(path.join(root, 'plan.md')), beforeSource);
+  assert.deepEqual(await readFile(path.join(root, '.lattice/todo/manifest.json')), beforeManifest);
+  await assert.rejects(readFile(path.join(root, 'docs/archive/main-batch-1.md')), { code: 'ENOENT' });
+});
+
+test('v2 cutoverはcheckbox親listを壊すreplacementを全体無変更で拒否する', async (context) => {
+  const root = await fixture(context);
+  const revision = await cutoverRevisionFor(root, { breakListStructure: true });
+  const beforeSource = await readFile(path.join(root, 'plan.md'));
+  const beforeManifest = await readFile(path.join(root, '.lattice/todo/manifest.json'));
+  await assert.rejects(apply(root, revision), (error) => error instanceof TodoStoreError
+    && error.code === 'RECONCILIATION_INCOMPLETE'
+    && error.detail.reason === 'live_replacement_breaks_list_structure');
+  assert.deepEqual(await readFile(path.join(root, 'plan.md')), beforeSource);
+  assert.deepEqual(await readFile(path.join(root, '.lattice/todo/manifest.json')), beforeManifest);
+});
+
+test('v2 cutoverは既存archiveとhardlink sourceをactivation前に拒否する', async (context) => {
+  const archiveConflict = await fixture(context);
+  const conflictRevision = await cutoverRevisionFor(archiveConflict);
+  await mkdir(path.join(archiveConflict, 'docs/archive'), { recursive: true });
+  await writeFile(path.join(archiveConflict, 'docs/archive/main-batch-1.md'), 'occupied\n');
+  await assert.rejects(apply(archiveConflict, conflictRevision), (error) => error instanceof TodoStoreError
+    && error.code === 'REVISION_CONFLICT' && error.detail.reason === 'source_cutover_archive_exists');
+  assert.match(await readFile(path.join(archiveConflict, 'plan.md'), 'utf8'), /- \[ \] T1/u);
+
+  const hardlinked = await fixture(context);
+  const hardlinkRevision = await cutoverRevisionFor(hardlinked);
+  await link(path.join(hardlinked, 'plan.md'), path.join(hardlinked, 'plan-hardlink.md'));
+  await assert.rejects(apply(hardlinked, hardlinkRevision), (error) => error instanceof TodoStoreError
+    && error.code === 'RECONCILIATION_INCOMPLETE'
+    && error.detail.reason === 'source_path_not_regular');
+  assert.match(await readFile(path.join(hardlinked, 'plan.md'), 'utf8'), /- \[ \] T1/u);
 });
 
 test('revision writerはv2 genesisからcarry/reset/source-seeded stateを投影しretryを冪等化する', async (context) => {
@@ -480,6 +617,31 @@ for (const stage of [
     }), new RegExp(`crash:${stage}`, 'u'));
     const result = await apply(root, revision);
     assert.equal(result.revision_digest, revision.revision_digest);
+    const store = await readTodoStore({ repoRoot: root, now: NOW });
+    assert.equal(store.members[0].plan.plan_version, revision.desired_plan.plan_version);
+  });
+}
+
+for (const stage of [
+  'source_cutover_staged', 'source_cutover_barrier_durable', 'source_cutover_published',
+  'revision_manifest_activated', 'source_cutover_cleanup',
+]) {
+  test(`v2 source cutoverは${stage}停止から同一revisionだけで収束する`, async (context) => {
+    const root = await fixture(context);
+    const revision = await cutoverRevisionFor(root, { twoFiles: true });
+    await assert.rejects(apply(root, revision, {
+      onProtocolStage: (current) => { if (current === stage) throw new Error(`crash:${stage}`); },
+    }), new RegExp(`crash:${stage}`, 'u'));
+    if (['source_cutover_barrier_durable', 'source_cutover_published',
+      'revision_manifest_activated'].includes(stage)) {
+      await assert.rejects(readTodoStore({ repoRoot: root, now: NOW }),
+        (error) => error instanceof TodoStoreError
+          && error.code === 'SOURCE_CUTOVER_RECOVERY_REQUIRED');
+    }
+    const result = await apply(root, revision);
+    assert.equal(result.revision_digest, revision.revision_digest);
+    assert.equal((await readFile(path.join(root, 'plan.md'), 'utf8')).match(/\[[ xX]\]/gu), null);
+    assert.equal((await readFile(path.join(root, 'extra.md'), 'utf8')).match(/\[[ xX]\]/gu), null);
     const store = await readTodoStore({ repoRoot: root, now: NOW });
     assert.equal(store.members[0].plan.plan_version, revision.desired_plan.plan_version);
   });

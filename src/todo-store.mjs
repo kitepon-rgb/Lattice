@@ -23,12 +23,15 @@ import {
 import { sha256Bytes, verifyLinearHashChain } from './hash-chain.mjs';
 import {
   parseTodoSourceRef,
+  todoCutoverArchiveSourceRef,
   todoLegacyReconciliationDigest,
   validateTodoRevision,
 } from './todo-revision.mjs';
 
 const STORE_ROOT_REF = '.lattice/todo';
 const MANIFEST_REF = `${STORE_ROOT_REF}/manifest.json`;
+const SOURCE_CUTOVER_BARRIER_REF = `${STORE_ROOT_REF}/source-cutover-recovery.json`;
+const SOURCE_CUTOVER_RECOVERY_CAPABILITY = Symbol('lattice.todo.source-cutover-recovery');
 const MAX_FUTURE_SKEW_MS = 5 * 60 * 1_000;
 const WRITER_CALLERS = new Set(['g4-migration', 'g5-authoring']);
 
@@ -443,6 +446,14 @@ function markdownCheckboxState(lineBytes) {
   return match[1] === ' ' ? 'unchecked' : 'checked';
 }
 
+function liveReplacementPreservesListStructure(lineBytes, replacement) {
+  let line;
+  try { line = new TextDecoder('utf-8', { fatal: true }).decode(lineBytes); } catch { return false; }
+  const source = /^([\t ]*)([-+*]|\d+[A-Za-z]?\.|\d+\))[\t ]+\[[ xX]\](?:[\t ]+.*)?\r?$/u.exec(line);
+  const target = /^([\t ]*)([-+*]|\d+[A-Za-z]?\.|\d+\))[\t ]+.+$/u.exec(replacement);
+  return source !== null && target !== null && source[1] === target[1] && source[2] === target[2];
+}
+
 function importSourceVerifier(repoRoot, hard, cache = null) {
   return (descriptor) => {
     if (!validateTodoImportSource(descriptor)) fail('STORE_INCONSISTENT', 'import_source_descriptor_invalid');
@@ -530,6 +541,20 @@ function verifyPlanNarrativeAnchors(repoRoot, plan, trustedPlan = null) {
 
 export async function readTodoStore(options = {}) {
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const barrier = await exactFileOrNull(path.resolve(repoRoot, SOURCE_CUTOVER_BARRIER_REF));
+  if (barrier !== null) {
+    let value;
+    try { value = JSON.parse(decodeUtf8(barrier, 'SOURCE_CUTOVER_RECOVERY_REQUIRED', 'barrier_invalid')); }
+    catch (error) {
+      if (error instanceof TodoStoreError) throw error;
+      fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'barrier_invalid');
+    }
+    if (options.sourceCutoverRecoveryCapability !== SOURCE_CUTOVER_RECOVERY_CAPABILITY
+      || value?.schema !== 'lattice.todo_source_cutover_barrier.v1'
+      || value.revision_digest !== options.allowSourceCutoverRevisionDigest) {
+      fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_recovery_required');
+    }
+  }
   const pinnedSourceCache = { commits: new Set(), blobs: new Map() };
   const manifest = await readArtifact(repoRoot, MANIFEST_REF, {
     code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
@@ -613,6 +638,23 @@ async function atomicWrite(absolute, bytes) {
     await rename(temporary, absolute);
     const directory = await open(path.dirname(absolute), 'r');
     try { await directory.sync(); } finally { await directory.close(); }
+  } finally {
+    if (handle) await handle.close();
+    await rm(temporary, { force: true });
+  }
+}
+
+async function atomicWriteMode(absolute, bytes, mode) {
+  await mkdir(path.dirname(absolute), { recursive: true });
+  const temporary = path.join(path.dirname(absolute),
+    `.${path.basename(absolute)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
+  let handle;
+  try {
+    handle = await open(temporary, 'wx', mode);
+    await handle.writeFile(bytes); await handle.chmod(mode);
+    await handle.sync(); await handle.close(); handle = null;
+    await rename(temporary, absolute);
+    await fsyncDirectory(path.dirname(absolute));
   } finally {
     if (handle) await handle.close();
     await rm(temporary, { force: true });
@@ -1167,15 +1209,24 @@ function stateMigrationFor(previous, revision) {
   });
 }
 
-function revisionResult(revision, genesis) {
+function revisionResult(revision, genesis, { recovered = false } = {}) {
   const result = {
-    schema: 'lattice.todo_revise_result.v1', project_id: revision.project_id,
+    schema: revision.schema === 'lattice.todo_revision.v2'
+      ? 'lattice.todo_revise_result.v2' : 'lattice.todo_revise_result.v1',
+    project_id: revision.project_id,
     plan_key: revision.plan_key, predecessor_plan_digest: revision.predecessor.plan_digest,
     predecessor_journal_head_digest: revision.predecessor.journal_head_digest,
     plan_version: revision.desired_plan.plan_version, plan_digest: revision.desired_plan.plan_digest,
     topology_digest: revision.desired_plan.topology_digest, journal_head_digest: genesis.event_digest,
     revision_digest: revision.revision_digest,
-    reconciliation_digest: revision.reconciliation.reconciliation_digest, result_digest: '',
+    reconciliation_digest: revision.reconciliation.reconciliation_digest,
+    ...(revision.schema === 'lattice.todo_revision.v2' ? { source_cutover: {
+      batch_id: revision.source_cutover_batch.batch_id,
+      operation_count: revision.source_cutover_batch.operations.length,
+      archive_ref: revision.source_cutover_batch.archive_ref,
+      recovered,
+    } } : {}),
+    result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
@@ -1274,6 +1325,228 @@ async function publishRevisionArtifact(staged, finalAbsolute, expected) {
   await fsyncDirectory(path.dirname(finalAbsolute));
 }
 
+function splitSourceLines(bytes) {
+  const lines = [];
+  let start = 0;
+  for (let index = 0; index <= bytes.length; index += 1) {
+    if (index === bytes.length || bytes[index] === 0x0a) {
+      lines.push({ start, end: index, bytes: bytes.subarray(start, index) });
+      start = index + 1;
+    }
+  }
+  return lines;
+}
+
+async function safeRepoFile(repoRoot, ref, { missing = false } = {}) {
+  const canonicalRoot = await realpath(repoRoot);
+  const absolute = path.resolve(canonicalRoot, ref);
+  if (!absolute.startsWith(`${canonicalRoot}${path.sep}`)) {
+    fail('RECONCILIATION_INCOMPLETE', 'source_path_outside_repo', { ref });
+  }
+  let current = canonicalRoot;
+  const parts = path.relative(canonicalRoot, absolute).split(path.sep).filter(Boolean);
+  for (const part of parts.slice(0, -1)) {
+    current = path.join(current, part);
+    let state;
+    try { state = await lstat(current); }
+    catch (error) {
+      if (missing && error?.code === 'ENOENT') return { absolute, missingParent: current };
+      fail('RECONCILIATION_INCOMPLETE', 'source_path_missing', { ref });
+    }
+    if (state.isSymbolicLink() || !state.isDirectory() || await realpath(current) !== current) {
+      fail('RECONCILIATION_INCOMPLETE', 'source_path_symlink', { ref });
+    }
+  }
+  let state;
+  try { state = await lstat(absolute); }
+  catch (error) {
+    if (missing && error?.code === 'ENOENT') return { absolute, missing: true };
+    fail('RECONCILIATION_INCOMPLETE', 'source_path_missing', { ref });
+  }
+  if (state.isSymbolicLink() || !state.isFile() || state.nlink !== 1
+    || await realpath(absolute) !== absolute) {
+    fail('RECONCILIATION_INCOMPLETE', 'source_path_not_regular', { ref });
+  }
+  return { absolute, state, missing: false };
+}
+
+async function ensureSafeRepoParent(repoRoot, absolute) {
+  const canonicalRoot = await realpath(repoRoot);
+  if (!absolute.startsWith(`${canonicalRoot}${path.sep}`)) {
+    fail('REVISION_CONFLICT', 'source_path_outside_repo');
+  }
+  let current = canonicalRoot;
+  for (const part of path.relative(canonicalRoot, path.dirname(absolute)).split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    try {
+      const state = await lstat(current);
+      if (state.isSymbolicLink() || !state.isDirectory() || await realpath(current) !== current) {
+        fail('REVISION_CONFLICT', 'source_directory_unsafe');
+      }
+    } catch (error) {
+      if (error instanceof TodoStoreError) throw error;
+      if (error?.code !== 'ENOENT') throw error;
+      await mkdir(current, { mode: 0o700 });
+      await fsyncDirectory(path.dirname(current));
+    }
+  }
+}
+
+function sourceCutoverArchiveBytes(revision, originals) {
+  const header = [
+    '# Lattice ToDo archive',
+    `Plan: ${revision.plan_key}`,
+    `Batch: ${revision.source_cutover_batch.batch_id}`,
+    `Revision: ${revision.revision_digest}`,
+    '',
+  ].join('\n');
+  return Buffer.concat([Buffer.from(`${header}\n`, 'utf8'),
+    ...originals.flatMap((line) => [line, Buffer.from('\n')])]);
+}
+
+async function buildSourceCutoverImages(repoRoot, revision) {
+  const batch = revision.source_cutover_batch;
+  const archiveState = await safeRepoFile(repoRoot, batch.archive_ref, { missing: true });
+  if (!archiveState.missing && !archiveState.missingParent) {
+    fail('REVISION_CONFLICT', 'source_cutover_archive_exists', { archive_ref: batch.archive_ref });
+  }
+  const groups = new Map();
+  const originals = [];
+  for (const operation of batch.operations) {
+    const parsed = parseTodoSourceRef(operation.source_ref);
+    const state = await safeRepoFile(repoRoot, parsed.path);
+    let group = groups.get(parsed.path);
+    if (!group) {
+      const before = await readFile(state.absolute);
+      decodeUtf8(before, 'RECONCILIATION_INCOMPLETE', 'source_invalid_utf8');
+      group = { ref: parsed.path, absolute: state.absolute, before,
+        mode: state.state.mode & 0o7777, replacements: [] };
+      groups.set(parsed.path, group);
+    }
+    const line = splitSourceLines(group.before)[parsed.line - 1]?.bytes;
+    if (line === undefined) fail('RECONCILIATION_INCOMPLETE', 'source_line_missing', {
+      source_ref: operation.source_ref,
+    });
+    if (sha256Bytes(line) !== operation.source_digest) {
+      fail('RECONCILIATION_INCOMPLETE', 'source_digest_mismatch', { source_ref: operation.source_ref });
+    }
+    if (markdownCheckboxState(line) === null) {
+      fail('RECONCILIATION_INCOMPLETE', 'source_item_not_todo', { source_ref: operation.source_ref });
+    }
+    if (!liveReplacementPreservesListStructure(line, operation.live_replacement)) {
+      fail('RECONCILIATION_INCOMPLETE', 'live_replacement_breaks_list_structure', {
+        source_ref: operation.source_ref,
+      });
+    }
+    originals.push(line);
+    const replacement = Buffer.from(`${operation.live_replacement}${line.at(-1) === 0x0d ? '\r' : ''}`, 'utf8');
+    group.replacements.push({ line: parsed.line, replacement });
+  }
+  const files = [...groups.values()].sort((left, right) => left.ref.localeCompare(right.ref));
+  for (const file of files) {
+    const lines = splitSourceLines(file.before);
+    let after = file.before;
+    for (const replacement of file.replacements.sort((left, right) => right.line - left.line)) {
+      const target = lines[replacement.line - 1];
+      after = Buffer.concat([after.subarray(0, target.start), replacement.replacement,
+        after.subarray(target.end)]);
+    }
+    file.after = after;
+  }
+  return { files, archive: { ref: batch.archive_ref, absolute: archiveState.absolute,
+    bytes: sourceCutoverArchiveBytes(revision, originals) } };
+}
+
+async function stageSourceCutover(transaction, revision, images) {
+  const files = [];
+  for (const [index, file] of images.files.entries()) {
+    const beforeName = `source-${index}-before.bin`;
+    const afterName = `source-${index}-after.bin`;
+    await atomicWrite(path.join(transaction, beforeName), file.before);
+    await atomicWrite(path.join(transaction, afterName), file.after);
+    files.push({ ref: file.ref, before: beforeName, after: afterName, mode: file.mode,
+      before_digest: sha256Bytes(file.before), after_digest: sha256Bytes(file.after) });
+  }
+  await atomicWrite(path.join(transaction, 'source-archive.bin'), images.archive.bytes);
+  const descriptor = {
+    schema: 'lattice.todo_source_cutover_stage.v1', revision_digest: revision.revision_digest,
+    archive_ref: images.archive.ref, archive_digest: sha256Bytes(images.archive.bytes), files,
+  };
+  await atomicWrite(path.join(transaction, 'source-cutover.json'), canonicalLine(descriptor));
+  return descriptor;
+}
+
+async function loadSourceCutoverStage(repoRoot, transaction, revision) {
+  const bytes = await exactFileOrNull(path.join(transaction, 'source-cutover.json'));
+  if (bytes === null) fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_missing');
+  let descriptor;
+  try { descriptor = JSON.parse(decodeUtf8(bytes, 'SOURCE_CUTOVER_RECOVERY_REQUIRED', 'stage_invalid')); }
+  catch (error) {
+    if (error instanceof TodoStoreError) throw error;
+    fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'stage_invalid');
+  }
+  if (descriptor?.schema !== 'lattice.todo_source_cutover_stage.v1'
+    || descriptor.revision_digest !== revision.revision_digest
+    || descriptor.archive_ref !== revision.source_cutover_batch.archive_ref
+    || !Array.isArray(descriptor.files)) {
+    fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'stage_invalid');
+  }
+  const files = [];
+  for (const file of descriptor.files) {
+    const before = await exactFileOrNull(path.join(transaction, file.before));
+    const after = await exactFileOrNull(path.join(transaction, file.after));
+    if (before === null || after === null || sha256Bytes(before) !== file.before_digest
+      || sha256Bytes(after) !== file.after_digest) {
+      fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
+    }
+    if (!Number.isSafeInteger(file.mode) || file.mode < 0 || file.mode > 0o7777) {
+      fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
+    }
+    const state = await safeRepoFile(repoRoot, file.ref);
+    files.push({ ...file, absolute: state.absolute, before, after });
+  }
+  const archiveBytes = await exactFileOrNull(path.join(transaction, 'source-archive.bin'));
+  if (archiveBytes === null || sha256Bytes(archiveBytes) !== descriptor.archive_digest) {
+    fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
+  }
+  const archiveAbsolute = path.resolve(await realpath(repoRoot), descriptor.archive_ref);
+  return { descriptor, files, archive: { absolute: archiveAbsolute, bytes: archiveBytes } };
+}
+
+async function publishSourceCutover(repoRoot, staged) {
+  await ensureSafeRepoParent(repoRoot, staged.archive.absolute);
+  const existingArchive = await exactFileOrNull(staged.archive.absolute);
+  if (existingArchive === null) await atomicWriteMode(staged.archive.absolute, staged.archive.bytes, 0o644);
+  else if (!existingArchive.equals(staged.archive.bytes)) {
+    fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'archive_bytes_conflict');
+  }
+  for (const file of staged.files) {
+    const current = await readFile(file.absolute);
+    if (current.equals(file.after)) continue;
+    if (!current.equals(file.before)) {
+      fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_bytes_conflict', { source_ref: file.ref });
+    }
+    await atomicWriteMode(file.absolute, file.after, file.mode);
+  }
+}
+
+async function rollbackSourceCutover(staged, barrierAbsolute) {
+  for (const file of staged.files) {
+    const current = await readFile(file.absolute);
+    if (current.equals(file.after)) await atomicWriteMode(file.absolute, file.before, file.mode);
+    else if (!current.equals(file.before)) return false;
+  }
+  const archive = await exactFileOrNull(staged.archive.absolute);
+  if (archive !== null) {
+    if (!archive.equals(staged.archive.bytes)) return false;
+    await rm(staged.archive.absolute);
+    await fsyncDirectory(path.dirname(staged.archive.absolute));
+  }
+  await rm(barrierAbsolute, { force: true });
+  await fsyncDirectory(path.dirname(barrierAbsolute));
+  return true;
+}
+
 /** G5 revision transaction: exact successor, state migration, and manifest-CAS activation. */
 export async function applyTodoRevision(options = {}) {
   requireWriter(options.writer, 'g5-authoring');
@@ -1281,7 +1554,26 @@ export async function applyTodoRevision(options = {}) {
   const revision = options.revision;
   if (!validateTodoRevision(revision)) fail('REVISION_INVALID', 'revision_schema_or_digest_invalid');
   return withLock(repoRoot, async () => {
-    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
+    const barrierAbsolute = path.resolve(repoRoot, SOURCE_CUTOVER_BARRIER_REF);
+    const barrierBytes = await exactFileOrNull(barrierAbsolute);
+    let recovering = false;
+    if (barrierBytes !== null) {
+      let barrier;
+      try { barrier = JSON.parse(decodeUtf8(barrierBytes, 'SOURCE_CUTOVER_RECOVERY_REQUIRED', 'barrier_invalid')); }
+      catch (error) {
+        if (error instanceof TodoStoreError) throw error;
+        fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'barrier_invalid');
+      }
+      if (revision.schema !== 'lattice.todo_revision.v2'
+        || barrier?.schema !== 'lattice.todo_source_cutover_barrier.v1'
+        || barrier.revision_digest !== revision.revision_digest) {
+        fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_recovery_required');
+      }
+      recovering = true;
+    }
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now,
+      ...(recovering ? { allowSourceCutoverRevisionDigest: revision.revision_digest,
+        sourceCutoverRecoveryCapability: SOURCE_CUTOVER_RECOVERY_CAPABILITY } : {}) });
     const previous = store.members.find(({ descriptor }) => descriptor.plan_key === revision.plan_key);
     if (!previous || revision.project_id !== store.project_id) fail('STORE_INCONSISTENT', 'plan_not_active');
     const activeGenesis = previous.journal.events[0];
@@ -1290,8 +1582,14 @@ export async function applyTodoRevision(options = {}) {
       && activeGenesis.revision_digest === revision.revision_digest) {
       const transaction = path.join(repoRoot, STORE_ROOT_REF, 'transactions', 'revisions',
         revision.plan_key, revision.desired_plan.plan_version);
+      if (revision.schema === 'lattice.todo_revision.v2' && recovering) {
+        const staged = await loadSourceCutoverStage(repoRoot, transaction, revision);
+        await publishSourceCutover(repoRoot, staged);
+        await rm(barrierAbsolute, { force: true });
+        await fsyncDirectory(path.dirname(barrierAbsolute));
+      }
       await rm(transaction, { recursive: true, force: true });
-      return revisionResult(revision, activeGenesis);
+      return revisionResult(revision, activeGenesis, { recovered: recovering });
     }
     if (activeGenesis.schema === 'lattice.todo_event.v2'
       && activeGenesis.payload.predecessor_plan_digest === revision.predecessor.plan_digest
@@ -1313,7 +1611,11 @@ export async function applyTodoRevision(options = {}) {
       !== predecessorReconciliationDigest) fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
 
     await rejectCompetingRevisionTransaction(repoRoot, revision);
-    await verifyRevisionSources(repoRoot, revision.source_inventory);
+    const cutoverImages = revision.schema === 'lattice.todo_revision.v2' && !recovering
+      ? await buildSourceCutoverImages(repoRoot, revision) : null;
+    if (revision.schema === 'lattice.todo_revision.v1') {
+      await verifyRevisionSources(repoRoot, revision.source_inventory);
+    }
     verifyPlanNarrativeAnchors(repoRoot, revision.desired_plan, previous.plan);
     const stateMigration = stateMigrationFor(previous, revision);
     const prospective = store.members.map((member) => member === previous
@@ -1373,28 +1675,61 @@ export async function applyTodoRevision(options = {}) {
     await publishRevisionArtifact(path.join(transaction, 'snapshot.json'), path.resolve(repoRoot, snapshotRef), snapshotBytes);
     await protocolStage(options, 'revision_snapshot_durable');
 
-    const currentManifest = await readArtifact(repoRoot, MANIFEST_REF, {
-      code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
-    });
-    if (currentManifest.manifest_digest !== store.manifest.manifest_digest) {
-      fail('STORE_WRITE_CONFLICT', 'manifest_digest_changed');
+    let stagedCutover = null;
+    if (revision.schema === 'lattice.todo_revision.v2') {
+      if (recovering) stagedCutover = await loadSourceCutoverStage(repoRoot, transaction, revision);
+      else {
+        const descriptor = await stageSourceCutover(transaction, revision, cutoverImages);
+        stagedCutover = await loadSourceCutoverStage(repoRoot, transaction, revision);
+        if (descriptor.revision_digest !== revision.revision_digest) {
+          fail('REVISION_CONFLICT', 'source_cutover_stage_invalid');
+        }
+        await protocolStage(options, 'source_cutover_staged');
+        await atomicWrite(barrierAbsolute, canonicalLine({
+          schema: 'lattice.todo_source_cutover_barrier.v1',
+          revision_digest: revision.revision_digest,
+        }));
+        await protocolStage(options, 'source_cutover_barrier_durable');
+      }
+      await publishSourceCutover(repoRoot, stagedCutover);
+      await protocolStage(options, 'source_cutover_published');
     }
-    const descriptor = currentManifest.members.find(({ plan_key }) => plan_key === revision.plan_key);
-    if (!descriptor || descriptor.active_plan_version !== revision.predecessor.plan_version
-      || descriptor.journal_head_digest !== revision.predecessor.journal_head_digest) {
-      fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
+
+    try {
+      const currentManifest = await readArtifact(repoRoot, MANIFEST_REF, {
+        code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
+      });
+      if (currentManifest.manifest_digest !== store.manifest.manifest_digest) {
+        fail('STORE_WRITE_CONFLICT', 'manifest_digest_changed');
+      }
+      const descriptor = currentManifest.members.find(({ plan_key }) => plan_key === revision.plan_key);
+      if (!descriptor || descriptor.active_plan_version !== revision.predecessor.plan_version
+        || descriptor.journal_head_digest !== revision.predecessor.journal_head_digest) {
+        fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
+      }
+      Object.assign(descriptor, {
+        active_plan_version: revision.desired_plan.plan_version, plan_ref: planRef,
+        journal_ref: journalRef, snapshot_ref: snapshotRef,
+        topology_digest: revision.desired_plan.topology_digest,
+        journal_head_digest: genesis.event_digest,
+      });
+      currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');
+      await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(currentManifest));
+      await protocolStage(options, 'revision_manifest_activated');
+    } catch (error) {
+      if (stagedCutover !== null && error instanceof TodoStoreError) {
+        const rolledBack = await rollbackSourceCutover(stagedCutover, barrierAbsolute);
+        if (!rolledBack) fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'rollback_incomplete');
+      }
+      throw error;
     }
-    Object.assign(descriptor, {
-      active_plan_version: revision.desired_plan.plan_version, plan_ref: planRef,
-      journal_ref: journalRef, snapshot_ref: snapshotRef,
-      topology_digest: revision.desired_plan.topology_digest,
-      journal_head_digest: genesis.event_digest,
-    });
-    currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');
-    await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(currentManifest));
-    await protocolStage(options, 'revision_manifest_activated');
+    if (revision.schema === 'lattice.todo_revision.v2') {
+      await rm(barrierAbsolute, { force: true });
+      await fsyncDirectory(path.dirname(barrierAbsolute));
+      await protocolStage(options, 'source_cutover_cleanup');
+    }
     await rm(transaction, { recursive: true, force: true });
-    return revisionResult(revision, genesis);
+    return revisionResult(revision, genesis, { recovered: recovering });
   });
 }
 

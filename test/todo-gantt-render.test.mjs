@@ -60,7 +60,7 @@ function renderFixture(read, narratives = [], anchorOutcomes = [], document = nu
   return renderTodoGanttHtml({ readModel: read, layout, narratives, anchorOutcomes, presentation });
 }
 
-async function workspace(context, title = 'T1') {
+async function workspace(context, title = 'T1', narrativeRef = 'narrative.md') {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-gantt-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: root }).status, 0);
@@ -76,7 +76,7 @@ async function workspace(context, title = 'T1') {
       plan: {
         schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'main',
         plan_version: 'v1', predecessor_plan_digest: null,
-        tasks: [{ task_id: 'T1', title, lane: 'main', narrative_ref: 'narrative.md', compile_binding: null }],
+        tasks: [{ task_id: 'T1', title, lane: 'main', narrative_ref: narrativeRef, compile_binding: null }],
         hard_dependencies: [], joins: [],
       },
       genesis: { actor: ACTOR, recorded_at: NOW },
@@ -208,6 +208,22 @@ test('small real store E2E generates the default self-contained gantt and exact 
   assert.match(html, /"presentation_digest":"[0-9a-f]{64}"/u);
   assert.match(html, /"schema":"lattice\.todo_gantt_presentation_model\.v1"/u);
   assert.match(html, /"task_id":"T1","display_number":"1","normalized_number":"1"/u);
+});
+
+test('Gantt narrativeはarchive line fragmentをfile pathと混同せず1行だけ読む', async (context) => {
+  const root = await workspace(context, 'fragment narrative', 'narrative.md#L3');
+  const execution = run(root, ['todo', 'gantt']);
+  assert.equal(execution.status, 0, execution.stderr);
+  const result = JSON.parse(execution.stdout);
+  assert.equal(result.narrative_bindings_digest, digestTodoArtifact([{
+    project_id: 'project-1', plan_key: 'main', task_id: 'T1',
+    narrative_ref: 'narrative.md#L3',
+    content_digest: createHash('sha256').update('fragment narrative').digest('hex'),
+    anchored: false, reason: 'anchor_missing',
+  }]));
+  const html = await readFile(path.join(root, result.output_ref), 'utf8');
+  assert.match(html, /fragment narrative/u);
+  assert.doesNotMatch(html, /# Background/u);
 });
 
 test('v2 anchor成立のCLI ganttはoutcomeをbinding digestと行内markの両方へ一度で束縛する', async (context) => {

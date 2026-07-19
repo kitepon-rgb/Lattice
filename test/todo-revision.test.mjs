@@ -7,6 +7,7 @@ import {
 } from '../src/todo-contracts.mjs';
 import { buildTodoPlan } from '../src/todo-store.mjs';
 import {
+  todoCutoverArchiveSourceRef,
   todoLegacyReconciliationDigest,
   todoReconciliationDigest,
   todoRevisionPlanVersion,
@@ -83,6 +84,73 @@ function revisionFixture({ taskMigration = [
   return revision;
 }
 
+function cutoverRevisionFixture() {
+  const legacy = revisionFixture();
+  const sourceCutoverBatch = {
+    batch_id: 'batch-1',
+    archive_ref: 'docs/archive/lattice-todos/main/batch-1.md',
+    operations: [
+      { task_id: 'P1', disposition: 'active', source_ref: 'docs/plan.md#L1',
+        source_digest: '3'.repeat(64), live_replacement: '<!-- Lattice main/P1 -->' },
+      { task_id: 'T1', disposition: 'active', source_ref: 'docs/plan.md#L2',
+        source_digest: '4'.repeat(64), live_replacement: '<!-- Lattice main/T1 -->' },
+      { task_id: null, disposition: 'excluded', source_ref: 'docs/plan.md#L3',
+        source_digest: '5'.repeat(64), live_replacement: '<!-- Lattice excluded -->' },
+    ],
+    batch_digest: '',
+  };
+  sourceCutoverBatch.batch_digest = todoSelfDigest(sourceCutoverBatch, 'batch_digest');
+  const desiredInput = {
+    schema: legacy.desired_plan.schema,
+    project_id: legacy.project_id,
+    plan_key: legacy.plan_key,
+    plan_version: 'pending',
+    predecessor_plan_digest: legacy.predecessor.plan_digest,
+    tasks: legacy.desired_plan.tasks.map((entry) => ({
+      ...entry,
+      narrative_ref: todoCutoverArchiveSourceRef(
+        sourceCutoverBatch,
+        entry.task_id === 'P1' ? 0 : 1,
+      ),
+    })),
+    hard_dependencies: legacy.desired_plan.hard_dependencies,
+    joins: legacy.desired_plan.joins,
+  };
+  const sourceInventory = {
+    active: legacy.source_inventory.active.map((entry, index) => ({
+      ...entry, source_ref: todoCutoverArchiveSourceRef(sourceCutoverBatch, index),
+    })),
+    excluded_tombstones: legacy.source_inventory.excluded_tombstones.map((entry) => ({
+      ...entry, source_ref: todoCutoverArchiveSourceRef(sourceCutoverBatch, 2),
+    })),
+  };
+  desiredInput.plan_version = todoRevisionPlanVersion({
+    projectId: legacy.project_id, planKey: legacy.plan_key, predecessor: legacy.predecessor,
+    desiredPlan: desiredInput, taskMigration: legacy.task_migration,
+    sourceInventory, sourceCutoverBatch,
+  });
+  const desiredPlan = buildTodoPlan(desiredInput);
+  const sourceInventoryDigest = todoSourceInventoryDigest(sourceInventory);
+  const reconciliation = {
+    predecessor_reconciliation_digest: legacy.reconciliation.predecessor_reconciliation_digest,
+    source_inventory_digest: sourceInventoryDigest,
+    reconciliation_digest: todoReconciliationDigest({
+      predecessorReconciliationDigest: legacy.reconciliation.predecessor_reconciliation_digest,
+      sourceInventoryDigest, predecessor: legacy.predecessor,
+      desiredPlanDigest: desiredPlan.plan_digest, taskMigration: legacy.task_migration,
+      sourceCutoverBatch,
+    }),
+  };
+  const revision = {
+    schema: 'lattice.todo_revision.v2', project_id: legacy.project_id, plan_key: legacy.plan_key,
+    predecessor: legacy.predecessor, desired_plan: desiredPlan,
+    task_migration: legacy.task_migration, source_inventory: sourceInventory,
+    reconciliation, source_cutover_batch: sourceCutoverBatch, revision_digest: '',
+  };
+  revision.revision_digest = todoSelfDigest(revision, 'revision_digest');
+  return revision;
+}
+
 test('todo_revision.v1はv3 desired state・inventory・reconciliationをexact digest束縛する', () => {
   const revision = revisionFixture();
   assert.equal(validateTodoRevision(revision), true);
@@ -96,6 +164,29 @@ test('todo_revision.v1はv3 desired state・inventory・reconciliationをexact d
   ]) {
     const invalid = structuredClone(revision);
     mutate(invalid);
+    assert.equal(validateTodoRevision(invalid), false);
+  }
+});
+
+test('todo_revision.v2はper-ToDo source cutover batchをplan・inventory・narrativeへ束縛する', () => {
+  const revision = cutoverRevisionFixture();
+  assert.equal(validateTodoRevision(revision), true);
+  assert.equal(todoCutoverArchiveSourceRef(revision.source_cutover_batch, 0),
+    'docs/archive/lattice-todos/main/batch-1.md#L6');
+  for (const mutate of [
+    (value) => { value.source_cutover_batch.operations.reverse(); },
+    (value) => { value.source_cutover_batch.operations[0].live_replacement = '- [ ] 復活'; },
+    (value) => { value.source_cutover_batch.operations[0].source_digest = 'f'.repeat(64); },
+    (value) => { value.source_inventory.active[0].source_ref = 'docs/plan.md#L1'; },
+    (value) => { value.desired_plan.tasks[0].narrative_ref = 'docs/plan.md#L1'; },
+    (value) => { value.source_cutover_batch.archive_ref = '../escape.md'; },
+  ]) {
+    const invalid = structuredClone(revision);
+    mutate(invalid);
+    invalid.source_cutover_batch.batch_digest = todoSelfDigest(
+      invalid.source_cutover_batch, 'batch_digest',
+    );
+    invalid.revision_digest = todoSelfDigest(invalid, 'revision_digest');
     assert.equal(validateTodoRevision(invalid), false);
   }
 });

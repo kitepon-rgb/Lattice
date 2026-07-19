@@ -322,6 +322,22 @@ UI磨き込みbacklogは[ui-review-backlog.md](ui-review-backlog.md)が正。
       dotagents `shared/constitution.md`）を同一gateで実施し、二重正本期間を作らない
 - [ ] 公開契約（00_product-contract.md）・README・dotagents install/verify・生成憲法の同期
 
+### G6 — per-ToDo source cutover transaction（2026-07-19追加）
+
+dotagents wire v4 cutover後もlive plan Markdownへcheckbox台帳が残り、別AIがMarkdownを進捗正本として
+再同期できる状態を解消する。契約は[ADR 0057](adr/0057-per-todo-source-cutover-transaction.md)を正とする。
+
+実行順は、revision v2とper-ToDo bounded batchの契約テスト、durable source-cutover protocol、CLI、
+dotagents 8 plan実移転、独立反証、full gate、NPM公開後smokeである。source移転はfile単位でなくToDo単位、
+graph activationはplan successor単位とし、複数ToDo操作を一transactionへ束ねてよい。移転済みlive planへ
+checkboxを再導入する経路はconsumer側lintで拒否する。
+
+G6完了状態の正本はLattice storeとrelease evidenceであり、本節へcheckbox進捗を追加しない。
+
+2026-07-19、ADR 0057の実装、独立反証、dotagents 708 ToDoの実cutover、両repoのfull gateまで
+受入済み。公開前・公開後の検証結果は
+[v0.6.5 source cutover evidence](evidence/2026-07-19-v0.6.5-source-cutover.md)を正とする。
+
 ## 4. 非目標
 
 - 常駐サービス化・外部PM SaaS採用・Markdown正本との二重管理（表示は生成物、正本は一つ）
