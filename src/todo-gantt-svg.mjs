@@ -51,7 +51,7 @@ function renderEdge(edge, laneKeysByNode) {
     const [x, y] = edge.route[Math.floor(edge.route.length / 2)];
     return `<g class="join-marker" aria-label="join ${escapeSvgAttribute(edge.join_ids.join(', '))}"><polygon points="${x},${y - 6} ${x + 6},${y} ${x},${y + 6} ${x - 6},${y}"></polygon><title>${escapeSvgText(edge.join_ids.join(', '))}</title></g>`;
   })();
-  return `<g class="${classes.join(' ')}" data-edge-id="${escapeSvgAttribute(edge.id)}" data-from-lane-key="${escapeSvgAttribute(fromLaneKey)}" data-to-lane-key="${escapeSvgAttribute(toLaneKey)}"><polyline points="${points(edge.route)}"></polyline>${arrowHead(edge.route)}${join}</g>`;
+  return `<g class="${classes.join(' ')}" data-edge-id="${escapeSvgAttribute(edge.id)}" data-from-node-key="${escapeSvgAttribute(nodeKey(edge.from))}" data-to-node-key="${escapeSvgAttribute(nodeKey(edge.to))}" data-from-lane-key="${escapeSvgAttribute(fromLaneKey)}" data-to-lane-key="${escapeSvgAttribute(toLaneKey)}"><polyline points="${points(edge.route)}"></polyline>${arrowHead(edge.route)}${join}</g>`;
 }
 
 function truncateLabel(value, maximum = 17) {
@@ -65,14 +65,44 @@ function truncateLabel(value, maximum = 17) {
   return `${result}…`;
 }
 
-function visibleNodeLabel(taskId, title, maximum = 14) {
-  const id = String(taskId);
-  if (stringWidth(id) >= maximum) return { id: truncateLabel(id, maximum), title: '' };
-  const titleWidth = maximum - stringWidth(id) - 1;
-  return { id, title: titleWidth <= 0 ? '' : truncateLabel(title, titleWidth) };
+function wrapLabel(value, maximum = 30, maximumLines = 2) {
+  const characters = [...String(value)];
+  const lines = [];
+  let cursor = 0;
+  for (let lineIndex = 0; lineIndex < maximumLines && cursor < characters.length; lineIndex += 1) {
+    const remaining = characters.slice(cursor).join('');
+    if (stringWidth(remaining) <= maximum) {
+      lines.push(remaining);
+      cursor = characters.length;
+      break;
+    }
+    if (lineIndex === maximumLines - 1) {
+      lines.push(truncateLabel(remaining, maximum));
+      cursor = characters.length;
+      break;
+    }
+    let line = '';
+    while (cursor < characters.length && stringWidth(`${line}${characters[cursor]}`) <= maximum) {
+      line += characters[cursor];
+      cursor += 1;
+    }
+    if (line === '') {
+      line = characters[cursor];
+      cursor += 1;
+    }
+    lines.push(line);
+  }
+  return lines.length === 0 ? [''] : lines;
 }
 
-function renderNode(node) {
+function presentationMaps(presentation) {
+  return {
+    lanes: new Map((presentation?.lanes ?? []).map((entry) => [laneKey(entry.plan_key, entry.lane), entry])),
+    taskNumbers: new Map((presentation?.task_numbers ?? []).map((entry) => [nodeKey(entry), entry])),
+  };
+}
+
+function renderNode(node, maps) {
   if (!node.visible || node.geometry === null) return '';
   const { x, y, width, height } = node.geometry;
   const classes = ['todo-node', STATUS_CLASSES[node.status] ?? 'status-unknown'];
@@ -82,33 +112,46 @@ function renderNode(node) {
   if (node.visibility.selected) classes.push('selected-node');
   const key = nodeKey(node.ref);
   const nodeLaneKey = laneKey(node.ref.plan_key, node.lane);
-  const label = `${node.ref.plan_key}/${node.ref.task_id}: ${node.title}`;
-  const presentation = STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' };
-  const visibleLabel = visibleNodeLabel(node.ref.task_id, node.title);
-  const readyLabel = node.visibility.next_ready ? '（着手可）' : '';
+  const status = STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' };
+  const lane = maps.lanes.get(nodeLaneKey);
+  const laneLabel = lane === undefined ? node.lane : `${node.lane}、${lane.name}`;
+  const taskNumber = maps.taskNumbers.get(key);
+  const visibleReference = taskNumber === undefined ? `ID ${node.ref.task_id}` : `工程 ${taskNumber.display_number}`;
+  const spokenReference = taskNumber === undefined ? `ID ${node.ref.task_id}` : `工程${taskNumber.display_number}`;
+  const readyLabel = node.visibility.next_ready ? '。依存関係上の候補' : '';
+  const ariaLabel = `${spokenReference}。${status.label}。${laneLabel}。${node.title}。正規ID ${node.ref.plan_key}/${node.ref.task_id}${readyLabel}`;
   const statusBar = node.status === 'in-progress'
     ? `<line class="status-bar" x1="${x + 5}" y1="${y + 6}" x2="${x + 5}" y2="${y + height - 6}"></line>` : '';
-  const visibleTitle = visibleLabel.title === '' ? '' : ` ${escapeSvgText(visibleLabel.title)}`;
-  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" data-lane-key="${escapeSvgAttribute(nodeLaneKey)}" tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(`${label}; ${presentation.label}${readyLabel}`)}"><rect class="node-surface" x="${x}" y="${y}" width="${width}" height="${height}" rx="4"></rect>${statusBar}<text class="status-mark" x="${x + 10}" y="${y + 22}">${escapeSvgText(presentation.mark)}</text><text class="node-title" x="${x + 34}" y="${y + 22}"><tspan class="node-id">${escapeSvgText(visibleLabel.id)}</tspan>${visibleTitle}</text><title>${escapeSvgText(`${label} — ${presentation.label}`)}</title></g>`;
+  const titleLines = wrapLabel(node.title);
+  const titleMarkup = titleLines.map((line, index) => `<tspan x="${x + 10}" dy="${index === 0 ? 0 : 17}" class="node-title-line">${escapeSvgText(line)}</tspan>`).join('');
+  const taskNumberAttributes = taskNumber === undefined ? ''
+    : ` data-task-number="${escapeSvgAttribute(taskNumber.display_number)}" data-task-number-normalized="${escapeSvgAttribute(taskNumber.normalized_number)}" data-task-number-globally-unique="${taskNumber.globally_unique ? 'true' : 'false'}"`;
+  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" data-lane-key="${escapeSvgAttribute(nodeLaneKey)}" data-project-id="${escapeSvgAttribute(node.ref.project_id)}" data-plan-key="${escapeSvgAttribute(node.ref.plan_key)}" data-task-id="${escapeSvgAttribute(node.ref.task_id)}"${taskNumberAttributes} tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(ariaLabel)}"><rect class="node-surface" x="${x}" y="${y}" width="${width}" height="${height}" rx="4"></rect>${statusBar}<text class="status-mark" x="${x + 10}" y="${y + 21}">${escapeSvgText(status.mark)}</text><text class="node-meta" x="${x + 34}" y="${y + 20}">${escapeSvgText(`${status.label} · ${visibleReference}`)}</text><text class="node-title" x="${x + 10}" y="${y + 42}">${titleMarkup}</text><title>${escapeSvgText(`${spokenReference}: ${node.title} — ${status.label} — ${laneLabel} — 正規ID ${node.ref.plan_key}/${node.ref.task_id}`)}</title></g>`;
 }
 
-function summaryLabel(value, maximum = 25) {
+function summaryLabel(value, maximum = 34) {
   return truncateLabel(value, maximum);
 }
 
 function summaryChipWidth(label, minimum = 116) {
-  return Math.max(minimum, Math.min(216, 24 + stringWidth(label) * 7));
+  return Math.max(minimum, Math.min(280, 24 + stringWidth(label) * 7));
 }
 
-function renderTodoSummary(layout) {
+function renderTodoSummary(layout, maps) {
   const markup = [];
   let groupX = 16;
   for (const plan of layout.groups.plans) {
     const lanes = layout.groups.lanes.filter((lane) => lane.plan_key === plan.plan_key);
     const laneChips = lanes.map((lane) => {
-      const fullLabel = `${lane.lane} ${lane.task_count}`;
+      const metadata = maps.lanes.get(laneKey(lane.plan_key, lane.lane));
+      const fullLabel = metadata === undefined
+        ? `${lane.lane} ${lane.task_count}`
+        : `${lane.lane} · ${metadata.name} ${lane.task_count}`;
       const label = summaryLabel(fullLabel);
-      return { lane, fullLabel, label, width: summaryChipWidth(label) };
+      const ariaLabel = metadata === undefined
+        ? `${lane.lane} — ${lane.task_count} ToDo`
+        : `${lane.lane} — ${metadata.name}、${lane.task_count} ToDo。${metadata.description}`;
+      return { lane, metadata, fullLabel, ariaLabel, label, width: summaryChipWidth(label) };
     });
     const childrenWidth = laneChips.reduce((total, chip) => total + chip.width, 0)
       + Math.max(0, laneChips.length - 1) * 8;
@@ -119,7 +162,7 @@ function renderTodoSummary(layout) {
     let laneX = groupX + 8;
     for (const chip of laneChips) {
       const key = laneKey(chip.lane.plan_key, chip.lane.lane);
-      markup.push(`<g class="summary-lane" data-lane-key="${escapeSvgAttribute(key)}" role="button" tabindex="0" aria-pressed="false" aria-label="${escapeSvgAttribute(`${chip.lane.lane} — ${chip.lane.task_count} ToDo`)}"><rect class="summary-chip lane-chip" x="${laneX}" y="48" width="${chip.width}" height="24" rx="9999"></rect><text x="${laneX + 12}" y="65">${escapeSvgText(chip.label)}</text><title>${escapeSvgText(`${chip.fullLabel} ToDo`)}</title></g>`);
+      markup.push(`<g class="summary-lane" data-lane-key="${escapeSvgAttribute(key)}" role="button" tabindex="0" aria-pressed="false" aria-label="${escapeSvgAttribute(chip.ariaLabel)}"><rect class="summary-chip lane-chip" x="${laneX}" y="48" width="${chip.width}" height="24" rx="9999"></rect><text x="${laneX + 12}" y="65">${escapeSvgText(chip.label)}</text><title>${escapeSvgText(chip.ariaLabel)}</title></g>`);
       laneX += chip.width + 8;
     }
     markup.push('</g>');
@@ -133,7 +176,8 @@ export function renderTodoGanttSvg(layout, options = {}) {
     || !Array.isArray(layout.nodes) || !Array.isArray(layout.edges)) {
     throw new TypeError('layout must be lattice.todo_gantt_layout.v1');
   }
-  const summary = renderTodoSummary(layout);
+  const maps = presentationMaps(options.presentation);
+  const summary = renderTodoSummary(layout, maps);
   const contentOffset = summary.height;
   const width = Math.max(240, layout.bounds.width + 40, summary.width + 12);
   const height = Math.max(240, layout.bounds.height + contentOffset + 32);
@@ -142,11 +186,11 @@ export function renderTodoGanttSvg(layout, options = {}) {
   ]));
   const nodes = layout.nodes.map((node) => {
     if (node.geometry === null) return '';
-    return renderNode({ ...node, geometry: { ...node.geometry, y: node.geometry.y + contentOffset } });
+    return renderNode({ ...node, geometry: { ...node.geometry, y: node.geometry.y + contentOffset } }, maps);
   }).join('');
   // Edge coordinates need the same vertical offset as nodes.
   const shiftedEdges = layout.edges.map((edge) => renderEdge(edge.route === null ? edge : {
     ...edge, route: edge.route.map(([x, y]) => [x, y + contentOffset]),
   }, laneKeysByNode)).join('');
-  return `<svg class="todo-gantt" data-gantt-svg data-svg-width="${width}" data-svg-height="${height}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="group" aria-label="Todo dependency gantt"><desc>最長依存鎖はunit-weightの構造深さであり実時間・資源律速ではない。</desc>${summary.markup}<g class="edge-layer">${shiftedEdges}</g><g class="node-layer">${nodes}</g></svg>`;
+  return `<svg class="todo-gantt" data-gantt-svg data-svg-width="${width}" data-svg-height="${height}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="group" aria-label="Todo依存工程図"><desc>縦方向は登録済み依存関係による工程段階。構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・資源律速を表さない。</desc>${summary.markup}<g class="edge-layer">${shiftedEdges}</g><g class="node-layer">${nodes}</g></svg>`;
 }

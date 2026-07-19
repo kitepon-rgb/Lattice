@@ -274,6 +274,27 @@ rollback: G4開始前に両repoのHEAD・対象path・digestを記録し、受�
 - [ ] **受入: dotagents master planの実workloadをガント表示し、最長依存鎖と現在地（active set＋
       next-ready）がブラウザで一目で判ること（オーナー目視）**。受入証跡とreject/retry記録を
       evidenceへ残す
+  - 2026-07-19実workload再検分: v4〜v6のfixture目視通過は維持するが、dotagents 110件では
+    `fm-0551`等の内部ID、`O2`等の略号、14表示幅の題名、元Markdown全文＋anchor WARN 38件が
+    利用者理解を妨げるためG4最終受入はreject。依存ツリー自体は維持してrenderer v7へ再設計する。
+  - [x] optional presentation sidecarを追加し、工程番号（例: `工程 0551`）とcanonical task identityを
+        双方保持する。数字suffixがplan内で一意でないtaskはfull `task_id`へfail closedする
+  - [x] lane chipを略号＋正式名＋説明へし、状態・依存候補・最長依存鎖・joinの凡例と非時間軸の説明を置く
+  - [x] nodeを状態＋工程番号＋2行題名へ拡張し、右ペインをoverview／選択工程detail／TODO store由来の
+        元Markdown形式全工程一覧の3状態へ変更する。一覧は登録順・現在状態・工程番号・全文題名を表示し、
+        narrative本文やanchor成否を内容源にしない。anchorのfail-closed検証と誤再束縛禁止は維持する
+  - [ ] dotagents実110件で工程番号参照、カテゴリ理解、前提／後続navigation、全工程一覧、keyboard、
+        network 0、store不変を確認し、オーナー目視受入を得る
+    - 2026-07-19実装・機械検証（[evidence](evidence/2026-07-19-gantt-renderer-v7-mechanical-acceptance.md)）:
+      renderer v7 focused 23/23 green。dotagents local source生成で
+      node 110・edge 69・detail 110・lane 12・工程番号110、状態83 done／24 pending／3 in-progress／
+      0 blocked、store由来全工程一覧110件（工程0328の全文題名を含む）、anchor 72 verified／
+      36 digest mismatch／2 anchor missing、元Markdown本文の埋込み0、
+      外部resource参照0を確認。`todo verify` green、manifest／plan／snapshot／journalのSHA-256は
+      生成前後で完全一致。in-app browserは`file://` URL policyで拒否されたため、実ブラウザの
+      navigation／keyboard／狭幅表示とオーナー目視だけ未受入のまま残す。
+  - 非目標: task/store schema変更、工程番号CLI resolver、duration推定、completion依存のrenderer推論、
+    anchor 38件の再束縛、publish／host rollout。completionの依存不足はsuccessor plan再compileの別課題
 
 UI磨き込みbacklogは[ui-review-backlog.md](ui-review-backlog.md)が正。
 消化はLattice単独セッションで行い、契約（stdout schema・store wire）へ触れる場合だけdotagents側と調整する。
