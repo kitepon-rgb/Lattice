@@ -11,6 +11,7 @@ import {
   isTodoIdentifier,
   isTodoRef,
   todoSelfDigest,
+  validateEvidenceDescriptor,
 } from './todo-contracts.mjs';
 import { projectTodoChainV1 } from './todo-chain.mjs';
 import { layoutTodoGantt } from './todo-gantt-layout.mjs';
@@ -21,6 +22,8 @@ import {
 } from './todo-gantt-html.mjs';
 import { verifyNarrativeAnchors } from './todo-narrative-anchor.mjs';
 import {
+  appendTodoEvent,
+  createTodoStoreWriter,
   TodoStoreError,
   readTodoStore,
   rebuildTodoSnapshot,
@@ -34,6 +37,11 @@ import { projectTodoStatus } from './todo-status.mjs';
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_REF = '.lattice/generated/gantt.html';
 const MAX_MIGRATION_INPUT_BYTES = 8_388_608;
+const ACTOR_ENV_KEYS = Object.freeze([
+  'LATTICE_TODO_ACTOR_HOST',
+  'LATTICE_TODO_ACTOR_SESSION',
+  'LATTICE_TODO_ACTOR_AGENT',
+]);
 
 function usageFailure(stderr, argv) {
   const received = argv.length === 0 ? '(none)' : argv.join(' ').replace(/[\r\n]/gu, ' ');
@@ -148,6 +156,97 @@ async function readMigrationInput(repoRoot, inputRef) {
     throw new TodoStoreError('INVALID_TODO_EXTRACTION', 'schema_invalid');
   }
   return extraction;
+}
+
+async function readEvidenceInput(repoRoot, inputRef) {
+  if (!isTodoRef(inputRef)) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo', undefined, { input_ref: inputRef });
+  }
+  const canonicalRoot = await realpath(repoRoot);
+  const absolute = path.resolve(canonicalRoot, inputRef);
+  if (!within(canonicalRoot, absolute) || absolute === canonicalRoot) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo', undefined, { input_ref: inputRef });
+  }
+  let stats;
+  try { stats = await lstat(absolute); } catch {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_missing', undefined, { input_ref: inputRef });
+  }
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'unsafe_input_path', undefined, { input_ref: inputRef });
+  }
+  const resolved = await realpath(absolute);
+  if (resolved !== absolute || !within(canonicalRoot, resolved)) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_alias_or_escape', undefined, { input_ref: inputRef });
+  }
+  if (stats.size > MAX_MIGRATION_INPUT_BYTES) {
+    throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
+  }
+  const bytes = await readFile(resolved);
+  if (bytes.length > MAX_MIGRATION_INPUT_BYTES) {
+    throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
+  }
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch {
+    throw new TodoStoreError('INVALID_JSON', 'invalid_utf8');
+  }
+  if (text.startsWith('\uFEFF') || text.includes('\r')) {
+    throw new TodoStoreError('INVALID_JSON', 'non_portable_json_bytes');
+  }
+  const parseErrors = [];
+  const tree = parseTree(text, parseErrors, { allowTrailingComma: false, disallowComments: true });
+  if (parseErrors.length > 0 || tree === undefined) {
+    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
+  }
+  if (hasDuplicateJsonKey(tree)) throw new TodoStoreError('INVALID_JSON', 'duplicate_key');
+  let descriptor;
+  try { descriptor = JSON.parse(text); } catch {
+    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
+  }
+  if (!validateEvidenceDescriptor(descriptor)) {
+    throw new TodoStoreError('INVALID_EVIDENCE', 'schema_invalid');
+  }
+  return descriptor;
+}
+
+function mutationActor(env) {
+  const values = ACTOR_ENV_KEYS.map((key) => env[key]);
+  if (!values.every(isTodoIdentifier)) {
+    throw new TodoStoreError('ACTOR_UNRESOLVED', 'actor_environment_invalid');
+  }
+  return { host: values[0], session: values[1], agent: values[2] };
+}
+
+async function mutate({ repoRoot, env, planKey, taskId, kind, payload, evidenceRef }) {
+  const actor = mutationActor(env);
+  const evidence = evidenceRef === null ? null : await readEvidenceInput(repoRoot, evidenceRef);
+  let eventPayload = payload;
+  if (kind === 'done' && payload === 'authored') eventPayload = { evidence };
+  if (kind === 'done' && payload === 'evidence_promotion') {
+    eventPayload = { done_mode: 'evidence_promotion', imported: true, evidence };
+  }
+  const { event, snapshot } = await appendTodoEvent({
+    repoRoot,
+    writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+    planKey,
+    event: { kind, task_id: taskId, actor, payload: eventPayload },
+  });
+  const task = snapshot.tasks.find(({ task_id: current }) => current === taskId);
+  const result = {
+    schema: 'lattice.todo_mutation_result.v1',
+    project_id: event.project_id,
+    plan_key: event.plan_key,
+    plan_version: event.plan_version,
+    task_id: event.task_id,
+    kind: event.kind,
+    sequence: event.sequence,
+    event_digest: event.event_digest,
+    journal_head_digest: event.event_digest,
+    snapshot_digest: snapshot.snapshot_digest,
+    status: task.status,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
 }
 
 async function migrate({ repoRoot, inputRef }) {
@@ -393,9 +492,10 @@ async function rebuildSnapshot({ repoRoot, planKey }) {
  * `lattice todo` namespace. Exact position, order, and argument count are part of
  * the public contract; usage failures never use a JSON envelope.
  */
-export async function runTodoCli({ argv, cwd, stdout, stderr }) {
+export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env }) {
   if (!Array.isArray(argv) || typeof cwd !== 'string'
-    || typeof stdout?.write !== 'function' || typeof stderr?.write !== 'function') {
+    || typeof stdout?.write !== 'function' || typeof stderr?.write !== 'function'
+    || env === null || typeof env !== 'object' || Array.isArray(env)) {
     throw new TypeError('runTodoCli optionsが不正');
   }
 
@@ -418,6 +518,44 @@ export async function runTodoCli({ argv, cwd, stdout, stderr }) {
   } else if (argv.length === 3 && argv[0] === 'migrate' && argv[1] === '--input'
     && isTodoRef(argv[2])) {
     action = (repoRoot) => migrate({ repoRoot, inputRef: argv[2] });
+  } else if ((argv.length === 5 || argv.length === 7) && argv[0] === 'start'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--task' && isTodoIdentifier(argv[4])
+    && (argv.length === 5 || (argv[5] === '--override-reason' && argv[6].length > 0))) {
+    const overrideReason = argv.length === 7 ? argv[6] : null;
+    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
+      kind: 'start', payload: { override_reason: overrideReason }, evidenceRef: null });
+  } else if (argv.length === 7 && argv[0] === 'block'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--task' && isTodoIdentifier(argv[4])
+    && argv[5] === '--reason' && argv[6].length > 0) {
+    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
+      kind: 'block', payload: { reason: argv[6] }, evidenceRef: null });
+  } else if (argv.length === 5 && argv[0] === 'unblock'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--task' && isTodoIdentifier(argv[4])) {
+    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
+      kind: 'unblock', payload: {}, evidenceRef: null });
+  } else if (argv.length === 7 && argv[0] === 'done'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--task' && isTodoIdentifier(argv[4])
+    && argv[5] === '--evidence' && isTodoRef(argv[6])) {
+    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
+      kind: 'done', payload: 'authored', evidenceRef: argv[6] });
+  } else if (argv.length === 8 && argv[0] === 'evidence' && argv[1] === 'promote'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--task' && isTodoIdentifier(argv[5])
+    && argv[6] === '--evidence' && isTodoRef(argv[7])) {
+    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[3], taskId: argv[5],
+      kind: 'done', payload: 'evidence_promotion', evidenceRef: argv[7] });
+  } else if ((argv.length === 7 || argv.length === 9) && argv[0] === 'reopen'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--task' && isTodoIdentifier(argv[4])
+    && argv[5] === '--reason' && argv[6].length > 0
+    && (argv.length === 7 || (argv[7] === '--override-reason' && argv[8].length > 0))) {
+    const overrideReason = argv.length === 9 ? argv[8] : null;
+    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
+      kind: 'reopen', payload: { reason: argv[6], override_reason: overrideReason }, evidenceRef: null });
   }
   if (action === null) return usageFailure(stderr, argv);
 

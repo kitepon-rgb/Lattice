@@ -14,6 +14,7 @@ import {
   todoSelfDigest,
 } from '../src/todo-contracts.mjs';
 import {
+  appendImportedPlan,
   appendTodoEvent,
   createTodoStoreWriter,
   initializeTodoStore,
@@ -66,14 +67,86 @@ async function workspace(context) {
   return root;
 }
 
-function runCli(root, args) {
+function runCli(root, args, { actor = true } = {}) {
+  const env = { ...process.env, NO_COLOR: '1' };
+  if (actor) {
+    env.LATTICE_TODO_ACTOR_HOST = ACTOR.host;
+    env.LATTICE_TODO_ACTOR_SESSION = ACTOR.session;
+    env.LATTICE_TODO_ACTOR_AGENT = ACTOR.agent;
+  } else {
+    delete env.LATTICE_TODO_ACTOR_HOST;
+    delete env.LATTICE_TODO_ACTOR_SESSION;
+    delete env.LATTICE_TODO_ACTOR_AGENT;
+  }
   const result = spawnSync(process.execPath, [CLI, ...args], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: '1' },
+    env,
   });
   assert.equal(result.error, undefined);
   return result;
+}
+
+async function evidenceFixture(root, name = 'evidence') {
+  const ref = `${name}.txt`;
+  const bytes = Buffer.from(`${name}\n`, 'utf8');
+  await writeFile(path.join(root, ref), bytes);
+  const object = spawnSync('git', ['hash-object', '-w', ref], { cwd: root, encoding: 'utf8' });
+  assert.equal(object.status, 0, object.stderr);
+  const descriptor = {
+    evidence_id: name,
+    repo_id: 'self',
+    path: ref,
+    git_blob_oid: object.stdout.trim(),
+    content_digest: createHash('sha256').update(bytes).digest('hex'),
+    media_type: 'text/plain',
+    anchor_digest: null,
+  };
+  const descriptorRef = `${name}.json`;
+  await writeFile(path.join(root, descriptorRef), `${JSON.stringify(descriptor)}\n`);
+  return { descriptor, descriptorRef };
+}
+
+function gitOutput(root, args, input) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', input });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+}
+
+function pinnedImportCommit(root) {
+  const blob = gitOutput(root, ['hash-object', '-w', '--stdin'], '# Imported plan\n- [x] A1\n- [x] A2\n');
+  const tree = gitOutput(root, ['mktree'], `100644 blob ${blob}\tplan.md\n`);
+  return gitOutput(root, ['hash-object', '-t', 'commit', '-w', '--stdin'],
+    `tree ${tree}\nauthor Fixture <fixture@example.invalid> 1760000000 +0000\ncommitter Fixture <fixture@example.invalid> 1760000000 +0000\n\nfixture\n`);
+}
+
+async function importedUnknownDone(root) {
+  const sourceCommit = pinnedImportCommit(root);
+  const source = (originLine) => ({
+    schema: 'lattice.todo_import_source.v1',
+    origin_plan_ref: 'plan.md',
+    origin_line: originLine,
+    source_commit: sourceCommit,
+  });
+  return appendImportedPlan({
+    repoRoot: root,
+    writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    plan: {
+      schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'archive', plan_version: 'v1',
+      predecessor_plan_digest: null, tasks: [task('A1'), task('A2')],
+      hard_dependencies: [{
+        from: { project_id: 'project-1', plan_key: 'archive', task_id: 'A1' },
+        to: { project_id: 'project-1', plan_key: 'archive', task_id: 'A2' },
+      }],
+      joins: [],
+    },
+    genesis: { actor: ACTOR, recorded_at: NOW },
+    completedTasks: [
+      { task_id: 'A1', completed_at: NOW, evidence: source(2) },
+      { task_id: 'A2', completed_at: 'unknown_requires_evidence', evidence: source(3) },
+    ],
+    now: NOW,
+  });
 }
 
 function successJson(result) {
@@ -129,6 +202,106 @@ test('todo verifyは全member/plan指定のexact result wireを一行で返す',
       'plan_key', 'topology_digest', 'journal_head_digest', 'through_sequence', 'snapshot_stale',
     ]);
   }
+});
+
+test('authoring CLIはclosed遷移をappendしmutation resultをdigest束縛する', async (context) => {
+  const root = await workspace(context);
+  const { descriptorRef } = await evidenceFixture(root);
+  const commands = [
+    [['todo', 'start', '--plan', 'main', '--task', 'T1'], 'start', 'in-progress'],
+    [['todo', 'block', '--plan', 'main', '--task', 'T1', '--reason', 'waiting'], 'block', 'blocked'],
+    [['todo', 'unblock', '--plan', 'main', '--task', 'T1'], 'unblock', 'in-progress'],
+    [['todo', 'done', '--plan', 'main', '--task', 'T1', '--evidence', descriptorRef], 'done', 'done'],
+    [['todo', 'reopen', '--plan', 'main', '--task', 'T1', '--reason', 'correction'], 'reopen', 'in-progress'],
+  ];
+  let sequence = 0;
+  for (const [args, kind, status] of commands) {
+    const output = successJson(runCli(root, args));
+    sequence += 1;
+    assertExactKeys(output, [
+      'schema', 'project_id', 'plan_key', 'plan_version', 'task_id', 'kind', 'sequence',
+      'event_digest', 'journal_head_digest', 'snapshot_digest', 'status', 'result_digest',
+    ]);
+    assert.equal(output.schema, 'lattice.todo_mutation_result.v1');
+    assert.equal(output.kind, kind);
+    assert.equal(output.status, status);
+    assert.equal(output.sequence, sequence);
+    assert.equal(output.journal_head_digest, output.event_digest);
+    assert.equal(output.result_digest, todoSelfDigest(output, 'result_digest'));
+  }
+  const journal = (await readFile(path.join(root, journalRef), 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.deepEqual(journal.slice(1).map(({ actor }) => actor), Array(commands.length).fill(ACTOR));
+  assert.equal(journal.at(-1).payload.target_done_digest, journal.at(-2).event_digest);
+});
+
+test('authoring CLIはactor欠落・順序違反・blocked中doneを無変更拒否する', async (context) => {
+  const root = await workspace(context);
+  const { descriptorRef } = await evidenceFixture(root);
+  for (const [args, actor, code, reason] of [
+    [['todo', 'start', '--plan', 'main', '--task', 'T1'], false, 'ACTOR_UNRESOLVED', 'actor_environment_invalid'],
+    [['todo', 'start', '--plan', 'main', '--task', 'T2'], true, 'STORE_INCONSISTENT', 'invalid_start_transition'],
+  ]) {
+    const before = await storeDigest(root);
+    const result = runCli(root, args, { actor });
+    assert.equal(result.status, 1);
+    const error = JSON.parse(result.stderr);
+    assert.equal(error.code, code);
+    assert.equal(error.detail.reason, reason);
+    assert.equal(await storeDigest(root), before);
+  }
+  successJson(runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']));
+  successJson(runCli(root, ['todo', 'block', '--plan', 'main', '--task', 'T1', '--reason', 'waiting']));
+  const before = await storeDigest(root);
+  const blockedDone = runCli(root, ['todo', 'done', '--plan', 'main', '--task', 'T1', '--evidence', descriptorRef]);
+  assert.equal(blockedDone.status, 1);
+  assert.equal(JSON.parse(blockedDone.stderr).detail.reason, 'invalid_done_transition');
+  assert.equal(await storeDigest(root), before);
+});
+
+test('start/reopen overrideとdescriptor schema拒否をexact argvで処理する', async (context) => {
+  const root = await workspace(context);
+  const { descriptorRef } = await evidenceFixture(root);
+  const overridden = successJson(runCli(root, [
+    'todo', 'start', '--plan', 'main', '--task', 'T2', '--override-reason', 'parallel audit',
+  ]));
+  assert.equal(overridden.status, 'in-progress');
+
+  const invalidRef = 'invalid-evidence.json';
+  await writeFile(path.join(root, invalidRef), '{"path":"evidence.txt"}\n');
+  const before = await storeDigest(root);
+  const invalid = runCli(root, ['todo', 'done', '--plan', 'main', '--task', 'T2', '--evidence', invalidRef]);
+  assert.equal(invalid.status, 1);
+  assert.equal(JSON.parse(invalid.stderr).code, 'INVALID_EVIDENCE');
+  assert.equal(await storeDigest(root), before);
+
+  successJson(runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']));
+  successJson(runCli(root, ['todo', 'done', '--plan', 'main', '--task', 'T1', '--evidence', descriptorRef]));
+  const withoutOverride = runCli(root, [
+    'todo', 'reopen', '--plan', 'main', '--task', 'T1', '--reason', 'correction',
+  ]);
+  assert.equal(withoutOverride.status, 1);
+  assert.equal(JSON.parse(withoutOverride.stderr).detail.reason, 'reopen_has_started_successor');
+  const reopened = successJson(runCli(root, [
+    'todo', 'reopen', '--plan', 'main', '--task', 'T1', '--reason', 'correction',
+    '--override-reason', 'successor audited',
+  ]));
+  assert.equal(reopened.status, 'in-progress');
+});
+
+test('evidence promote CLIはlock内でunknown historical doneを解決する', async (context) => {
+  const root = await workspace(context);
+  const imported = await importedUnknownDone(root);
+  const sourceDone = imported.events.find(({ kind, task_id: taskId }) => kind === 'done' && taskId === 'A2');
+  const { descriptorRef } = await evidenceFixture(root, 'promoted');
+  const output = successJson(runCli(root, [
+    'todo', 'evidence', 'promote', '--plan', 'archive', '--task', 'A2', '--evidence', descriptorRef,
+  ]));
+  assert.equal(output.kind, 'done');
+  assert.equal(output.status, 'done');
+  const journal = (await readFile(path.join(root,
+    '.lattice/todo/plans/archive/v1/journal/active.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.equal(journal.at(-1).payload.done_mode, 'evidence_promotion');
+  assert.equal(journal.at(-1).payload.target_done_digest, sourceDone.event_digest);
 });
 
 const snapshotCases = [
@@ -247,6 +420,13 @@ test('todo namespaceの未知subcommand・不足・余剰・重複・順序違�
     ['todo', 'migrate', '--input', '/tmp/extraction.json'],
     ['todo', 'migrate', 'extraction.json', '--input'],
     ['todo', 'migrate', '--input', 'extraction.json', 'extra'],
+    ['todo', 'start', '--task', 'T1', '--plan', 'main'],
+    ['todo', 'start', '--plan', 'main', '--task', 'T1', '--override-reason'],
+    ['todo', 'block', '--plan', 'main', '--task', 'T1'],
+    ['todo', 'unblock', '--plan', 'main', '--task', 'T1', 'extra'],
+    ['todo', 'done', '--plan', 'main', '--task', 'T1'],
+    ['todo', 'evidence', 'promote', '--task', 'T1', '--plan', 'main', '--evidence', 'evidence.json'],
+    ['todo', 'reopen', '--plan', 'main', '--task', 'T1', '--reason', 'why', '--override-reason'],
   ];
   for (const args of malformed) {
     const before = await storeDigest(root);

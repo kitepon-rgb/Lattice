@@ -58,3 +58,17 @@ idle timeoutで自動終了するcache工程であり、どちらも自律的な
 （書込はproject cache `.codegraph/`へのwatcher再indexとLattice固有のglobal管理領域・socket
 rendezvous nodeに限る）。「常駐サービス化はしない」非目標はorchestration面の規定であり、
 MCP server提供と矛盾しない。MCP面は外部networkへ一切通信しない（v1受入条件）。
+
+## TODO工程store面（ADR 0053・0055・0056）
+
+`.lattice/todo/`のcanonical journalを工程状態の唯一正本とし、snapshotとガントHTMLは再生成可能な
+投影として扱う。読取CLIは`lattice todo status / verify / snapshot --rebuild / gantt`、一回きりの
+移行入口は`todo migrate`である。topologyとsource reconciliationの変更はfull desired-state successorを
+発行する`todo revise`だけが所有し、Markdown fallback、部分CRUD、独立`todo reconcile`を持たない。
+
+通常の状態遷移は`todo start / block / unblock / done / evidence promote / reopen`のclosed面で行う。
+mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,
+`LATTICE_TODO_ACTOR_AGENT`をすべてtodo identifierとして明示し、欠落時は書き込まない。`done`の
+evidenceはrepo内descriptor JSONとpinned Git objectをwrite時にhard検証する。成功は
+`lattice.todo_mutation_result.v1`一行、失敗は`lattice.cli_error.v2`一行、usage違反は人間向け診断一行で、
+失敗時のstore bytesは不変とする。

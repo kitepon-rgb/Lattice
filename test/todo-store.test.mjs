@@ -532,14 +532,14 @@ test('unknown historical doneは正規evidenceへ新eventで昇格しreopenでin
   const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
   const promotion = await appendTodoEvent({ repoRoot: root, writer, planKey: 'archive', now: NOW,
     event: { kind: 'done', task_id: 'A2', actor: ACTOR, recorded_at: NOW,
-      payload: { done_mode: 'evidence_promotion', imported: true,
-        target_done_digest: sourceEvent.event_digest, evidence } } });
+      payload: { done_mode: 'evidence_promotion', imported: true, evidence } } });
+  assert.equal(promotion.event.payload.target_done_digest, sourceEvent.event_digest);
   let state = (await readTodoStore({ repoRoot: root, now: NOW })).members
     .find(({ descriptor }) => descriptor.plan_key === 'archive').tasks.find(({ task_id }) => task_id === 'A2');
   assert.equal(state.status, 'done'); assert.deepEqual(state.evidence, evidence); assert.equal(state.done_at, null);
   await appendTodoEvent({ repoRoot: root, writer, planKey: 'archive', now: NOW,
     event: { kind: 'reopen', task_id: 'A2', actor: ACTOR, recorded_at: NOW,
-      payload: { reason: 'correct history', target_done_digest: promotion.event.event_digest, override_reason: null } } });
+      payload: { reason: 'correct history', override_reason: null } } });
   state = (await readTodoStore({ repoRoot: root, now: NOW })).members
     .find(({ descriptor }) => descriptor.plan_key === 'archive').tasks.find(({ task_id }) => task_id === 'A2');
   assert.equal(state.status, 'in-progress'); assert.equal(state.started_at, null); assert.equal(state.evidence, null);

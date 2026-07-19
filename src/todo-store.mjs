@@ -593,6 +593,34 @@ function nextEvent(input, storeMember) {
   return event;
 }
 
+function resolveTargetedEvent(input, storeMember) {
+  if (input.kind === 'reopen' && exactRecord(input.payload, [
+    'reason', 'override_reason',
+  ])) {
+    const target = [...storeMember.journal.events].reverse().find((event) => (
+      event.kind === 'done' && event.task_id === input.task_id
+    ));
+    if (target === undefined) fail('STORE_INCONSISTENT', 'invalid_reopen_binding');
+    return {
+      ...input,
+      payload: { ...input.payload, target_done_digest: target.event_digest },
+    };
+  }
+  if (input.kind === 'done' && exactRecord(input.payload, [
+    'done_mode', 'imported', 'evidence',
+  ]) && input.payload.done_mode === 'evidence_promotion' && input.payload.imported === true) {
+    const target = [...storeMember.journal.events].reverse().find((event) => (
+      event.kind === 'done' && event.task_id === input.task_id
+    ));
+    if (target === undefined) fail('STORE_INCONSISTENT', 'invalid_evidence_promotion');
+    return {
+      ...input,
+      payload: { ...input.payload, target_done_digest: target.event_digest },
+    };
+  }
+  return input;
+}
+
 export async function appendTodoEvent(options = {}) {
   requireWriter(options.writer, 'g5-authoring');
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
@@ -600,7 +628,11 @@ export async function appendTodoEvent(options = {}) {
     const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
     const member = store.members.find(({ descriptor }) => descriptor.plan_key === options.planKey);
     if (!member) fail('STORE_INCONSISTENT', 'plan_not_active');
-    const event = nextEvent(options.event, member);
+    const input = resolveTargetedEvent({
+      ...options.event,
+      recorded_at: options.event.recorded_at ?? new Date().toISOString(),
+    }, member);
+    const event = nextEvent(input, member);
     if ((event.kind === 'start' && event.payload.start_mode === 'historical_import')
       || (event.kind === 'done' && event.payload.done_mode === 'historical_import')) {
       fail('STORE_WRITE_CONFLICT', 'historical_import_writer_required');

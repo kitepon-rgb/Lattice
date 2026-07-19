@@ -303,9 +303,13 @@ UI磨き込みbacklogは[ui-review-backlog.md](ui-review-backlog.md)が正。
 
 ### G5 — authoring CLI＋enforcement＋定着（A→dotagents側規範化）
 - [ ] **authoring CLI実装**（ADR 0053契約表）: 遷移verb（start/done/block/unblock/reopen）＋
-      topology変更の唯一入口`todo revise`（successor version発行）＋`todo reconcile`。順序違反
+      topology変更とsource reconciliationの唯一入口`todo revise`（successor version発行）。順序違反
       （`--override-reason`なし）・依存欠落・evidenceなしdone・blocked中doneを書込時拒否。
-      reconcile/reviseの入力契約（resolution.json/revision.json）は着手時に追補ADRで固定（open item）
+      revision.json契約と独立`todo reconcile`廃止はADR 0055、通常遷移wireはADR 0056を正とする
+  - 2026-07-19契約追補: [ADR 0055](adr/0055-todo-revision-and-source-reconciliation.md)で
+    source reconciliationを`todo revise`へ統合し、独立`todo reconcile`を廃止。
+    [ADR 0056](adr/0056-todo-authoring-transitions.md)で通常遷移のactor環境、descriptor読取、
+    lock内target解決、`lattice.todo_mutation_result.v1` exact wireを固定した。
 - [ ] **enforcementの実体はCI/`todo verify`**: 「CLI経由のみ」はファイル権限では強制できない
       （手編集・Git mergeを防げない）。journal・snapshot・依存・done evidence・compile bindingの
       読取時再検証をCI必須gateへ入れて初めて強制になる（§1.7・storeレーン落とし穴5）
