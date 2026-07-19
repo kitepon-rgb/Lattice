@@ -1,6 +1,6 @@
 import { readFile, lstat } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
  * dotagents工場の native factory diagnostics 面（親plan L6要件）。
@@ -87,7 +87,7 @@ function checkNodeRuntime(nodeVersion, enginesNode) {
 
 async function checkCliSurface(rootDir) {
   try {
-    const runtimeCli = await import(path.join(rootDir, 'src', 'runtime-cli.mjs'));
+    const runtimeCli = await import(pathToFileURL(path.join(rootDir, 'src', 'runtime-cli.mjs')).href);
     if (typeof runtimeCli.runRuntimeCli !== 'function') {
       return check('cli_surface', false, 'src/runtime-cli.mjs does not export runRuntimeCli');
     }

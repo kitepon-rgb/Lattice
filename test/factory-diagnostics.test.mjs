@@ -44,6 +44,28 @@ test('CLI factory-diagnostics --jsonはstdout 1行JSONとexit 0を返す', async
   assert.equal(parsed.overall, 'ok');
 });
 
+test('特殊文字を含むrootでもruntime CLIをfile URLとしてloadする', async () => {
+  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), 'lattice#url-regression-'));
+  try {
+    await mkdir(path.join(fixtureRoot, 'src'), { recursive: true });
+    await mkdir(path.join(fixtureRoot, 'bin'), { recursive: true });
+    await mkdir(path.join(fixtureRoot, 'sensor'), { recursive: true });
+    await writeFile(path.join(fixtureRoot, 'package.json'), JSON.stringify({
+      version: '1.2.3', engines: { node: '>=22.13 <25 || >=26' },
+    }));
+    await writeFile(path.join(fixtureRoot, 'src', 'runtime-cli.mjs'), 'export function runRuntimeCli() {}\n');
+    await writeFile(path.join(fixtureRoot, 'bin', 'lattice-mcp.mjs'), 'export {};\n');
+    await writeFile(path.join(fixtureRoot, 'sensor', 'LICENSE'), 'MIT\n');
+    await writeFile(path.join(fixtureRoot, 'sensor', 'NOTICE'), 'attribution\n');
+
+    const diagnostics = await buildFactoryDiagnostics({ rootDir: fixtureRoot });
+    assert.equal(diagnostics.overall, 'ok');
+    assert.equal(diagnostics.checks.find(({ id }) => id === 'cli_surface').status, 'ok');
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test('壊れたrootでは該当checkがfailedになりoverall failedとexit 1へ落ちる（fail closed）', async () => {
   const brokenRoot = await mkdtemp(path.join(os.tmpdir(), 'lattice-diag-'));
   try {
