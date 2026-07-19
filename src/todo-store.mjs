@@ -431,7 +431,7 @@ function markdownCheckboxState(lineBytes) {
   if (lineBytes.length >= 3 && lineBytes[0] === 0xef && lineBytes[1] === 0xbb && lineBytes[2] === 0xbf) return null;
   let line;
   try { line = new TextDecoder('utf-8', { fatal: true }).decode(lineBytes); } catch { return null; }
-  const match = /^[\t ]*(?:[-+*]|\d+[.)])[\t ]+\[([ xX])\](?:[\t ]+.*)?$/u.exec(line);
+  const match = /^[\t ]*(?:[-+*]|\d+[A-Za-z]?\.|\d+\))[\t ]+\[([ xX])\](?:[\t ]+.*)?$/u.exec(line);
   if (match === null) return null;
   return match[1] === ' ' ? 'unchecked' : 'checked';
 }

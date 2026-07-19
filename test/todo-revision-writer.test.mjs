@@ -60,6 +60,7 @@ async function revisionFor(root, {
   title = 'T1', migrationPolicy = 'carry', removeT5 = false,
   removeT5Reason = 'task removed by successor revision', extraTombstones = [],
   hardDependencies = [], t6Anchor = null, t1ParentTaskId = null, migrationPolicies = {},
+  sourceTextByTask = {},
 } = {}) {
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const previous = store.members[0];
@@ -77,19 +78,21 @@ async function revisionFor(root, {
       ? { from_task_id: 'T5', to_task_id: 'removed', state_policy: 'removed' }
       : { from_task_id: 'T5', to_task_id: 'T5', state_policy: 'reset_pending' },
   ];
+  const sourceText = (taskId) => sourceTextByTask[taskId]
+    ?? `- [ ] ${taskId}`;
   const sourceInventory = {
     active: [
-      { task_id: 'T1', source_ref: 'plan.md#L1', source_digest: digest('- [ ] T1') },
-      { task_id: 'T2', source_ref: 'plan.md#L2', source_digest: digest('- [ ] T2') },
-      { task_id: 'T3', source_ref: 'plan.md#L3', source_digest: digest('- [ ] T3') },
-      { task_id: 'T4', source_ref: 'plan.md#L4', source_digest: digest('- [ ] T4') },
+      { task_id: 'T1', source_ref: 'plan.md#L1', source_digest: digest(sourceText('T1')) },
+      { task_id: 'T2', source_ref: 'plan.md#L2', source_digest: digest(sourceText('T2')) },
+      { task_id: 'T3', source_ref: 'plan.md#L3', source_digest: digest(sourceText('T3')) },
+      { task_id: 'T4', source_ref: 'plan.md#L4', source_digest: digest(sourceText('T4')) },
       ...(removeT5 ? [] : [
-        { task_id: 'T5', source_ref: 'plan.md#L5', source_digest: digest('- [ ] T5') },
+        { task_id: 'T5', source_ref: 'plan.md#L5', source_digest: digest(sourceText('T5')) },
       ]),
-      { task_id: 'T6', source_ref: 'plan.md#L6', source_digest: digest('- [ ] T6') },
+      { task_id: 'T6', source_ref: 'plan.md#L6', source_digest: digest(sourceText('T6')) },
     ],
     excluded_tombstones: [...(removeT5 ? [{
-      source_ref: 'plan.md#L5', source_digest: digest('- [ ] T5'),
+      source_ref: 'plan.md#L5', source_digest: digest(sourceText('T5')),
       exclusion_reason: removeT5Reason,
     }] : []), ...extraTombstones].sort((left, right) => left.source_ref.localeCompare(right.source_ref)),
   };
@@ -371,6 +374,16 @@ test('carry_reconciled_metadataは親子校正だけを許可しtask stateを保
   });
   await assert.rejects(apply(changedTitle, unsafe), (error) => error instanceof TodoStoreError
     && error.code === 'REVISION_INVALID' && error.detail.reason === 'carry_semantics_changed');
+});
+
+test('source inventoryは数字＋英字付きcheckbox markerをTODOとして検証する', async (context) => {
+  const root = await fixture(context);
+  const lines = ['0a. [ ] T1', '6A. [ ] T2', '- [ ] T3', '- [ ] T4', '- [ ] T5', '- [ ] T6'];
+  await writeFile(path.join(root, 'plan.md'), `${lines.join('\n')}\n`);
+  const revision = await revisionFor(root, { sourceTextByTask: { T1: lines[0], T2: lines[1] } });
+  await apply(root, revision);
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  assert.equal(member.revision.source_inventory.active[0].source_ref, 'plan.md#L1');
 });
 
 test('source inventoryはrepo内symlinkを辿らずactivation前に拒否する', async (context) => {

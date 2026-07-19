@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.3 — 2026-07-19
+
+- source verifierで`0a. [x]`や`6A. [ ]`など数字＋英字付き番号のcheckboxを正規TODOとして認識するようにした。
+- dotagents inventoryとLattice reviseのcheckbox認識を揃え、migrate後のanchor校正が`source_item_not_todo`で停止する不一致を解消した。
+
 ## 0.6.2 — 2026-07-19
 
 - `carry_reconciled_metadata`を追加し、実行意味と依存を変えずにsource provenanceと親子関係だけを校正できるようにした。
