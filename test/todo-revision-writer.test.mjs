@@ -59,7 +59,7 @@ async function fixture(context, { hardDependencies = [] } = {}) {
 async function revisionFor(root, {
   title = 'T1', migrationPolicy = 'carry', removeT5 = false,
   removeT5Reason = 'task removed by successor revision', extraTombstones = [],
-  hardDependencies = [], t6Anchor = null, migrationPolicies = {},
+  hardDependencies = [], t6Anchor = null, t1ParentTaskId = null, migrationPolicies = {},
 } = {}) {
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const previous = store.members[0];
@@ -96,7 +96,8 @@ async function revisionFor(root, {
   const desiredInput = {
     schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'main',
     plan_version: 'pending', predecessor_plan_digest: predecessor.plan_digest,
-    tasks: [task('T1', title), task('T2'), task('T3'), task('T4'),
+    tasks: [{ ...task('T1', title), parent_task_id: t1ParentTaskId },
+      task('T2'), task('T3'), task('T4'),
       ...(removeT5 ? [] : [task('T5')]), {
         ...task('T6'),
         narrative_ref: t6Anchor === null ? null : t6Anchor.origin_plan_ref,
@@ -348,6 +349,30 @@ test('carryは意味変更を拒否しsource digest不一致はactivation前に�
   assert.equal(store.members[0].plan.plan_version, 'v1');
 });
 
+test('carry_reconciled_metadataは親子校正だけを許可しtask stateを保存する', async (context) => {
+  const root = await fixture(context);
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  const revision = await revisionFor(root, {
+    t1ParentTaskId: 'T2',
+    migrationPolicies: { T1: 'carry_reconciled_metadata' },
+  });
+  await apply(root, revision);
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  const taskState = member.tasks.find(({ task_id }) => task_id === 'T1');
+  const taskPlan = member.plan.tasks.find(({ task_id }) => task_id === 'T1');
+  assert.equal(taskState.status, 'in-progress');
+  assert.equal(taskPlan.parent_task_id, 'T2');
+
+  const changedTitle = await fixture(context);
+  const unsafe = await revisionFor(changedTitle, {
+    title: 'changed', migrationPolicies: { T1: 'carry_reconciled_metadata' },
+  });
+  await assert.rejects(apply(changedTitle, unsafe), (error) => error instanceof TodoStoreError
+    && error.code === 'REVISION_INVALID' && error.detail.reason === 'carry_semantics_changed');
+});
+
 test('source inventoryはrepo内symlinkを辿らずactivation前に拒否する', async (context) => {
   const root = await fixture(context);
   const revision = await revisionFor(root);
@@ -414,6 +439,12 @@ test('successor revisionはpredecessorの依存edgeを削除し新topologyだけ
   const root = await fixture(context, { hardDependencies: [dependency] });
   const unsafeCarry = await revisionFor(root, { hardDependencies: [] });
   await assert.rejects(apply(root, unsafeCarry), (error) => error instanceof TodoStoreError
+    && error.code === 'REVISION_INVALID' && error.detail.reason === 'carry_semantics_changed');
+  const unsafeMetadataCarry = await revisionFor(root, {
+    hardDependencies: [],
+    migrationPolicies: { T1: 'carry_reconciled_metadata', T2: 'carry_reconciled_metadata' },
+  });
+  await assert.rejects(apply(root, unsafeMetadataCarry), (error) => error instanceof TodoStoreError
     && error.code === 'REVISION_INVALID' && error.detail.reason === 'carry_semantics_changed');
   const revision = await revisionFor(root, {
     hardDependencies: [], migrationPolicies: { T1: 'reset_pending', T2: 'reset_pending' },

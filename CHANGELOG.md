@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2 — 2026-07-19
+
+- `carry_reconciled_metadata`を追加し、実行意味と依存を変えずにsource provenanceと親子関係だけを校正できるようにした。
+- metadata校正時も既存task state・evidenceを保存し、title・lane・compile binding・dependency・join変更はfail closedで拒否する。
+
 ## 0.6.1 — 2026-07-19
 
 - NPM pack前にsensorを必ずbuildし、gitignoreされた古い`dist`が公開物へ混入する経路を塞いだ。

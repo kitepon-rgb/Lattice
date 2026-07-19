@@ -63,8 +63,11 @@ reconciliation, revision_digest`
   topology を渡すため、入力に無い旧 task/edge/join も意図的な削除候補として検査できる。
 - `task_migration` は predecessor の全 task をちょうど一度ずつ列挙する配列である。各 entry の exact keys は
   `from_task_id, to_task_id, state_policy`、`to_task_id` は successor task ID 又は literal `removed`、
-  `state_policy` は `carry | reset_pending | removed` のいずれかとする。`removed` は
-  `to_task_id: removed` とだけ組み合わせ、非 removed target は `carry` 又は `reset_pending` とだけ
+  `state_policy` は `carry | carry_reconciled_metadata | reset_pending | removed` のいずれかとする。
+  `carry_reconciled_metadata`はtitle・lane・compile binding・hard dependency・joinを不変に保ったまま、
+  source provenanceと`parent_task_id`だけを校正し、既存state・evidenceを保存する。`removed` は
+  `to_task_id: removed` とだけ組み合わせ、非 removed target は`carry`、
+  `carry_reconciled_metadata`又は`reset_pending`とだけ
   組み合わせる。同一 predecessor ID の重複、欠落、unknown target、new task への migration entry を
   拒否する。
 - `source_inventory` の exact keys は `active, excluded_tombstones`。各 active entry は exact keys

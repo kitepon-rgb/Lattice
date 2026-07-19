@@ -246,7 +246,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           fail('STORE_INCONSISTENT', 'genesis_migration_target_invalid');
         }
         for (const migration of event.state_migration) {
-          if (migration.state_policy !== 'carry') continue;
+          if (!['carry', 'carry_reconciled_metadata'].includes(migration.state_policy)) continue;
           const state = states.get(migration.to_task_id);
           Object.assign(state, structuredClone(migration.state), { evidence_unverified: false });
           if (state.evidence !== null) {
@@ -1102,11 +1102,14 @@ function localTaskRef(ref, plan, taskId) {
     && ref.task_id === taskId;
 }
 
-function taskSemantics(plan, taskId, idMap) {
+function taskSemantics(plan, taskId, idMap, { reconciliationMetadata = false } = {}) {
   const task = plan.tasks.find(({ task_id }) => task_id === taskId);
   if (!task) return null;
   const mapId = (id) => id === null ? null : idMap.get(id) ?? id;
-  const normalizedTask = {
+  const normalizedTask = reconciliationMetadata ? {
+    task_id: mapId(task.task_id), title: task.title, lane: task.lane,
+    compile_binding: task.compile_binding,
+  } : {
     task_id: mapId(task.task_id), title: task.title, lane: task.lane,
     narrative_ref: task.narrative_ref, narrative_anchor: task.narrative_anchor ?? null,
     compile_binding: task.compile_binding, parent_task_id: mapId(task.parent_task_id ?? null),
@@ -1137,9 +1140,13 @@ function stateMigrationFor(previous, revision) {
     .map(({ from_task_id, to_task_id }) => [from_task_id, to_task_id]));
   const states = new Map(previous.tasks.map((state) => [state.task_id, state]));
   return revision.task_migration.map((migration) => {
-    if (migration.state_policy !== 'carry') return { ...migration, state: null };
-    const before = taskSemantics(previous.plan, migration.from_task_id, idMap);
-    const after = taskSemantics(revision.desired_plan, migration.to_task_id, new Map());
+    const carriesState = ['carry', 'carry_reconciled_metadata'].includes(migration.state_policy);
+    if (!carriesState) return { ...migration, state: null };
+    const reconciliationMetadata = migration.state_policy === 'carry_reconciled_metadata';
+    const before = taskSemantics(previous.plan, migration.from_task_id, idMap,
+      { reconciliationMetadata });
+    const after = taskSemantics(revision.desired_plan, migration.to_task_id, new Map(),
+      { reconciliationMetadata });
     if (canonicalizeTodoArtifact(before) !== canonicalizeTodoArtifact(after)) {
       fail('REVISION_INVALID', 'carry_semantics_changed', { from_task_id: migration.from_task_id });
     }

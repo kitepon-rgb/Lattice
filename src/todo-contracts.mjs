@@ -280,8 +280,9 @@ function validStateMigration(value) {
       'from_task_id', 'to_task_id', 'state_policy', 'state',
     ]) && isTodoIdentifier(entry.from_task_id)
       && (entry.to_task_id === 'removed' || isTodoIdentifier(entry.to_task_id))
-      && ['carry', 'reset_pending', 'removed'].includes(entry.state_policy)
-      && ((entry.state_policy === 'carry' && entry.to_task_id !== 'removed' && validCarriedState(entry.state))
+      && ['carry', 'carry_reconciled_metadata', 'reset_pending', 'removed'].includes(entry.state_policy)
+      && ((['carry', 'carry_reconciled_metadata'].includes(entry.state_policy)
+        && entry.to_task_id !== 'removed' && validCarriedState(entry.state))
         || (entry.state_policy === 'reset_pending' && entry.to_task_id !== 'removed' && entry.state === null)
         || (entry.state_policy === 'removed' && entry.to_task_id === 'removed' && entry.state === null)))
     && new Set(value.map(({ from_task_id }) => from_task_id)).size === value.length
