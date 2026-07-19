@@ -10,7 +10,7 @@
 
 /**
  * Build the bordered banner shown when CodeGraph detects an
- * unsupported Node.js major version (currently 25+). Pinned via unit
+ * unsupported Node.js major version (Node 25.x). Pinned via unit
  * test so the recovery commands and override instructions can't be
  * silently stripped by future edits.
  *
@@ -36,6 +36,11 @@ export function buildNode25BlockBanner(nodeVersion: string): string {
     '  CODEGRAPH_ALLOW_UNSAFE_NODE=1 codegraph ...',
     sep,
   ].join('\n');
+}
+
+/** Node 25.xだけが既知のV8 WASM Zone allocator bugの影響を受ける。 */
+export function isNode25Affected(nodeMajor: number): boolean {
+  return nodeMajor === 25;
 }
 
 /**

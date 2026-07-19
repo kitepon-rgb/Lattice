@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -28,6 +28,10 @@ test('本repoではoverall okの正規schemaを返しexact keyで検証が通る
   assert.equal(belowFloor.checks.find(({ id }) => id === 'node_runtime').status, 'failed');
   assert.equal(belowFloor.checks.find(({ id }) => id === 'node_runtime').detail,
     'v22.12.99 is below engines.node floor >=22.13');
+  const packageJson = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.equal(packageJson.engines.node, '>=22.13 <25 || >=26');
+  const node26 = await buildFactoryDiagnostics({ nodeVersion: 'v26.5.0' });
+  assert.equal(node26.checks.find(({ id }) => id === 'node_runtime').status, 'ok');
   assert.equal(validateFactoryDiagnostics(diagnostics), true);
 });
 

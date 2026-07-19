@@ -7,7 +7,20 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildNode25BlockBanner, buildNodeTooOldBanner, MIN_NODE_MAJOR } from '../src/bin/node-version-check';
+import {
+  buildNode25BlockBanner,
+  buildNodeTooOldBanner,
+  isNode25Affected,
+  MIN_NODE_MAJOR,
+} from '../src/bin/node-version-check';
+
+describe('isNode25Affected', () => {
+  it('blocks Node 25だけを既知のV8 bug対象として扱う', () => {
+    expect(isNode25Affected(24)).toBe(false);
+    expect(isNode25Affected(25)).toBe(true);
+    expect(isNode25Affected(26)).toBe(false);
+  });
+});
 
 describe('buildNode25BlockBanner', () => {
   it('embeds the reported Node version in the header', () => {

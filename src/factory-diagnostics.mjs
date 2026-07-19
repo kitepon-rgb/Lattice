@@ -17,7 +17,7 @@ const MAX_DETAIL_LENGTH = 256;
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const UNKNOWN_VERSION_SENTINEL = '0.0.0-unknown';
 const NODE_VERSION_PATTERN = /^v(\d+)\.(\d+)\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
-const ENGINES_FLOOR_RANGE_PATTERN = /^(>=(\d+)(?:\.(\d+))?(?:\.\d+)?)(?: +<\d+(?:\.\d+){0,2})?$/;
+const ENGINES_FLOOR_RANGE_PATTERN = /^(>=(\d+)(?:\.(\d+))?(?:\.\d+)?)(?: +<25(?:\.0\.0)? +\|\| +>=26(?:\.0\.0)?)$/;
 const CHECK_IDS = Object.freeze([
   'package_version',
   'node_runtime',

@@ -37,6 +37,12 @@ test('nodeMajor 25はoverride有りでblocked=falseだがbannerは表示のみ�
   assert.equal(result.banner, buildNode25BlockBanner('25.0.0'));
 });
 
+test('nodeMajor 26はNode 25固有bugの対象外 — blocked=false, banner=null', () => {
+  const result = evaluateNodeVersionGuard('26.0.0', false);
+  assert.equal(result.blocked, false);
+  assert.equal(result.banner, null);
+});
+
 test(`nodeMajor ${MIN_NODE_MAJOR}(floorちょうど)はサポート対象内 — blocked=false, banner=null`, () => {
   const result = evaluateNodeVersionGuard(`${MIN_NODE_MAJOR}.0.0`, false);
   assert.equal(result.blocked, false);

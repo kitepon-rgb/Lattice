@@ -10,13 +10,14 @@
  *
  * 判定ロジックだけをここに切り出し、process.versions.node / env を直接
  * 読まない純関数にすることで、境界値（MIN_NODE_MAJOR-1 / MIN_NODE_MAJOR /
- * 24 / 25、override有無）をunit testで固定できるようにする。
+ * 24 / 25 / 26、override有無）をunit testで固定できるようにする。
  */
 
 import {
   MIN_NODE_MAJOR,
   buildNode25BlockBanner,
   buildNodeTooOldBanner,
+  isNode25Affected,
 } from '../sensor/dist/bin/node-version-check.js';
 
 export { MIN_NODE_MAJOR };
@@ -33,7 +34,7 @@ export { MIN_NODE_MAJOR };
  */
 export function evaluateNodeVersionGuard(nodeVersion, overrideActive) {
   const nodeMajor = parseInt(nodeVersion.split('.')[0] ?? '0', 10);
-  if (nodeMajor >= 25) {
+  if (isNode25Affected(nodeMajor)) {
     return { blocked: !overrideActive, banner: buildNode25BlockBanner(nodeVersion) };
   }
   if (nodeMajor < MIN_NODE_MAJOR) {

@@ -47,7 +47,7 @@ import { createShimmerProgress } from '../ui/shimmer-progress';
 import { getGlyphs } from '../ui/glyphs';
 import { ansiColorsEnabled } from '../ui/color';
 
-import { buildNode25BlockBanner, buildNodeTooOldBanner, MIN_NODE_MAJOR } from './node-version-check';
+import { buildNode25BlockBanner, buildNodeTooOldBanner, isNode25Affected, MIN_NODE_MAJOR } from './node-version-check';
 import { installFatalHandlers } from './fatal-handler';
 import { relaunchWithWasmRuntimeFlagsIfNeeded } from '../extraction/wasm-runtime-flags';
 import { installCommandSupervision } from './command-supervision';
@@ -88,7 +88,7 @@ const importESM = new Function('specifier', 'return import(specifier)') as
 // who patched V8 themselves or want to test a future fix.
 const nodeVersion = process.versions.node;
 const nodeMajor = parseInt(nodeVersion.split('.')[0] ?? '0', 10);
-if (nodeMajor >= 25) {
+if (isNode25Affected(nodeMajor)) {
   process.stderr.write(buildNode25BlockBanner(nodeVersion) + '\n');
   if (!process.env.CODEGRAPH_ALLOW_UNSAFE_NODE) {
     process.exit(1);
@@ -97,7 +97,7 @@ if (nodeMajor >= 25) {
 }
 // Enforce the supported Node floor. `engines` in package.json only *warns* on
 // install (unless engine-strict), so hard-block here to actually keep users off
-// unsupported versions. Mirrors the 25+ block above. See package.json `engines`.
+// unsupported versions. Mirrors the Node 25 block above. See package.json `engines`.
 if (nodeMajor < MIN_NODE_MAJOR) {
   process.stderr.write(buildNodeTooOldBanner(nodeVersion) + '\n');
   if (!process.env.CODEGRAPH_ALLOW_UNSAFE_NODE) {
