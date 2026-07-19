@@ -7,6 +7,32 @@ const args = process.argv.slice(2);
 
 if (args.length === 1 && args[0] === '--version') {
   process.stdout.write(`${packageJson.version}\n`);
+} else if (args.length === 2 && args[0] === 'status' && args[1] === '--json') {
+  const { projectStatusFailure, runProjectStatus } = await import('../src/project-cli.mjs');
+  try {
+    process.exitCode = await runProjectStatus({
+      cwd: process.cwd(), stdout: process.stdout, cliVersion: packageJson.version,
+    });
+  } catch (error) {
+    process.exitCode = projectStatusFailure({
+      cwd: process.cwd(), stdout: process.stdout, cliVersion: packageJson.version, error,
+    });
+  }
+} else if (args.length === 4 && args[0] === 'plan' && args[1] === 'create' && args[2] === '--input') {
+  const { projectCliFailure, runPlanCreate } = await import('../src/project-cli.mjs');
+  try {
+    process.exitCode = await runPlanCreate({ cwd: process.cwd(), inputRef: args[3], stdout: process.stdout });
+  } catch (error) {
+    process.exitCode = projectCliFailure(process.stderr, error);
+  }
+} else if (args.length === 4 && args[0] === 'plan' && args[1] === 'create'
+  && args[2] === '--schema' && args[3] === '--json') {
+  const { projectCliFailure, runPlanCreateSchema } = await import('../src/project-cli.mjs');
+  try {
+    process.exitCode = await runPlanCreateSchema({ stdout: process.stdout });
+  } catch (error) {
+    process.exitCode = projectCliFailure(process.stderr, error);
+  }
 } else if (args.length === 2 && args[0] === 'factory-diagnostics' && args[1] === '--json') {
   const { buildFactoryDiagnostics } = await import('../src/factory-diagnostics.mjs');
   const diagnostics = await buildFactoryDiagnostics();

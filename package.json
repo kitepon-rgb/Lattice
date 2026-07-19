@@ -1,6 +1,6 @@
 {
   "name": "@quolu/lattice",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Lattice — parallel TODO graph compiler and conflict-aware orchestration runtime with isolated executor landing",
   "type": "module",
   "license": "MIT",
@@ -18,6 +18,7 @@
   "files": [
     "bin",
     "src",
+    "docs/schemas/lattice.plan_create_input.v1.schema.json",
     "sensor/dist",
     "sensor/package.json",
     "sensor/LICENSE",
@@ -45,7 +46,7 @@
     "prepack": "npm --prefix sensor run build",
     "test": "node --test test/*.mjs test/integration/*.mjs",
     "test:sensor": "npm --prefix sensor test",
-    "check": "node --check bin/lattice.mjs && node --check bin/lattice-mcp.mjs && node --check src/factory-diagnostics.mjs && node --check src/runtime-errors.mjs && node --check src/runtime-contracts.mjs && node --check src/runtime-event-store.mjs && node --check src/hash-chain.mjs && node --check src/dag-chain.mjs && node --check src/todo-contracts.mjs && node --check src/todo-chain.mjs && node --check src/todo-store.mjs && node --check src/todo-migration.mjs && node --check src/todo-revision.mjs && node --check src/todo-status.mjs && node --check src/todo-cli.mjs && node --check src/todo-gantt-presentation.mjs && node --check src/todo-narrative-anchor.mjs && node --check src/todo-markdown-renderer.mjs && node --check src/todo-gantt-svg.mjs && node --check src/todo-gantt-html.mjs && node --check src/runtime-projection.mjs && node --check src/runtime-decision-verifier.mjs && node --check src/runtime-front-end.mjs && node --check src/runtime-cli.mjs && node --check src/rc3-dogfood-scaffold.mjs && node --check src/runtime-engine.mjs && node --check src/runtime-scripted-executor.mjs && node --check src/runtime-diff-observer.mjs && node --check src/runtime-worktree-executor.mjs && node --check src/runtime-hold-recompile.mjs && node --check src/rc3-scripted-campaign.mjs && node --check src/rc3-actual-dogfood.mjs && node --check src/rc4-stage1-dogfood.mjs && node --check research/fixtures/dispatch-record/src/dispatch-record.mjs && node --check test/research-dispatch-record.test.mjs",
+    "check": "node --check bin/lattice.mjs && node --check bin/lattice-mcp.mjs && node --check src/project-cli.mjs && node --check src/factory-diagnostics.mjs && node --check src/runtime-errors.mjs && node --check src/runtime-contracts.mjs && node --check src/runtime-event-store.mjs && node --check src/hash-chain.mjs && node --check src/dag-chain.mjs && node --check src/todo-contracts.mjs && node --check src/todo-chain.mjs && node --check src/todo-store.mjs && node --check src/todo-migration.mjs && node --check src/todo-revision.mjs && node --check src/todo-status.mjs && node --check src/todo-cli.mjs && node --check src/todo-gantt-presentation.mjs && node --check src/todo-narrative-anchor.mjs && node --check src/todo-markdown-renderer.mjs && node --check src/todo-gantt-svg.mjs && node --check src/todo-gantt-html.mjs && node --check src/runtime-projection.mjs && node --check src/runtime-decision-verifier.mjs && node --check src/runtime-front-end.mjs && node --check src/runtime-cli.mjs && node --check src/rc3-dogfood-scaffold.mjs && node --check src/runtime-engine.mjs && node --check src/runtime-scripted-executor.mjs && node --check src/runtime-diff-observer.mjs && node --check src/runtime-worktree-executor.mjs && node --check src/runtime-hold-recompile.mjs && node --check src/rc3-scripted-campaign.mjs && node --check src/rc3-actual-dogfood.mjs && node --check src/rc4-stage1-dogfood.mjs && node --check research/fixtures/dispatch-record/src/dispatch-record.mjs && node --check test/research-dispatch-record.test.mjs",
     "ci": "npm run test && npm run test:sensor && npm run check"
   }
 }

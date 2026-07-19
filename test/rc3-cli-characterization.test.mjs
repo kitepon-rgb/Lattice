@@ -17,6 +17,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
 
 const REJECTED_SURFACE = Object.freeze([
+  ['plan', 'create'],
+  ['plan', 'create', '--input'],
+  ['plan', 'create', '--schema'],
   ['plan', 'compile'],
   ['plan', 'verify'],
   ['plan', 'compile', '--request'],
@@ -32,6 +35,8 @@ const MALFORMED_INPUTS = Object.freeze([
   [],
   ['frobnicate'],
   ['--version', 'extra'],
+  ['status'],
+  ['status', '--json', 'extra'],
   ['doctor'],
   ['doctor', '--json'],
   ['doctor', '--json', 'extra'],

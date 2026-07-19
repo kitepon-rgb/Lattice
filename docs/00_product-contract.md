@@ -59,7 +59,18 @@ idle timeoutで自動終了するcache工程であり、どちらも自律的な
 rendezvous nodeに限る）。「常駐サービス化はしない」非目標はorchestration面の規定であり、
 MCP server提供と矛盾しない。MCP面は外部networkへ一切通信しない（v1受入条件）。
 
-## TODO工程store面（ADR 0053・0055・0056）
+## TODO工程store面（ADR 0053・0055・0056・0058）
+
+project discoveryの唯一の正規入口は`lattice status --json`である。CLI version、git project、
+canonical store ref、active plan、active run、`uninitialized | ready | active_run | invalid`、
+`can_create_plan`、次の正規commandを`lattice.project_status.v1`として返す。未初期化はexit 0の
+正常状態であり、`.lattice/`の存在を接続判定へ使わない。`invalid`はexit 1のtyped状態とし、
+Markdownへ暗黙fallbackしない。
+
+未初期化projectの初期authoring入口は
+`lattice plan create --input <lattice.plan_create_input.v1>`である。入力はrepo内のcanonical
+JSON+LFに限定し、`lattice.todo_plan.v3`と同じtask／topology制約を満たすfull desired stateを
+一回のtransactionでstoreへ登録する。移行専用の`todo migrate`を新規authoringへ流用しない。
 
 `.lattice/todo/`のcanonical journalを工程状態の唯一正本とし、snapshotとガントHTMLは再生成可能な
 投影として扱う。読取CLIは`lattice todo status / verify / snapshot --rebuild / gantt`、一回きりの

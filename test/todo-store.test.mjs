@@ -12,7 +12,7 @@ import {
 } from '../src/todo-contracts.mjs';
 import {
   TodoStoreError, appendImportedPlan, appendTodoEvent, buildTodoPlan, createTodoStoreWriter,
-  createSuccessorTodoPlan, initializeTodoStore, readTodoStore, rebuildTodoSnapshot,
+  createSuccessorTodoPlan, initializeAuthoredTodoStore, initializeTodoStore, readTodoStore, rebuildTodoSnapshot,
 } from '../src/todo-store.mjs';
 import { projectTodoChainV1 } from '../src/todo-chain.mjs';
 import { layoutTodoGantt } from '../src/todo-gantt-layout.mjs';
@@ -424,6 +424,48 @@ test('bootstrap importはparent準備後の失敗でも.latticeとstagingを全r
   await assert.rejects(appendImportedPlan(request), /bootstrap registration failed/u);
   await assert.rejects(lstat(path.join(root, '.lattice')), { code: 'ENOENT' });
   assert.deepEqual((await readdir(root)).filter((name) => name.startsWith('.lattice-todo-bootstrap-')), []);
+});
+
+test('initial authoringはrename後の検証失敗でもstoreとstagingをrollbackする', async (context) => {
+  const root = await bareWorkspace(context);
+  await assert.rejects(initializeAuthoredTodoStore({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+    projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }],
+    plan: {
+      schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'main', plan_version: 'v1',
+      predecessor_plan_digest: null, tasks: [taskV3('T1')], hard_dependencies: [], joins: [],
+    },
+    genesis: { actor: ACTOR, recorded_at: new Date().toISOString(), provenance: null },
+    async onProtocolStage(stage) {
+      assert.equal(stage, 'authoring_renamed');
+      const altered = JSON.parse(await readFile(path.join(root, manifestRef), 'utf8'));
+      altered.repositories = [{ repo_id: 'self', path: 'elsewhere' }];
+      altered.manifest_digest = todoSelfDigest(altered, 'manifest_digest');
+      await writeFile(path.join(root, manifestRef), `${canonicalizeTodoArtifact(altered)}\n`);
+    },
+  }), (error) => error instanceof TodoStoreError && error.code === 'STORE_WRITE_CONFLICT'
+    && error.detail.reason === 'authoring_activation_verification_failed');
+  await assert.rejects(lstat(path.join(root, '.lattice', 'todo')), { code: 'ENOENT' });
+  assert.deepEqual((await readdir(root)).filter((name) => name.startsWith('.lattice-todo-authoring-')), []);
+});
+
+test('initial authoringはstaleへ丸められるsnapshot改竄も成功扱いせずrollbackする', async (context) => {
+  const root = await bareWorkspace(context);
+  await assert.rejects(initializeAuthoredTodoStore({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+    projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }],
+    plan: {
+      schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'main', plan_version: 'v1',
+      predecessor_plan_digest: null, tasks: [taskV3('T1')], hard_dependencies: [], joins: [],
+    },
+    genesis: { actor: ACTOR, recorded_at: new Date().toISOString(), provenance: null },
+    async onProtocolStage() {
+      await writeFile(path.join(root, snapshotRef), '{}\n');
+    },
+  }), (error) => error instanceof TodoStoreError && error.code === 'STORE_WRITE_CONFLICT'
+    && error.detail.reason === 'authoring_activation_verification_failed');
+  await assert.rejects(lstat(path.join(root, '.lattice', 'todo')), { code: 'ENOENT' });
+  assert.deepEqual((await readdir(root)).filter((name) => name.startsWith('.lattice-todo-authoring-')), []);
 });
 
 test('historical importはimport済みとauthored既存plan_keyを区別して再取込拒否する', async (context) => {

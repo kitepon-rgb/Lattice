@@ -19,6 +19,28 @@ codex-sidecar diagnostics --project . --preset auditor --json
 
 Node.js 22.13以上を使用します。CodegraphとSpotterはproject単位で初期化し、生成stateの所有境界を守ります。
 
+どのrepoでも、Latticeの導入状態はdirectoryの有無を推測せず、最初に次のtyped discoveryで判定します。
+
+```bash
+lattice status --json
+```
+
+`state`は`uninitialized | ready | active_run | invalid`のいずれかです。`uninitialized`は
+正常な未初期化状態で、`next_action`が正規の初期authoring入口を返します。初回planは
+`lattice.plan_create_input.v1`のcanonical JSON+LFを用意し、次で作成します。
+
+```bash
+lattice plan create --schema --json
+```
+
+```bash
+lattice plan create --input .lattice/plan-create.json
+```
+
+`invalid`をMarkdown fallbackへ丸めず、`next_action`に従ってstoreを診断してください。
+discoveryと初期transactionの不変条件は
+[ADR 0058](docs/adr/0058-project-discovery-and-initial-authoring.md)が正です。
+
 TODO工程storeの読取は`lattice todo status`、検証は`lattice todo verify`、表示生成は
 `lattice todo gantt`を使います。topology/source reconciliationは
 `lattice todo revise --plan <key> --input <canonical-revision.json>`だけでsuccessor発行します。

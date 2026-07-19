@@ -1086,6 +1086,137 @@ export async function initializeTodoStore(options = {}) {
   });
 }
 
+/** G5-only initial authoring transaction. Store membership appears by one final directory rename. */
+export async function initializeAuthoredTodoStore(options = {}) {
+  requireWriter(options.writer, 'g5-authoring');
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const optionKeys = [
+    'repoRoot', 'writer', 'projectId', 'repositories', 'plan', 'genesis',
+  ];
+  if (!(exactRecord(options, optionKeys)
+    || (exactRecord(options, [...optionKeys, 'onProtocolStage'])
+      && typeof options.onProtocolStage === 'function'))
+    || options.projectId !== options.plan?.project_id
+    || options.plan?.predecessor_plan_digest !== null) {
+    throw new TypeError('authored store initialization input invalid');
+  }
+  const plan = buildTodoPlan(options.plan);
+  verifyPlanNarrativeAnchors(repoRoot, plan);
+  const genesis = buildPlanGenesis(plan, options.genesis);
+  const tasks = replay(plan, [genesis]);
+  validateMergedGraph([{ plan }]);
+  const snapshot = snapshotFor(plan, [genesis], tasks);
+  const base = `plans/${plan.plan_key}/${plan.plan_version}`;
+  const planRef = `${STORE_ROOT_REF}/${base}/plan.json`;
+  const journalRef = `${STORE_ROOT_REF}/${base}/journal/active.jsonl`;
+  const snapshotRef = `${STORE_ROOT_REF}/${base}/snapshot.json`;
+  const descriptor = {
+    plan_key: plan.plan_key, active_plan_version: plan.plan_version,
+    plan_ref: planRef, journal_ref: journalRef, snapshot_ref: snapshotRef,
+    topology_digest: plan.topology_digest, journal_head_digest: genesis.event_digest,
+  };
+  const manifest = {
+    schema: 'lattice.todo_manifest.v1', project_id: options.projectId,
+    repositories: options.repositories, members: [descriptor], manifest_digest: '',
+  };
+  manifest.manifest_digest = todoSelfDigest(manifest, 'manifest_digest');
+  if (!validateTodoManifest(manifest)) throw new TypeError('manifest input violates lattice.todo_manifest.v1');
+
+  const stage = path.join(repoRoot, `.lattice-todo-authoring-${process.pid}-${randomBytes(6).toString('hex')}`);
+  const latticeRoot = path.join(repoRoot, '.lattice');
+  const storeRoot = path.join(repoRoot, STORE_ROOT_REF);
+  let createdLatticeRoot = false;
+  let renamed = false;
+  let activated = false;
+  let stageIdentity = null;
+  let latticeIdentity = null;
+  const sameIdentity = (left, right) => left !== null && right !== null
+    && left.dev === right.dev && left.ino === right.ino;
+  try {
+    try { await lstat(storeRoot); fail('STORE_WRITE_CONFLICT', 'store_already_exists'); }
+    catch (error) {
+      if (error instanceof TodoStoreError) throw error;
+      if (error?.code === 'ENOTDIR') fail('STORE_INCONSISTENT', 'unsafe_lattice_root');
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    await mkdir(stage, { mode: 0o700 });
+    stageIdentity = await lstat(stage);
+    await atomicWrite(path.join(stage, base, 'plan.json'), canonicalLine(plan));
+    await atomicWrite(path.join(stage, base, 'journal', 'active.jsonl'), canonicalLine(genesis));
+    await atomicWrite(path.join(stage, base, 'snapshot.json'), canonicalLine(snapshot));
+    await atomicWrite(path.join(stage, 'manifest.json'), canonicalLine(manifest));
+
+    try {
+      const state = await lstat(latticeRoot);
+      if (state.isSymbolicLink() || !state.isDirectory()) fail('STORE_INCONSISTENT', 'unsafe_lattice_root');
+    } catch (error) {
+      if (error instanceof TodoStoreError) throw error;
+      if (error?.code !== 'ENOENT') throw error;
+      await mkdir(latticeRoot, { mode: 0o700 });
+      createdLatticeRoot = true;
+      await fsyncDirectory(repoRoot);
+    }
+    latticeIdentity = await lstat(latticeRoot);
+    const stagedBeforeRename = await lstat(stage);
+    const parentBeforeRename = await lstat(latticeRoot);
+    if (!sameIdentity(stageIdentity, stagedBeforeRename)
+      || !sameIdentity(latticeIdentity, parentBeforeRename)
+      || stagedBeforeRename.isSymbolicLink() || !stagedBeforeRename.isDirectory()
+      || parentBeforeRename.isSymbolicLink() || !parentBeforeRename.isDirectory()) {
+      fail('STORE_WRITE_CONFLICT', 'authoring_activation_path_changed');
+    }
+    try { await rename(stage, storeRoot); }
+    catch (error) {
+      if (['EEXIST', 'ENOTEMPTY'].includes(error?.code)) fail('STORE_WRITE_CONFLICT', 'store_bootstrap_raced');
+      throw error;
+    }
+    renamed = true;
+    await fsyncDirectory(latticeRoot);
+    if (typeof options.onProtocolStage === 'function') await options.onProtocolStage('authoring_renamed');
+    const activatedStore = await lstat(storeRoot);
+    const activatedParent = await lstat(latticeRoot);
+    if (!sameIdentity(stageIdentity, activatedStore)
+      || !sameIdentity(latticeIdentity, activatedParent)
+      || activatedStore.isSymbolicLink() || !activatedStore.isDirectory()
+      || activatedParent.isSymbolicLink() || !activatedParent.isDirectory()) {
+      fail('STORE_WRITE_CONFLICT', 'authoring_activation_path_changed');
+    }
+    const store = await readTodoStore({ repoRoot });
+    const member = store.members[0];
+    if (store.project_id !== options.projectId || store.members.length !== 1
+      || store.snapshot_stale !== false || member?.journal?.events?.length !== 1
+      || canonicalizeTodoArtifact(store.manifest) !== canonicalizeTodoArtifact(manifest)
+      || canonicalizeTodoArtifact(member?.descriptor) !== canonicalizeTodoArtifact(descriptor)
+      || canonicalizeTodoArtifact(member?.plan) !== canonicalizeTodoArtifact(plan)
+      || canonicalizeTodoArtifact(member?.journal?.events?.[0]) !== canonicalizeTodoArtifact(genesis)
+      || canonicalizeTodoArtifact(member?.snapshot) !== canonicalizeTodoArtifact(snapshot)) {
+      fail('STORE_WRITE_CONFLICT', 'authoring_activation_verification_failed');
+    }
+    activated = true;
+    return store;
+  } finally {
+    if (renamed && !activated) {
+      try {
+        const currentParent = await lstat(latticeRoot);
+        const currentStore = await lstat(storeRoot);
+        if (sameIdentity(latticeIdentity, currentParent) && sameIdentity(stageIdentity, currentStore)
+          && !currentParent.isSymbolicLink() && currentParent.isDirectory()
+          && !currentStore.isSymbolicLink() && currentStore.isDirectory()) {
+          await rm(storeRoot, { recursive: true, force: true });
+          await fsyncDirectory(latticeRoot);
+        }
+      } catch (error) {
+        if (!['ENOENT', 'ENOTDIR'].includes(error?.code)) throw error;
+      }
+    }
+    if (!activated) await rm(stage, { recursive: true, force: true });
+    if (!activated && createdLatticeRoot) {
+      try { await rmdir(latticeRoot); }
+      catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error?.code)) throw error; }
+    }
+  }
+}
+
 async function sourceItemBytes(repoRoot, sourceRef) {
   const parsed = parseTodoSourceRef(sourceRef);
   if (parsed === null) fail('RECONCILIATION_INCOMPLETE', 'source_ref_invalid', { source_ref: sourceRef });
