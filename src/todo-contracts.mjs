@@ -253,12 +253,53 @@ function validPayload(event) {
   return false;
 }
 
+function validCarriedState(value) {
+  if (!exactRecord(value, [
+    'status', 'started_at', 'done_at', 'blocked_reason', 'evidence', 'imported',
+  ]) || !['pending', 'in-progress', 'blocked', 'done'].includes(value.status)
+    || (value.started_at !== null && !isStrictTodoTimestamp(value.started_at))
+    || (value.done_at !== null && !isStrictTodoTimestamp(value.done_at))
+    || (value.blocked_reason !== null && !nullableText(value.blocked_reason))
+    || typeof value.imported !== 'boolean') return false;
+  if (value.status === 'pending') return value.started_at === null && value.done_at === null
+    && value.blocked_reason === null && value.evidence === null && value.imported === false;
+  if (value.status === 'in-progress') return value.done_at === null && value.blocked_reason === null
+    && value.evidence === null;
+  if (value.status === 'blocked') return value.done_at === null && value.blocked_reason !== null
+    && value.evidence === null;
+  return value.blocked_reason === null && value.evidence !== null
+    && (value.imported ? validateTodoImportSource(value.evidence) : evidence(value.evidence));
+}
+
+function validStateMigration(value) {
+  return Array.isArray(value) && value.length <= TODO_LIMITS.tasksPerPlan
+    && value.every((entry) => exactRecord(entry, [
+      'from_task_id', 'to_task_id', 'state_policy', 'state',
+    ]) && isTodoIdentifier(entry.from_task_id)
+      && (entry.to_task_id === 'removed' || isTodoIdentifier(entry.to_task_id))
+      && ['carry', 'reset_pending', 'removed'].includes(entry.state_policy)
+      && ((entry.state_policy === 'carry' && entry.to_task_id !== 'removed' && validCarriedState(entry.state))
+        || (entry.state_policy === 'reset_pending' && entry.to_task_id !== 'removed' && entry.state === null)
+        || (entry.state_policy === 'removed' && entry.to_task_id === 'removed' && entry.state === null)))
+    && new Set(value.map(({ from_task_id }) => from_task_id)).size === value.length
+    && value.every((entry, index) => index === 0
+      || compareText(value[index - 1].from_task_id, entry.from_task_id) < 0);
+}
+
 export function validateTodoEvent(value) {
   try {
-    return exactRecord(value, [
+    const commonKeys = [
       'schema', 'project_id', 'plan_key', 'plan_version', 'sequence', 'previous_digest',
       'kind', 'task_id', 'actor', 'recorded_at', 'provenance', 'payload', 'event_digest',
-    ]) && value.schema === 'lattice.todo_event.v1' && isTodoIdentifier(value.project_id)
+    ];
+    const v1 = value?.schema === 'lattice.todo_event.v1' && exactRecord(value, commonKeys);
+    const v2 = value?.schema === 'lattice.todo_event.v2' && exactRecord(value, [
+      ...commonKeys, 'reconciliation_state', 'revision_digest', 'reconciliation_digest',
+      'state_migration',
+    ]) && value.kind === 'plan_genesis' && value.task_id === null
+      && value.reconciliation_state === 'reconciled' && isTodoDigest(value.revision_digest)
+      && isTodoDigest(value.reconciliation_digest) && validStateMigration(value.state_migration);
+    return (v1 || v2) && isTodoIdentifier(value.project_id)
       && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.plan_version)
       && isNonNegativeSafeInteger(value.sequence) && nullableDigest(value.previous_digest)
       && TODO_EVENT_KINDS.includes(value.kind)

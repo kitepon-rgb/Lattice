@@ -9,6 +9,8 @@
   110 task（done 83 / pending 24 / in-progress 3）、sequence 86 を保持する。これは migration 後に
   Markdown を正本へ戻したり、状態を作り直したりせず、source inventory と store の差を一回だけ
   解消すべき実測根拠である。
+- 同日実装追補（2026-07-19）: legacy v1 journalを変更せず初回revisionへ束縛するreconciliation anchorと、
+  event v2 `state_migration`のexact wireをDecision 5aへ固定した。既存v1 bytesの受理集合は変更しない。
 
 ## Context
 
@@ -71,6 +73,8 @@ reconciliation, revision_digest`
   `source_digest` はその source item の canonical digest、`exclusion_reason` は bounded な明示理由である。
   active task ID は desired plan task と 1:1 で重複なく対応し、tombstone は active と source item を重複
   させない。source inventory は Markdown 本文の writer-side 再解釈を許す schema ではない。
+  `active`はdesired planのtask順（task ID昇順）、`excluded_tombstones`は`source_ref`昇順に固定し、
+  logical inventoryが配列順だけで別revision identityになることを禁止する。
 - `reconciliation` の exact keys は `predecessor_reconciliation_digest, source_inventory_digest,
   reconciliation_digest`。前二者はそれぞれ predecessor の現在 reconciliation digest と本 input の
   inventory digest を束縛し、最後はそれら、predecessor、desired plan、migration を含む canonical
@@ -127,6 +131,35 @@ reconciliation, revision_digest`
 - revision 以外の既存 transition の event v1/v2 化と transition verb の設計は後続 ADR に委ねる。初回
   revision は closed event kind を増やさず、`plan_genesis` の versioned payload で state migration を
   表す。
+
+### 5a. reconciliation anchor と `state_migration` exact wire（実装追補）
+
+- active predecessorがlegacy `lattice.todo_event.v1` genesisの場合、現在のreconciliation anchorは保存fieldを
+  推測せず、exact object `{schema: lattice.todo_reconciliation_anchor.v1, state:
+  registered_unreconciled, plan_digest, journal_head_digest}`のcanonical digestとして導出する。
+  plan/headはactive manifestが検証済みの実digestである。同じlegacy bytesから常に同じanchorを得て、
+  journalへ追記・補正しない。
+- active predecessorがrevision発行済みの`lattice.todo_event.v2` genesisの場合、現在anchorはgenesisの
+  `reconciliation_digest`である。v2でliteral `registered_unreconciled`を新規発行してはならない。
+- event v2 envelopeのexact keysはv1の13 keysに`reconciliation_state, revision_digest,
+  reconciliation_digest, state_migration`を加えた17 keysである。初回v2は`kind: plan_genesis`,
+  `task_id: null`, `reconciliation_state: reconciled`に限定する。通常transitionはADR 0056どおりv1を維持する。
+- v2 genesis payloadはv1と同じexact keys `plan_digest, topology_digest, predecessor_plan_digest,
+  task_migration`を持つ。`task_migration[]`はrevision inputの各entryから`state_policy`を除いた
+  `{from_task_id,to_task_id}` projectionであり、旧reader互換を主張せずv2 validatorが独立検証する。
+- `state_migration[]`はpredecessor taskをfrom ID順にちょうど一度ずつ列挙し、各entryのexact keysは
+  `from_task_id, to_task_id, state_policy, state`である。前三者はrevision inputとexact一致する。
+  `reset_pending`と`removed`は`state: null`、`carry`だけが次のexact stateを持つ。
+- carry stateのexact keysは`status, started_at, done_at, blocked_reason, evidence, imported`。
+  statusは`pending | in-progress | blocked | done`。pendingは他5値がnull/null/null/null/false、
+  in-progressはdone/reason/evidenceがnull、blockedはnon-null reasonかつdone/evidenceがnull、doneは
+  reason nullかつevidence non-nullとする。`started_at`/`done_at`はstrict timestamp又はnullで、
+  historical unknownだけがnullを持てる。evidenceはauthored descriptor又はhistorical import source、
+  `imported`はその種別と一致する。read-time注釈`evidence_unverified`はjournalへ保存せず再検証で導出する。
+- v2 `reconciliation_digest`はexact preimage `{schema: lattice.todo_reconciliation_binding.v1,
+  predecessor_reconciliation_digest, source_inventory_digest, predecessor, desired_plan_digest,
+  task_migration_digest}`のcanonical digestとする。`task_migration_digest`はrevision inputの
+  `task_migration`全体、`desired_plan_digest`は検証済みv3 plan digestへ束縛する。
 
 ### 6. reconciliation complete 性と発行 protocol
 
