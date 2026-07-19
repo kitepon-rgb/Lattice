@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1 — 2026-07-19
+
+- NPM pack前にsensorを必ずbuildし、gitignoreされた古い`dist`が公開物へ混入する経路を塞いだ。
+- `0.6.0`の公開物でNode.js 26を誤って遮断した生成物を、source契約どおりNode.js 25だけを拒否する生成物へ更新した。
+
 ## 0.6.0 — 2026-07-19
 
 - `lattice todo revise`で、active planを直接書き換えずsuccessor revisionを原子的に発行できるようにした。
