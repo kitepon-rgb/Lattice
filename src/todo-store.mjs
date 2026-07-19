@@ -401,20 +401,27 @@ function evidenceVerifier(manifest, repoRoot, hard) {
   };
 }
 
-function pinnedSourceLine(repoRoot, source) {
-  const commitType = execFileSync('git', ['cat-file', '-t', source.source_commit], {
-    cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-  }).trim();
-  if (commitType !== 'commit') throw new Error('not commit');
+function pinnedSourceLine(repoRoot, source, cache = null) {
+  if (cache === null || !cache.commits.has(source.source_commit)) {
+    const commitType = execFileSync('git', ['cat-file', '-t', source.source_commit], {
+      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (commitType !== 'commit') throw new Error('not commit');
+    cache?.commits.add(source.source_commit);
+  }
   const objectSpec = `${source.source_commit}:${source.origin_plan_ref}`;
-  const blobType = execFileSync('git', ['cat-file', '-t', objectSpec], {
-    cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-  }).trim();
-  if (blobType !== 'blob') throw new Error('not blob');
-  const blob = execFileSync('git', ['cat-file', 'blob', objectSpec], {
-    cwd: repoRoot, encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'],
-    maxBuffer: TODO_LIMITS.narrativeSectionBytes + 1,
-  });
+  let blob = cache?.blobs.get(objectSpec);
+  if (blob === undefined) {
+    const blobType = execFileSync('git', ['cat-file', '-t', objectSpec], {
+      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (blobType !== 'blob') throw new Error('not blob');
+    blob = execFileSync('git', ['cat-file', 'blob', objectSpec], {
+      cwd: repoRoot, encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: TODO_LIMITS.narrativeSectionBytes + 1,
+    });
+    cache?.blobs.set(objectSpec, blob);
+  }
   let start = 0;
   let line = 1;
   for (let index = 0; index < blob.length; index += 1) {
@@ -436,11 +443,11 @@ function markdownCheckboxState(lineBytes) {
   return match[1] === ' ' ? 'unchecked' : 'checked';
 }
 
-function importSourceVerifier(repoRoot, hard) {
+function importSourceVerifier(repoRoot, hard, cache = null) {
   return (descriptor) => {
     if (!validateTodoImportSource(descriptor)) fail('STORE_INCONSISTENT', 'import_source_descriptor_invalid');
     try {
-      pinnedSourceLine(repoRoot, descriptor);
+      pinnedSourceLine(repoRoot, descriptor, cache);
       return true;
     } catch {
       if (hard) fail('STORE_INCONSISTENT', 'import_source_unverified');
@@ -523,6 +530,7 @@ function verifyPlanNarrativeAnchors(repoRoot, plan, trustedPlan = null) {
 
 export async function readTodoStore(options = {}) {
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const pinnedSourceCache = { commits: new Set(), blobs: new Map() };
   const manifest = await readArtifact(repoRoot, MANIFEST_REF, {
     code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
   });
@@ -561,7 +569,7 @@ export async function readTodoStore(options = {}) {
       }
     }
     const verifyEvidence = evidenceVerifier(manifest, repoRoot, options.forWrite === true);
-    const verifyImportSource = importSourceVerifier(repoRoot, options.forWrite === true);
+    const verifyImportSource = importSourceVerifier(repoRoot, options.forWrite === true, pinnedSourceCache);
     const tasks = replay(plan, journal.events, {
       now: options.now ? new Date(options.now) : new Date(),
       verifyEvidence: options.forWrite === true ? verifyEvidence : undefined,

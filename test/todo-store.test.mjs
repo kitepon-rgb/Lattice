@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  lstat, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile,
+  chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -474,6 +474,35 @@ test('historical doneは通常writerから追加できず、import source不在�
     .tasks.every(({ evidence_unverified }) => evidence_unverified), true);
   await expectCode(readTodoStore({ repoRoot: root, now: NOW, forWrite: true }),
     'STORE_INCONSISTENT', 'import_source_unverified');
+});
+
+test('同一pinned sourceのread-time検証はstore read内でcommitとblobを一度だけ読む', async (context) => {
+  const root = await workspace(context);
+  await appendImportedPlan(importedPlanRequest(root));
+  const shimDirectory = path.join(root, 'git-shim');
+  const counter = path.join(root, 'git-count');
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  await mkdir(shimDirectory);
+  await writeFile(path.join(shimDirectory, 'git'), [
+    '#!/bin/sh',
+    'printf x >> "$LATTICE_GIT_COUNT_FILE"',
+    `exec ${JSON.stringify(realGit)} "$@"`,
+    '',
+  ].join('\n'));
+  await chmod(path.join(shimDirectory, 'git'), 0o700);
+  const previousPath = process.env.PATH;
+  const previousCounter = process.env.LATTICE_GIT_COUNT_FILE;
+  process.env.PATH = `${shimDirectory}:${previousPath}`;
+  process.env.LATTICE_GIT_COUNT_FILE = counter;
+  try {
+    const store = await readTodoStore({ repoRoot: root, now: NOW });
+    assert.equal(store.members.find(({ plan }) => plan.plan_key === 'archive').tasks.length, 2);
+  } finally {
+    process.env.PATH = previousPath;
+    if (previousCounter === undefined) delete process.env.LATTICE_GIT_COUNT_FILE;
+    else process.env.LATTICE_GIT_COUNT_FILE = previousCounter;
+  }
+  assert.equal((await readFile(counter, 'utf8')).length, 3);
 });
 
 test('historical doneはlatent start付きdoneとしてchain/ganttへ投影し依存順を捏造しない', async (context) => {
