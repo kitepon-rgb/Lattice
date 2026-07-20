@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { digestArtifact } from './artifact-contracts.mjs';
 import { collectCodegraphEvidence } from './codegraph-adapter.mjs';
+import { spawnSensorCliSync } from './sensor-runtime.mjs';
 import { scaffoldRc3DogfoodRepo, verifyRc3DogfoodScaffold } from './rc3-dogfood-scaffold.mjs';
 import { compileRuntimePlanV1, evidenceFromCollectedOutcomes } from './runtime-front-end.mjs';
 import {
@@ -663,7 +664,7 @@ async function runAcceptedSeam({ latticeRoot }) {
   runGit(['-c', 'user.email=rc3h@lattice.invalid', '-c', 'user.name=rc3h', 'commit', '--quiet', '-m', 'accepted seam']);
   const newBase = runGit(['rev-parse', 'HEAD']).trim();
   // fresh reindex（accepted seam後は必ず再index。syncで新規fileを収載する）。
-  const syncResult = spawnSync('codegraph', ['sync', '.'], { cwd: scaffold.repoRoot, encoding: 'utf8' });
+  const syncResult = spawnSensorCliSync(['sync', '.'], { cwd: scaffold.repoRoot, encoding: 'utf8' });
   if (syncResult.status !== 0) fail(`codegraph reindex(sync)が失敗: ${syncResult.stderr}`);
 
   const emailPath = 'research/fixtures/delivery-policy-registry/src/email-policy.mjs';

@@ -205,7 +205,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     servers.push(first);
     sendInitialize(first.child, `file://${tempDir}`, 1);
     const firstResp = await waitFor(() => findResponse(first.stdout, 1), 10000);
-    expect(firstResp.result.serverInfo.name).toBe('codegraph');
+    expect(firstResp.result.serverInfo.name).toBe('lattice-sensor');
 
     // The launcher is a PROXY (not the daemon itself) — that's the detach fix.
     await waitFor(() => first.stderr.some((l) => l.includes('Attached to shared daemon')), 8000);
@@ -229,7 +229,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     servers.push(second);
     sendInitialize(second.child, `file://${tempDir}`, 2);
     const secondResp = await waitFor(() => findResponse(second.stdout, 2), 10000);
-    expect(secondResp.result.serverInfo.name).toBe('codegraph');
+    expect(secondResp.result.serverInfo.name).toBe('lattice-sensor');
     await waitFor(() => second.stderr.some((l) => l.includes('Attached to shared daemon')), 8000);
 
     // Exactly one daemon ever bound, and it's the same pid both attached to.
@@ -248,7 +248,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     // All three get a valid initialize response...
     for (let i = 0; i < procs.length; i++) {
       const resp = await waitFor(() => findResponse(procs[i].stdout, i + 1), 12000);
-      expect(resp.result.serverInfo.name).toBe('codegraph');
+      expect(resp.result.serverInfo.name).toBe('lattice-sensor');
     }
     // ...and all three attached as proxies (none fell back / wedged).
     for (const p of procs) {
@@ -328,7 +328,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     const resp = await waitFor(() => findResponse(server.stdout, 1), 10000).catch((e) => {
       throw new Error(`${(e as Error).message}\nstderr:\n${server.stderr.join('\n')}\ndaemon.log:\n${readDaemonLog(realRoot)}`);
     });
-    expect(resp.result.serverInfo.name).toBe('codegraph');
+    expect(resp.result.serverInfo.name).toBe('lattice-sensor');
     await waitFor(() => countListeningLines(realRoot) >= 1, 10000);
     // The pidfile now names a live daemon, not the planted-dead 999999.
     const livePid = readLockPid(realRoot);
@@ -364,7 +364,7 @@ describe('Shared MCP daemon (issue #411)', () => {
       // response — the proxy answers the handshake locally and, refusing to
       // attach across the version mismatch, serves the session in-process.
       const resp = await waitFor(() => findResponse(server.stdout, 1), 10000);
-      expect(resp.result.serverInfo.name).toBe('codegraph');
+      expect(resp.result.serverInfo.name).toBe('lattice-sensor');
       await waitFor(
         () => server.stderr.some((l) => l.includes('serving this session in-process')),
         6000,

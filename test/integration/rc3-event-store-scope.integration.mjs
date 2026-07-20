@@ -19,6 +19,8 @@ const LIVE_PATHS = Object.freeze([
   'research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs',
 ]);
 
+import { invokeSensorCli } from '../../src/sensor-runtime.mjs';
+
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
@@ -77,16 +79,16 @@ test('Codegraph tracked exclusionはRC3 event storeをlive coverageから除外�
     'commit', '--quiet', '-m', 'RC3 event store scope probes',
   ], repoRoot);
 
-  run('codegraph', ['init', '.'], repoRoot);
+  invokeSensorCli(run, ['init', '.'], repoRoot);
 
-  const status = JSON.parse(run('codegraph', ['status', '.', '--json'], repoRoot));
+  const status = JSON.parse(invokeSensorCli(run, ['status', '.', '--json'], repoRoot));
   assert.equal(status.initialized, true);
   assert.deepEqual(status.pendingChanges, { added: 0, modified: 0, removed: 0 });
   assert.equal(status.worktreeMismatch, null);
   assert.equal(status.index.state, 'complete');
   assert.equal(status.index.pendingRefs, 0);
 
-  const files = JSON.parse(run('codegraph', ['files', '--path', '.', '--json'], repoRoot));
+  const files = JSON.parse(invokeSensorCli(run, ['files', '--path', '.', '--json'], repoRoot));
   const indexedPaths = files.map(({ path: relativePath }) => relativePath);
   assert.deepEqual(indexedPaths.filter((relativePath) => (
     relativePath.startsWith('research/runs/')
@@ -96,8 +98,8 @@ test('Codegraph tracked exclusionはRC3 event storeをlive coverageから除外�
     assert.equal(indexedPaths.includes(relativePath), true, relativePath);
   }
 
-  const indexedQuery = JSON.parse(run(
-    'codegraph',
+  const indexedQuery = JSON.parse(invokeSensorCli(
+    run,
     ['query', 'rc3ScopeProbeIndexed', '--path', '.', '--json'],
     repoRoot,
   ));
@@ -106,8 +108,8 @@ test('Codegraph tracked exclusionはRC3 event storeをlive coverageから除外�
   )).length, 1);
 
   // fuzzy解決があり得るため、exact名一致のnodeが存在しないことを検査する。
-  const excludedQuery = JSON.parse(run(
-    'codegraph',
+  const excludedQuery = JSON.parse(invokeSensorCli(
+    run,
     ['query', 'rc3ScopeProbeExcluded', '--path', '.', '--json'],
     repoRoot,
   ));

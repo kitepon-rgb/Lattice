@@ -116,7 +116,7 @@ export function isInitialized(projectRoot: string): boolean {
  * every other project, etc. — a multi-GB index, constant file-watcher churn, and
  * (pre-1.0 on macOS) a file-descriptor blowup that exhausted `kern.maxfiles` and
  * took unrelated apps / the whole machine down (#845). The classic trigger:
- * running the installer or `codegraph init` from `$HOME`, which auto-indexes the
+ * running the installer or `lattice sensor init` from `$HOME`, which auto-indexes the
  * current directory. These are never intended project roots, so the installer
  * and `init`/`index` refuse them (overridable with `--force`).
  *

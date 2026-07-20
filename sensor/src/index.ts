@@ -198,7 +198,7 @@ export class CodeGraph {
   /**
    * Heal a stale database handle in place. If `.codegraph/` was removed and
    * recreated at the SAME path while this instance held the DB open — a git
-   * worktree removed and re-added, or `rm -rf .codegraph` + `codegraph init` —
+   * worktree removed and re-added, or `rm -rf .codegraph` + `lattice sensor init` —
    * our open fd points at the now-unlinked inode and can never see the new
    * index, so every query returns the pre-removal snapshot until the process
    * restarts (#925). When that's detected, open the live file at the same path,
@@ -362,7 +362,7 @@ export class CodeGraph {
       throw new Error(
         `Could not rebuild the index — the database file is in use (${reason}). ` +
           `Stop any running CodeGraph MCP server/daemon for this project and retry, ` +
-          `or remove the ${getCodeGraphDir(resolvedRoot)} directory and run "codegraph init".`
+          `or remove the ${getCodeGraphDir(resolvedRoot)} directory and run "lattice sensor init".`
       );
     }
 
@@ -881,7 +881,7 @@ export class CodeGraph {
         // status='failed' for the #1240 retry above), so any pending row now
         // is such an orphan — or a row from an older engine's scoped pass.
         // Grind them down with the batched resolver; this also makes a bare
-        // `codegraph sync` the recovery command for a wedged index. On a
+        // `lattice sensor sync` the recovery command for a wedged index. On a
         // healthy index this is one COUNT query.
         const orphanCount = this.queries.getUnresolvedReferencesCount();
         if (orphanCount > 0) {

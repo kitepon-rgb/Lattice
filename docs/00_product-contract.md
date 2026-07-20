@@ -22,7 +22,7 @@ schemaはexact key、bounded collection、canonical serialization、digestを持
 
 ## Boundary evidence
 
-Codegraph由来のsymbol／edge／impact／affected testと、Latticeが補うschema、state、transaction、generated
+Lattice内蔵sensor由来のsymbol／edge／impact／affected testと、Lattice本体が補うschema、state、transaction、generated
 artifact、config、external effect、H、runtime traceを区別して保持する。Codegraphだけで独立性を宣言しない。
 
 `boundary_manifest.graph_evidence[].result_digest`は環境依存のraw CLI outputでなく、versioned portable outcome projectionの
@@ -43,8 +43,8 @@ blockerは、破られる要求／不変条件、因果経路、再現証拠、�
 
 ## Bootstrap exception
 
-空repoにはCodegraph indexが存在しないため、最初のscaffoldだけboundary manifestを免除する。
-bootstrap source作成直後、初期環境commitより前にCodegraphを初期化し、それ以後のsource TODOは通常契約へ従う。
+空repoにはsensor indexが存在しないため、最初のscaffoldだけboundary manifestを免除する。
+bootstrap source作成直後、初期環境commitより前に`lattice sensor init . --json`を実行し、それ以後のsource TODOは通常契約へ従う。
 
 ## MCP面（session code intelligence・ADR 0049）
 
@@ -53,11 +53,13 @@ plan／witness契約が消費するevidenceはCLI面・portable projectionのみ
 根拠にしない——graph系evidenceは`plan verify`の独立再計算＋canonical digest一致が機械的に強制し、
 手動evidence fieldへ入ったMCP由来テキストは人間入力と同格の未検証assertionとして扱う。
 
-MCP serverはhost sessionのstdio子プロセス（session寿命）、共有daemonはclient refcount＋
+MCP serverはhost sessionのstdio子プロセス（session寿命）、共有sensor daemonはclient refcount＋
 idle timeoutで自動終了するcache工程であり、どちらも自律的なdispatch・製品状態への書込を行わない
 （書込はproject cache `.codegraph/`へのwatcher再indexとLattice固有のglobal管理領域・socket
 rendezvous nodeに限る）。「常駐サービス化はしない」非目標はorchestration面の規定であり、
 MCP server提供と矛盾しない。MCP面は外部networkへ一切通信しない（v1受入条件）。
+runtimeは配布物内の`./sensor/dist`だけを起動し、PATH上の独立Codegraph、npx、外部SDKを解決しない。
+`codegraph_*`互換toolは提供者を`lattice`、所有者を`lattice`として機械表示し、独立製品の存在を示さない。
 
 ## TODO工程store面（ADR 0053・0055・0056・0058）
 

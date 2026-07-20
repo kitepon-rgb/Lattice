@@ -1,8 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { constants as fsConstants } from 'node:fs';
 import {
-  access,
   lstat,
   mkdir,
   mkdtemp,
@@ -23,6 +21,7 @@ import {
 } from './artifact-contracts.mjs';
 import { compileBoundaryCondition } from './boundary-compiler.mjs';
 import { collectCodegraphEvidence } from './codegraph-adapter.mjs';
+import { invokeSensorCli, LATTICE_SENSOR_CLI } from './sensor-runtime.mjs';
 import { runIsolatedTransform } from './isolation-runner.mjs';
 import { runRc1BlackBoxOracle } from './rc1-black-box-oracle.mjs';
 import { createRc1EvidenceBundle } from './rc1-evidence-bundle.mjs';
@@ -228,22 +227,6 @@ function run(command, args, { cwd, input, allowExitCodes = [0] } = {}) {
   });
 }
 
-async function resolveExecutable(command) {
-  const entries = String(process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
-  for (const directory of entries) {
-    const candidate = path.join(directory, command);
-    try {
-      await access(candidate, fsConstants.X_OK);
-      const resolved = await realpath(candidate);
-      const stat = await lstat(resolved);
-      if (stat.isFile()) return resolved;
-    } catch (error) {
-      if (error?.code !== 'ENOENT' && error?.code !== 'EACCES') throw error;
-    }
-  }
-  throw new TypeError(`${command} executableをPATHから解決できない`);
-}
-
 async function captureExecutionIdentity(repoRoot) {
   const sources = [];
   const payloads = new Map();
@@ -252,10 +235,9 @@ async function captureExecutionIdentity(repoRoot) {
     payloads.set(artifactRef, bytes);
     sources.push({ runtime_path: runtimePath, artifact_ref: artifactRef, digest: sha256(bytes) });
   }
-  const executablePath = await resolveExecutable('codegraph');
-  const executableBytes = await readFile(executablePath);
-  const version = (await run(executablePath, ['--version'])).stdout.toString('utf8').trim();
-  if (!SEMVER.test(version)) throw new TypeError('Codegraph versionがsemverではない');
+  const executableBytes = await readFile(LATTICE_SENSOR_CLI);
+  const version = (await run(process.execPath, [LATTICE_SENSOR_CLI, '--version'])).stdout.toString('utf8').trim();
+  if (!SEMVER.test(version)) throw new TypeError('Lattice sensor versionがsemverではない');
   const projectConfigBytes = await readFile(path.join(repoRoot, CODEGRAPH_CONFIG_REPO_PATH));
   if (!projectConfigBytes.equals(CODEGRAPH_CONFIG_BYTES)) {
     throw new TypeError('Codegraph project config bytesがRC2 v2 contractと一致しない');
@@ -263,7 +245,7 @@ async function captureExecutionIdentity(repoRoot) {
   const codegraphIdentity = {
     schema: 'lattice.rc2.codegraph_identity.v2',
     version,
-    executable_ref: 'codegraph',
+    executable_ref: 'lattice-sensor',
     executable_digest: sha256(executableBytes),
     project_config_ref: CODEGRAPH_CONFIG_ARTIFACT_PATH,
     project_config_digest: sha256(projectConfigBytes),
@@ -455,7 +437,7 @@ async function observeFreshIndex({
       const bootstrap = await captureCodegraphBootstrap(worktreePath);
       try {
         const indexStarted = performance.now();
-        await run('codegraph', ['init', '.'], { cwd: worktreePath });
+        await invokeSensorCli(run, ['init', '.'], { cwd: worktreePath });
         indexElapsedMs = roundedMilliseconds(indexStarted);
         const queryStarted = performance.now();
         rawEvidence = await collectCodegraphEvidence({ cwd: worktreePath, querySet });

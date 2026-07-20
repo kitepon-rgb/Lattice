@@ -15,6 +15,8 @@ import { selfDigest } from '../../src/runtime-contracts.mjs';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
 
+import { invokeSensorCli } from '../../src/sensor-runtime.mjs';
+
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}: ${result.stderr}`);
@@ -67,7 +69,7 @@ async function scaffoldRepo(root) {
     '-c', 'user.email=rc3@example.invalid', '-c', 'user.name=rc3',
     'commit', '--quiet', '-m', 'rc3 plan cli fixture',
   ], root);
-  run('codegraph', ['init', '.'], root);
+  invokeSensorCli(run, ['init', '.'], root);
   return run('git', ['rev-parse', 'HEAD'], root).trim();
 }
 

@@ -122,7 +122,7 @@ describe('No-root-index session policy', () => {
     // It steers the agent to target a project explicitly via projectPath...
     expect(instructions).toMatch(/projectPath/);
     expect(instructions).toMatch(/codegraph_explore/);
-    expect(instructions).toMatch(/codegraph init/);
+    expect(instructions).toMatch(/lattice sensor init/);
     // ...but it is NOT the full single-project playbook (that's sent only when
     // the root itself is indexed — keeps the common case tight).
     expect(instructions).not.toMatch(/## How to query/);
@@ -207,7 +207,7 @@ describe('No-error policy on expected conditions', () => {
 
     expect(res.isError).toBeUndefined();
     expect(res.content[0]!.text).toMatch(/isn't indexed/);
-    expect(res.content[0]!.text).toMatch(/codegraph init/);
+    expect(res.content[0]!.text).toMatch(/lattice sensor init/);
     expect(res.content[0]!.text).toMatch(/built-in tools/);
   });
 

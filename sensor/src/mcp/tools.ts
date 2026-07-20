@@ -60,7 +60,7 @@ export class PathRefusalError extends Error {}
  * catch, same as {@link PathRefusalError}) rather than the NotIndexedError
  * success-shaped guidance, because silently degrading to "no default
  * project" here would hide a broken index behind text that reads as "just
- * run `codegraph init`" — actively misleading for a project that WAS
+ * run `lattice sensor init . --json`" — actively misleading for a project that WAS
  * indexed and IS now broken.
  */
 export class IndexOpenError extends Error {}
@@ -442,7 +442,7 @@ export function formatStaleFooter(stale: PendingFile[]): string {
  * `getPendingFiles()` is empty, so the per-file banner above can't fire even
  * though the index is now FROZEN and silently drifting stale. Leads with the
  * agent-actionable instruction (Read directly) and carries the reason, which
- * already names the operator remedy (`codegraph sync` / git hooks).
+ * already names the operator remedy (`lattice sensor sync . --json` / git hooks).
  */
 export function formatDegradedBanner(reason: string | null): string {
   return (
@@ -805,17 +805,13 @@ export function getStaticTools(): ToolDefinition[] {
 }
 
 /**
- * The MCP tools served by DEFAULT (short names). Pared to ONLY `codegraph_explore`
- * — the single tool that reliably earns its place: one capped call returns the
- * verbatim source of the relevant symbols grouped by file. Every other tool is a
- * narrower slice of what explore already does, and presence itself steers
- * mis-picks, so they are no longer LISTED to agents.
- *
- * The other defined tools (`node`, `search`, `callers`, plus callees/impact/files/
- * status) remain fully functional — handlers stay, the library API and CLI are
- * untouched, and `CODEGRAPH_MCP_TOOLS=explore,node,...` re-enables any of them.
+ * ADR 0049 / 0059: Lattice MCP v1 publishes exactly these eight compatibility
+ * tool names. The provider is Lattice; narrowing the default based on repo size
+ * would silently remove contracted surfaces and make host acceptance ambiguous.
  */
-const DEFAULT_MCP_TOOLS = new Set(['explore']);
+const DEFAULT_MCP_TOOLS = new Set([
+  'search', 'callers', 'callees', 'impact', 'node', 'explore', 'status', 'files',
+]);
 
 /**
  * Tool handler that executes tools against a CodeGraph instance
@@ -891,7 +887,7 @@ export class ToolHandler {
    * this from its init catch block. `getCodeGraph()` throws it (fail closed)
    * instead of the NotIndexedError guidance the next time a tool call needs
    * the default project, so the failure surfaces as `isError: true` rather
-   * than being silently absorbed into "just run codegraph init" prose.
+   * than being silently absorbed into "just run lattice sensor init . --json" prose.
    */
   setOpenFailure(err: Error | null): void {
     this.openFailure = err;
@@ -978,7 +974,7 @@ export class ToolHandler {
   /**
    * Optional allowlist of exposed tools, parsed from the CODEGRAPH_MCP_TOOLS
    * env var (comma-separated short names, e.g. "trace,search,node,context").
-   * Unset/empty → every tool is exposed. Lets an operator (or an A/B harness)
+   * Unset/empty → the contracted eight-tool surface. Lets an operator (or an A/B harness)
    * trim the tool surface without rebuilding the client config; the ablated
    * tool is then truly absent from ListTools rather than merely denied on call.
    * Matching is on the short form, so "node" and "codegraph_node" both work.
@@ -1005,7 +1001,7 @@ export class ToolHandler {
    */
   getTools(): ToolDefinition[] {
     const allow = this.toolAllowlist();
-    // No explicit allowlist → the default 4-tool surface (see
+    // No explicit allowlist → the contracted eight-tool surface (see
     // DEFAULT_MCP_TOOLS for the evidence). An allowlist replaces the
     // default entirely, so any defined tool can be re-enabled.
     let visible = allow
@@ -1026,39 +1022,6 @@ export class ToolHandler {
     try {
       const stats = this.cg.getStats();
       const budget = getExploreBudget(stats.fileCount);
-
-      // Tiny-repo tool gating: on projects under TINY_REPO_FILE_THRESHOLD
-      // files, only expose the core trio (search, node, explore) — one
-      // below even the 4-tool default: at this scale callers, too, reduces
-      // to one grep. (Historical note: the audit below ran when context and
-      // trace still existed; its "5 core tools" are today's trio.)
-      //
-      // n=2 audits ruled out cutting below 5 tools:
-      // - 3-tool gate (search + context + trace): cost regressed on
-      //   cobra/ky/sinatra. The agent fell back to raw Reads to cover
-      //   what codegraph_node + codegraph_explore would have answered.
-      // - 1-tool gate (search only): catastrophic regression — express
-      //   went from -43% WIN to +107% LOSS. With only search, the agent
-      //   can't navigate the call graph structurally and reads everything.
-      //
-      // 5 is the empirical lower bound. Tools beyond search/context/
-      // node/explore/trace pay overhead that the agent doesn't recoup
-      // on tiny-repo flow questions.
-      // ITER4: raise threshold 150 → 500 so single-file frameworks
-      // (sinatra at 159, slim_framework around 200) also get the
-      // 5-tool surface. The empirical 5-tool floor was set on <150
-      // probes; iter3 measurement showed sinatra is structurally the
-      // SAME problem as cobra (single-file WITHOUT-arm Read wins),
-      // so it deserves the same gating.
-      const TINY_REPO_FILE_THRESHOLD = 500;
-      const TINY_REPO_CORE_TOOLS = new Set([
-        'codegraph_explore',
-        'codegraph_search',
-        'codegraph_node',
-      ]);
-      if (stats.fileCount < TINY_REPO_FILE_THRESHOLD) {
-        visible = visible.filter(t => TINY_REPO_CORE_TOOLS.has(t.name));
-      }
 
       return visible.map(tool => {
         if (tool.name === 'codegraph_explore') {
@@ -1097,7 +1060,7 @@ export class ToolHandler {
             `The default project's CodeGraph index failed to open: ${this.openFailure.message}\n` +
             'This is a genuine malfunction (corrupt/locked database, schema mismatch, or ' +
             'similar) — NOT a missing index. Retry the call once; if it persists, the index ' +
-            'may need to be rebuilt (`codegraph init` after removing `.codegraph/`) or a ' +
+            'may need to be rebuilt (`lattice sensor init . --json` after removing `.codegraph/`) or a ' +
             'stale lock cleared.'
           );
         }
@@ -1113,7 +1076,7 @@ export class ToolHandler {
           '(any project that has a .codegraph/ — including a sub-project of a monorepo)\n' +
           '  • Or add --path to the server\'s MCP config args: ["serve", "--mcp", "--path", "/absolute/path/to/your/project"]\n' +
           'If a project simply has no index, use your built-in tools (Read/Grep/Glob) for THAT ' +
-          "project (the user can run 'codegraph init' there to enable it) — you can still query " +
+          "project (the user can run 'lattice sensor init . --json' there to enable it) — you can still query " +
           'other indexed projects by projectPath in the same session.'
         );
       }
@@ -1149,7 +1112,7 @@ export class ToolHandler {
         `The project at ${projectPath} isn't indexed with codegraph (no .codegraph/ directory found ` +
         'walking up from it), so codegraph cannot query it. Use your built-in tools (Read/Grep/Glob) ' +
         "for that codebase instead, and don't call codegraph for it again this session. " +
-        "Indexing is the user's decision — they can run 'codegraph init' in that project to enable it."
+        "Indexing is the user's decision — they can run 'lattice sensor init . --json' in that project to enable it."
       );
     }
 
@@ -4147,7 +4110,7 @@ export class ToolHandler {
     const mismatch = this.worktreeMismatchFor(args.projectPath as string | undefined);
 
     const lines: string[] = [
-      '**CodeGraph Status**',
+      '**Lattice Sensor Status**',
       '',
     ];
     if (mismatch) {
@@ -4161,6 +4124,8 @@ export class ToolHandler {
     // them without depending on the surrounding Markdown.
     const executionMode = this.executionMode;
     lines.push(
+      'provider: lattice',
+      'sensor_owner: lattice',
       `**Lattice sensor version:** ${CodeGraphPackageVersion}`,
       `mode: ${executionMode.mode}`,
       `reason: ${executionMode.reason}`,
@@ -4202,7 +4167,7 @@ export class ToolHandler {
       lines.push(
         `**Pending resolution:** ⚠ ${pendingRefs} references from an interrupted ` +
         `index run — some caller/impact edges are missing until the next sync ` +
-        `(any file change triggers it, or run \`codegraph sync\`)`
+        `(any file change triggers it, or run \`lattice sensor sync . --json\`)`
       );
     }
 

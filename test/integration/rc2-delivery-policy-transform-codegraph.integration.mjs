@@ -26,6 +26,8 @@ const RESOLVERS = Object.freeze([
   }),
 ]);
 
+import { invokeSensorCli } from '../../src/sensor-runtime.mjs';
+
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
@@ -67,16 +69,16 @@ test('accepted registry shardはfresh Codegraphで3 resolverへのexact callee�
   run('git', ['commit', '-m', 'RC2 Codegraph observability基準'], repoRoot);
 
   await applyRc2DeliveryPolicyTransform({ worktreePath: repoRoot });
-  run('codegraph', ['init', '.'], repoRoot);
+  invokeSensorCli(run, ['init', '.'], repoRoot);
 
-  const status = JSON.parse(run('codegraph', ['status', '.', '--json'], repoRoot));
+  const status = JSON.parse(invokeSensorCli(run, ['status', '.', '--json'], repoRoot));
   assert.equal(status.initialized, true);
   assert.deepEqual(status.pendingChanges, { added: 0, modified: 0, removed: 0 });
   assert.equal(status.worktreeMismatch, null);
   assert.equal(status.index.state, 'complete');
   assert.equal(status.index.pendingRefs, 0);
 
-  const files = JSON.parse(run('codegraph', ['files', '--json'], repoRoot));
+  const files = JSON.parse(invokeSensorCli(run, ['files', '--json'], repoRoot));
   const indexedPaths = new Set(files.map(({ path: relativePath }) => relativePath));
   for (const relativePath of [ENTRY_PATH, ...RESOLVERS.map((entry) => entry.path)]) {
     assert.equal(indexedPaths.has(relativePath), true, relativePath);

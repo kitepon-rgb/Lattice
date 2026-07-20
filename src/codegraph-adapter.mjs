@@ -1,6 +1,7 @@
-import { spawn } from 'node:child_process';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
+
+import { spawnSensorCli } from './sensor-runtime.mjs';
 
 const OPERATIONS = new Set(['status', 'query', 'callers', 'callees', 'impact', 'affected']);
 const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/g;
@@ -208,9 +209,8 @@ function emptyAffectedData(target) {
 
 function defaultExecutor({ args, cwd }) {
   return new Promise((resolve) => {
-    const child = spawn('codegraph', args, {
+    const child = spawnSensorCli(args, {
       cwd,
-      shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

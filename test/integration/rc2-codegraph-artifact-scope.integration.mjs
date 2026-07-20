@@ -19,6 +19,8 @@ const ORACLE_TESTS = Object.freeze([
   'test/rc3-compatibility.test.mjs',
 ]);
 
+import { invokeSensorCli } from '../../src/sensor-runtime.mjs';
+
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
@@ -34,16 +36,16 @@ test('fresh Codegraphはimmutable artifact identityをlive graphから除外す�
   context.after(() => rm(temporaryRoot, { recursive: true, force: true }));
   const repoRoot = path.join(temporaryRoot, 'repo');
   run('git', ['clone', '--quiet', '--no-hardlinks', REPO_ROOT, repoRoot], REPO_ROOT);
-  run('codegraph', ['init', '.'], repoRoot);
+  invokeSensorCli(run, ['init', '.'], repoRoot);
 
-  const status = JSON.parse(run('codegraph', ['status', '.', '--json'], repoRoot));
+  const status = JSON.parse(invokeSensorCli(run, ['status', '.', '--json'], repoRoot));
   assert.equal(status.initialized, true);
   assert.deepEqual(status.pendingChanges, { added: 0, modified: 0, removed: 0 });
   assert.equal(status.worktreeMismatch, null);
   assert.equal(status.index.state, 'complete');
   assert.equal(status.index.pendingRefs, 0);
 
-  const files = JSON.parse(run('codegraph', ['files', '--path', '.', '--json'], repoRoot));
+  const files = JSON.parse(invokeSensorCli(run, ['files', '--path', '.', '--json'], repoRoot));
   const indexedPaths = files.map(({ path: relativePath }) => relativePath);
   const artifactIdentityPaths = indexedPaths.filter((relativePath) => (
     /^research\/campaigns\/[^/]+\/artifacts\/[^/]+\/identity\//u.test(relativePath)
@@ -53,8 +55,8 @@ test('fresh Codegraphはimmutable artifact identityをlive graphから除外す�
     assert.equal(indexedPaths.includes(relativePath), true, relativePath);
   }
 
-  const campaignQuery = JSON.parse(run(
-    'codegraph',
+  const campaignQuery = JSON.parse(invokeSensorCli(
+    run,
     ['query', 'runRc2Campaign', '--path', '.', '--json'],
     repoRoot,
   ));
@@ -62,8 +64,8 @@ test('fresh Codegraphはimmutable artifact identityをlive graphから除外す�
     node?.name === 'runRc2Campaign' && node.filePath === 'src/rc2-campaign.mjs'
   )).length, 1);
 
-  const affected = JSON.parse(run(
-    'codegraph',
+  const affected = JSON.parse(invokeSensorCli(
+    run,
     ['affected', 'src/rc2-delivery-policy-oracle.mjs', '--path', '.', '--json'],
     repoRoot,
   ));

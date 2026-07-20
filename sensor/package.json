@@ -1,24 +1,21 @@
 {
-  "name": "@colbymchenry/codegraph",
-  "version": "1.4.1-lattice.1",
-  "description": "Supercharge AI coding agents with semantic code intelligence — surgical context, fewer tool calls, faster answers. 100% local.",
+  "name": "@quolu/lattice-sensor",
+  "version": "0.7.0-lattice.1",
+  "private": true,
+  "description": "Lattice-owned local structural sensor derived from Codegraph.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/colbymchenry/codegraph.git"
+    "url": "git+https://github.com/kitepon-rgb/Lattice.git"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "bin": {
-    "codegraph": "./dist/bin/codegraph.js"
-  },
   "files": [
     "dist",
     "scripts",
     "README.md"
   ],
   "scripts": {
-    "build": "tsc && npm run copy-assets && node -e \"require('fs').chmodSync('dist/bin/codegraph.js', 0o755)\"",
-    "preuninstall": "node dist/bin/uninstall.js",
+    "build": "npm run clean && tsc && npm run copy-assets && node -e \"require('fs').chmodSync('dist/bin/codegraph.js', 0o755)\"",
     "copy-assets": "node -e \"const fs=require('fs');fs.mkdirSync('dist/db',{recursive:true});fs.copyFileSync('src/db/schema.sql','dist/db/schema.sql');fs.mkdirSync('dist/extraction/wasm',{recursive:true});fs.readdirSync('src/extraction/wasm').filter(f=>f.endsWith('.wasm')).forEach(f=>fs.copyFileSync('src/extraction/wasm/'+f,'dist/extraction/wasm/'+f))\"",
     "dev": "tsc --watch",
     "build:kernel": "bash scripts/build-kernel.sh",

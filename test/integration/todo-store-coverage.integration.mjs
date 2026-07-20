@@ -13,6 +13,8 @@ const STORE_PROBE_PATH = '.lattice/todo/it-store-probe.mjs';
 const GENERATED_PROBE_PATH = '.lattice/generated/it-generated-probe.mjs';
 const CONTROL_PROBE_PATH = 'test/fixtures/todo-store-coverage-control.mjs';
 
+import { invokeSensorCli } from '../../src/sensor-runtime.mjs';
+
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
@@ -83,8 +85,8 @@ test('TODO storeとgenerated projectionをCodegraph coverageから分離する',
   assert.equal(configuration.exclude.includes('.lattice/todo/'), true);
   assert.equal(configuration.exclude.includes('.lattice/generated/'), true);
 
-  run('codegraph', ['init', '.'], repoRoot);
-  const files = JSON.parse(run('codegraph', ['files', '--path', '.', '--json'], repoRoot));
+  invokeSensorCli(run, ['init', '.'], repoRoot);
+  const files = JSON.parse(invokeSensorCli(run, ['files', '--path', '.', '--json'], repoRoot));
   const indexedPaths = files.map(({ path: relativePath }) => relativePath);
   assert.deepEqual(indexedPaths.filter((relativePath) => relativePath.startsWith('.lattice/todo/')), []);
   assert.deepEqual(indexedPaths.filter((relativePath) => relativePath.startsWith('.lattice/generated/')), []);

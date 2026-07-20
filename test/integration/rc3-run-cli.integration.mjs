@@ -15,6 +15,8 @@ import { selfDigest } from '../../src/runtime-contracts.mjs';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
 
+import { invokeSensorCli } from '../../src/sensor-runtime.mjs';
+
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}: ${result.stderr}`);
@@ -47,7 +49,7 @@ test.before(async () => {
   run('git', ['-c', 'user.email=r@example.invalid', '-c', 'user.name=r', 'add', '.'], repoRoot);
   run('git', ['-c', 'user.email=r@example.invalid', '-c', 'user.name=r', 'commit', '--quiet', '-m', 'base'], repoRoot);
   baseSha = run('git', ['rev-parse', 'HEAD'], repoRoot).trim();
-  run('codegraph', ['init', '.'], repoRoot);
+  invokeSensorCli(run, ['init', '.'], repoRoot);
 
   const request = {
     schema: 'lattice.run_request.v1',

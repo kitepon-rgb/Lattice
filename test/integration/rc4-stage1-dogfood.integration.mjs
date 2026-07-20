@@ -32,6 +32,8 @@ import { projectRuntimeState } from '../../src/runtime-projection.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+import { invokeSensorCli } from '../../src/sensor-runtime.mjs';
+
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}: ${result.stderr}`);
@@ -76,7 +78,7 @@ test.before(async () => {
   run('git', ['-c', 'user.email=rc4s1@example.invalid', '-c', 'user.name=rc4s1', 'add', '.'], cloneRoot);
   run('git', ['-c', 'user.email=rc4s1@example.invalid', '-c', 'user.name=rc4s1', 'commit', '--quiet', '-m', 'base'], cloneRoot);
   baseSha = run('git', ['rev-parse', 'HEAD'], cloneRoot).trim();
-  run('codegraph', ['init', '.'], cloneRoot);
+  invokeSensorCli(run, ['init', '.'], cloneRoot);
 
   const request = {
     schema: 'lattice.run_request.v1',

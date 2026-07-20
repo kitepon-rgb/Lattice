@@ -38,6 +38,11 @@ if (args.length === 1 && args[0] === '--version') {
   const diagnostics = await buildFactoryDiagnostics();
   process.stdout.write(`${JSON.stringify(diagnostics)}\n`);
   process.exitCode = diagnostics.overall === 'ok' ? 0 : 1;
+} else if (args[0] === 'sensor') {
+  const { runSensorCli } = await import('../src/sensor-cli.mjs');
+  process.exitCode = await runSensorCli({
+    argv: args.slice(1), stdout: process.stdout, stderr: process.stderr,
+  });
 } else if (args[0] === 'runtime-errors') {
   process.exitCode = await runRuntimeErrorsCli(args.slice(1));
 } else if (args[0] === 'todo') {

@@ -261,7 +261,7 @@ export class MCPEngine {
     if (disabledReason) {
       process.stderr.write(
         `[CodeGraph MCP] File watcher disabled — ${disabledReason}. ` +
-        `The graph will not auto-update; run \`codegraph sync\` (or install the git sync hooks via \`codegraph init\`) to refresh.\n`
+        `The graph will not auto-update; run \`lattice sensor sync . --json\` (or initialize via \`lattice sensor init . --json\`) to refresh.\n`
       );
       this.watcherStarted = true;
       return;
@@ -294,7 +294,7 @@ export class MCPEngine {
         // write lock held past the retry budget). Say so loudly and ONCE — the
         // graph will no longer auto-update, so a long-running MCP session must
         // not keep assuming it's fresh. The reason already names the remedy
-        // (`codegraph sync` / git sync hooks).
+        // (`lattice sensor sync . --json` / git sync hooks).
         process.stderr.write(`[CodeGraph MCP] File watcher degraded — ${reason}\n`);
       },
     });
@@ -304,7 +304,7 @@ export class MCPEngine {
       process.stderr.write('[CodeGraph MCP] File watcher active — graph will auto-sync on changes\n');
     } else {
       process.stderr.write(
-        '[CodeGraph MCP] File watcher unavailable on this platform — run `codegraph sync` to refresh the graph after changes.\n'
+        '[Lattice sensor] File watcher unavailable on this platform — run `lattice sensor sync . --json` to refresh the graph after changes.\n'
       );
     }
   }

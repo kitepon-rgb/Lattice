@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { invokeSensorCli } from './sensor-runtime.mjs';
+
 import { digestArtifact } from './artifact-contracts.mjs';
 
 /**
@@ -202,7 +204,7 @@ export async function scaffoldRc3DogfoodRepo(options = {}) {
   await run('git', [...GIT_IDENTITY, 'commit', '--quiet', '-m', 'rc3 dogfood scaffold'], repoRoot);
   const baseSha = (await run('git', ['rev-parse', 'HEAD'], repoRoot)).stdout.trim();
   if (!GIT_SHA1.test(baseSha)) fail('scaffold base shaを解決できない');
-  await run('codegraph', ['init', '.'], repoRoot);
+  await invokeSensorCli(run, ['init', '.'], repoRoot);
 
   const status = await run('git', ['status', '--porcelain=v1', '--untracked-files=all'], repoRoot);
   if (status.stdout !== '') fail(`scaffold直後のtreeがcleanではない: ${status.stdout.trim()}`);

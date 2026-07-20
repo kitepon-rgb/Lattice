@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   access,
@@ -8,7 +9,6 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { spawn } from 'node:child_process';
 
 import {
   canonicalizeArtifact,
@@ -19,6 +19,7 @@ import {
   collectCodegraphEvidence,
   portableCodegraphOutcome,
 } from './codegraph-adapter.mjs';
+import { spawnSensorCli } from './sensor-runtime.mjs';
 import { compileTreatmentArtifacts } from './treatment-compiler.mjs';
 
 const SHA1 = /^[0-9a-f]{40}$/;
@@ -96,10 +97,9 @@ function codegraphEnvironment() {
 
 function executeCodegraph({ args, cwd }) {
   return new Promise((resolve) => {
-    const child = spawn('codegraph', args, {
+    const child = spawnSensorCli(args, {
       cwd,
       env: codegraphEnvironment(),
-      shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

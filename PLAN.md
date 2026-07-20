@@ -32,7 +32,7 @@ serial ────────→ intentional critical chain
 1. **コード構造は制御変数** — 現在のmodule境界を運命として受け入れない。
 2. **外層TODO graphが第一の並列面** — 一つの巨大TODOへworkerを詰め込まず、成果物単位のready frontierを作る。
 3. **依存と競合を分ける** — precedence、write／semantic conflict、capacity、joinを一つのedgeへ潰さない。
-4. **構造sensorを使い切る** — Codegraph、build/test graph、schema、runtime trace、git historyを複合する。
+4. **構造sensorを使い切る** — Lattice内蔵sensor、build/test graph、schema、runtime trace、git historyを複合する。
 5. **未知を安全へ丸めない** — dynamic dispatch、state、effect、外部semanticsは明示的unknownとして次の実験へ送る。
 6. **計画はversioned program** — active topologyはimmutable、発見と変換は新versionとして適応する。
 7. **実変換まで行う** — 推薦で止まらず、隔離実行、検証、再index、再compileを製品が担う。
@@ -46,14 +46,15 @@ serial ────────→ intentional critical chain
 4. **Seam transformer**: 並列性を解放するcode変換を生成・隔離実行・検証する。
 5. **Plan compiler**: accepted artifactとversion barrierから次の実行graphを生成する。
 
-## 4. Codegraphとの境界
+## 4. 内蔵sensorとの境界
 
-Codegraphは重要なsensorだがLatticeそのものではない。現行1.4.1はsymbol、call、import、reference、impact、
-affected test、heuristic provenance、dynamic frontierを扱う。一方、複数TODOの意味上の競合、外部effect、
-refactorの純便益、plan invalidationはLatticeが所有する。
+LatticeはCodegraph由来実装をMIT attribution付きの内蔵sensorとして吸収し、sensorのruntime、配布、
+schema、failure contractを自ら所有する。sensorはsymbol、call、import、reference、impact、affected test、
+heuristic provenance、dynamic frontierを扱う。一方、複数TODOの意味上の競合、外部effect、refactorの
+純便益、plan invalidationはLattice本体が所有する。
 
-公開CLI／SDKで不足する低層graph情報があれば、最初から諦めず、upstream寄与または正式な所有forkで
-Codegraph自体を強化する。場当たり的なinstalled package patchは行わない。
+低層graph情報が不足する場合はLattice repo内のsensorを正式に強化する。独立CodegraphのCLI／SDKや
+installed package patchへ逃げず、index不在・破損・version不整合はtyped failureまたは明示guidanceにする。
 
 ## 5. 成功の定義
 

@@ -19,7 +19,7 @@ async function readArtifact(relativePath) {
   return JSON.parse(await readFile(new URL(relativePath, ARTIFACT_ROOT), 'utf8'));
 }
 
-test('v6 measurement binds snapshot and Codegraph executable to raw evidence and compiler replay', async () => {
+test('v6 measurement binds snapshot and sensor executable; archived Codegraph evidence remains replayable', async () => {
   const {
     bindRc1V6EvidenceBundle,
     compileRc1V6BoundaryCondition,
@@ -50,7 +50,15 @@ test('v6 measurement binds snapshot and Codegraph executable to raw evidence and
   const controlSnapshot = sourceSnapshotFromRc1BehaviorSurface(preReceipt.surface);
   const treatmentSnapshot = sourceSnapshotFromRc1TransformOutput(transformArtifact);
   const postSnapshot = sourceSnapshotFromRc1BehaviorSurface(postReceipt.surface);
-  const codegraphIdentity = await resolveRc1V6CodegraphIdentity();
+  const sensorIdentity = await resolveRc1V6CodegraphIdentity();
+  assert.equal(sensorIdentity.executable_ref, 'lattice-sensor');
+  // The immutable v5 fixture was captured by Codegraph 1.4.1. Preserve its
+  // measured identity for replay; current campaigns capture Lattice sensor.
+  const codegraphIdentity = {
+    ...sensorIdentity,
+    version: '1.4.1',
+    executable_ref: 'codegraph',
+  };
   const expected = {
     base_sha: preReceipt.base_sha,
     patch_digest: null,

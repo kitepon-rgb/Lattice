@@ -7,7 +7,7 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 
 import {
   digestArtifact,
@@ -20,6 +20,7 @@ import {
   portableCodegraphOutcome,
 } from '../../src/codegraph-adapter.mjs';
 import { compileControlArtifacts } from '../../src/control-compiler.mjs';
+import { spawnSensorCli } from '../../src/sensor-runtime.mjs';
 
 const CONTROL_BASE_SHA = 'd2d412800492fbed03febe02abc6dca81c09a88b';
 const INDEX_DIRECTORY = '.codegraph-rc1-control-v2';
@@ -51,10 +52,9 @@ function codegraphEnvironment() {
 
 function executeCodegraph({ args, cwd }) {
   return new Promise((resolve) => {
-    const child = spawn('codegraph', args, {
+    const child = spawnSensorCli(args, {
       cwd,
       env: codegraphEnvironment(),
-      shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

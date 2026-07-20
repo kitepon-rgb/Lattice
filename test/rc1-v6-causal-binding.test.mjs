@@ -159,7 +159,7 @@ function v6RunFixture(v5Bundle) {
   const codegraphIdentity = {
     schema: 'lattice.rc1.codegraph_identity.v1',
     version: '1.4.1',
-    executable_ref: 'codegraph',
+    executable_ref: 'lattice-sensor',
     executable_digest: '3'.repeat(64),
   };
   const bundle = structuredClone(v5Bundle);
@@ -228,25 +228,9 @@ function predecessorFixture(v5PlanDiff) {
   return { planDiff, expectedPredecessors };
 }
 
-test('v5 full verifier accepts resealed oracle, false pass, and truncated case semantics', async () => {
+test('v5 artifact set is invalidated rather than silently rebound after the Lattice sensor cutover', async () => {
   const canonical = await canonicalV5ArtifactSet();
-  const oracleSubstitution = corruptV5ReceiptsAndReseal(canonical, (pre, post) => {
-    pre.oracle_digest = 'a'.repeat(64);
-    post.oracle_digest = 'a'.repeat(64);
-  });
-  const falsePassedCase = corruptV5ReceiptsAndReseal(canonical, (pre, post) => {
-    pre.case_results[0].observed_digest = 'b'.repeat(64);
-    post.case_results[0].observed_digest = 'b'.repeat(64);
-  });
-  const truncatedCases = corruptV5ReceiptsAndReseal(canonical, (pre, post) => {
-    pre.case_results = pre.case_results.slice(0, 1);
-    post.case_results = post.case_results.slice(0, 1);
-  });
-
-  assert.equal(verifyRc1V5CampaignArtifactSet(canonical).valid, true);
-  assert.equal(verifyRc1V5CampaignArtifactSet(oracleSubstitution).valid, true);
-  assert.equal(verifyRc1V5CampaignArtifactSet(falsePassedCase).valid, true);
-  assert.equal(verifyRc1V5CampaignArtifactSet(truncatedCases).valid, true);
+  assert.equal(verifyRc1V5CampaignArtifactSet(canonical).valid, false);
 });
 
 test('v6 causal binding rejects semantic and measurement substitutions after resealing', async () => {

@@ -3,13 +3,13 @@
  *
  * When the live file watcher is disabled (e.g. on WSL2 `/mnt/*` drives,
  * see watch-policy.ts), the CodeGraph index would otherwise go stale until
- * the user runs `codegraph sync` by hand. As an opt-in alternative, we can
- * install git hooks that refresh the index after the operations that change
+ * the user runs `lattice sensor sync` by hand. As an opt-in alternative, we can
+ * install Lattice-owned git hooks that refresh the index after the operations that change
  * files on disk: commit, merge (covers `git pull`), and checkout.
  *
- * The hooks run `codegraph sync` in the background so they never block git,
- * and are guarded by `command -v codegraph` so they no-op cleanly when the
- * CLI isn't on PATH. Our snippet is delimited by marker comments so install
+ * The hooks run `lattice sensor sync` in the background so they never block git,
+ * and are guarded by `command -v lattice` so they no-op cleanly when the
+ * owning CLI isn't on PATH. Our snippet is delimited by marker comments so install
  * is idempotent and removal preserves any user-authored hook content.
  */
 
@@ -17,8 +17,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 
-const MARKER_BEGIN = '# >>> codegraph sync hook >>>';
-const MARKER_END = '# <<< codegraph sync hook <<<';
+const MARKER_BEGIN = '# >>> lattice sensor sync hook >>>';
+const MARKER_END = '# <<< lattice sensor sync hook <<<';
 
 export type GitHookName = 'post-commit' | 'post-merge' | 'post-checkout';
 
@@ -77,11 +77,11 @@ function gitHooksDir(projectRoot: string): string | null {
 function markerBlock(): string {
   return [
     MARKER_BEGIN,
-    '# Keeps the CodeGraph index fresh while the live file watcher is off',
+    '# Keeps the Lattice sensor index fresh while the live file watcher is off',
     '# (e.g. WSL2 /mnt drives). Runs in the background so it never blocks git.',
-    '# Managed by codegraph; remove with `codegraph uninit` or delete this block.',
-    'if command -v codegraph >/dev/null 2>&1; then',
-    '  ( codegraph sync >/dev/null 2>&1 & ) >/dev/null 2>&1',
+    '# Managed by Lattice; remove this marker block to disable it.',
+    'if command -v lattice >/dev/null 2>&1; then',
+    '  ( lattice sensor sync >/dev/null 2>&1 & ) >/dev/null 2>&1',
     'fi',
     MARKER_END,
   ].join('\n');
@@ -118,7 +118,7 @@ function chmodExecutable(file: string): void {
 }
 
 /**
- * Install (or update) the CodeGraph sync hooks in a git repository.
+ * Install (or update) the Lattice sensor sync hooks in a git repository.
  * Idempotent: re-running replaces our marker block rather than duplicating
  * it, and any user-authored hook content is preserved.
  */

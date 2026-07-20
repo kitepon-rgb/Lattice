@@ -12,12 +12,12 @@
  *   - Anti-patterns (don't re-verify with grep; don't hand-reconstruct flows)
  *
  * Keep it tight. The agent reads this every session — long instructions
- * burn tokens. The DEFAULT MCP surface is `codegraph_explore` ALONE (see
- * DEFAULT_MCP_TOOLS in tools.ts) — reference only that tool here. The other
- * tools (node/search/callers/…) stay defined and are re-enablable via
- * CODEGRAPH_MCP_TOOLS, but they are NOT listed to agents, so don't name them.
+ * burn tokens. ADR 0049 / 0059 require the eight compatibility tools to remain
+ * visible by default; provider identity is Lattice regardless of their names.
  */
-export const SERVER_INSTRUCTIONS = `# Codegraph — code intelligence over an indexed knowledge graph
+export const SERVER_INSTRUCTIONS = `# Lattice sensor — code intelligence over an indexed knowledge graph
+
+Provider identity: lattice. The codegraph_* names below are compatibility tool names served by Lattice's own bundled sensor; they do not call or require the independent Codegraph product.
 
 Codegraph is a SQLite knowledge graph of every symbol, edge, and file in
 the workspace — pre-computed structure you would otherwise re-derive by
@@ -63,7 +63,7 @@ calls; a grep/read exploration is dozens.
 
 ## Limitations
 
-- If a tool reports a project isn't indexed (no \`.codegraph/\`), stop calling codegraph tools for that project for the rest of the session and use your built-in tools there instead. Indexing is the user's decision — mention they can run \`codegraph init\` if it comes up, but don't run it yourself.
+- If a tool reports a project isn't indexed (no \`.codegraph/\`), stop calling sensor tools for that project for the rest of the session and use your built-in tools there instead. Indexing is the user's decision — mention they can run \`lattice sensor init . --json\` if it comes up, but don't run it yourself.
 - Index lags file writes by ~1 second.
 - Cross-file resolution is best-effort name matching; ambiguous calls may return multiple candidates.
 - No live correctness validation — that's still the TypeScript compiler / test suite / linter's job. Codegraph supplements those with structural context they don't have.
@@ -74,14 +74,16 @@ calls; a grep/read exploration is dozens.
  *
  * The tools are still exposed (gating tool availability on whether `./` has an
  * index is the bug behind #964: it breaks monorepos where only sub-projects are
- * indexed, and a server that started before `codegraph init` never surfaces the
+ * indexed, and a server that started before `lattice sensor init . --json` never surfaces the
  * tools afterward). Instead of an "inactive" note, this variant tells the agent
  * codegraph works **per project**: there's no default project to query, so pass
  * a `projectPath` to any project that HAS a `.codegraph/`. The full single-
  * project playbook ({@link SERVER_INSTRUCTIONS}) is sent instead when the root
  * IS indexed, so the common case stays tight.
  */
-export const SERVER_INSTRUCTIONS_NO_ROOT_INDEX = `# Codegraph — available (per-project; pass projectPath)
+export const SERVER_INSTRUCTIONS_NO_ROOT_INDEX = `# Lattice sensor — available (per-project; pass projectPath)
+
+Provider identity: lattice. The codegraph_* names below are compatibility tool names served by Lattice's own bundled sensor; they do not call or require the independent Codegraph product.
 
 Codegraph is a SQLite knowledge graph of a codebase's symbols, edges, and
 files: one \`codegraph_explore\` call returns the verbatim, line-numbered source
@@ -98,6 +100,6 @@ default project — but the tools are available and work **per project**:
   projects as you like in one session.
 - For a project with no \`.codegraph/\`, use your built-in tools (Read/Grep/Glob)
   for that project. Indexing is the user's decision — don't run it yourself, but
-  if it comes up they can run \`codegraph init\` in a project to enable codegraph
+  if it comes up they can run \`lattice sensor init . --json\` in a project to enable Lattice sensor
   there (a new index is picked up live, no restart).
 `;

@@ -28,7 +28,7 @@ import { getTelemetry, ClientInfo } from '../telemetry';
 // Exported so the proxy can answer `initialize` locally with the IDENTICAL
 // payload the daemon would send — no drift between the two handshake paths.
 export const SERVER_INFO = {
-  name: 'codegraph',
+  name: 'lattice-sensor',
   version: CodeGraphPackageVersion,
 };
 
@@ -217,7 +217,7 @@ export class MCPSession {
     // is no default project and to pass `projectPath` to any project that has a
     // `.codegraph/`. Gating tool AVAILABILITY on whether `./` is indexed was the
     // #964 bug — it broke monorepos (only sub-projects indexed) and never
-    // surfaced the tools after a mid-session `codegraph init`. When no explicit
+    // surfaced the tools after a mid-session `lattice sensor init . --json`. When no explicit
     // path is known yet (roots/list dance pending), cwd is the best predictor of
     // where the default project will resolve.
     const indexed = findNearestCodeGraphRoot(explicitPath ?? process.cwd()) !== null;
@@ -245,10 +245,10 @@ export class MCPSession {
     // monorepo case where only sub-projects carry a `.codegraph/` (the agent
     // saw zero tools and couldn't even reach an indexed sub-project by
     // `projectPath`), and it hides the tools from a session that started before
-    // the user ran `codegraph init` (most hosts request the list once, so the
+    // the user ran `lattice sensor init . --json` (most hosts request the list once, so the
     // freshly-built index never surfaces). #964. The not-indexed case is still
     // safe: a call against an un-indexed path returns SUCCESS-shaped guidance
-    // ("pass projectPath / run codegraph init"), never `isError`, so it can't
+    // ("pass projectPath / run lattice sensor init . --json"), never `isError`, so it can't
     // teach the agent to abandon codegraph. `getTools()` returns the default
     // surface even before a project is open.
     this.transport.sendResult(request.id, {
@@ -298,7 +298,7 @@ export class MCPSession {
    *   2. if still uninitialized and we never asked the client for its roots,
    *      do so now (one-shot); fall back to cwd if the client lacks roots;
    *   3. last-resort: re-walk from the best candidate — picks up projects
-   *      that were `codegraph init`'d *after* the server started.
+   *      that were initialized after the server started.
    */
   private async retryInitIfNeeded(): Promise<void> {
     if (this.resolvePromise) {

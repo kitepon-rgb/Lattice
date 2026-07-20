@@ -121,7 +121,7 @@ describe('MCP project resolution via roots/list (issue #196)', () => {
     // The status call now succeeds against the resolved project.
     const resp = await waitForMessage(messages, (m) => m.id === 1, 8000);
     const text = resp.result.content[0].text as string;
-    expect(text).toContain('CodeGraph Status');
+    expect(text).toContain('Lattice Sensor Status');
     expect(text).not.toContain('No CodeGraph project is loaded');
   }, 20000);
 
@@ -173,7 +173,7 @@ describe('MCP project resolution via roots/list (issue #196)', () => {
     const resp = await waitForMessage(messages, (m) => m.id === 1, 8000);
     const text = resp.result.content[0].text as string;
 
-    expect(text).toContain('CodeGraph Status');
+    expect(text).toContain('Lattice Sensor Status');
     // rootUri is a stronger signal than roots — we never needed to ask.
     expect(messages.some((m) => m.method === 'roots/list')).toBe(false);
   }, 20000);

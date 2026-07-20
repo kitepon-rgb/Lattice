@@ -42,7 +42,12 @@ function run(command, args, cwd) {
 
 async function scaffoldIndexedRepo(root) {
   run('git', ['init', '--quiet', '--initial-branch=main'], root);
-  await writeFile(path.join(root, 'a.mjs'), 'export const a = 1;\n');
+  await writeFile(path.join(root, 'a.mjs'), [
+    'export function leaf(value) { return value + 1; }',
+    'export function caller(value) { return leaf(value); }',
+    'export function root(value) { return caller(value); }',
+    '',
+  ].join('\n'));
   run('git', ['-c', 'user.email=mcp@example.invalid', '-c', 'user.name=mcp', 'add', '.'], root);
   run('git', [
     '-c', 'user.email=mcp@example.invalid', '-c', 'user.name=mcp',
@@ -150,18 +155,44 @@ test(
     });
     const initResp = await client.waitForId(1);
     assert.equal(initResp.error, undefined, JSON.stringify(initResp));
-    assert.equal(initResp.result.serverInfo.version, '1.4.1-lattice.1');
+    assert.equal(initResp.result.serverInfo.name, 'lattice-sensor');
+    assert.equal(initResp.result.serverInfo.version, '0.7.0-lattice.1');
 
     client.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
-    client.send({
-      jsonrpc: '2.0',
-      id: 2,
-      method: 'tools/call',
-      params: { name: 'codegraph_status', arguments: {} },
-    });
-    const statusResp = await client.waitForId(2);
+    client.send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+    const listResp = await client.waitForId(2);
+    assert.equal(listResp.error, undefined, JSON.stringify(listResp));
+    const expectedTools = [
+      'codegraph_search', 'codegraph_callers', 'codegraph_callees', 'codegraph_impact',
+      'codegraph_node', 'codegraph_explore', 'codegraph_status', 'codegraph_files',
+    ];
+    assert.deepEqual(listResp.result.tools.map(({ name }) => name), expectedTools);
+
+    const calls = [
+      ['codegraph_search', { query: 'caller' }],
+      ['codegraph_callers', { symbol: 'leaf' }],
+      ['codegraph_callees', { symbol: 'root' }],
+      ['codegraph_impact', { symbol: 'leaf' }],
+      ['codegraph_node', { symbol: 'caller' }],
+      ['codegraph_explore', { query: 'root caller leaf' }],
+      ['codegraph_status', {}],
+      ['codegraph_files', {}],
+    ];
+    const responses = new Map();
+    for (const [offset, [name, args]] of calls.entries()) {
+      const id = 10 + offset;
+      client.send({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } });
+      const response = await client.waitForId(id);
+      assert.equal(response.error, undefined, `${name}: ${JSON.stringify(response)}`);
+      assert.ok(response.result.content.length > 0, `${name}: empty content`);
+      responses.set(name, response);
+    }
+    const statusResp = responses.get('codegraph_status');
     assert.equal(statusResp.error, undefined, JSON.stringify(statusResp));
     const text = statusResp.result.content[0].text;
+    assert.match(text, /^provider: lattice$/m);
+    assert.match(text, /^sensor_owner: lattice$/m);
+    assert.match(text, /\*\*Lattice sensor version:\*\* 0\.7\.0-lattice\.1/);
     assert.match(text, /mode: direct/);
     assert.match(text, /reason: opt-out/);
 
@@ -217,7 +248,7 @@ test(
     assert.ok(bound, `daemon did not bind within 10s (pidfile never appeared at ${pidPath}) — the internal re-invoke form was not accepted`);
 
     const lock = JSON.parse(readFileSync(pidPath, 'utf8'));
-    assert.equal(lock.version, '1.4.1-lattice.1');
+    assert.equal(lock.version, '0.7.0-lattice.1');
     t.after(() => { try { process.kill(lock.pid, 'SIGTERM'); } catch { /* already gone */ } });
   },
 );

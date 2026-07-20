@@ -34,6 +34,8 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+import { invokeSensorCli } from '../../src/sensor-runtime.mjs';
+
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}: ${result.stderr}`);
@@ -109,11 +111,11 @@ test('oracleはdisposable repo内でaccepted receiptどおりpassする', async 
 });
 
 test('Codegraph query bindingはfixture symbolをexact一致で解決する', () => {
-  const statusJson = JSON.parse(run('codegraph', ['status', '.', '--json'], scaffold.repoRoot));
+  const statusJson = JSON.parse(invokeSensorCli(run, ['status', '.', '--json'], scaffold.repoRoot));
   assert.equal(statusJson.initialized, true);
   assert.equal(statusJson.index.state, 'complete');
   assert.deepEqual(statusJson.pendingChanges, { added: 0, modified: 0, removed: 0 });
-  const query = JSON.parse(run('codegraph', ['query', 'resolveDeliveryPolicy', '--path', '.', '--json'], scaffold.repoRoot));
+  const query = JSON.parse(invokeSensorCli(run, ['query', 'resolveDeliveryPolicy', '--path', '.', '--json'], scaffold.repoRoot));
   const matches = query.filter(({ node }) => (
     node?.name === 'resolveDeliveryPolicy'
     && node.filePath === 'research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs'

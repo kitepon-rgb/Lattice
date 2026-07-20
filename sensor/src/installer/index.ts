@@ -271,14 +271,14 @@ export async function runInstallerWithOptions(opts: RunInstallerOptions): Promis
   // solicit signups for, or send data to, the upstream project's endpoints.
 
   // Step 6: install wires up agents only — it deliberately does NOT index.
-  // Building the per-project graph is the user's explicit `codegraph init`
+  // Building the per-project graph is the user's explicit `lattice sensor init`
   // (or `index`), so they choose what gets indexed and when, and we never
   // index a surprise directory (e.g. a shell sitting in $HOME). Same next step
   // regardless of global/local scope.
   clack.note(
     location === 'local'
-      ? 'codegraph init        # build this project’s graph (one time; auto-syncs after)'
-      : 'cd <your-project>\ncodegraph init        # build a project’s graph (one time; auto-syncs after)',
+      ? 'lattice sensor init        # build this project’s graph (one time; auto-syncs after)'
+      : 'cd <your-project>\nlattice sensor init        # build a project’s graph (one time; auto-syncs after)',
     'Next: index a project',
   );
 
@@ -644,7 +644,7 @@ async function resolveTargets(
  * When the live file watcher will be disabled for this project (e.g. WSL2
  * /mnt drives, or CODEGRAPH_NO_WATCH), the index would silently go stale.
  * Explain that, and offer to keep it fresh automatically via git hooks
- * (commit / pull / checkout) instead of manual `codegraph sync`.
+ * (commit / pull / checkout) instead of manual `lattice sensor sync`.
  *
  * No-op on environments where the watcher runs normally, so it's safe to
  * call unconditionally after init.
@@ -662,7 +662,7 @@ export async function offerWatchFallback(
 
   // No git repo → the commit-hook path doesn't apply; point at manual sync.
   if (!isGitRepo(projectPath)) {
-    clack.log.info('Run `codegraph sync` after changing files to refresh the index.');
+    clack.log.info('Run `lattice sensor sync` after changing files to refresh the index.');
     return;
   }
 
@@ -680,19 +680,19 @@ export async function offerWatchFallback(
       message: 'How should CodeGraph keep its index fresh?',
       options: [
         { value: 'hook' as const, label: 'Sync on git commit / pull / checkout', hint: 'installs git hooks (recommended)' },
-        { value: 'manual' as const, label: 'I\'ll run `codegraph sync` myself', hint: 'fully manual' },
+        { value: 'manual' as const, label: 'I\'ll run `lattice sensor sync` myself', hint: 'fully manual' },
       ],
       initialValue: 'hook' as const,
     });
     if (clack.isCancel(sel)) {
-      clack.log.info('Skipped — run `codegraph sync` after changes to refresh the index.');
+      clack.log.info('Skipped — run `lattice sensor sync` after changes to refresh the index.');
       return;
     }
     choice = sel;
   }
 
   if (choice === 'manual') {
-    clack.log.info('Run `codegraph sync` after changing files to refresh the index.');
+    clack.log.info('Run `lattice sensor sync` after changing files to refresh the index.');
     return;
   }
 
@@ -702,11 +702,11 @@ export async function offerWatchFallback(
       `Installed git ${result.installed.join(', ')} hook${result.installed.length > 1 ? 's' : ''} — ` +
       'the index refreshes in the background after each.',
     );
-    clack.log.info('Run `codegraph sync` anytime to refresh immediately.');
+    clack.log.info('Run `lattice sensor sync` anytime to refresh immediately.');
   } else {
     clack.log.warn(
       `Could not install git hooks${result.skipped ? ` (${result.skipped})` : ''}. ` +
-      'Run `codegraph sync` after changes instead.',
+      'Run `lattice sensor sync` after changes instead.',
     );
   }
 }

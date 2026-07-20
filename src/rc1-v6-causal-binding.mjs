@@ -272,7 +272,9 @@ function validCodegraphIdentity(value) {
     && value.schema === 'lattice.rc1.codegraph_identity.v1'
     && typeof value.version === 'string'
     && /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(value.version)
-    && value.executable_ref === 'codegraph'
+    // `codegraph` is accepted only as an immutable pre-cutover artifact value.
+    // New captures always emit `lattice-sensor`.
+    && (value.executable_ref === 'lattice-sensor' || value.executable_ref === 'codegraph')
     && SHA256.test(value.executable_digest);
 }
 

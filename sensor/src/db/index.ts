@@ -25,7 +25,7 @@ export { SqliteDatabase, SqliteBackend } from './sqlite-adapter';
  * The 5s window (was 120s) rides out a normal incremental sync; the old
  * 2-minute wait presented as a frozen, hung agent. With WAL, reads never block
  * on a writer, so this timeout only governs cross-process write contention
- * (e.g. the git-hook `codegraph sync` running while the MCP server writes).
+ * (e.g. the git-hook `lattice sensor sync` running while the MCP server writes).
  */
 function configureConnection(db: SqliteDatabase): void {
   db.pragma('busy_timeout = 5000');      // MUST be first — see above
@@ -517,7 +517,7 @@ export class DatabaseConnection {
    * points at a now-unlinked inode that can never receive new writes (#925).
    * The trigger is removing and recreating `.codegraph/` at the same path under
    * a long-lived process (`git worktree remove` + re-add, or `rm -rf
-   * .codegraph` + `codegraph init`). Returns false when the inode is unchanged,
+   * .codegraph` + `lattice sensor init`). Returns false when the inode is unchanged,
    * when the file is momentarily absent (mid-recreate — nothing to reopen onto
    * yet), or when the platform doesn't report a usable inode (Windows can't
    * unlink an open file and its st_ino is unreliable, so this never fires there).

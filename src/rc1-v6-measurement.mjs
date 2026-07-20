@@ -1,8 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { constants as fsConstants } from 'node:fs';
 import {
-  access,
   lstat,
   readFile,
   realpath,
@@ -20,6 +18,7 @@ import {
   createRc1V6EvidenceBundleDescriptor,
   verifyRc1V6RunEvidence,
 } from './rc1-v6-causal-binding.mjs';
+import { LATTICE_SENSOR_CLI } from './sensor-runtime.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const GIT_SHA1 = /^[0-9a-f]{40}$/;
@@ -162,40 +161,23 @@ export async function captureRc1V6SourceSnapshot({ repoRoot, paths } = {}) {
   return sourceSnapshot(files);
 }
 
-async function resolveExecutable(command) {
-  const pathEntries = String(process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
-  for (const directory of pathEntries) {
-    const candidate = path.join(directory, command);
-    try {
-      await access(candidate, fsConstants.X_OK);
-      const resolved = await realpath(candidate);
-      const stat = await lstat(resolved);
-      if (stat.isFile()) return resolved;
-    } catch (error) {
-      if (error?.code !== 'ENOENT' && error?.code !== 'EACCES') throw error;
-    }
-  }
-  throw new TypeError(`RC1 v6 executableをPATHから解決できない: ${command}`);
-}
-
-/** 実行予定Codegraphのidentityと、そのdigestを再計算できる実bytesを同時captureする。 */
+/** Lattice内蔵sensorのidentityと、そのdigestを再計算できる実bytesを同時captureする。 */
 export async function captureRc1V6CodegraphExecutable() {
-  const executablePath = await resolveExecutable('codegraph');
-  const executableBytes = await readFile(executablePath);
-  const { stdout } = await execFileAsync(executablePath, ['--version'], {
+  const executableBytes = await readFile(LATTICE_SENSOR_CLI);
+  const { stdout } = await execFileAsync(process.execPath, [LATTICE_SENSOR_CLI, '--version'], {
     encoding: 'utf8',
     maxBuffer: 64 * 1024,
     env: { ...process.env, NO_COLOR: '1' },
   });
   const version = stdout.trim();
   if (!VERSION.test(version)) {
-    throw new TypeError('RC1 v6 Codegraph versionがsemverでない');
+    throw new TypeError('RC1 v6 Lattice sensor versionがsemverでない');
   }
   return {
     identity: {
       schema: 'lattice.rc1.codegraph_identity.v1',
       version,
-      executable_ref: 'codegraph',
+      executable_ref: 'lattice-sensor',
       executable_digest: sha256(executableBytes),
     },
     executable_bytes: executableBytes,

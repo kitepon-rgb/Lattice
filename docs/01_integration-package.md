@@ -47,14 +47,17 @@ subagent executor・packet `isolation_contract`・fingerprint境界検証・diff
 - 実証済みadapterは`claude-implementer-subagent`のみ（単一provider＝
   [ADR 0051 Decision 2](adr/0051-rc4-phase-gate-support.md)のclaim境界。クロスprovider executorは未実証）
 
-## 5. Codegraph同梱方針
+## 5. Lattice sensor同梱・独立Codegraph退役方針
 
 正典: [ADR 0047](adr/0047-codegraph-absorption-and-sensor-ownership.md)（fork吸収・sensor自前所有）＋
 [ADR 0049](adr/0049-lattice-mcp-surface-contract.md)（MCP面の公開契約・製品同一性分離・外部通信遮断）。
 
 - MIT license notice・attribution維持（`sensor/LICENSE`・`sensor/NOTICE`・fork時点upstream `841beea`）
-- 単独Codegraph配線の退役はdotagents側plan L7が所有（同一planで原子的・shadow同等性gate前提）。
-  `codegraph_*` tool名のv1据え置きと改名ADRの起票条件はADR 0049 Decision 2が正
+- runtimeは配布物内の`./sensor/dist`だけを直接起動し、PATH上の`codegraph`、
+  `npx @colbymchenry/codegraph`、外部SDKへfallbackしない
+- index管理の公開入口は`lattice sensor init|sync [path] --json`、MCP入口は`lattice-mcp`
+- 単独Codegraph配線の退役はdotagents側plan L7が所有し、受入fixture通過後に原子的cutoverする。
+  `codegraph_*`互換tool名の提供者識別と次期majorでの改名はADR 0059が正
 
 ## 5.5 native factory diagnosticsとruntime error store（工場必須要件・実装済み）
 
@@ -81,5 +84,5 @@ subagent executor・packet `isolation_contract`・fingerprint境界検証・diff
 
 core product編入の配線（native factory diagnostics・runtime error store・配布形態・
 product contracts台帳・host/product matrix・install/verify・BugHub source登録）、
-単独Codegraph退役の手順・互換期間・rollback。正典はdotagents
+単独Codegraph退役のhost別手順・rollback。正典はdotagents
 `docs/plan_lattice-factory-integration.md`（L6/L7/Q22）。

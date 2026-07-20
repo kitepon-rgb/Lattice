@@ -21,6 +21,7 @@ import {
   RC1_BOUNDARY_COMPILER_CONTRACT,
 } from './boundary-compiler.mjs';
 import { collectCodegraphEvidence } from './codegraph-adapter.mjs';
+import { invokeSensorCli } from './sensor-runtime.mjs';
 import { runIsolatedTransform } from './isolation-runner.mjs';
 import {
   createRc1EvidenceBundle,
@@ -189,7 +190,7 @@ async function observeFreshIndex({
       const codegraphBootstrap = await captureCodegraphBootstrap(worktreePath);
       try {
         const indexStartedAt = performance.now();
-        await run('codegraph', ['init', '.'], { cwd: worktreePath });
+        await invokeSensorCli(run, ['init', '.'], { cwd: worktreePath });
         indexElapsedMs = roundedMilliseconds(indexStartedAt);
         const queryStartedAt = performance.now();
         rawEvidence = await collectCodegraphEvidence({ cwd: worktreePath, querySet });
