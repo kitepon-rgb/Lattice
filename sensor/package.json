@@ -1,6 +1,6 @@
 {
   "name": "@quolu/lattice-sensor",
-  "version": "0.7.2-lattice.1",
+  "version": "0.7.3-lattice.1",
   "private": true,
   "description": "Lattice-owned local structural sensor derived from Codegraph.",
   "repository": {
@@ -11,7 +11,7 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "!dist/bin",
+    "!dist/bin/codegraph.*",
     "README.md"
   ],
   "scripts": {
