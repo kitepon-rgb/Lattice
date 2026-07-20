@@ -37,3 +37,5 @@ Phase監査順とToDo schedulingを分離しても、`next_ready`が候補一覧
 - `test/todo-cli.test.mjs`: plain start拒否、並列宣言、直列化理由、不要flag拒否。
 - `test/project-cli.test.mjs`: typed discoveryの並列開始command。
 - `test/todo-gantt-render.test.mjs`: frontier表示とPhase scheduling分離。
+- [0.10.0 release evidence](../evidence/2026-07-21-v0.10.0-ready-frontier-release.md):
+  公開tarball、registry、global install、実repo smoke。
