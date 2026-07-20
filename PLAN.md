@@ -73,5 +73,6 @@ installed package patchへ逃げず、index不在・破損・version不整合は
 
 現在の工程状態は本repoのLattice storeを正本とする。RC1〜RC4の完了記録は[docs/archive/](docs/archive/)、
 Phase・revision・live/static Ganttの完了証拠は
-[Phase実装証拠](docs/evidence/2026-07-20-phase-live-implementation.md)、公開contractは
+[Phase実装証拠](docs/evidence/2026-07-20-phase-live-implementation.md)、0.9.0の公開・install結果は
+[release証拠](docs/evidence/2026-07-21-v0.9.0-phase-release.md)、公開contractは
 [docs/00_product-contract.md](docs/00_product-contract.md)、研究証拠は[rag/INDEX.md](rag/INDEX.md)を正とする。
