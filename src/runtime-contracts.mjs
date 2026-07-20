@@ -1,4 +1,5 @@
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
+import { isCanonicalUtcTimestamp } from './timestamp-contract.mjs';
 
 // RC3 runtime契約（ADR 0044 Decision 2・3・5・7）。
 // RC2公開済みschemaを変更しない加算moduleであり、全schemaはexact key、
@@ -8,7 +9,6 @@ import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 const SHA256 = /^[0-9a-f]{64}$/;
 const SHA1 = /^[0-9a-f]{40}$/;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 const MAX_COLLECTION = 256;
 const MAX_NODES_PER_PLAN = 8;
 
@@ -77,7 +77,7 @@ function identifier(value) {
 }
 
 function timestamp(value) {
-  return typeof value === 'string' && TIMESTAMP.test(value) && !Number.isNaN(Date.parse(value));
+  return isCanonicalUtcTimestamp(value);
 }
 
 function nonNegativeInteger(value) {

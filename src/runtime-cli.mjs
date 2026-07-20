@@ -1,5 +1,16 @@
 import { spawn } from 'node:child_process';
-import { lstat, readFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 
 import { digestArtifact } from './artifact-contracts.mjs';
@@ -12,8 +23,13 @@ import {
   validateRunRequest,
   validateRuntimeBoundaryManifest,
   validateRuntimePlan,
+  verifyRuntimePlanBinding,
 } from './runtime-contracts.mjs';
-import { initializeRunEvents } from './runtime-engine.mjs';
+import {
+  buildNextRunEvent,
+  closeRunIfComplete,
+  initializeRunEvents,
+} from './runtime-engine.mjs';
 import {
   computeReadyFrontier,
   recomputeReceiptDecisions,
@@ -28,9 +44,12 @@ import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
  *   lattice plan compile --request <run-request.json>
  *   lattice plan verify  --request <run-request.json> --plan <plan.json>
  *   lattice run start    --request <run-request.json> --executor <adapter>
- *   lattice run observe  --run <run-directory>
- *   lattice run status   --run <run-directory>
- *   lattice event verify --run <run-directory>
+ *   lattice run observe  --run .lattice/runs/<run-id>
+ *   lattice run status   --run .lattice/runs/<run-id>
+ *   lattice run resume   --run .lattice/runs/<run-id>
+ *   lattice run close    --run .lattice/runs/<run-id>
+ *   lattice run abandon  --run .lattice/runs/<run-id> --reason <reason>
+ *   lattice event verify --run .lattice/runs/<run-id>
  *
  * - stdout: versioned JSON 1行のみ。診断はstderr。
  * - exit 0: 成功（artifact refとdigestを含むversioned JSON）。
@@ -47,8 +66,10 @@ const MAX_INPUT_BYTES = 8_388_608;
 const COMPILE_RESULT_SCHEMA = 'lattice.plan_compile_result.v1';
 const VERIFY_RESULT_SCHEMA = 'lattice.plan_verify_result.v1';
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
-// run event storeはDecision 10.1のLattice-owned root配下に置く。
-const RUN_STORE_ROOT = ['research', 'runs', 'rc3'];
+// 現役run storeは対象Git repo内のLattice-owned・ignored rootへ限定する。
+const RUN_STORE_ROOT = ['.lattice', 'runs'];
+const RUN_REF = /^\.lattice\/runs\/([0-9A-Za-z](?:[0-9A-Za-z._-]{0,127}))$/u;
+const ABANDON_REASON = /^[0-9A-Za-z](?:[0-9A-Za-z._:-]{0,127})$/u;
 const KNOWN_ADAPTERS = Object.freeze(['scripted', 'isolated-worktree', 'actual-agent']);
 
 class CliContractError extends Error {
@@ -135,6 +156,57 @@ async function resolveRepoBinding(cwd, request) {
       `repo HEAD(${headSha})がrequest base_sha(${request.repo.base_sha})と一致しない`,
     );
   }
+}
+
+async function resolveRepoRoot(cwd) {
+  const root = await runGit(['rev-parse', '--show-toplevel'], cwd);
+  if (root.code !== 0 || root.stdout.trim().length === 0) {
+    throw new CliContractError('REPO_UNRESOLVED', `cwdのgit rootを解決できない: ${root.stderr.trim()}`);
+  }
+  return path.resolve(root.stdout.trim());
+}
+
+async function requireIgnoredRunStore(repoRoot) {
+  const probe = '.lattice/runs/.lattice-ignore-probe';
+  const ignored = await runGit(['check-ignore', '-q', '--', probe], repoRoot);
+  if (ignored.code !== 0) {
+    throw new CliContractError(
+      'RUN_STORE_NOT_IGNORED',
+      '.lattice/runs/ がgit ignore対象ではない',
+      { guidance: '.gitignoreへ `.lattice/runs/` を追加してから再実行する' },
+    );
+  }
+}
+
+async function requireSafeRunAncestors(repoRoot) {
+  for (const relative of ['.lattice', '.lattice/runs']) {
+    try {
+      const state = await lstat(path.join(repoRoot, relative));
+      if (state.isSymbolicLink() || !state.isDirectory()) {
+        throw new CliContractError('INVALID_RUN_STORE', `${relative}が安全なdirectoryではない`);
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+}
+
+async function resolveRunStore(cwd, runRef) {
+  const normalized = runRef.replaceAll('\\', '/');
+  const match = RUN_REF.exec(normalized);
+  if (match === null || path.isAbsolute(runRef)) {
+    throw new CliContractError(
+      'INVALID_RUN_REF',
+      'run refは `.lattice/runs/<run-id>` のrepo相対形式でなければならない',
+    );
+  }
+  const repoRoot = await resolveRepoRoot(cwd);
+  await requireSafeRunAncestors(repoRoot);
+  return { repoRoot, runDir: path.join(repoRoot, ...RUN_STORE_ROOT, match[1]), runRef: normalized };
+}
+
+function canonicalNow() {
+  return new Date().toISOString();
 }
 
 async function loadRequest(requestPath) {
@@ -278,6 +350,15 @@ function runStorePath(cwd, runId) {
 }
 
 async function readRunStore(runDir) {
+  let runState;
+  try {
+    runState = await lstat(runDir);
+  } catch {
+    throw new CliContractError('INVALID_RUN_STORE', 'run store directoryを読めない');
+  }
+  if (runState.isSymbolicLink() || !runState.isDirectory()) {
+    throw new CliContractError('INVALID_RUN_STORE', 'run storeが安全なdirectoryではない');
+  }
   const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
   if (!Array.isArray(events)) {
     throw new CliContractError('INVALID_RUN_STORE', 'events.jsonがarrayではない');
@@ -286,7 +367,56 @@ async function readRunStore(runDir) {
   const compileArtifact = await readBoundedJson(
     path.join(runDir, 'plan-compile-result.json'), 'plan compile result',
   );
-  return { events, meta, compileArtifact };
+  const request = await readBoundedJson(path.join(runDir, 'request.json'), 'run request');
+  const compileKeys = ['schema', 'request_digest', 'plan', 'manifests', 'schedule', 'graph_digest', 'result_digest'];
+  const metaKeys = ['schema', 'run_id', 'executor_adapter', 'plan_digest'];
+  const { result_digest: claimedCompileDigest, ...compileBody } = compileArtifact ?? {};
+  if (!validateRunRequest(request)
+    || meta === null || typeof meta !== 'object' || Array.isArray(meta)
+    || Object.keys(meta).sort().join('\0') !== metaKeys.sort().join('\0')
+    || meta.schema !== 'lattice.run_meta.v1'
+    || meta.run_id !== request.request_id
+    || !KNOWN_ADAPTERS.includes(meta.executor_adapter)
+    || compileArtifact === null || typeof compileArtifact !== 'object' || Array.isArray(compileArtifact)
+    || Object.keys(compileArtifact).sort().join('\0') !== compileKeys.sort().join('\0')
+    || compileArtifact.schema !== COMPILE_RESULT_SCHEMA
+    || claimedCompileDigest !== digestArtifact(compileBody)
+    || compileArtifact.request_digest !== request.request_digest
+    || !validateRuntimePlan(compileArtifact?.plan)
+    || !verifyRuntimePlanBinding({ plan: compileArtifact.plan, request })
+    || compileArtifact.plan.plan_digest !== meta.plan_digest) {
+    throw new CliContractError('INVALID_RUN_STORE', 'run storeのartifact bindingが不正');
+  }
+  return { events, meta, compileArtifact, request };
+}
+
+async function writeJsonFile(filePath, value) {
+  await writeFile(filePath, `${JSON.stringify(value, null, 1)}\n`, { mode: 0o600, flag: 'wx' });
+}
+
+async function replaceEventsAtomically(runDir, events) {
+  const temporaryPath = path.join(runDir, `.events-${process.pid}-${Date.now()}.tmp`);
+  await writeJsonFile(temporaryPath, events);
+  await rename(temporaryPath, path.join(runDir, 'events.json'));
+}
+
+async function withLifecycleLock(runDir, action) {
+  const lockPath = path.join(runDir, '.lifecycle.lock');
+  let handle;
+  try {
+    handle = await open(lockPath, 'wx', 0o600);
+  } catch (error) {
+    if (error?.code === 'EEXIST') {
+      throw new CliContractError('RUN_BUSY', 'run lifecycle操作が既に進行中');
+    }
+    throw error;
+  }
+  try {
+    return await action();
+  } finally {
+    await handle.close();
+    await unlink(lockPath).catch(() => {});
+  }
 }
 
 async function runStart({ requestPath, executorAdapter, cwd, stdout }) {
@@ -299,10 +429,13 @@ async function runStart({ requestPath, executorAdapter, cwd, stdout }) {
     || !request.executor_capability.adapters.includes(executorAdapter)) {
     throw new CliContractError('UNKNOWN_ADAPTER', 'requestのexecutor_capabilityに含まれないadapter');
   }
-  await resolveRepoBinding(cwd, request);
+  const repoRoot = await resolveRepoRoot(cwd);
+  await requireSafeRunAncestors(repoRoot);
+  await requireIgnoredRunStore(repoRoot);
+  await resolveRepoBinding(repoRoot, request);
   const result = await compileFromRepo({
     request,
-    cwd,
+    cwd: repoRoot,
     planRef: `plan-${request.request_id}-e1`,
     planEpoch: 1,
     predecessorRefs: [],
@@ -326,13 +459,16 @@ async function runStart({ requestPath, executorAdapter, cwd, stdout }) {
     manifests: result.manifests,
     recordedAt: new Date().toISOString().replace(/\.\d+Z$/u, '.000Z'),
   });
-  const runDir = runStorePath(cwd, request.request_id);
-  const { mkdir, writeFile } = await import('node:fs/promises');
+  const runDir = runStorePath(repoRoot, request.request_id);
   await mkdir(path.dirname(runDir), { recursive: true });
+  const temporaryDir = await mkdtemp(path.join(path.dirname(runDir), `.${request.request_id}.tmp-`));
   try {
-    await mkdir(runDir);
+    await lstat(runDir);
+    await rm(temporaryDir, { recursive: true, force: true });
+    throw new CliContractError('RUN_EXISTS', 'run storeが既に存在する');
   } catch (error) {
-    throw new CliContractError('RUN_EXISTS', `run storeが既に存在する: ${String(error?.code ?? error)}`);
+    if (error instanceof CliContractError) throw error;
+    if (error?.code !== 'ENOENT') throw error;
   }
   const meta = {
     schema: 'lattice.run_meta.v1',
@@ -340,14 +476,23 @@ async function runStart({ requestPath, executorAdapter, cwd, stdout }) {
     executor_adapter: executorAdapter,
     plan_digest: result.plan.plan_digest,
   };
-  await writeFile(path.join(runDir, 'request.json'), `${JSON.stringify(request, null, 1)}\n`);
-  await writeFile(path.join(runDir, 'plan-compile-result.json'), `${JSON.stringify(compileArtifact, null, 1)}\n`);
-  await writeFile(path.join(runDir, 'events.json'), `${JSON.stringify(events, null, 1)}\n`);
-  await writeFile(path.join(runDir, 'run-meta.json'), `${JSON.stringify(meta, null, 1)}\n`);
+  try {
+    await writeJsonFile(path.join(temporaryDir, 'request.json'), request);
+    await writeJsonFile(path.join(temporaryDir, 'plan-compile-result.json'), compileArtifact);
+    await writeJsonFile(path.join(temporaryDir, 'events.json'), events);
+    await writeJsonFile(path.join(temporaryDir, 'run-meta.json'), meta);
+    await rename(temporaryDir, runDir);
+  } catch (error) {
+    await rm(temporaryDir, { recursive: true, force: true });
+    if (error?.code === 'EEXIST' || error?.code === 'ENOTEMPTY') {
+      throw new CliContractError('RUN_EXISTS', 'run storeが既に存在する');
+    }
+    throw error;
+  }
   const output = {
     schema: 'lattice.run_start_result.v1',
     run_id: request.request_id,
-    run_dir: path.relative(cwd, runDir),
+    run_dir: path.relative(repoRoot, runDir),
     executor_adapter: executorAdapter,
     plan_digest: result.plan.plan_digest,
     events_digest: digestArtifact(events.map(({ event_digest: digest }) => digest)),
@@ -404,6 +549,154 @@ async function runStatus({ runDir, stdout }) {
   output.result_digest = digestArtifact(output);
   stdout.write(`${JSON.stringify(output)}\n`);
   return 0;
+}
+
+async function runList({ cwd, stdout }) {
+  const repoRoot = await resolveRepoRoot(cwd);
+  await requireSafeRunAncestors(repoRoot);
+  const root = path.join(repoRoot, ...RUN_STORE_ROOT);
+  let entries;
+  try {
+    const rootState = await lstat(root);
+    if (rootState.isSymbolicLink() || !rootState.isDirectory()) {
+      throw new CliContractError('INVALID_RUN_STORE', '.lattice/runsが安全なdirectoryではない');
+    }
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === 'ENOENT') entries = [];
+    else throw error;
+  }
+  const activeRuns = [];
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory() || !RUN_REF.test(`.lattice/runs/${entry.name}`)) {
+      throw new CliContractError('INVALID_RUN_STORE', `不正なrun store entry: ${entry.name}`);
+    }
+    const runDir = path.join(root, entry.name);
+    const { events, meta, request } = await readRunStore(runDir);
+    requireValidEventChain(events);
+    if (!projectRuntimeState({ events }).closed) {
+      activeRuns.push({
+        run_id: meta.run_id,
+        run_ref: `.lattice/runs/${entry.name}`,
+        base_sha: request.repo.base_sha,
+        executor_adapter: meta.executor_adapter,
+      });
+    }
+  }
+  const output = { schema: 'lattice.run_list.v1', active_runs: activeRuns };
+  output.result_digest = digestArtifact(output);
+  stdout.write(`${JSON.stringify(output)}\n`);
+  return 0;
+}
+
+function requireValidEventChain(events) {
+  const chain = verifyRunEventChain({ events });
+  if (!chain.valid) {
+    throw new CliContractError('EVENT_CHAIN_INVALID', 'event chainが不正', { failed_conditions: chain.failed_conditions });
+  }
+}
+
+async function runResume({ runDir, repoRoot, stdout }) {
+  const { events, meta, compileArtifact, request } = await readRunStore(runDir);
+  requireValidEventChain(events);
+  const state = projectRuntimeState({ events });
+  if (state.closed) {
+    throw new CliContractError('RUN_CLOSED', 'closed runはresumeできない');
+  }
+  await resolveRepoBinding(repoRoot, request);
+  const frontier = computeReadyFrontier({ plan: compileArtifact.plan, events });
+  const output = {
+    schema: 'lattice.run_resume_result.v1',
+    outcome: 'resumable',
+    run_id: meta.run_id,
+    executor_adapter: meta.executor_adapter,
+    dispatchable: frontier.dispatchable,
+    running: state.running,
+    accepted: state.accepted,
+    event_count: events.length,
+  };
+  output.result_digest = digestArtifact(output);
+  stdout.write(`${JSON.stringify(output)}\n`);
+  return 0;
+}
+
+async function runClose({ runDir, repoRoot, stdout }) {
+  return withLifecycleLock(runDir, async () => {
+    const { events, meta, compileArtifact, request } = await readRunStore(runDir);
+    requireValidEventChain(events);
+    const initialState = projectRuntimeState({ events });
+    let next = events;
+    let alreadyClosed = initialState.closed;
+    const existingClose = events.findLast((event) => event.kind === 'run_closed');
+    if (alreadyClosed && existingClose?.payload?.outcome === 'abandoned') {
+      throw new CliContractError('RUN_ABANDONED', 'abandoned runは正常closeへ変更できない');
+    }
+    await resolveRepoBinding(repoRoot, request);
+    if (!alreadyClosed) {
+      const closed = closeRunIfComplete({
+        runId: meta.run_id,
+        plan: compileArtifact.plan,
+        events,
+        recordedAt: canonicalNow(),
+      });
+      if (!closed.closed) {
+        throw new CliContractError(
+          'RUN_NOT_COMPLETE',
+          '全TODOのreceipt accepted前はrunを正常closeできない',
+          { guidance: 'run statusで未完了TODOを確認するか、run abandonを明示実行する' },
+        );
+      }
+      next = closed.events;
+      await replaceEventsAtomically(runDir, next);
+    }
+    const output = {
+      schema: 'lattice.run_close_result.v1',
+      outcome: 'closed',
+      run_id: meta.run_id,
+      already_closed: alreadyClosed,
+      event_count: next.length,
+      events_digest: digestArtifact(next.map(({ event_digest: digest }) => digest)),
+    };
+    output.result_digest = digestArtifact(output);
+    stdout.write(`${JSON.stringify(output)}\n`);
+    return 0;
+  });
+}
+
+async function runAbandon({ runDir, reason, stdout }) {
+  if (!ABANDON_REASON.test(reason)) {
+    throw new CliContractError('INVALID_ABANDON_REASON', 'reasonは128文字以下の識別子でなければならない');
+  }
+  return withLifecycleLock(runDir, async () => {
+    const { events, meta, compileArtifact } = await readRunStore(runDir);
+    requireValidEventChain(events);
+    const state = projectRuntimeState({ events });
+    if (state.closed) {
+      throw new CliContractError('RUN_CLOSED', 'closed runはabandonできない');
+    }
+    const next = [...events];
+    next.push(buildNextRunEvent({
+      events: next,
+      runId: meta.run_id,
+      kind: 'run_closed',
+      planEpoch: compileArtifact.plan.plan_epoch,
+      subject: { kind: 'runtime_plan', ref: compileArtifact.plan.plan_ref },
+      payload: { outcome: 'abandoned', reason, accepted: state.accepted },
+      recordedAt: canonicalNow(),
+    }));
+    await replaceEventsAtomically(runDir, next);
+    const output = {
+      schema: 'lattice.run_abandon_result.v1',
+      outcome: 'abandoned',
+      reason,
+      run_id: meta.run_id,
+      event_count: next.length,
+      events_digest: digestArtifact(next.map(({ event_digest: digest }) => digest)),
+    };
+    output.result_digest = digestArtifact(output);
+    stdout.write(`${JSON.stringify(output)}\n`);
+    return 0;
+  });
 }
 
 async function eventVerify({ runDir, stdout }) {
@@ -483,16 +776,33 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
       stdout,
     });
   } else if (argv.length === 4
-    && argv[0] === 'run' && (argv[1] === 'observe' || argv[1] === 'status')
+    && argv[0] === 'run' && ['observe', 'status', 'resume', 'close'].includes(argv[1])
     && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0) {
-    const runDir = path.resolve(cwd, argv[3]);
-    action = argv[1] === 'observe'
-      ? () => runObserve({ runDir, stdout })
-      : () => runStatus({ runDir, stdout });
+    action = async () => {
+      const { repoRoot, runDir } = await resolveRunStore(cwd, argv[3]);
+      if (argv[1] === 'observe') return runObserve({ runDir, stdout });
+      if (argv[1] === 'status') return runStatus({ runDir, stdout });
+      if (argv[1] === 'resume') return runResume({ runDir, repoRoot, stdout });
+      return runClose({ runDir, repoRoot, stdout });
+    };
+  } else if (argv.length === 6
+    && argv[0] === 'run' && argv[1] === 'abandon'
+    && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0
+    && argv[4] === '--reason' && typeof argv[5] === 'string' && argv[5].length > 0) {
+    action = async () => {
+      const { runDir } = await resolveRunStore(cwd, argv[3]);
+      return runAbandon({ runDir, reason: argv[5], stdout });
+    };
+  } else if (argv.length === 3
+    && argv[0] === 'run' && argv[1] === 'list' && argv[2] === '--json') {
+    action = () => runList({ cwd, stdout });
   } else if (argv.length === 4
     && argv[0] === 'event' && argv[1] === 'verify'
     && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0) {
-    action = () => eventVerify({ runDir: path.resolve(cwd, argv[3]), stdout });
+    action = async () => {
+      const { runDir } = await resolveRunStore(cwd, argv[3]);
+      return eventVerify({ runDir, stdout });
+    };
   }
   if (action === null) return usageFailure(stderr, argv);
   try {

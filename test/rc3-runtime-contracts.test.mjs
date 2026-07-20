@@ -213,6 +213,19 @@ test('10 schemaのnormative exampleを全validatorが受理する', () => {
   }
 });
 
+test('run_event timestampは実在する暦日のcanonical UTC millisecondsだけを受理する', () => {
+  const impossibleDate = withSelfDigest(
+    { ...RUN_EVENT, recorded_at: '2026-02-30T00:00:00.000Z' },
+    'event_digest',
+  );
+  const shortFraction = withSelfDigest(
+    { ...RUN_EVENT, recorded_at: '2026-07-17T00:00:00.0Z' },
+    'event_digest',
+  );
+  assert.equal(validateRunEvent(impossibleDate), false);
+  assert.equal(validateRunEvent(shortFraction), false);
+});
+
 test('未知field追加・schema名不一致・digest破壊をfail closedで拒否する', () => {
   for (const [name, validator, example, digestField] of SCHEMA_CASES) {
     const unknownField = { ...example, extra_field: true };

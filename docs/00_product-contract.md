@@ -29,6 +29,16 @@ artifact、config、external effect、H、runtime traceを区別して保持す�
 canonical digestを指す。raw telemetryは診断receiptとして別に保持し、project／index absolute path、index時刻、DB byte size、
 node更新時刻をplan identityへ混ぜない。除外fieldはprojection versionで列挙し、未知fieldをsafe defaultで捨てない。
 
+## Orchestration run面（ADR 0044・0060）
+
+現役run storeは対象Git rootの`.lattice/runs/<run-id>/`だけに置き、target repoが`.lattice/runs/`を
+git ignoreしていることを作成前に検証する。run refはrepo相対の同形式だけを受理し、旧実験rootや任意pathへfallbackしない。
+
+公開CLIは`run start`、`list --json`、`observe`、`status`、`resume`、`close`、`abandon`と`event verify`を持つ。
+`resume`と正常`close`は保存requestのbase SHAへbindし、stale baseを拒否する。`abandon`だけがstale runを
+明示退役でき、理由を`run_closed` eventへ記録する。lifecycle writeは排他・atomicである。
+runtimeのtimestampは実在する暦日のcanonical UTC millisecondsだけを受理する。
+
 ## Transformation boundary
 
 - 初期版からdisposableな隔離worktreeで実refactorを実行対象にする。

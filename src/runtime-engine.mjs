@@ -1,6 +1,7 @@
 import { digestArtifact } from './artifact-contracts.mjs';
 import { digestRunEvent } from './runtime-event-store.mjs';
 import { projectRuntimeState } from './runtime-projection.mjs';
+import { isCanonicalUtcTimestamp } from './timestamp-contract.mjs';
 import {
   RUN_EVENT_KINDS,
   computeContextContentDigest,
@@ -33,7 +34,6 @@ const ENGINE_ACTOR = 'lattice-runtime';
 const FORBIDDEN_OPERATIONS = Object.freeze([
   'commit', 'push', 'branch', 'merge', 'rebase', 'reset', 'stash',
 ]);
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 function fail(reason) {
   throw new TypeError(`runtime engine契約違反: ${reason}`);
@@ -55,7 +55,7 @@ function exactRecord(value, keys) {
 }
 
 function requireTimestamp(value) {
-  if (typeof value !== 'string' || !TIMESTAMP.test(value)) {
+  if (!isCanonicalUtcTimestamp(value)) {
     fail(`recordedAtがcanonical UTC timestampではない: ${String(value)}`);
   }
   return value;

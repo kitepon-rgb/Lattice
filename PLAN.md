@@ -71,5 +71,5 @@ installed package patchへ逃げず、index不在・破損・version不整合は
 論文、特許、既存製品は仕様書でなく踏み台である。先行技術の存在から製品価値を否定しない。
 失敗した変換も、境界modelとverifierを改善する教師データとして保存する。
 
-実行順と消化状況は[docs/plan_lattice_rc4_dotagents_dogfood.md](docs/plan_lattice_rc4_dotagents_dogfood.md)（RC1〜RC3の完了記録は[docs/archive/](docs/archive/)）、公開contractは
+実行順と消化状況はdotagents Lattice storeの`lattice-factory-integration` plan（RC1〜RC4の完了記録は[docs/archive/](docs/archive/)）、公開contractは
 [docs/00_product-contract.md](docs/00_product-contract.md)、研究証拠は[rag/INDEX.md](rag/INDEX.md)を正とする。

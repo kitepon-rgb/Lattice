@@ -3,7 +3,7 @@
 Latticeは、codebaseの境界を観測・変換し、multi-agent開発の並列TODO graphを生成する
 schedulability compilerです。
 
-現在はbootstrap段階です。実装状況は[docs/plan_lattice_rc4_dotagents_dogfood.md](docs/plan_lattice_rc4_dotagents_dogfood.md)、製品思想は
+現在の工程状態はdotagents Lattice storeの`lattice-factory-integration` plan、RC4完了記録は[docs/archive/plan_lattice_rc4_dotagents_dogfood.md](docs/archive/plan_lattice_rc4_dotagents_dogfood.md)、製品思想は
 [PLAN.md](PLAN.md)、公開予定contractは[docs/00_product-contract.md](docs/00_product-contract.md)を参照してください。
 
 ## 開発

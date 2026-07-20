@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isCanonicalUtcTimestamp } from './timestamp-contract.mjs';
 
 export const TODO_EVENT_KINDS = Object.freeze([
   'plan_genesis', 'start', 'block', 'unblock', 'done', 'reopen',
@@ -14,7 +15,6 @@ export const TODO_LIMITS = Object.freeze({
 
 const DIGEST = /^[0-9a-f]{64}$/;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const CONTROL = /[\u0000-\u001f\u007f]/u;
 
 export const isTodoDigest = (value) => typeof value === 'string' && DIGEST.test(value);
@@ -22,9 +22,7 @@ export const isTodoIdentifier = (value) => typeof value === 'string' && IDENTIFI
 export const isNonNegativeSafeInteger = (value) => Number.isSafeInteger(value) && value >= 0;
 
 export function isStrictTodoTimestamp(value) {
-  if (typeof value !== 'string' || !TIMESTAMP.test(value)) return false;
-  const parsed = new Date(value);
-  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
+  return isCanonicalUtcTimestamp(value);
 }
 
 export function assertStrictTodoTimestamp(value, field = 'timestamp') {

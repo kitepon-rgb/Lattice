@@ -10,7 +10,7 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 
 - 製品思想の正本: [PLAN.md](PLAN.md)
 - 公開契約: [docs/00_product-contract.md](docs/00_product-contract.md)
-- 生きた実装TODO: [docs/plan_lattice_rc4_dotagents_dogfood.md](docs/plan_lattice_rc4_dotagents_dogfood.md)（親裁定と編入契約はdotagents `docs/plan_lattice-factory-integration.md`）
+- 生きた工程状態: dotagents Lattice storeの`lattice-factory-integration` plan（思想・編入契約はdotagents `docs/plan_lattice-factory-integration.md`、RC4完了記録は[docs/archive/plan_lattice_rc4_dotagents_dogfood.md](docs/archive/plan_lattice_rc4_dotagents_dogfood.md)）
 - 不変Decision: `docs/adr/`
 - 調査証拠: `rag/`。RAGはDecisionやTODOの正本ではない。
 

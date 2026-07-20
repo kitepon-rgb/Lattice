@@ -11,6 +11,7 @@ import {
   validateTransformArtifact,
 } from './artifact-contracts.mjs';
 import { runIsolatedTransform } from './isolation-runner.mjs';
+import { isCanonicalUtcTimestamp } from './timestamp-contract.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const SHA1 = /^[0-9a-f]{40}$/;
@@ -229,8 +230,7 @@ function assertControlCompilationEvidence(evidence, {
     || evidence.graph_digest_projection !== PORTABLE_CODEGRAPH_PROJECTION) {
     fail('portable control compilation evidence v2またはprojectionが不正');
   }
-  if (typeof evidence.observed_at !== 'string'
-    || Number.isNaN(Date.parse(evidence.observed_at))
+  if (!isCanonicalUtcTimestamp(evidence.observed_at)
     || typeof evidence.head !== 'string'
     || !SHA1.test(evidence.head)
     || typeof evidence.executor_head !== 'string'

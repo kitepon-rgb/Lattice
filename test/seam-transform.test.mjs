@@ -130,6 +130,13 @@ test('candidate or query-set drift fails before isolated execution', async () =>
     /control compilation evidence|base/i,
   );
 
+  const impossibleObservedAt = structuredClone(values);
+  impossibleObservedAt.controlCompilationEvidence.observed_at = '2026-02-30T00:00:00.000Z';
+  await assert.rejects(
+    runRc1SeamTreatment({ repoRoot: '/not-used', ...impossibleObservedAt }),
+    /control compilation evidence/i,
+  );
+
   const projectionDrift = structuredClone(values);
   projectionDrift.controlCompilationEvidence.graph_digest_projection = 'raw-outcome-v0';
   await assert.rejects(

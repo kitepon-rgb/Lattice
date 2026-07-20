@@ -39,6 +39,7 @@ test.before(async () => {
   repoRoot = path.join(temporaryRoot, 'repo');
   await mkdir(path.join(repoRoot, 'src'), { recursive: true });
   await mkdir(path.join(repoRoot, 'test'), { recursive: true });
+  await writeFile(path.join(repoRoot, '.gitignore'), '.lattice/runs/\n');
   await writeFile(path.join(repoRoot, 'src', 'alpha.mjs'), 'export const alpha = 1;\n');
   await writeFile(path.join(repoRoot, 'src', 'beta.mjs'), 'export const beta = 2;\n');
   await writeFile(path.join(repoRoot, 'test', 'alpha.test.mjs'),
@@ -108,13 +109,13 @@ test('run startはrun event storeを生成しstart resultを返す', () => {
   assert.equal(output.run_id, 'run-cli-01');
   assert.equal(output.executor_adapter, 'scripted');
   assert.match(output.plan_digest, /^[0-9a-f]{64}$/);
-  // run storeはresearch/runs/rc3/配下（Decision 10.1）。
-  assert.equal(output.run_dir, path.join('research', 'runs', 'rc3', 'run-cli-01'));
+  assert.equal(output.run_dir, path.join('.lattice', 'runs', 'run-cli-01'));
 });
 
 test('run observe/statusは保存event storeから状態を再構成する', () => {
-  const runDir = path.join('research', 'runs', 'rc3', 'run-cli-01');
-  const observe = runCli(['run', 'observe', '--run', runDir], repoRoot);
+  const runDir = path.join('.lattice', 'runs', 'run-cli-01');
+  // cwdではなくGit rootへbindするため、subdirectoryからも同じrunを参照できる。
+  const observe = runCli(['run', 'observe', '--run', runDir], path.join(repoRoot, 'src'));
   assert.equal(observe.status, 0, observe.stderr);
   const observation = JSON.parse(observe.stdout);
   assert.equal(observation.schema, 'lattice.run_observation.v1');
@@ -127,10 +128,13 @@ test('run observe/statusは保存event storeから状態を再構成する', () 
   assert.equal(statusOutput.schema, 'lattice.run_status.v1');
   // genesis直後はconflictなしの2 TODOがdispatchable。
   assert.deepEqual(statusOutput.dispatchable, ['T1', 'T2']);
+  const listed = runCli(['run', 'list', '--json'], path.join(repoRoot, 'test'));
+  assert.equal(listed.status, 0, listed.stderr);
+  assert.deepEqual(JSON.parse(listed.stdout).active_runs.map(({ run_id: id }) => id), ['run-cli-01']);
 });
 
 test('event verifyは保存event chainをtyped検証する', () => {
-  const runDir = path.join('research', 'runs', 'rc3', 'run-cli-01');
+  const runDir = path.join('.lattice', 'runs', 'run-cli-01');
   const result = runCli(['event', 'verify', '--run', runDir], repoRoot);
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
@@ -154,8 +158,47 @@ test('既存run storeへのrun startはtyped rejectされる', () => {
   assert.equal(JSON.parse(dup.stderr).code, 'RUN_EXISTS');
 });
 
+test('resumeはbase bindingを検証し、未完了closeはfail closedに拒否する', () => {
+  const runRef = path.join('.lattice', 'runs', 'run-cli-01');
+  const resume = runCli(['run', 'resume', '--run', runRef], repoRoot);
+  assert.equal(resume.status, 0, resume.stderr);
+  assert.equal(JSON.parse(resume.stdout).outcome, 'resumable');
+
+  const close = runCli(['run', 'close', '--run', runRef], repoRoot);
+  assert.equal(close.status, 1);
+  assert.equal(JSON.parse(close.stderr).code, 'RUN_NOT_COMPLETE');
+});
+
+test('stale baseはresumeを止めるが明示abandonでrunを閉じられる', async () => {
+  await writeFile(path.join(repoRoot, 'README.md'), 'new head\n');
+  run('git', ['-c', 'user.email=r@example.invalid', '-c', 'user.name=r', 'add', 'README.md'], repoRoot);
+  run('git', ['-c', 'user.email=r@example.invalid', '-c', 'user.name=r', 'commit', '--quiet', '-m', 'advance'], repoRoot);
+  const runRef = path.join('.lattice', 'runs', 'run-cli-01');
+  const resume = runCli(['run', 'resume', '--run', runRef], repoRoot);
+  assert.equal(resume.status, 1);
+  assert.equal(JSON.parse(resume.stderr).code, 'STALE_BASE');
+
+  const abandoned = runCli(['run', 'abandon', '--run', runRef, '--reason', 'stale_base'], repoRoot);
+  assert.equal(abandoned.status, 0, abandoned.stderr);
+  assert.equal(JSON.parse(abandoned.stdout).outcome, 'abandoned');
+  const status = JSON.parse(runCli(['run', 'status', '--run', runRef], repoRoot).stdout);
+  assert.equal(status.closed, true);
+  assert.deepEqual(JSON.parse(runCli(['run', 'list', '--json'], repoRoot).stdout).active_runs, []);
+  const close = runCli(['run', 'close', '--run', runRef], repoRoot);
+  assert.equal(close.status, 1);
+  assert.equal(JSON.parse(close.stderr).code, 'RUN_ABANDONED');
+});
+
+test('repo外・旧run pathはINVALID_RUN_REFとして拒否する', () => {
+  for (const ref of ['research/runs/rc3/run-cli-01', '../run-cli-01', '/tmp/run-cli-01']) {
+    const result = runCli(['run', 'status', '--run', ref], repoRoot);
+    assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.stderr).code, 'INVALID_RUN_REF');
+  }
+});
+
 test('改竄event storeのevent verifyはexit 1でtyped失敗する', async () => {
-  const runDir = path.join(repoRoot, 'research', 'runs', 'rc3', 'run-cli-01');
+  const runDir = path.join(repoRoot, '.lattice', 'runs', 'run-cli-01');
   const eventsPath = path.join(runDir, 'events.json');
   const { readFile } = await import('node:fs/promises');
   const original = await readFile(eventsPath, 'utf8');
@@ -163,7 +206,7 @@ test('改竄event storeのevent verifyはexit 1でtyped失敗する', async () =
   events[1].payload = { ...events[1].payload, injected: true };
   await writeFile(eventsPath, `${JSON.stringify(events, null, 1)}\n`);
   try {
-    const result = runCli(['event', 'verify', '--run', path.join('research', 'runs', 'rc3', 'run-cli-01')], repoRoot);
+    const result = runCli(['event', 'verify', '--run', path.join('.lattice', 'runs', 'run-cli-01')], repoRoot);
     assert.equal(result.status, 1);
     assert.equal(JSON.parse(result.stderr).code, 'EVENT_VERIFICATION_FAILED');
   } finally {
