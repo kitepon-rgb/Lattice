@@ -118,7 +118,7 @@ function renderNode(node, maps) {
   const taskNumber = maps.taskNumbers.get(key);
   const visibleReference = taskNumber === undefined ? `ID ${node.ref.task_id}` : `工程 ${taskNumber.display_number}`;
   const spokenReference = taskNumber === undefined ? `ID ${node.ref.task_id}` : `工程${taskNumber.display_number}`;
-  const readyLabel = node.visibility.next_ready ? '。依存関係上の候補' : '';
+  const readyLabel = node.visibility.next_ready ? '。ready frontierの同時dispatch候補' : '';
   const ariaLabel = `${spokenReference}。${status.label}。${laneLabel}。${node.title}。正規ID ${node.ref.plan_key}/${node.ref.task_id}${readyLabel}`;
   const statusBar = node.status === 'in-progress'
     ? `<line class="status-bar" x1="${x + 5}" y1="${y + 6}" x2="${x + 5}" y2="${y + height - 6}"></line>` : '';

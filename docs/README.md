@@ -8,6 +8,7 @@
 - [00_product-contract.md](00_product-contract.md): 公開製品契約
 - [01_integration-package.md](01_integration-package.md): host／工場への組込み面
 - [06_design-spec.md](06_design-spec.md): static／live Ganttの表示仕様
+- [adr/0063-ready-frontier-dispatch-contract.md](adr/0063-ready-frontier-dispatch-contract.md): ready全件を並列既定にする開始契約
 - [../PLAN.md](../PLAN.md): 製品思想と研究方向
 - [../CHANGELOG.md](../CHANGELOG.md): 公開版ごとの差分
 

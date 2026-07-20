@@ -187,8 +187,8 @@ export async function runProjectStatus({ cwd, stdout, cliVersion }) {
     const next = activeRuns.length > 0
       ? { command: 'lattice todo status', reason: 'active_run_present' }
       : todo.next_ready.length > 0
-        ? { command: `lattice todo start --plan ${todo.next_ready[0].plan_key} --task ${todo.next_ready[0].task_id}`,
-          reason: 'next_ready_present' }
+        ? { command: `lattice todo start --plan ${todo.next_ready[0].plan_key} --task ${todo.next_ready[0].task_id}${todo.next_ready.length > 1 ? ' --parallel-frontier' : ''}`,
+          reason: todo.next_ready.length > 1 ? 'parallel_frontier_present' : 'next_ready_present' }
         : { command: 'lattice todo status', reason: 'no_ready_task' };
     const result = statusResult({
       cli: { available: true, version: cliVersion },

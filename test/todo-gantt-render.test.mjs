@@ -81,6 +81,17 @@ test('v5 GanttはPhaseを通常ToDoのschedule gateとして説明しない', ()
   const { html } = renderFixture(read);
   assert.match(html, /Phaseは重監査の順序を表し、通常ToDoの開始順はToDo依存だけで決まります。/u);
   assert.doesNotMatch(html, /後続Phaseはまだ解放されません/u);
+  const ungatedLayout = layoutTodoGantt(read, projectTodoChainV1(topology(read)));
+  assert.deepEqual(ungatedLayout.nodes.filter(({ visibility }) => visibility.next_ready)
+    .map(({ ref: taskRef }) => taskRef.task_id), ['T0000', 'T0001']);
+
+  member.plan.phase_accept_dependencies = [{
+    from: { project_id: 'project-1', plan_key: 'main', phase_id: 'phase-1' },
+    to: ref('T0001'),
+  }];
+  const gatedLayout = layoutTodoGantt(read, projectTodoChainV1(topology(read)));
+  assert.deepEqual(gatedLayout.nodes.filter(({ visibility }) => visibility.next_ready)
+    .map(({ ref: taskRef }) => taskRef.task_id), ['T0000']);
 });
 
 async function workspace(context, title = 'T1', narrativeRef = 'narrative.md') {
@@ -433,7 +444,7 @@ test('right pane exposes overview/detail/current task index states while retaini
   assert.doesNotMatch(output.html, /Keep the document flow|<h2>Acceptance<\/h2>|class="markdown-checkbox"/u);
   assert.match(output.html, /\.next-ready-node \.node-surface\{stroke:var\(--accent\);stroke-width:2;stroke-dasharray:4 3\}/u);
   assert.match(output.html, /data-task-id="T0000" data-task-number="0000" data-task-number-normalized="0"/u);
-  assert.match(output.html, /aria-label="工程0000。未着手。lane-0、調査。Task 0。正規ID main\/T0000。依存関係上の候補"/u);
+  assert.match(output.html, /aria-label="工程0000。未着手。lane-0、調査。Task 0。正規ID main\/T0000。ready frontierの同時dispatch候補"/u);
   assert.match(output.html, /class="node-meta"[^>]*>未着手 · 工程 0000<\/text>/u);
   assert.match(output.html, /<tspan[^>]*class="node-title-line">Task 0<\/tspan>/u);
   assert.match(output.html, /\.dependency-edge \.edge-arrow\{fill:var\(--text-secondary\);opacity:\.7\}/u);
@@ -452,7 +463,8 @@ test('right pane exposes overview/detail/current task index states while retaini
   assert.match(output.html, /縦方向は時間ではなく、登録済み依存関係による工程段階/u);
   assert.match(output.html, /class="diagram-legend"[^>]*aria-label="工程図の凡例"/u);
   assert.match(output.html, /☐ 未着手/u);
-  assert.match(output.html, /破線枠: 依存関係上の候補/u);
+  assert.match(output.html, /破線枠: ready frontier（同時dispatch推奨）/u);
+  assert.match(output.html, /ready frontierは全件同時dispatchが既定/u);
   assert.match(output.html, /太線: 構造上の最長依存鎖/u);
   assert.match(output.html, /菱形: 複数工程の合流/u);
   assert.match(output.html, /body\{display:grid;grid-template-rows:minmax\(0,1fr\)/u);

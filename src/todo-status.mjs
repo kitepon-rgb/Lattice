@@ -7,7 +7,8 @@ import {
 } from './todo-contracts.mjs';
 import { todoLegacyReconciliationDigest } from './todo-revision.mjs';
 
-export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v3';
+export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v4';
+export const TODO_DISPATCH_FRONTIER_SCHEMA = 'lattice.todo_dispatch_frontier.v1';
 export const TODO_STATUS_LIST_LIMIT = 2_000;
 export const TODO_STATUS_LABEL_LIMIT = 160;
 export const TODO_STATUS_REASON_LIMIT = 512;
@@ -113,13 +114,51 @@ function boundedList(value, validator) {
   return Array.isArray(value) && value.length <= TODO_STATUS_LIST_LIMIT && value.every(validator);
 }
 
-/** todo status v3 wire shapeを検証し、digestも再計算する。 */
+function dispatchFrontier(projectId, nextReady) {
+  const preimage = {
+    schema: TODO_DISPATCH_FRONTIER_SCHEMA,
+    project_id: projectId,
+    tasks: nextReady.map(({ plan_key: planKey, task_id: taskId }) => ({
+      plan_key: planKey,
+      task_id: taskId,
+    })),
+    frontier_digest: '',
+  };
+  return {
+    schema: TODO_DISPATCH_FRONTIER_SCHEMA,
+    selection_source: 'next_ready',
+    policy: 'all_ready_parallel_by_default',
+    recommended_parallelism: nextReady.length,
+    subset_requires_reason: nextReady.length > 1,
+    parallel_start_flag: '--parallel-frontier',
+    frontier_digest: todoSelfDigest(preimage, 'frontier_digest'),
+  };
+}
+
+function dispatchFrontierEntry(value, projectId, nextReady) {
+  const expected = dispatchFrontier(projectId, nextReady);
+  return exactRecord(value, [
+    'schema', 'selection_source', 'policy', 'recommended_parallelism',
+    'subset_requires_reason', 'parallel_start_flag', 'frontier_digest',
+  ]) && value.schema === TODO_DISPATCH_FRONTIER_SCHEMA
+    && value.selection_source === 'next_ready'
+    && value.policy === 'all_ready_parallel_by_default'
+    && isNonNegativeSafeInteger(value.recommended_parallelism)
+    && value.recommended_parallelism === nextReady.length
+    && value.subset_requires_reason === (nextReady.length > 1)
+    && value.parallel_start_flag === '--parallel-frontier'
+    && value.frontier_digest === expected.frontier_digest;
+}
+
+/** todo status v4 wire shapeを検証し、digestも再計算する。 */
 export function validateTodoStatusResult(value) {
   try {
     return exactRecord(value, [
-      'schema', 'project_id', 'active_set', 'next_ready', 'blocked', 'member_heads', 'result_digest',
+      'schema', 'project_id', 'active_set', 'next_ready', 'dispatch_frontier',
+      'blocked', 'member_heads', 'result_digest',
     ]) && value.schema === TODO_STATUS_SCHEMA && isTodoIdentifier(value.project_id)
       && boundedList(value.active_set, activeTaskEntry) && boundedList(value.next_ready, taskEntry)
+      && dispatchFrontierEntry(value.dispatch_frontier, value.project_id, value.next_ready)
       && boundedList(value.blocked, blockedEntry) && boundedList(value.member_heads, memberHead)
       && isTodoDigest(value.result_digest)
       && value.result_digest === todoSelfDigest(value, 'result_digest');
@@ -280,6 +319,7 @@ export function projectTodoStatus(readModel) {
     project_id: readModel.project_id,
     active_set: activeSet,
     next_ready: nextReady,
+    dispatch_frontier: dispatchFrontier(readModel.project_id, nextReady),
     blocked,
     member_heads: memberHeads,
     result_digest: '',

@@ -38,6 +38,11 @@ serial ────────→ intentional critical chain
 7. **実変換まで行う** — 推薦で止まらず、隔離実行、検証、再index、再compileを製品が担う。
 8. **ブロッカーには立証責任** — 前例や常識で研究を止めず、コード・論理・実験だけで止める。
 
+ready frontierは眺めるだけの候補一覧にしない。複数readyの最初の着手では、全件並列dispatchの宣言か、
+subsetへ直列化する理由のどちらかを要求する。これはPhase監査を増やす規則ではなく、ToDo DAGが既に
+許している並列性をhostへ明示する実行契約である。agentの生成と実行はhostが所有し、Latticeは
+frontier、宣言、理由、現在のactive状態を機械可読にする。
+
 ## 3. 製品が所有する五層
 
 1. **Outcome compiler**: product outcomeをdispatchable TODO候補へ分解する。

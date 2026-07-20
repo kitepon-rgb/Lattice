@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 — 2026-07-21
+
+- `todo status` v4へ全readyを同時dispatchする`dispatch_frontier`契約を追加した。
+- readyが複数の最初の`todo start`に並列開始宣言または意図的直列化理由を必須化した。
+- Ganttのready表示を「依存候補」から「同時dispatch推奨」へ更新した。
+- Phase監査境界・監査回数・ToDo DAGは変更せず、Phase groupingによる暗黙直列化を再導入しない。
+
 ## 0.9.1 — 2026-07-21
 
 - PhaseをToDoの直列化groupから重監査境界へ分離し、通常ToDoはDAGだけで並列readyを判定するv5契約へ更新した。

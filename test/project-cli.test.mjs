@@ -241,6 +241,13 @@ test('plan create v3はPhase監査順とToDo実行順を分離する', async (co
   assert.equal(created.status, 0, created.stderr);
   const status = JSON.parse(run(root, ['todo', 'status', '--json']).stdout);
   assert.deepEqual(status.next_ready.map(({ task_id }) => task_id), ['T1', 'T2']);
+  assert.equal(status.schema, 'lattice.todo_status_result.v4');
+  assert.equal(status.dispatch_frontier.recommended_parallelism, 2);
+  assert.equal(status.dispatch_frontier.subset_requires_reason, true);
+  const discovery = JSON.parse(run(root, ['status', '--json']).stdout);
+  assert.equal(discovery.next_action.command,
+    'lattice todo start --plan main --task T1 --parallel-frontier');
+  assert.equal(discovery.next_action.reason, 'parallel_frontier_present');
   const phases = JSON.parse(run(root, ['todo', 'phase', 'status', '--plan', 'main']).stdout);
   assert.deepEqual(phases.phases.map(({ phase_id, status: phaseStatus }) => [phase_id, phaseStatus]),
     [['phase-1', 'active'], ['phase-2', 'locked']]);

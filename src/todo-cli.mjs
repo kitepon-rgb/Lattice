@@ -312,6 +312,28 @@ async function mutate({ repoRoot, env, planKey, taskId, kind, payload, evidenceR
   return result;
 }
 
+async function startTask({ repoRoot, env, planKey, taskId, overrideReason, parallelFrontier }) {
+  const projection = projectTodoStatus(await readTodoStore({ repoRoot }));
+  const targetReady = projection.next_ready.some((task) => (
+    task.plan_key === planKey && task.task_id === taskId
+  ));
+  if (parallelFrontier && (!targetReady || projection.next_ready.length < 2)) {
+    throw new TodoStoreError('PARALLEL_DISPATCH_INVALID', 'parallel_frontier_not_applicable');
+  }
+  if (targetReady && projection.active_set.length === 0 && projection.next_ready.length > 1
+    && overrideReason === null && !parallelFrontier) {
+    throw new TodoStoreError('PARALLEL_DISPATCH_REQUIRED', 'parallel_frontier_requires_declaration',
+      undefined, {
+        ready_count: projection.next_ready.length,
+        frontier_digest: projection.dispatch_frontier.frontier_digest,
+        parallel_start_flag: projection.dispatch_frontier.parallel_start_flag,
+        serial_reason_flag: '--override-reason',
+      });
+  }
+  return mutate({ repoRoot, env, planKey, taskId, kind: 'start',
+    payload: { override_reason: overrideReason }, evidenceRef: null });
+}
+
 function validatePhaseDecisionInput(value, outcome) {
   const keys = outcome === 'accept'
     ? ['schema', 'review_event_digest', 'decision_evidence', 'evidence_slots', 'input_digest']
@@ -879,13 +901,14 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && (argv.length === 8 || (argv[8] === '--override-reason' && argv[9].length > 0))) {
     action = (repoRoot) => phaseMutation({ repoRoot, env, planKey: argv[3], phaseId: argv[5],
       kind: 'phase_reopen', payload: { reason: argv[7], override_reason: argv[9] ?? null } });
-  } else if ((argv.length === 5 || argv.length === 7) && argv[0] === 'start'
+  } else if ((argv.length === 5 || argv.length === 6 || argv.length === 7) && argv[0] === 'start'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--task' && isTodoIdentifier(argv[4])
-    && (argv.length === 5 || (argv[5] === '--override-reason' && argv[6].length > 0))) {
+    && (argv.length === 5 || (argv.length === 6 && argv[5] === '--parallel-frontier')
+      || (argv.length === 7 && argv[5] === '--override-reason' && argv[6].length > 0))) {
     const overrideReason = argv.length === 7 ? argv[6] : null;
-    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
-      kind: 'start', payload: { override_reason: overrideReason }, evidenceRef: null });
+    action = (repoRoot) => startTask({ repoRoot, env, planKey: argv[2], taskId: argv[4],
+      overrideReason, parallelFrontier: argv.length === 6 });
   } else if (argv.length === 7 && argv[0] === 'block'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--task' && isTodoIdentifier(argv[4])

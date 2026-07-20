@@ -26,8 +26,20 @@
   field追加・意味変更はversionを上げ新ADRで裁定（in-place拡張禁止）
 - TODO工程: 現行authoringは`lattice.plan_create_input.v3`、planは`lattice.todo_plan.v5`、
   eventは`lattice.todo_event.v4`、snapshotは`lattice.todo_snapshot.v2`、Phase revisionは
-  `lattice.phase_todo_revision.v2`、cross-plan revisionは`lattice.todo_revision_set.v3`を使う。
+  `lattice.phase_todo_revision.v2`、cross-plan revisionは`lattice.todo_revision_set.v3`、
+  statusは`lattice.todo_status_result.v4`を使う。
   旧schemaは既存storeの読取・移行互換としてだけ維持する。
+
+## 2.5 ready frontier dispatch契約
+
+正典: [ADR 0063](adr/0063-ready-frontier-dispatch-contract.md)。
+
+- `todo status`の`dispatch_frontier`は`next_ready`全件、推奨同時数、frontier digest、subset理由要否を返す。
+- readyが複数かつactive taskがない時、最初の`todo start`は`--parallel-frontier`か
+  `--override-reason <reason>`を必須とする。
+- hostがagent生成と実dispatchを所有する。Latticeは宣言後の全件着手完了を成功扱いせず、
+  `active_set`と`next_ready`へ実状態だけを投影する。
+- Phase、監査回数、task DAGをこの契約から追加・変更しない。
 
 ## 3. run store／artifact規約
 

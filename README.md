@@ -53,6 +53,18 @@ cross-plan topologyを同時に切り替える場合は
 `lattice.todo_revision_set.v3`で通常revisionと混在できます。
 Phase付きv5 planでは、通常ToDoの開始順はToDo DAGだけで決まり、Phase前後関係は重監査の順序だけを
 制御します。特定ToDoがPhase受理を本当に必要とする場合だけ`phase_accept_dependencies`で明示します。
+`lattice todo status --json`の`dispatch_frontier`はready全件を同時dispatchする既定を示します。
+readyが複数なら最初のstartに`--parallel-frontier`を付け、subsetだけを直列着手する場合は
+`--override-reason <reason>`で理由を残します。
+
+```bash
+lattice todo start --plan <key> --task <id> --parallel-frontier
+lattice todo start --plan <key> --task <id> --override-reason <reason>
+```
+
+`--parallel-frontier`はhostへ並列dispatch方針を宣言する開始gateです。Lattice自身がAI hostのagentを
+起動するものではなく、実際のdispatchはhostが行います。宣言後もready全件が着手されたかは
+`active_set`と`next_ready`で観測できます。
 ToDo完了は軽量確認までで、所属ToDoが全てdoneになったPhaseは`gate_ready`となり、`todo phase review`後に
 required evidenceを束縛した`todo phase accept`で重監査の判断を記録します。監査回数やPhase数を自動追加する
 機能ではありません。Phase状態は

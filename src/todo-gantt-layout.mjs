@@ -82,6 +82,8 @@ function normalizeInput(readModel, chainProjection) {
     }
     const { plan } = member;
     const statusByTask = new Map(member.tasks.map((task) => [task.task_id, task]));
+    const statusByPhase = new Map((member.snapshot?.phases ?? [])
+      .map((phase) => [phase.phase_id, phase.status]));
     for (const task of plan.tasks) {
       if (!plain(task) || typeof task.task_id !== 'string' || typeof task.lane !== 'string') {
         fail('TODO_LAYOUT_INVALID_INPUT', 'plan task has an invalid shape');
@@ -99,6 +101,11 @@ function normalizeInput(readModel, chainProjection) {
         title: typeof task.title === 'string' ? task.title : task.task_id,
         lane: task.lane,
         status: state.status,
+        plan_schema: plan.schema ?? null,
+        phase_id: task.phase_id ?? null,
+        phase_status: task.phase_id === undefined ? null : statusByPhase.get(task.phase_id) ?? null,
+        phase_ready: plan.schema !== 'lattice.todo_plan.v4'
+          || statusByPhase.get(task.phase_id) === 'active',
       });
     }
   }
@@ -145,6 +152,41 @@ function normalizeInput(readModel, chainProjection) {
   const nodes = [...nodesByKey.values()].sort((left, right) => compareRefs(left.ref, right.ref));
   const edges = [...edgeMap.values()].sort((left, right) => compareText(left.key, right.key));
   return { nodes, nodesByKey, edges };
+}
+
+function readyTaskKeys(readModel, nodes, nodesByKey, incoming) {
+  const phaseStatuses = new Map();
+  const phaseAcceptIncoming = new Map(nodes.map(({ key }) => [key, new Set()]));
+  for (const member of readModel.members) {
+    for (const phase of member.snapshot?.phases ?? []) {
+      phaseStatuses.set(JSON.stringify([
+        member.plan.project_id, member.plan.plan_key, phase.phase_id,
+      ]), phase.status);
+    }
+    if (member.plan.schema === 'lattice.todo_plan.v5') {
+      for (const edge of member.plan.phase_accept_dependencies ?? []) {
+        const target = refKey(refOf(edge.to, 'phase_accept_dependencies.to'));
+        if (!nodesByKey.has(target)) {
+          fail('TODO_LAYOUT_INVALID_INPUT', 'phase accept dependency targets an absent task');
+        }
+        phaseAcceptIncoming.get(target).add(JSON.stringify([
+          edge.from.project_id, edge.from.plan_key, edge.from.phase_id,
+        ]));
+      }
+    }
+  }
+  return new Set(nodes.filter((node) => node.status === 'pending' && node.phase_ready
+    && incoming.get(node.key).every((predecessorKey) => {
+      const predecessor = nodesByKey.get(predecessorKey);
+      return predecessor.status === 'done'
+        && (predecessor.plan_schema !== 'lattice.todo_plan.v4'
+          || predecessor.phase_id === null
+          || (predecessor.ref.plan_key === node.ref.plan_key
+            && predecessor.phase_id === node.phase_id)
+          || predecessor.phase_status === 'accepted');
+    }) && [...phaseAcceptIncoming.get(node.key)]
+      .every((phaseKey) => phaseStatuses.get(phaseKey) === 'accepted'))
+    .map(({ key }) => key));
 }
 
 function assignWaves(nodes, nodesByKey, edges) {
@@ -280,9 +322,7 @@ export function layoutTodoGantt(readModel, chainProjection) {
     }
     return key;
   }));
-  const readyKeys = new Set(nodes.filter((node) => node.status === 'pending'
-    && incoming.get(node.key).every((predecessor) => nodesByKey.get(predecessor).status === 'done'))
-    .map(({ key }) => key));
+  const readyKeys = readyTaskKeys(readModel, nodes, nodesByKey, incoming);
   const visibleKeys = new Set(nodes.map(({ key }) => key));
 
   const coordinates = new Map();

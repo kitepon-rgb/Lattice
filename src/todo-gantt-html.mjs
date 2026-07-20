@@ -195,9 +195,15 @@ function renderRightPane(sections, layout, presentation, readModel) {
   const counts = { pending: 0, 'in-progress': 0, blocked: 0, done: 0 };
   for (const section of sections) counts[section.state.status] += 1;
   const active = sections.filter((section) => section.state.status === 'in-progress');
+  const ready = layout.nodes.filter((node) => node.visibility.next_ready);
+  const dispatchSummary = ready.length > 1
+    ? `<p class="readiness-note"><strong>同時dispatch推奨:</strong> ${ready.length}工程。ready frontier全件が既定です。一部だけを直列着手する場合は理由が必要です。</p>`
+    : ready.length === 1
+      ? '<p class="readiness-note"><strong>着手候補:</strong> 1工程です。</p>'
+      : '<p class="readiness-note">現在のready frontierは空です。</p>';
   const activeLinks = active.length === 0 ? '<p>作業中の工程はありません。</p>'
     : `<ul class="active-list">${active.map((section) => `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(refKey(section.ref))}">${escapeHtmlText(taskReference(section, lookup))} — ${escapeHtmlText(section.task.title)}</button></li>`).join('')}</ul>`;
-  const overview = `<section class="right-overview" data-right-panel="overview"><h1>工程を選択してください</h1><p>左の依存工程図から工程を選ぶと、題名・状態・前提・後続を表示します。</p><div class="status-summary"><span>☐ 未着手 ${counts.pending}</span><span>▶ 作業中 ${counts['in-progress']}</span><span>✅ 完了 ${counts.done}</span><span>⛔ ブロック中 ${counts.blocked}</span></div>${renderPhaseProgress(readModel)}<h2>作業中</h2>${activeLinks}</section>`;
+  const overview = `<section class="right-overview" data-right-panel="overview"><h1>工程を選択してください</h1><p>左の依存工程図から工程を選ぶと、題名・状態・前提・後続を表示します。</p><div class="status-summary"><span>☐ 未着手 ${counts.pending}</span><span>▶ 作業中 ${counts['in-progress']}</span><span>✅ 完了 ${counts.done}</span><span>⛔ ブロック中 ${counts.blocked}</span></div>${dispatchSummary}${renderPhaseProgress(readModel)}<h2>作業中</h2>${activeLinks}</section>`;
   const details = sections.map((section) => {
     const key = refKey(section.ref);
     const node = nodeByKey.get(key);
@@ -213,7 +219,7 @@ function renderRightPane(sections, layout, presentation, readModel) {
       ? `元plan: ${sourceRef}${sourceLine} — 行対応を確認済み`
       : `元plan: ${sourceRef}${sourceLine} — 行対応を確認できないため、本文位置との対応は表示していません`;
     const readiness = node?.visibility.next_ready
-      ? '<p class="readiness-note">依存関係上の候補です。承認・担当者・競合・資源・host条件・dispatch可否は評価していません。</p>'
+      ? `<p class="readiness-note">ready frontierの一員です。${ready.length > 1 ? '他のready工程と同時dispatchするのが既定です。subsetだけを選ぶ場合は理由を記録してください。' : '現在の唯一の着手候補です。'}</p>`
       : incoming.get(key).length === 0 ? '<p class="readiness-note">登録済みの前提工程はありません。図だけではdispatch可否を判定しません。</p>' : '';
     return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。')}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。')}</section><p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;
   }).join('');
@@ -224,7 +230,7 @@ function renderRightPane(sections, layout, presentation, readModel) {
 function renderDiagramLegend(presentation) {
   const categories = (presentation?.lanes ?? []).map((lane) => `<div class="category-entry"><dt><code>${escapeHtmlText(lane.lane)}</code> — ${escapeHtmlText(lane.name)}</dt><dd>${escapeHtmlText(lane.description)}</dd></div>`).join('');
   const categoryDetails = categories === '' ? '' : `<details class="category-legend"><summary>カテゴリ説明</summary><dl>${categories}</dl></details>`;
-  return `<div class="diagram-legend" aria-label="工程図の凡例"><span>☐ 未着手</span><span>▶ 作業中</span><span>✅ 完了</span><span>⛔ ブロック中</span><span>破線枠: 依存関係上の候補</span><span>太線: 構造上の最長依存鎖</span><span>菱形: 複数工程の合流</span>${categoryDetails}<p>縦方向は時間ではなく、登録済み依存関係による工程段階です。依存関係上の候補は、承認・担当者・競合・資源・host条件・dispatch可否を評価しません。構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・納期を表しません。</p></div>`;
+  return `<div class="diagram-legend" aria-label="工程図の凡例"><span>☐ 未着手</span><span>▶ 作業中</span><span>✅ 完了</span><span>⛔ ブロック中</span><span>破線枠: ready frontier（同時dispatch推奨）</span><span>太線: 構造上の最長依存鎖</span><span>菱形: 複数工程の合流</span>${categoryDetails}<p>縦方向は時間ではなく、登録済み依存関係による工程段階です。ready frontierは全件同時dispatchが既定です。未登録の資源・host制約によりsubsetだけを選ぶ場合は理由を記録します。構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・納期を表しません。</p></div>`;
 }
 
 const CSS = `

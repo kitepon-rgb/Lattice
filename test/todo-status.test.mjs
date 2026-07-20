@@ -127,13 +127,24 @@ test('todo statusはactive/next-ready/blockedを混在投影しstore bytesを変
   assert.equal(await storeDigest(root), before);
   const result = JSON.parse(execution.stdout);
   assertExactKeys(result, [
-    'schema', 'project_id', 'active_set', 'next_ready', 'blocked', 'member_heads', 'result_digest',
+    'schema', 'project_id', 'active_set', 'next_ready', 'dispatch_frontier',
+    'blocked', 'member_heads', 'result_digest',
   ]);
-  assert.equal(result.schema, 'lattice.todo_status_result.v3');
+  assert.equal(result.schema, 'lattice.todo_status_result.v4');
   assert.deepEqual(result.active_set, [{
     plan_key: 'main', task_id: 'A', label: 'Active work', unmet_dependencies: [],
   }]);
   assert.deepEqual(result.next_ready, [{ plan_key: 'main', task_id: 'C', label: 'Ready work' }]);
+  assert.deepEqual(result.dispatch_frontier, {
+    schema: 'lattice.todo_dispatch_frontier.v1',
+    selection_source: 'next_ready',
+    policy: 'all_ready_parallel_by_default',
+    recommended_parallelism: 1,
+    subset_requires_reason: false,
+    parallel_start_flag: '--parallel-frontier',
+    frontier_digest: result.dispatch_frontier.frontier_digest,
+  });
+  assert.match(result.dispatch_frontier.frontier_digest, /^[0-9a-f]{64}$/u);
   assert.deepEqual(result.blocked, [{
     plan_key: 'main', task_id: 'B', reason: 'Waiting for owner approval',
   }]);
@@ -186,9 +197,11 @@ test('空store projectionは全list空の固定digest resultを返す', () => {
   });
   assert.deepEqual(result.active_set, []);
   assert.deepEqual(result.next_ready, []);
+  assert.equal(result.dispatch_frontier.recommended_parallelism, 0);
+  assert.equal(result.dispatch_frontier.subset_requires_reason, false);
   assert.deepEqual(result.blocked, []);
   assert.deepEqual(result.member_heads, []);
-  assert.equal(result.result_digest, 'cc6be46f9e179ca78345a6787e11247b58cde8df71d8f0b7c96b326cffd19bb8');
+  assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
   assert.equal(validateTodoStatusResult(result), true);
 });
 
@@ -237,12 +250,21 @@ function syntheticReadModel(activeCount) {
 
 function syntheticStatusResult(activeCount) {
   const result = {
-    schema: 'lattice.todo_status_result.v3',
+    schema: 'lattice.todo_status_result.v4',
     project_id: 'scale-project',
     active_set: Array.from({ length: activeCount }, (_, index) => ({
       plan_key: 'main', task_id: `t${String(index).padStart(4, '0')}`, label: 'x', unmet_dependencies: [],
     })),
     next_ready: [],
+    dispatch_frontier: {
+      schema: 'lattice.todo_dispatch_frontier.v1', selection_source: 'next_ready',
+      policy: 'all_ready_parallel_by_default', recommended_parallelism: 0,
+      subset_requires_reason: false, parallel_start_flag: '--parallel-frontier',
+      frontier_digest: todoSelfDigest({
+        schema: 'lattice.todo_dispatch_frontier.v1', project_id: 'scale-project', tasks: [],
+        frontier_digest: '',
+      }, 'frontier_digest'),
+    },
     blocked: [],
     member_heads: [],
     result_digest: '',

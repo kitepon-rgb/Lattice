@@ -1,4 +1,4 @@
-# Lattice 製品契約（0.9.1）
+# Lattice 製品契約（0.10.0）
 
 ## Product outcome
 
@@ -95,7 +95,13 @@ v2/v4は既存planの互換契約として維持する。
 predecessorを検査し、artifactをdurable化した後、一つのmanifest activationで全planを同時に切り替える。
 成功は単体通常revisionが`lattice.todo_revise_result.v1`、revision setが
 `lattice.todo_revision_set_result.v1`、statusはreconciliation identityを含む
-`lattice.todo_status_result.v3`、verifyはsource inventoryを再検査する`lattice.todo_verify_result.v2`を返す。
+`lattice.todo_status_result.v4`、verifyはsource inventoryを再検査する`lattice.todo_verify_result.v2`を返す。
+status v4の`dispatch_frontier`は`next_ready`全件を既定の同時dispatch集合とし、推奨同時数、
+frontier digest、subset選択時の理由要否を機械表示する。readyが複数でactive taskがない時の最初の
+`todo start`は`--parallel-frontier`による並列開始宣言、または`--override-reason <reason>`による
+意図的直列化理由のどちらかを必須とする。これはPhase、監査回数、task DAGを増やさない。
+`--parallel-frontier`は開始時のdispatch方針宣言であり、LatticeがAI hostのagentを直接生成する契約ではない。
+宣言後の実dispatchはhostが所有し、Latticeは`active_set`と残存`next_ready`から実状態を投影する。
 
 通常の状態遷移は`todo start / block / unblock / done / evidence promote / reopen`のclosed面で行う。
 mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,

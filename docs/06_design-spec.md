@@ -87,3 +87,11 @@
   HTML・descriptorの片側欠落、non-canonical bytes、digest不一致はtyped failureとする。
 - live viewerはloopback-only、read-only、foregroundとし、SSEでmanifest head更新を通知する。
   browserからstore mutationを行わない。
+
+## 9. ready frontierと並列dispatch
+
+- 破線枠は単なる候補ではなく、現在の`next_ready`に属する同時dispatch推奨ToDoを表す。
+- readyが複数なら概要へ推奨同時数を表示し、全件dispatchを既定として明記する。
+- subsetだけを直列着手する場合は理由が必要であることを、概要・個別詳細・凡例で一貫表示する。
+- Phaseの前後関係をready表示へ暗黙適用しない。`phase_accept_dependencies`だけを明示gateとして反映する。
+- 表示はdispatch成功の推測をしない。宣言後もstoreの`active_set`と`next_ready`をそのまま更新表示する。

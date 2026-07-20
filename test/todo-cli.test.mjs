@@ -75,6 +75,28 @@ async function workspace(context) {
   return root;
 }
 
+async function parallelWorkspace(context) {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-todo-cli-parallel-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: root, encoding: 'utf8' }).status, 0);
+  await initializeTodoStore({
+    repoRoot: root,
+    writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    projectId: 'project-1',
+    repositories: [{ repo_id: 'self', path: '.' }],
+    plans: [{
+      plan: {
+        schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'main', plan_version: 'v1',
+        predecessor_plan_digest: null, tasks: [task('T1'), task('T2')],
+        hard_dependencies: [], joins: [],
+      },
+      genesis: { actor: ACTOR, recorded_at: NOW },
+    }],
+    now: NOW,
+  });
+  return root;
+}
+
 function runCli(root, args, { actor = true } = {}) {
   const env = { ...process.env, NO_COLOR: '1' };
   if (actor) {
@@ -385,6 +407,44 @@ test('start/reopen overrideとdescriptor schema拒否をexact argvで処理す�
     '--override-reason', 'successor audited',
   ]));
   assert.equal(reopened.status, 'in-progress');
+});
+
+test('複数readyの最初のstartは並列宣言または直列化理由を要求する', async (context) => {
+  const root = await parallelWorkspace(context);
+  const before = await storeDigest(root);
+  const undeclared = runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']);
+  assert.equal(undeclared.status, 1);
+  const error = JSON.parse(undeclared.stderr);
+  assert.equal(error.code, 'PARALLEL_DISPATCH_REQUIRED');
+  assert.equal(error.detail.reason, 'parallel_frontier_requires_declaration');
+  assert.equal(error.detail.ready_count, 2);
+  assert.match(error.detail.frontier_digest, /^[0-9a-f]{64}$/u);
+  assert.equal(error.detail.parallel_start_flag, '--parallel-frontier');
+  assert.equal(error.detail.serial_reason_flag, '--override-reason');
+  assert.equal(await storeDigest(root), before);
+
+  const started = successJson(runCli(root, [
+    'todo', 'start', '--plan', 'main', '--task', 'T1', '--parallel-frontier',
+  ]));
+  assert.equal(started.status, 'in-progress');
+  const second = successJson(runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T2']));
+  assert.equal(second.status, 'in-progress');
+
+  const serialRoot = await parallelWorkspace(context);
+  const serialized = successJson(runCli(serialRoot, [
+    'todo', 'start', '--plan', 'main', '--task', 'T1', '--override-reason',
+    'single host capacity',
+  ]));
+  assert.equal(serialized.status, 'in-progress');
+  const journal = (await readFile(path.join(serialRoot, journalRef), 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.equal(journal.at(-1).payload.override_reason, 'single host capacity');
+
+  const singleRoot = await workspace(context);
+  const unnecessary = runCli(singleRoot, [
+    'todo', 'start', '--plan', 'main', '--task', 'T1', '--parallel-frontier',
+  ]);
+  assert.equal(unnecessary.status, 1);
+  assert.equal(JSON.parse(unnecessary.stderr).code, 'PARALLEL_DISPATCH_INVALID');
 });
 
 test('evidence promote CLIはlock内でunknown historical doneを解決する', async (context) => {
