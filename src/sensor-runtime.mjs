@@ -3,7 +3,7 @@ import { lstatSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 export const LATTICE_SENSOR_CLI = fileURLToPath(
-  new URL('../sensor/dist/bin/codegraph.js', import.meta.url),
+  new URL('../sensor/dist/bin/lattice-sensor.js', import.meta.url),
 );
 
 export class SensorRuntimeError extends Error {

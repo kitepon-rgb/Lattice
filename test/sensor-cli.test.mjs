@@ -35,7 +35,7 @@ test('lattice sensor init/syncは同梱sensorだけでtyped resultを返す', as
       schema: 'lattice.sensor_command_result.v1',
       provider: 'lattice',
       sensor_owner: 'lattice',
-      sensor_version: '0.7.1-lattice.1',
+      sensor_version: '0.7.2-lattice.1',
       command,
       status: 'ok',
     });
@@ -55,8 +55,10 @@ test('公開packageは旧Codegraph CLIを同梱せずsensorをprivate実装へ�
 
   assert.equal(rootPackage.files.includes('sensor/dist'), true);
   assert.equal(rootPackage.files.includes('!sensor/dist/bin'), true);
+  assert.equal(rootPackage.files.includes('sensor/dist/bin/lattice-sensor.js'), true);
   assert.equal(sensorPackage.private, true);
   assert.equal(sensorPackage.files.includes('!dist/bin'), true);
   assert.equal(Object.hasOwn(sensorPackage.scripts, 'cli'), false);
-  assert.doesNotMatch(sensorPackage.scripts.build, /codegraph|chmodSync/u);
+  assert.doesNotMatch(sensorPackage.scripts.build, /chmodSync/u);
+  assert.match(sensorPackage.scripts['build:private-runtime'], /lattice-sensor\.js/u);
 });
