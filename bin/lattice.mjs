@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 
 import { runRuntimeCli } from '../src/runtime-cli.mjs';
+import { renderCliHelp } from '../src/cli-help.mjs';
 import packageJson from '../package.json' with { type: 'json' };
 
 const args = process.argv.slice(2);
+const help = renderCliHelp(args);
 
-if (args.length === 1 && args[0] === '--version') {
+if (help !== null) {
+  process.stdout.write(help);
+} else if (args.length === 1 && args[0] === '--version') {
   process.stdout.write(`${packageJson.version}\n`);
 } else if (args.length === 2 && args[0] === 'status' && args[1] === '--json') {
   const { projectStatusFailure, runProjectStatus } = await import('../src/project-cli.mjs');

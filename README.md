@@ -7,6 +7,9 @@ schedulability compilerです。
 [docs/README.md](docs/README.md)、製品思想は[PLAN.md](PLAN.md)、公開contractは
 [docs/00_product-contract.md](docs/00_product-contract.md)を参照してください。
 
+CLIの全体像は`lattice --help`、各公開namespaceの正規構文は
+`lattice <plan|run|event|todo|sensor|factory-diagnostics|runtime-errors> --help`で確認できます。
+
 ## 開発
 
 ```bash

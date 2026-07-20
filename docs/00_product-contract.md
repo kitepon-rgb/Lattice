@@ -1,4 +1,4 @@
-# Lattice 製品契約（0.10.0）
+# Lattice 製品契約（0.10.1）
 
 ## Product outcome
 
@@ -72,6 +72,10 @@ runtimeは配布物内の`./sensor/dist`だけを起動し、PATH上の独立CLI
 MCP toolは`lattice_sensor_*`だけを公開し、提供者と所有者を`lattice`として機械表示する。
 
 ## TODO工程store面（ADR 0053・0055・0056・0058）
+
+CLIの発見入口は`lattice --help`／`lattice help`、公開namespaceの発見入口は
+`lattice <namespace> --help`／`lattice help <namespace>`とする。helpはstoreやnetworkを読まず、
+決定的なplain textをstdoutへ返してexit 0とする。未知namespaceは従来どおりusage違反exit 2で拒否する。
 
 project discoveryの唯一の正規入口は`lattice status --json`である。CLI version、git project、
 canonical store ref、active plan、active run、`uninitialized | ready | active_run | invalid`、
