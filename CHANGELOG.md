@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.9.0 — 2026-07-21
+
+- first-class Phase controlを追加し、ToDo完了時の軽量確認とPhase境界の重監査を分離した。
+- `todo phase status/review/accept/reject/reopen`、Phase state migration、Decision evidenceを追加した。
+- `todo revise-set` v3でPhase revision同士、およびPhase revisionと通常revisionのcross-plan atomic activationに対応した。
+- `todo status/verify --json`の互換aliasを復旧し、cross-plan start/done/reopenの判定をmerged storeへ統一した。
+- loopback-onlyのlive Ganttを追加し、静的Ganttには`current / stale / missing`を判定するdigest付きstatus面を追加した。
+- bounded seamの隔離transform契約を追加し、許可locus外の変更をfail closedにした。
+- 外部Codegraph runtime・旧cache/dataへの依存を廃止し、配布物内のLattice sensorだけを正式runtimeとした。
+- Phase revisionの全6 durability境界と、通常／Phase混在revision setのcrash retryを検証した。
+
+## 0.8.0 — 2026-07-20
+
+- project-local run storeと`run list/resume/close/abandon`を正式化した。
+- runtime/control timestampをcanonical UTC millisecondsへstrict化した。
+
+## 0.7.3 — 2026-07-20
+
+- private Lattice sensor runtimeを配布物へ固定し、公開`codegraph` binを除去した。
+
+## 0.7.0 — 2026-07-20
+
+- Codegraph由来実装をLattice所有sensorへ吸収し、公開入口を`lattice sensor`へ切り替えた。
+
 ## 0.6.4 — 2026-07-19
 
 - `readTodoStore`のpinned source検証を1回のread内でcommit・blob単位にmemoizeし、同じsourceを持つhistorical import taskごとの重複`git cat-file`を除去した。

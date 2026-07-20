@@ -26,6 +26,7 @@ const MANIFEST_REF = `${STORE_REF}/manifest.json`;
 const MAX_INPUT_BYTES = 8_388_608;
 const STATUS_SCHEMA = 'lattice.project_status.v1';
 const CREATE_INPUT_SCHEMA = 'lattice.plan_create_input.v1';
+const PHASE_CREATE_INPUT_SCHEMA = 'lattice.plan_create_input.v2';
 const CREATE_RESULT_SCHEMA = 'lattice.plan_create_result.v1';
 
 function resolveRepoRoot(cwd) {
@@ -273,10 +274,14 @@ async function readCanonicalInput(repoRoot, inputRef) {
 }
 
 function validateCreateInput(value) {
-  if (!exactRecord(value, [
+  const phaseInput = value?.schema === PHASE_CREATE_INPUT_SCHEMA;
+  const keys = [
     'schema', 'project_id', 'plan_key', 'plan_version', 'actor', 'recorded_at',
     'tasks', 'hard_dependencies', 'joins', 'input_digest',
-  ]) || value.schema !== CREATE_INPUT_SCHEMA || !isTodoIdentifier(value.project_id)
+  ];
+  if (phaseInput) keys.push('phases');
+  if (!exactRecord(value, keys) || ![CREATE_INPUT_SCHEMA, PHASE_CREATE_INPUT_SCHEMA].includes(value.schema)
+    || !isTodoIdentifier(value.project_id)
     || !isTodoIdentifier(value.plan_key) || !isTodoIdentifier(value.plan_version)
     || !exactRecord(value.actor, ['host', 'session', 'agent'])
     || ![value.actor.host, value.actor.session, value.actor.agent].every(isTodoIdentifier)
@@ -286,10 +291,11 @@ function validateCreateInput(value) {
     || value.tasks.some((task) => task?.narrative_anchor !== null || task?.compile_binding !== null)) return false;
   try {
     buildTodoPlan({
-      schema: 'lattice.todo_plan.v3', project_id: value.project_id,
+      schema: phaseInput ? 'lattice.todo_plan.v4' : 'lattice.todo_plan.v3', project_id: value.project_id,
       plan_key: value.plan_key, plan_version: value.plan_version,
       predecessor_plan_digest: null, tasks: value.tasks,
       hard_dependencies: value.hard_dependencies, joins: value.joins,
+      ...(phaseInput ? { phases: value.phases } : {}),
     });
     return true;
   } catch { return false; }
@@ -304,10 +310,12 @@ export async function runPlanCreate({ cwd, inputRef, stdout }) {
     repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
     projectId: input.project_id, repositories: [{ repo_id: 'self', path: '.' }],
     plan: {
-      schema: 'lattice.todo_plan.v3', project_id: input.project_id,
+      schema: input.schema === PHASE_CREATE_INPUT_SCHEMA
+        ? 'lattice.todo_plan.v4' : 'lattice.todo_plan.v3', project_id: input.project_id,
       plan_key: input.plan_key, plan_version: input.plan_version,
       predecessor_plan_digest: null, tasks: input.tasks,
       hard_dependencies: input.hard_dependencies, joins: input.joins,
+      ...(input.schema === PHASE_CREATE_INPUT_SCHEMA ? { phases: input.phases } : {}),
     },
     genesis: { actor: input.actor, recorded_at: input.recorded_at, provenance: null },
   });
@@ -324,12 +332,14 @@ export async function runPlanCreate({ cwd, inputRef, stdout }) {
   return 0;
 }
 
-export async function runPlanCreateSchema({ stdout }) {
-  const schemaUrl = new URL('../docs/schemas/lattice.plan_create_input.v1.schema.json', import.meta.url);
+export async function runPlanCreateSchema({ stdout, version = 1 }) {
+  if (![1, 2].includes(version)) throw new TypeError('unsupported plan create schema version');
+  const expected = version === 2 ? PHASE_CREATE_INPUT_SCHEMA : CREATE_INPUT_SCHEMA;
+  const schemaUrl = new URL(`../docs/schemas/lattice.plan_create_input.v${version}.schema.json`, import.meta.url);
   const handle = await open(schemaUrl, fsConstants.O_RDONLY);
   try {
     const schema = JSON.parse(await handle.readFile('utf8'));
-    if (schema?.title !== CREATE_INPUT_SCHEMA) throw new TypeError('bundled plan create schema invalid');
+    if (schema?.title !== expected) throw new TypeError('bundled plan create schema invalid');
     stdout.write(`${JSON.stringify(schema)}\n`);
     return 0;
   } finally {

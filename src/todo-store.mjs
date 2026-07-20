@@ -25,7 +25,9 @@ import {
   parseTodoSourceRef,
   todoCutoverArchiveSourceRef,
   todoLegacyReconciliationDigest,
+  validatePhaseTodoRevision,
   validateTodoRevision,
+  validateTodoRevisionSet,
 } from './todo-revision.mjs';
 
 const STORE_ROOT_REF = '.lattice/todo';
@@ -185,8 +187,15 @@ async function readJournal(repoRoot, journalRef) {
     fail('STORE_CORRUPT', 'genesis_missing_or_repeated');
   }
   const successorSchema = events[0].schema === 'lattice.todo_event.v2';
-  if (events.slice(1).some(({ schema }) => schema !== 'lattice.todo_event.v1')
-    || (!successorSchema && events.some(({ schema }) => schema !== 'lattice.todo_event.v1'))) {
+  const phaseSchema = ['lattice.todo_event.v3', 'lattice.todo_event.v4'].includes(events[0].schema);
+  const phaseRevisionSchema = events[0].schema === 'lattice.todo_event.v4';
+  const phaseTail = (event) => event.schema === 'lattice.todo_event.v3';
+  const legacyTail = (event) => event.schema === 'lattice.todo_event.v1';
+  if ((phaseSchema && events.some(({ schema }, index) => index === 0
+    ? !['lattice.todo_event.v3', 'lattice.todo_event.v4'].includes(schema) : !phaseTail(events[index])))
+    || (!phaseSchema && events.slice(1).some((event) => !legacyTail(event)))
+    || (!phaseSchema && !successorSchema && events.some((event, index) => index === 0
+      ? event.schema !== 'lattice.todo_event.v1' : !legacyTail(event)))) {
     fail('STORE_CORRUPT', 'journal_schema_sequence_invalid');
   }
   return { segments, events, activeBytes };
@@ -195,6 +204,53 @@ async function readJournal(repoRoot, journalRef) {
 function taskState(taskId) {
   return { task_id: taskId, status: 'pending', started_at: null, done_at: null, blocked_reason: null,
     evidence: null, evidence_unverified: false, imported: false };
+}
+
+function emptyPhaseState(phaseId) {
+  return { phase_id: phaseId, status: 'locked', review_event_digest: null,
+    decision_event_digest: null, decision_evidence: null };
+}
+
+function derivedPhaseStatus(plan, taskStates, phaseStates, phaseId) {
+  const state = phaseStates.get(phaseId);
+  if (['reviewing', 'accepted', 'rejected'].includes(state.status)) return state.status;
+  const phase = plan.phases.find((entry) => entry.phase_id === phaseId);
+  if (!phase.predecessor_phase_ids.every((id) => phaseStates.get(id)?.status === 'accepted')) return 'locked';
+  const tasks = plan.tasks.filter((entry) => entry.phase_id === phaseId);
+  return tasks.every((entry) => taskStates.get(entry.task_id)?.status === 'done') ? 'gate_ready' : 'active';
+}
+
+function projectPhaseStates(plan, events, taskStates) {
+  if (plan.schema !== 'lattice.todo_plan.v4') return [];
+  const states = new Map(plan.phases.map(({ phase_id }) => [phase_id, emptyPhaseState(phase_id)]));
+  for (const event of events) {
+    if (event.schema === 'lattice.todo_event.v4') {
+      for (const migration of event.phase_state_migration) {
+        if (migration.state_policy === 'carry') {
+          Object.assign(states.get(migration.phase_id), structuredClone(migration.state));
+        }
+      }
+    } else if (event.kind === 'phase_review') {
+      const state = states.get(event.phase_id);
+      state.status = 'reviewing'; state.review_event_digest = event.event_digest;
+      state.decision_event_digest = null; state.decision_evidence = null;
+    } else if (event.kind === 'phase_accept') {
+      const state = states.get(event.phase_id);
+      state.status = 'accepted'; state.decision_event_digest = event.event_digest;
+      state.decision_evidence = event.payload.decision_evidence;
+    } else if (event.kind === 'phase_reject') {
+      const state = states.get(event.phase_id);
+      state.status = 'rejected'; state.decision_event_digest = event.event_digest;
+      state.decision_evidence = event.payload.decision_evidence;
+    } else if (event.kind === 'phase_reopen') {
+      Object.assign(states.get(event.phase_id), emptyPhaseState(event.phase_id));
+    }
+  }
+  for (const phase of plan.phases) {
+    const state = states.get(phase.phase_id);
+    state.status = derivedPhaseStatus(plan, taskStates, states, phase.phase_id);
+  }
+  return [...states.values()].sort((left, right) => left.phase_id.localeCompare(right.phase_id));
 }
 
 function localPredecessors(plan, taskId) {
@@ -217,6 +273,7 @@ function localSuccessors(plan, taskId) {
 
 function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSource } = {}) {
   const states = new Map(plan.tasks.map(({ task_id }) => [task_id, taskState(task_id)]));
+  const phaseStates = new Map((plan.phases ?? []).map(({ phase_id }) => [phase_id, emptyPhaseState(phase_id)]));
   const doneDigest = new Map();
   const completion = new Map();
   const importedGenesis = events[0]?.payload.historical_import === true;
@@ -235,7 +292,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         || event.payload.predecessor_plan_digest !== plan.predecessor_plan_digest) {
         fail('STORE_INCONSISTENT', 'genesis_plan_binding_mismatch');
       }
-      if (event.schema === 'lattice.todo_event.v2') {
+      if (['lattice.todo_event.v2', 'lattice.todo_event.v4'].includes(event.schema)) {
         const projected = event.state_migration.map(({ from_task_id, to_task_id }) => ({
           from_task_id, to_task_id,
         }));
@@ -264,6 +321,60 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
               : { mode: 'authored', completed_at: state.done_at });
           }
         }
+        if (event.schema === 'lattice.todo_event.v4') {
+          for (const migration of event.phase_state_migration) {
+            if (migration.state_policy === 'carry') {
+              Object.assign(phaseStates.get(migration.phase_id), structuredClone(migration.state));
+            }
+          }
+        }
+      }
+      continue;
+    }
+    if (event.kind.startsWith('phase_')) {
+      if (plan.schema !== 'lattice.todo_plan.v4' || !phaseStates.has(event.phase_id)) {
+        fail('STORE_INCONSISTENT', 'event_phase_missing');
+      }
+      const state = phaseStates.get(event.phase_id);
+      const currentStatus = derivedPhaseStatus(plan, states, phaseStates, event.phase_id);
+      if (event.kind === 'phase_review') {
+        if (currentStatus !== 'gate_ready') fail('STORE_INCONSISTENT', 'phase_gate_not_ready');
+        state.status = 'reviewing'; state.review_event_digest = event.event_digest;
+        state.decision_event_digest = null; state.decision_evidence = null;
+      } else if (event.kind === 'phase_accept') {
+        const phase = plan.phases.find(({ phase_id }) => phase_id === event.phase_id);
+        const slots = event.payload.evidence_slots.map(({ slot_id }) => slot_id);
+        if (currentStatus !== 'reviewing' || state.review_event_digest !== event.payload.review_event_digest
+          || canonicalizeTodoArtifact(slots) !== canonicalizeTodoArtifact(phase.required_evidence_slots)) {
+          fail('STORE_INCONSISTENT', 'phase_accept_binding_invalid');
+        }
+        if (verifyEvidence) {
+          verifyEvidence(event.payload.decision_evidence);
+          for (const slot of event.payload.evidence_slots) verifyEvidence(slot.evidence);
+        }
+        state.status = 'accepted'; state.decision_event_digest = event.event_digest;
+        state.decision_evidence = event.payload.decision_evidence;
+      } else if (event.kind === 'phase_reject') {
+        if (currentStatus !== 'reviewing' || state.review_event_digest !== event.payload.review_event_digest) {
+          fail('STORE_INCONSISTENT', 'phase_reject_binding_invalid');
+        }
+        if (verifyEvidence) verifyEvidence(event.payload.decision_evidence);
+        state.status = 'rejected'; state.decision_event_digest = event.event_digest;
+        state.decision_evidence = event.payload.decision_evidence;
+      } else {
+        if (!['accepted', 'rejected'].includes(currentStatus)
+          || state.decision_event_digest !== event.payload.target_decision_digest) {
+          fail('STORE_INCONSISTENT', 'phase_reopen_binding_invalid');
+        }
+        const successorStarted = currentStatus === 'accepted'
+          && plan.phases.some((phase) => phase.predecessor_phase_ids.includes(event.phase_id)
+          && (phaseStates.get(phase.phase_id).status !== 'locked'
+            || plan.tasks.some((task) => task.phase_id === phase.phase_id
+              && states.get(task.task_id).status !== 'pending')));
+        if (successorStarted && event.payload.override_reason === null) {
+          fail('STORE_INCONSISTENT', 'phase_reopen_has_started_successor');
+        }
+        Object.assign(state, emptyPhaseState(event.phase_id));
       }
       continue;
     }
@@ -282,7 +393,11 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         state.evidence = event.payload.evidence;
         state.imported = true;
       } else {
-        if (state.status !== 'pending' || (!dependenciesDone && event.payload.override_reason === null)) {
+        const phaseStatus = plan.schema === 'lattice.todo_plan.v4'
+          ? derivedPhaseStatus(plan, states, phaseStates,
+            plan.tasks.find(({ task_id }) => task_id === event.task_id).phase_id) : 'active';
+        if (state.status !== 'pending' || phaseStatus !== 'active'
+          || (!dependenciesDone && event.payload.override_reason === null)) {
           fail('STORE_INCONSISTENT', 'invalid_start_transition');
         }
         state.status = 'in-progress'; state.started_at = event.recorded_at;
@@ -323,6 +438,12 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
       if (state.status !== 'done' || doneDigest.get(event.task_id) !== event.payload.target_done_digest) {
         fail('STORE_INCONSISTENT', 'invalid_reopen_binding');
       }
+      if (plan.schema === 'lattice.todo_plan.v4') {
+        const phaseId = plan.tasks.find(({ task_id }) => task_id === event.task_id).phase_id;
+        if (derivedPhaseStatus(plan, states, phaseStates, phaseId) === 'accepted') {
+          fail('STORE_INCONSISTENT', 'task_reopen_requires_phase_reopen');
+        }
+      }
       const startedSuccessor = localSuccessors(plan, event.task_id).some((id) => states.get(id).status !== 'pending');
       if (startedSuccessor && event.payload.override_reason === null) fail('STORE_INCONSISTENT', 'reopen_has_started_successor');
       state.status = 'in-progress'; state.done_at = null; state.evidence = null;
@@ -334,10 +455,14 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
 
 function snapshotFor(plan, events, tasks) {
   const head = events.at(-1);
+  const phasePlan = plan.schema === 'lattice.todo_plan.v4';
   const snapshot = {
-    schema: 'lattice.todo_snapshot.v1', project_id: plan.project_id, plan_key: plan.plan_key,
-    plan_version: plan.plan_version, projection_version: 1, through_sequence: head.sequence,
+    schema: phasePlan ? 'lattice.todo_snapshot.v2' : 'lattice.todo_snapshot.v1',
+    project_id: plan.project_id, plan_key: plan.plan_key,
+    plan_version: plan.plan_version, projection_version: phasePlan ? 2 : 1, through_sequence: head.sequence,
     journal_head_digest: head.event_digest, tasks, snapshot_digest: '',
+    ...(phasePlan ? { phases: projectPhaseStates(plan, events,
+      new Map(tasks.map((task) => [task.task_id, task]))) } : {}),
   };
   snapshot.snapshot_digest = todoSelfDigest(snapshot, 'snapshot_digest');
   return snapshot;
@@ -382,6 +507,101 @@ function validateMergedGraph(members) {
     colors.set(node, 1); for (const next of adjacency.get(node)) visit(next); colors.set(node, 2);
   };
   for (const node of adjacency.keys()) visit(node);
+}
+
+function mergedTaskKey(refValue) {
+  return `${refValue.project_id}\0${refValue.plan_key}\0${refValue.task_id}`;
+}
+
+function mergedTaskStates(store) {
+  return new Map(store.members.flatMap((member) => member.tasks.map((taskValue) => ([
+    mergedTaskKey({
+      project_id: member.plan.project_id, plan_key: member.plan.plan_key, task_id: taskValue.task_id,
+    }),
+    taskValue.status,
+  ]))));
+}
+
+function mergedTaskPhase(store, taskKey) {
+  for (const member of store.members) {
+    const task = member.plan.tasks.find((entry) => mergedTaskKey({
+      project_id: member.plan.project_id, plan_key: member.plan.plan_key, task_id: entry.task_id,
+    }) === taskKey);
+    if (task === undefined) continue;
+    if (member.plan.schema !== 'lattice.todo_plan.v4') return null;
+    return { plan_key: member.plan.plan_key, phase_id: task.phase_id,
+      status: member.snapshot.phases.find(({ phase_id }) => phase_id === task.phase_id)?.status };
+  }
+  return undefined;
+}
+
+function mergedDependencyPhaseReady(store, predecessorKey, targetKey) {
+  const predecessor = mergedTaskPhase(store, predecessorKey);
+  const target = mergedTaskPhase(store, targetKey);
+  if (predecessor === undefined) return false;
+  if (predecessor === null) return true;
+  if (target !== null && target !== undefined && predecessor.plan_key === target.plan_key
+    && predecessor.phase_id === target.phase_id) return true;
+  return predecessor.status === 'accepted';
+}
+
+function mergedPredecessorKeys(store, targetKey) {
+  const result = [];
+  for (const member of store.members) {
+    for (const edge of member.plan.hard_dependencies) {
+      if (mergedTaskKey(edge.to) === targetKey) result.push(mergedTaskKey(edge.from));
+    }
+    for (const join of member.plan.joins) {
+      if (mergedTaskKey(join.before) === targetKey) {
+        for (const after of join.after) result.push(mergedTaskKey(after));
+      }
+    }
+  }
+  return [...new Set(result)];
+}
+
+function mergedSuccessorKeys(store, targetKey) {
+  const result = [];
+  for (const member of store.members) {
+    for (const edge of member.plan.hard_dependencies) {
+      if (mergedTaskKey(edge.from) === targetKey) result.push(mergedTaskKey(edge.to));
+    }
+    for (const join of member.plan.joins) {
+      if (join.after.some((after) => mergedTaskKey(after) === targetKey)) {
+        result.push(mergedTaskKey(join.before));
+      }
+    }
+  }
+  return [...new Set(result)];
+}
+
+function validateMergedTransition(store, member, event) {
+  const targetKey = mergedTaskKey({
+    project_id: member.plan.project_id, plan_key: member.plan.plan_key, task_id: event.task_id,
+  });
+  const states = mergedTaskStates(store);
+  const dependenciesDone = mergedPredecessorKeys(store, targetKey)
+    .every((key) => states.get(key) === 'done' && mergedDependencyPhaseReady(store, key, targetKey));
+  if (event.kind === 'start' && event.payload.start_mode !== 'historical_import'
+    && !dependenciesDone && event.payload.override_reason === null) {
+    fail('STORE_INCONSISTENT', 'invalid_start_transition');
+  }
+  if (event.kind === 'done' && event.payload.done_mode === 'authored' && !dependenciesDone) {
+    fail('STORE_INCONSISTENT', 'invalid_done_transition');
+  }
+  if (event.kind === 'reopen' && event.payload.override_reason === null) {
+    const startedSuccessor = mergedSuccessorKeys(store, targetKey)
+      .some((key) => states.get(key) !== 'pending');
+    if (startedSuccessor) fail('STORE_INCONSISTENT', 'reopen_has_started_successor');
+  }
+  if (event.kind === 'phase_reopen' && event.payload.override_reason === null) {
+    const phaseTaskKeys = member.plan.tasks.filter(({ phase_id }) => phase_id === event.phase_id)
+      .map(({ task_id }) => mergedTaskKey({ project_id: member.plan.project_id,
+        plan_key: member.plan.plan_key, task_id }));
+    const startedSuccessor = phaseTaskKeys.flatMap((key) => mergedSuccessorKeys(store, key))
+      .some((key) => states.get(key) !== 'pending');
+    if (startedSuccessor) fail('STORE_INCONSISTENT', 'phase_reopen_has_started_successor');
+  }
 }
 
 function evidenceVerifier(manifest, repoRoot, hard) {
@@ -516,8 +736,8 @@ function materializeImportedNarrativeAnchors(repoRoot, planInput, sources) {
 }
 
 function verifyPlanNarrativeAnchors(repoRoot, plan, trustedPlan = null) {
-  if (!['lattice.todo_plan.v2', 'lattice.todo_plan.v3'].includes(plan.schema)) return;
-  const trusted = new Map((['lattice.todo_plan.v2', 'lattice.todo_plan.v3'].includes(trustedPlan?.schema)
+  if (!['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4'].includes(plan.schema)) return;
+  const trusted = new Map((['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4'].includes(trustedPlan?.schema)
     ? trustedPlan.tasks : [])
     .map((task) => [task.task_id, task.narrative_anchor]));
   for (const task of plan.tasks) {
@@ -549,9 +769,12 @@ export async function readTodoStore(options = {}) {
       if (error instanceof TodoStoreError) throw error;
       fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'barrier_invalid');
     }
+    const revisionRecovery = value?.schema === 'lattice.todo_source_cutover_barrier.v1'
+      && value.revision_digest === options.allowSourceCutoverRevisionDigest;
+    const revisionSetRecovery = value?.schema === 'lattice.todo_source_cutover_set_barrier.v1'
+      && value.revision_set_digest === options.allowSourceCutoverRevisionSetDigest;
     if (options.sourceCutoverRecoveryCapability !== SOURCE_CUTOVER_RECOVERY_CAPABILITY
-      || value?.schema !== 'lattice.todo_source_cutover_barrier.v1'
-      || value.revision_digest !== options.allowSourceCutoverRevisionDigest) {
+      || (!revisionRecovery && !revisionSetRecovery)) {
       fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_recovery_required');
     }
   }
@@ -574,10 +797,11 @@ export async function readTodoStore(options = {}) {
     }
     let revision = null;
     const genesis = journal.events[0];
-    if (genesis.schema === 'lattice.todo_event.v2') {
+    if (['lattice.todo_event.v2', 'lattice.todo_event.v4'].includes(genesis.schema)) {
       const revisionRef = path.posix.join(path.posix.dirname(descriptor.plan_ref), 'revision.json');
       revision = await readArtifact(repoRoot, revisionRef, {
-        code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoRevision,
+        code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes,
+        validate: genesis.schema === 'lattice.todo_event.v4' ? validatePhaseTodoRevision : validateTodoRevision,
       });
       const migrationProjection = genesis.state_migration.map((entry) => ({
         from_task_id: entry.from_task_id, to_task_id: entry.to_task_id,
@@ -585,12 +809,26 @@ export async function readTodoStore(options = {}) {
       }));
       if (canonicalizeTodoArtifact(revision.desired_plan) !== canonicalizeTodoArtifact(plan)
         || revision.revision_digest !== genesis.revision_digest
-        || revision.reconciliation.reconciliation_digest !== genesis.reconciliation_digest
         || revision.predecessor.plan_digest !== genesis.payload.predecessor_plan_digest
         || revision.predecessor.journal_head_digest !== genesis.previous_digest
         || canonicalizeTodoArtifact(revision.task_migration)
           !== canonicalizeTodoArtifact(migrationProjection)) {
         fail('STORE_INCONSISTENT', 'revision_genesis_binding_mismatch');
+      }
+      if (genesis.schema === 'lattice.todo_event.v2'
+        && revision.reconciliation.reconciliation_digest !== genesis.reconciliation_digest) {
+        fail('STORE_INCONSISTENT', 'revision_genesis_binding_mismatch');
+      }
+      if (genesis.schema === 'lattice.todo_event.v4') {
+        const phaseProjection = revision.phase_migration
+          .filter(({ to_phase_id }) => to_phase_id !== 'removed')
+          .map(({ to_phase_id, state_policy }) => ({ phase_id: to_phase_id, state_policy }))
+          .sort((left, right) => left.phase_id.localeCompare(right.phase_id));
+        const genesisProjection = genesis.phase_state_migration
+          .map(({ phase_id, state_policy }) => ({ phase_id, state_policy }));
+        if (canonicalizeTodoArtifact(phaseProjection) !== canonicalizeTodoArtifact(genesisProjection)) {
+          fail('STORE_INCONSISTENT', 'revision_genesis_binding_mismatch');
+        }
       }
     }
     const verifyEvidence = evidenceVerifier(manifest, repoRoot, options.forWrite === true);
@@ -626,6 +864,40 @@ export async function readTodoStore(options = {}) {
     schema: 'lattice.todo_store_read.v1', project_id: manifest.project_id, manifest,
     members: loaded, snapshot_stale: loaded.some((member) => member.snapshot_stale),
   };
+}
+
+export async function readTodoStoreStable(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const maximumAttempts = options.maximumAttempts ?? 4;
+  if (!Number.isSafeInteger(maximumAttempts) || maximumAttempts < 1 || maximumAttempts > 16) {
+    throw new TypeError('maximumAttempts must be 1..16');
+  }
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    const before = await readArtifact(repoRoot, MANIFEST_REF, {
+      code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
+    });
+    try {
+      const store = await readTodoStore(options);
+      const after = await readArtifact(repoRoot, MANIFEST_REF, {
+        code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
+      });
+      if (before.manifest_digest === after.manifest_digest
+        && store.manifest.manifest_digest === after.manifest_digest) return store;
+    } catch (error) {
+      if (!(error instanceof TodoStoreError)) throw error;
+      const after = await readArtifact(repoRoot, MANIFEST_REF, {
+        code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
+      });
+      const transientWriteWindow = error.code === 'STORE_INCONSISTENT'
+        && ['manifest_journal_head_mismatch', 'manifest_plan_binding_mismatch']
+          .includes(error.detail.reason);
+      if (before.manifest_digest === after.manifest_digest && !transientWriteWindow) throw error;
+    }
+    if (attempt < maximumAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, Math.min(16, 2 ** attempt)));
+    }
+  }
+  fail('STORE_BUSY', 'stable_read_exhausted', { attempts: maximumAttempts });
 }
 
 async function atomicWrite(absolute, bytes) {
@@ -694,14 +966,17 @@ function nextEvent(input, storeMember) {
     ? { done_mode: 'authored', imported: false, evidence: input.payload.evidence }
     : input.payload;
   const event = {
-    schema: 'lattice.todo_event.v1', project_id: storeMember.plan.project_id,
+    schema: storeMember.plan.schema === 'lattice.todo_plan.v4'
+      ? 'lattice.todo_event.v3' : 'lattice.todo_event.v1', project_id: storeMember.plan.project_id,
     plan_key: storeMember.plan.plan_key, plan_version: storeMember.plan.plan_version,
     sequence: previous.sequence + 1, previous_digest: previous.event_digest,
-    kind: input.kind, task_id: input.task_id, actor: input.actor, recorded_at: input.recorded_at,
+    kind: input.kind, task_id: input.task_id ?? null,
+    ...(storeMember.plan.schema === 'lattice.todo_plan.v4' ? { phase_id: input.phase_id ?? null } : {}),
+    actor: input.actor, recorded_at: input.recorded_at,
     provenance: input.provenance ?? null, payload, event_digest: '',
   };
   event.event_digest = todoSelfDigest(event, 'event_digest');
-  if (!validateTodoEvent(event)) throw new TypeError('todo event input violates lattice.todo_event.v1');
+  if (!validateTodoEvent(event)) throw new TypeError('todo event input violates its declared schema');
   return event;
 }
 
@@ -730,6 +1005,13 @@ function resolveTargetedEvent(input, storeMember) {
       payload: { ...input.payload, target_done_digest: target.event_digest },
     };
   }
+  if (input.kind === 'phase_reopen' && exactRecord(input.payload, ['reason', 'override_reason'])) {
+    const target = [...storeMember.journal.events].reverse().find((event) => (
+      ['phase_accept', 'phase_reject'].includes(event.kind) && event.phase_id === input.phase_id
+    ));
+    if (target === undefined) fail('STORE_INCONSISTENT', 'phase_reopen_binding_invalid');
+    return { ...input, payload: { ...input.payload, target_decision_digest: target.event_digest } };
+  }
   return input;
 }
 
@@ -750,6 +1032,7 @@ export async function appendTodoEvent(options = {}) {
       fail('STORE_WRITE_CONFLICT', 'historical_import_writer_required');
     }
     // Validate the prospective history, including hard evidence and transitions, before any write.
+    validateMergedTransition(store, member, event);
     replay(member.plan, [...member.journal.events, event], {
       now: options.now ? new Date(options.now) : new Date(),
       verifyEvidence: evidenceVerifier(store.manifest, repoRoot, true),
@@ -788,6 +1071,7 @@ export function buildTodoPlan(input) {
   plan.topology_digest = digestTodoArtifact({
     project_id: plan.project_id, plan_key: plan.plan_key, plan_version: plan.plan_version,
     tasks: plan.tasks, hard_dependencies: plan.hard_dependencies, joins: plan.joins,
+    ...(plan.schema === 'lattice.todo_plan.v4' ? { phases: plan.phases } : {}),
   });
   plan.plan_digest = todoSelfDigest(plan, 'plan_digest');
   if (!validateTodoPlan(plan)) throw new TypeError('todo plan input violates its declared schema');
@@ -796,9 +1080,12 @@ export function buildTodoPlan(input) {
 
 export function buildPlanGenesis(plan, input) {
   const event = {
-    schema: 'lattice.todo_event.v1', project_id: plan.project_id, plan_key: plan.plan_key,
+    schema: plan.schema === 'lattice.todo_plan.v4' ? 'lattice.todo_event.v3' : 'lattice.todo_event.v1',
+    project_id: plan.project_id, plan_key: plan.plan_key,
     plan_version: plan.plan_version, sequence: 0, previous_digest: input.previous_digest ?? null,
-    kind: 'plan_genesis', task_id: null, actor: input.actor, recorded_at: input.recorded_at,
+    kind: 'plan_genesis', task_id: null,
+    ...(plan.schema === 'lattice.todo_plan.v4' ? { phase_id: null } : {}),
+    actor: input.actor, recorded_at: input.recorded_at,
     provenance: input.provenance ?? null,
     payload: { plan_digest: plan.plan_digest, topology_digest: plan.topology_digest,
       predecessor_plan_digest: plan.predecessor_plan_digest, task_migration: input.task_migration ?? [],
@@ -806,7 +1093,7 @@ export function buildPlanGenesis(plan, input) {
     event_digest: '',
   };
   event.event_digest = todoSelfDigest(event, 'event_digest');
-  if (!validateTodoEvent(event)) throw new TypeError('genesis input violates lattice.todo_event.v1');
+  if (!validateTodoEvent(event)) throw new TypeError('genesis input violates its declared schema');
   return event;
 }
 
@@ -827,6 +1114,25 @@ export function buildRevisionGenesis(plan, input) {
   };
   event.event_digest = todoSelfDigest(event, 'event_digest');
   if (!validateTodoEvent(event)) throw new TypeError('revision genesis violates lattice.todo_event.v2');
+  return event;
+}
+
+export function buildPhaseRevisionGenesis(plan, input) {
+  const event = {
+    schema: 'lattice.todo_event.v4', project_id: plan.project_id, plan_key: plan.plan_key,
+    plan_version: plan.plan_version, sequence: 0, previous_digest: input.previous_digest,
+    kind: 'plan_genesis', task_id: null, phase_id: null, actor: input.actor,
+    recorded_at: input.recorded_at, provenance: input.provenance ?? null,
+    payload: { plan_digest: plan.plan_digest, topology_digest: plan.topology_digest,
+      predecessor_plan_digest: plan.predecessor_plan_digest,
+      task_migration: input.state_migration.map(({ from_task_id, to_task_id }) => ({
+        from_task_id, to_task_id,
+      })) },
+    revision_digest: input.revision_digest, state_migration: input.state_migration,
+    phase_state_migration: input.phase_state_migration, event_digest: '',
+  };
+  event.event_digest = todoSelfDigest(event, 'event_digest');
+  if (!validateTodoEvent(event)) throw new TypeError('phase revision genesis violates lattice.todo_event.v4');
   return event;
 }
 
@@ -1340,6 +1646,63 @@ function stateMigrationFor(previous, revision) {
   });
 }
 
+function phaseStateMigrationFor(previous, revision) {
+  const predecessorPhases = previous.plan.schema === 'lattice.todo_plan.v4'
+    ? previous.plan.phases : [];
+  const sourceIds = revision.phase_migration
+    .filter(({ from_phase_id }) => from_phase_id !== null).map(({ from_phase_id }) => from_phase_id);
+  if (canonicalizeTodoArtifact([...sourceIds].sort())
+    !== canonicalizeTodoArtifact(predecessorPhases.map(({ phase_id }) => phase_id).sort())) {
+    fail('REVISION_INVALID', 'predecessor_phase_migration_incomplete');
+  }
+  const idMap = new Map(revision.phase_migration
+    .filter(({ from_phase_id, to_phase_id }) => from_phase_id !== null && to_phase_id !== 'removed')
+    .map(({ from_phase_id, to_phase_id }) => [from_phase_id, to_phase_id]));
+  const taskIdMap = new Map(revision.task_migration
+    .filter(({ to_task_id }) => to_task_id !== 'removed')
+    .map(({ from_task_id, to_task_id }) => [from_task_id, to_task_id]));
+  const previousStates = new Map((previous.snapshot.phases ?? []).map((state) => [state.phase_id, state]));
+  return revision.phase_migration
+    .filter(({ to_phase_id }) => to_phase_id !== 'removed')
+    .map((migration) => {
+      if (migration.state_policy === 'reset') {
+        return { phase_id: migration.to_phase_id, state_policy: 'reset', state: null };
+      }
+      const before = predecessorPhases.find(({ phase_id }) => phase_id === migration.from_phase_id);
+      const after = revision.desired_plan.phases.find(({ phase_id }) => phase_id === migration.to_phase_id);
+      const mappedBefore = { ...before, phase_id: migration.to_phase_id,
+        predecessor_phase_ids: before.predecessor_phase_ids.map((id) => idMap.get(id) ?? id).sort() };
+      const beforeTaskIds = previous.plan.tasks
+        .filter(({ phase_id }) => phase_id === migration.from_phase_id)
+        .map(({ task_id }) => taskIdMap.get(task_id) ?? 'removed').filter((id) => id !== 'removed').sort();
+      const afterTaskIds = revision.desired_plan.tasks
+        .filter(({ phase_id }) => phase_id === migration.to_phase_id).map(({ task_id }) => task_id).sort();
+      if (canonicalizeTodoArtifact({ phase: mappedBefore, task_ids: beforeTaskIds })
+        !== canonicalizeTodoArtifact({ phase: after, task_ids: afterTaskIds })) {
+        fail('REVISION_INVALID', 'phase_carry_semantics_changed', { from_phase_id: migration.from_phase_id });
+      }
+      const state = previousStates.get(migration.from_phase_id);
+      if (state === undefined) fail('STORE_INCONSISTENT', 'predecessor_phase_state_missing');
+      return { phase_id: migration.to_phase_id, state_policy: 'carry', state: {
+        status: state.status, review_event_digest: state.review_event_digest,
+        decision_event_digest: state.decision_event_digest, decision_evidence: state.decision_evidence,
+      } };
+    }).sort((left, right) => left.phase_id.localeCompare(right.phase_id));
+}
+
+function phaseRevisionResult(revision, genesis, recovered = false) {
+  const result = {
+    schema: 'lattice.phase_todo_revise_result.v1', project_id: revision.project_id,
+    plan_key: revision.plan_key, predecessor_plan_digest: revision.predecessor.plan_digest,
+    predecessor_journal_head_digest: revision.predecessor.journal_head_digest,
+    plan_version: revision.desired_plan.plan_version, plan_digest: revision.desired_plan.plan_digest,
+    topology_digest: revision.desired_plan.topology_digest, journal_head_digest: genesis.event_digest,
+    revision_digest: revision.revision_digest, recovered, result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
 function revisionResult(revision, genesis, { recovered = false } = {}) {
   const result = {
     schema: revision.schema === 'lattice.todo_revision.v2'
@@ -1409,6 +1772,39 @@ function parseRevisionMarker(bytes) {
     validate: (value) => exactRecord(value, ['schema', 'revision', 'genesis'])
       && value.schema === 'lattice.todo_revision_transaction.v1'
       && validateTodoRevision(value.revision) && validateTodoEvent(value.genesis),
+  });
+}
+
+function parsePhaseRevisionMarker(bytes) {
+  return parseCanonicalJsonLine(bytes, {
+    code: 'REVISION_CONFLICT', reason: 'phase_revision_marker_invalid',
+    maxBytes: TODO_LIMITS.snapshotBytes,
+    validate: (value) => exactRecord(value, ['schema', 'revision', 'genesis'])
+      && value.schema === 'lattice.phase_todo_revision_transaction.v1'
+      && validatePhaseTodoRevision(value.revision) && validateTodoEvent(value.genesis),
+  });
+}
+
+function parseRevisionSetMarker(bytes) {
+  return parseCanonicalJsonLine(bytes, {
+    code: 'REVISION_CONFLICT', reason: 'revision_set_marker_invalid',
+    maxBytes: TODO_LIMITS.snapshotBytes,
+    validate: (value) => exactRecord(value, [
+      'schema', 'project_id', 'revision_set_digest', 'entries',
+    ]) && ['lattice.todo_revision_set_transaction.v1',
+      'lattice.todo_revision_set_transaction.v2'].includes(value.schema)
+      && isTodoIdentifier(value.project_id) && isTodoDigest(value.revision_set_digest)
+      && Array.isArray(value.entries) && value.entries.length > 0
+      && value.entries.every((entry) => {
+        const phase = entry?.revision?.schema === 'lattice.phase_todo_revision.v1';
+        return exactRecord(entry, phase && value.schema.endsWith('.v2') ? [
+          'revision', 'state_migration', 'phase_state_migration', 'genesis',
+        ] : ['revision', 'state_migration', 'genesis'])
+          && (phase ? validatePhaseTodoRevision(entry.revision) : validateTodoRevision(entry.revision))
+          && Array.isArray(entry.state_migration)
+          && (!phase || Array.isArray(entry.phase_state_migration))
+          && validateTodoEvent(entry.genesis);
+      }),
   });
 }
 
@@ -1661,7 +2057,7 @@ async function publishSourceCutover(repoRoot, staged) {
   }
 }
 
-async function rollbackSourceCutover(staged, barrierAbsolute) {
+async function rollbackSourceCutover(staged, barrierAbsolute, { removeBarrier = true } = {}) {
   for (const file of staged.files) {
     const current = await readFile(file.absolute);
     if (current.equals(file.after)) await atomicWriteMode(file.absolute, file.before, file.mode);
@@ -1673,9 +2069,107 @@ async function rollbackSourceCutover(staged, barrierAbsolute) {
     await rm(staged.archive.absolute);
     await fsyncDirectory(path.dirname(staged.archive.absolute));
   }
-  await rm(barrierAbsolute, { force: true });
-  await fsyncDirectory(path.dirname(barrierAbsolute));
+  if (removeBarrier) {
+    await rm(barrierAbsolute, { force: true });
+    await fsyncDirectory(path.dirname(barrierAbsolute));
+  }
   return true;
+}
+
+/** Native successor transaction for first-class Phase plans; no Markdown source inventory is involved. */
+export async function applyPhaseTodoRevision(options = {}) {
+  requireWriter(options.writer, 'g5-authoring');
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const revision = options.revision;
+  if (!validatePhaseTodoRevision(revision)) fail('REVISION_INVALID', 'phase_revision_schema_or_digest_invalid');
+  return withLock(repoRoot, async () => {
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
+    const previous = store.members.find(({ descriptor }) => descriptor.plan_key === revision.plan_key);
+    if (!previous || revision.project_id !== store.project_id) fail('STORE_INCONSISTENT', 'plan_not_active');
+    const transaction = path.join(repoRoot, STORE_ROOT_REF, 'transactions', 'phase-revisions',
+      revision.plan_key, revision.desired_plan.plan_version);
+    const markerAbsolute = path.join(transaction, 'marker.json');
+    const activeGenesis = previous.journal.events[0];
+    if (previous.plan.plan_digest === revision.desired_plan.plan_digest
+      && activeGenesis.schema === 'lattice.todo_event.v4'
+      && activeGenesis.revision_digest === revision.revision_digest) {
+      await rm(transaction, { recursive: true, force: true });
+      return phaseRevisionResult(revision, activeGenesis, true);
+    }
+    if (previous.plan.plan_digest !== revision.predecessor.plan_digest
+      || previous.plan.plan_version !== revision.predecessor.plan_version
+      || previous.journal.events.at(-1).event_digest !== revision.predecessor.journal_head_digest) {
+      fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
+    }
+    verifyPlanNarrativeAnchors(repoRoot, revision.desired_plan, previous.plan);
+    const stateMigration = stateMigrationFor(previous, revision);
+    const phaseStateMigration = phaseStateMigrationFor(previous, revision);
+    const prospective = store.members.map((member) => member === previous
+      ? { ...member, plan: revision.desired_plan } : member);
+    validateMergedGraph(prospective);
+    const candidateGenesis = buildPhaseRevisionGenesis(revision.desired_plan, {
+      previous_digest: revision.predecessor.journal_head_digest,
+      actor: options.actor, recorded_at: options.recordedAt, provenance: options.provenance ?? null,
+      revision_digest: revision.revision_digest, state_migration: stateMigration,
+      phase_state_migration: phaseStateMigration,
+    });
+    await ensureSafeStoreDirectory(repoRoot, transaction);
+    const markerBytes = await exactFileOrNull(markerAbsolute);
+    let genesis = candidateGenesis;
+    if (markerBytes !== null) {
+      const marker = parsePhaseRevisionMarker(markerBytes);
+      if (canonicalizeTodoArtifact(marker.revision) !== canonicalizeTodoArtifact(revision)
+        || canonicalizeTodoArtifact(marker.genesis.state_migration)
+          !== canonicalizeTodoArtifact(stateMigration)
+        || canonicalizeTodoArtifact(marker.genesis.phase_state_migration)
+          !== canonicalizeTodoArtifact(phaseStateMigration)) {
+        fail('REVISION_CONFLICT', 'revision_bytes_conflict');
+      }
+      genesis = marker.genesis;
+    } else {
+      await atomicWrite(markerAbsolute, canonicalLine({
+        schema: 'lattice.phase_todo_revision_transaction.v1', revision, genesis,
+      }));
+    }
+    await protocolStage(options, 'phase_revision_marker_durable');
+    const base = `${STORE_ROOT_REF}/plans/${revision.plan_key}/${revision.desired_plan.plan_version}`;
+    const revisionRef = `${base}/revision.json`; const planRef = `${base}/plan.json`;
+    const journalRef = `${base}/journal/active.jsonl`; const snapshotRef = `${base}/snapshot.json`;
+    const tasks = replay(revision.desired_plan, [genesis], {
+      now: options.now ? new Date(options.now) : new Date(),
+      verifyEvidence: evidenceVerifier(store.manifest, repoRoot, true),
+      verifyImportSource: importSourceVerifier(repoRoot, true),
+    });
+    const snapshot = snapshotFor(revision.desired_plan, [genesis], tasks);
+    const artifacts = [
+      ['phase_revision_input_durable', revisionRef, canonicalLine(revision)],
+      ['phase_revision_plan_durable', planRef, canonicalLine(revision.desired_plan)],
+      ['phase_revision_genesis_durable', journalRef, canonicalLine(genesis)],
+      ['phase_revision_snapshot_durable', snapshotRef, canonicalLine(snapshot)],
+    ];
+    for (const [stage, ref, bytes] of artifacts) {
+      const absolute = path.resolve(repoRoot, ref);
+      const existing = await exactFileOrNull(absolute);
+      if (existing === null) await atomicWrite(absolute, bytes);
+      else if (!existing.equals(bytes)) fail('REVISION_CONFLICT', 'revision_bytes_conflict');
+      await protocolStage(options, stage);
+    }
+    const currentManifest = await readArtifact(repoRoot, MANIFEST_REF, {
+      code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
+    });
+    if (currentManifest.manifest_digest !== store.manifest.manifest_digest) {
+      fail('STORE_WRITE_CONFLICT', 'manifest_digest_changed');
+    }
+    const descriptor = currentManifest.members.find(({ plan_key }) => plan_key === revision.plan_key);
+    Object.assign(descriptor, { active_plan_version: revision.desired_plan.plan_version,
+      plan_ref: planRef, journal_ref: journalRef, snapshot_ref: snapshotRef,
+      topology_digest: revision.desired_plan.topology_digest, journal_head_digest: genesis.event_digest });
+    currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');
+    await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(currentManifest));
+    await protocolStage(options, 'phase_revision_manifest_activated');
+    await rm(transaction, { recursive: true, force: true });
+    return phaseRevisionResult(revision, genesis, false);
+  });
 }
 
 /** G5 revision transaction: exact successor, state migration, and manifest-CAS activation. */
@@ -1864,6 +2358,311 @@ export async function applyTodoRevision(options = {}) {
   });
 }
 
+function revisionSetResult(projectId, revisionSetDigest, entries, { recovered }) {
+  const result = {
+    schema: 'lattice.todo_revision_set_result.v1',
+    project_id: projectId,
+    revision_set_digest: revisionSetDigest,
+    members: entries.map(({ revision, genesis }) => ({
+      plan_key: revision.plan_key,
+      plan_version: revision.desired_plan.plan_version,
+      revision_digest: revision.revision_digest,
+      journal_head_digest: genesis.event_digest,
+    })),
+    recovered,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
+/**
+ * Multiple plan successors are prepared independently but become active through one manifest replace.
+ * Set v2 additionally binds all Markdown cutovers behind one recovery barrier.
+ */
+export async function applyTodoRevisionSet(options = {}) {
+  requireWriter(options.writer, 'g5-authoring');
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const revisionSet = options.revisionSet ?? null;
+  if (revisionSet !== null && !validateTodoRevisionSet(revisionSet)) {
+    fail('REVISION_SET_INVALID', 'revision_set_schema_invalid');
+  }
+  const revisions = revisionSet?.revisions ?? options.revisions;
+  if (!Array.isArray(revisions) || revisions.length < 2 || revisions.length > 64
+    || revisions.some((revision) => !validateTodoRevision(revision)
+      && !validatePhaseTodoRevision(revision))) {
+    fail('REVISION_SET_INVALID', 'revision_set_schema_invalid');
+  }
+  if (revisionSet === null && revisions.some((revision) => revision.schema !== 'lattice.todo_revision.v1')) {
+    fail('REVISION_SET_INVALID', 'revision_set_v2_required');
+  }
+  if (revisions.some((revision, index) => index > 0
+    && revisions[index - 1].plan_key >= revision.plan_key)) {
+    fail('REVISION_SET_INVALID', 'revision_set_order_invalid');
+  }
+  const projectId = revisions[0].project_id;
+  if (revisions.some((revision) => revision.project_id !== projectId)) {
+    fail('REVISION_SET_INVALID', 'revision_set_project_mismatch');
+  }
+  const revisionSetDigest = revisionSet?.revision_set_digest ?? digestTodoArtifact({
+    schema: 'lattice.todo_revision_set.v1',
+    project_id: projectId,
+    revision_digests: revisions.map(({ plan_key, revision_digest }) => ({ plan_key, revision_digest })),
+  });
+
+  return withLock(repoRoot, async () => {
+    const transactionRef = `${STORE_ROOT_REF}/transactions/revision-sets/${revisionSetDigest}`;
+    const transaction = path.resolve(repoRoot, transactionRef);
+    const barrierAbsolute = path.resolve(repoRoot, SOURCE_CUTOVER_BARRIER_REF);
+    const barrierBytes = await exactFileOrNull(barrierAbsolute);
+    let recovering = false;
+    if (barrierBytes !== null) {
+      let barrier;
+      try { barrier = JSON.parse(decodeUtf8(barrierBytes, 'SOURCE_CUTOVER_RECOVERY_REQUIRED', 'barrier_invalid')); }
+      catch (error) {
+        if (error instanceof TodoStoreError) throw error;
+        fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'barrier_invalid');
+      }
+      if (barrier?.schema !== 'lattice.todo_source_cutover_set_barrier.v1'
+        || barrier.revision_set_digest !== revisionSetDigest) {
+        fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_recovery_required');
+      }
+      recovering = true;
+    }
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now,
+      ...(recovering ? {
+        allowSourceCutoverRevisionSetDigest: revisionSetDigest,
+        sourceCutoverRecoveryCapability: SOURCE_CUTOVER_RECOVERY_CAPABILITY,
+      } : {}) });
+    if (store.project_id !== projectId) fail('REVISION_SET_INVALID', 'revision_set_project_mismatch');
+    const byPlan = new Map(store.members.map((member) => [member.descriptor.plan_key, member]));
+    const activeDesired = revisions.map((revision) => {
+      const member = byPlan.get(revision.plan_key);
+      const genesis = member?.journal.events[0];
+      const expectedGenesisSchema = revision.schema === 'lattice.phase_todo_revision.v1'
+        ? 'lattice.todo_event.v4' : 'lattice.todo_event.v2';
+      return member !== undefined
+        && member.plan.plan_digest === revision.desired_plan.plan_digest
+        && genesis.schema === expectedGenesisSchema
+        && genesis.revision_digest === revision.revision_digest;
+    });
+    if (activeDesired.every(Boolean)) {
+      const entries = revisions.map((revision) => ({
+        revision,
+        genesis: byPlan.get(revision.plan_key).journal.events[0],
+      }));
+      if (recovering) {
+        for (const entry of entries.filter(({ revision }) => revision.schema === 'lattice.todo_revision.v2')) {
+          const staged = await loadSourceCutoverStage(repoRoot,
+            path.join(transaction, entry.revision.plan_key, 'source'), entry.revision);
+          await publishSourceCutover(repoRoot, staged);
+        }
+        await rm(barrierAbsolute, { force: true });
+        await fsyncDirectory(path.dirname(barrierAbsolute));
+        await rm(transaction, { recursive: true, force: true });
+      }
+      return revisionSetResult(projectId, revisionSetDigest, entries, { recovered: true });
+    }
+    if (activeDesired.some(Boolean)) fail('REVISION_SET_RECOVERY_REQUIRED', 'partial_manifest_activation');
+
+    const prepared = [];
+    for (const revision of revisions) {
+      const previous = byPlan.get(revision.plan_key);
+      if (previous === undefined) fail('STORE_INCONSISTENT', 'plan_not_active');
+      if (previous.plan.plan_digest !== revision.predecessor.plan_digest
+        || previous.plan.plan_version !== revision.predecessor.plan_version
+        || previous.journal.events.at(-1).event_digest !== revision.predecessor.journal_head_digest) {
+        fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
+      }
+      const phaseRevision = revision.schema === 'lattice.phase_todo_revision.v1';
+      const activeGenesis = previous.journal.events[0];
+      if (!phaseRevision) {
+        const predecessorReconciliationDigest = activeGenesis.schema === 'lattice.todo_event.v2'
+          ? activeGenesis.reconciliation_digest
+          : todoLegacyReconciliationDigest({
+            planDigest: previous.plan.plan_digest,
+            journalHeadDigest: previous.journal.events.at(-1).event_digest,
+          });
+        if (revision.reconciliation.predecessor_reconciliation_digest
+          !== predecessorReconciliationDigest) fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
+        await rejectCompetingRevisionTransaction(repoRoot, revision);
+      }
+      const cutoverImages = revision.schema === 'lattice.todo_revision.v2' && !recovering
+        ? await buildSourceCutoverImages(repoRoot, revision) : null;
+      if (revision.schema === 'lattice.todo_revision.v1') {
+        await verifyRevisionSources(repoRoot, revision.source_inventory);
+      }
+      verifyPlanNarrativeAnchors(repoRoot, revision.desired_plan, previous.plan);
+      const stateMigration = stateMigrationFor(previous, revision);
+      const phaseStateMigration = phaseRevision ? phaseStateMigrationFor(previous, revision) : null;
+      const commonGenesis = {
+        previous_digest: revision.predecessor.journal_head_digest, actor: options.actor,
+        recorded_at: options.recordedAt, provenance: options.provenance ?? null,
+        state_migration: stateMigration, revision_digest: revision.revision_digest,
+      };
+      const genesis = phaseRevision
+        ? buildPhaseRevisionGenesis(revision.desired_plan, {
+          ...commonGenesis, phase_state_migration: phaseStateMigration,
+        })
+        : buildRevisionGenesis(revision.desired_plan, {
+          ...commonGenesis, reconciliation_digest: revision.reconciliation.reconciliation_digest,
+        });
+      prepared.push({ revision, previous, stateMigration, phaseStateMigration, genesis, cutoverImages });
+    }
+
+    const desiredByPlan = new Map(prepared.map((entry) => [entry.revision.plan_key,
+      entry.revision.desired_plan]));
+    validateMergedGraph(store.members.map((member) => desiredByPlan.has(member.descriptor.plan_key)
+      ? { ...member, plan: desiredByPlan.get(member.descriptor.plan_key) } : member));
+
+    await ensureSafeStoreDirectory(repoRoot, transaction);
+    const mixedPhaseSet = prepared.some(({ revision }) => (
+      revision.schema === 'lattice.phase_todo_revision.v1'
+    ));
+    let marker = {
+      schema: mixedPhaseSet
+        ? 'lattice.todo_revision_set_transaction.v2' : 'lattice.todo_revision_set_transaction.v1',
+      project_id: projectId,
+      revision_set_digest: revisionSetDigest,
+      entries: prepared.map(({ revision, stateMigration, phaseStateMigration, genesis }) => ({
+        revision, state_migration: stateMigration,
+        ...(phaseStateMigration === null ? {} : { phase_state_migration: phaseStateMigration }), genesis,
+      })),
+    };
+    const markerAbsolute = path.join(transaction, 'marker.json');
+    const existingMarker = await exactFileOrNull(markerAbsolute);
+    if (existingMarker === null) await atomicWrite(markerAbsolute, canonicalLine(marker));
+    else {
+      const durable = parseRevisionSetMarker(existingMarker);
+      const expectedIdentity = marker.entries.map(({ revision, state_migration: stateMigration,
+        phase_state_migration: phaseStateMigration }) => ({
+        revision, state_migration: stateMigration,
+        ...(phaseStateMigration === undefined ? {} : { phase_state_migration: phaseStateMigration }),
+      }));
+      const durableIdentity = durable.entries.map(({ revision, state_migration: stateMigration,
+        phase_state_migration: phaseStateMigration }) => ({
+        revision, state_migration: stateMigration,
+        ...(phaseStateMigration === undefined ? {} : { phase_state_migration: phaseStateMigration }),
+      }));
+      if (durable.project_id !== projectId || durable.revision_set_digest !== revisionSetDigest
+        || canonicalizeTodoArtifact(durableIdentity) !== canonicalizeTodoArtifact(expectedIdentity)) {
+        fail('REVISION_CONFLICT', 'revision_set_bytes_conflict');
+      }
+      marker = durable;
+      for (const [index, entry] of prepared.entries()) entry.genesis = marker.entries[index].genesis;
+    }
+    await protocolStage(options, 'revision_set_marker_durable');
+
+    const verifyEvidence = evidenceVerifier(store.manifest, repoRoot, true);
+    const verifyImportSource = importSourceVerifier(repoRoot, true);
+    for (const entry of prepared) {
+      const { revision, genesis } = entry;
+      const tasks = replay(revision.desired_plan, [genesis], {
+        now: options.now ? new Date(options.now) : new Date(), verifyEvidence, verifyImportSource,
+      });
+      const snapshot = snapshotFor(revision.desired_plan, [genesis], tasks);
+      const base = `${STORE_ROOT_REF}/plans/${revision.plan_key}/${revision.desired_plan.plan_version}`;
+      entry.refs = {
+        revision_ref: `${base}/revision.json`,
+        plan_ref: `${base}/plan.json`,
+        journal_ref: `${base}/journal/active.jsonl`,
+        snapshot_ref: `${base}/snapshot.json`,
+      };
+      const staged = path.join(transaction, revision.plan_key);
+      await publishRevisionArtifact(path.join(staged, 'revision.json'),
+        path.resolve(repoRoot, entry.refs.revision_ref), canonicalLine(revision));
+      await publishRevisionArtifact(path.join(staged, 'plan.json'),
+        path.resolve(repoRoot, entry.refs.plan_ref), canonicalLine(revision.desired_plan));
+      await publishRevisionArtifact(path.join(staged, 'active.jsonl'),
+        path.resolve(repoRoot, entry.refs.journal_ref), canonicalLine(genesis));
+      await publishRevisionArtifact(path.join(staged, 'snapshot.json'),
+        path.resolve(repoRoot, entry.refs.snapshot_ref), canonicalLine(snapshot));
+    }
+    await protocolStage(options, 'revision_set_artifacts_durable');
+
+    const stagedCutovers = [];
+    if (prepared.some(({ revision }) => revision.schema === 'lattice.todo_revision.v2')) {
+      const sourceRefs = new Set();
+      const archiveRefs = new Set();
+      for (const entry of prepared.filter(({ revision }) => revision.schema === 'lattice.todo_revision.v2')) {
+        if (archiveRefs.has(entry.revision.source_cutover_batch.archive_ref)) {
+          fail('REVISION_SET_INVALID', 'source_cutover_archive_conflict');
+        }
+        archiveRefs.add(entry.revision.source_cutover_batch.archive_ref);
+        for (const operation of entry.revision.source_cutover_batch.operations) {
+          if (sourceRefs.has(operation.source_ref)) {
+            fail('REVISION_SET_INVALID', 'source_cutover_source_conflict');
+          }
+          sourceRefs.add(operation.source_ref);
+        }
+        const sourceTransaction = path.join(transaction, entry.revision.plan_key, 'source');
+        if (!recovering) await stageSourceCutover(sourceTransaction, entry.revision, entry.cutoverImages);
+        stagedCutovers.push(await loadSourceCutoverStage(repoRoot, sourceTransaction, entry.revision));
+      }
+      if (!recovering) {
+        await atomicWrite(barrierAbsolute, canonicalLine({
+          schema: 'lattice.todo_source_cutover_set_barrier.v1',
+          revision_set_digest: revisionSetDigest,
+          revision_digests: prepared.filter(({ revision }) => revision.schema === 'lattice.todo_revision.v2')
+            .map(({ revision }) => revision.revision_digest),
+        }));
+        await protocolStage(options, 'revision_set_source_barrier_durable');
+      }
+      for (const [index, staged] of stagedCutovers.entries()) {
+        await publishSourceCutover(repoRoot, staged);
+        await protocolStage(options, `revision_set_source_published_${index}`);
+      }
+    }
+
+    try {
+      const currentManifest = await readArtifact(repoRoot, MANIFEST_REF, {
+        code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
+      });
+      if (currentManifest.manifest_digest !== store.manifest.manifest_digest) {
+        fail('STORE_WRITE_CONFLICT', 'manifest_digest_changed');
+      }
+      for (const entry of prepared) {
+        const descriptor = currentManifest.members.find(({ plan_key }) => plan_key === entry.revision.plan_key);
+        if (descriptor === undefined
+          || descriptor.active_plan_version !== entry.revision.predecessor.plan_version
+          || descriptor.journal_head_digest !== entry.revision.predecessor.journal_head_digest) {
+          fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
+        }
+        Object.assign(descriptor, {
+          active_plan_version: entry.revision.desired_plan.plan_version,
+          plan_ref: entry.refs.plan_ref,
+          journal_ref: entry.refs.journal_ref,
+          snapshot_ref: entry.refs.snapshot_ref,
+          topology_digest: entry.revision.desired_plan.topology_digest,
+          journal_head_digest: entry.genesis.event_digest,
+        });
+      }
+      currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');
+      await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(currentManifest));
+      await protocolStage(options, 'revision_set_manifest_activated');
+    } catch (error) {
+      if (stagedCutovers.length > 0 && error instanceof TodoStoreError) {
+        let rolledBack = true;
+        for (const staged of [...stagedCutovers].reverse()) {
+          rolledBack = await rollbackSourceCutover(staged, barrierAbsolute, { removeBarrier: false })
+            && rolledBack;
+        }
+        if (!rolledBack) fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'rollback_incomplete');
+        await rm(barrierAbsolute, { force: true });
+        await fsyncDirectory(path.dirname(barrierAbsolute));
+      }
+      throw error;
+    }
+    if (stagedCutovers.length > 0) {
+      await rm(barrierAbsolute, { force: true });
+      await fsyncDirectory(path.dirname(barrierAbsolute));
+      await protocolStage(options, 'revision_set_source_cleanup');
+    }
+    await rm(transaction, { recursive: true, force: true });
+    return revisionSetResult(projectId, revisionSetDigest, prepared, { recovered: recovering });
+  });
+}
+
 /** G5 revise primitive: topology changes only by publishing a successor version. */
 export async function createSuccessorTodoPlan(options = {}) {
   requireWriter(options.writer, 'g5-authoring');
@@ -1880,6 +2679,7 @@ export async function createSuccessorTodoPlan(options = {}) {
     }
     const schemaRank = new Map([
       ['lattice.todo_plan.v1', 1], ['lattice.todo_plan.v2', 2], ['lattice.todo_plan.v3', 3],
+      ['lattice.todo_plan.v4', 4],
     ]);
     if (schemaRank.get(plan.schema) < schemaRank.get(previous.plan.schema)) {
       throw new TypeError(previous.plan.schema === 'lattice.todo_plan.v2'

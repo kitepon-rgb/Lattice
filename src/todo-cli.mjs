@@ -9,6 +9,8 @@ import { parseTree } from 'jsonc-parser';
 import {
   canonicalizeTodoArtifact,
   digestTodoArtifact,
+  exactRecord,
+  isTodoDigest,
   isTodoIdentifier,
   isTodoRef,
   todoSelfDigest,
@@ -17,17 +19,22 @@ import {
 import { projectTodoChainV1 } from './todo-chain.mjs';
 import { layoutTodoGantt } from './todo-gantt-layout.mjs';
 import { loadTodoGanttPresentation } from './todo-gantt-presentation.mjs';
+import { startTodoGanttLiveServer } from './todo-gantt-live.mjs';
 import {
   renderTodoGanttHtml,
+  TODO_GANTT_HTML_MAX_BYTES,
   TODO_GANTT_RENDERER_VERSION,
 } from './todo-gantt-html.mjs';
 import { verifyNarrativeAnchors } from './todo-narrative-anchor.mjs';
 import {
   appendTodoEvent,
+  applyPhaseTodoRevision,
   applyTodoRevision,
+  applyTodoRevisionSet,
   createTodoStoreWriter,
   TodoStoreError,
   readTodoStore,
+  readTodoStoreStable,
   rebuildTodoSnapshot,
   verifyTodoRevisionSources,
 } from './todo-store.mjs';
@@ -37,11 +44,14 @@ import {
 } from './todo-migration.mjs';
 import { projectTodoStatus } from './todo-status.mjs';
 import {
-  parseTodoSourceRef, todoLegacyReconciliationDigest, validateTodoRevision,
+  parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
+  validateTodoRevision, validateTodoRevisionSet,
 } from './todo-revision.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_REF = '.lattice/generated/gantt.html';
+const GANTT_DESCRIPTOR_SUFFIX = '.status.json';
+const MAX_GANTT_DESCRIPTOR_BYTES = 65_536;
 const MAX_MIGRATION_INPUT_BYTES = 8_388_608;
 const ACTOR_ENV_KEYS = Object.freeze([
   'LATTICE_TODO_ACTOR_HOST',
@@ -164,7 +174,11 @@ async function readMigrationInput(repoRoot, inputRef) {
   return extraction;
 }
 
-async function readRevisionInput(repoRoot, inputRef) {
+async function readRevisionInput(repoRoot, inputRef, {
+  validate = validateTodoRevision,
+  invalidCode = 'REVISION_INVALID',
+  invalidReason = 'revision_schema_or_digest_invalid',
+} = {}) {
   const canonicalRoot = await realpath(repoRoot);
   const absolute = path.resolve(canonicalRoot, inputRef);
   if (!within(canonicalRoot, absolute) || absolute === canonicalRoot) {
@@ -190,7 +204,7 @@ async function readRevisionInput(repoRoot, inputRef) {
   }
   if (!text.endsWith('\n') || text.startsWith('\uFEFF') || text.includes('\r')
     || text.slice(0, -1).includes('\n')) {
-    throw new TodoStoreError('REVISION_INVALID', 'non_canonical_revision_bytes');
+    throw new TodoStoreError(invalidCode, 'non_canonical_revision_bytes');
   }
   const parseErrors = [];
   const tree = parseTree(text.slice(0, -1), parseErrors, { allowTrailingComma: false, disallowComments: true });
@@ -200,9 +214,9 @@ async function readRevisionInput(repoRoot, inputRef) {
   try { revision = JSON.parse(text.slice(0, -1)); } catch {
     throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
   }
-  if (!validateTodoRevision(revision)) throw new TodoStoreError('REVISION_INVALID', 'revision_schema_or_digest_invalid');
+  if (!validate(revision)) throw new TodoStoreError(invalidCode, invalidReason);
   if (text !== `${canonicalizeTodoArtifact(revision)}\n`) {
-    throw new TodoStoreError('REVISION_INVALID', 'non_canonical_revision_bytes');
+    throw new TodoStoreError(invalidCode, 'non_canonical_revision_bytes');
   }
   return revision;
 }
@@ -298,6 +312,69 @@ async function mutate({ repoRoot, env, planKey, taskId, kind, payload, evidenceR
   return result;
 }
 
+function validatePhaseDecisionInput(value, outcome) {
+  const keys = outcome === 'accept'
+    ? ['schema', 'review_event_digest', 'decision_evidence', 'evidence_slots', 'input_digest']
+    : ['schema', 'review_event_digest', 'reason', 'decision_evidence', 'input_digest'];
+  return exactRecord(value, keys) && value.schema === `lattice.phase_${outcome}_input.v1`
+    && isTodoDigest(value.review_event_digest) && validateEvidenceDescriptor(value.decision_evidence)
+    && (outcome === 'accept'
+      ? Array.isArray(value.evidence_slots) && value.evidence_slots.length > 0
+        && value.evidence_slots.every((entry) => exactRecord(entry, ['slot_id', 'evidence'])
+          && isTodoIdentifier(entry.slot_id) && validateEvidenceDescriptor(entry.evidence))
+        && value.evidence_slots.every((entry, index) => index === 0
+          || value.evidence_slots[index - 1].slot_id < entry.slot_id)
+      : typeof value.reason === 'string' && value.reason.length > 0)
+    && isTodoDigest(value.input_digest) && value.input_digest === todoSelfDigest(value, 'input_digest');
+}
+
+async function phaseDecision({ repoRoot, env, planKey, phaseId, outcome, inputRef }) {
+  const input = await readRevisionInput(repoRoot, inputRef, {
+    validate: (value) => validatePhaseDecisionInput(value, outcome),
+    invalidCode: 'PHASE_DECISION_INVALID', invalidReason: 'phase_decision_schema_or_digest_invalid',
+  });
+  const payload = outcome === 'accept'
+    ? { review_event_digest: input.review_event_digest, decision_evidence: input.decision_evidence,
+      evidence_slots: input.evidence_slots }
+    : { review_event_digest: input.review_event_digest, reason: input.reason,
+      decision_evidence: input.decision_evidence };
+  return phaseMutation({ repoRoot, env, planKey, phaseId, kind: `phase_${outcome}`, payload });
+}
+
+async function phaseMutation({ repoRoot, env, planKey, phaseId, kind, payload }) {
+  const { event, snapshot } = await appendTodoEvent({
+    repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), planKey,
+    event: { kind, phase_id: phaseId, actor: mutationActor(env), payload },
+  });
+  const phase = snapshot.phases?.find(({ phase_id: current }) => current === phaseId);
+  if (phase === undefined) throw new TodoStoreError('STORE_INCONSISTENT', 'phase_not_active');
+  const result = {
+    schema: 'lattice.phase_mutation_result.v1', project_id: event.project_id,
+    plan_key: event.plan_key, plan_version: event.plan_version, phase_id: event.phase_id,
+    kind: event.kind, sequence: event.sequence, event_digest: event.event_digest,
+    journal_head_digest: event.event_digest, snapshot_digest: snapshot.snapshot_digest,
+    status: phase.status, result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
+async function phaseStatus({ repoRoot, planKey }) {
+  const store = await readTodoStore({ repoRoot });
+  const [member] = selectMembers(store, planKey);
+  if (member.plan.schema !== 'lattice.todo_plan.v4') {
+    throw new TodoStoreError('PHASE_UNAVAILABLE', 'plan_has_no_phase_contract');
+  }
+  const result = {
+    schema: 'lattice.phase_status_result.v1', project_id: store.project_id,
+    plan_key: member.plan.plan_key, plan_version: member.plan.plan_version,
+    journal_head_digest: member.journal.events.at(-1).event_digest,
+    phases: member.snapshot.phases, result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
 async function migrate({ repoRoot, inputRef }) {
   const extraction = await readMigrationInput(repoRoot, inputRef);
   const imported = await appendTodoExtraction({ repoRoot, extraction });
@@ -330,6 +407,28 @@ async function revise({ repoRoot, env, planKey, inputRef }) {
     repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), revision,
     actor: mutationActor(env), recordedAt: new Date().toISOString(),
   });
+}
+
+async function reviseSet({ repoRoot, env, inputRef }) {
+  const revisionSet = await readRevisionInput(repoRoot, inputRef, {
+    validate: validateTodoRevisionSet,
+    invalidCode: 'REVISION_SET_INVALID',
+    invalidReason: 'revision_set_schema_invalid',
+  });
+  return applyTodoRevisionSet({
+    repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), revisionSet,
+    actor: mutationActor(env), recordedAt: new Date().toISOString(),
+  });
+}
+
+async function revisePhase({ repoRoot, env, planKey, inputRef }) {
+  const revision = await readRevisionInput(repoRoot, inputRef, {
+    validate: validatePhaseTodoRevision, invalidCode: 'REVISION_INVALID',
+    invalidReason: 'phase_revision_schema_or_digest_invalid',
+  });
+  if (revision.plan_key !== planKey) throw new TodoStoreError('REVISION_INVALID', 'requested_plan_mismatch');
+  return applyPhaseTodoRevision({ repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+    revision, actor: mutationActor(env), recordedAt: new Date().toISOString() });
 }
 
 async function status({ repoRoot }) {
@@ -432,7 +531,7 @@ async function resolveOutput(repoRoot, outputRef) {
   if (target !== undefined && (target.isSymbolicLink() || !target.isFile())) {
     throw new TodoStoreError('OUTPUT_PATH_INVALID', 'unsafe_output_target', undefined, { output_ref: outputRef });
   }
-  return { absolute, missing };
+  return { absolute, missing, target };
 }
 
 async function atomicWriteOutput(repoRoot, outputRef, html) {
@@ -456,8 +555,50 @@ async function atomicWriteOutput(repoRoot, outputRef, html) {
   }
 }
 
-async function gantt({ repoRoot, outputRef }) {
-  const store = await readTodoStore({ repoRoot });
+function ganttDescriptorRef(outputRef) {
+  return `${outputRef}${GANTT_DESCRIPTOR_SUFFIX}`;
+}
+
+function validateGanttArtifactDescriptor(value) {
+  return exactRecord(value, [
+    'schema', 'project_id', 'output_ref', 'manifest_digest', 'renderer_version',
+    'html_digest', 'artifact_digest',
+  ]) && value.schema === 'lattice.todo_gantt_artifact.v1'
+    && isTodoIdentifier(value.project_id) && isTodoRef(value.output_ref)
+    && isTodoDigest(value.manifest_digest)
+    && typeof value.renderer_version === 'string'
+    && /^lattice\.todo_gantt_renderer\.v[1-9][0-9]*$/u.test(value.renderer_version)
+    && isTodoDigest(value.html_digest) && isTodoDigest(value.artifact_digest)
+    && value.artifact_digest === todoSelfDigest(value, 'artifact_digest');
+}
+
+async function readOptionalOutput(repoRoot, outputRef, maxBytes) {
+  const resolved = await resolveOutput(repoRoot, outputRef);
+  if (resolved.target === undefined) return null;
+  if (resolved.target.size > maxBytes) {
+    throw new TodoStoreError('GANTT_ARTIFACT_INVALID', 'artifact_size_limit_exceeded', undefined,
+      { output_ref: outputRef });
+  }
+  return readFile(resolved.absolute);
+}
+
+function parseGanttDescriptor(bytes, descriptorRef) {
+  let value;
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    value = JSON.parse(text);
+    if (`${canonicalizeTodoArtifact(value)}\n` !== text || !validateGanttArtifactDescriptor(value)) {
+      throw new Error('non-canonical descriptor');
+    }
+  } catch {
+    throw new TodoStoreError('GANTT_ARTIFACT_INVALID', 'descriptor_invalid', undefined,
+      { descriptor_ref: descriptorRef });
+  }
+  return value;
+}
+
+async function renderGantt({ repoRoot, stable = false }) {
+  const store = stable ? await readTodoStoreStable({ repoRoot }) : await readTodoStore({ repoRoot });
   const presentation = await loadTodoGanttPresentation({ repoRoot, readModel: store });
   const topology = mergedTopology(store);
   const chain = projectTodoChainV1(topology);
@@ -497,7 +638,19 @@ async function gantt({ repoRoot, outputRef }) {
     presentation,
     metadata,
   });
+  return { store, metadata, memberBindings, rendered };
+}
+
+async function gantt({ repoRoot, outputRef }) {
+  const { store, metadata, memberBindings, rendered } = await renderGantt({ repoRoot });
   await atomicWriteOutput(repoRoot, outputRef, rendered.html);
+  const descriptor = { schema: 'lattice.todo_gantt_artifact.v1', project_id: store.project_id,
+    output_ref: outputRef, manifest_digest: metadata.manifest_digest,
+    renderer_version: TODO_GANTT_RENDERER_VERSION, html_digest: rendered.html_digest,
+    artifact_digest: '' };
+  descriptor.artifact_digest = todoSelfDigest(descriptor, 'artifact_digest');
+  await atomicWriteOutput(repoRoot, ganttDescriptorRef(outputRef),
+    `${canonicalizeTodoArtifact(descriptor)}\n`);
   const result = {
     schema: 'lattice.todo_gantt_result.v1',
     project_id: store.project_id,
@@ -515,6 +668,68 @@ async function gantt({ repoRoot, outputRef }) {
   return result;
 }
 
+async function ganttStatus({ repoRoot, outputRef }) {
+  const descriptorRef = ganttDescriptorRef(outputRef);
+  const [htmlBytes, descriptorBytes] = await Promise.all([
+    readOptionalOutput(repoRoot, outputRef, TODO_GANTT_HTML_MAX_BYTES),
+    readOptionalOutput(repoRoot, descriptorRef, MAX_GANTT_DESCRIPTOR_BYTES),
+  ]);
+  if ((htmlBytes === null) !== (descriptorBytes === null)) {
+    throw new TodoStoreError('GANTT_ARTIFACT_INVALID', 'artifact_pair_incomplete', undefined,
+      { output_ref: outputRef, descriptor_ref: descriptorRef });
+  }
+  if (htmlBytes === null) {
+    const store = await readTodoStore({ repoRoot });
+    const result = { schema: 'lattice.todo_gantt_status_result.v1', project_id: store.project_id,
+      output_ref: outputRef, descriptor_ref: descriptorRef, artifact_status: 'missing',
+      current_manifest_digest: store.manifest.manifest_digest, artifact_manifest_digest: null,
+      html_digest: null, renderer_version: null, result_digest: '' };
+    result.result_digest = todoSelfDigest(result, 'result_digest');
+    return result;
+  }
+  const descriptor = parseGanttDescriptor(descriptorBytes, descriptorRef);
+  const htmlDigest = createHash('sha256').update(htmlBytes).digest('hex');
+  if (descriptor.output_ref !== outputRef || descriptor.html_digest !== htmlDigest) {
+    throw new TodoStoreError('GANTT_ARTIFACT_INVALID', 'artifact_digest_mismatch', undefined,
+      { output_ref: outputRef, descriptor_ref: descriptorRef });
+  }
+  const current = await renderGantt({ repoRoot });
+  if (descriptor.project_id !== current.store.project_id) {
+    throw new TodoStoreError('GANTT_ARTIFACT_INVALID', 'artifact_project_mismatch', undefined,
+      { output_ref: outputRef });
+  }
+  const artifactStatus = descriptor.renderer_version === TODO_GANTT_RENDERER_VERSION
+    && descriptor.manifest_digest === current.metadata.manifest_digest
+    && descriptor.html_digest === current.rendered.html_digest ? 'current' : 'stale';
+  const result = { schema: 'lattice.todo_gantt_status_result.v1',
+    project_id: current.store.project_id, output_ref: outputRef, descriptor_ref: descriptorRef,
+    artifact_status: artifactStatus, current_manifest_digest: current.metadata.manifest_digest,
+    artifact_manifest_digest: descriptor.manifest_digest, html_digest: descriptor.html_digest,
+    renderer_version: descriptor.renderer_version, result_digest: '' };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
+async function serveGantt({ repoRoot, port, stdout }) {
+  const live = await startTodoGanttLiveServer({
+    port,
+    render: async () => {
+      const { rendered, metadata } = await renderGantt({ repoRoot, stable: true });
+      return { html: rendered.html, head_digest: metadata.manifest_digest };
+    },
+    readHead: async () => (await readTodoStoreStable({ repoRoot })).manifest.manifest_digest,
+  });
+  const result = { schema: 'lattice.todo_gantt_live_result.v1', host: live.host,
+    port: live.port, url: live.url };
+  stdout.write(`${JSON.stringify(result)}\n`);
+  await new Promise((resolve) => {
+    const stop = () => resolve();
+    process.once('SIGINT', stop); process.once('SIGTERM', stop);
+  });
+  await live.close();
+  return null;
+}
+
 async function verify({ repoRoot, requestedPlanKey }) {
   const store = await readTodoStore({ repoRoot });
   const members = selectMembers(store, requestedPlanKey);
@@ -526,10 +741,13 @@ async function verify({ repoRoot, requestedPlanKey }) {
         task_id: unverified.task_id,
       });
     }
-    if (member.revision !== null) await verifyTodoRevisionSources({ repoRoot, revision: member.revision });
+    if (member.revision !== null && member.revision.schema !== 'lattice.phase_todo_revision.v1') {
+      await verifyTodoRevisionSources({ repoRoot, revision: member.revision });
+    }
   }
   const verifiedMembers = members.map((member) => {
     const reconciled = member.revision !== null;
+    const phaseRevision = member.revision?.schema === 'lattice.phase_todo_revision.v1';
     return {
       plan_key: member.descriptor.plan_key,
       plan_version: member.plan.plan_version,
@@ -539,15 +757,16 @@ async function verify({ repoRoot, requestedPlanKey }) {
       snapshot_stale: member.snapshot_stale,
       reconciliation_state: reconciled ? 'reconciled' : 'registered_unreconciled',
       revision_digest: reconciled ? member.revision.revision_digest : null,
-      reconciliation_digest: reconciled ? member.revision.reconciliation.reconciliation_digest
+      reconciliation_digest: reconciled
+        ? phaseRevision ? member.revision.revision_digest : member.revision.reconciliation.reconciliation_digest
         : todoLegacyReconciliationDigest({ planDigest: member.plan.plan_digest,
           journalHeadDigest: member.journal.events.at(-1).event_digest }),
       source_inventory_count: reconciled
-        ? member.revision.source_inventory.active.length
+        ? phaseRevision ? 0 : member.revision.source_inventory.active.length
           + member.revision.source_inventory.excluded_tombstones.length : null,
-      active_task_count: reconciled ? member.revision.source_inventory.active.length : null,
+      active_task_count: reconciled ? phaseRevision ? 0 : member.revision.source_inventory.active.length : null,
       excluded_tombstone_count: reconciled
-        ? member.revision.source_inventory.excluded_tombstones.length : null,
+        ? phaseRevision ? 0 : member.revision.source_inventory.excluded_tombstones.length : null,
     };
   });
   const result = {
@@ -593,12 +812,15 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   }
 
   let action = null;
-  if (argv.length === 1 && argv[0] === 'status') {
+  if ((argv.length === 1 && argv[0] === 'status')
+    || (argv.length === 2 && argv[0] === 'status' && argv[1] === '--json')) {
     action = (repoRoot) => status({ repoRoot });
-  } else if (argv.length === 1 && argv[0] === 'verify') {
+  } else if ((argv.length === 1 && argv[0] === 'verify')
+    || (argv.length === 2 && argv[0] === 'verify' && argv[1] === '--json')) {
     action = (repoRoot) => verify({ repoRoot, requestedPlanKey: null });
-  } else if (argv.length === 3 && argv[0] === 'verify' && argv[1] === '--plan'
-    && isTodoIdentifier(argv[2])) {
+  } else if ((argv.length === 3 || argv.length === 4) && argv[0] === 'verify'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && (argv.length === 3 || argv[3] === '--json')) {
     action = (repoRoot) => verify({ repoRoot, requestedPlanKey: argv[2] });
   } else if (argv.length === 4 && argv[0] === 'snapshot' && argv[1] === '--rebuild'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
@@ -608,6 +830,15 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   } else if (argv.length === 3 && argv[0] === 'gantt' && argv[1] === '--out'
     && isTodoRef(argv[2])) {
     action = (repoRoot) => gantt({ repoRoot, outputRef: argv[2] });
+  } else if (argv.length === 2 && argv[0] === 'gantt' && argv[1] === 'status') {
+    action = (repoRoot) => ganttStatus({ repoRoot, outputRef: DEFAULT_GANTT_REF });
+  } else if (argv.length === 4 && argv[0] === 'gantt' && argv[1] === 'status'
+    && argv[2] === '--out' && isTodoRef(argv[3])) {
+    action = (repoRoot) => ganttStatus({ repoRoot, outputRef: argv[3] });
+  } else if (argv.length === 4 && argv[0] === 'gantt' && argv[1] === 'serve'
+    && argv[2] === '--port' && /^(?:0|[1-9][0-9]{0,4})$/u.test(argv[3])
+    && Number(argv[3]) <= 65_535) {
+    action = (repoRoot) => serveGantt({ repoRoot, port: Number(argv[3]), stdout });
   } else if (argv.length === 3 && argv[0] === 'migrate' && argv[1] === '--input'
     && isTodoRef(argv[2])) {
     action = (repoRoot) => migrate({ repoRoot, inputRef: argv[2] });
@@ -615,6 +846,36 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--input' && isTodoRef(argv[4])) {
     action = (repoRoot) => revise({ repoRoot, env, planKey: argv[2], inputRef: argv[4] });
+  } else if (argv.length === 3 && argv[0] === 'revise-set'
+    && argv[1] === '--input' && isTodoRef(argv[2])) {
+    action = (repoRoot) => reviseSet({ repoRoot, env, inputRef: argv[2] });
+  } else if (argv.length === 5 && argv[0] === 'revise-phase'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--input' && isTodoRef(argv[4])) {
+    action = (repoRoot) => revisePhase({ repoRoot, env, planKey: argv[2], inputRef: argv[4] });
+  } else if (argv.length === 4 && argv[0] === 'phase' && argv[1] === 'status'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
+    action = (repoRoot) => phaseStatus({ repoRoot, planKey: argv[3] });
+  } else if (argv.length === 8 && argv[0] === 'phase' && argv[1] === 'review'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--phase' && isTodoIdentifier(argv[5])
+    && argv[6] === '--reason' && argv[7].length > 0) {
+    action = (repoRoot) => phaseMutation({ repoRoot, env, planKey: argv[3], phaseId: argv[5],
+      kind: 'phase_review', payload: { reason: argv[7] } });
+  } else if (argv.length === 8 && argv[0] === 'phase'
+    && ['accept', 'reject'].includes(argv[1])
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--phase' && isTodoIdentifier(argv[5])
+    && argv[6] === '--input' && isTodoRef(argv[7])) {
+    action = (repoRoot) => phaseDecision({ repoRoot, env, planKey: argv[3], phaseId: argv[5],
+      outcome: argv[1], inputRef: argv[7] });
+  } else if ((argv.length === 8 || argv.length === 10) && argv[0] === 'phase'
+    && argv[1] === 'reopen' && argv[2] === '--plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--phase' && isTodoIdentifier(argv[5])
+    && argv[6] === '--reason' && argv[7].length > 0
+    && (argv.length === 8 || (argv[8] === '--override-reason' && argv[9].length > 0))) {
+    action = (repoRoot) => phaseMutation({ repoRoot, env, planKey: argv[3], phaseId: argv[5],
+      kind: 'phase_reopen', payload: { reason: argv[7], override_reason: argv[9] ?? null } });
   } else if ((argv.length === 5 || argv.length === 7) && argv[0] === 'start'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--task' && isTodoIdentifier(argv[4])
@@ -658,7 +919,7 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
 
   try {
     const result = await action(resolveRepoRoot(cwd));
-    stdout.write(`${JSON.stringify(result)}\n`);
+    if (result !== null) stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
   } catch (error) {
     if (error instanceof TodoStoreError || (typeof error?.code === 'string'

@@ -12,12 +12,13 @@ schedulability compilerです。
 npm test
 npm run check
 npm run ci
-codegraph status .
+lattice sensor sync . --json
 spotter doctor
 codex-sidecar diagnostics --project . --preset auditor --json
 ```
 
-Node.js 22.13以上を使用します。CodegraphとSpotterはproject単位で初期化し、生成stateの所有境界を守ります。
+Node.js 22.13以上を使用します。境界観測は配布物に同梱したLattice sensorだけを使い、PATH上の
+Codegraph runtimeや旧cache/dataへfallbackしません。Spotterはproject単位で生成stateの所有境界を守ります。
 
 どのrepoでも、Latticeの導入状態はdirectoryの有無を推測せず、最初に次のtyped discoveryで判定します。
 
@@ -27,10 +28,10 @@ lattice status --json
 
 `state`は`uninitialized | ready | active_run | invalid`のいずれかです。`uninitialized`は
 正常な未初期化状態で、`next_action`が正規の初期authoring入口を返します。初回planは
-`lattice.plan_create_input.v1`のcanonical JSON+LFを用意し、次で作成します。
+`lattice.plan_create_input.v2`のcanonical JSON+LFを用意し、次で作成します。
 
 ```bash
-lattice plan create --schema --json
+lattice plan create --schema-version 2 --json
 ```
 
 ```bash
@@ -43,8 +44,18 @@ discoveryと初期transactionの不変条件は
 
 TODO工程storeの読取は`lattice todo status`、検証は`lattice todo verify`、表示生成は
 `lattice todo gantt`を使います。topology/source reconciliationは
-`lattice todo revise --plan <key> --input <canonical-revision.json>`だけでsuccessor発行します。
-状態を書き込む`start / block / unblock / done / evidence promote / reopen / revise`
+`lattice todo revise --plan <key> --input <canonical-revision.json>`、Phase付きplanは
+`lattice todo revise-phase --plan <key> --input <canonical-phase-revision.json>`でsuccessor発行します。
+cross-plan topologyを同時に切り替える場合は
+`lattice todo revise-set --input <canonical-revision-set.json>`を使い、Phase revisionを含む集合は
+`lattice.todo_revision_set.v3`で通常revisionと混在できます。
+Phase付きplanではToDo完了は軽量確認までで、`todo phase review`後にrequired evidenceを束縛した
+`todo phase accept`が成功するまで後続Phaseを解放しません。Phase状態は
+`lattice todo phase status --plan <key>`、閲覧中に進捗が更新される工程表は
+`lattice todo gantt serve --port 0`で確認できます。live viewerはloopback-only、read-onlyです。
+静的工程表は`lattice todo gantt status`で`current / stale / missing`を確認でき、HTMLまたは
+digest付きsidecarの欠落・改ざんはtyped failureになります。
+状態を書き込む`start / block / unblock / done / evidence promote / reopen / revise / revise-phase / revise-set`
 では、監査actorとして次の3環境変数をすべて設定してください。
 
 ```bash

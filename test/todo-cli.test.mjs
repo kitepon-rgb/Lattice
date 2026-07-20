@@ -258,6 +258,16 @@ test('todo verifyは全member/plan指定のexact result wireを一行で返す',
   }
 });
 
+test('todo status/verifyは末尾--jsonをflag無しJSON wireの互換aliasとして受理する', async (context) => {
+  const root = await workspace(context);
+  assert.deepEqual(successJson(runCli(root, ['todo', 'status', '--json'])),
+    successJson(runCli(root, ['todo', 'status'])));
+  assert.deepEqual(successJson(runCli(root, ['todo', 'verify', '--json'])),
+    successJson(runCli(root, ['todo', 'verify'])));
+  assert.deepEqual(successJson(runCli(root, ['todo', 'verify', '--plan', 'main', '--json'])),
+    successJson(runCli(root, ['todo', 'verify', '--plan', 'main'])));
+});
+
 test('todo reviseはcanonical revisionだけを発行しstatus/verifyへreconciled identityを公開する', async (context) => {
   const root = await workspace(context);
   const revision = await revisionInput(root);
@@ -499,11 +509,15 @@ test('todo namespaceの未知subcommand・不足・余剰・重複・順序違�
     ['todo'],
     ['todo', 'unknown'],
     ['todo', 'status', 'extra'],
+    ['todo', 'status', '--json', '--json'],
     ['todo', 'verify', '--plan'],
+    ['todo', 'verify', '--json', '--plan', 'main'],
     ['todo', 'verify', '--plan', 'main', 'extra'],
     ['todo', 'verify', '--plan', 'main', '--plan', 'main'],
     ['todo', 'snapshot', '--plan', 'main', '--rebuild'],
     ['todo', 'snapshot', '--rebuild', '--plan', 'main', 'extra'],
+    ['todo', 'gantt', 'status', 'extra'],
+    ['todo', 'gantt', 'status', '--out'],
     ['todo', 'migrate'],
     ['todo', 'migrate', '--input'],
     ['todo', 'migrate', '--input', '/tmp/extraction.json'],

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, realpath, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, mkdir, readFile, realpath, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -139,6 +140,77 @@ test('plan createはcanonical inputから初期storeを作りstatusをreadyへ�
   assert.deepEqual(active.active_runs, [{ plan_key: 'main', task_id: 'T1', label: '最初の仕事' }]);
   assert.equal(active.next_action.command, 'lattice todo status');
   assert.equal(validateProjectStatus(active), true);
+});
+
+test('plan create v2は第一級Phaseを作りlocked Phaseをnext_readyへ出さない', async (context) => {
+  const root = await workspace(context);
+  await mkdir(path.join(root, '.lattice'));
+  const schemaExecution = run(root, ['plan', 'create', '--schema-version', '2', '--json']);
+  assert.equal(schemaExecution.status, 0, schemaExecution.stderr);
+  assert.equal(JSON.parse(schemaExecution.stdout).title, 'lattice.plan_create_input.v2');
+  const input = {
+    schema: 'lattice.plan_create_input.v2', project_id: 'phase-project', plan_key: 'main', plan_version: 'v1',
+    actor: { host: 'host-1', session: 'session-1', agent: 'agent-1' },
+    recorded_at: new Date().toISOString(),
+    tasks: [
+      { task_id: 'T1', title: '設計', lane: 'main', narrative_ref: null,
+        narrative_anchor: null, compile_binding: null, parent_task_id: null, phase_id: 'phase-1' },
+      { task_id: 'T2', title: '実装', lane: 'main', narrative_ref: null,
+        narrative_anchor: null, compile_binding: null, parent_task_id: null, phase_id: 'phase-2' },
+    ],
+    phases: [
+      { phase_id: 'phase-1', title: '設計', gate_policy: 'dotagents-heavy', predecessor_phase_ids: [], required_evidence_slots: ['heavy'] },
+      { phase_id: 'phase-2', title: '実装', gate_policy: 'dotagents-heavy', predecessor_phase_ids: ['phase-1'], required_evidence_slots: ['heavy'] },
+    ],
+    hard_dependencies: [], joins: [], input_digest: '',
+  };
+  input.input_digest = todoSelfDigest(input, 'input_digest');
+  await writeFile(path.join(root, '.lattice', 'phase-plan.json'), `${canonicalizeTodoArtifact(input)}\n`);
+  const created = run(root, ['plan', 'create', '--input', '.lattice/phase-plan.json']);
+  assert.equal(created.status, 0, created.stderr);
+  const status = JSON.parse(run(root, ['todo', 'status', '--json']).stdout);
+  assert.deepEqual(status.next_ready.map(({ task_id }) => task_id), ['T1']);
+  const phases = run(root, ['todo', 'phase', 'status', '--plan', 'main']);
+  assert.equal(phases.status, 0, phases.stderr);
+  assert.deepEqual(JSON.parse(phases.stdout).phases.map(({ phase_id, status: phaseStatus }) => [phase_id, phaseStatus]),
+    [['phase-1', 'active'], ['phase-2', 'locked']]);
+
+  const actorEnv = {
+    LATTICE_TODO_ACTOR_HOST: 'host-1', LATTICE_TODO_ACTOR_SESSION: 'session-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+  };
+  const evidenceBytes = Buffer.from('phase heavy check\n');
+  const oid = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+    cwd: root, input: evidenceBytes, encoding: 'utf8',
+  }).trim();
+  const evidence = { evidence_id: 'phase-heavy', repo_id: 'self', path: 'phase-heavy.txt',
+    git_blob_oid: oid, content_digest: createHash('sha256').update(evidenceBytes).digest('hex'),
+    media_type: 'text/plain', anchor_digest: null };
+  await writeFile(path.join(root, '.lattice', 'evidence.json'), `${JSON.stringify(evidence)}\n`);
+  assert.equal(run(root, ['todo', 'start', '--plan', 'main', '--task', 'T1'], actorEnv).status, 0);
+  assert.equal(run(root, ['todo', 'done', '--plan', 'main', '--task', 'T1',
+    '--evidence', '.lattice/evidence.json'], actorEnv).status, 0);
+  const review = run(root, ['todo', 'phase', 'review', '--plan', 'main', '--phase', 'phase-1',
+    '--reason', '重い検証'], actorEnv);
+  assert.equal(review.status, 0, review.stderr);
+  const decision = {
+    schema: 'lattice.phase_accept_input.v1', review_event_digest: JSON.parse(review.stdout).event_digest,
+    decision_evidence: evidence, evidence_slots: [{ slot_id: 'heavy', evidence }], input_digest: '',
+  };
+  decision.input_digest = todoSelfDigest(decision, 'input_digest');
+  await writeFile(path.join(root, '.lattice', 'phase-accept.json'), `${canonicalizeTodoArtifact(decision)}\n`);
+  const accepted = run(root, ['todo', 'phase', 'accept', '--plan', 'main', '--phase', 'phase-1',
+    '--input', '.lattice/phase-accept.json'], actorEnv);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.equal(JSON.parse(accepted.stdout).status, 'accepted');
+  const after = JSON.parse(run(root, ['todo', 'status', '--json']).stdout);
+  assert.deepEqual(after.next_ready.map(({ task_id }) => task_id), ['T2']);
+  const gantt = run(root, ['todo', 'gantt']);
+  assert.equal(gantt.status, 0, gantt.stderr);
+  const html = await readFile(path.join(root, '.lattice', 'generated', 'gantt.html'), 'utf8');
+  assert.match(html, /Phase進捗/u);
+  assert.match(html, /phase-1/u);
+  assert.match(html, /accepted/u);
 });
 
 test('壊れたstore配置はMarkdown fallbackせずtyped invalidを返す', async (context) => {

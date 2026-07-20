@@ -13,6 +13,10 @@ const REVISION_V1_KEYS = [
   'source_inventory', 'reconciliation', 'revision_digest',
 ];
 const REVISION_V2_KEYS = [...REVISION_V1_KEYS, 'source_cutover_batch'];
+const PHASE_REVISION_KEYS = [
+  'schema', 'project_id', 'plan_key', 'predecessor', 'desired_plan', 'task_migration',
+  'phase_migration', 'revision_digest',
+];
 
 const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 const boundedText = (value) => typeof value === 'string' && value.length > 0
@@ -48,6 +52,21 @@ export function todoRevisionPlanVersion({
     task_migration: taskMigration,
     source_inventory: sourceInventory,
     ...(sourceCutoverBatch === undefined ? {} : { source_cutover_batch: sourceCutoverBatch }),
+  });
+  return `rev-${versionDigest.slice(0, 24)}`;
+}
+
+export function phaseTodoRevisionPlanVersion({
+  projectId, planKey, predecessor, desiredPlan, taskMigration, phaseMigration,
+}) {
+  const versionDigest = digestTodoArtifact({
+    schema: 'lattice.phase_todo_revision_version.v1', project_id: projectId,
+    plan_key: planKey, predecessor, desired_topology: {
+      schema: desiredPlan.schema, project_id: desiredPlan.project_id,
+      plan_key: desiredPlan.plan_key, predecessor_plan_digest: desiredPlan.predecessor_plan_digest,
+      tasks: desiredPlan.tasks, phases: desiredPlan.phases,
+      hard_dependencies: desiredPlan.hard_dependencies, joins: desiredPlan.joins,
+    }, task_migration: taskMigration, phase_migration: phaseMigration,
   });
   return `rev-${versionDigest.slice(0, 24)}`;
 }
@@ -165,6 +184,47 @@ function validTaskMigration(value) {
       || compareText(value[index - 1].from_task_id, entry.from_task_id) < 0);
 }
 
+function validPhaseMigration(value, desiredPlan) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 512
+    || !value.every((entry) => exactRecord(entry, [
+      'from_phase_id', 'to_phase_id', 'state_policy',
+    ]) && (entry.from_phase_id === null || isTodoIdentifier(entry.from_phase_id))
+      && (entry.to_phase_id === 'removed' || isTodoIdentifier(entry.to_phase_id))
+      && ['carry', 'reset', 'removed'].includes(entry.state_policy)
+      && (entry.state_policy !== 'carry' || (entry.from_phase_id !== null && entry.to_phase_id !== 'removed'))
+      && (entry.state_policy !== 'removed' || (entry.from_phase_id !== null && entry.to_phase_id === 'removed'))
+      && (entry.state_policy !== 'reset' || entry.to_phase_id !== 'removed'))) return false;
+  const sources = value.filter(({ from_phase_id }) => from_phase_id !== null).map(({ from_phase_id }) => from_phase_id);
+  const targets = value.filter(({ to_phase_id }) => to_phase_id !== 'removed').map(({ to_phase_id }) => to_phase_id);
+  return new Set(sources).size === sources.length && new Set(targets).size === targets.length
+    && canonicalizeForCompare(targets) === canonicalizeForCompare(desiredPlan.phases.map(({ phase_id }) => phase_id));
+}
+
+function canonicalizeForCompare(value) {
+  return JSON.stringify([...value].sort(compareText));
+}
+
+export function validatePhaseTodoRevision(value) {
+  try {
+    return exactRecord(value, PHASE_REVISION_KEYS)
+      && value.schema === 'lattice.phase_todo_revision.v1'
+      && isTodoIdentifier(value.project_id) && isTodoIdentifier(value.plan_key)
+      && validPredecessor(value.predecessor) && validateTodoPlan(value.desired_plan)
+      && value.desired_plan.schema === 'lattice.todo_plan.v4'
+      && value.desired_plan.project_id === value.project_id
+      && value.desired_plan.plan_key === value.plan_key
+      && value.desired_plan.predecessor_plan_digest === value.predecessor.plan_digest
+      && validTaskMigration(value.task_migration)
+      && validPhaseMigration(value.phase_migration, value.desired_plan)
+      && value.desired_plan.plan_version === phaseTodoRevisionPlanVersion({
+        projectId: value.project_id, planKey: value.plan_key, predecessor: value.predecessor,
+        desiredPlan: value.desired_plan, taskMigration: value.task_migration,
+        phaseMigration: value.phase_migration,
+      }) && isTodoDigest(value.revision_digest)
+      && value.revision_digest === todoSelfDigest(value, 'revision_digest');
+  } catch { return false; }
+}
+
 function validSourceInventory(value, desiredPlan) {
   if (!exactRecord(value, ['active', 'excluded_tombstones'])
     || !Array.isArray(value.active) || !Array.isArray(value.excluded_tombstones)
@@ -224,5 +284,32 @@ export function validateTodoRevision(value) {
     if (value.task_migration.some(({ to_task_id }) => to_task_id !== 'removed' && !targets.has(to_task_id))) return false;
     return isTodoDigest(value.revision_digest)
       && value.revision_digest === todoSelfDigest(value, 'revision_digest');
+  } catch { return false; }
+}
+
+export function validateTodoRevisionSet(value) {
+  try {
+    const setV1 = value?.schema === 'lattice.todo_revision_set.v1';
+    const setV2 = value?.schema === 'lattice.todo_revision_set.v2';
+    const setV3 = value?.schema === 'lattice.todo_revision_set.v3';
+    return exactRecord(value, [
+      'schema', 'project_id', 'revisions', 'revision_set_digest',
+    ])
+      && (setV1 || setV2 || setV3)
+      && isTodoIdentifier(value.project_id)
+      && Array.isArray(value.revisions)
+      && value.revisions.length >= 2
+      && value.revisions.length <= 64
+      && value.revisions.every((revision) => (
+        (validateTodoRevision(revision)
+          && (setV2 || setV3 || revision.schema === 'lattice.todo_revision.v1'))
+        || (setV3 && validatePhaseTodoRevision(revision))
+      ) && revision.project_id === value.project_id)
+      && (!setV2 || value.revisions.some((revision) => revision.schema === 'lattice.todo_revision.v2'))
+      && (!setV3 || value.revisions.some((revision) => revision.schema === 'lattice.phase_todo_revision.v1'))
+      && value.revisions.every((revision, index) => index === 0
+        || compareText(value.revisions[index - 1].plan_key, revision.plan_key) < 0)
+      && isTodoDigest(value.revision_set_digest)
+      && value.revision_set_digest === todoSelfDigest(value, 'revision_set_digest');
   } catch { return false; }
 }

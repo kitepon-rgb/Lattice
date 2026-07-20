@@ -1,4 +1,4 @@
-# todo gantt デザイン仕様 v1（dataviz skill検証済みパレット準拠）
+# todo gantt デザイン仕様 v7（dataviz skill検証済みパレット準拠）
 
 出典: Claude Code dataviz skill（validated reference palette）。以下の値は検証済みパレットからの転記であり、独自発明しない。
 
@@ -79,3 +79,11 @@
 - 上記hexは dataviz reference palette の検証済み値。独自色を足す場合のみ
   `node scripts/validate_palette.js` を実行して通す（勝手に色を発明しない）。
 - 実装後、実生成HTMLのスクリーンショットで「label衝突・overflow・視覚階層」を目視確認（validatorはlayoutを見ない）。
+
+## 8. 静的artifactとlive viewer
+
+- 静的HTMLはoffline証拠として維持し、`<output_ref>.status.json`のdigest付きdescriptorと一組で発行する。
+- `todo gantt status`は現在の決定的renderと照合して`current / stale / missing`を返す。
+  HTML・descriptorの片側欠落、non-canonical bytes、digest不一致はtyped failureとする。
+- live viewerはloopback-only、read-only、foregroundとし、SSEでmanifest head更新を通知する。
+  browserからstore mutationを行わない。

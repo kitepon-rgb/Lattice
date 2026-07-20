@@ -341,6 +341,7 @@ Ganttが読むcanonical directed graphは**todo storeのhard dependency＋join**
 | `todo verify` | `[--plan <key>]`（既定=全member） | `lattice.todo_verify_result.v1`（bytes・chain・遷移・evidence hard検証のlocal検証まで所有。CI attestationはCIの領分） | G2 |
 | `todo snapshot` | `--rebuild --plan <key>` | `lattice.todo_snapshot_result.v1` | G2 |
 | `todo gantt` | `[--out <repo相対ref>]`（既定`.lattice/generated/gantt.html`） | `todo_gantt_result.v1` | G3 |
+| `todo gantt status` | `[--out <repo相対ref>]`（既定`.lattice/generated/gantt.html`） | `todo_gantt_status_result.v1` | G3 |
 | `todo reconcile` | `--input <resolution.json path>` | `todo_reconcile_result.v1`（手順詳細はG5着手時の追補で固定） | G5 |
 
 - CAS期待値は引数に持たない（lock内内部取得。Decision 2）。mutation系はdry-runを持たない

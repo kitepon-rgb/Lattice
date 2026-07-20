@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { digestArtifact } from './artifact-contracts.mjs';
-import { collectCodegraphEvidence } from './codegraph-adapter.mjs';
+import { collectCodegraphEvidence } from './sensor-adapter.mjs';
 import { compileRuntimePlanV1, evidenceFromCollectedOutcomes } from './runtime-front-end.mjs';
 import {
   adjudicatePendingReceipts,

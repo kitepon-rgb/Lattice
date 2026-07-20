@@ -18,7 +18,7 @@ import {
 import {
   collectCodegraphEvidence,
   portableCodegraphOutcome,
-} from './codegraph-adapter.mjs';
+} from './sensor-adapter.mjs';
 import { spawnSensorCli } from './sensor-runtime.mjs';
 import { compileTreatmentArtifacts } from './treatment-compiler.mjs';
 

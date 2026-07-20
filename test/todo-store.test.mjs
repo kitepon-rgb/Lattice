@@ -11,11 +11,13 @@ import {
   canonicalizeTodoArtifact, isStrictTodoTimestamp, todoSelfDigest,
 } from '../src/todo-contracts.mjs';
 import {
-  TodoStoreError, appendImportedPlan, appendTodoEvent, buildTodoPlan, createTodoStoreWriter,
-  createSuccessorTodoPlan, initializeAuthoredTodoStore, initializeTodoStore, readTodoStore, rebuildTodoSnapshot,
+  TodoStoreError, appendImportedPlan, appendTodoEvent, applyPhaseTodoRevision, buildTodoPlan, createTodoStoreWriter,
+  createSuccessorTodoPlan, initializeAuthoredTodoStore, initializeTodoStore, readTodoStore, readTodoStoreStable,
+  rebuildTodoSnapshot,
 } from '../src/todo-store.mjs';
 import { projectTodoChainV1 } from '../src/todo-chain.mjs';
 import { layoutTodoGantt } from '../src/todo-gantt-layout.mjs';
+import { phaseTodoRevisionPlanVersion } from '../src/todo-revision.mjs';
 
 const NOW = '2026-07-18T00:00:00.000Z';
 const ACTOR = Object.freeze({ host: 'host-1', session: 'session-1', agent: 'agent-1' });
@@ -27,6 +29,9 @@ const manifestRef = '.lattice/todo/manifest.json';
 const task = (taskId) => ({ task_id: taskId, title: taskId, lane: 'main', narrative_ref: null, compile_binding: null });
 const taskV3 = (taskId, parentTaskId = null) => ({
   ...task(taskId), narrative_anchor: null, parent_task_id: parentTaskId,
+});
+const taskV4 = (taskId, phaseId, parentTaskId = null) => ({
+  ...taskV3(taskId, parentTaskId), phase_id: phaseId,
 });
 const ref = (taskId, planKey = 'main', projectId = 'project-1', expected) => ({
   project_id: projectId, plan_key: planKey, task_id: taskId,
@@ -53,6 +58,35 @@ async function workspace(context, overrides = {}) {
     plans: overrides.plans ?? [{ plan, genesis: { actor: ACTOR, recorded_at: NOW } }], now: NOW,
   });
   return root;
+}
+
+async function phaseRevisionFixture(context) {
+  const root = await bareWorkspace(context);
+  const phase = { phase_id: 'phase-1', title: 'Phase 1', gate_policy: 'heavy',
+    predecessor_phase_ids: [], required_evidence_slots: ['heavy'] };
+  const plan = buildTodoPlan({ schema: 'lattice.todo_plan.v4', project_id: 'project-1',
+    plan_key: 'main', plan_version: 'v1', predecessor_plan_digest: null,
+    tasks: [taskV4('T1', 'phase-1')], phases: [phase], hard_dependencies: [], joins: [] });
+  await initializeTodoStore({ repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }],
+    plans: [{ plan, genesis: { actor: ACTOR, recorded_at: NOW } }], now: NOW });
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  const predecessor = { plan_digest: member.plan.plan_digest,
+    journal_head_digest: member.journal.events.at(-1).event_digest,
+    plan_version: member.plan.plan_version };
+  const taskMigration = [{ from_task_id: 'T1', to_task_id: 'T1', state_policy: 'carry' }];
+  const phaseMigration = [{ from_phase_id: 'phase-1', to_phase_id: 'phase-1', state_policy: 'carry' }];
+  const desiredInput = structuredClone(member.plan);
+  delete desiredInput.topology_digest; delete desiredInput.plan_digest;
+  desiredInput.predecessor_plan_digest = predecessor.plan_digest;
+  desiredInput.plan_version = phaseTodoRevisionPlanVersion({ projectId: 'project-1', planKey: 'main',
+    predecessor, desiredPlan: desiredInput, taskMigration, phaseMigration });
+  const desiredPlan = buildTodoPlan(desiredInput);
+  const revision = { schema: 'lattice.phase_todo_revision.v1', project_id: 'project-1',
+    plan_key: 'main', predecessor, desired_plan: desiredPlan, task_migration: taskMigration,
+    phase_migration: phaseMigration, revision_digest: '' };
+  revision.revision_digest = todoSelfDigest(revision, 'revision_digest');
+  return { root, revision };
 }
 
 async function bytes(root, refValue) { return readFile(path.join(root, refValue)); }
@@ -124,6 +158,164 @@ test('todo_plan.v3はparent存在・self禁止・cycle禁止をdigest込みで�
   ]) assert.throws(() => buildTodoPlan({ ...input, tasks }), /declared schema/u);
 });
 
+test('Phaseは重いgateをjournalで証明しacceptまで後続ToDoを閉じる', async (context) => {
+  const root = await bareWorkspace(context);
+  const plan = {
+    schema: 'lattice.todo_plan.v4', project_id: 'project-1', plan_key: 'main', plan_version: 'v1',
+    predecessor_plan_digest: null,
+    tasks: [taskV4('T1', 'phase-1'), taskV4('T2', 'phase-2')],
+    phases: [
+      { phase_id: 'phase-1', title: '設計', gate_policy: 'dotagents-heavy', predecessor_phase_ids: [],
+        required_evidence_slots: ['heavy-check'] },
+      { phase_id: 'phase-2', title: '実装', gate_policy: 'dotagents-heavy', predecessor_phase_ids: ['phase-1'],
+        required_evidence_slots: ['heavy-check'] },
+    ],
+    hard_dependencies: [], joins: [],
+  };
+  await initializeTodoStore({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }],
+    plans: [{ plan, genesis: { actor: ACTOR, recorded_at: NOW } }], now: NOW,
+  });
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T2', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } }), 'STORE_INCONSISTENT', 'invalid_start_transition');
+
+  const evidenceBytes = Buffer.from('heavy phase verification\n');
+  const oid = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+    cwd: root, input: evidenceBytes, encoding: 'utf8',
+  }).trim();
+  const evidence = { evidence_id: 'phase-gate', repo_id: 'self', path: 'phase-evidence.txt',
+    git_blob_oid: oid, content_digest: createHash('sha256').update(evidenceBytes).digest('hex'),
+    media_type: 'text/plain', anchor_digest: null };
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'done', task_id: 'T1', actor: ACTOR, recorded_at: NOW,
+      payload: { evidence } } });
+  let store = await readTodoStore({ repoRoot: root, now: NOW });
+  assert.deepEqual(store.members[0].snapshot.phases.map(({ phase_id, status }) => [phase_id, status]),
+    [['phase-1', 'gate_ready'], ['phase-2', 'locked']]);
+  let reviewed = await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'phase_review', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { reason: '重い検証を開始' } } });
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'phase_accept', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { review_event_digest: reviewed.event.event_digest, decision_evidence: evidence,
+        evidence_slots: [{ slot_id: 'wrong-slot', evidence }] } } }),
+  'STORE_INCONSISTENT', 'phase_accept_binding_invalid');
+  const rejected = await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'phase_reject', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { review_event_digest: reviewed.event.event_digest, reason: '修正が必要',
+        decision_evidence: evidence } } });
+  assert.equal(rejected.snapshot.phases[0].status, 'rejected');
+  const reopened = await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'phase_reopen', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { reason: '修正完了', override_reason: null } } });
+  assert.equal(reopened.snapshot.phases[0].status, 'gate_ready');
+  reviewed = await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'phase_review', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { reason: '再検証' } } });
+  const accepted = await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'phase_accept', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { review_event_digest: reviewed.event.event_digest, decision_evidence: evidence,
+        evidence_slots: [{ slot_id: 'heavy-check', evidence }] } } });
+  assert.equal(accepted.snapshot.phases[0].status, 'accepted');
+  assert.equal(accepted.snapshot.phases[1].status, 'active');
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T2', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'phase_reopen', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { reason: '再監査', override_reason: null } } }),
+  'STORE_INCONSISTENT', 'phase_reopen_has_started_successor');
+  store = await readTodoStore({ repoRoot: root, now: NOW });
+  assert.equal(store.members[0].journal.events.every(({ schema }) => schema === 'lattice.todo_event.v3'), true);
+  assert.equal(store.members[0].snapshot.schema, 'lattice.todo_snapshot.v2');
+
+  const predecessor = { plan_digest: store.members[0].plan.plan_digest,
+    journal_head_digest: store.members[0].journal.events.at(-1).event_digest,
+    plan_version: store.members[0].plan.plan_version };
+  const taskMigration = [
+    { from_task_id: 'T1', to_task_id: 'T1', state_policy: 'carry' },
+    { from_task_id: 'T2', to_task_id: 'T2', state_policy: 'carry' },
+  ];
+  const phaseMigration = [
+    { from_phase_id: 'phase-1', to_phase_id: 'phase-1', state_policy: 'carry' },
+    { from_phase_id: 'phase-2', to_phase_id: 'phase-2', state_policy: 'carry' },
+  ];
+  const desiredInput = { ...store.members[0].plan, plan_version: 'placeholder',
+    predecessor_plan_digest: predecessor.plan_digest };
+  delete desiredInput.topology_digest; delete desiredInput.plan_digest;
+  desiredInput.plan_version = phaseTodoRevisionPlanVersion({ projectId: 'project-1', planKey: 'main',
+    predecessor, desiredPlan: desiredInput, taskMigration, phaseMigration });
+  const desiredPlan = buildTodoPlan(desiredInput);
+  const revision = { schema: 'lattice.phase_todo_revision.v1', project_id: 'project-1', plan_key: 'main',
+    predecessor, desired_plan: desiredPlan, task_migration: taskMigration,
+    phase_migration: phaseMigration, revision_digest: '' };
+  revision.revision_digest = todoSelfDigest(revision, 'revision_digest');
+  await assert.rejects(applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,
+    recordedAt: NOW, now: NOW,
+    onProtocolStage: (stage) => { if (stage === 'phase_revision_marker_durable') throw new Error('crash'); } }),
+  /crash/u);
+  const retryTime = '2026-07-18T00:00:00.001Z';
+  const recovered = await applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,
+    recordedAt: retryTime, now: retryTime });
+  assert.equal(recovered.recovered, false);
+  store = await readTodoStore({ repoRoot: root, now: NOW });
+  assert.equal(store.members[0].journal.events[0].schema, 'lattice.todo_event.v4');
+  assert.deepEqual(store.members[0].snapshot.phases.map(({ status }) => status), ['accepted', 'active']);
+  assert.deepEqual(store.members[0].tasks.map(({ status }) => status), ['done', 'in-progress']);
+
+  const nextPredecessor = { plan_digest: store.members[0].plan.plan_digest,
+    journal_head_digest: store.members[0].journal.events.at(-1).event_digest,
+    plan_version: store.members[0].plan.plan_version };
+  const movedTaskMigration = [
+    { from_task_id: 'T1', to_task_id: 'T1', state_policy: 'reset_pending' },
+    { from_task_id: 'T2', to_task_id: 'T2', state_policy: 'carry' },
+  ];
+  const movedInput = structuredClone(store.members[0].plan);
+  delete movedInput.topology_digest; delete movedInput.plan_digest;
+  movedInput.predecessor_plan_digest = nextPredecessor.plan_digest;
+  movedInput.plan_version = 'placeholder';
+  movedInput.tasks.find(({ task_id }) => task_id === 'T1').phase_id = 'phase-2';
+  movedInput.plan_version = phaseTodoRevisionPlanVersion({ projectId: 'project-1', planKey: 'main',
+    predecessor: nextPredecessor, desiredPlan: movedInput, taskMigration: movedTaskMigration,
+    phaseMigration });
+  const movedPlan = buildTodoPlan(movedInput);
+  const movedRevision = { schema: 'lattice.phase_todo_revision.v1', project_id: 'project-1',
+    plan_key: 'main', predecessor: nextPredecessor, desired_plan: movedPlan,
+    task_migration: movedTaskMigration, phase_migration: phaseMigration, revision_digest: '' };
+  movedRevision.revision_digest = todoSelfDigest(movedRevision, 'revision_digest');
+  await expectCode(applyPhaseTodoRevision({ repoRoot: root, writer, revision: movedRevision,
+    actor: ACTOR, recordedAt: NOW, now: NOW }), 'REVISION_INVALID', 'phase_carry_semantics_changed');
+});
+
+for (const stage of [
+  'phase_revision_marker_durable', 'phase_revision_input_durable', 'phase_revision_plan_durable',
+  'phase_revision_genesis_durable', 'phase_revision_snapshot_durable',
+  'phase_revision_manifest_activated',
+]) {
+  test(`Phase revision crash recoveryは${stage}から異なる時刻のretryで収束する`, async (context) => {
+    const { root, revision } = await phaseRevisionFixture(context);
+    const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+    await assert.rejects(applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,
+      recordedAt: NOW, now: NOW,
+      onProtocolStage(current) { if (current === stage) throw new Error(`crash:${stage}`); },
+    }), new RegExp(`crash:${stage}`, 'u'));
+    const retryTime = '2026-07-18T00:00:00.001Z';
+    const result = await applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,
+      recordedAt: retryTime, now: retryTime });
+    assert.equal(result.recovered, stage === 'phase_revision_manifest_activated');
+    const member = (await readTodoStore({ repoRoot: root, now: retryTime })).members[0];
+    assert.equal(member.plan.plan_version, revision.desired_plan.plan_version);
+    assert.equal(member.journal.events[0].schema, 'lattice.todo_event.v4');
+    assert.equal(member.journal.events[0].recorded_at, NOW);
+  });
+}
+
 test('canonical journalを唯一正本としてplanとsnapshotを束縛して読む', async (context) => {
   const root = await workspace(context);
   const result = await readTodoStore({ repoRoot: root, now: NOW });
@@ -155,6 +347,123 @@ test('closed transitionと依存gateをappend前に検証し、失敗時bytesを
   const result = await readTodoStore({ repoRoot: root, now: NOW });
   assert.equal(result.members[0].tasks[0].status, 'blocked');
   assert.equal(result.members[0].tasks[0].blocked_reason, 'waiting');
+});
+
+test('cross-plan predecessorはstart/done/reopenをmerged graphで保護する', async (context) => {
+  const root = await bareWorkspace(context);
+  const upstream = buildTodoPlan({
+    schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'upstream', plan_version: 'v1',
+    predecessor_plan_digest: null, tasks: [task('U1')], hard_dependencies: [], joins: [],
+  });
+  const downstream = {
+    schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'downstream', plan_version: 'v1',
+    predecessor_plan_digest: null, tasks: [task('D1'), task('D2')],
+    hard_dependencies: [{
+      from: ref('U1', 'upstream', 'project-1', upstream.topology_digest),
+      to: ref('D1', 'downstream'),
+    }],
+    joins: [{
+      id: 'cross-plan-all-of',
+      after: [ref('U1', 'upstream', 'project-1', upstream.topology_digest)],
+      before: ref('D2', 'downstream'),
+    }],
+  };
+  await initializeTodoStore({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }), projectId: 'project-1',
+    repositories: [{ repo_id: 'self', path: '.' }],
+    plans: [
+      { plan: upstream, genesis: { actor: ACTOR, recorded_at: NOW } },
+      { plan: downstream, genesis: { actor: ACTOR, recorded_at: NOW } },
+    ],
+    now: NOW,
+  });
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  const storeBeforeStart = await bytes(root, manifestRef);
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'downstream', now: NOW,
+    event: { kind: 'start', task_id: 'D1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } }), 'STORE_INCONSISTENT', 'invalid_start_transition');
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'downstream', now: NOW,
+    event: { kind: 'start', task_id: 'D2', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } }), 'STORE_INCONSISTENT', 'invalid_start_transition');
+  assert.deepEqual(await bytes(root, manifestRef), storeBeforeStart);
+
+  const evidenceBytes = Buffer.from('cross-plan evidence\n');
+  await writeFile(path.join(root, 'evidence.txt'), evidenceBytes);
+  const oid = execFileSync('git', ['hash-object', '-w', 'evidence.txt'], { cwd: root, encoding: 'utf8' }).trim();
+  const evidence = { evidence_id: 'cross-plan', repo_id: 'self', path: 'evidence.txt', git_blob_oid: oid,
+    content_digest: createHash('sha256').update(evidenceBytes).digest('hex'), media_type: 'text/plain', anchor_digest: null };
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'downstream', now: NOW,
+    event: { kind: 'start', task_id: 'D1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: 'parallel audit' } } });
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'downstream', now: NOW,
+    event: { kind: 'done', task_id: 'D1', actor: ACTOR, recorded_at: NOW, payload: { evidence } } }),
+  'STORE_INCONSISTENT', 'invalid_done_transition');
+
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'upstream', now: NOW,
+    event: { kind: 'start', task_id: 'U1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'upstream', now: NOW,
+    event: { kind: 'done', task_id: 'U1', actor: ACTOR, recorded_at: NOW, payload: { evidence } } });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'downstream', now: NOW,
+    event: { kind: 'start', task_id: 'D2', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'upstream', now: NOW,
+    event: { kind: 'reopen', task_id: 'U1', actor: ACTOR, recorded_at: NOW,
+      payload: { reason: 'correction', override_reason: null } } }),
+  'STORE_INCONSISTENT', 'reopen_has_started_successor');
+});
+
+test('cross-plan後続はpredecessor ToDo doneでなくPhase acceptedまで閉じreopenも保護する', async (context) => {
+  const root = await bareWorkspace(context);
+  const upstream = buildTodoPlan({
+    schema: 'lattice.todo_plan.v4', project_id: 'project-1', plan_key: 'upstream', plan_version: 'v1',
+    predecessor_plan_digest: null, tasks: [taskV4('U1', 'phase-1')],
+    phases: [{ phase_id: 'phase-1', title: 'upstream', gate_policy: 'heavy',
+      predecessor_phase_ids: [], required_evidence_slots: ['heavy'] }],
+    hard_dependencies: [], joins: [],
+  });
+  const downstream = {
+    schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'downstream', plan_version: 'v1',
+    predecessor_plan_digest: null, tasks: [task('D1')], hard_dependencies: [{
+      from: ref('U1', 'upstream', 'project-1', upstream.topology_digest), to: ref('D1', 'downstream'),
+    }], joins: [],
+  };
+  await initializeTodoStore({ repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }], plans: [
+      { plan: downstream, genesis: { actor: ACTOR, recorded_at: NOW } },
+      { plan: upstream, genesis: { actor: ACTOR, recorded_at: NOW } },
+    ], now: NOW });
+  const evidenceBytes = Buffer.from('cross phase evidence\n');
+  const oid = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: root, input: evidenceBytes,
+    encoding: 'utf8' }).trim();
+  const evidence = { evidence_id: 'cross-phase', repo_id: 'self', path: 'cross-phase.txt',
+    git_blob_oid: oid, content_digest: createHash('sha256').update(evidenceBytes).digest('hex'),
+    media_type: 'text/plain', anchor_digest: null };
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'upstream', now: NOW,
+    event: { kind: 'start', task_id: 'U1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'upstream', now: NOW,
+    event: { kind: 'done', task_id: 'U1', actor: ACTOR, recorded_at: NOW, payload: { evidence } } });
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'downstream', now: NOW,
+    event: { kind: 'start', task_id: 'D1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } }), 'STORE_INCONSISTENT', 'invalid_start_transition');
+  const review = await appendTodoEvent({ repoRoot: root, writer, planKey: 'upstream', now: NOW,
+    event: { kind: 'phase_review', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { reason: 'heavy' } } });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'upstream', now: NOW,
+    event: { kind: 'phase_accept', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { review_event_digest: review.event.event_digest, decision_evidence: evidence,
+        evidence_slots: [{ slot_id: 'heavy', evidence }] } } });
+  const downstreamStart = await appendTodoEvent({ repoRoot: root, writer, planKey: 'downstream', now: NOW,
+    event: { kind: 'start', task_id: 'D1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  assert.equal(downstreamStart.event.schema, 'lattice.todo_event.v1');
+  assert.equal(Object.hasOwn(downstreamStart.event, 'causal_predecessors'), false);
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'upstream', now: NOW,
+    event: { kind: 'phase_reopen', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { reason: 'recheck', override_reason: null } } }),
+  'STORE_INCONSISTENT', 'phase_reopen_has_started_successor');
 });
 
 const journalCorruptions = [
@@ -292,6 +601,8 @@ test('crash matrix: journal commit後にmanifestが旧headなら不整合、snap
   const newManifest = await bytes(root, manifestRef);
   await writeFile(path.join(root, manifestRef), oldManifest);
   await expectCode(readTodoStore({ repoRoot: root, now: NOW }), 'STORE_INCONSISTENT', 'manifest_journal_head_mismatch');
+  await expectCode(readTodoStoreStable({ repoRoot: root, now: NOW, maximumAttempts: 2 }),
+    'STORE_BUSY', 'stable_read_exhausted');
   await writeFile(path.join(root, manifestRef), newManifest); await writeFile(path.join(root, snapshotRef), oldSnapshot);
   assert.equal((await readTodoStore({ repoRoot: root, now: NOW })).snapshot_stale, true);
 });

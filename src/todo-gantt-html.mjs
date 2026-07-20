@@ -161,7 +161,24 @@ function renderRelationList(relations, sectionByKey, lookup, emptyText) {
   }).join('')}</ul>`;
 }
 
-function renderRightPane(sections, layout, presentation) {
+function renderPhaseProgress(readModel) {
+  const rows = [];
+  for (const member of readModel.members) {
+    if (member.plan.schema !== 'lattice.todo_plan.v4') continue;
+    const phases = new Map(member.snapshot.phases.map((phase) => [phase.phase_id, phase]));
+    for (const phase of member.plan.phases) {
+      const tasks = member.plan.tasks.filter((task) => task.phase_id === phase.phase_id);
+      const states = new Map(member.tasks.map((task) => [task.task_id, task.status]));
+      const done = tasks.filter((task) => states.get(task.task_id) === 'done').length;
+      const state = phases.get(phase.phase_id);
+      rows.push(`<li class="phase-progress status-${escapeHtmlAttribute(state.status)}"><header><strong>${escapeHtmlText(phase.title ?? phase.phase_id)}</strong><span>${escapeHtmlText(state.status)}</span></header><p><code>${escapeHtmlText(`${member.plan.plan_key}/${phase.phase_id}`)}</code> — policy <code>${escapeHtmlText(phase.gate_policy)}</code> — ToDo ${done}/${tasks.length}</p><progress max="${tasks.length}" value="${done}">${done}/${tasks.length}</progress></li>`);
+    }
+  }
+  return rows.length === 0 ? ''
+    : `<section class="phase-overview"><h2>Phase進捗</h2><p>ToDo完了とPhase受理は別です。<code>gate_ready</code>では後続Phaseはまだ解放されません。</p><ol>${rows.join('')}</ol></section>`;
+}
+
+function renderRightPane(sections, layout, presentation, readModel) {
   const lookup = presentationLookup(presentation);
   const sectionByKey = new Map(sections.map((section) => [refKey(section.ref), section]));
   const nodeByKey = new Map(layout.nodes.map((node) => [refKey(node.ref), node]));
@@ -176,7 +193,7 @@ function renderRightPane(sections, layout, presentation) {
   const active = sections.filter((section) => section.state.status === 'in-progress');
   const activeLinks = active.length === 0 ? '<p>作業中の工程はありません。</p>'
     : `<ul class="active-list">${active.map((section) => `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(refKey(section.ref))}">${escapeHtmlText(taskReference(section, lookup))} — ${escapeHtmlText(section.task.title)}</button></li>`).join('')}</ul>`;
-  const overview = `<section class="right-overview" data-right-panel="overview"><h1>工程を選択してください</h1><p>左の依存工程図から工程を選ぶと、題名・状態・前提・後続を表示します。</p><div class="status-summary"><span>☐ 未着手 ${counts.pending}</span><span>▶ 作業中 ${counts['in-progress']}</span><span>✅ 完了 ${counts.done}</span><span>⛔ ブロック中 ${counts.blocked}</span></div><h2>作業中</h2>${activeLinks}</section>`;
+  const overview = `<section class="right-overview" data-right-panel="overview"><h1>工程を選択してください</h1><p>左の依存工程図から工程を選ぶと、題名・状態・前提・後続を表示します。</p><div class="status-summary"><span>☐ 未着手 ${counts.pending}</span><span>▶ 作業中 ${counts['in-progress']}</span><span>✅ 完了 ${counts.done}</span><span>⛔ ブロック中 ${counts.blocked}</span></div>${renderPhaseProgress(readModel)}<h2>作業中</h2>${activeLinks}</section>`;
   const details = sections.map((section) => {
     const key = refKey(section.ref);
     const node = nodeByKey.get(key);
@@ -248,6 +265,7 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .right-overview h1,.task-detail h1{margin:0 0 16px;font-size:19px;font-weight:650;line-height:1.45}
 .right-overview h2,.task-detail h2{margin:24px 0 8px;font-size:16px;font-weight:600}
 .status-summary{display:flex;flex-wrap:wrap;gap:8px 16px;margin:16px 0;padding:12px;background:var(--surface-2)}
+.phase-overview>p{color:var(--text-secondary)}.phase-overview>ol{display:grid;gap:8px;margin:0;padding:0;list-style:none}.phase-progress{padding:10px 12px;border:1px solid var(--border);border-left-width:4px;background:var(--surface-2)}.phase-progress>header{display:flex;justify-content:space-between;gap:12px}.phase-progress>p{margin:4px 0;color:var(--text-secondary);font-size:12px}.phase-progress progress{display:block;width:100%}.phase-progress.status-accepted{border-left-color:var(--good)}.phase-progress.status-reviewing,.phase-progress.status-gate_ready{border-left-color:var(--accent)}.phase-progress.status-rejected{border-left-color:var(--critical)}
 .active-list,.relation-list{margin:0;padding:0;list-style:none}.active-list li+li,.relation-list li+li{margin-top:8px}
 .active-list button{width:100%}.anchor-status,.readiness-note,.category-description,.relation-empty{color:var(--text-secondary)}
 .task-detail>header{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px}.detail-status,.detail-reference{font-size:12px;font-weight:600}.detail-reference{color:var(--text-secondary)}
@@ -351,7 +369,7 @@ export function renderTodoGanttHtml({
   }
   const normalized = normalizeSections(readModel, narratives, anchorOutcomes);
   const svg = renderTodoGanttSvg(layout, { presentation });
-  const rightPane = renderRightPane(normalized.sections, layout, presentation);
+  const rightPane = renderRightPane(normalized.sections, layout, presentation, readModel);
   const staticData = serializeJsonForScript({
     renderer_version: TODO_GANTT_RENDERER_VERSION,
     metadata,

@@ -14,8 +14,7 @@
   退役＝typed失敗envelopeも`lattice.cli_error.v2`（optional `detail`）へ更新済み）
 - stdout=versioned JSONのみ・診断はstderr・exit 0/1/2契約・fail closed・暗黙provider fallbackなし
 - envelope schema（`plan_compile_result.v1`等8種）の所有は[ADR 0045 Decision 4](adr/0045-rc3-phase-gate-support.md)
-- 既知の未解消: `cli_error.v1`がcompile失敗の`detail`を落とす（maintenance queue移管済み。
-  schema変更はenvelope正式化と同時に裁定）
+- failure envelopeは`lattice.cli_error.v2`へ統一済みで、optional `detail`を保持する。
 
 ## 2. schema一覧
 
@@ -25,6 +24,8 @@
 - RC2公開済み継承: `lattice.boundary_verdict.v2`・`lattice.plan_graph.v2`・RC2 artifact manifest系（同名変更禁止）
 - 共通規律: exact key・bounded collection・canonical serialization・SHA-256 digest・fail closed。
   field追加・意味変更はversionを上げ新ADRで裁定（in-place拡張禁止）
+- TODO工程: `todo_plan.v4`、`todo_event.v3/v4`、`todo_snapshot.v2`、
+  `phase_todo_revision.v1`、`todo_revision_set.v3`がPhase gateとcross-plan revisionを所有する。
 
 ## 3. run store／artifact規約
 
@@ -47,7 +48,7 @@ subagent executor・packet `isolation_contract`・fingerprint境界検証・diff
 - 実証済みadapterは`claude-implementer-subagent`のみ（単一provider＝
   [ADR 0051 Decision 2](adr/0051-rc4-phase-gate-support.md)のclaim境界。クロスprovider executorは未実証）
 
-## 5. Lattice sensor同梱・独立Codegraph退役方針
+## 5. Lattice sensor同梱・独立Codegraph退役（完了）
 
 正典: [ADR 0047](adr/0047-codegraph-absorption-and-sensor-ownership.md)（fork吸収・sensor自前所有）＋
 [ADR 0049](adr/0049-lattice-mcp-surface-contract.md)（MCP面の公開契約・製品同一性分離・外部通信遮断）。
@@ -56,8 +57,10 @@ subagent executor・packet `isolation_contract`・fingerprint境界検証・diff
 - runtimeは配布物内の`./sensor/dist`だけを直接起動し、PATH上の`codegraph`、
   `npx @colbymchenry/codegraph`、外部SDKへfallbackしない
 - index管理の公開入口は`lattice sensor init|sync [path] --json`、MCP入口は`lattice-mcp`
-- 単独Codegraph配線の退役はdotagents側plan L7が所有し、受入fixture通過後に原子的cutoverする。
-  `codegraph_*`互換tool名の提供者識別と次期majorでの改名はADR 0059が正
+- 単独Codegraph配線は退役済み。production runtime、CIの正規入口、host integrationはLattice sensorを使い、
+  旧cache/dataを入力またはfallbackとして読まない。
+- `codegraph_*`互換tool名はwire compatibilityだけに残り、提供者・所有者はLatticeとして識別する。
+  次期majorでの改名方針はADR 0059が正。
 
 ## 5.5 native factory diagnosticsとruntime error store（工場必須要件・実装済み）
 
@@ -82,7 +85,5 @@ subagent executor・packet `isolation_contract`・fingerprint境界検証・diff
 
 ## 7. dotagents側導入planに委ねる項目（本repoは所有しない）
 
-core product編入の配線（native factory diagnostics・runtime error store・配布形態・
-product contracts台帳・host/product matrix・install/verify・BugHub source登録）、
-単独Codegraph退役のhost別手順・rollback。正典はdotagents
-`docs/plan_lattice-factory-integration.md`（L6/L7/Q22）。
+core product編入後のhost/product matrix、install/verify、BugHub source登録、将来のhost移行はdotagentsが所有する。
+Lattice本体のPhase、revision、Gantt、sensor公開契約は本repoのproduct contractとADRを正本とする。

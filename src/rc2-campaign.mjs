@@ -20,7 +20,7 @@ import {
   digestArtifact,
 } from './artifact-contracts.mjs';
 import { compileBoundaryCondition } from './boundary-compiler.mjs';
-import { collectCodegraphEvidence } from './codegraph-adapter.mjs';
+import { collectCodegraphEvidence } from './sensor-adapter.mjs';
 import { invokeSensorCli, LATTICE_SENSOR_CLI } from './sensor-runtime.mjs';
 import { runIsolatedTransform } from './isolation-runner.mjs';
 import { runRc1BlackBoxOracle } from './rc1-black-box-oracle.mjs';

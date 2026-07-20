@@ -65,8 +65,8 @@ plan／witness契約が消費するevidenceはCLI面・portable projectionのみ
 
 MCP serverはhost sessionのstdio子プロセス（session寿命）、共有sensor daemonはclient refcount＋
 idle timeoutで自動終了するcache工程であり、どちらも自律的なdispatch・製品状態への書込を行わない
-（書込はproject cache `.codegraph/`へのwatcher再indexとLattice固有のglobal管理領域・socket
-rendezvous nodeに限る）。「常駐サービス化はしない」非目標はorchestration面の規定であり、
+（書込はLattice sensorのproject cacheへのwatcher再indexとLattice固有のglobal管理領域・socket
+rendezvous nodeに限る）。旧Codegraph cache/dataは入力またはfallbackとして読まない。「常駐サービス化はしない」非目標はorchestration面の規定であり、
 MCP server提供と矛盾しない。MCP面は外部networkへ一切通信しない（v1受入条件）。
 runtimeは配布物内の`./sensor/dist`だけを起動し、PATH上の独立Codegraph、npx、外部SDKを解決しない。
 `codegraph_*`互換toolは提供者を`lattice`、所有者を`lattice`として機械表示し、独立製品の存在を示さない。
@@ -80,17 +80,21 @@ canonical store ref、active plan、active run、`uninitialized | ready | active
 Markdownへ暗黙fallbackしない。
 
 未初期化projectの初期authoring入口は
-`lattice plan create --input <lattice.plan_create_input.v1>`である。入力はrepo内のcanonical
-JSON+LFに限定し、`lattice.todo_plan.v3`と同じtask／topology制約を満たすfull desired stateを
+`lattice plan create --input <lattice.plan_create_input.v2>`である。入力はrepo内のcanonical
+JSON+LFに限定し、`lattice.todo_plan.v4`と同じPhase／task／topology制約を満たすfull desired stateを
 一回のtransactionでstoreへ登録する。移行専用の`todo migrate`を新規authoringへ流用しない。
 
 `.lattice/todo/`のcanonical journalを工程状態の唯一正本とし、snapshotとガントHTMLは再生成可能な
 投影として扱う。読取CLIは`lattice todo status / verify / snapshot --rebuild / gantt`、一回きりの
 移行入口は`todo migrate`である。topologyとsource reconciliationの変更はfull desired-state successorを
-発行する`todo revise`だけが所有し、Markdown fallback、部分CRUD、独立`todo reconcile`を持たない。
-revision inputはcanonical JSON+LFの`lattice.todo_revision.v1`に限定し、成功は
-`lattice.todo_revise_result.v1`、statusはreconciliation identityを含む`lattice.todo_status_result.v3`、
-verifyはsource inventoryを再検査する`lattice.todo_verify_result.v2`を返す。
+発行する`todo revise`／`todo revise-phase`だけが所有し、Markdown fallback、部分CRUD、独立`todo reconcile`を持たない。
+通常revision inputはcanonical JSON+LFの`lattice.todo_revision.v1/v2`、Phase revisionは
+`lattice.phase_todo_revision.v1`とする。cross-plan successorは`todo revise-set`で一括公開し、
+`lattice.todo_revision_set.v3`はPhase revisionを必須として通常revisionとの混在を許す。全desired graphと
+predecessorを検査し、artifactをdurable化した後、一つのmanifest activationで全planを同時に切り替える。
+成功は単体通常revisionが`lattice.todo_revise_result.v1`、revision setが
+`lattice.todo_revision_set_result.v1`、statusはreconciliation identityを含む
+`lattice.todo_status_result.v3`、verifyはsource inventoryを再検査する`lattice.todo_verify_result.v2`を返す。
 
 通常の状態遷移は`todo start / block / unblock / done / evidence promote / reopen`のclosed面で行う。
 mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,
@@ -98,3 +102,18 @@ mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,
 evidenceはrepo内descriptor JSONとpinned Git objectをwrite時にhard検証する。成功は
 `lattice.todo_mutation_result.v1`一行、失敗は`lattice.cli_error.v2`一行、usage違反は人間向け診断一行で、
 失敗時のstore bytesは不変とする。
+
+PhaseはToDoのgroupingではなく重監査の制御境界である。`todo_plan.v4`は各ToDoの`phase_id`、
+gate policy、前段Phase、required evidence slotを所有する。全ToDoがdoneでも`gate_ready`までしか進まず、
+`phase_review`とimmutable evidence付き`phase_accept`を同じjournalへ記録して初めて後続を解放する。
+cross-plan後続のstartはactive store上でpredecessor Phaseのacceptを検査する。旧plan versionやjournal headを
+下流eventの永続依存先にはしない。revisionではPhase定義と所属ToDo集合が同じ時だけDecision stateをcarryし、
+意味が変わればresetを必須にする。Phase revisionと通常revisionはrevision set v3で同時公開できる。
+reject/reopenはDecisionへ束縛し、開始済み後続を持つreopenは明示overrideなしに拒否する。
+
+静的`todo gantt`はoffline証拠として維持する。`todo gantt serve --port <0..65535>`はloopback-onlyの
+foreground read-only viewerで、stable store readとSSEにより更新を反映し、mixed viewを最新として表示しない。
+静的生成時はHTMLと`<output_ref>.status.json` descriptorを発行する。`todo gantt status [--out <ref>]`は
+現在の決定的renderとdescriptor／HTML digestを照合し、`current / stale / missing`を返す。
+片側欠落、non-canonical descriptor、digest不一致、project不一致は`GANTT_ARTIFACT_INVALID`として失敗し、
+staleまたはcurrentへ丸めない。

@@ -161,16 +161,18 @@ export function projectTodoStatus(readModel) {
       plan_version: member.plan.plan_version,
       through_sequence: head.sequence,
       journal_head_digest: head.event_digest,
-      reconciliation_state: genesis.schema === 'lattice.todo_event.v2'
+      reconciliation_state: ['lattice.todo_event.v2', 'lattice.todo_event.v4'].includes(genesis.schema)
         ? 'reconciled' : 'registered_unreconciled',
-      revision_digest: genesis.schema === 'lattice.todo_event.v2' ? genesis.revision_digest : null,
-      reconciliation_digest: genesis.schema === 'lattice.todo_event.v2'
-        ? genesis.reconciliation_digest
+      revision_digest: ['lattice.todo_event.v2', 'lattice.todo_event.v4'].includes(genesis.schema)
+        ? genesis.revision_digest : null,
+      reconciliation_digest: ['lattice.todo_event.v2', 'lattice.todo_event.v4'].includes(genesis.schema)
+        ? genesis.schema === 'lattice.todo_event.v4' ? genesis.revision_digest : genesis.reconciliation_digest
         : todoLegacyReconciliationDigest({
           planDigest: member.plan.plan_digest, journalHeadDigest: head.event_digest,
         }),
     });
     const states = new Map(member.tasks.map((state) => [state.task_id, state]));
+    const phases = new Map((member.snapshot?.phases ?? []).map((state) => [state.phase_id, state]));
     for (const task of member.plan.tasks) {
       const state = states.get(task.task_id);
       if (!plain(state) || !['pending', 'in-progress', 'blocked', 'done'].includes(state.status)) {
@@ -189,6 +191,11 @@ export function projectTodoStatus(readModel) {
         label: displayText(task.title, task.task_id, TODO_STATUS_LABEL_LIMIT),
         status: state.status,
         blocked_reason: state.blocked_reason,
+        phase_id: member.plan.schema === 'lattice.todo_plan.v4' ? task.phase_id : null,
+        phase_status: member.plan.schema === 'lattice.todo_plan.v4'
+          ? phases.get(task.phase_id)?.status : null,
+        phase_ready: member.plan.schema !== 'lattice.todo_plan.v4'
+          || phases.get(task.phase_id)?.status === 'active',
       });
       incoming.set(key, new Set());
     }
@@ -225,8 +232,14 @@ export function projectTodoStatus(readModel) {
       enforceListLimit('active_set.unmet_dependencies', unmetDependencies);
       activeSet.push({ ...task, unmet_dependencies: unmetDependencies });
     }
-    if (node.status === 'pending'
-      && [...incoming.get(node.key)].every((key) => nodes.get(key).status === 'done')) nextReady.push(task);
+    if (node.status === 'pending' && node.phase_ready
+      && [...incoming.get(node.key)].every((key) => {
+        const predecessor = nodes.get(key);
+        return predecessor.status === 'done'
+          && (predecessor.phase_id === null
+            || (predecessor.plan_key === node.plan_key && predecessor.phase_id === node.phase_id)
+            || predecessor.phase_status === 'accepted');
+      })) nextReady.push(task);
     if (node.status === 'blocked') {
       blocked.push({
         plan_key: node.plan_key,

@@ -20,7 +20,7 @@ import {
   compileBoundaryCondition,
   RC1_BOUNDARY_COMPILER_CONTRACT,
 } from './boundary-compiler.mjs';
-import { collectCodegraphEvidence } from './codegraph-adapter.mjs';
+import { collectCodegraphEvidence } from './sensor-adapter.mjs';
 import { invokeSensorCli } from './sensor-runtime.mjs';
 import { runIsolatedTransform } from './isolation-runner.mjs';
 import {

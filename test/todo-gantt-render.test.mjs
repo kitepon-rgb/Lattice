@@ -210,6 +210,43 @@ test('small real store E2E generates the default self-contained gantt and exact 
   assert.match(html, /"task_id":"T1","display_number":"1","normalized_number":"1"/u);
 });
 
+test('gantt statusはmissing/current/staleを区別しartifact改竄をtyped拒否する', async (context) => {
+  const root = await workspace(context);
+  const missingExecution = run(root, ['todo', 'gantt', 'status']);
+  assert.equal(missingExecution.status, 0, missingExecution.stderr);
+  const missing = JSON.parse(missingExecution.stdout);
+  assert.equal(missing.schema, 'lattice.todo_gantt_status_result.v1');
+  assert.equal(missing.artifact_status, 'missing');
+  assert.equal(missing.artifact_manifest_digest, null);
+  assert.equal(missing.html_digest, null);
+
+  const generated = run(root, ['todo', 'gantt']);
+  assert.equal(generated.status, 0, generated.stderr);
+  const currentExecution = run(root, ['todo', 'gantt', 'status']);
+  assert.equal(currentExecution.status, 0, currentExecution.stderr);
+  const current = JSON.parse(currentExecution.stdout);
+  assert.equal(current.artifact_status, 'current');
+  assert.equal(current.current_manifest_digest, current.artifact_manifest_digest);
+  assert.equal(current.result_digest, todoSelfDigest(current, 'result_digest'));
+  const descriptor = JSON.parse(await readFile(path.join(root, current.descriptor_ref), 'utf8'));
+  assert.equal(descriptor.schema, 'lattice.todo_gantt_artifact.v1');
+  assert.equal(descriptor.html_digest, current.html_digest);
+  assert.equal(descriptor.artifact_digest, todoSelfDigest(descriptor, 'artifact_digest'));
+
+  await writeFile(path.join(root, 'narrative.md'), '# Changed narrative\n');
+  const staleExecution = run(root, ['todo', 'gantt', 'status']);
+  assert.equal(staleExecution.status, 0, staleExecution.stderr);
+  assert.equal(JSON.parse(staleExecution.stdout).artifact_status, 'stale');
+
+  await writeFile(path.join(root, current.output_ref), 'tampered\n');
+  const invalid = run(root, ['todo', 'gantt', 'status']);
+  assert.equal(invalid.status, 1);
+  assert.equal(invalid.stdout, '');
+  const error = JSON.parse(invalid.stderr);
+  assert.equal(error.code, 'GANTT_ARTIFACT_INVALID');
+  assert.equal(error.detail.reason, 'artifact_digest_mismatch');
+});
+
 test('Gantt narrativeはarchive line fragmentをfile pathと混同せず1行だけ読む', async (context) => {
   const root = await workspace(context, 'fragment narrative', 'narrative.md#L3');
   const execution = run(root, ['todo', 'gantt']);

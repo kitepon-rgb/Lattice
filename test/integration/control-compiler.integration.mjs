@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import {
   digestArtifact,
@@ -8,8 +11,9 @@ import {
   validateBoundaryVerdict,
   validatePlanGraph,
 } from '../../src/artifact-contracts.mjs';
-import { collectCodegraphEvidence } from '../../src/codegraph-adapter.mjs';
+import { collectSensorEvidence } from '../../src/sensor-adapter.mjs';
 import { compileControlArtifacts } from '../../src/control-compiler.mjs';
+import { spawnSensorCliSync } from '../../src/sensor-runtime.mjs';
 
 async function readJson(relativePath) {
   return JSON.parse(await readFile(new URL(`../../${relativePath}`, import.meta.url), 'utf8'));
@@ -21,7 +25,32 @@ const [planInput, manualEvidence, querySet, fixtureSource] = await Promise.all([
   readJson('research/campaigns/rc1/inputs/query-set.json'),
   readFile(new URL('../../research/fixtures/dispatch-record/src/dispatch-record.mjs', import.meta.url)),
 ]);
-const codegraphEvidence = await collectCodegraphEvidence({ cwd: process.cwd(), querySet });
+const sourceRoot = process.cwd();
+const isolatedRoot = await mkdtemp(path.join(tmpdir(), 'lattice-control-compiler-sensor-'));
+const worktreePath = path.join(isolatedRoot, 'worktree');
+const git = (args) => spawnSync('git', args, { cwd: sourceRoot, encoding: 'utf8' });
+const added = git(['worktree', 'add', '--detach', worktreePath, 'HEAD']);
+assert.equal(added.status, 0, added.stderr);
+let codegraphEvidence;
+try {
+  const initialized = spawnSensorCliSync(['init', '.'], {
+    cwd: worktreePath, encoding: 'utf8', env: { ...process.env,
+      CODEGRAPH_DIR: '.lattice-sensor-control-integration', CODEGRAPH_NO_DAEMON: '1',
+      CODEGRAPH_NO_WATCH: '1', CODEGRAPH_NO_UPDATE_CHECK: '1', DO_NOT_TRACK: '1', NO_COLOR: '1' },
+  });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  codegraphEvidence = await collectSensorEvidence({ cwd: worktreePath, querySet,
+    execute: ({ args, cwd }) => {
+      const result = spawnSensorCliSync(args, { cwd, encoding: 'utf8', env: { ...process.env,
+        CODEGRAPH_DIR: '.lattice-sensor-control-integration', CODEGRAPH_NO_DAEMON: '1',
+        CODEGRAPH_NO_WATCH: '1', CODEGRAPH_NO_UPDATE_CHECK: '1', DO_NOT_TRACK: '1', NO_COLOR: '1' } });
+      return { code: result.status, stdout: result.stdout, stderr: result.stderr,
+        ...(result.error ? { error: result.error.message } : {}) };
+    } });
+} finally {
+  git(['worktree', 'remove', '--force', worktreePath]);
+  await rm(isolatedRoot, { recursive: true, force: true });
+}
 const codeSnapshotDigest = digestArtifact({
   files: [
     {

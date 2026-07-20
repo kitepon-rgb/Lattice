@@ -6,7 +6,7 @@ import {
   validatePlanGraph,
   validatePlanInput,
 } from './artifact-contracts.mjs';
-import { portableCodegraphOutcome } from './codegraph-adapter.mjs';
+import { portableCodegraphOutcome } from './sensor-adapter.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;

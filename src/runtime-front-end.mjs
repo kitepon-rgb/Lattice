@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { digestArtifact } from './artifact-contracts.mjs';
 import { compileBoundaryObservationV2 } from './boundary-observation-compiler-v2.mjs';
-import { portableCodegraphOutcome } from './codegraph-adapter.mjs';
+import { portableCodegraphOutcome } from './sensor-adapter.mjs';
 import { compileSchedulabilityGraphV2 } from './schedulability-compiler-v2.mjs';
 import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
 import {

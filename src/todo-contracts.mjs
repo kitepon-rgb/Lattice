@@ -3,6 +3,7 @@ import { isCanonicalUtcTimestamp } from './timestamp-contract.mjs';
 
 export const TODO_EVENT_KINDS = Object.freeze([
   'plan_genesis', 'start', 'block', 'unblock', 'done', 'reopen',
+  'phase_review', 'phase_accept', 'phase_reject', 'phase_reopen',
 ]);
 export const TODO_LIMITS = Object.freeze({
   tasksPerPlan: 512,
@@ -156,6 +157,53 @@ function taskV3(value) {
     && (value.parent_task_id === null || isTodoIdentifier(value.parent_task_id));
 }
 
+function taskV4(value) {
+  return exactRecord(value, [
+    'task_id', 'title', 'lane', 'narrative_ref', 'narrative_anchor', 'compile_binding',
+    'parent_task_id', 'phase_id',
+  ]) && isTodoIdentifier(value.task_id) && nullableText(value.title) && isTodoIdentifier(value.lane)
+    && (value.narrative_ref === null || isTodoRef(value.narrative_ref))
+    && (value.narrative_anchor === null || (validateTodoNarrativeAnchor(value.narrative_anchor)
+      && value.narrative_ref === value.narrative_anchor.origin_plan_ref))
+    && compileBinding(value.compile_binding)
+    && (value.parent_task_id === null || isTodoIdentifier(value.parent_task_id))
+    && isTodoIdentifier(value.phase_id);
+}
+
+function phaseV1(value) {
+  return exactRecord(value, [
+    'phase_id', 'title', 'gate_policy', 'predecessor_phase_ids', 'required_evidence_slots',
+  ]) && isTodoIdentifier(value.phase_id) && nullableText(value.title)
+    && isTodoIdentifier(value.gate_policy)
+    && Array.isArray(value.predecessor_phase_ids)
+    && value.predecessor_phase_ids.every(isTodoIdentifier)
+    && value.predecessor_phase_ids.every((entry, index) => index === 0
+      || compareText(value.predecessor_phase_ids[index - 1], entry) < 0)
+    && Array.isArray(value.required_evidence_slots) && value.required_evidence_slots.length > 0
+    && value.required_evidence_slots.every(isTodoIdentifier)
+    && value.required_evidence_slots.every((entry, index) => index === 0
+      || compareText(value.required_evidence_slots[index - 1], entry) < 0);
+}
+
+function validPhaseGraph(phases) {
+  const ids = new Set(phases.map(({ phase_id }) => phase_id));
+  const predecessors = new Map(phases.map(({ phase_id, predecessor_phase_ids }) => (
+    [phase_id, predecessor_phase_ids]
+  )));
+  if (phases.some(({ phase_id, predecessor_phase_ids }) => predecessor_phase_ids.includes(phase_id)
+    || predecessor_phase_ids.some((id) => !ids.has(id)))) return false;
+  const colors = new Map();
+  const visit = (id) => {
+    if (colors.get(id) === 1) return false;
+    if (colors.get(id) === 2) return true;
+    colors.set(id, 1);
+    if (!predecessors.get(id).every(visit)) return false;
+    colors.set(id, 2);
+    return true;
+  };
+  return [...ids].every(visit);
+}
+
 function validParentGraph(tasks) {
   const parents = new Map(tasks.map(({ task_id, parent_task_id }) => [task_id, parent_task_id]));
   for (const [taskId, parentTaskId] of parents) {
@@ -175,11 +223,14 @@ export function validateTodoPlan(value) {
   try {
     const taskValidator = value?.schema === 'lattice.todo_plan.v1' ? taskV1
       : value?.schema === 'lattice.todo_plan.v2' ? taskV2
-        : value?.schema === 'lattice.todo_plan.v3' ? taskV3 : null;
-    if (!exactRecord(value, [
+        : value?.schema === 'lattice.todo_plan.v3' ? taskV3
+          : value?.schema === 'lattice.todo_plan.v4' ? taskV4 : null;
+    const planKeys = [
       'schema', 'project_id', 'plan_key', 'plan_version', 'predecessor_plan_digest',
       'tasks', 'hard_dependencies', 'joins', 'topology_digest', 'plan_digest',
-    ]) || taskValidator === null || !isTodoIdentifier(value.project_id)
+    ];
+    if (value?.schema === 'lattice.todo_plan.v4') planKeys.push('phases');
+    if (!exactRecord(value, planKeys) || taskValidator === null || !isTodoIdentifier(value.project_id)
       || !isTodoIdentifier(value.plan_key) || !isTodoIdentifier(value.plan_version)
       || !nullableDigest(value.predecessor_plan_digest) || !Array.isArray(value.tasks)
       || value.tasks.length === 0 || value.tasks.length > TODO_LIMITS.tasksPerPlan
@@ -191,7 +242,16 @@ export function validateTodoPlan(value) {
         && Array.isArray(join.after) && join.after.length > 0 && join.after.length <= TODO_LIMITS.tasksPerPlan
         && join.after.every(nodeRef) && nodeRef(join.before))
       || !isTodoDigest(value.topology_digest) || !isTodoDigest(value.plan_digest)
-      || (value.schema === 'lattice.todo_plan.v3' && !validParentGraph(value.tasks))) return false;
+      || (['lattice.todo_plan.v3', 'lattice.todo_plan.v4'].includes(value.schema)
+        && !validParentGraph(value.tasks))) return false;
+    if (value.schema === 'lattice.todo_plan.v4'
+      && (!Array.isArray(value.phases) || value.phases.length === 0
+        || value.phases.length > TODO_LIMITS.tasksPerPlan || !value.phases.every(phaseV1)
+        || value.phases.some((entry, index) => index > 0
+          && compareText(value.phases[index - 1].phase_id, entry.phase_id) >= 0)
+        || new Set(value.phases.map(({ phase_id }) => phase_id)).size !== value.phases.length
+        || value.tasks.some(({ phase_id }) => !value.phases.some((phase) => phase.phase_id === phase_id))
+        || !validPhaseGraph(value.phases))) return false;
     if (value.tasks.some((entry, index) => index > 0 && compareText(value.tasks[index - 1].task_id, entry.task_id) >= 0)
       || value.hard_dependencies.some((edge, index) => index > 0
         && compareText(`${refKey(value.hard_dependencies[index - 1].from)}\0${refKey(value.hard_dependencies[index - 1].to)}`,
@@ -202,6 +262,7 @@ export function validateTodoPlan(value) {
     const topology = {
       project_id: value.project_id, plan_key: value.plan_key, plan_version: value.plan_version,
       tasks: value.tasks, hard_dependencies: value.hard_dependencies, joins: value.joins,
+      ...(value.schema === 'lattice.todo_plan.v4' ? { phases: value.phases } : {}),
     };
     return value.topology_digest === digestTodoArtifact(topology)
       && value.plan_digest === todoSelfDigest(value, 'plan_digest');
@@ -248,6 +309,24 @@ function validPayload(event) {
   if (event.kind === 'reopen') return exactRecord(payload, ['reason', 'target_done_digest', 'override_reason'])
     && nullableText(payload.reason) && payload.reason !== null && isTodoDigest(payload.target_done_digest)
     && nullableText(payload.override_reason);
+  if (event.kind === 'phase_review') return exactRecord(payload, ['reason'])
+    && nullableText(payload.reason) && payload.reason !== null;
+  if (event.kind === 'phase_accept') return exactRecord(payload, [
+    'review_event_digest', 'decision_evidence', 'evidence_slots',
+  ]) && isTodoDigest(payload.review_event_digest) && evidence(payload.decision_evidence)
+    && Array.isArray(payload.evidence_slots) && payload.evidence_slots.length > 0
+    && payload.evidence_slots.every((entry) => exactRecord(entry, ['slot_id', 'evidence'])
+      && isTodoIdentifier(entry.slot_id) && evidence(entry.evidence))
+    && payload.evidence_slots.every((entry, index) => index === 0
+      || compareText(payload.evidence_slots[index - 1].slot_id, entry.slot_id) < 0);
+  if (event.kind === 'phase_reject') return exactRecord(payload, [
+    'review_event_digest', 'reason', 'decision_evidence',
+  ]) && isTodoDigest(payload.review_event_digest) && nullableText(payload.reason)
+    && payload.reason !== null && evidence(payload.decision_evidence);
+  if (event.kind === 'phase_reopen') return exactRecord(payload, [
+    'reason', 'target_decision_digest', 'override_reason',
+  ]) && nullableText(payload.reason) && payload.reason !== null
+    && isTodoDigest(payload.target_decision_digest) && nullableText(payload.override_reason);
   return false;
 }
 
@@ -288,6 +367,21 @@ function validStateMigration(value) {
       || compareText(value[index - 1].from_task_id, entry.from_task_id) < 0);
 }
 
+function validPhaseStateMigration(value) {
+  return Array.isArray(value) && value.length <= TODO_LIMITS.tasksPerPlan
+    && value.every((entry) => exactRecord(entry, ['phase_id', 'state_policy', 'state'])
+      && isTodoIdentifier(entry.phase_id) && ['carry', 'reset'].includes(entry.state_policy)
+      && (entry.state_policy === 'reset' ? entry.state === null
+        : exactRecord(entry.state, [
+          'status', 'review_event_digest', 'decision_event_digest', 'decision_evidence',
+        ]) && ['locked', 'active', 'gate_ready', 'reviewing', 'accepted', 'rejected'].includes(entry.state.status)
+          && nullableDigest(entry.state.review_event_digest)
+          && nullableDigest(entry.state.decision_event_digest)
+          && (entry.state.decision_evidence === null || evidence(entry.state.decision_evidence))))
+    && value.every((entry, index) => index === 0
+      || compareText(value[index - 1].phase_id, entry.phase_id) < 0);
+}
+
 export function validateTodoEvent(value) {
   try {
     const commonKeys = [
@@ -301,11 +395,26 @@ export function validateTodoEvent(value) {
     ]) && value.kind === 'plan_genesis' && value.task_id === null
       && value.reconciliation_state === 'reconciled' && isTodoDigest(value.revision_digest)
       && isTodoDigest(value.reconciliation_digest) && validStateMigration(value.state_migration);
-    return (v1 || v2) && isTodoIdentifier(value.project_id)
+    const v3 = value?.schema === 'lattice.todo_event.v3' && exactRecord(value, [
+      ...commonKeys, 'phase_id',
+    ]);
+    const v4 = value?.schema === 'lattice.todo_event.v4' && exactRecord(value, [
+      ...commonKeys, 'phase_id', 'revision_digest', 'state_migration', 'phase_state_migration',
+    ]) && value.kind === 'plan_genesis' && value.task_id === null && value.phase_id === null
+      && isTodoDigest(value.revision_digest) && validStateMigration(value.state_migration)
+      && validPhaseStateMigration(value.phase_state_migration);
+    const phaseKind = ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen'].includes(value?.kind);
+    return (v1 || v2 || v3 || v4) && isTodoIdentifier(value.project_id)
       && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.plan_version)
       && isNonNegativeSafeInteger(value.sequence) && nullableDigest(value.previous_digest)
       && TODO_EVENT_KINDS.includes(value.kind)
-      && ((value.kind === 'plan_genesis' && value.task_id === null) || (value.kind !== 'plan_genesis' && isTodoIdentifier(value.task_id)))
+      && (v3 || v4
+        ? ((value.kind === 'plan_genesis' && value.task_id === null && value.phase_id === null)
+          || (phaseKind && value.task_id === null && isTodoIdentifier(value.phase_id))
+          || (!phaseKind && value.kind !== 'plan_genesis' && isTodoIdentifier(value.task_id)
+            && value.phase_id === null))
+        : !phaseKind && ((value.kind === 'plan_genesis' && value.task_id === null)
+          || (value.kind !== 'plan_genesis' && isTodoIdentifier(value.task_id))))
       && actor(value.actor) && isStrictTodoTimestamp(value.recorded_at) && provenance(value.provenance)
       && validPayload(value) && isTodoDigest(value.event_digest)
       && value.event_digest === todoSelfDigest(value, 'event_digest');
@@ -336,12 +445,17 @@ export function validateTodoManifest(value) {
 
 export function validateTodoSnapshot(value) {
   try {
-    return exactRecord(value, [
+    const v1 = value?.schema === 'lattice.todo_snapshot.v1' && exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'plan_version', 'projection_version', 'through_sequence',
       'journal_head_digest', 'tasks', 'snapshot_digest',
-    ]) && value.schema === 'lattice.todo_snapshot.v1' && isTodoIdentifier(value.project_id)
+    ]);
+    const v2 = value?.schema === 'lattice.todo_snapshot.v2' && exactRecord(value, [
+      'schema', 'project_id', 'plan_key', 'plan_version', 'projection_version', 'through_sequence',
+      'journal_head_digest', 'tasks', 'phases', 'snapshot_digest',
+    ]);
+    return (v1 || v2) && isTodoIdentifier(value.project_id)
       && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.plan_version)
-      && value.projection_version === 1 && isNonNegativeSafeInteger(value.through_sequence)
+      && value.projection_version === (v1 ? 1 : 2) && isNonNegativeSafeInteger(value.through_sequence)
       && isTodoDigest(value.journal_head_digest) && Array.isArray(value.tasks)
       && value.tasks.length > 0 && value.tasks.length <= TODO_LIMITS.tasksPerPlan
       && value.tasks.every((entry) => exactRecord(entry, [
@@ -352,6 +466,15 @@ export function validateTodoSnapshot(value) {
         && (entry.evidence === null || evidence(entry.evidence) || validateTodoImportSource(entry.evidence))
         && typeof entry.evidence_unverified === 'boolean' && typeof entry.imported === 'boolean')
       && value.tasks.every((entry, index) => index === 0 || value.tasks[index - 1].task_id < entry.task_id)
+      && (!v2 || (Array.isArray(value.phases) && value.phases.length > 0
+        && value.phases.every((entry) => exactRecord(entry, [
+          'phase_id', 'status', 'review_event_digest', 'decision_event_digest', 'decision_evidence',
+        ]) && isTodoIdentifier(entry.phase_id)
+          && ['locked', 'active', 'gate_ready', 'reviewing', 'accepted', 'rejected'].includes(entry.status)
+          && nullableDigest(entry.review_event_digest) && nullableDigest(entry.decision_event_digest)
+          && (entry.decision_evidence === null || evidence(entry.decision_evidence)))
+        && value.phases.every((entry, index) => index === 0
+          || value.phases[index - 1].phase_id < entry.phase_id)))
       && isTodoDigest(value.snapshot_digest) && value.snapshot_digest === todoSelfDigest(value, 'snapshot_digest');
   } catch { return false; }
 }

@@ -33,6 +33,14 @@ if (args.length === 1 && args[0] === '--version') {
   } catch (error) {
     process.exitCode = projectCliFailure(process.stderr, error);
   }
+} else if (args.length === 5 && args[0] === 'plan' && args[1] === 'create'
+  && args[2] === '--schema-version' && args[3] === '2' && args[4] === '--json') {
+  const { projectCliFailure, runPlanCreateSchema } = await import('../src/project-cli.mjs');
+  try {
+    process.exitCode = await runPlanCreateSchema({ stdout: process.stdout, version: 2 });
+  } catch (error) {
+    process.exitCode = projectCliFailure(process.stderr, error);
+  }
 } else if (args.length === 2 && args[0] === 'factory-diagnostics' && args[1] === '--json') {
   const { buildFactoryDiagnostics } = await import('../src/factory-diagnostics.mjs');
   const diagnostics = await buildFactoryDiagnostics();

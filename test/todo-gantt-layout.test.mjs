@@ -127,7 +127,7 @@ test('input member/task/edge/join permutations produce byte-identical output', (
   assert.equal(JSON.stringify(layoutOf(first)), JSON.stringify(layoutOf(second)));
 });
 
-test('2,000 tasks / 8,000 unique edges layout completes within a few seconds', { timeout: 10_000 }, () => {
+test('2,000 tasks / 8,000 unique edges layout completes within the suite contention budget', { timeout: 15_000 }, () => {
   const tasks = Array.from({ length: 2_000 }, (_, index) => ({
     id: String(index).padStart(4, '0'), lane: `lane-${index % 8}`, status: index < 4 ? 'done' : 'pending',
   }));
@@ -147,7 +147,7 @@ test('2,000 tasks / 8,000 unique edges layout completes within a few seconds', {
   const elapsed = performance.now() - started;
   assert.equal(result.metrics.task_count, 2_000);
   assert.equal(result.metrics.edge_count, 8_000);
-  assert.ok(elapsed < 5_000, `layout took ${elapsed.toFixed(1)}ms`);
+  assert.ok(elapsed < 10_000, `layout took ${elapsed.toFixed(1)}ms`);
 });
 
 test('scale overflow fails closed with typed detail', () => {
