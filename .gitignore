@@ -9,8 +9,10 @@ coverage/
 .spotter/
 .codex-sidecar/
 
-# RC3 run event store（Decision 10.1のLattice-owned runtime state。commitしない）
+# 旧RC3 campaignの履歴用run state（現役CLIのstoreではない）。
 research/runs/
 
 # Generated TODO projections are reproducible; the TODO store itself is tracked.
 .lattice/generated/
+# Project-local orchestration run state（ADR 0060）。
+.lattice/runs/
