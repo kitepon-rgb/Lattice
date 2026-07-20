@@ -156,7 +156,7 @@ test(
     const initResp = await client.waitForId(1);
     assert.equal(initResp.error, undefined, JSON.stringify(initResp));
     assert.equal(initResp.result.serverInfo.name, 'lattice-sensor');
-    assert.equal(initResp.result.serverInfo.version, '0.7.0-lattice.1');
+    assert.equal(initResp.result.serverInfo.version, '0.7.1-lattice.1');
 
     client.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
     client.send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
@@ -192,7 +192,7 @@ test(
     const text = statusResp.result.content[0].text;
     assert.match(text, /^provider: lattice$/m);
     assert.match(text, /^sensor_owner: lattice$/m);
-    assert.match(text, /\*\*Lattice sensor version:\*\* 0\.7\.0-lattice\.1/);
+    assert.match(text, /\*\*Lattice sensor version:\*\* 0\.7\.1-lattice\.1/);
     assert.match(text, /mode: direct/);
     assert.match(text, /reason: opt-out/);
 
@@ -248,7 +248,7 @@ test(
     assert.ok(bound, `daemon did not bind within 10s (pidfile never appeared at ${pidPath}) — the internal re-invoke form was not accepted`);
 
     const lock = JSON.parse(readFileSync(pidPath, 'utf8'));
-    assert.equal(lock.version, '0.7.0-lattice.1');
+    assert.equal(lock.version, '0.7.1-lattice.1');
     t.after(() => { try { process.kill(lock.pid, 'SIGTERM'); } catch { /* already gone */ } });
   },
 );

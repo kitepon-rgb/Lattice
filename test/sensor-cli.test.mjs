@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +35,7 @@ test('lattice sensor init/syncは同梱sensorだけでtyped resultを返す', as
       schema: 'lattice.sensor_command_result.v1',
       provider: 'lattice',
       sensor_owner: 'lattice',
-      sensor_version: '0.7.0-lattice.1',
+      sensor_version: '0.7.1-lattice.1',
       command,
       status: 'ok',
     });
@@ -47,4 +47,16 @@ test('lattice sensorは未知commandをtyped usage errorで拒否する', () => 
   assert.equal(result.status, 2);
   assert.equal(result.stdout, '');
   assert.equal(JSON.parse(result.stderr).code, 'USAGE');
+});
+
+test('公開packageは旧Codegraph CLIを同梱せずsensorをprivate実装へ固定する', async () => {
+  const rootPackage = JSON.parse(await readFile(path.join(ROOT, 'package.json'), 'utf8'));
+  const sensorPackage = JSON.parse(await readFile(path.join(ROOT, 'sensor', 'package.json'), 'utf8'));
+
+  assert.equal(rootPackage.files.includes('sensor/dist'), true);
+  assert.equal(rootPackage.files.includes('!sensor/dist/bin'), true);
+  assert.equal(sensorPackage.private, true);
+  assert.equal(sensorPackage.files.includes('!dist/bin'), true);
+  assert.equal(Object.hasOwn(sensorPackage.scripts, 'cli'), false);
+  assert.doesNotMatch(sensorPackage.scripts.build, /codegraph|chmodSync/u);
 });

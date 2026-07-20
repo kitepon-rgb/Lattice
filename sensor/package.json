@@ -1,6 +1,6 @@
 {
   "name": "@quolu/lattice-sensor",
-  "version": "0.7.0-lattice.1",
+  "version": "0.7.1-lattice.1",
   "private": true,
   "description": "Lattice-owned local structural sensor derived from Codegraph.",
   "repository": {
@@ -11,15 +11,14 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "scripts",
+    "!dist/bin",
     "README.md"
   ],
   "scripts": {
-    "build": "npm run clean && tsc && npm run copy-assets && node -e \"require('fs').chmodSync('dist/bin/codegraph.js', 0o755)\"",
+    "build": "npm run clean && tsc && npm run copy-assets",
     "copy-assets": "node -e \"const fs=require('fs');fs.mkdirSync('dist/db',{recursive:true});fs.copyFileSync('src/db/schema.sql','dist/db/schema.sql');fs.mkdirSync('dist/extraction/wasm',{recursive:true});fs.readdirSync('src/extraction/wasm').filter(f=>f.endsWith('.wasm')).forEach(f=>fs.copyFileSync('src/extraction/wasm/'+f,'dist/extraction/wasm/'+f))\"",
     "dev": "tsc --watch",
     "build:kernel": "bash scripts/build-kernel.sh",
-    "cli": "npm run build && node dist/bin/codegraph.js",
     "test": "vitest run --maxWorkers=4 --minWorkers=1",
     "test:watch": "vitest",
     "test:eval": "vitest run __tests__/evaluation/",
