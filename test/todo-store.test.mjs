@@ -18,6 +18,7 @@ import {
 import { projectTodoChainV1 } from '../src/todo-chain.mjs';
 import { layoutTodoGantt } from '../src/todo-gantt-layout.mjs';
 import { phaseTodoRevisionPlanVersion } from '../src/todo-revision.mjs';
+import { projectTodoStatus } from '../src/todo-status.mjs';
 
 const NOW = '2026-07-18T00:00:00.000Z';
 const ACTOR = Object.freeze({ host: 'host-1', session: 'session-1', agent: 'agent-1' });
@@ -291,6 +292,120 @@ test('Phaseは重いgateをjournalで証明しacceptまで後続ToDoを閉じる
   movedRevision.revision_digest = todoSelfDigest(movedRevision, 'revision_digest');
   await expectCode(applyPhaseTodoRevision({ repoRoot: root, writer, revision: movedRevision,
     actor: ACTOR, recordedAt: NOW, now: NOW }), 'REVISION_INVALID', 'phase_carry_semantics_changed');
+});
+
+test('todo_plan.v5はPhaseを監査境界に限定しToDo DAGの並列性を維持する', async (context) => {
+  const root = await bareWorkspace(context);
+  const plan = buildTodoPlan({
+    schema: 'lattice.todo_plan.v5', project_id: 'project-1', plan_key: 'main', plan_version: 'v1',
+    predecessor_plan_digest: null,
+    tasks: [taskV4('T1', 'phase-1'), taskV4('T2', 'phase-2'), taskV4('T3', 'phase-2')],
+    phases: [
+      { phase_id: 'phase-1', title: '設計', gate_policy: 'heavy', predecessor_phase_ids: [],
+        required_evidence_slots: ['heavy'] },
+      { phase_id: 'phase-2', title: '実装', gate_policy: 'heavy', predecessor_phase_ids: ['phase-1'],
+        required_evidence_slots: ['heavy'] },
+    ],
+    hard_dependencies: [], joins: [],
+    phase_accept_dependencies: [{
+      from: { project_id: 'project-1', plan_key: 'main', phase_id: 'phase-1' },
+      to: ref('T3'),
+    }],
+  });
+  await initializeTodoStore({ repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }],
+    plans: [{ plan, genesis: { actor: ACTOR, recorded_at: NOW } }], now: NOW });
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  const initial = await readTodoStore({ repoRoot: root, now: NOW });
+  assert.deepEqual(projectTodoStatus(initial).next_ready.map(({ task_id }) => task_id), ['T1', 'T2']);
+  assert.deepEqual(initial.members[0].snapshot.phases.map(({ phase_id, status }) => [phase_id, status]),
+    [['phase-1', 'active'], ['phase-2', 'locked']]);
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T2', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T3', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } }), 'STORE_INCONSISTENT', 'invalid_start_transition');
+  await expectCode(appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T3', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: '明示Phase gateを迂回' } } }),
+  'STORE_INCONSISTENT', 'invalid_start_transition');
+  const evidenceBytes = Buffer.from('v5 phase audit\n');
+  const oid = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+    cwd: root, input: evidenceBytes, encoding: 'utf8',
+  }).trim();
+  const evidence = { evidence_id: 'v5-audit', repo_id: 'self', path: 'v5-audit.txt',
+    git_blob_oid: oid, content_digest: createHash('sha256').update(evidenceBytes).digest('hex'),
+    media_type: 'text/plain', anchor_digest: null };
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'done', task_id: 'T1', actor: ACTOR, recorded_at: NOW, payload: { evidence } } });
+  const reviewed = await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'phase_review', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { reason: '重監査' } } });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'phase_accept', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { review_event_digest: reviewed.event.event_digest, decision_evidence: evidence,
+        evidence_slots: [{ slot_id: 'heavy', evidence }] } } });
+  const reopened = await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'phase_reopen', phase_id: 'phase-1', actor: ACTOR, recorded_at: NOW,
+      payload: { reason: '再監査', override_reason: null } } });
+  assert.equal(reopened.snapshot.phases[0].status, 'gate_ready');
+});
+
+test('todo_plan.v5はtask・Phase gateを合わせたcycleを拒否する', async (context) => {
+  const root = await bareWorkspace(context);
+  const plan = buildTodoPlan({
+    schema: 'lattice.todo_plan.v5', project_id: 'project-1', plan_key: 'main', plan_version: 'v1',
+    predecessor_plan_digest: null,
+    tasks: [taskV4('T1', 'phase-1'), taskV4('T2', 'phase-2')],
+    phases: [
+      { phase_id: 'phase-1', title: '設計', gate_policy: 'heavy', predecessor_phase_ids: [],
+        required_evidence_slots: ['heavy'] },
+      { phase_id: 'phase-2', title: '実装', gate_policy: 'heavy', predecessor_phase_ids: [],
+        required_evidence_slots: ['heavy'] },
+    ],
+    hard_dependencies: [{ from: ref('T2'), to: ref('T1') }], joins: [],
+    phase_accept_dependencies: [{
+      from: { project_id: 'project-1', plan_key: 'main', phase_id: 'phase-1' },
+      to: ref('T2'),
+    }],
+  });
+  await expectCode(initializeTodoStore({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }],
+    plans: [{ plan, genesis: { actor: ACTOR, recorded_at: NOW } }], now: NOW,
+  }), 'STORE_INCONSISTENT', 'merged_cycle');
+});
+
+test('phase_todo_revision.v2はv4 planを分離型v5へ原子的に昇格する', async (context) => {
+  const { root } = await phaseRevisionFixture(context);
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  const predecessor = { plan_digest: member.plan.plan_digest,
+    journal_head_digest: member.journal.events.at(-1).event_digest,
+    plan_version: member.plan.plan_version };
+  const taskMigration = [{ from_task_id: 'T1', to_task_id: 'T1', state_policy: 'reset_pending' }];
+  const phaseMigration = [{ from_phase_id: 'phase-1', to_phase_id: 'phase-1', state_policy: 'reset' }];
+  const desiredInput = structuredClone(member.plan);
+  delete desiredInput.topology_digest; delete desiredInput.plan_digest;
+  desiredInput.schema = 'lattice.todo_plan.v5';
+  desiredInput.phase_accept_dependencies = [];
+  desiredInput.predecessor_plan_digest = predecessor.plan_digest;
+  desiredInput.plan_version = phaseTodoRevisionPlanVersion({ projectId: 'project-1', planKey: 'main',
+    predecessor, desiredPlan: desiredInput, taskMigration, phaseMigration });
+  const desiredPlan = buildTodoPlan(desiredInput);
+  const revision = { schema: 'lattice.phase_todo_revision.v2', project_id: 'project-1',
+    plan_key: 'main', predecessor, desired_plan: desiredPlan, task_migration: taskMigration,
+    phase_migration: phaseMigration, revision_digest: '' };
+  revision.revision_digest = todoSelfDigest(revision, 'revision_digest');
+  await applyPhaseTodoRevision({ repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+    revision, actor: ACTOR, recordedAt: NOW, now: NOW });
+  const revised = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  assert.equal(revised.plan.schema, 'lattice.todo_plan.v5');
+  assert.deepEqual(revised.plan.phase_accept_dependencies, []);
+  assert.equal(revised.journal.events[0].schema, 'lattice.todo_event.v4');
 });
 
 for (const stage of [

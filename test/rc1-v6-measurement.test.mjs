@@ -19,12 +19,12 @@ async function readArtifact(relativePath) {
   return JSON.parse(await readFile(new URL(relativePath, ARTIFACT_ROOT), 'utf8'));
 }
 
-test('v6 measurement binds snapshot and sensor executable; archived Codegraph evidence remains replayable', async () => {
+test('v6 measurement binds snapshot and sensor executable; archived LatticeSensor evidence remains replayable', async () => {
   const {
     bindRc1V6EvidenceBundle,
     compileRc1V6BoundaryCondition,
     createRc1V6ConditionRun,
-    resolveRc1V6CodegraphIdentity,
+    resolveRc1V6LatticeSensorIdentity,
     sourceSnapshotFromRc1BehaviorSurface,
     sourceSnapshotFromRc1TransformOutput,
   } = await import('../src/rc1-v6-measurement.mjs');
@@ -50,20 +50,20 @@ test('v6 measurement binds snapshot and sensor executable; archived Codegraph ev
   const controlSnapshot = sourceSnapshotFromRc1BehaviorSurface(preReceipt.surface);
   const treatmentSnapshot = sourceSnapshotFromRc1TransformOutput(transformArtifact);
   const postSnapshot = sourceSnapshotFromRc1BehaviorSurface(postReceipt.surface);
-  const sensorIdentity = await resolveRc1V6CodegraphIdentity();
-  assert.equal(sensorIdentity.executable_ref, 'lattice-sensor');
-  // The immutable v5 fixture was captured by Codegraph 1.4.1. Preserve its
+  const currentSensorIdentity = await resolveRc1V6LatticeSensorIdentity();
+  assert.equal(currentSensorIdentity.executable_ref, 'lattice-sensor');
+  // The immutable v5 fixture was captured by LatticeSensor 1.4.1. Preserve its
   // measured identity for replay; current campaigns capture Lattice sensor.
-  const codegraphIdentity = {
-    ...sensorIdentity,
+  const sensorIdentity = {
+    ...currentSensorIdentity,
     version: '1.4.1',
-    executable_ref: 'codegraph',
+    executable_ref: 'sensor',
   };
   const expected = {
     base_sha: preReceipt.base_sha,
     patch_digest: null,
     snapshot: controlSnapshot,
-    codegraph_identity: codegraphIdentity,
+    sensor_identity: sensorIdentity,
     query_set_digest: digestArtifact(querySet),
   };
   const bundle = bindRc1V6EvidenceBundle({
@@ -74,9 +74,9 @@ test('v6 measurement binds snapshot and sensor executable; archived Codegraph ev
 
   assert.equal(controlSnapshot.schema, 'lattice.rc1.source_snapshot.v1');
   assert.deepEqual(treatmentSnapshot, postSnapshot);
-  assert.equal(codegraphIdentity.schema, 'lattice.rc1.codegraph_identity.v1');
-  assert.match(codegraphIdentity.version, /^\d+\.\d+\.\d+/);
-  assert.match(codegraphIdentity.executable_digest, /^[0-9a-f]{64}$/);
+  assert.equal(sensorIdentity.schema, 'lattice.rc1.sensor_identity.v1');
+  assert.match(sensorIdentity.version, /^\d+\.\d+\.\d+/);
+  assert.match(sensorIdentity.executable_digest, /^[0-9a-f]{64}$/);
   assert.equal(verifyRc1V6RunEvidence({ run, bundle, expected }).valid, true);
 
   const compiled = compileRc1V6BoundaryCondition({
@@ -94,8 +94,8 @@ test('v6 measurement binds snapshot and sensor executable; archived Codegraph ev
     digestArtifact(controlSnapshot),
   );
   assert.equal(
-    compiled.boundary_manifest.source.codegraph_version,
-    codegraphIdentity.version,
+    compiled.boundary_manifest.source.sensor_version,
+    sensorIdentity.version,
   );
 
   const substituted = structuredClone({ run, bundle });

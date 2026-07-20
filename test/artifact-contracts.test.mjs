@@ -34,7 +34,7 @@ function boundaryManifest() {
       code_snapshot_digest: sha('b'),
       query_set_digest: sha('c'),
       manual_evidence_digest: sha('d'),
-      codegraph_version: '1.4.1',
+      sensor_version: '1.4.1',
     },
     graph_evidence: [
       {

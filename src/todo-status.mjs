@@ -138,6 +138,11 @@ export function projectTodoStatus(readModel) {
   const nodes = new Map();
   const incoming = new Map();
   const memberHeads = [];
+  const phaseStatuses = new Map(readModel.members.flatMap((member) => (
+    (member.snapshot?.phases ?? []).map((phase) => [
+      `${member.plan.project_id}\0${member.plan.plan_key}\0${phase.phase_id}`, phase.status,
+    ])
+  )));
   const members = [...readModel.members].sort((left, right) => {
     const leftKey = left?.descriptor?.plan_key ?? '';
     const rightKey = right?.descriptor?.plan_key ?? '';
@@ -191,8 +196,10 @@ export function projectTodoStatus(readModel) {
         label: displayText(task.title, task.task_id, TODO_STATUS_LABEL_LIMIT),
         status: state.status,
         blocked_reason: state.blocked_reason,
-        phase_id: member.plan.schema === 'lattice.todo_plan.v4' ? task.phase_id : null,
-        phase_status: member.plan.schema === 'lattice.todo_plan.v4'
+        plan_schema: member.plan.schema,
+        phase_id: ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)
+          ? task.phase_id : null,
+        phase_status: ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)
           ? phases.get(task.phase_id)?.status : null,
         phase_ready: member.plan.schema !== 'lattice.todo_plan.v4'
           || phases.get(task.phase_id)?.status === 'active',
@@ -209,10 +216,20 @@ export function projectTodoStatus(readModel) {
     }
     incoming.get(toKey).add(fromKey);
   };
+  const phaseAcceptIncoming = new Map([...nodes.keys()].map((key) => [key, new Set()]));
   for (const member of members) {
     for (const edge of member.plan.hard_dependencies) addPredecessor(edge.from, edge.to);
     for (const join of member.plan.joins) {
       for (const after of join.after) addPredecessor(after, join.before);
+    }
+    if (member.plan.schema === 'lattice.todo_plan.v5') {
+      for (const edge of member.plan.phase_accept_dependencies) {
+        const target = refKey(edge.to);
+        if (!nodes.has(target)) fail('TODO_STATUS_INVALID_INPUT', 'todo_status_dependency_dangling');
+        phaseAcceptIncoming.get(target).add(
+          `${edge.from.project_id}\0${edge.from.plan_key}\0${edge.from.phase_id}`,
+        );
+      }
     }
   }
 
@@ -236,10 +253,12 @@ export function projectTodoStatus(readModel) {
       && [...incoming.get(node.key)].every((key) => {
         const predecessor = nodes.get(key);
         return predecessor.status === 'done'
-          && (predecessor.phase_id === null
+          && (predecessor.plan_schema !== 'lattice.todo_plan.v4'
+            || predecessor.phase_id === null
             || (predecessor.plan_key === node.plan_key && predecessor.phase_id === node.phase_id)
             || predecessor.phase_status === 'accepted');
-      })) nextReady.push(task);
+      }) && [...phaseAcceptIncoming.get(node.key)]
+        .every((key) => phaseStatuses.get(key) === 'accepted')) nextReady.push(task);
     if (node.status === 'blocked') {
       blocked.push({
         plan_key: node.plan_key,

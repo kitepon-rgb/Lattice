@@ -1,11 +1,11 @@
-# Lattice編入パッケージ要件（dotagents工場コア編入・L6引き渡し文書）
+# Lattice integration package（現行公開面）
 
-- Date: 2026-07-18
-- 位置づけ: dotagents導入plan（`dotagents/docs/plan_lattice-factory-integration.md` Phase L6）への
-  引き渡し台帳。**各契約の正典は参照先ADR**であり、本書は所在と編入条件だけを固定する（複製しない）。
+- Updated: 2026-07-21
+- 位置づけ: hostや工場へ組み込む公開面の索引。**各契約の正典は参照先ADR**であり、
+  本書は所在と編入条件だけを固定する（複製しない）。
 - 根拠裁定: [ADR 0051](adr/0051-rc4-phase-gate-support.md)（RC4条件付きsupport・Decision 6のcarry-over）
 
-## 1. CLI 6面の安定契約
+## 1. runtime CLI 6面の安定契約
 
 正典: [ADR 0044 Decision 8](adr/0044-rc3-runtime-contract.md)。
 
@@ -24,8 +24,10 @@
 - RC2公開済み継承: `lattice.boundary_verdict.v2`・`lattice.plan_graph.v2`・RC2 artifact manifest系（同名変更禁止）
 - 共通規律: exact key・bounded collection・canonical serialization・SHA-256 digest・fail closed。
   field追加・意味変更はversionを上げ新ADRで裁定（in-place拡張禁止）
-- TODO工程: `todo_plan.v4`、`todo_event.v3/v4`、`todo_snapshot.v2`、
-  `phase_todo_revision.v1`、`todo_revision_set.v3`がPhase gateとcross-plan revisionを所有する。
+- TODO工程: 現行authoringは`lattice.plan_create_input.v3`、planは`lattice.todo_plan.v5`、
+  eventは`lattice.todo_event.v4`、snapshotは`lattice.todo_snapshot.v2`、Phase revisionは
+  `lattice.phase_todo_revision.v2`、cross-plan revisionは`lattice.todo_revision_set.v3`を使う。
+  旧schemaは既存storeの読取・移行互換としてだけ維持する。
 
 ## 3. run store／artifact規約
 
@@ -48,19 +50,16 @@ subagent executor・packet `isolation_contract`・fingerprint境界検証・diff
 - 実証済みadapterは`claude-implementer-subagent`のみ（単一provider＝
   [ADR 0051 Decision 2](adr/0051-rc4-phase-gate-support.md)のclaim境界。クロスprovider executorは未実証）
 
-## 5. Lattice sensor同梱・独立Codegraph退役（完了）
+## 5. Lattice Sensor同梱契約（完了）
 
-正典: [ADR 0047](adr/0047-codegraph-absorption-and-sensor-ownership.md)（fork吸収・sensor自前所有）＋
-[ADR 0049](adr/0049-lattice-mcp-surface-contract.md)（MCP面の公開契約・製品同一性分離・外部通信遮断）。
+正典: [ADR 0059](adr/0059-lattice-sensor-identity-and-tool-name-cutover.md)。
 
 - MIT license notice・attribution維持（`sensor/LICENSE`・`sensor/NOTICE`・fork時点upstream `841beea`）
-- runtimeは配布物内の`./sensor/dist`だけを直接起動し、PATH上の`codegraph`、
-  `npx @colbymchenry/codegraph`、外部SDKへfallbackしない
+- runtimeは配布物内の`./sensor/dist`だけを直接起動し、外部CLI・外部SDKへfallbackしない
 - index管理の公開入口は`lattice sensor init|sync [path] --json`、MCP入口は`lattice-mcp`
-- 単独Codegraph配線は退役済み。production runtime、CIの正規入口、host integrationはLattice sensorを使い、
-  旧cache/dataを入力またはfallbackとして読まない。
-- `codegraph_*`互換tool名はwire compatibilityだけに残り、提供者・所有者はLatticeとして識別する。
-  次期majorでの改名方針はADR 0059が正。
+- project stateは`.lattice/sensor/`だけに作り、別製品のcache/dataを入力・移行元・fallbackとして読まない
+- MCP公開toolは`lattice_sensor_*`だけ、設定は`lattice-sensor.json`、環境変数は`LATTICE_SENSOR_*`だけを使う
+- standalone installer・upgrade・uninstall・独立binは配布しない
 
 ## 5.5 native factory diagnosticsとruntime error store（工場必須要件・実装済み）
 

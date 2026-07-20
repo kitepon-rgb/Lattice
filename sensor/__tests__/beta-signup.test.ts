@@ -1,9 +1,9 @@
 /**
- * CodeGraph Pro beta opt-in (installer Step 5½).
+ * LatticeSensor Pro beta opt-in (installer Step 5½).
  *
  * Covers the module the interactive prompt drives:
  *   - ask-once persistence in the user-level state dir (temp dir injected —
- *     no real ~/.codegraph ever touched)
+ *     no real ~/.lattice/sensor ever touched)
  *   - the submit request shape (endpoint, method, JSON body)
  *   - fail-soft behavior: bad responses and network errors return false,
  *     never throw

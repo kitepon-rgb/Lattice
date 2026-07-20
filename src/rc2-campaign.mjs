@@ -20,7 +20,7 @@ import {
   digestArtifact,
 } from './artifact-contracts.mjs';
 import { compileBoundaryCondition } from './boundary-compiler.mjs';
-import { collectCodegraphEvidence } from './sensor-adapter.mjs';
+import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { invokeSensorCli, LATTICE_SENSOR_CLI } from './sensor-runtime.mjs';
 import { runIsolatedTransform } from './isolation-runner.mjs';
 import { runRc1BlackBoxOracle } from './rc1-black-box-oracle.mjs';
@@ -47,16 +47,16 @@ const ARTIFACT_ROOTS = Object.freeze({
   v3: 'research/campaigns/rc2/artifacts/v3',
   v4: 'research/campaigns/rc2/artifacts/v4',
 });
-const CODEGRAPH_CONFIG_REPO_PATH = 'codegraph.json';
-const CODEGRAPH_CONFIG_ARTIFACT_PATH = 'identity/codegraph-config.json';
+const SENSOR_CONFIG_REPO_PATH = 'lattice-sensor.json';
+const SENSOR_CONFIG_ARTIFACT_PATH = 'identity/lattice-sensor-config.json';
 // live実行は現在ratifiedなconfig（ADR 0053 Decision 3 epoch）との完全一致だけを受理する。
 // 過去epochのartifact検証はrc2-artifact-set.mjsのratified epoch allowlistが担う。
-const CODEGRAPH_CONFIG_BYTES = Buffer.from(
+const SENSOR_CONFIG_BYTES = Buffer.from(
   '{"exclude":["research/campaigns/**/artifacts/**/identity/","research/runs/",".lattice/todo/",".lattice/generated/"]}\n',
   'utf8',
 );
 const V2_ONLY_ARTIFACT_PATHS = Object.freeze([
-  CODEGRAPH_CONFIG_ARTIFACT_PATH,
+  SENSOR_CONFIG_ARTIFACT_PATH,
   'predecessors/adr-0040.md',
   'predecessors/rc2-v1-artifact-manifest.json',
   'predecessors/rc2-v1-new-plan-version.json',
@@ -124,7 +124,7 @@ const RC1_ARTIFACT_INPUTS = Object.freeze({
 });
 
 const SOURCE_IDENTITIES = Object.freeze([
-  ['src/codegraph-adapter.mjs', 'identity/codegraph-adapter.mjs', new URL('./codegraph-adapter.mjs', import.meta.url)],
+  ['src/sensor-adapter.mjs', 'identity/lattice-sensor-adapter.mjs', new URL('./sensor-adapter.mjs', import.meta.url)],
   ['src/rc1-black-box-oracle.mjs', 'identity/rc1-black-box-oracle.mjs', new URL('./rc1-black-box-oracle.mjs', import.meta.url)],
   ['src/boundary-compiler.mjs', 'identity/rc1-boundary-compiler.mjs', new URL('./boundary-compiler.mjs', import.meta.url)],
   ['src/rc1-evidence-bundle.mjs', 'identity/rc1-evidence-bundle.mjs', new URL('./rc1-evidence-bundle.mjs', import.meta.url)],
@@ -148,7 +148,7 @@ const PREDECESSOR_FILES = Object.freeze({
   'predecessors/rc1-v6-seam.patch': `${RC1_ARTIFACT_ROOT}/transform/seam.patch`,
   'predecessors/rc1-v6-transform-artifact.json': `${RC1_ARTIFACT_ROOT}/transform/transform-artifact.json`,
   'predecessors/rc1-v6-transform-receipt.json': `${RC1_ARTIFACT_ROOT}/transform/transform-receipt.json`,
-  'predecessors/adr-0040.md': 'docs/adr/0040-rc2-post-publication-codegraph-scope-and-artifact-v2.md',
+  'predecessors/adr-0040.md': 'docs/adr/0040-rc2-post-publication-lattice-sensor-scope-and-artifact-v2.md',
   'predecessors/rc2-v1-artifact-manifest.json': `${ARTIFACT_ROOTS.v1}/artifact-manifest.json`,
   'predecessors/rc2-v1-new-plan-version.json': `${ARTIFACT_ROOTS.v1}/new-plan-version.json`,
   'predecessors/adr-0041.md': 'docs/adr/0041-rc2-artifact-semantic-oracle-mutation-binding.md',
@@ -237,22 +237,22 @@ async function captureExecutionIdentity(repoRoot) {
   }
   const executableBytes = await readFile(LATTICE_SENSOR_CLI);
   const version = (await run(process.execPath, [LATTICE_SENSOR_CLI, '--version'])).stdout.toString('utf8').trim();
-  if (!SEMVER.test(version)) throw new TypeError('Lattice sensor versionがsemverではない');
-  const projectConfigBytes = await readFile(path.join(repoRoot, CODEGRAPH_CONFIG_REPO_PATH));
-  if (!projectConfigBytes.equals(CODEGRAPH_CONFIG_BYTES)) {
-    throw new TypeError('Codegraph project config bytesがRC2 v2 contractと一致しない');
+  if (!SEMVER.test(version)) throw new TypeError('LatticeSensor versionがsemverではない');
+  const projectConfigBytes = await readFile(path.join(repoRoot, SENSOR_CONFIG_REPO_PATH));
+  if (!projectConfigBytes.equals(SENSOR_CONFIG_BYTES)) {
+    throw new TypeError('LatticeSensor project config bytesがRC2 v2 contractと一致しない');
   }
-  const codegraphIdentity = {
-    schema: 'lattice.rc2.codegraph_identity.v2',
+  const sensorIdentity = {
+    schema: 'lattice.rc2.sensor_identity.v2',
     version,
     executable_ref: 'lattice-sensor',
     executable_digest: sha256(executableBytes),
-    project_config_ref: CODEGRAPH_CONFIG_ARTIFACT_PATH,
+    project_config_ref: SENSOR_CONFIG_ARTIFACT_PATH,
     project_config_digest: sha256(projectConfigBytes),
   };
-  payloads.set('identity/codegraph-executable', executableBytes);
-  payloads.set(CODEGRAPH_CONFIG_ARTIFACT_PATH, projectConfigBytes);
-  const snapshot = { sources, codegraph_identity: codegraphIdentity };
+  payloads.set('identity/lattice-sensor-executable', executableBytes);
+  payloads.set(SENSOR_CONFIG_ARTIFACT_PATH, projectConfigBytes);
+  const snapshot = { sources, sensor_identity: sensorIdentity };
   return { snapshot, digest: digestArtifact(snapshot), payloads };
 }
 
@@ -367,21 +367,21 @@ async function applyPatch(worktreePath, patch) {
   await run('git', ['apply', '--binary', '-'], { cwd: worktreePath, input: patch });
 }
 
-async function captureCodegraphBootstrap(worktreePath) {
+async function captureLatticeSensorBootstrap(worktreePath) {
   try {
-    return await readFile(path.join(worktreePath, '.codegraph', '.gitignore'));
+    return await readFile(path.join(worktreePath, '.lattice/sensor', '.gitignore'));
   } catch (error) {
     if (error?.code === 'ENOENT') return null;
     throw error;
   }
 }
 
-async function restoreCodegraphBootstrap(worktreePath, bootstrap) {
-  const codegraphPath = path.join(worktreePath, '.codegraph');
-  await rm(codegraphPath, { recursive: true, force: true });
+async function restoreLatticeSensorBootstrap(worktreePath, bootstrap) {
+  const sensorPath = path.join(worktreePath, '.lattice/sensor');
+  await rm(sensorPath, { recursive: true, force: true });
   if (bootstrap === null) return;
-  await mkdir(codegraphPath, { recursive: true });
-  await writeFile(path.join(codegraphPath, '.gitignore'), bootstrap);
+  await mkdir(sensorPath, { recursive: true });
+  await writeFile(path.join(sensorPath, '.gitignore'), bootstrap);
 }
 
 async function worktreeCount(repoRoot) {
@@ -404,7 +404,7 @@ async function observeFreshIndex({
   paths,
   patch,
   allowedPaths,
-  codegraphIdentity,
+  sensorIdentity,
   oracle,
   rc1Inputs,
   costMeasurements,
@@ -434,16 +434,16 @@ async function observeFreshIndex({
         : await runRc1BlackBoxOracle({ repoRoot: worktreePath, oracle });
       oracleElapsedMs = roundedMilliseconds(oracleStarted);
       if (oracleReceipt.outcome !== 'passed') throw new TypeError(`${runId} oracle failed`);
-      const bootstrap = await captureCodegraphBootstrap(worktreePath);
+      const bootstrap = await captureLatticeSensorBootstrap(worktreePath);
       try {
         const indexStarted = performance.now();
         await invokeSensorCli(run, ['init', '.'], { cwd: worktreePath });
         indexElapsedMs = roundedMilliseconds(indexStarted);
         const queryStarted = performance.now();
-        rawEvidence = await collectCodegraphEvidence({ cwd: worktreePath, querySet });
+        rawEvidence = await collectSensorEvidence({ cwd: worktreePath, querySet });
         queryElapsedMs = roundedMilliseconds(queryStarted);
       } finally {
-        await restoreCodegraphBootstrap(worktreePath, bootstrap);
+        await restoreLatticeSensorBootstrap(worktreePath, bootstrap);
       }
     },
   });
@@ -462,13 +462,13 @@ async function observeFreshIndex({
   const evidence = createRc1EvidenceBundle({ condition, runId, querySet, rawEvidence });
   const patchDigest = condition === 'treatment' ? sha256(isolated.patch) : null;
   const measurement = {
-    schema: 'lattice.rc2.codegraph_measurement.v1',
+    schema: 'lattice.rc2.sensor_measurement.v1',
     base_sha: baseSha,
     patch_digest: patchDigest,
     snapshot,
     snapshot_digest: digestArtifact(snapshot),
-    codegraph_identity: structuredClone(codegraphIdentity),
-    codegraph_identity_digest: digestArtifact(codegraphIdentity),
+    sensor_identity: structuredClone(sensorIdentity),
+    sensor_identity_digest: digestArtifact(sensorIdentity),
     query_set_digest: digestArtifact(querySet),
     raw_evidence_digest: evidence.raw.payload_digest,
   };
@@ -485,7 +485,7 @@ async function observeFreshIndex({
     });
   }
   const runRecord = {
-    schema: 'lattice.rc2.fresh_codegraph_run.v1',
+    schema: 'lattice.rc2.fresh_sensor_run.v1',
     family,
     condition,
     run_id: runId,
@@ -511,7 +511,7 @@ async function observeFreshIndex({
       candidateSpec: rc1Inputs.candidateSpec,
       manualEvidence,
       querySet: rc1Inputs.querySet,
-      codegraphEvidence: raw,
+      sensorEvidence: raw,
       codeSnapshotDigest: measurement.snapshot_digest,
       planVersion: `rc2-${condition}-transfer-${label}`,
     });
@@ -567,7 +567,7 @@ function compilePrimary({ runRecord, inputs, manualEvidence, planInput, conditio
       manualEvidence,
       querySet: inputs.querySet,
       sourceSnapshot: runRecord.measurement.snapshot,
-      codegraphEvidence: runRecord.evidence.portable,
+      sensorEvidence: runRecord.evidence.portable,
     })
   ));
   return compiledRecord({ condition, runId: runRecord.run_id, bundle, costMeasurements });
@@ -582,7 +582,7 @@ function compileUnknown({ runRecord, inputs, costMeasurements }) {
       manualEvidence: inputs.unknownManualEvidence,
       querySet: inputs.querySet,
       sourceSnapshot: runRecord.measurement.snapshot,
-      codegraphEvidence: runRecord.evidence.portable,
+      sensorEvidence: runRecord.evidence.portable,
     })
   ));
   const outcome = timedSync(`compile.${condition}.${runRecord.run_id}`, costMeasurements, () => (
@@ -778,7 +778,7 @@ function storedEvidence(evidence) {
     'payload_digest',
     'payload_base64',
   ])
-    || raw.schema !== 'lattice.codegraph_raw_opaque_receipt.v1'
+    || raw.schema !== 'lattice.sensor_raw_opaque_receipt.v1'
     || raw.encoding !== 'canonical-json-base64'
     || typeof raw.payload_base64 !== 'string') {
     throw new TypeError('run raw evidence receipt is invalid');
@@ -806,7 +806,7 @@ function storedEvidence(evidence) {
   return {
     ...structuredClone(evidence),
     raw: {
-      schema: 'lattice.rc2.chunked_codegraph_raw_receipt.v1',
+      schema: 'lattice.rc2.chunked_sensor_raw_receipt.v1',
       source_schema: raw.schema,
       media_type: raw.media_type,
       source_encoding: raw.encoding,
@@ -863,7 +863,7 @@ function predecessorDescriptors(payloads) {
   add('execution_identity', 'identity.json');
   add('compiler_identity', 'identity/schedulability-compiler-v2.mjs');
   add('verifier_identity', 'identity/schedulability-verifier-v2.mjs');
-  add('codegraph_project_config', CODEGRAPH_CONFIG_ARTIFACT_PATH);
+  add('sensor_project_config', SENSOR_CONFIG_ARTIFACT_PATH);
   return descriptors;
 }
 
@@ -1186,7 +1186,7 @@ export async function runRc2Campaign(options = {}) {
   const common = {
     repoRoot: root,
     baseSha,
-    codegraphIdentity: identityBefore.snapshot.codegraph_identity,
+    sensorIdentity: identityBefore.snapshot.sensor_identity,
     costMeasurements,
   };
   const primaryControl = [];
@@ -1260,8 +1260,8 @@ export async function runRc2Campaign(options = {}) {
   const identity = {
     schema: 'lattice.rc2.execution_identity.v4',
     sources: identityBefore.snapshot.sources,
-    codegraph_identity: identityBefore.snapshot.codegraph_identity,
-    codegraph_identity_digest: digestArtifact(identityBefore.snapshot.codegraph_identity),
+    sensor_identity: identityBefore.snapshot.sensor_identity,
+    sensor_identity_digest: digestArtifact(identityBefore.snapshot.sensor_identity),
     before_digest: identityBefore.digest,
     after_digest: identityAfter.digest,
   };

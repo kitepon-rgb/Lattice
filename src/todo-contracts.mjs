@@ -98,6 +98,12 @@ const nodeRef = (value) => (exactRecord(value, ['project_id', 'plan_key', 'task_
   && (value.expected_topology_digest === undefined || isTodoDigest(value.expected_topology_digest));
 const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 const refKey = (value) => `${value.project_id}\0${value.plan_key}\0${value.task_id}`;
+const phaseRef = (value) => (exactRecord(value, ['project_id', 'plan_key', 'phase_id'])
+  || exactRecord(value, ['project_id', 'plan_key', 'phase_id', 'expected_topology_digest']))
+  && isTodoIdentifier(value.project_id) && isTodoIdentifier(value.plan_key)
+  && isTodoIdentifier(value.phase_id)
+  && (value.expected_topology_digest === undefined || isTodoDigest(value.expected_topology_digest));
+const phaseRefKey = (value) => `${value.project_id}\0${value.plan_key}\0${value.phase_id}`;
 
 function compileBinding(value) {
   return value === null || (exactRecord(value, [
@@ -224,12 +230,13 @@ export function validateTodoPlan(value) {
     const taskValidator = value?.schema === 'lattice.todo_plan.v1' ? taskV1
       : value?.schema === 'lattice.todo_plan.v2' ? taskV2
         : value?.schema === 'lattice.todo_plan.v3' ? taskV3
-          : value?.schema === 'lattice.todo_plan.v4' ? taskV4 : null;
+          : ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(value?.schema) ? taskV4 : null;
     const planKeys = [
       'schema', 'project_id', 'plan_key', 'plan_version', 'predecessor_plan_digest',
       'tasks', 'hard_dependencies', 'joins', 'topology_digest', 'plan_digest',
     ];
-    if (value?.schema === 'lattice.todo_plan.v4') planKeys.push('phases');
+    if (['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(value?.schema)) planKeys.push('phases');
+    if (value?.schema === 'lattice.todo_plan.v5') planKeys.push('phase_accept_dependencies');
     if (!exactRecord(value, planKeys) || taskValidator === null || !isTodoIdentifier(value.project_id)
       || !isTodoIdentifier(value.plan_key) || !isTodoIdentifier(value.plan_version)
       || !nullableDigest(value.predecessor_plan_digest) || !Array.isArray(value.tasks)
@@ -242,9 +249,9 @@ export function validateTodoPlan(value) {
         && Array.isArray(join.after) && join.after.length > 0 && join.after.length <= TODO_LIMITS.tasksPerPlan
         && join.after.every(nodeRef) && nodeRef(join.before))
       || !isTodoDigest(value.topology_digest) || !isTodoDigest(value.plan_digest)
-      || (['lattice.todo_plan.v3', 'lattice.todo_plan.v4'].includes(value.schema)
+      || (['lattice.todo_plan.v3', 'lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(value.schema)
         && !validParentGraph(value.tasks))) return false;
-    if (value.schema === 'lattice.todo_plan.v4'
+    if (['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(value.schema)
       && (!Array.isArray(value.phases) || value.phases.length === 0
         || value.phases.length > TODO_LIMITS.tasksPerPlan || !value.phases.every(phaseV1)
         || value.phases.some((entry, index) => index > 0
@@ -252,6 +259,14 @@ export function validateTodoPlan(value) {
         || new Set(value.phases.map(({ phase_id }) => phase_id)).size !== value.phases.length
         || value.tasks.some(({ phase_id }) => !value.phases.some((phase) => phase.phase_id === phase_id))
         || !validPhaseGraph(value.phases))) return false;
+    if (value.schema === 'lattice.todo_plan.v5'
+      && (!Array.isArray(value.phase_accept_dependencies)
+        || value.phase_accept_dependencies.length > TODO_LIMITS.edgesPerPlan
+        || !value.phase_accept_dependencies.every((edge) => exactRecord(edge, ['from', 'to'])
+          && phaseRef(edge.from) && nodeRef(edge.to))
+        || value.phase_accept_dependencies.some((edge, index) => index > 0
+          && compareText(`${phaseRefKey(value.phase_accept_dependencies[index - 1].from)}\0${refKey(value.phase_accept_dependencies[index - 1].to)}`,
+            `${phaseRefKey(edge.from)}\0${refKey(edge.to)}`) >= 0))) return false;
     if (value.tasks.some((entry, index) => index > 0 && compareText(value.tasks[index - 1].task_id, entry.task_id) >= 0)
       || value.hard_dependencies.some((edge, index) => index > 0
         && compareText(`${refKey(value.hard_dependencies[index - 1].from)}\0${refKey(value.hard_dependencies[index - 1].to)}`,
@@ -262,7 +277,10 @@ export function validateTodoPlan(value) {
     const topology = {
       project_id: value.project_id, plan_key: value.plan_key, plan_version: value.plan_version,
       tasks: value.tasks, hard_dependencies: value.hard_dependencies, joins: value.joins,
-      ...(value.schema === 'lattice.todo_plan.v4' ? { phases: value.phases } : {}),
+      ...(['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(value.schema)
+        ? { phases: value.phases } : {}),
+      ...(value.schema === 'lattice.todo_plan.v5'
+        ? { phase_accept_dependencies: value.phase_accept_dependencies } : {}),
     };
     return value.topology_digest === digestTodoArtifact(topology)
       && value.plan_digest === todoSelfDigest(value, 'plan_digest');

@@ -77,7 +77,7 @@ function validateSourceSnapshot(value) {
     && value.files.every(validSnapshotFile);
 }
 
-/** behavior fixed surfaceをCodegraph measurement用source snapshotへ投影する。 */
+/** behavior fixed surfaceをLatticeSensor measurement用source snapshotへ投影する。 */
 export function sourceSnapshotFromRc1BehaviorSurface(surface) {
   if (!exactRecord(surface, ['schema', 'files'])
     || surface.schema !== 'lattice.rc1.behavior_surface_snapshot.v1'
@@ -162,7 +162,7 @@ export async function captureRc1V6SourceSnapshot({ repoRoot, paths } = {}) {
 }
 
 /** Lattice内蔵sensorのidentityと、そのdigestを再計算できる実bytesを同時captureする。 */
-export async function captureRc1V6CodegraphExecutable() {
+export async function captureRc1V6LatticeSensorExecutable() {
   const executableBytes = await readFile(LATTICE_SENSOR_CLI);
   const { stdout } = await execFileAsync(process.execPath, [LATTICE_SENSOR_CLI, '--version'], {
     encoding: 'utf8',
@@ -171,11 +171,11 @@ export async function captureRc1V6CodegraphExecutable() {
   });
   const version = stdout.trim();
   if (!VERSION.test(version)) {
-    throw new TypeError('RC1 v6 Lattice sensor versionがsemverでない');
+    throw new TypeError('RC1 v6 LatticeSensor versionがsemverでない');
   }
   return {
     identity: {
-      schema: 'lattice.rc1.codegraph_identity.v1',
+      schema: 'lattice.rc1.sensor_identity.v1',
       version,
       executable_ref: 'lattice-sensor',
       executable_digest: sha256(executableBytes),
@@ -185,8 +185,8 @@ export async function captureRc1V6CodegraphExecutable() {
 }
 
 /** portable identityだけを必要とする既存caller向け入口。 */
-export async function resolveRc1V6CodegraphIdentity() {
-  return (await captureRc1V6CodegraphExecutable()).identity;
+export async function resolveRc1V6LatticeSensorIdentity() {
+  return (await captureRc1V6LatticeSensorExecutable()).identity;
 }
 
 /** v1 evidence bundleへsource／tool measurementを追加する。 */
@@ -196,7 +196,7 @@ export function bindRc1V6EvidenceBundle(options = {}) {
     'base_sha',
     'patch_digest',
     'snapshot',
-    'codegraph_identity',
+    'sensor_identity',
     'query_set_digest',
   ])
     || !validateRc1EvidenceBundle(options.bundle)
@@ -207,13 +207,13 @@ export function bindRc1V6EvidenceBundle(options = {}) {
     throw new TypeError('RC1 v6 evidence measurement inputが不正');
   }
   const measurement = {
-    schema: 'lattice.rc1.codegraph_measurement.v1',
+    schema: 'lattice.rc1.sensor_measurement.v1',
     base_sha: options.base_sha,
     patch_digest: options.patch_digest,
     snapshot: structuredClone(options.snapshot),
     snapshot_digest: digestArtifact(options.snapshot),
-    codegraph_identity: structuredClone(options.codegraph_identity),
-    codegraph_identity_digest: digestArtifact(options.codegraph_identity),
+    sensor_identity: structuredClone(options.sensor_identity),
+    sensor_identity_digest: digestArtifact(options.sensor_identity),
     query_set_digest: options.query_set_digest,
     raw_evidence_digest: options.bundle.raw.payload_digest,
   };
@@ -231,7 +231,7 @@ export function bindRc1V6EvidenceBundle(options = {}) {
       base_sha: options.base_sha,
       patch_digest: options.patch_digest,
       snapshot: options.snapshot,
-      codegraph_identity: options.codegraph_identity,
+      sensor_identity: options.sensor_identity,
       query_set_digest: options.query_set_digest,
     },
   });
@@ -263,7 +263,7 @@ function decodeRawEvidence(bundle) {
   try {
     return JSON.parse(Buffer.from(bundle.raw.payload_base64, 'base64').toString('utf8'));
   } catch {
-    throw new TypeError('RC1 v6 raw Codegraph evidenceをdecodeできない');
+    throw new TypeError('RC1 v6 raw LatticeSensor evidenceをdecodeできない');
   }
 }
 
@@ -299,14 +299,14 @@ export function compileRc1V6BoundaryCondition(options = {}) {
     candidateSpec: options.candidateSpec,
     manualEvidence: options.manualEvidence,
     querySet: options.querySet,
-    codegraphEvidence: decodeRawEvidence(options.bundle),
+    sensorEvidence: decodeRawEvidence(options.bundle),
     codeSnapshotDigest: options.bundle.measurement.snapshot_digest,
     planVersion: options.planVersion,
   });
   if (compiled.boundary_manifest.source.code_snapshot_digest
       !== options.bundle.measurement.snapshot_digest
-    || compiled.boundary_manifest.source.codegraph_version
-      !== options.bundle.measurement.codegraph_identity.version) {
+    || compiled.boundary_manifest.source.sensor_version
+      !== options.bundle.measurement.sensor_identity.version) {
     throw new TypeError('RC1 v6 compiler outputがmeasurement identityと一致しない');
   }
   return compiled;

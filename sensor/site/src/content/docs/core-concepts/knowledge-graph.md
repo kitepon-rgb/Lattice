@@ -3,6 +3,8 @@ title: The Knowledge Graph
 description: The node and edge kinds the graph is built from.
 ---
 
+> **旧上流documentation（未配布）**: このページの名称、URL、CLI、設定、効果量は現行Latticeの仕様ではありません。現行仕様はroot `README.md` と `docs/00_product-contract.md` を参照してください。
+
 CodeGraph stores three things: **nodes** (symbols and files), **edges** (relationships between them), and **files**. Every node and edge carries an exact `kind`, drawn from a fixed vocabulary so queries are consistent across languages.
 
 ## Node kinds

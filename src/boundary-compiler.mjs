@@ -6,7 +6,7 @@ import {
   validatePlanGraph,
   validatePlanInput,
 } from './artifact-contracts.mjs';
-import { portableCodegraphOutcome } from './sensor-adapter.mjs';
+import { portableSensorOutcome } from './sensor-adapter.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
@@ -14,7 +14,7 @@ const OPERATIONS = new Set(['status', 'query', 'callers', 'callees', 'impact', '
 const OPTION_KEYS = [
   'candidateSpec',
   'codeSnapshotDigest',
-  'codegraphEvidence',
+  'sensorEvidence',
   'manualEvidence',
   'planInput',
   'planVersion',
@@ -206,7 +206,7 @@ function assertCandidateSpec(planInput, candidateSpec) {
 
 function assertQuerySet(querySet, candidateSpec) {
   if (!exactRecord(querySet, ['schema', 'queries'])
-    || querySet.schema !== 'lattice.codegraph_query_set.v2'
+    || querySet.schema !== 'lattice.sensor_query_set.v2'
     || !Array.isArray(querySet.queries)
     || querySet.queries.length === 0
     || querySet.queries.length > 256) {
@@ -251,24 +251,24 @@ function assertQuerySet(querySet, candidateSpec) {
   }
 }
 
-function assertCodegraphEvidence(querySet, codegraphEvidence) {
-  if (!isPlainObject(codegraphEvidence)
-    || !Array.isArray(codegraphEvidence.outcomes)
-    || codegraphEvidence.outcomes.length !== querySet.queries.length) {
-    fail('Codegraph evidence rootがquery setと一致しない');
+function assertLatticeSensorEvidence(querySet, sensorEvidence) {
+  if (!isPlainObject(sensorEvidence)
+    || !Array.isArray(sensorEvidence.outcomes)
+    || sensorEvidence.outcomes.length !== querySet.queries.length) {
+    fail('LatticeSensor evidence rootがquery setと一致しない');
   }
   for (let index = 0; index < querySet.queries.length; index += 1) {
     const query = querySet.queries[index];
-    const outcome = codegraphEvidence.outcomes[index];
+    const outcome = sensorEvidence.outcomes[index];
     if (!isPlainObject(outcome)
       || outcome.id !== query.id
       || outcome.operation !== query.operation
       || !nonEmptyText(outcome.outcome)) {
-      fail(`Codegraph evidence ${query.id}がID／operation／順序と一致しない`);
+      fail(`LatticeSensor evidence ${query.id}がID／operation／順序と一致しない`);
     }
     if (query.operation !== 'status' && query.operation !== 'affected'
       && outcome.target !== query.target) {
-      fail(`Codegraph evidence ${query.id}のtargetがquery setと一致しない`);
+      fail(`LatticeSensor evidence ${query.id}のtargetがquery setと一致しない`);
     }
     if (query.operation === 'affected'
       && (!Array.isArray(outcome.targets)
@@ -276,7 +276,7 @@ function assertCodegraphEvidence(querySet, codegraphEvidence) {
         || outcome.targets.some((entry, targetIndex) => (
           !isPlainObject(entry) || entry.target !== query.targets[targetIndex]
         )))) {
-      fail(`Codegraph evidence ${query.id}のaffected targetがquery setと一致しない`);
+      fail(`LatticeSensor evidence ${query.id}のaffected targetがquery setと一致しない`);
     }
   }
 }
@@ -311,10 +311,10 @@ function callerLinkStatus(outcome, production, anchor) {
     : 'unknown';
 }
 
-function outcomeMap(querySet, codegraphEvidence) {
+function outcomeMap(querySet, sensorEvidence) {
   return new Map(querySet.queries.map((query, index) => [
     query.id,
-    codegraphEvidence.outcomes[index],
+    sensorEvidence.outcomes[index],
   ]));
 }
 
@@ -476,12 +476,12 @@ function compileConflicts(todoDrafts, graphUnknowns) {
   return { conflicts, allUnknowns };
 }
 
-function graphRecords(querySet, codegraphEvidence) {
+function graphRecords(querySet, sensorEvidence) {
   return querySet.queries.map((query, index) => ({
     id: query.id,
     operation: query.operation,
-    status: codegraphEvidence.outcomes[index].outcome,
-    result_digest: digestArtifact(portableCodegraphOutcome(codegraphEvidence.outcomes[index])),
+    status: sensorEvidence.outcomes[index].outcome,
+    result_digest: digestArtifact(portableSensorOutcome(sensorEvidence.outcomes[index])),
   }));
 }
 
@@ -490,11 +490,11 @@ function compileManifest({
   candidateSpec,
   manualEvidence,
   querySet,
-  codegraphEvidence,
+  sensorEvidence,
   codeSnapshotDigest,
   surfaceMode,
   graphUnknowns,
-  codegraphVersion,
+  sensorVersion,
 }) {
   const manuals = manualByTodo(manualEvidence);
   const candidates = new Map(candidateSpec.todos.map((todo) => [todo.todo_id, todo]));
@@ -540,9 +540,9 @@ function compileManifest({
       code_snapshot_digest: codeSnapshotDigest,
       query_set_digest: digestArtifact(querySet),
       manual_evidence_digest: digestArtifact(manualEvidence),
-      codegraph_version: codegraphVersion,
+      sensor_version: sensorVersion,
     },
-    graph_evidence: graphRecords(querySet, codegraphEvidence),
+    graph_evidence: graphRecords(querySet, sensorEvidence),
     manual_evidence: planInput.todos.map((todo) => ({
       id: manualRecordId(todo.id),
       todo_id: todo.id,
@@ -659,11 +659,11 @@ export function compileBoundaryCondition(options = {}) {
     candidateSpec,
     manualEvidence,
     querySet,
-    codegraphEvidence,
+    sensorEvidence,
     codeSnapshotDigest,
     planVersion,
   } = options;
-  for (const value of [planInput, candidateSpec, manualEvidence, querySet, codegraphEvidence]) {
+  for (const value of [planInput, candidateSpec, manualEvidence, querySet, sensorEvidence]) {
     canonicalizeArtifact(value);
   }
   if (!validatePlanInput(planInput)
@@ -677,12 +677,12 @@ export function compileBoundaryCondition(options = {}) {
   assertManualEvidence(planInput, manualEvidence);
   assertCandidateSpec(planInput, candidateSpec);
   assertQuerySet(querySet, candidateSpec);
-  assertCodegraphEvidence(querySet, codegraphEvidence);
-  const outcomes = outcomeMap(querySet, codegraphEvidence);
+  assertLatticeSensorEvidence(querySet, sensorEvidence);
+  const outcomes = outcomeMap(querySet, sensorEvidence);
   const statusQuery = querySet.queries.find(({ operation }) => operation === 'status');
   const status = outcomes.get(statusQuery.id);
   if (status.outcome !== 'ready' || !nonEmptyText(status.data?.version)) {
-    fail(`Codegraph statusがreadyでない: ${status.outcome}`);
+    fail(`LatticeSensor statusがreadyでない: ${status.outcome}`);
   }
   const selection = deriveSurfaceMode(planInput, candidateSpec, outcomes);
   const boundaryManifest = compileManifest({
@@ -690,11 +690,11 @@ export function compileBoundaryCondition(options = {}) {
     candidateSpec,
     manualEvidence,
     querySet,
-    codegraphEvidence,
+    sensorEvidence,
     codeSnapshotDigest,
     surfaceMode: selection.mode,
     graphUnknowns: selection.unknowns,
-    codegraphVersion: status.data.version,
+    sensorVersion: status.data.version,
   });
   const boundaryVerdict = compileVerdict(boundaryManifest, candidateSpec, selection.mode);
   const planGraph = compilePlan(planInput, boundaryManifest, planVersion);

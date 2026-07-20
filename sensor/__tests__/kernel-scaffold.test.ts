@@ -7,7 +7,7 @@
  *
  * The kernel binary is optional: without a staged .node
  * (scripts/build-kernel.sh) the suite skips. CI that builds the kernel sets
- * CODEGRAPH_KERNEL_EXPECT=1, which turns "missing binary" into a FAILURE so
+ * LATTICE_SENSOR_KERNEL_EXPECT=1, which turns "missing binary" into a FAILURE so
  * the gate can't silently pass by not building the kernel.
  */
 
@@ -23,13 +23,13 @@ import { initGrammars, loadGrammarsForLanguages } from '../src/extraction/gramma
 const KERNEL_PATH = path.join(
   __dirname,
   '..',
-  'codegraph-kernel',
+  'lattice-sensor-kernel',
   'prebuilds',
   `${process.platform}-${process.arch}`,
-  'codegraph-kernel.node'
+  'lattice-sensor-kernel.node'
 );
 const kernelBuilt = fs.existsSync(KERNEL_PATH);
-const expectKernel = process.env.CODEGRAPH_KERNEL_EXPECT === '1';
+const expectKernel = process.env.LATTICE_SENSOR_KERNEL_EXPECT === '1';
 
 const FIXTURE = [
   'export class MathHelper {',
@@ -40,7 +40,7 @@ const FIXTURE = [
   '',
 ].join('\n');
 
-const ENV_KEYS = ['CODEGRAPH_KERNEL', 'CODEGRAPH_KERNEL_LANGS', 'CODEGRAPH_KERNEL_PATH'] as const;
+const ENV_KEYS = ['LATTICE_SENSOR_KERNEL', 'LATTICE_SENSOR_KERNEL_LANGS', 'LATTICE_SENSOR_KERNEL_PATH'] as const;
 let savedEnv: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -57,7 +57,7 @@ afterEach(() => {
   resetKernelForTests();
 });
 
-it.runIf(expectKernel)('kernel binary must exist when CODEGRAPH_KERNEL_EXPECT=1', () => {
+it.runIf(expectKernel)('kernel binary must exist when LATTICE_SENSOR_KERNEL_EXPECT=1', () => {
   expect(kernelBuilt, `expected kernel at ${KERNEL_PATH} — run scripts/build-kernel.sh`).toBe(true);
 });
 
@@ -78,15 +78,15 @@ describe.skipIf(!kernelBuilt)('kernel scaffold', () => {
     }
     expect(kernelRoutes('ruby')).toBe(false);
     expect(tryKernelExtract('src/a.rb', 'def f\nend\n', 'ruby')).toBeNull();
-    // CODEGRAPH_KERNEL_LANGS REPLACES the default set when present.
-    process.env.CODEGRAPH_KERNEL_LANGS = 'tsx';
+    // LATTICE_SENSOR_KERNEL_LANGS REPLACES the default set when present.
+    process.env.LATTICE_SENSOR_KERNEL_LANGS = 'tsx';
     expect(kernelRoutes('typescript')).toBe(false);
     expect(kernelRoutes('tsx')).toBe(true);
   });
 
-  describe('with typescript routed (CODEGRAPH_KERNEL_LANGS)', () => {
+  describe('with typescript routed (LATTICE_SENSOR_KERNEL_LANGS)', () => {
     beforeEach(() => {
-      process.env.CODEGRAPH_KERNEL_LANGS = 'typescript';
+      process.env.LATTICE_SENSOR_KERNEL_LANGS = 'typescript';
     });
 
     it('decodes nodes, contains edges, and calls refs from the buffers', () => {
@@ -148,8 +148,8 @@ describe.skipIf(!kernelBuilt)('kernel scaffold', () => {
       }
     });
 
-    it('CODEGRAPH_KERNEL=0 kill switch disables routing', () => {
-      process.env.CODEGRAPH_KERNEL = '0';
+    it('LATTICE_SENSOR_KERNEL=0 kill switch disables routing', () => {
+      process.env.LATTICE_SENSOR_KERNEL = '0';
       expect(kernelRoutes('typescript')).toBe(false);
       expect(tryKernelExtract('src/a.ts', FIXTURE, 'typescript')).toBeNull();
     });
@@ -160,7 +160,7 @@ describe.skipIf(!kernelBuilt)('kernel scaffold', () => {
     });
 
     it('tsx routes with its own entry and returns a graph', () => {
-      process.env.CODEGRAPH_KERNEL_LANGS = 'typescript,tsx';
+      process.env.LATTICE_SENSOR_KERNEL_LANGS = 'typescript,tsx';
       const result = tryKernelExtract(
         'src/App.tsx',
         'export function App() { return render(); }\n',
@@ -178,24 +178,24 @@ describe.skipIf(!kernelBuilt)('kernel scaffold', () => {
     });
 
     it('kill switch routes through the wasm extractor unchanged', () => {
-      process.env.CODEGRAPH_KERNEL = '0';
+      process.env.LATTICE_SENSOR_KERNEL = '0';
       const result = extractFromSource('src/a.ts', 'export const f = () => 1;\n', 'typescript');
       expect(result.nodes.some((n) => n.kind === 'function' && n.name === 'f')).toBe(true);
-      delete process.env.CODEGRAPH_KERNEL;
+      delete process.env.LATTICE_SENSOR_KERNEL;
       // Default-routed path produces the same node (R2 parity).
       const viaKernel = extractFromSource('src/a.ts', 'export const f = () => 1;\n', 'typescript');
       expect(viaKernel.nodes.some((n) => n.kind === 'function' && n.name === 'f')).toBe(true);
     });
 
     it('routed language takes the kernel and falls back per file on kernel absence', () => {
-      process.env.CODEGRAPH_KERNEL_LANGS = 'typescript';
+      process.env.LATTICE_SENSOR_KERNEL_LANGS = 'typescript';
       const viaKernel = extractFromSource('src/utils.ts', FIXTURE, 'typescript');
       expect(viaKernel.nodes.map((n) => n.kind)).toContain('method');
 
       // Point the loader at a nonexistent binary: routing is requested but the
       // kernel can't load, so the SAME call must fall back to wasm, not fail.
-      process.env.CODEGRAPH_KERNEL_PATH = path.join(__dirname, 'nope', 'missing.node');
-      process.env.CODEGRAPH_KERNEL = '0'; // and belt-and-braces the kill switch
+      process.env.LATTICE_SENSOR_KERNEL_PATH = path.join(__dirname, 'nope', 'missing.node');
+      process.env.LATTICE_SENSOR_KERNEL = '0'; // and belt-and-braces the kill switch
       resetKernelForTests();
       const viaWasm = extractFromSource('src/utils.ts', FIXTURE, 'typescript');
       expect(viaWasm.nodes.some((n) => n.kind === 'class' && n.name === 'MathHelper')).toBe(true);

@@ -57,10 +57,10 @@ const RC1_INPUT_PATHS = Object.freeze({
   oracle: 'inputs/rc1/behavior-oracle-v2.json',
 });
 
-const CODEGRAPH_CONFIG_PATH = 'identity/codegraph-config.json';
+const SENSOR_CONFIG_PATH = 'identity/lattice-sensor-config.json';
 // ratified config epochのallowlist。artifactのconfig bytesはこのいずれかと完全一致し、
 // かつidentity.jsonのproject_config_digestと自己整合でなければreject（第三のbytesはfail closed）。
-const CODEGRAPH_CONFIG_EPOCHS = Object.freeze([
+const SENSOR_CONFIG_EPOCHS = Object.freeze([
   // ADR 0040 epoch（RC2 v2〜v4 canonical artifactが保存する当時のratified config）
   Buffer.from('{"exclude":["research/campaigns/**/artifacts/**/identity/"]}\n', 'utf8'),
   // ADR 0044 Decision 10.3 epoch（research/runs/ event store除外、RC3-B以降のfresh実行）
@@ -76,8 +76,8 @@ const CODEGRAPH_CONFIG_EPOCHS = Object.freeze([
 ]);
 
 const V1_IDENTITY_PATHS = Object.freeze([
-  'identity/codegraph-adapter.mjs',
-  'identity/codegraph-executable',
+  'identity/lattice-sensor-adapter.mjs',
+  'identity/lattice-sensor-executable',
   'identity/rc1-black-box-oracle.mjs',
   'identity/rc1-boundary-compiler.mjs',
   'identity/rc1-evidence-bundle.mjs',
@@ -93,7 +93,7 @@ const V1_IDENTITY_PATHS = Object.freeze([
 
 const V2_IDENTITY_PATHS = Object.freeze([
   ...V1_IDENTITY_PATHS,
-  CODEGRAPH_CONFIG_PATH,
+  SENSOR_CONFIG_PATH,
 ]);
 
 const V3_IDENTITY_PATHS = V2_IDENTITY_PATHS;
@@ -138,7 +138,7 @@ const BYTE_PRESERVING_JSON_PATHS = new Set([
   'predecessors/rc1-v6-artifact-manifest.json',
   'predecessors/rc1-v6-transform-artifact.json',
   'predecessors/rc1-v6-transform-receipt.json',
-  CODEGRAPH_CONFIG_PATH,
+  SENSOR_CONFIG_PATH,
 ]);
 
 const TRANSFORM_PATHS = Object.freeze([
@@ -397,10 +397,10 @@ function verifyIdentity(context) {
   const identity = context.json.get('identity.json');
   const projectConfigBound = context.artifactVersion !== 'v1';
   const expectedIdentitySchema = `lattice.rc2.execution_identity.${context.artifactVersion}`;
-  const expectedCodegraphSchema = projectConfigBound
-    ? 'lattice.rc2.codegraph_identity.v2'
-    : 'lattice.rc2.codegraph_identity.v1';
-  const codegraphKeys = projectConfigBound
+  const expectedLatticeSensorSchema = projectConfigBound
+    ? 'lattice.rc2.sensor_identity.v2'
+    : 'lattice.rc2.sensor_identity.v1';
+  const sensorKeys = projectConfigBound
     ? [
       'schema',
       'version',
@@ -413,30 +413,30 @@ function verifyIdentity(context) {
   if (!exactRecord(identity, [
     'schema',
     'sources',
-    'codegraph_identity',
-    'codegraph_identity_digest',
+    'sensor_identity',
+    'sensor_identity_digest',
     'before_digest',
     'after_digest',
   ])
     || identity.schema !== expectedIdentitySchema
     || !Array.isArray(identity.sources)
     || identity.sources.length !== V1_IDENTITY_PATHS.length - 1
-    || !exactRecord(identity.codegraph_identity, codegraphKeys)
-    || identity.codegraph_identity.schema !== expectedCodegraphSchema
-    || !SHA256.test(identity.codegraph_identity.executable_digest)
-    || identity.codegraph_identity.executable_digest
-      !== sha256(context.payloads.get('identity/codegraph-executable'))
+    || !exactRecord(identity.sensor_identity, sensorKeys)
+    || identity.sensor_identity.schema !== expectedLatticeSensorSchema
+    || !SHA256.test(identity.sensor_identity.executable_digest)
+    || identity.sensor_identity.executable_digest
+      !== sha256(context.payloads.get('identity/lattice-sensor-executable'))
     || (projectConfigBound && (
-      identity.codegraph_identity.project_config_ref !== CODEGRAPH_CONFIG_PATH
-      || !SHA256.test(identity.codegraph_identity.project_config_digest)
-      || identity.codegraph_identity.project_config_digest
-        !== sha256(context.payloads.get(CODEGRAPH_CONFIG_PATH))
+      identity.sensor_identity.project_config_ref !== SENSOR_CONFIG_PATH
+      || !SHA256.test(identity.sensor_identity.project_config_digest)
+      || identity.sensor_identity.project_config_digest
+        !== sha256(context.payloads.get(SENSOR_CONFIG_PATH))
     ))
-    || identity.codegraph_identity_digest !== digestArtifact(identity.codegraph_identity)) {
+    || identity.sensor_identity_digest !== digestArtifact(identity.sensor_identity)) {
     return false;
   }
   const expectedSourceRefs = V1_IDENTITY_PATHS
-    .filter((relativePath) => relativePath !== 'identity/codegraph-executable');
+    .filter((relativePath) => relativePath !== 'identity/lattice-sensor-executable');
   const actualRefs = identity.sources.map(({ artifact_ref: ref }) => ref).sort();
   if (!sameArtifact(actualRefs, expectedSourceRefs)) return false;
   for (const source of identity.sources) {
@@ -453,20 +453,20 @@ function verifyIdentity(context) {
       artifact_ref: artifactRef,
       digest,
     })),
-    codegraph_identity: identity.codegraph_identity,
+    sensor_identity: identity.sensor_identity,
   };
   const digest = digestArtifact(snapshot);
   return identity.before_digest === digest && identity.after_digest === digest;
 }
 
-function verifyCodegraphConfig(context) {
+function verifyLatticeSensorConfig(context) {
   if (context.artifactVersion === 'v1') return false;
-  const bytes = context.payloads.get(CODEGRAPH_CONFIG_PATH);
+  const bytes = context.payloads.get(SENSOR_CONFIG_PATH);
   const identity = context.json.get('identity.json');
   return Buffer.isBuffer(bytes)
-    && CODEGRAPH_CONFIG_EPOCHS.some((epochBytes) => bytes.equals(epochBytes))
-    && identity?.codegraph_identity?.project_config_ref === CODEGRAPH_CONFIG_PATH
-    && identity.codegraph_identity.project_config_digest === sha256(bytes);
+    && SENSOR_CONFIG_EPOCHS.some((epochBytes) => bytes.equals(epochBytes))
+    && identity?.sensor_identity?.project_config_ref === SENSOR_CONFIG_PATH
+    && identity.sensor_identity.project_config_digest === sha256(bytes);
 }
 
 function verifySurfaceSnapshot(snapshot, expectedPaths, expectedPresentPaths) {
@@ -817,8 +817,8 @@ function rehydrateStoredEvidence(evidence) {
     'payload_digest',
     'payload_base64_chunks',
   ])
-    || raw.schema !== 'lattice.rc2.chunked_codegraph_raw_receipt.v1'
-    || raw.source_schema !== 'lattice.codegraph_raw_opaque_receipt.v1'
+    || raw.schema !== 'lattice.rc2.chunked_sensor_raw_receipt.v1'
+    || raw.source_schema !== 'lattice.sensor_raw_opaque_receipt.v1'
     || raw.source_encoding !== 'canonical-json-base64'
     || raw.storage_encoding !== 'ordered-base64-chunks'
     || !Number.isSafeInteger(raw.canonical_bytes)
@@ -895,7 +895,7 @@ function verifyRuns(context) {
       ? null
       : (family === 'primary' ? accepted?.patch?.digest : rc1Transform?.patch?.digest);
     if (!plainRecord(run)
-      || run.schema !== 'lattice.rc2.fresh_codegraph_run.v1'
+      || run.schema !== 'lattice.rc2.fresh_sensor_run.v1'
       || run.run_id !== runId
       || run.family !== family
       || run.condition !== condition
@@ -906,12 +906,12 @@ function verifyRuns(context) {
       || run.evidence.run_id !== runId
       || run.evidence.condition !== condition
       || run.evidence.query_set_digest !== digestArtifact(inputs.querySet)
-      || run.measurement?.schema !== 'lattice.rc2.codegraph_measurement.v1'
+      || run.measurement?.schema !== 'lattice.rc2.sensor_measurement.v1'
       || run.measurement.base_sha !== context.manifest.base_sha
       || run.measurement.patch_digest !== expectedPatch
       || run.measurement.snapshot_digest !== digestArtifact(run.measurement.snapshot)
-      || run.measurement.codegraph_identity_digest !== identity.codegraph_identity_digest
-      || !sameArtifact(run.measurement.codegraph_identity, identity.codegraph_identity)
+      || run.measurement.sensor_identity_digest !== identity.sensor_identity_digest
+      || !sameArtifact(run.measurement.sensor_identity, identity.sensor_identity)
       || run.measurement.query_set_digest !== digestArtifact(inputs.querySet)
       || run.measurement.raw_evidence_digest !== run.evidence.raw.payload_digest
       || run.source_invariant?.outcome !== 'passed'
@@ -957,7 +957,7 @@ function compilePrimaryRecord({ run, inputs, manualEvidence, planInput, conditio
     manualEvidence,
     querySet: inputs.querySet,
     sourceSnapshot: run.measurement.snapshot,
-    codegraphEvidence: run.evidence.portable,
+    sensorEvidence: run.evidence.portable,
   });
   return compiledRecord({
     condition,
@@ -974,7 +974,7 @@ function compileUnknownRecord({ run, inputs }) {
     manualEvidence: inputs.unknownManualEvidence,
     querySet: inputs.querySet,
     sourceSnapshot: run.measurement.snapshot,
-    codegraphEvidence: run.evidence.portable,
+    sensorEvidence: run.evidence.portable,
   });
   const outcome = compileSchedulabilityGraphV2(bundle.graph);
   const verification = verifySchedulabilityPlanV2(bundle.graph, {
@@ -1000,7 +1000,7 @@ function recompileLegacy(run, inputs, manualEvidence, label) {
     candidateSpec: inputs.candidateSpec,
     manualEvidence,
     querySet: inputs.querySet,
-    codegraphEvidence: rawEvidence,
+    sensorEvidence: rawEvidence,
     codeSnapshotDigest: run.measurement.snapshot_digest,
     planVersion: `rc2-${run.condition}-transfer-${label}`,
   });
@@ -1269,7 +1269,7 @@ function expectedPredecessorKinds(context) {
   expected.set('identity/schedulability-compiler-v2.mjs', 'compiler_identity');
   expected.set('identity/schedulability-verifier-v2.mjs', 'verifier_identity');
   if (context.artifactVersion !== 'v1') {
-    expected.set(CODEGRAPH_CONFIG_PATH, 'codegraph_project_config');
+    expected.set(SENSOR_CONFIG_PATH, 'sensor_project_config');
   }
   return expected;
 }
@@ -1525,7 +1525,7 @@ export function verifyRc2CampaignArtifactSet(options = {}) {
 
   check('identity_binding', verifyIdentity(context));
   if (context.artifactVersion !== 'v1') {
-    check('codegraph_config_binding', verifyCodegraphConfig(context));
+    check('sensor_config_binding', verifyLatticeSensorConfig(context));
   }
   check('transform_binding', verifyTransform(context));
   check('fresh_run_binding', verifyRuns(context));

@@ -3,6 +3,8 @@ title: Integrations
 description: Supported agents, and manual MCP setup.
 ---
 
+> **旧上流documentation（未配布）**: このページの名称、URL、CLI、設定、効果量は現行Latticeの仕様ではありません。現行仕様はroot `README.md` と `docs/00_product-contract.md` を参照してください。
+
 The interactive installer auto-detects and configures each supported agent — wiring the CodeGraph MCP server into each. For the agents that use an instructions file, it also writes a short marker-fenced CodeGraph section (`CLAUDE.md`, `AGENTS.md`, or `GEMINI.md`) so subagents and non-MCP harnesses learn the `codegraph explore` command; `codegraph uninstall` removes it.
 
 ## Supported agents

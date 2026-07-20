@@ -3,6 +3,8 @@ title: How It Works
 description: The extraction, storage, resolution, and auto-sync pipeline.
 ---
 
+> **旧上流documentation（未配布）**: このページの名称、URL、CLI、設定、効果量は現行Latticeの仕様ではありません。現行仕様はroot `README.md` と `docs/00_product-contract.md` を参照してください。
+
 CodeGraph turns source code into a queryable graph in four stages.
 
 ```

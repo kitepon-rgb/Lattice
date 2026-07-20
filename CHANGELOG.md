@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.1 — 2026-07-21
+
+- PhaseをToDoの直列化groupから重監査境界へ分離し、通常ToDoはDAGだけで並列readyを判定するv5契約へ更新した。
+- Phase受理が本当に必要なToDoだけを閉じる`phase_accept_dependencies`と、v3 authoring schemaを追加した。
+- fresh projectのtyped discoveryがv3 authoring schemaと生成commandを`next_action`で返すよう更新した。
+- live GanttをSSEで自動更新し、静的Ganttのdigest付き`current / stale / missing`検証を維持した。
+- runtime、project state、設定、環境変数、MCP tool名をLattice Sensorへ完全切替し、旧製品dataを入力・移行元・fallbackとして読まない契約を固定した。
+- 新規AIShell cloneで48 files／797 nodes／2078 edgesを構築し、`DevelopmentRuntimeService`のdepth 3 impactが74 nodes／107 edgesになることを現行sensorだけで確認した。
+- 製品testと退役済みartifact replayを分離し、公開判定が現行runtime surfaceだけを評価するようにした。
+
 ## 0.9.0 — 2026-07-21
 
 - first-class Phase controlを追加し、ToDo完了時の軽量確認とPhase境界の重監査を分離した。
@@ -8,7 +18,7 @@
 - `todo status/verify --json`の互換aliasを復旧し、cross-plan start/done/reopenの判定をmerged storeへ統一した。
 - loopback-onlyのlive Ganttを追加し、静的Ganttには`current / stale / missing`を判定するdigest付きstatus面を追加した。
 - bounded seamの隔離transform契約を追加し、許可locus外の変更をfail closedにした。
-- 外部Codegraph runtime・旧cache/dataへの依存を廃止し、配布物内のLattice sensorだけを正式runtimeとした。
+- 外部の旧上流runtime・旧cache/dataへの依存を廃止し、配布物内のLattice sensorだけを正式runtimeとした。
 - Phase revisionの全6 durability境界と、通常／Phase混在revision setのcrash retryを検証した。
 
 ## 0.8.0 — 2026-07-20
@@ -22,7 +32,7 @@
 
 ## 0.7.0 — 2026-07-20
 
-- Codegraph由来実装をLattice所有sensorへ吸収し、公開入口を`lattice sensor`へ切り替えた。
+- 旧上流由来実装をLattice所有sensorへ吸収し、公開入口を`lattice sensor`へ切り替えた。
 
 ## 0.6.4 — 2026-07-19
 

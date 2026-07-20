@@ -46,7 +46,7 @@ function manualWitness(todoId) {
     writes: [path],
     resources: [],
     state_effects: [],
-    codegraph_provenance: { queries: [] },
+    sensor_provenance: { queries: [] },
     affected_tests: [`test/${todoId.toLowerCase()}.test.mjs`],
     unknowns: [],
   };
@@ -59,7 +59,7 @@ const RUN_REQUEST = withSelfDigest({
   capacity: { executors: 2 },
   todos: [{ todo_id: 'T1' }, { todo_id: 'T2' }],
   manual_witness: { T1: manualWitness('T1'), T2: manualWitness('T2') },
-  codegraph_query_set: { queries: [] },
+  sensor_query_set: { queries: [] },
   executor_capability: { adapters: ['scripted'] },
   claim_mode: 'exact_minimum',
 }, 'request_digest');

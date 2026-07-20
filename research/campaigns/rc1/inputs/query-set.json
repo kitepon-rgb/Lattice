@@ -1,5 +1,5 @@
 {
-  "schema": "lattice.codegraph_query_set.v1",
+  "schema": "lattice.sensor_query_set.v1",
   "queries": [
     {
       "id": "status",

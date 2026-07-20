@@ -16,14 +16,14 @@ import {
   validatePlanGraph,
 } from '../../src/artifact-contracts.mjs';
 import {
-  collectCodegraphEvidence,
-  portableCodegraphOutcome,
-} from '../../src/codegraph-adapter.mjs';
+  collectSensorEvidence,
+  portableSensorOutcome,
+} from '../../src/sensor-adapter.mjs';
 import { compileControlArtifacts } from '../../src/control-compiler.mjs';
 import { spawnSensorCli } from '../../src/sensor-runtime.mjs';
 
 const CONTROL_BASE_SHA = 'd2d412800492fbed03febe02abc6dca81c09a88b';
-const INDEX_DIRECTORY = '.codegraph-rc1-control-v2';
+const INDEX_DIRECTORY = '.lattice/sensor-rc1-control-v2';
 const sourceRoot = process.cwd();
 
 async function readJson(relativePath) {
@@ -36,13 +36,13 @@ function git(cwd, args) {
   return result.stdout;
 }
 
-function codegraphEnvironment() {
+function sensorEnvironment() {
   const env = {
     ...process.env,
-    CODEGRAPH_DIR: INDEX_DIRECTORY,
-    CODEGRAPH_NO_DAEMON: '1',
-    CODEGRAPH_NO_WATCH: '1',
-    CODEGRAPH_NO_UPDATE_CHECK: '1',
+    LATTICE_SENSOR_DIR: INDEX_DIRECTORY,
+    LATTICE_SENSOR_NO_DAEMON: '1',
+    LATTICE_SENSOR_NO_WATCH: '1',
+    LATTICE_SENSOR_NO_UPDATE_CHECK: '1',
     DO_NOT_TRACK: '1',
     NO_COLOR: '1',
   };
@@ -50,11 +50,11 @@ function codegraphEnvironment() {
   return env;
 }
 
-function executeCodegraph({ args, cwd }) {
+function executeLatticeSensor({ args, cwd }) {
   return new Promise((resolve) => {
     const child = spawnSensorCli(args, {
       cwd,
-      env: codegraphEnvironment(),
+      env: sensorEnvironment(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -81,12 +81,12 @@ async function compileInFreshWorktree({
   try {
     git(repoRoot, ['worktree', 'add', '--detach', worktreePath, CONTROL_BASE_SHA]);
     added = true;
-    const initialized = await executeCodegraph({ args: ['init', '.'], cwd: worktreePath });
+    const initialized = await executeLatticeSensor({ args: ['init', '.'], cwd: worktreePath });
     assert.equal(initialized.code, 0, initialized.stderr);
-    const codegraphEvidence = await collectCodegraphEvidence({
+    const sensorEvidence = await collectSensorEvidence({
       cwd: worktreePath,
       querySet,
-      execute: executeCodegraph,
+      execute: executeLatticeSensor,
     });
     const fixtureSource = await readFile(path.join(worktreePath, planInput.project.fixture_entry));
     const codeSnapshotDigest = digestArtifact({
@@ -99,13 +99,13 @@ async function compileInFreshWorktree({
       planInput,
       manualEvidence,
       querySet,
-      codegraphEvidence,
+      sensorEvidence,
       codeSnapshotDigest,
     });
     return {
-      raw_outcomes_digest: digestArtifact(codegraphEvidence.outcomes),
+      raw_outcomes_digest: digestArtifact(sensorEvidence.outcomes),
       portable_outcomes_digest: digestArtifact(
-        codegraphEvidence.outcomes.map(portableCodegraphOutcome),
+        sensorEvidence.outcomes.map(portableSensorOutcome),
       ),
       normal: compile(manualNormal),
       negative: compile(manualNegative),

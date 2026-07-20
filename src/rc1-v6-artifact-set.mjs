@@ -35,13 +35,13 @@ const INPUT_PATHS = Object.freeze({
   querySet: 'inputs/query-set-v2.json',
   oracle: 'inputs/behavior-oracle-v2.json',
   runtimeIdentity: 'inputs/oracle-runtime-identity.json',
-  codegraphIdentity: 'inputs/codegraph-identity.json',
+  sensorIdentity: 'inputs/lattice-sensor-identity.json',
 });
 const RUN_IDS = Object.freeze(['control-1', 'control-2', 'treatment-1', 'treatment-2']);
 const IDENTITY_PATHS = Object.freeze({
   compiler: 'identity/boundary-compiler.mjs',
   oracleExecutor: 'identity/black-box-oracle.mjs',
-  codegraphExecutable: 'identity/codegraph-executable',
+  sensorExecutable: 'identity/lattice-sensor-executable',
 });
 const INVALIDATED_CONTEXTS = Object.freeze([
   {
@@ -123,7 +123,7 @@ function compilationSummary(compiled) {
   };
 }
 
-function fixedInputIdentity(inputs, runtimeIdentity, codegraphIdentity) {
+function fixedInputIdentity(inputs, runtimeIdentity, sensorIdentity) {
   return {
     plan_input: digestArtifact(inputs.planInput),
     candidate_spec: digestArtifact(inputs.candidateSpec),
@@ -132,7 +132,7 @@ function fixedInputIdentity(inputs, runtimeIdentity, codegraphIdentity) {
     query_set: digestArtifact(inputs.querySet),
     behavior_oracle: digestArtifact(inputs.oracle),
     oracle_runtime: digestArtifact(runtimeIdentity),
-    codegraph_identity: digestArtifact(codegraphIdentity),
+    sensor_identity: digestArtifact(sensorIdentity),
     capacity_writers: inputs.planInput.capacity.writers,
   };
 }
@@ -230,7 +230,7 @@ export function compileRc1V6Comparison({
   baseSha,
   inputs,
   runtimeIdentity,
-  codegraphIdentity,
+  sensorIdentity,
   compilerSourceDigest,
   control,
   treatment,
@@ -244,7 +244,7 @@ export function compileRc1V6Comparison({
   return {
     schema: 'lattice.rc1.control_treatment_comparison.v4',
     base_sha: baseSha,
-    fixed_inputs: fixedInputIdentity(inputs, runtimeIdentity, codegraphIdentity),
+    fixed_inputs: fixedInputIdentity(inputs, runtimeIdentity, sensorIdentity),
     independent_variable: {
       kind: 'accepted_production_and_test_seam',
       transform_artifact_digest: transform.artifact_digest,
@@ -256,7 +256,7 @@ export function compileRc1V6Comparison({
       source_digest: compilerSourceDigest,
       condition_selector: RC1_BOUNDARY_COMPILER_CONTRACT.condition_selector,
     },
-    codegraph_identity: structuredClone(codegraphIdentity),
+    sensor_identity: structuredClone(sensorIdentity),
     oracle_runtime_identity: structuredClone(runtimeIdentity),
     conditions: {
       control: compiledConditionSummary(control, controlBundles),
@@ -283,8 +283,8 @@ export function evaluateRc1V6Hypothesis(comparison) {
         && SHA256.test(comparison?.compiler?.source_digest),
     },
     {
-      id: 'codegraph_identity_fixed',
-      passed: comparison?.codegraph_identity?.schema === 'lattice.rc1.codegraph_identity.v1',
+      id: 'sensor_identity_fixed',
+      passed: comparison?.sensor_identity?.schema === 'lattice.rc1.sensor_identity.v1',
     },
     {
       id: 'runtime_identity_fixed',
@@ -391,7 +391,7 @@ export function rc1V6ArtifactMediaType(relativePath) {
     throw new TypeError(`RC1 v6 artifact pathがexact setに存在しない: ${relativePath}`);
   }
   if (relativePath.endsWith('.json')) return 'application/json';
-  if (relativePath.endsWith('.mjs') || relativePath === IDENTITY_PATHS.codegraphExecutable) {
+  if (relativePath.endsWith('.mjs') || relativePath === IDENTITY_PATHS.sensorExecutable) {
     return 'application/javascript';
   }
   if (relativePath.endsWith('.patch')) return 'text/x-diff';
@@ -568,7 +568,7 @@ function executionValid(value, expected) {
     'base_sha',
     'elapsed_ms',
     'compiler_source_digest',
-    'codegraph_identity_digest',
+    'sensor_identity_digest',
     'runtime_identity_digest',
     'run_descriptor_digests',
     'transform_artifact_digest',
@@ -583,7 +583,7 @@ function executionValid(value, expected) {
     && Number.isFinite(value.elapsed_ms)
     && value.elapsed_ms >= 0
     && value.compiler_source_digest === expected.compilerSourceDigest
-    && value.codegraph_identity_digest === digestArtifact(expected.codegraphIdentity)
+    && value.sensor_identity_digest === digestArtifact(expected.sensorIdentity)
     && value.runtime_identity_digest === digestArtifact(expected.runtimeIdentity)
     && sameArtifact(value.run_descriptor_digests, expected.runDescriptorDigests)
     && value.transform_artifact_digest === expected.transformArtifactDigest
@@ -619,8 +619,8 @@ export function verifyRc1V6CampaignArtifactSet(options) {
     const compilerSourceDigest = sha256(context.payloads.get(IDENTITY_PATHS.compiler));
     const identitySourceBinding = sha256(context.payloads.get(IDENTITY_PATHS.oracleExecutor))
         === inputs.runtimeIdentity?.executor_source_digest
-      && sha256(context.payloads.get(IDENTITY_PATHS.codegraphExecutable))
-        === inputs.codegraphIdentity?.executable_digest;
+      && sha256(context.payloads.get(IDENTITY_PATHS.sensorExecutable))
+        === inputs.sensorIdentity?.executable_digest;
     check('identity_source_binding', identitySourceBinding);
     const baseInputsValid = validatePlanInput(inputs.planInput)
       && validateRc1BlackBoxOracle(inputs.oracle)
@@ -656,14 +656,14 @@ export function verifyRc1V6CampaignArtifactSet(options) {
         base_sha: context.manifest.base_sha,
         patch_digest: null,
         snapshot: controlSnapshot,
-        codegraph_identity: inputs.codegraphIdentity,
+        sensor_identity: inputs.sensorIdentity,
         query_set_digest: digestArtifact(inputs.querySet),
       },
       treatment: {
         base_sha: context.manifest.base_sha,
         patch_digest: behaviorEvidence.patch_digest,
         snapshot: treatmentSnapshot,
-        codegraph_identity: inputs.codegraphIdentity,
+        sensor_identity: inputs.sensorIdentity,
         query_set_digest: digestArtifact(inputs.querySet),
       },
     };
@@ -740,7 +740,7 @@ export function verifyRc1V6CampaignArtifactSet(options) {
       baseSha: context.manifest.base_sha,
       inputs,
       runtimeIdentity: inputs.runtimeIdentity,
-      codegraphIdentity: inputs.codegraphIdentity,
+      sensorIdentity: inputs.sensorIdentity,
       compilerSourceDigest,
       control: savedControl,
       treatment: savedTreatment,
@@ -765,7 +765,7 @@ export function verifyRc1V6CampaignArtifactSet(options) {
     check('execution_evidence', transform !== null && executionValid(execution, {
       baseSha: context.manifest.base_sha,
       compilerSourceDigest,
-      codegraphIdentity: inputs.codegraphIdentity,
+      sensorIdentity: inputs.sensorIdentity,
       runtimeIdentity: inputs.runtimeIdentity,
       runDescriptorDigests: runs.map(({ evidence_bundle_descriptor_digest: digest }) => digest),
       transformArtifactDigest: transform.artifact_digest,

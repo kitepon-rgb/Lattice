@@ -15,7 +15,7 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { CodeGraph } from '../src';
+import { LatticeSensor } from '../src';
 import { initGrammars, loadAllGrammars } from '../src/extraction/grammars';
 
 beforeAll(async () => {
@@ -65,7 +65,7 @@ describe('ArkTS attribute-chain resolution precision', () => {
         '}\n'
     );
 
-    const cg = CodeGraph.initSync(tmpDir);
+    const cg = LatticeSensor.initSync(tmpDir);
     await cg.indexAll();
 
     const fns = cg.getNodesByKind('function');
@@ -146,7 +146,7 @@ describe('ArkTS ohpm workspace import resolution', () => {
         '}\n'
     );
 
-    const cg = CodeGraph.initSync(tmpDir);
+    const cg = LatticeSensor.initSync(tmpDir);
     await cg.indexAll();
 
     const classes = cg.getNodesByKind('class');
@@ -201,7 +201,7 @@ describe('ArkUI state → build() re-render bridge (assignment-gated)', () => {
         '}\n'
     );
 
-    const cg = CodeGraph.initSync(tmpDir);
+    const cg = LatticeSensor.initSync(tmpDir);
     await cg.indexAll();
 
     const methods = cg.getNodesByKind('method');
@@ -266,7 +266,7 @@ describe('ArkUI @ohos.events.emitter bridge', () => {
         '}\n'
     );
 
-    const cg = CodeGraph.initSync(tmpDir);
+    const cg = LatticeSensor.initSync(tmpDir);
     await cg.indexAll();
 
     const methods = cg.getNodesByKind('method');
@@ -299,7 +299,7 @@ describe('ArkUI @ohos.events.emitter bridge', () => {
         '}\n'
     );
 
-    const cg = CodeGraph.initSync(tmpDir);
+    const cg = LatticeSensor.initSync(tmpDir);
     await cg.indexAll();
 
     const fns = cg.getNodesByKind('function');
@@ -343,7 +343,7 @@ describe('ArkUI router bridge (pushUrl literal → @Entry struct)', () => {
         '}\n'
     );
 
-    const cg = CodeGraph.initSync(tmpDir);
+    const cg = LatticeSensor.initSync(tmpDir);
     await cg.indexAll();
 
     const methods = cg.getNodesByKind('method');
@@ -408,7 +408,7 @@ describe('ohpm main entry (custom barrel + .ts consumer)', () => {
         '}\n'
     );
 
-    const cg = CodeGraph.initSync(tmpDir);
+    const cg = LatticeSensor.initSync(tmpDir);
     await cg.indexAll();
 
     const classes = cg.getNodesByKind('class');

@@ -108,7 +108,7 @@ try {
   assert.equal(first.compiled.negative.boundary_verdict.verdicts[0].verdict, 'intentional_serial');
   assert.equal(first.compiled.negative.plan_graph.minimum_feasible_waves, 2);
   assert.equal(first.execution.sensor_cleanup, 'passed');
-  await assert.rejects(access(path.join(repoRoot, '.codegraph-rc1-treatment')), /ENOENT/);
+  await assert.rejects(access(path.join(repoRoot, '.lattice/sensor-rc1-treatment')), /ENOENT/);
   assert.equal(git(repoRoot, ['rev-parse', 'HEAD']).trim(), cloneHead);
   assert.equal(git(repoRoot, ['status', '--porcelain=v1', '-z'], 'buffer').equals(cloneStatus), true);
   assert.equal(git(repoRoot, ['worktree', 'list', '--porcelain']), cloneWorktrees);

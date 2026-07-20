@@ -157,7 +157,7 @@ const MANUAL_WITNESS_FIELDS = Object.freeze([
   'writes',
   'resources',
   'state_effects',
-  'codegraph_provenance',
+  'sensor_provenance',
   'affected_tests',
   'unknowns',
 ]);
@@ -170,7 +170,7 @@ function manualWitnessEntry(value) {
     && repoPathArray(value.writes, { allowPrefix: true })
     && boundedArray(value.resources, identifier)
     && boundedArray(value.state_effects, stateEffectEntry)
-    && plainObject(value.codegraph_provenance)
+    && plainObject(value.sensor_provenance)
     && repoPathArray(value.affected_tests)
     && boundedArray(value.unknowns, unknownEntry);
 }
@@ -213,7 +213,7 @@ function selfDigestValid(value, digestField) {
 }
 
 const WITNESS_PROVENANCE = Object.freeze([
-  'codegraph',
+  'sensor',
   'manual_candidate_spec',
   'manual_state_effect',
 ]);
@@ -228,7 +228,7 @@ export function validateRunRequest(value) {
       'capacity',
       'todos',
       'manual_witness',
-      'codegraph_query_set',
+      'sensor_query_set',
       'executor_capability',
       'claim_mode',
       'request_digest',
@@ -250,7 +250,7 @@ export function validateRunRequest(value) {
     return plainObject(request.manual_witness)
       && exactRecord(request.manual_witness, todoIds)
       && Object.values(request.manual_witness).every(manualWitnessEntry)
-      && plainObject(request.codegraph_query_set)
+      && plainObject(request.sensor_query_set)
       && plainObject(request.executor_capability)
       && request.claim_mode === 'exact_minimum'
       && selfDigestValid(request, 'request_digest');

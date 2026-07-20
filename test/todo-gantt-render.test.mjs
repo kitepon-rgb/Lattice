@@ -60,6 +60,29 @@ function renderFixture(read, narratives = [], anchorOutcomes = [], document = nu
   return renderTodoGanttHtml({ readModel: read, layout, narratives, anchorOutcomes, presentation });
 }
 
+test('v5 GanttはPhaseを通常ToDoのschedule gateとして説明しない', () => {
+  const read = readFixture(2);
+  const member = read.members[0];
+  member.plan.schema = 'lattice.todo_plan.v5';
+  member.plan.tasks = member.plan.tasks.map((task, index) => ({
+    ...task, narrative_anchor: null, parent_task_id: null, phase_id: `phase-${index + 1}`,
+  }));
+  member.plan.phases = [
+    { phase_id: 'phase-1', title: '設計', gate_policy: 'heavy', predecessor_phase_ids: [],
+      required_evidence_slots: ['heavy'] },
+    { phase_id: 'phase-2', title: '実装', gate_policy: 'heavy', predecessor_phase_ids: ['phase-1'],
+      required_evidence_slots: ['heavy'] },
+  ];
+  member.plan.phase_accept_dependencies = [];
+  member.snapshot = { phases: [
+    { phase_id: 'phase-1', status: 'active' },
+    { phase_id: 'phase-2', status: 'locked' },
+  ] };
+  const { html } = renderFixture(read);
+  assert.match(html, /Phaseは重監査の順序を表し、通常ToDoの開始順はToDo依存だけで決まります。/u);
+  assert.doesNotMatch(html, /後続Phaseはまだ解放されません/u);
+});
+
 async function workspace(context, title = 'T1', narrativeRef = 'narrative.md') {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-gantt-'));
   context.after(() => rm(root, { recursive: true, force: true }));

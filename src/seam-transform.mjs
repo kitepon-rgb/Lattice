@@ -15,7 +15,7 @@ import { isCanonicalUtcTimestamp } from './timestamp-contract.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const SHA1 = /^[0-9a-f]{40}$/;
-const PORTABLE_CODEGRAPH_PROJECTION = 'lattice.codegraph_portable_outcome.v1';
+const PORTABLE_SENSOR_PROJECTION = 'lattice.sensor_portable_outcome.v1';
 const CANDIDATE_ID = 'extract-dispatch-policies';
 const FIXTURE_ENTRY = 'research/fixtures/dispatch-record/src/dispatch-record.mjs';
 const CHANNEL_PATH = 'research/fixtures/dispatch-record/src/dispatch-channel.mjs';
@@ -140,8 +140,8 @@ function portableOutcomeRecord(value) {
     && SHA256.test(value.result_digest);
 }
 
-function assertPortableCodegraphEvidence(codegraph, { querySet, graphEvidence }) {
-  if (!exactRecord(codegraph, [
+function assertPortableLatticeSensorEvidence(sensor, { querySet, graphEvidence }) {
+  if (!exactRecord(sensor, [
     'version',
     'file_count',
     'node_count',
@@ -156,52 +156,52 @@ function assertPortableCodegraphEvidence(codegraph, { querySet, graphEvidence })
     'portable_outcomes_equal',
     'outcomes',
   ])
-    || typeof codegraph.version !== 'string'
-    || codegraph.version.length === 0
-    || !Number.isSafeInteger(codegraph.file_count)
-    || codegraph.file_count <= 0
-    || !Number.isSafeInteger(codegraph.node_count)
-    || codegraph.node_count <= 0
-    || !Number.isSafeInteger(codegraph.edge_count)
-    || codegraph.edge_count <= 0
-    || !exactRecord(codegraph.pending_changes, ['added', 'modified', 'removed'])
-    || Object.values(codegraph.pending_changes).some((count) => count !== 0)
-    || codegraph.pending_refs !== 0
-    || codegraph.worktree_mismatch !== null
-    || codegraph.fresh_index_repetitions !== 2
-    || !Array.isArray(codegraph.raw_outcomes_digests)
-    || codegraph.raw_outcomes_digests.length !== 2
-    || codegraph.raw_outcomes_digests.some((digest) => (
+    || typeof sensor.version !== 'string'
+    || sensor.version.length === 0
+    || !Number.isSafeInteger(sensor.file_count)
+    || sensor.file_count <= 0
+    || !Number.isSafeInteger(sensor.node_count)
+    || sensor.node_count <= 0
+    || !Number.isSafeInteger(sensor.edge_count)
+    || sensor.edge_count <= 0
+    || !exactRecord(sensor.pending_changes, ['added', 'modified', 'removed'])
+    || Object.values(sensor.pending_changes).some((count) => count !== 0)
+    || sensor.pending_refs !== 0
+    || sensor.worktree_mismatch !== null
+    || sensor.fresh_index_repetitions !== 2
+    || !Array.isArray(sensor.raw_outcomes_digests)
+    || sensor.raw_outcomes_digests.length !== 2
+    || sensor.raw_outcomes_digests.some((digest) => (
       typeof digest !== 'string' || !SHA256.test(digest)
     ))
-    || new Set(codegraph.raw_outcomes_digests).size !== 2
-    || codegraph.raw_outcomes_equal !== false
-    || typeof codegraph.portable_outcomes_digest !== 'string'
-    || !SHA256.test(codegraph.portable_outcomes_digest)
-    || codegraph.portable_outcomes_equal !== true
-    || !Array.isArray(codegraph.outcomes)
-    || codegraph.outcomes.length === 0
-    || codegraph.outcomes.some((outcome) => !portableOutcomeRecord(outcome))) {
-    fail('portable Codegraph portability proofが不正');
+    || new Set(sensor.raw_outcomes_digests).size !== 2
+    || sensor.raw_outcomes_equal !== false
+    || typeof sensor.portable_outcomes_digest !== 'string'
+    || !SHA256.test(sensor.portable_outcomes_digest)
+    || sensor.portable_outcomes_equal !== true
+    || !Array.isArray(sensor.outcomes)
+    || sensor.outcomes.length === 0
+    || sensor.outcomes.some((outcome) => !portableOutcomeRecord(outcome))) {
+    fail('portable LatticeSensor portability proofが不正');
   }
 
   if (!Array.isArray(querySet.queries)
-    || codegraph.outcomes.length !== querySet.queries.length
-    || codegraph.outcomes.some((outcome, index) => (
+    || sensor.outcomes.length !== querySet.queries.length
+    || sensor.outcomes.some((outcome, index) => (
       outcome.id !== querySet.queries[index]?.id
       || outcome.operation !== querySet.queries[index]?.operation
     ))) {
-    fail('portable Codegraph evidenceがquery setと一致しない');
+    fail('portable LatticeSensor evidenceがquery setと一致しない');
   }
 
-  const compiledGraphEvidence = codegraph.outcomes.map((outcome) => ({
+  const compiledGraphEvidence = sensor.outcomes.map((outcome) => ({
     id: outcome.id,
     operation: outcome.operation,
     status: outcome.outcome,
     result_digest: outcome.result_digest,
   }));
   if (JSON.stringify(compiledGraphEvidence) !== JSON.stringify(graphEvidence)) {
-    fail('portable Codegraph evidenceがboundary manifestのgraph evidenceと一致しない');
+    fail('portable LatticeSensor evidenceがboundary manifestのgraph evidenceと一致しない');
   }
 }
 
@@ -221,13 +221,13 @@ function assertControlCompilationEvidence(evidence, {
     'executor_head',
     'graph_digest_projection',
     'input_digests',
-    'codegraph',
+    'sensor',
     'artifacts',
     'observed_facts',
     'presentation_note',
   ])
     || evidence.schema !== 'lattice.rc1.control_compilation_evidence.v2'
-    || evidence.graph_digest_projection !== PORTABLE_CODEGRAPH_PROJECTION) {
+    || evidence.graph_digest_projection !== PORTABLE_SENSOR_PROJECTION) {
     fail('portable control compilation evidence v2またはprojectionが不正');
   }
   if (!isCanonicalUtcTimestamp(evidence.observed_at)
@@ -250,7 +250,7 @@ function assertControlCompilationEvidence(evidence, {
     || !evidenceArtifactSet(evidence.artifacts.shared_state_negative)) {
     fail('control compilation evidenceまたはcontrol baseが不正');
   }
-  assertPortableCodegraphEvidence(evidence.codegraph, { querySet, graphEvidence });
+  assertPortableLatticeSensorEvidence(evidence.sensor, { querySet, graphEvidence });
   if (evidence.input_digests.query_set !== querySetDigest
     || evidence.input_digests.code_snapshot !== codeSnapshotDigest
     || evidence.artifacts.control.boundary_manifest.digest !== manifestDigest

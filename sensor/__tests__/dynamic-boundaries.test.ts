@@ -1,7 +1,7 @@
 /**
  * Dynamic-boundary surfacing (#687).
  *
- * When the flow an agent asked codegraph_explore about does NOT fully connect,
+ * When the flow an agent asked lattice_sensor_explore about does NOT fully connect,
  * the Flow section announces WHERE the static path ends — the dynamic-dispatch
  * site (computed member call, getattr, typed bus, runtime-keyed emit), with
  * candidate targets when a key is statically visible — instead of silently
@@ -12,7 +12,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import CodeGraph from '../src/index';
+import LatticeSensor from '../src/index';
 import { ToolHandler } from '../src/mcp/tools';
 import { scanDynamicDispatch } from '../src/mcp/dynamic-boundaries';
 
@@ -124,22 +124,22 @@ describe('scanDynamicDispatch', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Integration: codegraph_explore output
+// Integration: lattice_sensor_explore output
 // ---------------------------------------------------------------------------
 
-describe('codegraph_explore — dynamic boundaries', () => {
+describe('lattice_sensor_explore — dynamic boundaries', () => {
   let testDir: string;
-  let cg: CodeGraph;
+  let cg: LatticeSensor;
   let handler: ToolHandler;
 
   const setup = async (files: Record<string, string>, include: string[]) => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-boundary-'));
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-boundary-'));
     const src = path.join(testDir, 'src');
     fs.mkdirSync(src, { recursive: true });
     for (const [name, content] of Object.entries(files)) {
       fs.writeFileSync(path.join(src, name), content);
     }
-    cg = CodeGraph.initSync(testDir, { config: { include, exclude: [] } });
+    cg = LatticeSensor.initSync(testDir, { config: { include, exclude: [] } });
     await cg.indexAll();
     handler = new ToolHandler(cg);
   };
@@ -168,7 +168,7 @@ describe('codegraph_explore — dynamic boundaries', () => {
       ].join('\n'),
     }, ['**/*.ts']);
 
-    const res = await handler.execute('codegraph_explore', { query: 'routeSave onSave' });
+    const res = await handler.execute('lattice_sensor_explore', { query: 'routeSave onSave' });
     const text = res.content[0].text as string;
 
     expect(text).toContain('**Dynamic boundaries');
@@ -196,7 +196,7 @@ describe('codegraph_explore — dynamic boundaries', () => {
       'handlers.ts': 'export function onSave(payload: unknown) { return payload; }',
     }, ['**/*.ts']);
 
-    const res = await handler.execute('codegraph_explore', { query: 'route onSave' });
+    const res = await handler.execute('lattice_sensor_explore', { query: 'route onSave' });
     const text = res.content[0].text as string;
 
     expect(text).toContain('**Dynamic boundaries');
@@ -219,7 +219,7 @@ describe('codegraph_explore — dynamic boundaries', () => {
     }, ['**/*.ts']);
 
     // `processPayment` does not exist anywhere — only `route` resolves.
-    const res = await handler.execute('codegraph_explore', { query: 'route processPayment' });
+    const res = await handler.execute('lattice_sensor_explore', { query: 'route processPayment' });
     const text = res.content[0].text as string;
     expect(text).toContain('**Dynamic boundaries');
   });
@@ -251,7 +251,7 @@ describe('codegraph_explore — dynamic boundaries', () => {
       ].join('\n'),
     }, ['**/*.ts']);
 
-    const res = await handler.execute('codegraph_explore', { query: 'completeCheckout settleInvoice' });
+    const res = await handler.execute('lattice_sensor_explore', { query: 'completeCheckout settleInvoice' });
     const text = res.content[0].text as string;
 
     expect(text).toContain('**Dynamic-dispatch links among your symbols');
@@ -270,7 +270,7 @@ describe('codegraph_explore — dynamic boundaries', () => {
       ].join('\n'),
     }, ['**/*.ts']);
 
-    const res = await handler.execute('codegraph_explore', { query: 'stepOne stepThree' });
+    const res = await handler.execute('lattice_sensor_explore', { query: 'stepOne stepThree' });
     const text = res.content[0].text as string;
     expect(text).toContain('**Flow');
     expect(text).not.toContain('**Dynamic boundaries');
@@ -289,7 +289,7 @@ describe('codegraph_explore — dynamic boundaries', () => {
       ].join('\n'),
     }, ['**/*.py']);
 
-    const res = await handler.execute('codegraph_explore', { query: 'process handle_save' });
+    const res = await handler.execute('lattice_sensor_explore', { query: 'process handle_save' });
     const text = res.content[0].text as string;
 
     expect(text).toContain('**Dynamic boundaries');
@@ -302,19 +302,19 @@ describe('codegraph_explore — dynamic boundaries', () => {
 // Integration: interface/registry dispatch (a named method has many impls)
 // ---------------------------------------------------------------------------
 
-describe('codegraph_explore — interface dispatch', () => {
+describe('lattice_sensor_explore — interface dispatch', () => {
   let testDir: string;
-  let cg: CodeGraph;
+  let cg: LatticeSensor;
   let handler: ToolHandler;
 
   const setup = async (files: Record<string, string>, include: string[]) => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-iface-'));
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-iface-'));
     const src = path.join(testDir, 'src');
     fs.mkdirSync(src, { recursive: true });
     for (const [name, content] of Object.entries(files)) {
       fs.writeFileSync(path.join(src, name), content);
     }
-    cg = CodeGraph.initSync(testDir, { config: { include, exclude: [] } });
+    cg = LatticeSensor.initSync(testDir, { config: { include, exclude: [] } });
     await cg.indexAll();
     handler = new ToolHandler(cg);
   };
@@ -357,7 +357,7 @@ describe('codegraph_explore — interface dispatch', () => {
   it('announces the interface, the TRUE implementer count, and sample targets', async () => {
     await setup({ 'nodes.ts': nodeFamily(9), 'registry.ts': registry, 'engine.ts': engine }, ['**/*.ts']);
 
-    const res = await handler.execute('codegraph_explore', { query: 'processRunExecutionData executeNode execute' });
+    const res = await handler.execute('lattice_sensor_explore', { query: 'processRunExecutionData executeNode execute' });
     const text = res.content[0].text as string;
 
     expect(text).toContain('**Interface dispatch (a named method has many implementations)');
@@ -377,7 +377,7 @@ describe('codegraph_explore — interface dispatch', () => {
       ].join('\n'),
     }, ['**/*.ts']);
 
-    const res = await handler.execute('codegraph_explore', { query: 'stepOne stepThree' });
+    const res = await handler.execute('lattice_sensor_explore', { query: 'stepOne stepThree' });
     const text = res.content[0].text as string;
     expect(text).toContain('**Flow');
     expect(text).not.toContain('**Interface dispatch');
@@ -386,7 +386,7 @@ describe('codegraph_explore — interface dispatch', () => {
   it('stays SILENT when the interface family is below the polymorphism threshold (3 impls)', async () => {
     await setup({ 'nodes.ts': nodeFamily(3), 'registry.ts': registry, 'engine.ts': engine }, ['**/*.ts']);
 
-    const res = await handler.execute('codegraph_explore', { query: 'processRunExecutionData executeNode execute' });
+    const res = await handler.execute('lattice_sensor_explore', { query: 'processRunExecutionData executeNode execute' });
     const text = res.content[0].text as string;
     expect(text).not.toContain('**Interface dispatch');
   });

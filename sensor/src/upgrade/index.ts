@@ -3,12 +3,12 @@
  *
  * The upstream self-update implementation is archived outside `src/` and is
  * not compiled or shipped. These pure helpers remain solely so the legacy
- * uninstaller can identify and remove an independently installed Codegraph.
+ * uninstaller can identify and remove an independently installed Lattice sensor.
  */
 import * as fs from 'fs';
 import * as path from 'path';
 
-export const NPM_PACKAGE = '@colbymchenry/codegraph';
+export const NPM_PACKAGE = '@kitepon-rgb/Lattice';
 
 export type InstallMethod =
   | { kind: 'bundle'; os: 'unix' | 'windows'; bundleRoot: string; installDir: string | null }
@@ -58,7 +58,7 @@ export function detectInstallMethod(input: DetectInput): InstallMethod {
   }
   const bundleRoot = platformPath.resolve(binDir, '..', '..', '..');
   const vendoredNode = platformPath.join(bundleRoot, isWindows ? 'node.exe' : 'node');
-  const launcher = platformPath.join(bundleRoot, 'bin', isWindows ? 'codegraph.cmd' : 'codegraph');
+  const launcher = platformPath.join(bundleRoot, 'bin', isWindows ? 'latticeSensor.cmd' : 'latticeSensor');
   if (exists(vendoredNode) && exists(launcher)) {
     const os = isWindows ? 'windows' : 'unix';
     return { kind: 'bundle', os, bundleRoot, installDir: deriveInstallDir(bundleRoot, os, exists) };

@@ -39,7 +39,7 @@ import { createRc1V6EvidenceBundleDescriptor } from './rc1-v6-causal-binding.mjs
 import { runRc1V5Campaign } from './rc1-v5-campaign.mjs';
 import {
   bindRc1V6EvidenceBundle,
-  captureRc1V6CodegraphExecutable,
+  captureRc1V6LatticeSensorExecutable,
   compileRc1V6BoundaryCondition,
   createRc1V6ConditionRun,
   sourceSnapshotFromRc1BehaviorSurface,
@@ -294,24 +294,24 @@ export async function runRc1V6Campaign(options = {}) {
     .stdout.toString('utf8').trim();
   if (!GIT_SHA1.test(baseSha)) throw new TypeError('RC1 v6 campaign base SHA is invalid');
   const startedAt = performance.now();
-  const [codegraphCapture, compilerSourceBytes, oracleExecutorBytes] = await Promise.all([
-    captureRc1V6CodegraphExecutable(),
+  const [sensorCapture, compilerSourceBytes, oracleExecutorBytes] = await Promise.all([
+    captureRc1V6LatticeSensorExecutable(),
     readFile(new URL('./boundary-compiler.mjs', import.meta.url)),
     readFile(new URL('./rc1-black-box-oracle.mjs', import.meta.url)),
   ]);
-  const codegraphIdentity = codegraphCapture.identity;
+  const sensorIdentity = sensorCapture.identity;
   const runtimeIdentity = await createRc1V6OracleRuntimeIdentity();
   if (runtimeIdentity.executor_source_digest !== sha256(oracleExecutorBytes)) {
     throw new TypeError('RC1 v6 oracle runtime identityが保存executor bytesと一致しない');
   }
   const v5 = await runRc1V5Campaign({ repoRoot, baseRef: baseSha, inputs: fixedInputs });
-  const [finalCodegraphCapture, finalCompilerSourceBytes, finalOracleExecutorBytes] =
+  const [finalLatticeSensorCapture, finalCompilerSourceBytes, finalOracleExecutorBytes] =
     await Promise.all([
-      captureRc1V6CodegraphExecutable(),
+      captureRc1V6LatticeSensorExecutable(),
       readFile(new URL('./boundary-compiler.mjs', import.meta.url)),
       readFile(new URL('./rc1-black-box-oracle.mjs', import.meta.url)),
     ]);
-  if (!isDeepStrictEqual(codegraphCapture, finalCodegraphCapture)
+  if (!isDeepStrictEqual(sensorCapture, finalLatticeSensorCapture)
     || !compilerSourceBytes.equals(finalCompilerSourceBytes)
     || !oracleExecutorBytes.equals(finalOracleExecutorBytes)) {
     throw new TypeError('RC1 v6実行主体のidentityがcampaign中にdriftした');
@@ -343,7 +343,7 @@ export async function runRc1V6Campaign(options = {}) {
     base_sha: baseSha,
     patch_digest: bundle.condition === 'treatment' ? v5.transform.artifact.patch.digest : null,
     snapshot: bundle.condition === 'treatment' ? treatmentSnapshot : controlSnapshot,
-    codegraph_identity: codegraphIdentity,
+    sensor_identity: sensorIdentity,
     query_set_digest: digestArtifact(fixedInputs.querySet),
   }));
   const runs = evidenceBundles.map(createRc1V6ConditionRun);
@@ -355,14 +355,14 @@ export async function runRc1V6Campaign(options = {}) {
     base_sha: baseSha,
     patch_digest: null,
     snapshot: controlSnapshot,
-    codegraph_identity: codegraphIdentity,
+    sensor_identity: sensorIdentity,
     query_set_digest: digestArtifact(fixedInputs.querySet),
   };
   const treatmentExpected = {
     base_sha: baseSha,
     patch_digest: v5.transform.artifact.patch.digest,
     snapshot: treatmentSnapshot,
-    codegraph_identity: codegraphIdentity,
+    sensor_identity: sensorIdentity,
     query_set_digest: digestArtifact(fixedInputs.querySet),
   };
   const control = compileCondition({
@@ -419,7 +419,7 @@ export async function runRc1V6Campaign(options = {}) {
     baseSha,
     inputs: fixedInputs,
     runtimeIdentity,
-    codegraphIdentity,
+    sensorIdentity,
     compilerSourceDigest,
     control,
     treatment,
@@ -443,7 +443,7 @@ export async function runRc1V6Campaign(options = {}) {
     base_sha: baseSha,
     elapsed_ms: roundedMilliseconds(startedAt),
     compiler_source_digest: compilerSourceDigest,
-    codegraph_identity_digest: digestArtifact(codegraphIdentity),
+    sensor_identity_digest: digestArtifact(sensorIdentity),
     runtime_identity_digest: digestArtifact(runtimeIdentity),
     run_descriptor_digests: runs.map(({ evidence_bundle_descriptor_digest: digest }) => digest),
     transform_artifact_digest: transform.artifact_digest,
@@ -458,11 +458,11 @@ export async function runRc1V6Campaign(options = {}) {
     base_sha: baseSha,
     inputs: fixedInputs,
     runtime_identity: runtimeIdentity,
-    codegraph_identity: codegraphIdentity,
+    sensor_identity: sensorIdentity,
     identity_sources: {
       compiler: compilerSourceBytes,
       oracle_executor: oracleExecutorBytes,
-      codegraph_executable: codegraphCapture.executable_bytes,
+      sensor_executable: sensorCapture.executable_bytes,
     },
     evidence_bundles: evidenceBundles,
     runs,
@@ -490,10 +490,10 @@ function artifactFiles(result, rejectedPlanBytes, phaseDecisionBytes) {
     files.set(relativePath, jsonBytes(result.inputs[key]));
   }
   files.set('inputs/oracle-runtime-identity.json', jsonBytes(result.runtime_identity));
-  files.set('inputs/codegraph-identity.json', jsonBytes(result.codegraph_identity));
+  files.set('inputs/lattice-sensor-identity.json', jsonBytes(result.sensor_identity));
   files.set('identity/boundary-compiler.mjs', Buffer.from(result.identity_sources.compiler));
   files.set('identity/black-box-oracle.mjs', Buffer.from(result.identity_sources.oracle_executor));
-  files.set('identity/codegraph-executable', Buffer.from(result.identity_sources.codegraph_executable));
+  files.set('identity/lattice-sensor-executable', Buffer.from(result.identity_sources.sensor_executable));
   for (const bundle of result.evidence_bundles) {
     files.set(`evidence/${bundle.run_id}.json`, jsonBytes(bundle));
   }

@@ -262,19 +262,19 @@ function validSourceSnapshot(value) {
   return value.files.every(({ path }, index) => index === 0 || value.files[index - 1].path < path);
 }
 
-function validCodegraphIdentity(value) {
+function validLatticeSensorIdentity(value) {
   return exactRecord(value, [
     'schema',
     'version',
     'executable_ref',
     'executable_digest',
   ])
-    && value.schema === 'lattice.rc1.codegraph_identity.v1'
+    && value.schema === 'lattice.rc1.sensor_identity.v1'
     && typeof value.version === 'string'
     && /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(value.version)
-    // `codegraph` is accepted only as an immutable pre-cutover artifact value.
+    // `sensor` is accepted only as an immutable pre-cutover artifact value.
     // New captures always emit `lattice-sensor`.
-    && (value.executable_ref === 'lattice-sensor' || value.executable_ref === 'codegraph')
+    && (value.executable_ref === 'lattice-sensor' || value.executable_ref === 'sensor')
     && SHA256.test(value.executable_digest);
 }
 
@@ -299,7 +299,7 @@ export function createRc1V6EvidenceBundleDescriptor(bundle) {
 }
 
 /**
- * v6 Codegraph runを、独立したsource／tool期待値と保存raw evidenceへcross-bindする。
+ * v6 LatticeSensor runを、独立したsource／tool期待値と保存raw evidenceへcross-bindする。
  */
 export function verifyRc1V6RunEvidence(options) {
   if (!exactRecord(options, ['run', 'bundle', 'expected'])) {
@@ -338,14 +338,14 @@ export function verifyRc1V6RunEvidence(options) {
     'base_sha',
     'patch_digest',
     'snapshot',
-    'codegraph_identity',
+    'sensor_identity',
     'query_set_digest',
   ])
     && GIT_SHA1.test(expected.base_sha)
     && (expected.patch_digest === null
       || (typeof expected.patch_digest === 'string' && SHA256.test(expected.patch_digest)))
     && validSourceSnapshot(expected.snapshot)
-    && validCodegraphIdentity(expected.codegraph_identity)
+    && validLatticeSensorIdentity(expected.sensor_identity)
     && SHA256.test(expected.query_set_digest);
   const measurement = bundleValid ? bundle.measurement : null;
   const measurementValid = exactRecord(measurement, [
@@ -354,19 +354,19 @@ export function verifyRc1V6RunEvidence(options) {
     'patch_digest',
     'snapshot',
     'snapshot_digest',
-    'codegraph_identity',
-    'codegraph_identity_digest',
+    'sensor_identity',
+    'sensor_identity_digest',
     'query_set_digest',
     'raw_evidence_digest',
   ])
-    && measurement.schema === 'lattice.rc1.codegraph_measurement.v1'
+    && measurement.schema === 'lattice.rc1.sensor_measurement.v1'
     && GIT_SHA1.test(measurement.base_sha)
     && (measurement.patch_digest === null
       || (typeof measurement.patch_digest === 'string' && SHA256.test(measurement.patch_digest)))
     && validSourceSnapshot(measurement.snapshot)
     && SHA256.test(measurement.snapshot_digest)
-    && validCodegraphIdentity(measurement.codegraph_identity)
-    && SHA256.test(measurement.codegraph_identity_digest)
+    && validLatticeSensorIdentity(measurement.sensor_identity)
+    && SHA256.test(measurement.sensor_identity_digest)
     && SHA256.test(measurement.query_set_digest)
     && SHA256.test(measurement.raw_evidence_digest);
 
@@ -396,10 +396,10 @@ export function verifyRc1V6RunEvidence(options) {
         && isDeepStrictEqual(measurement.snapshot, expected.snapshot),
     },
     {
-      id: 'codegraph_identity',
+      id: 'sensor_identity',
       passed: measurementValid && expectedValid
-        && measurement.codegraph_identity_digest === safeDigest(measurement.codegraph_identity)
-        && isDeepStrictEqual(measurement.codegraph_identity, expected.codegraph_identity),
+        && measurement.sensor_identity_digest === safeDigest(measurement.sensor_identity)
+        && isDeepStrictEqual(measurement.sensor_identity, expected.sensor_identity),
     },
     {
       id: 'source_projection',

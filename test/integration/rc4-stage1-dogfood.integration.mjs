@@ -41,7 +41,7 @@ function run(command, args, cwd) {
 }
 
 // owns/writesの構造的裏付けには`query`操作（symbol解決）を使う。`affected`操作は
-// 依存test 0件のfileに対してcodegraph自身が`empty`を返し（AGENTS.md「fuzzy解決・
+// 依存test 0件のfileに対してsensor自身が`empty`を返し（AGENTS.md「fuzzy解決・
 // 空結果はunknownへ」規律の帰結）、covering queryとしてはBOUNDARY_UNKNOWNになる
 // ため使えない（実測確認済み・rc3のENTRY等は依存testを持つ実fileだったため
 // 顕在化していなかった差分）。
@@ -52,7 +52,7 @@ function witness({ target }) {
     writes: [target],
     resources: [],
     state_effects: [],
-    codegraph_provenance: {
+    sensor_provenance: {
       queries: [{ query_id: `q-path-${target}`, expect: { kind: 'path', path: target } }],
     },
     affected_tests: [],
@@ -90,7 +90,7 @@ test.before(async () => {
       T1: witness({ target: 'shared.mjs' }),
       T2: witness({ target: 'shared.mjs' }),
     },
-    codegraph_query_set: {
+    sensor_query_set: {
       queries: [
         { id: 'q-status', operation: 'status' },
         { id: 'q-path-shared.mjs', operation: 'query', target: 'shared.mjs' },

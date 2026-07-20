@@ -62,7 +62,7 @@ test.before(async () => {
       T1: witness('alpha'),
       T2: witness('beta'),
     },
-    codegraph_query_set: {
+    sensor_query_set: {
       queries: [
         { id: 'q-status', operation: 'status' },
         { id: 'q-T1', operation: 'query', target: 'alpha' },
@@ -90,7 +90,7 @@ function witness(name) {
     writes: [`src/${name}.mjs`],
     resources: [],
     state_effects: [],
-    codegraph_provenance: {
+    sensor_provenance: {
       queries: [
         { query_id: `q-${name === 'alpha' ? 'T1' : 'T2'}`, expect: { kind: 'symbol', name, path: `src/${name}.mjs` } },
         { query_id: `q-${name === 'alpha' ? 'T1' : 'T2'}-aff`, expect: { kind: 'affected', path: `src/${name}.mjs` } },

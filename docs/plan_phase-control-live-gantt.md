@@ -1,4 +1,7 @@
-# Phase統制・live工程表・局所seam一般化計画
+# Phase統制・live工程表・局所seam一般化計画（完了済み履歴）
+
+> このMarkdownは着手時の判断理由を残す履歴であり、工程状態の正本ではない。
+> 現在のtask・Phase・完了証拠はLattice storeだけを参照する。
 
 ## 目的
 

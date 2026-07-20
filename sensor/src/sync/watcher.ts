@@ -37,7 +37,7 @@ import { isSourceFile, buildScopeIgnore, type ScopeIgnore } from '../extraction'
 import { loadExtensionOverrides } from '../project-config';
 import { logDebug, logWarn } from '../errors';
 import { normalizePath } from '../utils';
-import { isCodeGraphDataDir } from '../directory';
+import { isLatticeStateDir } from '../directory';
 import { watchDisabledReason } from './watch-policy';
 
 /**
@@ -131,12 +131,12 @@ export function __setFsWatchForTests(fn: WatchFn | null): void {
  * is the hard limit (commonly 8k–128k). We stop adding watches past this and
  * log once — partial live-watch (with `lattice sensor sync` as the backstop) is far
  * better than exhausting the user's inotify budget and breaking watching
- * system-wide (#579). Tunable via CODEGRAPH_MAX_DIR_WATCHES.
+ * system-wide (#579). Tunable via LATTICE_SENSOR_MAX_DIR_WATCHES.
  */
 const DEFAULT_MAX_DIR_WATCHES = 50_000;
 
 function maxDirWatches(): number {
-  const raw = process.env.CODEGRAPH_MAX_DIR_WATCHES;
+  const raw = process.env.LATTICE_SENSOR_MAX_DIR_WATCHES;
   if (raw && /^\d+$/.test(raw)) {
     const n = Number(raw);
     if (n > 0) return n;
@@ -204,7 +204,7 @@ export interface WatchOptions {
  * external indexer can hit this every debounce cycle.
  */
 export class LockUnavailableError extends Error {
-  constructor(message = 'CodeGraph file lock unavailable; another process is writing') {
+  constructor(message = 'LatticeSensor file lock unavailable; another process is writing') {
     super(message);
     this.name = 'LockUnavailableError';
   }
@@ -240,7 +240,7 @@ export interface PendingFile {
  *   was the system-crashing fd leak on macOS (#644/#496/#555/#628).
  * - Debounced to avoid thrashing on rapid saves
  * - Filters to supported source files by extension
- * - Ignores .codegraph/ and .git/ regardless of .gitignore
+ * - Ignores .lattice/sensor/ and .git/ regardless of .gitignore
  * - Tracks per-file pending state so MCP tools can flag stale results
  *   without blocking on a sync (issue #403)
  */
@@ -612,12 +612,12 @@ export class FileWatcher {
 
   /** Our own dirs are always ignored, regardless of .gitignore. */
   private isAlwaysIgnored(rel: string): boolean {
-    // First path segment. Ignore any CodeGraph data dir — the active one AND a
-    // sibling like `.codegraph-win` a second environment (Windows/WSL) created
+    // First path segment. Ignore any LatticeSensor data dir — the active one AND a
+    // sibling like `.lattice/sensor-win` a second environment (Windows/WSL) created
     // in the same tree, so neither side watches the other's index (#636).
     const top = rel.split('/')[0] ?? rel;
     return (
-      isCodeGraphDataDir(top) ||
+      isLatticeStateDir(top) ||
       rel === '.git' || rel.startsWith('.git/')
     );
   }
@@ -839,7 +839,7 @@ export class FileWatcher {
         });
         if (this.lockRetryCount > MAX_LOCK_RETRIES) {
           this.degrade(
-            'CodeGraph file lock held by another process past the retry budget; ' +
+            'LatticeSensor file lock held by another process past the retry budget; ' +
               'auto-sync disabled. Run `lattice sensor sync` once the other writer finishes ' +
               '(or install git sync hooks) to refresh the graph.',
             { pendingFiles: this.pendingFiles.size, retryCount: this.lockRetryCount }
@@ -864,7 +864,7 @@ export class FileWatcher {
         // clean sync resets the streak, so a transient hiccup never degrades.
         if (this.syncFailureRetryCount > MAX_SYNC_FAILURE_RETRIES) {
           this.degrade(
-            `CodeGraph auto-sync failed ${this.syncFailureRetryCount} times in a row; ` +
+            `LatticeSensor auto-sync failed ${this.syncFailureRetryCount} times in a row; ` +
               'auto-sync disabled. Run `lattice sensor sync` (or install git sync hooks) to ' +
               `refresh the graph after changes. Last error: ${error.message}`,
             { error: error.message, retryCount: this.syncFailureRetryCount }

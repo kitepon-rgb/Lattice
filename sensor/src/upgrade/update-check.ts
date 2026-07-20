@@ -1,5 +1,5 @@
 /**
- * Retired with the independent Codegraph release channel.
+ * Retired with the independent Lattice sensor release channel.
  *
  * The historical implementation is preserved under
  * `sensor/archive/upstream-self-upgrade/` and is excluded from distribution.

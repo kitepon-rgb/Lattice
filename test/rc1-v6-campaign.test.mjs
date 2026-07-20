@@ -74,8 +74,8 @@ async function makeFixtureRepo(t) {
     copyRepoFile(repoRoot, REJECTED_PLAN),
     copyRepoFile(repoRoot, PHASE_DECISION),
   ]);
-  await mkdir(path.join(repoRoot, '.codegraph'), { recursive: true });
-  await writeFile(path.join(repoRoot, '.codegraph', '.gitignore'), [
+  await mkdir(path.join(repoRoot, '.lattice/sensor'), { recursive: true });
+  await writeFile(path.join(repoRoot, '.lattice/sensor', '.gitignore'), [
     '*',
     '!.gitignore',
     '',
@@ -169,13 +169,13 @@ test('v6 2+2 campaign writes a snapshot-bound causal artifact set and rejects re
   for (const identityPath of [
     'identity/boundary-compiler.mjs',
     'identity/black-box-oracle.mjs',
-    'identity/codegraph-executable',
+    'identity/lattice-sensor-executable',
   ]) {
     assert.ok(manifest.files.some(({ path: relativePath }) => relativePath === identityPath));
   }
   assert.equal(
     manifest.files.find(({ path: relativePath }) => (
-      relativePath === 'identity/codegraph-executable'
+      relativePath === 'identity/lattice-sensor-executable'
     )).media_type,
     'application/javascript',
   );
@@ -211,7 +211,7 @@ test('v6 2+2 campaign writes a snapshot-bound causal artifact set and rejects re
 
   const mediaTypeSubstitution = structuredClone(manifest);
   mediaTypeSubstitution.files.find(({ path: relativePath }) => (
-    relativePath === 'identity/codegraph-executable'
+    relativePath === 'identity/lattice-sensor-executable'
   )).media_type = 'text/markdown';
   assert.equal(verifyRc1V6CampaignArtifactSet({
     manifest: mediaTypeSubstitution,
@@ -221,7 +221,7 @@ test('v6 2+2 campaign writes a snapshot-bound causal artifact set and rejects re
   for (const identityPath of [
     'identity/boundary-compiler.mjs',
     'identity/black-box-oracle.mjs',
-    'identity/codegraph-executable',
+    'identity/lattice-sensor-executable',
   ]) {
     assert.equal(verifyRc1V6CampaignArtifactSet(
       resealedBinaryArtifactSet(manifest, payloads, identityPath),

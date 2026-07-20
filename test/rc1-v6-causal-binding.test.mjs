@@ -156,8 +156,8 @@ function v6RunFixture(v5Bundle) {
       },
     ],
   };
-  const codegraphIdentity = {
-    schema: 'lattice.rc1.codegraph_identity.v1',
+  const sensorIdentity = {
+    schema: 'lattice.rc1.sensor_identity.v1',
     version: '1.4.1',
     executable_ref: 'lattice-sensor',
     executable_digest: '3'.repeat(64),
@@ -165,13 +165,13 @@ function v6RunFixture(v5Bundle) {
   const bundle = structuredClone(v5Bundle);
   bundle.schema = 'lattice.rc1.evidence_bundle.v2';
   bundle.measurement = {
-    schema: 'lattice.rc1.codegraph_measurement.v1',
+    schema: 'lattice.rc1.sensor_measurement.v1',
     base_sha: '4'.repeat(40),
     patch_digest: null,
     snapshot,
     snapshot_digest: digestArtifact(snapshot),
-    codegraph_identity: codegraphIdentity,
-    codegraph_identity_digest: digestArtifact(codegraphIdentity),
+    sensor_identity: sensorIdentity,
+    sensor_identity_digest: digestArtifact(sensorIdentity),
     query_set_digest: bundle.query_set_digest,
     raw_evidence_digest: bundle.raw.payload_digest,
   };
@@ -187,7 +187,7 @@ function v6RunFixture(v5Bundle) {
     base_sha: bundle.measurement.base_sha,
     patch_digest: null,
     snapshot,
-    codegraph_identity: codegraphIdentity,
+    sensor_identity: sensorIdentity,
     query_set_digest: bundle.query_set_digest,
   };
   return { run, bundle, expected };
@@ -319,17 +319,17 @@ test('v6 causal binding rejects semantic and measurement substitutions after res
   );
   assert.equal(verifyRc1V6RunEvidence({ ...snapshotSubstitution, expected }).valid, false);
 
-  const codegraphDrift = structuredClone({ run, bundle });
-  codegraphDrift.bundle.measurement.codegraph_identity.version = '9.9.9';
-  codegraphDrift.bundle.measurement.codegraph_identity_digest = digestArtifact(
-    codegraphDrift.bundle.measurement.codegraph_identity,
+  const sensorDrift = structuredClone({ run, bundle });
+  sensorDrift.bundle.measurement.sensor_identity.version = '9.9.9';
+  sensorDrift.bundle.measurement.sensor_identity_digest = digestArtifact(
+    sensorDrift.bundle.measurement.sensor_identity,
   );
-  codegraphDrift.bundle.measurement_digest = digestArtifact(codegraphDrift.bundle.measurement);
-  codegraphDrift.run.measurement_digest = codegraphDrift.bundle.measurement_digest;
-  codegraphDrift.run.evidence_bundle_descriptor_digest = digestArtifact(
-    evidenceBundleDescriptor(codegraphDrift.bundle),
+  sensorDrift.bundle.measurement_digest = digestArtifact(sensorDrift.bundle.measurement);
+  sensorDrift.run.measurement_digest = sensorDrift.bundle.measurement_digest;
+  sensorDrift.run.evidence_bundle_descriptor_digest = digestArtifact(
+    evidenceBundleDescriptor(sensorDrift.bundle),
   );
-  assert.equal(verifyRc1V6RunEvidence({ ...codegraphDrift, expected }).valid, false);
+  assert.equal(verifyRc1V6RunEvidence({ ...sensorDrift, expected }).valid, false);
 
   const rawSubstitution = structuredClone({ run, bundle });
   rawSubstitution.bundle.raw.payload_base64 = Buffer.from('substituted').toString('base64');

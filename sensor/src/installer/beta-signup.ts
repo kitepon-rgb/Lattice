@@ -1,12 +1,12 @@
 /**
- * CodeGraph Pro beta opt-in — the installer's one-time offer to join the
- * beta-access waitlist (the same list the getcodegraph.com homepage form
+ * LatticeSensor Pro beta opt-in — the installer's one-time offer to join the
+ * beta-access waitlist (the same list the Lattice.com homepage form
  * feeds). Strictly opt-in: the user must answer yes AND type their email;
  * nothing is ever sent otherwise, and `--yes` / non-interactive runs never
  * see the prompt.
  *
  * The choice (subscribed or declined) is stored once in the user-level
- * state dir (~/.codegraph) so re-installs and upgrades never re-ask —
+ * state dir (~/.lattice/sensor) so re-installs and upgrades never re-ask —
  * mirroring the telemetry consent pattern. A failed submit stores nothing,
  * so a later install can offer again.
  */
@@ -16,8 +16,8 @@ import * as path from 'path';
 import * as os from 'os';
 
 /** JSON waitlist endpoint on the landing page (see its /api/waitlist route). */
-export const BETA_SIGNUP_ENDPOINT = 'https://getcodegraph.com/api/waitlist';
-export const BETA_SIGNUP_URL = 'https://getcodegraph.com';
+export const BETA_SIGNUP_ENDPOINT = 'https://Lattice.com/api/waitlist';
+export const BETA_SIGNUP_URL = 'https://Lattice.com';
 
 /** Same shape the landing-page form validates against. */
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -30,7 +30,7 @@ interface BetaSignupChoiceFile {
 }
 
 export interface BetaSignupDeps {
-  /** Global state dir; defaults to ~/.codegraph. Tests inject a temp dir. */
+  /** Global state dir; defaults to ~/.lattice/sensor. Tests inject a temp dir. */
   dir?: string;
   fetchImpl?: typeof fetch;
   now?: () => Date;
@@ -42,7 +42,7 @@ export interface BetaSignupDeps {
 }
 
 function choicePath(deps: BetaSignupDeps = {}): string {
-  return path.join(deps.dir ?? path.join(os.homedir(), '.codegraph'), 'beta-signup.json');
+  return path.join(deps.dir ?? path.join(os.homedir(), '.lattice/sensor'), 'beta-signup.json');
 }
 
 /** True once the user has answered (either way) on this machine. */
@@ -115,7 +115,7 @@ const importESM = new Function('specifier', 'return import(specifier)') as
 
 /**
  * The full interactive offer: confirm → email → submit → remember. Shared by
- * `codegraph install` (end of a successful install) and `codegraph upgrade`
+ * `latticeSensor install` (end of a successful install) and `latticeSensor upgrade`
  * (after a successful binary update). Silently does nothing when the gate
  * says no; never throws — a marketing question must not fail the command
  * that hosts it. Cancel (Ctrl-C) and a failed submit store nothing, so a
@@ -129,7 +129,7 @@ export async function maybeOfferBetaSignup(deps: BetaSignupDeps = {}): Promise<v
 
     const wantsBeta = await clack.confirm({
       message:
-        'Want early access to CodeGraph Pro? Join the beta waitlist — we’ll only email you about CodeGraph, never share your address.',
+        'Want early access to LatticeSensor Pro? Join the beta waitlist — we’ll only email you about LatticeSensor, never share your address.',
       initialValue: true,
     });
     if (clack.isCancel(wantsBeta)) {

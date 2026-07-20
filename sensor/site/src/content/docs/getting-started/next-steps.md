@@ -3,6 +3,8 @@ title: Next Steps
 description: Where to go once CodeGraph is installed and indexing.
 ---
 
+> **旧上流documentation（未配布）**: このページの名称、URL、CLI、設定、効果量は現行Latticeの仕様ではありません。現行仕様はroot `README.md` と `docs/00_product-contract.md` を参照してください。
+
 You've got CodeGraph installed and a graph built. Here's where to go next.
 
 ## Understand the model

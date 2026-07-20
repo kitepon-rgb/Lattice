@@ -1,7 +1,8 @@
-# Handoff — 依存工程図 renderer v7 UI改修
+# Handoff — 依存工程図 renderer v7 UI改修（完了済み履歴）
 
 更新日: 2026-07-19
-状態: **再開済み・実装と機械検証完了・実ブラウザ受入待ち・未commit**
+状態: **完了済み履歴**（以下の状態・未完一覧はhandoff作成時点の記録）
+当時の状態: **再開済み・実装と機械検証完了・実ブラウザ受入待ち・未commit**
 再開記録: 2026-07-19、Wave 3とdotagents Waveを継続。renderer focused 23/23、実110件生成、
 `todo verify`、store bytes不変、外部resource参照0まで確認した。in-app browserの`file://` URL policyにより、
 実ブラウザのnavigation／keyboard／狭幅表示とオーナー目視だけ未受入。以下は中断時点の履歴として保持する。

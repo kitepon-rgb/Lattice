@@ -1,4 +1,4 @@
-# Lattice 製品契約 v0
+# Lattice 製品契約（0.9.1）
 
 ## Product outcome
 
@@ -23,7 +23,7 @@ schemaはexact key、bounded collection、canonical serialization、digestを持
 ## Boundary evidence
 
 Lattice内蔵sensor由来のsymbol／edge／impact／affected testと、Lattice本体が補うschema、state、transaction、generated
-artifact、config、external effect、H、runtime traceを区別して保持する。Codegraphだけで独立性を宣言しない。
+artifact、config、external effect、H、runtime traceを区別して保持する。構造sensorだけで独立性を宣言しない。
 
 `boundary_manifest.graph_evidence[].result_digest`は環境依存のraw CLI outputでなく、versioned portable outcome projectionの
 canonical digestを指す。raw telemetryは診断receiptとして別に保持し、project／index absolute path、index時刻、DB byte size、
@@ -66,10 +66,10 @@ plan／witness契約が消費するevidenceはCLI面・portable projectionのみ
 MCP serverはhost sessionのstdio子プロセス（session寿命）、共有sensor daemonはclient refcount＋
 idle timeoutで自動終了するcache工程であり、どちらも自律的なdispatch・製品状態への書込を行わない
 （書込はLattice sensorのproject cacheへのwatcher再indexとLattice固有のglobal管理領域・socket
-rendezvous nodeに限る）。旧Codegraph cache/dataは入力またはfallbackとして読まない。「常駐サービス化はしない」非目標はorchestration面の規定であり、
+rendezvous nodeに限る）。廃止済みcache/dataは入力またはfallbackとして読まない。「常駐サービス化はしない」非目標はorchestration面の規定であり、
 MCP server提供と矛盾しない。MCP面は外部networkへ一切通信しない（v1受入条件）。
-runtimeは配布物内の`./sensor/dist`だけを起動し、PATH上の独立Codegraph、npx、外部SDKを解決しない。
-`codegraph_*`互換toolは提供者を`lattice`、所有者を`lattice`として機械表示し、独立製品の存在を示さない。
+runtimeは配布物内の`./sensor/dist`だけを起動し、PATH上の独立CLI、npx、外部SDKを解決しない。
+MCP toolは`lattice_sensor_*`だけを公開し、提供者と所有者を`lattice`として機械表示する。
 
 ## TODO工程store面（ADR 0053・0055・0056・0058）
 
@@ -80,16 +80,17 @@ canonical store ref、active plan、active run、`uninitialized | ready | active
 Markdownへ暗黙fallbackしない。
 
 未初期化projectの初期authoring入口は
-`lattice plan create --input <lattice.plan_create_input.v2>`である。入力はrepo内のcanonical
-JSON+LFに限定し、`lattice.todo_plan.v4`と同じPhase／task／topology制約を満たすfull desired stateを
+`lattice plan create --input <lattice.plan_create_input.v3>`である。入力はrepo内のcanonical
+JSON+LFに限定し、`lattice.todo_plan.v5`と同じPhase／task／topology制約を満たすfull desired stateを
 一回のtransactionでstoreへ登録する。移行専用の`todo migrate`を新規authoringへ流用しない。
+v2/v4は既存planの互換契約として維持する。
 
 `.lattice/todo/`のcanonical journalを工程状態の唯一正本とし、snapshotとガントHTMLは再生成可能な
 投影として扱う。読取CLIは`lattice todo status / verify / snapshot --rebuild / gantt`、一回きりの
 移行入口は`todo migrate`である。topologyとsource reconciliationの変更はfull desired-state successorを
 発行する`todo revise`／`todo revise-phase`だけが所有し、Markdown fallback、部分CRUD、独立`todo reconcile`を持たない。
 通常revision inputはcanonical JSON+LFの`lattice.todo_revision.v1/v2`、Phase revisionは
-`lattice.phase_todo_revision.v1`とする。cross-plan successorは`todo revise-set`で一括公開し、
+`lattice.phase_todo_revision.v1/v2`とする。v2はdesired plan v5を所有する。cross-plan successorは`todo revise-set`で一括公開し、
 `lattice.todo_revision_set.v3`はPhase revisionを必須として通常revisionとの混在を許す。全desired graphと
 predecessorを検査し、artifactをdurable化した後、一つのmanifest activationで全planを同時に切り替える。
 成功は単体通常revisionが`lattice.todo_revise_result.v1`、revision setが
@@ -103,10 +104,14 @@ evidenceはrepo内descriptor JSONとpinned Git objectをwrite時にhard検証す
 `lattice.todo_mutation_result.v1`一行、失敗は`lattice.cli_error.v2`一行、usage違反は人間向け診断一行で、
 失敗時のstore bytesは不変とする。
 
-PhaseはToDoのgroupingではなく重監査の制御境界である。`todo_plan.v4`は各ToDoの`phase_id`、
-gate policy、前段Phase、required evidence slotを所有する。全ToDoがdoneでも`gate_ready`までしか進まず、
-`phase_review`とimmutable evidence付き`phase_accept`を同じjournalへ記録して初めて後続を解放する。
-cross-plan後続のstartはactive store上でpredecessor Phaseのacceptを検査する。旧plan versionやjournal headを
+PhaseはToDoの直列化groupではなく重監査の制御境界である。`todo_plan.v5`は各ToDoの`phase_id`、
+gate policy、前段Phase、required evidence slotを所有するが、通常ToDoのstart/done readinessはToDo DAGだけで決める。
+前段Phaseは監査のreview/accept順だけを制御する。特定ToDoがPhase受理を必要とする時だけ
+`phase_accept_dependencies`へPhase ref→task refを明示し、task・Phase gateを合わせたmerged graphでcycleと
+cross-plan topology bindingを検査する。所属ToDoが全てdoneでも`gate_ready`までしか進まず、
+`phase_review`とimmutable evidence付き`phase_accept`を同じjournalへ記録して監査判断を残す。
+この契約はPhase数、監査回数、required evidence slotを自動的に増やさない。旧v4はPhase acceptまで後続ToDoを
+暗黙に閉じる互換契約として維持する。旧plan versionやjournal headを
 下流eventの永続依存先にはしない。revisionではPhase定義と所属ToDo集合が同じ時だけDecision stateをcarryし、
 意味が変わればresetを必須にする。Phase revisionと通常revisionはrevision set v3で同時公開できる。
 reject/reopenはDecisionへ束縛し、開始済み後続を持つreopenは明示overrideなしに拒否する。

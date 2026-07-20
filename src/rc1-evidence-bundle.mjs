@@ -4,14 +4,14 @@ import {
   canonicalizeArtifact,
   digestArtifact,
 } from './artifact-contracts.mjs';
-import { portableCodegraphOutcome } from './sensor-adapter.mjs';
+import { portableSensorOutcome } from './sensor-adapter.mjs';
 
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const CONDITIONS = new Set(['control', 'treatment']);
 const OPERATIONS = new Set(['status', 'query', 'callers', 'callees', 'impact', 'affected']);
-const PROJECTION = 'lattice.codegraph_portable_outcome.v1';
-const SANITIZER = 'lattice.codegraph_diagnostic_sanitizer.v1';
+const PROJECTION = 'lattice.sensor_portable_outcome.v1';
+const SANITIZER = 'lattice.sensor_diagnostic_sanitizer.v1';
 const STATUS_REMOVALS = Object.freeze([
   'projectPath',
   'indexPath',
@@ -69,7 +69,7 @@ function sameArtifact(left, right) {
 
 function validateQuerySet(querySet) {
   if (!exactRecord(querySet, ['schema', 'queries'])
-    || querySet.schema !== 'lattice.codegraph_query_set.v2'
+    || querySet.schema !== 'lattice.sensor_query_set.v2'
     || !Array.isArray(querySet.queries)
     || querySet.queries.length === 0
     || querySet.queries.length > 256) {
@@ -194,8 +194,8 @@ function rawReceipt(rawEvidence) {
   const canonical = canonicalizeArtifact(rawEvidence);
   const bytes = Buffer.from(canonical, 'utf8');
   return {
-    schema: 'lattice.codegraph_raw_opaque_receipt.v1',
-    media_type: 'application/vnd.lattice.codegraph-evidence+json',
+    schema: 'lattice.sensor_raw_opaque_receipt.v1',
+    media_type: 'application/vnd.lattice.sensor-evidence+json',
     encoding: 'canonical-json-base64',
     payload_base64: bytes.toString('base64'),
     payload_digest: sha256(bytes),
@@ -207,13 +207,13 @@ function diagnosticArtifact(rawEvidence, sourceRawDigest) {
   const { payload, operations } = sanitizeDiagnostic(rawEvidence);
   if (containsAbsolutePath(payload)) fail('sanitized diagnosticに絶対pathが残る');
   const manifest = {
-    schema: 'lattice.codegraph_sanitization_manifest.v1',
+    schema: 'lattice.sensor_sanitization_manifest.v1',
     sanitizer: SANITIZER,
     rules_digest: digestArtifact(SANITIZATION_RULES),
     operations,
   };
   return {
-    schema: 'lattice.codegraph_sanitized_diagnostic.v1',
+    schema: 'lattice.sensor_sanitized_diagnostic.v1',
     source_raw_digest: sourceRawDigest,
     sanitization_manifest: manifest,
     sanitization_manifest_digest: digestArtifact(manifest),
@@ -224,7 +224,7 @@ function diagnosticArtifact(rawEvidence, sourceRawDigest) {
 
 function buildPortable(querySet, rawEvidence) {
   const querySetDigest = digestArtifact(querySet);
-  const outcomes = rawEvidence.outcomes.map((outcome) => portableCodegraphOutcome(outcome));
+  const outcomes = rawEvidence.outcomes.map((outcome) => portableSensorOutcome(outcome));
   if (containsAbsolutePath(outcomes)) fail('portable outcomeに絶対pathが残る');
   const perQuery = outcomes.map((outcome, index) => ({
     id: querySet.queries[index].id,
@@ -233,7 +233,7 @@ function buildPortable(querySet, rawEvidence) {
     result_digest: digestArtifact(outcome),
   }));
   const portable = {
-    schema: 'lattice.codegraph_portable_preimage.v1',
+    schema: 'lattice.sensor_portable_preimage.v1',
     projection: PROJECTION,
     query_set_digest: querySetDigest,
     outcomes,
@@ -247,7 +247,7 @@ function buildPortable(querySet, rawEvidence) {
 /** full portable payloadだけからaggregate digestを再計算する。 */
 export function recomputePortableAggregate(portable) {
   if (!isPlainObject(portable)
-    || portable.schema !== 'lattice.codegraph_portable_preimage.v1'
+    || portable.schema !== 'lattice.sensor_portable_preimage.v1'
     || portable.projection !== PROJECTION
     || typeof portable.query_set_digest !== 'string'
     || !SHA256.test(portable.query_set_digest)
@@ -270,8 +270,8 @@ function decodeRawReceipt(receipt) {
     'payload_digest',
     'canonical_bytes',
   ])
-    || receipt.schema !== 'lattice.codegraph_raw_opaque_receipt.v1'
-    || receipt.media_type !== 'application/vnd.lattice.codegraph-evidence+json'
+    || receipt.schema !== 'lattice.sensor_raw_opaque_receipt.v1'
+    || receipt.media_type !== 'application/vnd.lattice.sensor-evidence+json'
     || receipt.encoding !== 'canonical-json-base64'
     || typeof receipt.payload_base64 !== 'string'
     || typeof receipt.payload_digest !== 'string'
@@ -302,7 +302,7 @@ function validatePortable(portable, querySet, rawEvidence) {
     'per_query',
     'aggregate_digest',
   ])
-    || portable.schema !== 'lattice.codegraph_portable_preimage.v1'
+    || portable.schema !== 'lattice.sensor_portable_preimage.v1'
     || portable.projection !== PROJECTION
     || portable.query_set_digest !== digestArtifact(querySet)
     || !Array.isArray(portable.outcomes)
@@ -337,7 +337,7 @@ function validateDiagnostic(diagnostic, rawEvidence, rawDigest) {
     'payload',
     'payload_digest',
   ])
-    || diagnostic.schema !== 'lattice.codegraph_sanitized_diagnostic.v1'
+    || diagnostic.schema !== 'lattice.sensor_sanitized_diagnostic.v1'
     || diagnostic.source_raw_digest !== rawDigest
     || diagnostic.sanitization_manifest_digest
       !== digestArtifact(diagnostic.sanitization_manifest)
@@ -349,7 +349,7 @@ function validateDiagnostic(diagnostic, rawEvidence, rawDigest) {
 }
 
 /**
- * 1 fresh Codegraph runをraw／diagnostic／portableの独立componentへcompileする。
+ * 1 fresh LatticeSensor runをraw／diagnostic／portableの独立componentへcompileする。
  */
 export function createRc1EvidenceBundle({
   condition,

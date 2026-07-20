@@ -41,14 +41,14 @@ them are the ORIGINAL plan and carry expectations that measurement later correct
 - [x] **O1. Merge the `rust-kernel` branch** — DONE 2026-07-17: PR #1326, **merge
       commit** (the integration-branch exception — 9 milestone commits preserved),
       main tip `c1dc78d`. Suite green pre-merge (2,472 passed / 4 skipped,
-      `CODEGRAPH_KERNEL_EXPECT=1`).
+      `LATTICE_SENSOR_KERNEL_EXPECT=1`).
 - [x] **O2. Windows VM validation** — DONE 2026-07-17. Guest (ARM64 Win11):
       rustc 1.97.1 aarch64-pc-windows-msvc + MSVC Build Tools (VCTools workload +
       VC.Tools.ARM64 + Win11 SDK; installed via **scheduled task** — Windows sshd
       kills detached children on session close, `schtasks` is the survival
       pattern). `build-kernel.sh --target aarch64-pc-windows-msvc` builds native
       win32-arm64 in ~2min; **all three kernel suites green with
-      `CODEGRAPH_KERNEL_EXPECT=1` (33/33)**. The leg EARNED ITS KEEP: the guest's
+      `LATTICE_SENSOR_KERNEL_EXPECT=1` (33/33)**. The leg EARNED ITS KEEP: the guest's
       autocrlf checkout exposed a real CRLF parity bug (docstring cleaning; JS
       multiline `^` anchors after `\r` — §0a traps) — fixed + CRLF fixtures pinned
       cross-platform in #1329. Every prebuild target platform is now validated.
@@ -83,7 +83,7 @@ The cg1212 docker container (Linux kernel, 2 CPU/6GB) is long-lived on the dev M
 and has the current build deployed at `/app` (tree at `/work/linux`).
 
 **What exists:**
-- `codegraph-kernel/` — napi-rs crate. One WALKER MODULE per language
+- `lattice-sensor-kernel/` — napi-rs crate. One WALKER MODULE per language
   (`tsjs/`, `java.rs`, `python.rs`, `go.rs`) mirroring `TreeSitterExtractor`'s
   per-language paths bug-for-bug; shared `buffers.rs` (wire contract — twin of
   `src/extraction/kernel/layout.ts`, byte-matched, ABI-versioned), `ids.rs`
@@ -91,9 +91,9 @@ and has the current build deployed at `/app` (tree at `/work/linux`).
   (UTF-16 columns/slices, generated-file patterns, shared regexes), `langs.rs`
   (grammar registry).
 - `src/extraction/kernel/` — loader (contract-verifies before routing; a stale
-  .node silently degrades to wasm; `CODEGRAPH_KERNEL_DEBUG=1` explains), decode,
+  .node silently degrades to wasm; `LATTICE_SENSOR_KERNEL_DEBUG=1` explains), decode,
   routing (`DEFAULT_ROUTED` = ts/tsx/js/jsx/java/python/go;
-  `CODEGRAPH_KERNEL_LANGS` REPLACES the set; `CODEGRAPH_KERNEL=0` kills), and the
+  `LATTICE_SENSOR_KERNEL_LANGS` REPLACES the set; `LATTICE_SENSOR_KERNEL=0` kills), and the
   deferred-decode transport (`tryKernelExtractRaw` → buffers ride to the store
   worker; files with applicable framework `extract()` hooks keep the decoded path).
 - Gates in-repo: `scripts/kernel-parity.mjs` (per-file kernel↔wasm diff,
@@ -103,12 +103,12 @@ and has the current build deployed at `/app` (tree at `/work/linux`).
   fixtures under `__tests__/fixtures/kernel-parity/`) — all in `npm test`;
   the release workflow builds a 6-target prebuild matrix (continue-on-error;
   kernel is optional everywhere) and runs the suites with
-  `CODEGRAPH_KERNEL_EXPECT=1`.
+  `LATTICE_SENSOR_KERNEL_EXPECT=1`.
 
 **Build/run:** `npm run build:kernel` (needs rustup; stages
-`codegraph-kernel/prebuilds/<plat>-<arch>/codegraph-kernel.node`) → `npm run build`
+`lattice-sensor-kernel/prebuilds/<plat>-<arch>/lattice-sensor-kernel.node`) → `npm run build`
 → `npm test`. Parity sweep: `node scripts/kernel-parity.mjs <dir>`. Dump gate:
-init twice (kernel arm vs `CODEGRAPH_KERNEL=0`), `dump-graph.mjs` each, `cmp`.
+init twice (kernel arm vs `LATTICE_SENSOR_KERNEL=0`), `dump-graph.mjs` each, `cmp`.
 
 **Adding a language (the proven recipe, ~a day for a T1):**
 1. Read its `languages/<lang>.ts` config AND every branch of tree-sitter.ts it
@@ -150,7 +150,7 @@ init twice (kernel arm vs `CODEGRAPH_KERNEL=0`), `dump-graph.mjs` each, `cmp`.
 
 ## 1. Mission and the numbers that motivate it
 
-CodeGraph's remaining fresh-index gap vs codebase-memory-mcp (cbm) is the parse+extract
+Lattice Sensor's remaining fresh-index gap vs codebase-memory-mcp (cbm) is the parse+extract
 phase, and its floor is per-node JS↔WASM marshaling — proven, not suspected:
 
 | Measurement (2026-07-16, M3 Pro) | Result |
@@ -181,7 +181,7 @@ determinism, constrained-hardware envelope).
 
 ## 2. What the kernel is — and the boundary that makes it safe
 
-One napi-rs crate (`codegraph-kernel`) linking tree-sitter's C library and native grammars.
+One napi-rs crate (`lattice-sensor-kernel`) linking tree-sitter's C library and native grammars.
 Input `(filePath, content, language)` per file; output **flat typed buffers** (nodes, edges,
 unresolved refs) — one boundary crossing per file. It replaces ONLY the parse+extract walk
 inside the parse workers, behind the existing `ExtractionResult` contract.
@@ -201,7 +201,7 @@ to wasm is the universal fallback. Zero-native-build-on-install stays true.
 
 ## 3. Phase 0 — scaffold (do first, ~days)
 
-1. `codegraph-kernel/` crate: napi-rs, tree-sitter C, rayon optional (workers already
+1. `lattice-sensor-kernel/` crate: napi-rs, tree-sitter C, rayon optional (workers already
    parallelize per-file — start synchronous per call, one kernel call per file from the
    existing `ParseWorkerPool` workers; do NOT rebuild the pool).
 2. Buffer contract: decide the flat encoding (suggest: one `Buffer` per table,
@@ -211,22 +211,22 @@ to wasm is the universal fallback. Zero-native-build-on-install stays true.
    config (node-kind → NodeKind mapping, name-field conventions). Escape hatch: a
    per-language `post(buffers, source)` TS hook for logic queries can't express.
 4. Build integration: napi prebuilds wired into the release workflow next to the Node
-   bundles; `CODEGRAPH_KERNEL=0` kill switch; wasm fallback auto-selected when the
+   bundles; `LATTICE_SENSOR_KERNEL=0` kill switch; wasm fallback auto-selected when the
    `.node` is absent (source runs, unsupported platforms).
 5. CI: assert native grammars and wasm grammars are built from the SAME grammar source
    revisions (ABI drift between paths would make per-language routing non-deterministic).
 
 ### 3a. Phase 0 — SHIPPED 2026-07-16 (what exists and the decisions made)
 
-- **Crate:** `codegraph-kernel/` (napi 3, tree-sitter 0.25, no CLI dependency —
+- **Crate:** `lattice-sensor-kernel/` (napi 3, tree-sitter 0.25, no CLI dependency —
   `scripts/build-kernel.sh` does cargo build + stage into
-  `codegraph-kernel/prebuilds/<platform>-<arch>/codegraph-kernel.node`; `npm run
+  `lattice-sensor-kernel/prebuilds/<platform>-<arch>/lattice-sensor-kernel.node`; `npm run
   build:kernel`). Exports `extractFile`, `contractInfo`, `grammarInfo`.
 - **Buffer contract v1:** five Buffers (meta/nodes/edges/refs/arena), fixed-width LE rows,
   string arena with `(offset,len)` refs, `0xFFFFFFFF` = absent, version byte first, node
   IDs computed Rust-side (sha256, byte-identical to `generateNodeId` — pinned by test),
   tri-state bool flags, `extraJson` escape slot per node row, and a RESERVED u32 metrics
-  slot (Arc 3.2). Layout doc lives twice and must match: `codegraph-kernel/src/buffers.rs`
+  slot (Arc 3.2). Layout doc lives twice and must match: `lattice-sensor-kernel/src/buffers.rs`
   ↔ `src/extraction/kernel/layout.ts`. NODE_KINDS/EDGE_KINDS array ORDER in src/types.ts
   is wire contract now (EDGE_KINDS became a runtime array for this).
 - **Emitter:** generic, `.scm`-driven (`@def.<NodeKind>` + `@name` + `@ref.<EdgeKind>`
@@ -235,9 +235,9 @@ to wasm is the universal fallback. Zero-native-build-on-install stays true.
   TreeSitterExtractor conventions. Seed TS/JS queries are SMOKE-level only; R2 replaces.
 - **Routing:** inside `extractFromSource` (tree-sitter.ts) — `tryKernelExtract` first,
   wasm `TreeSitterExtractor` as fallback (also per-FILE fallback on any kernel error).
-  DEFAULT_ROUTED is EMPTY; dev opt-in via `CODEGRAPH_KERNEL_LANGS=<langs|all>`; global
-  kill switch `CODEGRAPH_KERNEL=0`; loader verifies ABI + kind tables before routing
-  (stale .node → silent wasm, `CODEGRAPH_KERNEL_DEBUG=1` to see why). The escape hatch
+  DEFAULT_ROUTED is EMPTY; dev opt-in via `LATTICE_SENSOR_KERNEL_LANGS=<langs|all>`; global
+  kill switch `LATTICE_SENSOR_KERNEL=0`; loader verifies ABI + kind tables before routing
+  (stale .node → silent wasm, `LATTICE_SENSOR_KERNEL_DEBUG=1` to see why). The escape hatch
   landed as `post(result, source)` over the DECODED result (not raw buffers) — decoded
   is what TS logic wants; see POST_PASSES in `src/extraction/kernel/index.ts`.
 - **Grammar parity (the §3.5 CI) — and a decision that changed the wasm path:** the
@@ -253,11 +253,11 @@ to wasm is the universal fallback. Zero-native-build-on-install stays true.
 - **Release wiring:** `kernel` matrix job in release.yml (macos-14 ×2 targets,
   ubuntu-22.04, ubuntu-22.04-arm, windows-latest ×2 — all continue-on-error: kernel is
   optional, a toolchain flake never blocks a release) → artifacts → `release/kernel/` →
-  build-bundle.sh stages `lib/kernel/codegraph-kernel.node` when present. The release
-  job runs the kernel tests with `CODEGRAPH_KERNEL_EXPECT=1` (missing binary = FAILURE
+  build-bundle.sh stages `lib/kernel/lattice-sensor-kernel.node` when present. The release
+  job runs the kernel tests with `LATTICE_SENSOR_KERNEL_EXPECT=1` (missing binary = FAILURE
   there, skip elsewhere).
-- **Loader search order:** `CODEGRAPH_KERNEL_PATH` → `<pkgroot>/kernel/` (bundle) →
-  `<pkgroot>/codegraph-kernel/prebuilds/<plat>-<arch>/` (source runs).
+- **Loader search order:** `LATTICE_SENSOR_KERNEL_PATH` → `<pkgroot>/kernel/` (bundle) →
+  `<pkgroot>/lattice-sensor-kernel/prebuilds/<plat>-<arch>/` (source runs).
 - **Known R2 gate item:** native columns are UTF-8 byte offsets; web-tree-sitter's are
   UTF-16-derived — column NUMBERS on non-ASCII lines will differ in parity dumps
   (text, lines, IDs unaffected). Classify or normalize when it shows up.
@@ -271,7 +271,7 @@ to wasm is the universal fallback. Zero-native-build-on-install stays true.
   can't express (extractCall's receiver-qualified callees, store/RTK/component
   recognition, fn-ref capture+gating, value-ref shadow pruning, docstring wrapper
   climbs) — so R2 replaced the R1 query emitter with a **bespoke per-language walker**
-  (`codegraph-kernel/src/tsjs/`, ~1,900 lines) that mirrors `TreeSitterExtractor`'s
+  (`lattice-sensor-kernel/src/tsjs/`, ~1,900 lines) that mirrors `TreeSitterExtractor`'s
   TS/JS paths function-for-function, bug-for-bug. emitter.rs + queries/ are deleted
   (git has them); expect T1 languages (java/python/go) to be walkers too. The
   `post(result, source)` TS escape hatch remains available but TS/JS needed none.
@@ -296,7 +296,7 @@ to wasm is the universal fallback. Zero-native-build-on-install stays true.
   languages (worker cold-start).
 - **Not yet done (R3 gate):** large-repo parity (vscode-class), full-repo dump-diff
   through the DB, retrieval invariants, agent A/B, Linux docker + Windows VM parity
-  runs, control-repo perf. Routing stays opt-in (`CODEGRAPH_KERNEL_LANGS`) until then.
+  runs, control-repo perf. Routing stays opt-in (`LATTICE_SENSOR_KERNEL_LANGS`) until then.
   **→ Done same day, §4b.**
 
 ### 4b. R3 — gate PASSED, TS/JS DEFAULT-ON (2026-07-16)
@@ -332,7 +332,7 @@ in a different emission order would shift rowids and change resolution — and
    (**~1.5×**, n=2 interleaved); Mac excalidraw ≈ neutral-to-slightly-better (parse
    already a small pool-parallelized slice at 11 cores). Control unchanged.
 6. **Platforms:** Linux (arm64 bookworm container, in-container cargo build): all 22
-   kernel tests green under `CODEGRAPH_KERNEL_EXPECT=1`. **Windows VM: deferred** —
+   kernel tests green under `LATTICE_SENSOR_KERNEL_EXPECT=1`. **Windows VM: deferred** —
    VM stopped and `prlctl start` needs Parallels Pro; benign because a missing/broken
    `.node` falls back to wasm, and the release workflow builds + gates win32
    prebuilds. Run the kernel suites on the VM when it's next up.
@@ -340,12 +340,12 @@ in a different emission order would shift rowids and change resolution — and
    corpus now exercises the kernel for TS/JS on machines with a staged `.node`.
 
 Default routing: `DEFAULT_ROUTED = {typescript, tsx, javascript, jsx}` in
-`src/extraction/kernel/index.ts`. `CODEGRAPH_KERNEL_LANGS` REPLACES the set;
-`CODEGRAPH_KERNEL=0` kills. Changelog entry added under [Unreleased].
+`src/extraction/kernel/index.ts`. `LATTICE_SENSOR_KERNEL_LANGS` REPLACES the set;
+`LATTICE_SENSOR_KERNEL=0` kills. Changelog entry added under [Unreleased].
 
 ### 4c. R4 — Java PORTED + gate PASSED + DEFAULT-ON (2026-07-16)
 
-- **Walker:** `codegraph-kernel/src/java.rs` (self-contained, sharing the crate-level
+- **Walker:** `lattice-sensor-kernel/src/java.rs` (self-contained, sharing the crate-level
   docstring/textutil modules) — package namespaces, imports, javadoc, annotations →
   decorates, type_list inheritance, fields/constants (static-final → constant),
   enum_constant members, anonymous classes (`<T$anon@line>` incl. the TS side's
@@ -383,7 +383,7 @@ Default routing: `DEFAULT_ROUTED = {typescript, tsx, javascript, jsx}` in
 
 ### 4e. R5 — Python + Go PORTED + gates PASSED + DEFAULT-ON (2026-07-16)
 
-- **Walkers:** `codegraph-kernel/src/python.rs` + `src/go.rs` (the java.rs pattern).
+- **Walkers:** `lattice-sensor-kernel/src/python.rs` + `src/go.rs` (the java.rs pattern).
   Python: decorated_definition docstring/decorator handling (decorates only for
   bare-identifier decorators — the `call`-kind quirk mirrored), fn-in-class → method,
   module assignments always `variable` (no isConst hook), from-import binding refs,
@@ -408,7 +408,7 @@ Default routing: `DEFAULT_ROUTED = {typescript, tsx, javascript, jsx}` in
 ### 4f. R6 — kernel-scale re-validation (2026-07-17)
 
 Fresh init of the Linux kernel in the cg1212 container (2 CPUs / 6GB), current build
-(R5 kernel + direct-to-store active), CODEGRAPH_SYNTH_TIMINGS:
+(R5 kernel + direct-to-store active), LATTICE_SENSOR_SYNTH_TIMINGS:
 
 - **Completes, exit 0: 1,586s (26.4min) vs the ~27min #1212/#1323 baseline — no
   regression** with per-file routing checks, error-file deferral, and the d2s store
@@ -493,7 +493,7 @@ parity before porting the language.
 
 **Do-not-regress invariants during any port** (extraction-side, will show up in the gate):
 node metadata is re-read from source, never persisted; parse commits stay in FILE ORDER
-(#1015); `MAX_FILE_SIZE` skip; generated-file detection; `CODEGRAPH_PARSE_WORKERS`
+(#1015); `MAX_FILE_SIZE` skip; generated-file detection; `LATTICE_SENSOR_PARSE_WORKERS`
 semantics; framework `extract()` hooks keep running TS-side per file after the kernel pass.
 
 ## 5. Equivalence gate (run per language, no exceptions)
@@ -505,10 +505,10 @@ Byte-identity vs hand-written extractors is NOT expected — the gate is behavio
    Node/edge/ref deltas ≤0.5% AND every diff category manually classified (the 13-edge
    supertype-visibility bug this week was caught exactly this way — small diffs are real).
 2. **Retrieval invariants:** the language's canonical flows still connect end-to-end in
-   `codegraph_explore` (playbook: `docs/design/dynamic-dispatch-coverage-playbook.md`);
+   `lattice-sensor_explore` (playbook: `docs/design/dynamic-dispatch-coverage-playbook.md`);
    node counts stable; synthesized-edge spot-check.
 3. **Agent A/B non-regression** per the standard methodology (CLAUDE.md): `--model sonnet
-   --effort high` ALWAYS, ≥2 runs/arm, pre-warmed daemon, `CODEGRAPH_NO_PROMPT_HOOK=1`,
+   --effort high` ALWAYS, ≥2 runs/arm, pre-warmed daemon, `LATTICE_SENSOR_NO_PROMPT_HOOK=1`,
    forbid subagent delegation in the prompt.
 4. **Perf:** fresh-index improves on the language's repos; a NON-migrated control repo is
    unchanged; suite green; Linux docker + Windows VM passes for platform-sensitive bits.
@@ -531,7 +531,7 @@ Measurement discipline (hard-won this week — do NOT relearn these):
 - Profile first. Ideas killed by measurement this week: sorted-chunk inserts (zero),
   statement-batching the persist (zero — B-tree maintenance is the cost), RAM-disk/
   in-memory DB build (SLOWER — fastInit already writes at page-cache speed).
-- `CODEGRAPH_SYNTH_TIMINGS=1` now emits full phase walls (`[phase-timing]`) + pool/batch
+- `LATTICE_SENSOR_SYNTH_TIMINGS=1` now emits full phase walls (`[phase-timing]`) + pool/batch
   timings. UI distorts phase walls — pipe stdout away.
 - Check host load before timing (iOS simulators inflated every phase ~30%); the
   Monitor-on-loadavg pattern (fire <3.5) gives clean windows.
@@ -568,7 +568,7 @@ the premise and surfaced two structural defects that now gate any speed work.
   as code 1, no output). Died mid-parallel-synthesis, 4 passes in. At 8 real cores
   all 6 workers hold peak anon memory *simultaneously* — the 2-core runs survived
   only because time-slicing kept concurrent peak lower. **The pool sizes by cores
-  only; there is no memory-aware term and no size knob** (`CODEGRAPH_NO_PARALLEL_
+  only; there is no memory-aware term and no size knob** (`LATTICE_SENSOR_NO_PARALLEL_
   RESOLVE` is all-or-nothing).
 - **Failure 2 — WAL blowup at kernel scale: 22.2GB WAL on a 4.6GB DB** (container,
   at death; the Mac-native attempt was watchdog-killed at 5GB free disk with the

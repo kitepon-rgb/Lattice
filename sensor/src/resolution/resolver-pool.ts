@@ -6,7 +6,7 @@
  * caller's admission (edge inserts, row cleanup, failure parking, deferred
  * post-pass queues) is byte-for-byte the sequence the single-threaded loop
  * would have produced. Any worker failure fails the batch — the caller falls
- * back to the sequential path. Kill switch: CODEGRAPH_NO_PARALLEL_RESOLVE=1.
+ * back to the sequential path. Kill switch: LATTICE_SENSOR_NO_PARALLEL_RESOLVE=1.
  */
 
 import { Worker } from 'worker_threads';
@@ -46,10 +46,10 @@ const CHUNK_SIZE = 500;
  * same cores — measured on a medium repo (~40k refs, ~1.2s of resolution)
  * the pool made indexing slower. It pays off when resolution runs for tens
  * of seconds to minutes (large JVM/Spring-class repos). Override:
- * CODEGRAPH_PARALLEL_RESOLVE_MIN=<refs> (0 forces the pool on).
+ * LATTICE_SENSOR_PARALLEL_RESOLVE_MIN=<refs> (0 forces the pool on).
  */
 export function minRefsForPool(): number {
-  const raw = process.env.CODEGRAPH_PARALLEL_RESOLVE_MIN;
+  const raw = process.env.LATTICE_SENSOR_PARALLEL_RESOLVE_MIN;
   if (raw !== undefined) {
     const parsed = Number.parseInt(raw, 10);
     if (Number.isFinite(parsed) && parsed >= 0) return parsed;
@@ -70,7 +70,7 @@ export class ResolverPool {
    * off, and the machine has cores to spare. Returns null otherwise.
    */
   static tryCreate(dbPath: string, projectRoot: string): ResolverPool | null {
-    if (process.env.CODEGRAPH_NO_PARALLEL_RESOLVE === '1') return null;
+    if (process.env.LATTICE_SENSOR_NO_PARALLEL_RESOLVE === '1') return null;
     const workerScript = path.join(__dirname, 'resolver-worker.js');
     if (!fs.existsSync(workerScript)) return null;
     const size = Math.max(1, Math.min(os.cpus().length - 2, 6));

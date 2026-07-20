@@ -29,16 +29,16 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { CodeGraph } from '../src';
+import { LatticeSensor } from '../src';
 import { DatabaseConnection } from '../src/db';
 import { QueryBuilder } from '../src/db/queries';
 
 describe('ADR 0048: cross-file name-match correctness (2-layer)', () => {
   let tempDir: string;
-  let cg: CodeGraph;
+  let cg: LatticeSensor;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-xfile-gate-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-xfile-gate-'));
   });
 
   afterEach(() => {
@@ -60,7 +60,7 @@ describe('ADR 0048: cross-file name-match correctness (2-layer)', () => {
         `export function read() {\n  console.log('boom');\n}\n`
       );
 
-      cg = await CodeGraph.init(tempDir, { index: true });
+      cg = await LatticeSensor.init(tempDir, { index: true });
 
       const run = cg.getNodesByKind('function').find((n) => n.name === 'run');
       const readFn = cg.getNodesByKind('function').find((n) => n.name === 'read');
@@ -71,7 +71,7 @@ describe('ADR 0048: cross-file name-match correctness (2-layer)', () => {
       const crossLangCall = outgoing.find((e) => e.target === readFn!.id);
       expect(crossLangCall, 'python must not bind to a same-named JS export').toBeUndefined();
 
-      const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+      const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
       const rows = db
         .getDb()
         .prepare(
@@ -92,7 +92,7 @@ describe('ADR 0048: cross-file name-match correctness (2-layer)', () => {
         `export function reject(msg) {\n  console.log(msg);\n}\n`
       );
 
-      cg = await CodeGraph.init(tempDir, { index: true });
+      cg = await LatticeSensor.init(tempDir, { index: true });
 
       const run = cg.getNodesByKind('function').find((n) => n.name === 'run');
       const rejectFn = cg.getNodesByKind('function').find((n) => n.name === 'reject');
@@ -114,7 +114,7 @@ describe('ADR 0048: cross-file name-match correctness (2-layer)', () => {
         `export function reject(msg) {\n  console.log(msg);\n}\n`
       );
 
-      cg = await CodeGraph.init(tempDir, { index: true });
+      cg = await LatticeSensor.init(tempDir, { index: true });
 
       const run = cg.getNodesByKind('function').find((n) => n.name === 'run');
       const rejectFn = cg.getNodesByKind('function').find((n) => n.name === 'reject');
@@ -138,9 +138,9 @@ describe('ADR 0048: cross-file name-match correctness (2-layer)', () => {
         `export function reject(msg) {\n  console.log(msg);\n}\n`
       );
 
-      cg = await CodeGraph.init(tempDir, { index: true });
+      cg = await LatticeSensor.init(tempDir, { index: true });
 
-      const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+      const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
       const q = new QueryBuilder(db.getDb());
 
       // Sanity: the symbol edge exists and is uncorroborated (exact-match).
@@ -169,9 +169,9 @@ describe('ADR 0048: cross-file name-match correctness (2-layer)', () => {
         `export function helper() {}\nexport function reject(msg) {\n  console.log(msg);\n}\n`
       );
 
-      cg = await CodeGraph.init(tempDir, { index: true });
+      cg = await LatticeSensor.init(tempDir, { index: true });
 
-      const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+      const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
       const q = new QueryBuilder(db.getDb());
 
       const dependents = q.getDependentFilePaths('other.js');

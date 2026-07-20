@@ -158,7 +158,7 @@ test('control compilation must include the shared future test write in both TODO
     candidateSpec,
     manualEvidence,
     querySet,
-    codegraphEvidence: controlGraphEvidence(querySet),
+    sensorEvidence: controlGraphEvidence(querySet),
     codeSnapshotDigest: SHA256_C,
     planVersion: 'rc1-v4-control',
   });
@@ -185,7 +185,7 @@ test('black-box behavior oracle is executable outside transform-owned tests', as
   assert.deepEqual(result.case_results.map(({ outcome }) => outcome), Array(8).fill('passed'));
 });
 
-test('digest-only v3 Codegraph evidence is rejected as a missing-preimage bundle', async () => {
+test('digest-only v3 LatticeSensor evidence is rejected as a missing-preimage bundle', async () => {
   const { validateRc1EvidenceBundle } = await import('../src/rc1-evidence-bundle.mjs');
   const [controlEvidence, treatmentEvidence] = await Promise.all([
     readJson('research/campaigns/rc1/artifacts/control-v2/compilation-evidence.json'),

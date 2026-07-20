@@ -1,5 +1,8 @@
 # `lattice.todo_extraction.v1`
 
+> 状態: 完了済みの一回限り移行契約。新規planのauthoringには使わず、
+> `lattice plan create --input <lattice.plan_create_input.v3>`を使用する。
+
 `lattice.todo_extraction.v1` は G4 の一回きり移行 wave で AI が作る中間抽出 JSON である。
 規範 shape は [JSON Schema](schemas/lattice.todo_extraction.v1.schema.json)、実行時の exact-key・
 sort・digest・意味制約は `validateTodoExtraction` が所有する。`todo migrate` は Markdown を読まず、

@@ -2,7 +2,7 @@
  * Sync Module Tests
  *
  * Tests for sync functionality (incremental updates).
- * Note: Git hooks functionality has been removed in favor of codegraph's
+ * Note: Git hooks functionality has been removed in favor of latticeSensor's
  * Claude Code hooks integration.
  */
 
@@ -11,15 +11,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { execFileSync } from 'child_process';
-import CodeGraph from '../src/index';
+import LatticeSensor from '../src/index';
 
 describe('Sync Module', () => {
   describe('Sync Functionality', () => {
     let testDir: string;
-    let cg: CodeGraph;
+    let cg: LatticeSensor;
 
     beforeEach(async () => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-sync-func-'));
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-sync-func-'));
 
       // Create initial source files
       const srcDir = path.join(testDir, 'src');
@@ -30,7 +30,7 @@ describe('Sync Module', () => {
       );
 
       // Initialize and index
-      cg = CodeGraph.initSync(testDir, {
+      cg = LatticeSensor.initSync(testDir, {
         config: {
           include: ['**/*.ts'],
           exclude: [],
@@ -154,14 +154,14 @@ describe('Sync Module', () => {
 
   describe('Git-based sync', () => {
     let testDir: string;
-    let cg: CodeGraph;
+    let cg: LatticeSensor;
 
     function git(...args: string[]) {
       execFileSync('git', args, { cwd: testDir, stdio: 'pipe' });
     }
 
     beforeEach(async () => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-git-sync-'));
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-git-sync-'));
 
       // Initialize a git repo with an initial commit
       git('init');
@@ -178,8 +178,8 @@ describe('Sync Module', () => {
       git('add', '-A');
       git('commit', '-m', 'initial');
 
-      // Initialize CodeGraph and index
-      cg = CodeGraph.initSync(testDir, {
+      // Initialize LatticeSensor and index
+      cg = LatticeSensor.initSync(testDir, {
         config: {
           include: ['**/*.ts'],
           exclude: [],
@@ -226,7 +226,7 @@ describe('Sync Module', () => {
     });
 
     it('should stop reporting untracked files once they are indexed (issue #206)', async () => {
-      // Untracked files stay `??` in git status even after codegraph indexes
+      // Untracked files stay `??` in git status even after latticeSensor indexes
       // them. Change detection must compare them against the DB by hash, not
       // report every untracked file as "added" on every sync/status.
       fs.writeFileSync(
@@ -311,14 +311,14 @@ describe('Sync Module', () => {
   // git fast path must exclude exactly what the full scan does. (#766)
   describe('Incremental sync honors the ignore matcher (#766)', () => {
     let testDir: string;
-    let cg: CodeGraph;
+    let cg: LatticeSensor;
 
     function git(...args: string[]) {
       execFileSync('git', args, { cwd: testDir, stdio: 'pipe' });
     }
 
     beforeEach(async () => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-766-'));
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-766-'));
 
       git('init');
       git('config', 'user.email', 'test@test.com');
@@ -352,7 +352,7 @@ describe('Sync Module', () => {
       git('add', '-f', 'generated/out.ts'); // force the ignored-but-tracked file in
       git('commit', '-m', 'initial');
 
-      cg = CodeGraph.initSync(testDir, {
+      cg = LatticeSensor.initSync(testDir, {
         config: { include: ['**/*.ts'], exclude: [] },
       });
       await cg.indexAll();
@@ -401,7 +401,7 @@ describe('Sync Module', () => {
     });
 
     it('status (getChangedFiles) agrees with sync — no phantom pending changes', async () => {
-      // The user-visible symptom today: `codegraph status` reads getChangedFiles
+      // The user-visible symptom today: `latticeSensor status` reads getChangedFiles
       // and reports a vendor edit as a pending change that `sync` (a filesystem
       // reconcile) then never indexes — so the count never clears. Both must now
       // agree that nothing happened.
@@ -438,7 +438,7 @@ describe('Sync Module', () => {
   // carrying a matching symbol name. (#1240)
   describe('Sync resolves refs satisfied by a new export in another file (#1240)', () => {
     let testDir: string;
-    let cg: CodeGraph;
+    let cg: LatticeSensor;
 
     function write(rel: string, content: string) {
       fs.writeFileSync(path.join(testDir, rel), content);
@@ -452,14 +452,14 @@ describe('Sync Module', () => {
     }
 
     beforeEach(async () => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-1240-'));
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-1240-'));
 
       // a.ts references `greet`, which does not exist anywhere yet — the ref
       // fails resolution during the initial index.
       write('a.ts', `import { greet } from './b';\n\nexport function run(): number {\n  return greet();\n}\n`);
       write('b.ts', `export function other(): number {\n  return 1;\n}\n`);
 
-      cg = CodeGraph.initSync(testDir, {
+      cg = LatticeSensor.initSync(testDir, {
         config: { include: ['**/*.ts'], exclude: [] },
       });
       await cg.indexAll();
@@ -539,7 +539,7 @@ describe('Sync Module', () => {
   // failed until the symbol reappears.
   describe('Sync rebinds or parks refs when a resolved symbol is removed (#1240 removal case)', () => {
     let testDir: string;
-    let cg: CodeGraph;
+    let cg: LatticeSensor;
 
     function write(rel: string, content: string) {
       fs.writeFileSync(path.join(testDir, rel), content);
@@ -557,14 +557,14 @@ describe('Sync Module', () => {
     }
 
     beforeEach(async () => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-1240-removal-'));
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-1240-removal-'));
 
       // No import — cross-file name matching, so the caller can legitimately
       // rebind to a definition in ANY file, which is what a full re-index does.
       write('a.ts', `export function run(): number {\n  return greet();\n}\n`);
       write('b.ts', `export function greet(): number {\n  return 42;\n}\n`);
 
-      cg = CodeGraph.initSync(testDir, {
+      cg = LatticeSensor.initSync(testDir, {
         config: { include: ['**/*.ts'], exclude: [] },
       });
       await cg.indexAll();
@@ -625,10 +625,10 @@ describe('Sync Module', () => {
 
   describe('Cross-file module-attribute caller edges survive callee re-index (#899)', () => {
     let testDir: string;
-    let cg: CodeGraph;
+    let cg: LatticeSensor;
 
     beforeEach(async () => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-899-'));
+      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-899-'));
 
       // pkg/mod.py — a module with two functions, both called from a separate
       // test file via `mod.<fn>(...)` (module-attribute access). This is the
@@ -669,7 +669,7 @@ describe('Sync Module', () => {
         ].join('\n')
       );
 
-      cg = CodeGraph.initSync(testDir, {
+      cg = LatticeSensor.initSync(testDir, {
         config: { include: ['**/*.py'], exclude: [] },
       });
       await cg.indexAll();

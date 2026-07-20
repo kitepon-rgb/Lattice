@@ -16,7 +16,7 @@
  * Both reuse the exact mechanisms `serve` already uses; this just makes them
  * available to a one-shot command. Best-effort and self-disabling: a missing
  * watchdog never blocks the command from running. Both honour the same env
- * switches as `serve` (`CODEGRAPH_NO_WATCHDOG`, `CODEGRAPH_PPID_POLL_MS=0`).
+ * switches as `serve` (`LATTICE_SENSOR_NO_WATCHDOG`, `LATTICE_SENSOR_PPID_POLL_MS=0`).
  *
  * Unlike the daemon — whose main thread only does fast, bounded work — the
  * `index`/`init` path runs reference resolution and dynamic-edge synthesis
@@ -54,7 +54,7 @@ export interface CommandSupervision {
 export function installCommandSupervision(label: string, watchdog: WatchdogOptions = {}): CommandSupervision {
   // Liveness watchdog: a separate process that SIGKILLs us if our event loop
   // stops turning for too long (a wedged synchronous loop). Self-disables on
-  // CODEGRAPH_NO_WATCHDOG.
+  // LATTICE_SENSOR_NO_WATCHDOG.
   const liveness = installMainThreadWatchdog(watchdog);
 
   // PPID watchdog: detect that the parent (or the host threaded past the
@@ -63,7 +63,7 @@ export function installCommandSupervision(label: string, watchdog: WatchdogOptio
   // process.ppid here would miss a launcher killed during startup (#1185).
   const originalPpid = EARLY_PPID;
   const hostPpid = parseHostPpid(process.env[HOST_PPID_ENV]);
-  const pollMs = parsePpidPollMs(process.env.CODEGRAPH_PPID_POLL_MS);
+  const pollMs = parsePpidPollMs(process.env.LATTICE_SENSOR_PPID_POLL_MS);
   let ppidTimer: ReturnType<typeof setInterval> | null = null;
   if (pollMs > 0) {
     ppidTimer = setInterval(() => {
@@ -75,7 +75,7 @@ export function installCommandSupervision(label: string, watchdog: WatchdogOptio
       });
       if (reason) {
         try {
-          process.stderr.write(`[CodeGraph ${label}] Parent process exited (${reason}); aborting.\n`);
+          process.stderr.write(`[LatticeSensor ${label}] Parent process exited (${reason}); aborting.\n`);
         } catch { /* stderr gone with the parent — exit anyway */ }
         process.exit(1);
       }

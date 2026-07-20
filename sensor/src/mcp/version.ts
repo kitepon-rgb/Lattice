@@ -33,7 +33,7 @@ function readPackageVersion(): string {
   return '0.0.0-unknown';
 }
 
-export const CodeGraphPackageVersion = readPackageVersion();
+export const LatticeSensorPackageVersion = readPackageVersion();
 
 /**
  * ADR 0049 Decision 3(a)/5(3): whether a version string carries the Lattice
@@ -41,7 +41,7 @@ export const CodeGraphPackageVersion = readPackageVersion();
  * mismatch into two structurally different situations:
  *   - marker present  → same product, different build (e.g. a self-update
  *     left a stale daemon running) → safe to degrade to direct mode.
- *   - marker absent    → a DIFFERENT product's daemon (third-party CodeGraph)
+ *   - marker absent    → a DIFFERENT product's daemon (third-party LatticeSensor)
  *     is bound at this socket path → NOT safe to silently fall back to; the
  *     proxy must fail closed instead of risking a cross-product attach.
  */

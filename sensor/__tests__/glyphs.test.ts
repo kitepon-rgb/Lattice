@@ -57,8 +57,8 @@ describe('supportsUnicode', () => {
 
   /** Clears every signal the Windows detection reads, so cases are explicit. */
   const NO_TERMINAL_SIGNALS: Record<string, string | undefined> = {
-    CODEGRAPH_ASCII: undefined,
-    CODEGRAPH_UNICODE: undefined,
+    LATTICE_SENSOR_ASCII: undefined,
+    LATTICE_SENSOR_UNICODE: undefined,
     TERM: undefined,
     CI: undefined,
     WT_SESSION: undefined,
@@ -77,7 +77,7 @@ describe('supportsUnicode', () => {
 
   // The Windows allowlist must match @clack/prompts' bundled detection —
   // wherever clack draws its Unicode frame, our rails must be Unicode too,
-  // or `codegraph index` mixes `|` and `│` in one output block (#398).
+  // or `latticeSensor index` mixes `|` and `│` in one output block (#398).
   it.each([
     ['Windows Terminal', { WT_SESSION: 'a-guid' }],
     ['VS Code terminal', { TERM_PROGRAM: 'vscode' }],
@@ -93,8 +93,8 @@ describe('supportsUnicode', () => {
     });
   });
 
-  it('CODEGRAPH_ASCII=1 still wins inside Windows Terminal (escape hatch)', () => {
-    withEnv({ ...NO_TERMINAL_SIGNALS, CODEGRAPH_ASCII: '1', WT_SESSION: 'a-guid' }, () => {
+  it('LATTICE_SENSOR_ASCII=1 still wins inside Windows Terminal (escape hatch)', () => {
+    withEnv({ ...NO_TERMINAL_SIGNALS, LATTICE_SENSOR_ASCII: '1', WT_SESSION: 'a-guid' }, () => {
       setPlatform('win32');
       expect(supportsUnicode()).toBe(false);
     });
@@ -114,8 +114,8 @@ describe('supportsUnicode', () => {
       }
     });
 
-    it('CODEGRAPH_UNICODE=1 opts the raw path in on Windows', () => {
-      withEnv({ ...NO_TERMINAL_SIGNALS, CODEGRAPH_UNICODE: '1' }, () => {
+    it('LATTICE_SENSOR_UNICODE=1 opts the raw path in on Windows', () => {
+      withEnv({ ...NO_TERMINAL_SIGNALS, LATTICE_SENSOR_UNICODE: '1' }, () => {
         setPlatform('win32');
         expect(supportsUnicodeRawWrites()).toBe(true);
       });
@@ -134,42 +134,42 @@ describe('supportsUnicode', () => {
   });
 
   it('returns true on macOS by default', () => {
-    withEnv({ CODEGRAPH_ASCII: undefined, CODEGRAPH_UNICODE: undefined, TERM: undefined }, () => {
+    withEnv({ LATTICE_SENSOR_ASCII: undefined, LATTICE_SENSOR_UNICODE: undefined, TERM: undefined }, () => {
       setPlatform('darwin');
       expect(supportsUnicode()).toBe(true);
     });
   });
 
   it('returns true on Linux by default', () => {
-    withEnv({ CODEGRAPH_ASCII: undefined, CODEGRAPH_UNICODE: undefined, TERM: undefined }, () => {
+    withEnv({ LATTICE_SENSOR_ASCII: undefined, LATTICE_SENSOR_UNICODE: undefined, TERM: undefined }, () => {
       setPlatform('linux');
       expect(supportsUnicode()).toBe(true);
     });
   });
 
   it('returns false on Linux kernel console (TERM=linux)', () => {
-    withEnv({ CODEGRAPH_ASCII: undefined, CODEGRAPH_UNICODE: undefined, TERM: 'linux' }, () => {
+    withEnv({ LATTICE_SENSOR_ASCII: undefined, LATTICE_SENSOR_UNICODE: undefined, TERM: 'linux' }, () => {
       setPlatform('linux');
       expect(supportsUnicode()).toBe(false);
     });
   });
 
-  it('respects CODEGRAPH_UNICODE=1 on Windows (opt-in escape hatch)', () => {
-    withEnv({ CODEGRAPH_UNICODE: '1', CODEGRAPH_ASCII: undefined }, () => {
+  it('respects LATTICE_SENSOR_UNICODE=1 on Windows (opt-in escape hatch)', () => {
+    withEnv({ LATTICE_SENSOR_UNICODE: '1', LATTICE_SENSOR_ASCII: undefined }, () => {
       setPlatform('win32');
       expect(supportsUnicode()).toBe(true);
     });
   });
 
-  it('respects CODEGRAPH_ASCII=1 on macOS (opt-out escape hatch)', () => {
-    withEnv({ CODEGRAPH_ASCII: '1', CODEGRAPH_UNICODE: undefined }, () => {
+  it('respects LATTICE_SENSOR_ASCII=1 on macOS (opt-out escape hatch)', () => {
+    withEnv({ LATTICE_SENSOR_ASCII: '1', LATTICE_SENSOR_UNICODE: undefined }, () => {
       setPlatform('darwin');
       expect(supportsUnicode()).toBe(false);
     });
   });
 
-  it('CODEGRAPH_ASCII takes precedence over CODEGRAPH_UNICODE', () => {
-    withEnv({ CODEGRAPH_ASCII: '1', CODEGRAPH_UNICODE: '1' }, () => {
+  it('LATTICE_SENSOR_ASCII takes precedence over LATTICE_SENSOR_UNICODE', () => {
+    withEnv({ LATTICE_SENSOR_ASCII: '1', LATTICE_SENSOR_UNICODE: '1' }, () => {
       setPlatform('darwin');
       expect(supportsUnicode()).toBe(false);
     });
@@ -192,8 +192,8 @@ describe('getGlyphs', () => {
   it('returns ASCII glyphs on Windows in an unrecognized console', () => {
     withEnv(
       {
-        CODEGRAPH_ASCII: undefined,
-        CODEGRAPH_UNICODE: undefined,
+        LATTICE_SENSOR_ASCII: undefined,
+        LATTICE_SENSOR_UNICODE: undefined,
         TERM: undefined,
         CI: undefined,
         WT_SESSION: undefined,
@@ -214,7 +214,7 @@ describe('getGlyphs', () => {
   });
 
   it('returns Unicode glyphs on macOS', () => {
-    withEnv({ CODEGRAPH_ASCII: undefined, CODEGRAPH_UNICODE: undefined }, () => {
+    withEnv({ LATTICE_SENSOR_ASCII: undefined, LATTICE_SENSOR_UNICODE: undefined }, () => {
       setPlatform('darwin');
       const g = getGlyphs();
       expect(g).toBe(UNICODE_GLYPHS);
@@ -226,7 +226,7 @@ describe('getGlyphs', () => {
   });
 
   it('caches the result so repeated calls return the same object', () => {
-    withEnv({ CODEGRAPH_ASCII: undefined, CODEGRAPH_UNICODE: undefined }, () => {
+    withEnv({ LATTICE_SENSOR_ASCII: undefined, LATTICE_SENSOR_UNICODE: undefined }, () => {
       setPlatform('darwin');
       expect(getGlyphs()).toBe(getGlyphs());
     });

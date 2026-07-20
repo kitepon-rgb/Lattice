@@ -14,14 +14,14 @@
  *     down — other attached clients keep working (the must-fix-2 detach: the
  *     in-process daemon used to die with its launcher's process group and
  *     orphan on host SIGKILL, regressing #277).
- *   - A stale lockfile (dead pid) is cleared; `CODEGRAPH_NO_DAEMON=1` opts out;
+ *   - A stale lockfile (dead pid) is cleared; `LATTICE_SENSOR_NO_DAEMON=1` opts out;
  *     the proxy refuses to attach across a version mismatch; the daemon
  *     idle-times-out after the last client leaves (so a single session can't
  *     leak a daemon forever).
  *
- * These tests intentionally spawn real `node dist/bin/codegraph.js` processes
+ * These tests intentionally spawn real `node dist/bin/lattice-sensor.js` processes
  * over real sockets/pipes — the same surface a Claude Code / Cursor / Codex
- * install exercises. The daemon logs to `.codegraph/daemon.log` (it has no
+ * install exercises. The daemon logs to `.lattice/sensor/daemon.log` (it has no
  * client stderr of its own), so daemon-side assertions read that file.
  *
  * `realRoot` vs `tempDir`: processes are spawned with the (possibly symlinked)
@@ -37,10 +37,10 @@ import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { CodeGraph } from '../src';
+import { LatticeSensor } from '../src';
 import { getDaemonSocketPath } from '../src/mcp/daemon-paths';
 
-const BIN = path.resolve(__dirname, '../dist/bin/codegraph.js');
+const BIN = path.resolve(__dirname, '../dist/bin/lattice-sensor.js');
 
 interface SpawnedServer {
   child: ChildProcessWithoutNullStreams;
@@ -53,9 +53,9 @@ function spawnServer(cwd: string, env: NodeJS.ProcessEnv = {}): SpawnedServer {
     cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
     // #618: the daemon-attach log line is now off by default; opt the test
-    // harness into it (CODEGRAPH_MCP_LOG_ATTACH=1) so the attach assertions
+    // harness into it (LATTICE_SENSOR_MCP_LOG_ATTACH=1) so the attach assertions
     // below can still observe a successful attach. A per-test env still wins.
-    env: { CODEGRAPH_MCP_LOG_ATTACH: '1', ...process.env, ...env },
+    env: { LATTICE_SENSOR_MCP_LOG_ATTACH: '1', ...process.env, ...env },
   }) as ChildProcessWithoutNullStreams;
   // Swallow spawn/EPIPE errors so killing a child mid-write can't surface as an
   // unhandled error that crashes the vitest worker.
@@ -146,19 +146,19 @@ function isAlive(pid: number): boolean {
 
 function readLockPid(root: string): number | null {
   try {
-    const raw = fs.readFileSync(path.join(root, '.codegraph', 'daemon.pid'), 'utf8');
+    const raw = fs.readFileSync(path.join(root, '.lattice/sensor', 'daemon.pid'), 'utf8');
     const info = JSON.parse(raw);
     return typeof info.pid === 'number' ? info.pid : null;
   } catch { return null; }
 }
 
 function readDaemonLog(root: string): string {
-  try { return fs.readFileSync(path.join(root, '.codegraph', 'daemon.log'), 'utf8'); }
+  try { return fs.readFileSync(path.join(root, '.lattice/sensor', 'daemon.log'), 'utf8'); }
   catch { return ''; }
 }
 
 function countListeningLines(root: string): number {
-  return readDaemonLog(root).split('\n').filter((l) => l.includes('[CodeGraph daemon] Listening on')).length;
+  return readDaemonLog(root).split('\n').filter((l) => l.includes('[LatticeSensor daemon] Listening on')).length;
 }
 
 function killTree(...procs: ChildProcessWithoutNullStreams[]): void {
@@ -177,8 +177,8 @@ describe('Shared MCP daemon (issue #411)', () => {
   const servers: SpawnedServer[] = [];
 
   beforeEach(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-mcp-daemon-'));
-    const cg = await CodeGraph.init(tempDir);
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-mcp-daemon-'));
+    const cg = await LatticeSensor.init(tempDir);
     cg.close();
     realRoot = fs.realpathSync(tempDir);
   });
@@ -199,7 +199,7 @@ describe('Shared MCP daemon (issue #411)', () => {
   });
 
   it('two invocations share ONE detached daemon; both attach as proxies', async () => {
-    const env = { CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS: '15000' };
+    const env = { LATTICE_SENSOR_DAEMON_IDLE_TIMEOUT_MS: '15000' };
 
     const first = spawnServer(tempDir, env);
     servers.push(first);
@@ -211,7 +211,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     await waitFor(() => first.stderr.some((l) => l.includes('Attached to shared daemon')), 8000);
 
     // A detached daemon came up and recorded itself.
-    await waitFor(() => fs.existsSync(path.join(realRoot, '.codegraph', 'daemon.pid')), 8000);
+    await waitFor(() => fs.existsSync(path.join(realRoot, '.lattice/sensor', 'daemon.pid')), 8000);
     await waitFor(() => countListeningLines(realRoot) >= 1, 8000);
     const daemonPid = readLockPid(realRoot);
     expect(daemonPid).toBeTruthy();
@@ -238,7 +238,7 @@ describe('Shared MCP daemon (issue #411)', () => {
   }, 40000);
 
   it('concurrent launchers converge on a single daemon (lockfile race — must-fix 1)', async () => {
-    const env = { CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS: '15000' };
+    const env = { LATTICE_SENSOR_DAEMON_IDLE_TIMEOUT_MS: '15000' };
 
     // Fire three launchers as close to simultaneously as possible — this is the
     // race window where the old code could end up with two daemons.
@@ -266,7 +266,7 @@ describe('Shared MCP daemon (issue #411)', () => {
   it('daemon survives the first client dying; a second client keeps working (must-fix 2 / #277)', async () => {
     // Idle high so the daemon doesn't reap mid-test; poll fast so proxy 1
     // notices its dead parent quickly.
-    const env = { CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS: '30000', CODEGRAPH_PPID_POLL_MS: '200' };
+    const env = { LATTICE_SENSOR_DAEMON_IDLE_TIMEOUT_MS: '30000', LATTICE_SENSOR_PPID_POLL_MS: '200' };
 
     const first = spawnServer(tempDir, env);
     servers.push(first);
@@ -297,22 +297,22 @@ describe('Shared MCP daemon (issue #411)', () => {
     expect(toolsResp.result.tools.length).toBeGreaterThan(0);
   }, 45000);
 
-  it('CODEGRAPH_NO_DAEMON=1 keeps each process independent (no socket/pidfile)', async () => {
-    const env = { CODEGRAPH_NO_DAEMON: '1' };
+  it('LATTICE_SENSOR_NO_DAEMON=1 keeps each process independent (no socket/pidfile)', async () => {
+    const env = { LATTICE_SENSOR_NO_DAEMON: '1' };
     const first = spawnServer(tempDir, env);
     servers.push(first);
     sendInitialize(first.child, `file://${tempDir}`, 1);
     await waitFor(() => findResponse(first.stdout, 1), 10000);
     // Direct mode — no daemon machinery touched.
     expect(first.stderr.some((l) => l.includes('Attached to shared daemon'))).toBe(false);
-    expect(fs.existsSync(path.join(realRoot, '.codegraph', 'daemon.pid'))).toBe(false);
-    expect(fs.existsSync(path.join(realRoot, '.codegraph', 'daemon.log'))).toBe(false);
+    expect(fs.existsSync(path.join(realRoot, '.lattice/sensor', 'daemon.pid'))).toBe(false);
+    expect(fs.existsSync(path.join(realRoot, '.lattice/sensor', 'daemon.log'))).toBe(false);
   }, 20000);
 
   it('clears a stale (dead-pid) lockfile and a fresh daemon takes over', async () => {
     // Plant a lockfile pointing at a definitely-dead pid + the real socket path.
     fs.writeFileSync(
-      path.join(realRoot, '.codegraph', 'daemon.pid'),
+      path.join(realRoot, '.lattice/sensor', 'daemon.pid'),
       JSON.stringify({
         pid: 999_999,
         version: '0.0.0-fake',
@@ -321,7 +321,7 @@ describe('Shared MCP daemon (issue #411)', () => {
       }),
     );
 
-    const env = { CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS: '15000' };
+    const env = { LATTICE_SENSOR_DAEMON_IDLE_TIMEOUT_MS: '15000' };
     const server = spawnServer(tempDir, env);
     servers.push(server);
     sendInitialize(server.child, `file://${tempDir}`, 1);
@@ -348,11 +348,11 @@ describe('Shared MCP daemon (issue #411)', () => {
     // Plant a live-pid lockfile so the launcher treats the lock as held, and a
     // mini-server that answers with a mismatched-but-marked-version hello.
     fs.writeFileSync(
-      path.join(realRoot, '.codegraph', 'daemon.pid'),
+      path.join(realRoot, '.lattice/sensor', 'daemon.pid'),
       JSON.stringify({ pid: process.pid, version: '1.4.1-lattice.999', socketPath: sockPath, startedAt: Date.now() }),
     );
     const miniServer = net.createServer((sock) => {
-      sock.write(JSON.stringify({ codegraph: '1.4.1-lattice.999', pid: 1, socketPath: sockPath, protocol: 1 }) + '\n');
+      sock.write(JSON.stringify({ sensor: '1.4.1-lattice.999', pid: 1, socketPath: sockPath, protocol: 1 }) + '\n');
     });
     await new Promise<void>((resolve) => miniServer.listen(sockPath, () => resolve()));
 
@@ -370,8 +370,8 @@ describe('Shared MCP daemon (issue #411)', () => {
         6000,
       );
       // ADR 0049 Decision 5④: the direct-mode engine reports the typed
-      // version-skew reason machine-readably via codegraph_status.
-      sendMessage(server.child, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'codegraph_status', arguments: {} } });
+      // version-skew reason machine-readably via lattice_sensor_status.
+      sendMessage(server.child, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'lattice_sensor_status', arguments: {} } });
       const statusResp = await waitFor(() => findResponse(server.stdout, 2), 15000);
       const statusText = statusResp.result.content[0].text as string;
       expect(statusText).toContain('mode: direct');
@@ -382,7 +382,7 @@ describe('Shared MCP daemon (issue #411)', () => {
   }, 30000);
 
   // ADR 0049 Decision 5③: a mismatched hello WITHOUT the `-lattice.` marker is
-  // a DIFFERENT product's daemon (third-party CodeGraph) occupying this
+  // a DIFFERENT product's daemon (third-party LatticeSensor) occupying this
   // project's socket — the proxy must fail the session closed rather than
   // silently degrade to direct mode (which would risk a later cross-product
   // attach and mask the collision from the operator).
@@ -390,11 +390,11 @@ describe('Shared MCP daemon (issue #411)', () => {
     const net = await import('net');
     const sockPath = getDaemonSocketPath(realRoot);
     fs.writeFileSync(
-      path.join(realRoot, '.codegraph', 'daemon.pid'),
+      path.join(realRoot, '.lattice/sensor', 'daemon.pid'),
       JSON.stringify({ pid: process.pid, version: '0.0.0-mismatch', socketPath: sockPath, startedAt: Date.now() }),
     );
     const miniServer = net.createServer((sock) => {
-      sock.write(JSON.stringify({ codegraph: '0.0.0-mismatch', pid: 1, socketPath: sockPath, protocol: 1 }) + '\n');
+      sock.write(JSON.stringify({ sensor: '0.0.0-mismatch', pid: 1, socketPath: sockPath, protocol: 1 }) + '\n');
     });
     await new Promise<void>((resolve) => miniServer.listen(sockPath, () => resolve()));
 
@@ -426,7 +426,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     // Backstop short, idle timeout long: with a client connected the idle timer
     // never arms, so the inactivity backstop is the only thing that could take
     // the daemon down — and it must not, because the client's peer is alive.
-    const env = { CODEGRAPH_DAEMON_MAX_IDLE_MS: '1200', CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS: '60000' };
+    const env = { LATTICE_SENSOR_DAEMON_MAX_IDLE_MS: '1200', LATTICE_SENSOR_DAEMON_IDLE_TIMEOUT_MS: '60000' };
     const server = spawnServer(tempDir, env);
     servers.push(server);
     sendInitialize(server.child, `file://${tempDir}`, 1);
@@ -445,7 +445,7 @@ describe('Shared MCP daemon (issue #411)', () => {
   }, 30000);
 
   it('daemon idle-times-out after the last client disconnects', async () => {
-    const env = { CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS: '800', CODEGRAPH_PPID_POLL_MS: '200' };
+    const env = { LATTICE_SENSOR_DAEMON_IDLE_TIMEOUT_MS: '800', LATTICE_SENSOR_PPID_POLL_MS: '200' };
     const server = spawnServer(tempDir, env);
     servers.push(server);
     sendInitialize(server.child, `file://${tempDir}`, 1);
@@ -458,14 +458,14 @@ describe('Shared MCP daemon (issue #411)', () => {
     server.child.stdin.end();
 
     expect(await waitProcessExit(daemonPid, 10000)).toBe(true);
-    expect(fs.existsSync(path.join(realRoot, '.codegraph', 'daemon.pid'))).toBe(false);
+    expect(fs.existsSync(path.join(realRoot, '.lattice/sensor', 'daemon.pid'))).toBe(false);
   }, 30000);
 
   it('proxy survives the daemon dying mid-session and keeps serving (#662)', async () => {
     // The #662 scenario: an MCP host SIGTERM's the shared daemon while a session
-    // is live. The proxy must NOT exit (losing CodeGraph for that session) — it
+    // is live. The proxy must NOT exit (losing LatticeSensor for that session) — it
     // falls back to an in-process engine and keeps answering.
-    const env = { CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS: '30000', CODEGRAPH_PPID_POLL_MS: '5000' };
+    const env = { LATTICE_SENSOR_DAEMON_IDLE_TIMEOUT_MS: '30000', LATTICE_SENSOR_PPID_POLL_MS: '5000' };
     const server = spawnServer(tempDir, env);
     servers.push(server);
     sendInitialize(server.child, `file://${tempDir}`, 1);
@@ -475,7 +475,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     const daemonPid = readLockPid(realRoot)!;
 
     // A warm call goes through the daemon.
-    sendMessage(server.child, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'codegraph_status', arguments: {} } });
+    sendMessage(server.child, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'lattice_sensor_status', arguments: {} } });
     let warmResp: { result?: { content: Array<{ text: string }> } } | undefined;
     try {
       warmResp = await waitFor(() => findResponse(server.stdout, 2), 30000, 25, 'warm tools/call via daemon');
@@ -483,7 +483,7 @@ describe('Shared MCP daemon (issue #411)', () => {
       // This is the wait that historically flaked — surface WHERE the request
       // died: proxy side (stderr) or daemon side (daemon.log).
       let daemonLog = '<no daemon.log>';
-      try { daemonLog = fs.readFileSync(path.join(realRoot, '.codegraph', 'daemon.log'), 'utf8').split('\n').slice(-25).join('\n'); } catch { /* absent */ }
+      try { daemonLog = fs.readFileSync(path.join(realRoot, '.lattice/sensor', 'daemon.log'), 'utf8').split('\n').slice(-25).join('\n'); } catch { /* absent */ }
       throw new Error(
         `${(e as Error).message}\ndaemonAlive=${isAlive(daemonPid)} proxyAlive=${isAlive(server.child.pid!)}\n` +
         `--- proxy stderr tail ---\n${server.stderr.slice(-15).join('')}\n--- daemon.log tail ---\n${daemonLog}`
@@ -502,7 +502,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     // The proxy must still be alive and still answer — served in-process now.
     expect(isAlive(server.child.pid!)).toBe(true);
     await waitFor(() => server.stderr.some((l) => l.includes('serving this session in-process')), 8000, 25, 'in-process failover log');
-    sendMessage(server.child, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'codegraph_status', arguments: {} } });
+    sendMessage(server.child, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'lattice_sensor_status', arguments: {} } });
     const resp = await waitFor(() => findResponse(server.stdout, 3), 15000);
     expect(resp.result !== undefined || resp.error !== undefined).toBe(true);
     expect(isAlive(server.child.pid!)).toBe(true);

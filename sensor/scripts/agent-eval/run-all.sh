@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# With/without A/B (and optional interactive) eval for a codegraph version on a
-# repo. Codegraph is the ONLY variable: both arms launch claude with
-# --strict-mcp-config — with = codegraph-only MCP (pointed at $CG_BIN),
+# With/without A/B (and optional interactive) eval for a lattice-sensor version on a
+# repo. Lattice sensor is the ONLY variable: both arms launch claude with
+# --strict-mcp-config — with = lattice-sensor-only MCP (pointed at $CG_BIN),
 # without = empty MCP. Built-in Read/Grep/Bash stay available in both arms.
 #
 # Usage: run-all.sh <repo-path> "<question>" [headless|tmux|all]
-# Env:   CG_BIN          codegraph binary (default: command -v codegraph)
+# Env:   CG_BIN          lattice-sensor binary (default: command -v lattice-sensor)
 #        AGENT_EVAL_OUT  output dir (default: /tmp/agent-eval)
 #        MODEL / EFFORT  claude model/effort (default: sonnet / high — the
 #                        standing A/B policy; see CLAUDE.md, don't raise)
@@ -14,28 +14,28 @@ set -uo pipefail
 REPO="${1:?usage: run-all.sh <repo-path> \"<question>\" [headless|tmux|all]}"
 Q="${2:?question required}"
 MODE="${3:-headless}"
-CG_BIN="${CG_BIN:-$(command -v codegraph)}"
+CG_BIN="${CG_BIN:-$(command -v lattice-sensor)}"
 OUT="${AGENT_EVAL_OUT:-/tmp/agent-eval}"
 HARNESS="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$OUT"
 
-# Neutralize any ambient CodeGraph prompt-hook (~/.claude) in BOTH arms:
-# the hook injects codegraph context into every prompt, which contaminates
+# Neutralize any ambient Lattice sensor prompt-hook (~/.claude) in BOTH arms:
+# the hook injects lattice-sensor context into every prompt, which contaminates
 # the without-arm (free structural context) and double-counts the with-arm.
 # The A/B's only variable must be the MCP server wired below.
-export CODEGRAPH_NO_PROMPT_HOOK=1
+export LATTICE_SENSOR_NO_PROMPT_HOOK=1
 
-[ -n "$CG_BIN" ] || { echo "no codegraph binary on PATH (set CG_BIN)"; exit 1; }
-[ -d "$REPO/.codegraph" ] || { echo "no .codegraph index at $REPO — index it first"; exit 1; }
+[ -n "$CG_BIN" ] || { echo "no lattice-sensor binary on PATH (set CG_BIN)"; exit 1; }
+[ -d "$REPO/.lattice-sensor" ] || { echo "no .lattice-sensor index at $REPO — index it first"; exit 1; }
 case "$MODE" in headless|tmux|all) ;; *) echo "mode must be headless|tmux|all (got '$MODE')"; exit 1;; esac
 
 # MCP config files (path form avoids inline-JSON quoting through tmux).
-cat > "$OUT/mcp-codegraph.json" <<JSON
-{"mcpServers":{"codegraph":{"command":"$CG_BIN","args":["serve","--mcp","--path","$REPO"]}}}
+cat > "$OUT/mcp-lattice-sensor.json" <<JSON
+{"mcpServers":{"lattice-sensor":{"command":"$CG_BIN","args":["serve","--mcp","--path","$REPO"]}}}
 JSON
 echo '{"mcpServers":{}}' > "$OUT/mcp-empty.json"
 
-echo "###### codegraph: $CG_BIN"
+echo "###### lattice-sensor: $CG_BIN"
 echo "###### repo:      $REPO"
 echo "###### question:  $Q"
 echo
@@ -58,13 +58,13 @@ headless() {
 }
 
 if [ "$MODE" = headless ] || [ "$MODE" = all ]; then
-  headless "headless-with"    "$OUT/mcp-codegraph.json"
+  headless "headless-with"    "$OUT/mcp-lattice-sensor.json"
   headless "headless-without" "$OUT/mcp-empty.json"
 fi
 
 if [ "$MODE" = tmux ] || [ "$MODE" = all ]; then
   echo "############################## INTERACTIVE [with] ##############################"
-  CLAUDE_EXTRA_ARGS="--model ${MODEL:-sonnet} --effort ${EFFORT:-high} --strict-mcp-config --mcp-config $OUT/mcp-codegraph.json" \
+  CLAUDE_EXTRA_ARGS="--model ${MODEL:-sonnet} --effort ${EFFORT:-high} --strict-mcp-config --mcp-config $OUT/mcp-lattice-sensor.json" \
     bash "$HARNESS/itrun.sh" "$REPO" "int-with" "$Q" 2>&1 || echo "[itrun WITH failed]"
   echo
   echo "############################## INTERACTIVE [without] ##############################"

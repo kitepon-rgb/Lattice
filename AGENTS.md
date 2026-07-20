@@ -30,7 +30,7 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 - 初回scaffoldだけはindexがまだ存在しないためbootstrap例外とする。bootstrap sourceを作った直後、
   初期環境commitより前に`lattice sensor init . --json`を実行し、以後のsource TODOへ例外を持ち越さない。
 - sensor結果は構造証拠であり、semantic independenceやbehavior preservationの単独証明ではない。
-- `codegraph_status`互換toolのcomplete／pending changes 0だけで新規fileのindex収載を仮定しない。`codegraph_files`でcoverageを照合し、
+- `lattice_sensor_status`のcomplete／pending changes 0だけで新規fileのindex収載を仮定しない。`lattice_sensor_files`でcoverageを照合し、
   欠落時は明示`lattice sensor sync . --json`後にsearch／caller／callee／impactを取り直す。
 - sensorのsymbol lookupは、存在しない要求名を近い別symbolへfuzzy解決する場合がある。返却されたsymbol名とpathのexact一致を
   照合し、不一致をplanned symbolのcaller／callee／impact証拠へ使わない。不一致や空結果はunknown／absentとして記録する。
@@ -51,8 +51,8 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 
 - Latticeはgoal decomposition、boundary manifest、conflict model、seam transformation、plan compile、
   version barrier、実験記録を所有する。
-- sensorはLatticeが所有し、配布物内の`./sensor/dist`からのみ起動する。PATH上の独立Codegraph、
-  `npx @colbymchenry/codegraph`、外部SDKへfallbackしない。MIT attributionは`./sensor/LICENSE`と
+- sensorはLatticeが所有し、配布物内の`./sensor/dist`からのみ起動する。PATH上の独立CLI、
+  npx配布物、外部SDKへfallbackしない。MIT attributionは`./sensor/LICENSE`と
   `./sensor/NOTICE`で維持する。
 - dotagentsは将来の導入、更新、host配線、BugHub、互換性、rollbackを所有する。Latticeの研究思想を
   dotagentsの工場規則へ直接書き戻さない。

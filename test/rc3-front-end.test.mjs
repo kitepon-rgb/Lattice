@@ -40,7 +40,7 @@ function statusRaw() {
       initialized: true,
       version: '1.4.1',
       projectPath: '/tmp/somewhere',
-      indexPath: '/tmp/somewhere/.codegraph',
+      indexPath: '/tmp/somewhere/.lattice/sensor',
       lastIndexed: '2026-07-17T00:00:00.000Z',
       dbSizeBytes: 12345,
       pendingChanges: { added: 0, modified: 0, removed: 0 },
@@ -91,7 +91,7 @@ function buildCase({ requestId, todos, capacity = 2, sharedState = [], affectedD
       writes: [todo.path],
       resources: (todo.states ?? []).map(({ id }) => id),
       state_effects: (todo.states ?? []).map(({ id, kind }) => ({ resource_id: id, kind })),
-      codegraph_provenance: {
+      sensor_provenance: {
         queries: [
           { query_id: symbolQueryId, expect: { kind: 'symbol', name: todo.symbol, path: todo.path } },
           { query_id: affectedQueryId, expect: { kind: 'affected', path: todo.path } },
@@ -109,18 +109,18 @@ function buildCase({ requestId, todos, capacity = 2, sharedState = [], affectedD
     capacity: { executors: capacity },
     todos: todos.map((todo) => ({ todo_id: todo.id })),
     manual_witness: witness,
-    codegraph_query_set: { queries },
+    sensor_query_set: { queries },
     executor_capability: { adapters: ['scripted'] },
     claim_mode: 'exact_minimum',
   };
   request.request_digest = selfDigest(request, 'request_digest');
-  return { request, codegraphEvidence: { outcomes } };
+  return { request, sensorEvidence: { outcomes } };
 }
 
 function compile(built, overrides = {}) {
   return compileRuntimePlanV1({
     request: built.request,
-    codegraphEvidence: built.codegraphEvidence,
+    sensorEvidence: built.sensorEvidence,
     planRef: 'plan-v1',
     planEpoch: 1,
     predecessorRefs: [],
@@ -227,14 +227,14 @@ test('witness unknownはBOUNDARY_UNKNOWNへ落ちevidence acquisitionを要求�
 
 test('query set外参照とcovering query曖昧化はQUERY_DRIFTになる', () => {
   const built = buildCase({ requestId: 'req-drift', todos: TOPOLOGY_A });
-  built.request.manual_witness.TA1.codegraph_provenance.queries[0].query_id = 'q-ghost';
+  built.request.manual_witness.TA1.sensor_provenance.queries[0].query_id = 'q-ghost';
   built.request.request_digest = selfDigest(built.request, 'request_digest');
   const drifted = compile(built);
   assert.equal(drifted.outcome, 'non_dispatchable');
   assert.equal(drifted.code, 'QUERY_DRIFT');
 
   const relabeled = buildCase({ requestId: 'req-relabel', todos: TOPOLOGY_A });
-  relabeled.request.manual_witness.TA1.codegraph_provenance.queries[0].expect = {
+  relabeled.request.manual_witness.TA1.sensor_provenance.queries[0].expect = {
     kind: 'symbol', name: 'alphaGhost', path: 'src/alpha-one.mjs',
   };
   relabeled.request.request_digest = selfDigest(relabeled.request, 'request_digest');
@@ -246,16 +246,16 @@ test('query set外参照とcovering query曖昧化はQUERY_DRIFTになる', () =
   )));
 
   const ambiguousBuilt = buildCase({ requestId: 'req-ambiguous', todos: TOPOLOGY_A });
-  ambiguousBuilt.request.codegraph_query_set.queries.push({
+  ambiguousBuilt.request.sensor_query_set.queries.push({
     id: 'q-sym-TA1-dup', operation: 'query', target: 'alphaOne',
   });
-  ambiguousBuilt.codegraphEvidence.outcomes.push({
+  ambiguousBuilt.sensorEvidence.outcomes.push({
     query_id: 'q-sym-TA1-dup',
     operation: 'query',
     status: 'ready',
     raw: symbolQueryRaw([['alphaOne', 'src/alpha-one.mjs']]),
   });
-  ambiguousBuilt.request.manual_witness.TA1.codegraph_provenance.queries.push({
+  ambiguousBuilt.request.manual_witness.TA1.sensor_provenance.queries.push({
     query_id: 'q-sym-TA1-dup',
     expect: { kind: 'symbol', name: 'alphaOne', path: 'src/alpha-one.mjs' },
   });
@@ -276,13 +276,13 @@ test('affected観測とwitness宣言の不一致はAFFECTED_TEST_DRIFTになる'
 
 test('stale index・fuzzy解決・未束縛owns・write交差はunknownとして丸められない', () => {
   const staleBuilt = buildCase({ requestId: 'req-stale', todos: TOPOLOGY_A });
-  staleBuilt.codegraphEvidence.outcomes[0].status = 'stale';
+  staleBuilt.sensorEvidence.outcomes[0].status = 'stale';
   const stale = compile(staleBuilt);
   assert.equal(stale.outcome, 'non_dispatchable');
   assert.equal(stale.code, 'BOUNDARY_UNKNOWN');
 
   const fuzzyBuilt = buildCase({ requestId: 'req-fuzzy', todos: TOPOLOGY_A });
-  fuzzyBuilt.codegraphEvidence.outcomes[1].raw = symbolQueryRaw([['alphaOneLegacy', 'src/alpha-one.mjs']]);
+  fuzzyBuilt.sensorEvidence.outcomes[1].raw = symbolQueryRaw([['alphaOneLegacy', 'src/alpha-one.mjs']]);
   const fuzzy = compile(fuzzyBuilt);
   assert.equal(fuzzy.outcome, 'non_dispatchable');
   assert.equal(fuzzy.code, 'BOUNDARY_UNKNOWN');
@@ -299,7 +299,7 @@ test('stale index・fuzzy解決・未束縛owns・write交差はunknownとして
 test('非readyなaffected evidenceはdispatchableへ丸められずBOUNDARY_UNKNOWNになる', () => {
   const built = buildCase({ requestId: 'req-aff-empty', todos: TOPOLOGY_A });
   // TA1のaffected観測をempty（affected testsゼロ・changedFiles不一致）へ差し替える。
-  const outcome = built.codegraphEvidence.outcomes.find((entry) => entry.query_id === 'q-aff-TA1');
+  const outcome = built.sensorEvidence.outcomes.find((entry) => entry.query_id === 'q-aff-TA1');
   outcome.status = 'empty';
   outcome.raw = { operation: 'affected', data: { changedFiles: [], affectedTests: [], totalDependentsTraversed: 0 } };
   const result = compile(built);
@@ -343,7 +343,7 @@ test('owns pathのabsolute path・遡上はTypeErrorでfail closedする', () =>
   assert.throws(() => compile(absolute), TypeError);
 
   const traversal = buildCase({ requestId: 'req-dotdot', todos: TOPOLOGY_A });
-  traversal.request.manual_witness.TA1.codegraph_provenance.queries[0].expect.path = '../escape.mjs';
+  traversal.request.manual_witness.TA1.sensor_provenance.queries[0].expect.path = '../escape.mjs';
   traversal.request.request_digest = selfDigest(traversal.request, 'request_digest');
   assert.throws(() => compile(traversal), TypeError);
 });
@@ -357,7 +357,7 @@ test('共有owns pathはwrite conflictとしてserial scheduleへ落ちる', () 
   // 同一pathを両者がownsで主張する場合、covering queryも同一でなければQUERY_DRIFT。
   // ここでは同じqueryを両witnessが参照する正規形へ直す。
   const witness = built.request.manual_witness;
-  witness.TS2.codegraph_provenance.queries = witness.TS1.codegraph_provenance.queries.map((entry) => ({
+  witness.TS2.sensor_provenance.queries = witness.TS1.sensor_provenance.queries.map((entry) => ({
     query_id: entry.query_id,
     expect: { ...entry.expect },
   }));
@@ -381,7 +381,7 @@ test('入力shape違反はtyped non-dispatchableでなくTypeErrorでfail closed
   tampered.request.request_digest = 'f'.repeat(64);
   assert.throws(() => compile(tampered), TypeError);
   const shortEvidence = buildCase({ requestId: 'req-shape-3', todos: TOPOLOGY_A });
-  shortEvidence.codegraphEvidence.outcomes.pop();
+  shortEvidence.sensorEvidence.outcomes.pop();
   assert.throws(() => compile(shortEvidence), TypeError);
 });
 
@@ -398,9 +398,9 @@ test('non-dispatchable code集合は固定enumである', () => {
 test('portable digestはraw telemetryへ依存しない', () => {
   const left = buildCase({ requestId: 'req-portable', todos: TOPOLOGY_A });
   const right = buildCase({ requestId: 'req-portable', todos: TOPOLOGY_A });
-  right.codegraphEvidence.outcomes[0].raw.data.projectPath = '/entirely/different/path';
-  right.codegraphEvidence.outcomes[0].raw.data.dbSizeBytes = 999999;
-  right.codegraphEvidence.outcomes[0].raw.data.lastIndexed = '2026-07-17T09:99:99.000Z';
+  right.sensorEvidence.outcomes[0].raw.data.projectPath = '/entirely/different/path';
+  right.sensorEvidence.outcomes[0].raw.data.dbSizeBytes = 999999;
+  right.sensorEvidence.outcomes[0].raw.data.lastIndexed = '2026-07-17T09:99:99.000Z';
   const leftResult = compile(left);
   const rightResult = compile(right);
   assert.equal(leftResult.outcome, 'dispatchable');

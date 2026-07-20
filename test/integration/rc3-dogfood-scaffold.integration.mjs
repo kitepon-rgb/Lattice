@@ -17,7 +17,7 @@ import {
 
 // RC3-D integration（ADR 0044 Decision 11.1〜11.3、plan RC3-D）。
 // RC2 fixture 3点のbyte-identical複製によるdisposable dogfood repoの
-// allowed path・oracle・candidate・base・Codegraph query bindingを検証する。
+// allowed path・oracle・candidate・base・LatticeSensor query bindingを検証する。
 // 本testはexpected-red先行で置かれ、scaffold実装がgreenへ反転させる。
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -110,7 +110,7 @@ test('oracleはdisposable repo内でaccepted receiptどおりpassする', async 
   assert.equal(receipt.outcome, 'passed');
 });
 
-test('Codegraph query bindingはfixture symbolをexact一致で解決する', () => {
+test('Lattice Sensor query bindingはfixture symbolをexact一致で解決する', () => {
   const statusJson = JSON.parse(invokeSensorCli(run, ['status', '.', '--json'], scaffold.repoRoot));
   assert.equal(statusJson.initialized, true);
   assert.equal(statusJson.index.state, 'complete');

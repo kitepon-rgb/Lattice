@@ -1,4 +1,4 @@
-# todo gantt デザイン仕様 v7（dataviz skill検証済みパレット準拠）
+# todo gantt デザイン仕様（renderer v7＋live viewer）
 
 出典: Claude Code dataviz skill（validated reference palette）。以下の値は検証済みパレットからの転記であり、独自発明しない。
 

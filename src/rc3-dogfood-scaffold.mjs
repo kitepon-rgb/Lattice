@@ -117,15 +117,16 @@ function runRaw(command, args, cwd) {
   });
 }
 
-// Lattice規約と同じく`.codegraph/.gitignore`（自身以外を無視）をtracked fileとして
-// commitへ含め、`codegraph init`後もtreeがcleanのままになるようにする。
-const CODEGRAPH_BOOTSTRAP_PATH = '.codegraph/.gitignore';
+// disposable repo自身のroot ignoreへ生成sensor stateを明示し、init後もtreeをcleanに保つ。
+// Lattice sourceのtracked bytesとは別物なのでsource provenanceへ混ぜない。
+const SENSOR_IGNORE_PATH = '.gitignore';
+const SENSOR_IGNORE_BYTES = Buffer.from('.lattice/sensor/\n', 'utf8');
 
 async function readLatticeSources(latticeRoot) {
   // bytesの正はHEAD blob（base commitへ束縛するため）。working treeが
   // HEADと食い違う場合は、dirty bytesをbase shaへ誤帰属させずrejectする。
   const bytesByPath = new Map();
-  for (const relativePath of [...RC3_DOGFOOD_SCAFFOLD_PATHS, CODEGRAPH_BOOTSTRAP_PATH]) {
+  for (const relativePath of RC3_DOGFOOD_SCAFFOLD_PATHS) {
     let headBytes;
     try {
       headBytes = await runRaw('git', ['show', `HEAD:${relativePath}`], latticeRoot);
@@ -183,6 +184,8 @@ export async function scaffoldRc3DogfoodRepo(options = {}) {
   }
   const repoRoot = path.join(workRoot, 'repo');
   const { bytesByPath, candidateDigest, oracleDigest } = await readLatticeSources(latticeRoot);
+  const targetBytesByPath = new Map(bytesByPath);
+  targetBytesByPath.set(SENSOR_IGNORE_PATH, SENSOR_IGNORE_BYTES);
   const latticeHead = (await run('git', ['rev-parse', 'HEAD'], latticeRoot)).stdout.trim();
   if (!GIT_SHA1.test(latticeHead)) fail('Lattice HEADを解決できない');
 
@@ -194,7 +197,7 @@ export async function scaffoldRc3DogfoodRepo(options = {}) {
     if (error?.code === 'EEXIST') fail(`repoRootが既に存在する（上書き禁止）: ${repoRoot}`);
     throw error;
   }
-  for (const [relativePath, bytes] of bytesByPath) {
+  for (const [relativePath, bytes] of targetBytesByPath) {
     const absolutePath = path.join(repoRoot, relativePath);
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, bytes);
@@ -226,7 +229,7 @@ export async function scaffoldRc3DogfoodRepo(options = {}) {
     target: Object.freeze({
       root_kind: 'disposable-dogfood',
       base_sha: baseSha,
-      path_digests: Object.freeze(pathDigests(bytesByPath)),
+      path_digests: Object.freeze(pathDigests(targetBytesByPath)),
     }),
     predeclared_treatment: Object.freeze({
       epoch: EXPECTED_TREATMENT_EPOCH,

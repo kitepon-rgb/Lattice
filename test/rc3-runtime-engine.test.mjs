@@ -34,7 +34,7 @@ function manualWitness(todoId) {
     writes: [`src/${todoId.toLowerCase()}.mjs`],
     resources: [],
     state_effects: [],
-    codegraph_provenance: { queries: [] },
+    sensor_provenance: { queries: [] },
     affected_tests: [`test/${todoId.toLowerCase()}.test.mjs`],
     unknowns: [],
   };
@@ -48,7 +48,7 @@ function buildFixture({ todos, capacity, conflicts = [], precedence = [] }) {
     capacity: { executors: capacity },
     todos: todos.map((todoId) => ({ todo_id: todoId })),
     manual_witness: Object.fromEntries(todos.map((todoId) => [todoId, manualWitness(todoId)])),
-    codegraph_query_set: { queries: [] },
+    sensor_query_set: { queries: [] },
     executor_capability: { adapters: ['scripted'] },
     claim_mode: 'exact_minimum',
   };

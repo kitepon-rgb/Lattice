@@ -51,11 +51,11 @@ function buildFixture({ todos, capacity }) {
       writes: [`src/${todoId.toLowerCase()}.mjs`],
       resources: [],
       state_effects: [],
-      codegraph_provenance: { queries: [] },
+      sensor_provenance: { queries: [] },
       affected_tests: [`test/${todoId.toLowerCase()}.test.mjs`],
       unknowns: [],
     }])),
-    codegraph_query_set: { queries: [] },
+    sensor_query_set: { queries: [] },
     executor_capability: { adapters: ['scripted'] },
     claim_mode: 'exact_minimum',
   };

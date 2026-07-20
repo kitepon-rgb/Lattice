@@ -2,7 +2,7 @@
   "name": "@quolu/lattice-sensor",
   "version": "0.7.3-lattice.1",
   "private": true,
-  "description": "Lattice-owned local structural sensor derived from Codegraph.",
+  "description": "Lattice-owned local structural sensor.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kitepon-rgb/Lattice.git"
@@ -11,12 +11,10 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "!dist/bin/codegraph.*",
     "README.md"
   ],
   "scripts": {
-    "build": "npm run clean && tsc && npm run copy-assets && npm run build:private-runtime",
-    "build:private-runtime": "node -e \"const fs=require('fs');let source=fs.readFileSync('dist/bin/codegraph.js','utf8').replace(/\\n?\\/\\/# sourceMappingURL=codegraph\\.js\\.map\\s*$/u,'');fs.writeFileSync('dist/bin/lattice-sensor.js',source)\"",
+    "build": "npm run clean && tsc && npm run copy-assets",
     "copy-assets": "node -e \"const fs=require('fs');fs.mkdirSync('dist/db',{recursive:true});fs.copyFileSync('src/db/schema.sql','dist/db/schema.sql');fs.mkdirSync('dist/extraction/wasm',{recursive:true});fs.readdirSync('src/extraction/wasm').filter(f=>f.endsWith('.wasm')).forEach(f=>fs.copyFileSync('src/extraction/wasm/'+f,'dist/extraction/wasm/'+f))\"",
     "dev": "tsc --watch",
     "build:kernel": "bash scripts/build-kernel.sh",

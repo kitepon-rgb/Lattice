@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { digestArtifact } from './artifact-contracts.mjs';
-import { collectCodegraphEvidence } from './sensor-adapter.mjs';
+import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { compileRuntimePlanV1, evidenceFromCollectedOutcomes } from './runtime-front-end.mjs';
 import {
   adjudicatePendingReceipts,
@@ -143,7 +143,7 @@ function stateAdapter(state) {
 }
 
 /**
- * step 1: request読込・codegraph evidence収集・compile・全TODO dispatch
+ * step 1: request読込・sensor evidence収集・compile・全TODO dispatch
  * （worktree provision）まで。返り値のworktree pathsへ、親が実agentを
  * dispatchする。packetにはisolation_contractが含まれる。
  */
@@ -152,11 +152,11 @@ export async function initStage1Run({ latticeRoot, cloneRoot, requestPath, state
   const request = JSON.parse(await readFile(requestPath, 'utf8'));
   if (!validateRunRequest(request)) fail('run_requestがlattice.run_request.v1 contractを満たさない');
 
-  const collected = await collectCodegraphEvidence({ cwd: cloneRoot, querySet: request.codegraph_query_set });
-  const codegraphEvidence = evidenceFromCollectedOutcomes({ querySet: request.codegraph_query_set, collected });
+  const collected = await collectSensorEvidence({ cwd: cloneRoot, querySet: request.sensor_query_set });
+  const sensorEvidence = evidenceFromCollectedOutcomes({ querySet: request.sensor_query_set, collected });
   const compiled = compileRuntimePlanV1({
     request,
-    codegraphEvidence,
+    sensorEvidence,
     planRef: `plan-${request.request_id}-e1`,
     planEpoch: 1,
     predecessorRefs: [],

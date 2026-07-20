@@ -56,7 +56,7 @@ function collect(p, out) {
   }
   if (st.isDirectory()) {
     const base = path.basename(p);
-    if (base === 'node_modules' || base === '.git' || base === 'dist' || base === '.codegraph') return;
+    if (base === 'node_modules' || base === '.git' || base === 'dist' || base === '.lattice-sensor') return;
     for (const e of fs.readdirSync(p)) collect(path.join(p, e), out);
   } else if (EXTS.has(path.extname(p))) {
     const lang = EXTS.get(path.extname(p));
@@ -158,13 +158,13 @@ let filesOk = 0;
 let deferred = 0;
 let totals = { nodes: 0, edges: 0, refs: 0 };
 
-process.env.CODEGRAPH_KERNEL_LANGS = 'all';
+process.env.LATTICE_SENSOR_KERNEL_LANGS = 'all';
 
 for (const { file, lang } of files) {
   const source = fs.readFileSync(file, 'utf8');
   const rel = path.relative(ROOT, file);
 
-  delete process.env.CODEGRAPH_KERNEL; // kernel path on
+  delete process.env.LATTICE_SENSOR_KERNEL; // kernel path on
   const kres = kernel.tryKernelExtract(rel, source, lang);
   if (!kres) {
     // Expected: files with parse errors defer to wasm (parity by
@@ -174,9 +174,9 @@ for (const { file, lang } of files) {
     report('kernel-deferred', rel);
     continue;
   }
-  process.env.CODEGRAPH_KERNEL = '0'; // wasm path
+  process.env.LATTICE_SENSOR_KERNEL = '0'; // wasm path
   const wres = extractFromSource(rel, source, lang);
-  delete process.env.CODEGRAPH_KERNEL;
+  delete process.env.LATTICE_SENSOR_KERNEL;
 
   totals.nodes += wres.nodes.length;
   totals.edges += wres.edges.length;

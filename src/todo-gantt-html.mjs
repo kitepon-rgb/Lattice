@@ -164,7 +164,7 @@ function renderRelationList(relations, sectionByKey, lookup, emptyText) {
 function renderPhaseProgress(readModel) {
   const rows = [];
   for (const member of readModel.members) {
-    if (member.plan.schema !== 'lattice.todo_plan.v4') continue;
+    if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)) continue;
     const phases = new Map(member.snapshot.phases.map((phase) => [phase.phase_id, phase]));
     for (const phase of member.plan.phases) {
       const tasks = member.plan.tasks.filter((task) => task.phase_id === phase.phase_id);
@@ -174,8 +174,12 @@ function renderPhaseProgress(readModel) {
       rows.push(`<li class="phase-progress status-${escapeHtmlAttribute(state.status)}"><header><strong>${escapeHtmlText(phase.title ?? phase.phase_id)}</strong><span>${escapeHtmlText(state.status)}</span></header><p><code>${escapeHtmlText(`${member.plan.plan_key}/${phase.phase_id}`)}</code> — policy <code>${escapeHtmlText(phase.gate_policy)}</code> — ToDo ${done}/${tasks.length}</p><progress max="${tasks.length}" value="${done}">${done}/${tasks.length}</progress></li>`);
     }
   }
+  const decoupled = readModel.members.some(({ plan }) => plan.schema === 'lattice.todo_plan.v5');
+  const guidance = decoupled
+    ? 'ToDo完了とPhase受理は別です。Phaseは重監査の順序を表し、通常ToDoの開始順はToDo依存だけで決まります。'
+    : 'ToDo完了とPhase受理は別です。<code>gate_ready</code>では後続Phaseはまだ解放されません。';
   return rows.length === 0 ? ''
-    : `<section class="phase-overview"><h2>Phase進捗</h2><p>ToDo完了とPhase受理は別です。<code>gate_ready</code>では後続Phaseはまだ解放されません。</p><ol>${rows.join('')}</ol></section>`;
+    : `<section class="phase-overview"><h2>Phase進捗</h2><p>${guidance}</p><ol>${rows.join('')}</ol></section>`;
 }
 
 function renderRightPane(sections, layout, presentation, readModel) {

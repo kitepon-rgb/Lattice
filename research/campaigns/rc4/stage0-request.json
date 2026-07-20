@@ -49,7 +49,7 @@
    ],
    "resources": [],
    "state_effects": [],
-   "codegraph_provenance": {
+   "sensor_provenance": {
     "queries": [
      {
       "query_id": "q-t1-lib",
@@ -98,7 +98,7 @@
    ],
    "resources": [],
    "state_effects": [],
-   "codegraph_provenance": {
+   "sensor_provenance": {
     "queries": [
      {
       "query_id": "q-t2-bin",
@@ -150,7 +150,7 @@
      "kind": "external_effect"
     }
    ],
-   "codegraph_provenance": {
+   "sensor_provenance": {
     "queries": []
    },
    "affected_tests": [],
@@ -184,7 +184,7 @@
    ],
    "resources": [],
    "state_effects": [],
-   "codegraph_provenance": {
+   "sensor_provenance": {
     "queries": [
      {
       "query_id": "q-t4-adapters",
@@ -226,7 +226,7 @@
      "kind": "external_effect"
     }
    ],
-   "codegraph_provenance": {
+   "sensor_provenance": {
     "queries": []
    },
    "affected_tests": [],
@@ -236,7 +236,7 @@
      "ref": "OpenCClaw bellbot deploy手順書＝還流先の実体（本repo境界の外）"
     },
     {
-     "kind": "codegraph-blind-spot",
+     "kind": "lattice-sensor-blind-spot",
      "ref": "markdownのみでcall graph証拠ゼロ（意図的包含）"
     }
    ]
@@ -258,7 +258,7 @@
      "kind": "external_effect"
     }
    ],
-   "codegraph_provenance": {
+   "sensor_provenance": {
     "queries": []
    },
    "affected_tests": [],
@@ -272,13 +272,13 @@
      "ref": "T5と同一ファイル（queue_memory-promotion.md）への書込＝docs系交差（意図的包含）"
     },
     {
-     "kind": "codegraph-blind-spot",
+     "kind": "lattice-sensor-blind-spot",
      "ref": "markdownのみでcall graph証拠ゼロ"
     }
    ]
   }
  },
- "codegraph_query_set": {
+ "sensor_query_set": {
   "queries": [
    {
     "id": "q-status",

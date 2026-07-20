@@ -28,14 +28,14 @@ function parse(argv) {
 function execute(command, projectPath) {
   return new Promise((resolve, reject) => {
     let captured = 0;
-    const hasIndex = existsSync(path.resolve(projectPath, '.codegraph', 'codegraph.db'));
+    const hasIndex = existsSync(path.resolve(projectPath, '.lattice/sensor', 'sensor.db'));
     const sensorArgs = command === 'init' && hasIndex
       ? ['index', projectPath, '--quiet']
       : [command, projectPath];
     const child = spawnSensorCli(sensorArgs, {
       env: {
         ...process.env,
-        CODEGRAPH_NO_UPDATE_CHECK: '1',
+        LATTICE_SENSOR_NO_UPDATE_CHECK: '1',
         DO_NOT_TRACK: '1',
         NO_COLOR: '1',
       },
@@ -61,7 +61,7 @@ export async function runSensorCli({ argv, stdout, stderr }) {
       writeJson(stderr, {
         schema: 'lattice.cli_error.v2',
         code: result.overflow ? 'LATTICE_SENSOR_OUTPUT_LIMIT' : 'LATTICE_SENSOR_COMMAND_FAILED',
-        message: `Lattice sensor ${request.command} failed`,
+        message: `LatticeSensor ${request.command} failed`,
       });
       return 1;
     }
@@ -78,7 +78,7 @@ export async function runSensorCli({ argv, stdout, stderr }) {
     writeJson(stderr, {
       schema: 'lattice.cli_error.v2',
       code: error?.code === 'LATTICE_SENSOR_UNAVAILABLE' ? error.code : 'LATTICE_SENSOR_COMMAND_FAILED',
-      message: `Lattice sensor ${request.command} failed`,
+      message: `LatticeSensor ${request.command} failed`,
     });
     return 1;
   }

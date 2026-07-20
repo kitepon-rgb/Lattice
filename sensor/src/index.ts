@@ -1,5 +1,5 @@
 /**
- * CodeGraph
+ * LatticeSensor
  *
  * A local-first code intelligence system that builds a semantic
  * knowledge graph from any codebase.
@@ -51,9 +51,9 @@ import { ContextBuilder, createContextBuilder } from './context';
 import { Mutex, FileLock } from './utils';
 import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './sync';
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
-import { getCodeGraphDir } from './directory';
+import { getLatticeSensorDir } from './directory';
 import { deriveProjectNameTokens } from './search/query-utils';
-import { CodeGraphPackageVersion } from './mcp/version';
+import { LatticeSensorPackageVersion } from './mcp/version';
 import { segmentLookupVariants, splitIdentifierSegments } from './search/identifier-segments';
 import { createYielder } from './resolution/cooperative-yield';
 import { minRefsForPool } from './resolution/resolver-pool';
@@ -61,22 +61,22 @@ import { minRefsForPool } from './resolution/resolver-pool';
 // Re-export types for consumers
 export * from './types';
 // Storage building blocks for embedded/SDK consumers that drive the graph
-// directly (open a DB, run prepared queries) rather than through the CodeGraph
+// directly (open a DB, run prepared queries) rather than through the LatticeSensor
 // facade. Exposed from the package entry so they no longer require deep imports
 // into dist/ (issue #354).
 export { getDatabasePath, DatabaseConnection } from './db';
 export { QueryBuilder } from './db/queries';
 export {
-  getCodeGraphDir,
+  getLatticeSensorDir,
   isInitialized,
-  findNearestCodeGraphRoot,
-  CODEGRAPH_DIR,
+  findNearestLatticeSensorRoot,
+  LATTICE_SENSOR_DIR,
 } from './directory';
 export { IndexProgress, IndexResult, SyncResult } from './extraction';
 export { detectLanguage, isLanguageSupported, isGrammarLoaded, getSupportedLanguages, initGrammars, loadGrammarsForLanguages, loadAllGrammars } from './extraction';
 export { ResolutionResult } from './resolution';
 export {
-  CodeGraphError,
+  LatticeSensorError,
   FileError,
   ParseError,
   DatabaseError,
@@ -94,7 +94,7 @@ export { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './
 export { MCPServer } from './mcp';
 
 /**
- * Options for initializing a new CodeGraph project
+ * Options for initializing a new LatticeSensor project
  */
 export interface InitOptions {
   /** Whether to run initial indexing after init */
@@ -105,7 +105,7 @@ export interface InitOptions {
 }
 
 /**
- * Options for opening an existing CodeGraph project
+ * Options for opening an existing LatticeSensor project
  */
 export interface OpenOptions {
   /** Whether to run sync if files have changed */
@@ -130,11 +130,11 @@ export interface IndexOptions {
 }
 
 /**
- * Main CodeGraph class
+ * Main LatticeSensor class
  *
  * Provides the primary interface for interacting with the code knowledge graph.
  */
-export class CodeGraph {
+export class LatticeSensor {
   private db: DatabaseConnection;
   private queries: QueryBuilder;
   private projectRoot: string;
@@ -165,7 +165,7 @@ export class CodeGraph {
     this.queries = queries;
     this.projectRoot = projectRoot;
     this.fileLock = new FileLock(
-      path.join(getCodeGraphDir(projectRoot), 'codegraph.lock')
+      path.join(getLatticeSensorDir(projectRoot), 'sensor.lock')
     );
     this.wireLayers();
   }
@@ -196,9 +196,9 @@ export class CodeGraph {
   }
 
   /**
-   * Heal a stale database handle in place. If `.codegraph/` was removed and
+   * Heal a stale database handle in place. If `.lattice/sensor/` was removed and
    * recreated at the SAME path while this instance held the DB open — a git
-   * worktree removed and re-added, or `rm -rf .codegraph` + `lattice sensor init` —
+   * worktree removed and re-added, or `rm -rf .lattice/sensor` + `lattice sensor init` —
    * our open fd points at the now-unlinked inode and can never see the new
    * index, so every query returns the pre-removal snapshot until the process
    * restarts (#925). When that's detected, open the live file at the same path,
@@ -231,21 +231,21 @@ export class CodeGraph {
   // ===========================================================================
 
   /**
-   * Initialize a new CodeGraph project
+   * Initialize a new LatticeSensor project
    *
-   * Creates the .CodeGraph directory, database, and configuration.
+   * Creates the .LatticeSensor directory, database, and configuration.
    *
    * @param projectRoot - Path to the project root directory
    * @param options - Initialization options
-   * @returns A new CodeGraph instance
+   * @returns A new LatticeSensor instance
    */
-  static async init(projectRoot: string, options: InitOptions = {}): Promise<CodeGraph> {
+  static async init(projectRoot: string, options: InitOptions = {}): Promise<LatticeSensor> {
     await initGrammars();
     const resolvedRoot = path.resolve(projectRoot);
 
     // Check if already initialized
     if (isInitialized(resolvedRoot)) {
-      throw new Error(`CodeGraph already initialized in ${resolvedRoot}`);
+      throw new Error(`LatticeSensor already initialized in ${resolvedRoot}`);
     }
 
     // Create directory structure
@@ -256,7 +256,7 @@ export class CodeGraph {
     const db = DatabaseConnection.initialize(dbPath);
     const queries = new QueryBuilder(db.getDb());
 
-    const instance = new CodeGraph(db, queries, resolvedRoot);
+    const instance = new LatticeSensor(db, queries, resolvedRoot);
 
     // Run initial indexing if requested
     if (options.index) {
@@ -269,12 +269,12 @@ export class CodeGraph {
   /**
    * Initialize synchronously (without indexing)
    */
-  static initSync(projectRoot: string): CodeGraph {
+  static initSync(projectRoot: string): LatticeSensor {
     const resolvedRoot = path.resolve(projectRoot);
 
     // Check if already initialized
     if (isInitialized(resolvedRoot)) {
-      throw new Error(`CodeGraph already initialized in ${resolvedRoot}`);
+      throw new Error(`LatticeSensor already initialized in ${resolvedRoot}`);
     }
 
     // Create directory structure
@@ -285,29 +285,29 @@ export class CodeGraph {
     const db = DatabaseConnection.initialize(dbPath);
     const queries = new QueryBuilder(db.getDb());
 
-    return new CodeGraph(db, queries, resolvedRoot);
+    return new LatticeSensor(db, queries, resolvedRoot);
   }
 
   /**
-   * Open an existing CodeGraph project
+   * Open an existing LatticeSensor project
    *
    * @param projectRoot - Path to the project root directory
    * @param options - Open options
-   * @returns A CodeGraph instance
+   * @returns A LatticeSensor instance
    */
-  static async open(projectRoot: string, options: OpenOptions = {}): Promise<CodeGraph> {
+  static async open(projectRoot: string, options: OpenOptions = {}): Promise<LatticeSensor> {
     await initGrammars();
     const resolvedRoot = path.resolve(projectRoot);
 
     // Check if initialized
     if (!isInitialized(resolvedRoot)) {
-      throw new Error(`CodeGraph not initialized in ${resolvedRoot}. Run init() first.`);
+      throw new Error(`LatticeSensor not initialized in ${resolvedRoot}. Run init() first.`);
     }
 
     // Validate directory structure
     const validation = validateDirectory(resolvedRoot);
     if (!validation.valid) {
-      throw new Error(`Invalid CodeGraph directory: ${validation.errors.join(', ')}`);
+      throw new Error(`Invalid LatticeSensor directory: ${validation.errors.join(', ')}`);
     }
 
     // Open database
@@ -315,7 +315,7 @@ export class CodeGraph {
     const db = DatabaseConnection.open(dbPath);
     const queries = new QueryBuilder(db.getDb());
 
-    const instance = new CodeGraph(db, queries, resolvedRoot);
+    const instance = new LatticeSensor(db, queries, resolvedRoot);
 
     // Sync if requested
     if (options.sync) {
@@ -327,11 +327,11 @@ export class CodeGraph {
 
   /**
    * Rebuild the project's database from scratch and return a fresh, empty
-   * instance — the "same result as a fresh init" semantics that `codegraph
+   * instance — the "same result as a fresh init" semantics that `lattice sensor
    * index` documents.
    *
    * Unlike `open()` followed by `clear()`, this DISCARDS the existing
-   * `.codegraph/codegraph.db` (and its `-wal`/`-shm` sidecars) before
+   * `.lattice/sensor/sensor.db` (and its `-wal`/`-shm` sidecars) before
    * re-initializing, instead of opening the old database and DELETE-ing every
    * row. On a large or pre-fix poisoned index — e.g. an old graph that scanned
    * an ignored gitlink corpus (#1065) into ~1.6M nodes with a multi-GB WAL —
@@ -341,14 +341,14 @@ export class CodeGraph {
    * files is O(1) regardless of size, reclaims the disk, and sidesteps opening
    * (and running migrations against) the poisoned database entirely.
    */
-  static async recreate(projectRoot: string): Promise<CodeGraph> {
+  static async recreate(projectRoot: string): Promise<LatticeSensor> {
     await initGrammars();
     const resolvedRoot = path.resolve(projectRoot);
 
     // Check if initialized — recreate REBUILDS an existing project; it is not a
     // first-time `init`.
     if (!isInitialized(resolvedRoot)) {
-      throw new Error(`CodeGraph not initialized in ${resolvedRoot}. Run init() first.`);
+      throw new Error(`LatticeSensor not initialized in ${resolvedRoot}. Run init() first.`);
     }
 
     const dbPath = getDatabasePath(resolvedRoot);
@@ -361,8 +361,8 @@ export class CodeGraph {
       const reason = err instanceof Error ? err.message : String(err);
       throw new Error(
         `Could not rebuild the index — the database file is in use (${reason}). ` +
-          `Stop any running CodeGraph MCP server/daemon for this project and retry, ` +
-          `or remove the ${getCodeGraphDir(resolvedRoot)} directory and run "lattice sensor init".`
+          `Stop any running LatticeSensor MCP server/daemon for this project and retry, ` +
+          `or remove the ${getLatticeSensorDir(resolvedRoot)} directory and run "lattice sensor init".`
       );
     }
 
@@ -370,24 +370,24 @@ export class CodeGraph {
     const db = DatabaseConnection.initialize(dbPath);
     const queries = new QueryBuilder(db.getDb());
 
-    return new CodeGraph(db, queries, resolvedRoot);
+    return new LatticeSensor(db, queries, resolvedRoot);
   }
 
   /**
    * Open synchronously (without sync)
    */
-  static openSync(projectRoot: string): CodeGraph {
+  static openSync(projectRoot: string): LatticeSensor {
     const resolvedRoot = path.resolve(projectRoot);
 
     // Check if initialized
     if (!isInitialized(resolvedRoot)) {
-      throw new Error(`CodeGraph not initialized in ${resolvedRoot}. Run init() first.`);
+      throw new Error(`LatticeSensor not initialized in ${resolvedRoot}. Run init() first.`);
     }
 
     // Validate directory structure
     const validation = validateDirectory(resolvedRoot);
     if (!validation.valid) {
-      throw new Error(`Invalid CodeGraph directory: ${validation.errors.join(', ')}`);
+      throw new Error(`Invalid LatticeSensor directory: ${validation.errors.join(', ')}`);
     }
 
     // Open database
@@ -395,18 +395,18 @@ export class CodeGraph {
     const db = DatabaseConnection.open(dbPath);
     const queries = new QueryBuilder(db.getDb());
 
-    return new CodeGraph(db, queries, resolvedRoot);
+    return new LatticeSensor(db, queries, resolvedRoot);
   }
 
   /**
-   * Check if a directory has been initialized as a CodeGraph project
+   * Check if a directory has been initialized as a LatticeSensor project
    */
   static isInitialized(projectRoot: string): boolean {
     return isInitialized(path.resolve(projectRoot));
   }
 
   /**
-   * Close the CodeGraph instance and release resources
+   * Close the LatticeSensor instance and release resources
    */
   close(): void {
     this.unwatch();
@@ -445,23 +445,23 @@ export class CodeGraph {
       // growth by backfilling PASSIVEly on a worker thread (never blocking
       // the writer or the #850 watchdog heartbeat); runMaintenance below does
       // the final fold-up before the interval is restored in the finally.
-      // Kill switch: CODEGRAPH_NO_WAL_DEFER=1. Non-WAL journal modes (some
+      // Kill switch: LATTICE_SENSOR_NO_WAL_DEFER=1. Non-WAL journal modes (some
       // network filesystems) have no WAL to defer — skip.
       // Fast-init: on a COMPLETELY fresh DB, trade crash-durability for speed
       // during the bulk build (journal in memory, no fsync). Safe because the
       // DB is disposable until the index completes — index_state stays
       // 'indexing' and a crashed init is re-run from scratch; existing DBs
       // (re-index/sync) never take this path. Kill switch:
-      // CODEGRAPH_NO_FAST_INIT=1 (same pattern as CODEGRAPH_NO_WAL_DEFER).
+      // LATTICE_SENSOR_NO_FAST_INIT=1 (same pattern as LATTICE_SENSOR_NO_WAL_DEFER).
       const freshDb = this.queries.getNodeAndEdgeCount().nodes === 0;
-      const fastInit = process.env.CODEGRAPH_NO_FAST_INIT !== '1' && freshDb;
+      const fastInit = process.env.LATTICE_SENSOR_NO_FAST_INIT !== '1' && freshDb;
       if (fastInit) {
         try {
           this.db.getDb().pragma('journal_mode = MEMORY');
           this.db.getDb().pragma('synchronous = OFF');
         } catch { /* keep WAL */ }
       }
-      const deferWal = !fastInit && process.env.CODEGRAPH_NO_WAL_DEFER !== '1' && this.db.getJournalMode() === 'wal';
+      const deferWal = !fastInit && process.env.LATTICE_SENSOR_NO_WAL_DEFER !== '1' && this.db.getJournalMode() === 'wal';
       let walValve: WalCheckpointValve | null = null;
       let priorAutocheckpoint = 1000;
       // Set when the fastInit+pool path below defers autocheckpointing, so the
@@ -482,7 +482,7 @@ export class CodeGraph {
         const before = this.queries.getNodeAndEdgeCount();
         // Mark the index as in-flight BEFORE any writes: a run killed
         // mid-index (OOM, SIGKILL, the #850 liveness watchdog) leaves this
-        // marker behind, so `codegraph status` can tell a truncated index
+        // marker behind, so `lattice sensor status` can tell a truncated index
         // from a completed one instead of silently serving partial results.
         try { this.queries.setMetadata('index_state', 'indexing'); } catch { /* metadata is advisory */ }
         // Segment vocabulary starts empty and is repopulated by the node write
@@ -508,7 +508,7 @@ export class CodeGraph {
         } finally {
           const tFts = Date.now();
           this.db.endBulkNodeLoad();
-          if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[phase-timing] fts-rebuild: ${Date.now() - tFts}ms`);
+          if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] fts-rebuild: ${Date.now() - tFts}ms`);
         }
 
         // Fold the parse phase's WAL BEFORE the first post-parse reads
@@ -531,7 +531,7 @@ export class CodeGraph {
           // Cross-file finalization (e.g. NestJS RouterModule prefixes). Runs
           // before resolution so updated names show up in subsequent reads.
           this.resolver.runPostExtract();
-          if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[phase-timing] resolver-reinit: ${Date.now() - tReinit}ms`);
+          if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] resolver-reinit: ${Date.now() - tReinit}ms`);
         }
 
         // Resolve references to create call/import/extends edges
@@ -593,7 +593,7 @@ export class CodeGraph {
               });
             }
           );
-          if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[phase-timing] resolution: ${Date.now() - tResolve}ms`);
+          if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] resolution: ${Date.now() - tResolve}ms`);
 
           // Second pass: chained calls whose method lives on a supertype the
           // receiver conforms to (protocol-extension / inherited / default-
@@ -601,12 +601,12 @@ export class CodeGraph {
           // built, so it runs after resolution (#750).
           const tChained = Date.now();
           await this.resolver.resolveChainedCallsViaConformance();
-          if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[synth-timing] chainedConformance: ${Date.now() - tChained}ms`);
+          if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[synth-timing] chainedConformance: ${Date.now() - tChained}ms`);
           // Same lifecycle for `this.<member>` callback registrations whose
           // member is inherited from a supertype (#808).
           const tDeferred = Date.now();
           await this.resolver.resolveDeferredThisMemberRefs();
-          if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[synth-timing] deferredThisMember: ${Date.now() - tDeferred}ms`);
+          if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[synth-timing] deferredThisMember: ${Date.now() - tDeferred}ms`);
         }
 
         // Refresh planner stats + checkpoint the WAL after bulk writes.
@@ -620,7 +620,7 @@ export class CodeGraph {
           // (the loser would silently no-op and leave the WAL unfolded).
           if (walValve) { walValve.stop(); await walValve.drain(); }
           await this.db.runMaintenance();
-          if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[phase-timing] maintenance: ${Date.now() - tMaint}ms`);
+          if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] maintenance: ${Date.now() - tMaint}ms`);
         }
 
         // The orchestrator only sees extraction-phase counts; resolution and
@@ -629,19 +629,19 @@ export class CodeGraph {
         if (result.success && result.filesIndexed > 0) {
           const tCount = Date.now();
           const after = this.queries.getNodeAndEdgeCount();
-          if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[phase-timing] count-recompute: ${Date.now() - tCount}ms`);
+          if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] count-recompute: ${Date.now() - tCount}ms`);
           result.nodesCreated = after.nodes - before.nodes;
           result.edgesCreated = after.edges - before.edges;
         }
 
-        // Stamp the index with the engine that built it, so `codegraph status`
-        // and `codegraph upgrade` can recommend a re-index when the running
+        // Stamp the index with the engine that built it, so `lattice sensor status`
+        // and `lattice sensor upgrade` can recommend a re-index when the running
         // engine produces richer extraction than the one on disk. Only on a
         // real full index — a sync touches a subset, so it must NOT advance the
         // extraction stamp (the bulk would still be stale). See extraction-version.ts.
         if (result.success && result.filesIndexed > 0) {
           try {
-            this.queries.setMetadata('indexed_with_version', CodeGraphPackageVersion);
+            this.queries.setMetadata('indexed_with_version', LatticeSensorPackageVersion);
             this.queries.setMetadata('indexed_with_extraction_version', String(EXTRACTION_VERSION));
           } catch { /* metadata is advisory — never fail an index over it */ }
         }
@@ -663,7 +663,7 @@ export class CodeGraph {
               this.queries.setMetadata('index_files_discovered', String(discovered));
               this.queries.setMetadata('index_files_accounted', String(accounted));
               result.errors.push({
-                message: `Index is missing ${shortfall} of ${discovered} discovered files (indexed ${result.filesIndexed}, skipped ${result.filesSkipped}, errored ${result.filesErrored}). The index is PARTIAL — re-run \`codegraph index\`.`,
+                message: `Index is missing ${shortfall} of ${discovered} discovered files (indexed ${result.filesIndexed}, skipped ${result.filesSkipped}, errored ${result.filesErrored}). The index is PARTIAL — re-run \`lattice sensor index\`.`,
                 severity: 'warning',
                 code: 'index_partial',
               });
@@ -742,9 +742,9 @@ export class CodeGraph {
       // not the change size, so small syncs on big indexes hurt most. The
       // valve bounds WAL growth off-thread; runMaintenance at the end does
       // the final fold-up before the interval is restored in the finally.
-      // Same kill switch as indexAll: CODEGRAPH_NO_WAL_DEFER=1. Idle valve
+      // Same kill switch as indexAll: LATTICE_SENSOR_NO_WAL_DEFER=1. Idle valve
       // cost is one timer, so watcher-frequency syncs stay cheap.
-      const deferWal = process.env.CODEGRAPH_NO_WAL_DEFER !== '1' && this.db.getJournalMode() === 'wal';
+      const deferWal = process.env.LATTICE_SENSOR_NO_WAL_DEFER !== '1' && this.db.getJournalMode() === 'wal';
       let walValve: WalCheckpointValve | null = null;
       let priorAutocheckpoint = 1000;
       if (deferWal) {
@@ -798,7 +798,7 @@ export class CodeGraph {
             // Scope resolution to changed files (git fast path — bounded set)
             const tRefLoad = Date.now();
             const unresolvedRefs = this.queries.getUnresolvedReferencesByFiles(result.changedFilePaths);
-            if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[phase-timing] sync-ref-load: ${Date.now() - tRefLoad}ms (${unresolvedRefs.length} refs)`);
+            if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] sync-ref-load: ${Date.now() - tRefLoad}ms (${unresolvedRefs.length} refs)`);
 
             options.onProgress?.({
               phase: 'resolving',
@@ -840,7 +840,7 @@ export class CodeGraph {
                 total: retryable.length,
               });
             }
-            if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[phase-timing] sync-failed-ref-retry: ${Date.now() - tRetry}ms (${retryable.length} refs)`);
+            if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] sync-failed-ref-retry: ${Date.now() - tRetry}ms (${retryable.length} refs)`);
           } else {
             // No git info — use batched resolution to avoid OOM
             const unresolvedCount = this.queries.getUnresolvedReferencesCount();
@@ -1065,7 +1065,7 @@ export class CodeGraph {
   /**
    * Most recent index timestamp (ms since epoch) across all tracked files, or
    * null when nothing is indexed yet. Lets library consumers check index
-   * freshness without shelling out to `codegraph status --json`. (#329)
+   * freshness without shelling out to `lattice sensor status --json`. (#329)
    */
   getLastIndexedAt(): number | null {
     return this.queries.getLastIndexedAt();
@@ -1078,7 +1078,7 @@ export class CodeGraph {
    * `'partial'` means the run finished but silently dropped files
    * (discovered > indexed+skipped+errored); `'failed'` means it reported
    * failure. `null` = index predates this marker. Surfaced by
-   * `codegraph status`.
+   * `lattice sensor status`.
    */
   getIndexState(): 'indexing' | 'complete' | 'partial' | 'failed' | null {
     const raw = this.queries.getMetadata('index_state');
@@ -1104,8 +1104,8 @@ export class CodeGraph {
    * True when the on-disk index was built by an engine whose extraction is
    * older than the one now running — i.e. a re-index would add data a migration
    * can't backfill. False when there's no index yet (nothing to refresh) or the
-   * stamp is current. This is the signal behind `codegraph status`'s re-index
-   * hint and `codegraph upgrade`'s reminder.
+   * stamp is current. This is the signal behind `lattice sensor status`'s re-index
+   * hint and `lattice sensor upgrade`'s reminder.
    */
   isIndexStale(): boolean {
     if (this.queries.getLastIndexedAt() == null) return false;
@@ -1201,8 +1201,8 @@ export class CodeGraph {
 
   /**
    * Active SQLite backend for this project's connection (`node-sqlite` — Node's
-   * built-in real-SQLite module). Surfaced via `codegraph status` and the
-   * `codegraph_status` MCP tool alongside the effective journal mode.
+   * built-in real-SQLite module). Surfaced via `lattice sensor status` and the
+   * `lattice_sensor_status` MCP tool alongside the effective journal mode.
    */
   getBackend(): import('./db').SqliteBackend {
     return this.db.getBackend();
@@ -1212,7 +1212,7 @@ export class CodeGraph {
    * The journal mode actually in effect ('wal', 'delete', …). 'wal' means
    * readers never block on a concurrent writer; anything else means they can,
    * which is the precondition for the "database is locked" failures in issue
-   * #238. Surfaced via `codegraph status` and the `codegraph_status` MCP tool.
+   * #238. Surfaced via `lattice sensor status` and the `lattice_sensor_status` MCP tool.
    */
   getJournalMode(): string {
     return this.db.getJournalMode();
@@ -1331,7 +1331,7 @@ export class CodeGraph {
       const singleWordVariants = variants.filter((v) => variantToWord.get(v)!.length >= 5);
       const counts = this.queries.getSegmentNameCounts(singleWordVariants);
       const rare = [...counts.entries()]
-        .filter(([, n]) => n >= 2 && n <= CodeGraph.SEGMENT_RARITY_CEILING)
+        .filter(([, n]) => n >= 2 && n <= LatticeSensor.SEGMENT_RARITY_CEILING)
         .sort((a, b) => a[1] - b[1])
         .slice(0, 2);
       for (const [variant] of rare) {
@@ -1453,9 +1453,9 @@ export class CodeGraph {
    * Find the project's "primary route file" — the file with the densest
    * concentration of framework-emitted `route` nodes (≥3 routes, ≥30%
    * of all non-test routes). Used to inline the routing config in
-   * `codegraph_explore` responses on small realworld template repos
+   * `lattice_sensor_explore` responses on small realworld template repos
    * (rails-realworld, laravel-realworld, drupal-admintoolbar, …) where
-   * Glob+Read of `routes.rb`/`urls.py`/etc. otherwise beats codegraph.
+   * Glob+Read of `routes.rb`/`urls.py`/etc. otherwise beats lattice sensor.
    */
   getTopRouteFile(): { filePath: string; routeCount: number; totalRoutes: number } | null {
     return this.queries.getTopRouteFile();
@@ -1791,10 +1791,10 @@ export class CodeGraph {
   }
 
   /**
-   * Completely remove CodeGraph from the project.
-   * This closes the database and deletes the .CodeGraph directory.
+   * Completely remove LatticeSensor from the project.
+   * This closes the database and deletes the .LatticeSensor directory.
    *
-   * WARNING: This permanently deletes all CodeGraph data for the project.
+   * WARNING: This permanently deletes all LatticeSensor data for the project.
    */
   uninitialize(): void {
     this.close();
@@ -1803,4 +1803,4 @@ export class CodeGraph {
 }
 
 // Default export
-export default CodeGraph;
+export default LatticeSensor;

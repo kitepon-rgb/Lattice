@@ -20,7 +20,7 @@ import {
   compileBoundaryCondition,
   RC1_BOUNDARY_COMPILER_CONTRACT,
 } from './boundary-compiler.mjs';
-import { collectCodegraphEvidence } from './sensor-adapter.mjs';
+import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { invokeSensorCli } from './sensor-runtime.mjs';
 import { runIsolatedTransform } from './isolation-runner.mjs';
 import {
@@ -151,21 +151,21 @@ async function applyAcceptedPatch(worktreePath, patch) {
   await run('git', ['apply', '--binary', '-'], { cwd: worktreePath, input: patch });
 }
 
-async function captureCodegraphBootstrap(worktreePath) {
+async function captureLatticeSensorBootstrap(worktreePath) {
   try {
-    return await readFile(path.join(worktreePath, '.codegraph', '.gitignore'));
+    return await readFile(path.join(worktreePath, '.lattice/sensor', '.gitignore'));
   } catch (error) {
     if (error?.code === 'ENOENT') return null;
     throw error;
   }
 }
 
-async function restoreCodegraphBootstrap(worktreePath, bootstrap) {
-  const codegraphPath = path.join(worktreePath, '.codegraph');
-  await rm(codegraphPath, { recursive: true, force: true });
+async function restoreLatticeSensorBootstrap(worktreePath, bootstrap) {
+  const sensorPath = path.join(worktreePath, '.lattice/sensor');
+  await rm(sensorPath, { recursive: true, force: true });
   if (bootstrap === null) return;
-  await mkdir(codegraphPath, { recursive: true });
-  await writeFile(path.join(codegraphPath, '.gitignore'), bootstrap);
+  await mkdir(sensorPath, { recursive: true });
+  await writeFile(path.join(sensorPath, '.gitignore'), bootstrap);
 }
 
 async function observeFreshIndex({
@@ -187,16 +187,16 @@ async function observeFreshIndex({
     transform: async ({ worktreePath }) => {
       if (condition === 'treatment') await applyAcceptedPatch(worktreePath, patch);
       snapshot = await fixedSnapshot(worktreePath);
-      const codegraphBootstrap = await captureCodegraphBootstrap(worktreePath);
+      const sensorBootstrap = await captureLatticeSensorBootstrap(worktreePath);
       try {
         const indexStartedAt = performance.now();
         await invokeSensorCli(run, ['init', '.'], { cwd: worktreePath });
         indexElapsedMs = roundedMilliseconds(indexStartedAt);
         const queryStartedAt = performance.now();
-        rawEvidence = await collectCodegraphEvidence({ cwd: worktreePath, querySet });
+        rawEvidence = await collectSensorEvidence({ cwd: worktreePath, querySet });
         queryElapsedMs = roundedMilliseconds(queryStartedAt);
       } finally {
-        await restoreCodegraphBootstrap(worktreePath, codegraphBootstrap);
+        await restoreLatticeSensorBootstrap(worktreePath, sensorBootstrap);
       }
     },
     verifyCommands: [],
@@ -229,7 +229,7 @@ function compileOne({ inputs, observation, manualEvidence, planVersion }) {
     candidateSpec: inputs.candidateSpec,
     manualEvidence,
     querySet: inputs.querySet,
-    codegraphEvidence: observation.rawEvidence,
+    sensorEvidence: observation.rawEvidence,
     codeSnapshotDigest: observation.codeSnapshotDigest,
     planVersion,
   });
@@ -315,7 +315,7 @@ function evidenceSummary(bundles, querySet) {
       validateRc1EvidenceBundle(bundle)
         && bundle.diagnostic.payload.cwd === '<repo-root>'
         && bundle.diagnostic.sanitization_manifest.schema
-          === 'lattice.codegraph_sanitization_manifest.v1'
+          === 'lattice.sensor_sanitization_manifest.v1'
     )),
   };
 }

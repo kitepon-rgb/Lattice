@@ -15,7 +15,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { DatabaseConnection } from '../src/db';
 import { WalCheckpointValve, resolveWalValveMb } from '../src/db/wal-valve';
-import CodeGraph from '../src/index';
+import LatticeSensor from '../src/index';
 
 let tmpDir: string;
 
@@ -193,7 +193,7 @@ describe('indexAll WAL deferral end-to-end', () => {
   it('produces the same graph with and without deferral, and restores the interval', async () => {
     writeFixtureProject();
 
-    const cg1 = CodeGraph.initSync(tmpDir);
+    const cg1 = LatticeSensor.initSync(tmpDir);
     const r1 = await cg1.indexAll();
     expect(r1.success).toBe(true);
     // Deferral is scoped to the run: the connection is back on the default.
@@ -202,17 +202,17 @@ describe('indexAll WAL deferral end-to-end', () => {
     const counts1 = { nodes: r1.nodesCreated, edges: r1.edgesCreated };
     await cg1.close();
 
-    fs.rmSync(path.join(tmpDir, '.codegraph'), { recursive: true, force: true });
+    fs.rmSync(path.join(tmpDir, '.lattice/sensor'), { recursive: true, force: true });
 
-    process.env.CODEGRAPH_NO_WAL_DEFER = '1';
+    process.env.LATTICE_SENSOR_NO_WAL_DEFER = '1';
     try {
-      const cg2 = CodeGraph.initSync(tmpDir);
+      const cg2 = LatticeSensor.initSync(tmpDir);
       const r2 = await cg2.indexAll();
       expect(r2.success).toBe(true);
       expect({ nodes: r2.nodesCreated, edges: r2.edgesCreated }).toEqual(counts1);
       await cg2.close();
     } finally {
-      delete process.env.CODEGRAPH_NO_WAL_DEFER;
+      delete process.env.LATTICE_SENSOR_NO_WAL_DEFER;
     }
   });
 });
@@ -225,7 +225,7 @@ describe('sync WAL deferral end-to-end (#1248)', () => {
   // and that a deferred sync produces the same graph as an undeferred one.
   it('defers the autocheckpoint interval DURING sync and restores it after', async () => {
     writeFixtureProject();
-    const cg = CodeGraph.initSync(tmpDir);
+    const cg = LatticeSensor.initSync(tmpDir);
     await cg.indexAll();
     const conn = (cg as unknown as { db: DatabaseConnection }).db;
 
@@ -253,7 +253,7 @@ describe('sync WAL deferral end-to-end (#1248)', () => {
 
   it('restores the interval on a no-change sync too', async () => {
     writeFixtureProject();
-    const cg = CodeGraph.initSync(tmpDir);
+    const cg = LatticeSensor.initSync(tmpDir);
     await cg.indexAll();
     const conn = (cg as unknown as { db: DatabaseConnection }).db;
     const result = await cg.sync();
@@ -264,7 +264,7 @@ describe('sync WAL deferral end-to-end (#1248)', () => {
 
   it('produces the same sync result with and without deferral', async () => {
     writeFixtureProject();
-    const cg1 = CodeGraph.initSync(tmpDir);
+    const cg1 = LatticeSensor.initSync(tmpDir);
     await cg1.indexAll();
     fs.writeFileSync(
       path.join(tmpDir, 'src', 'mod1.ts'),
@@ -275,11 +275,11 @@ describe('sync WAL deferral end-to-end (#1248)', () => {
     const counts1 = { modified: r1.filesModified, nodes: r1.nodesUpdated };
     await cg1.close();
 
-    fs.rmSync(path.join(tmpDir, '.codegraph'), { recursive: true, force: true });
+    fs.rmSync(path.join(tmpDir, '.lattice/sensor'), { recursive: true, force: true });
 
-    process.env.CODEGRAPH_NO_WAL_DEFER = '1';
+    process.env.LATTICE_SENSOR_NO_WAL_DEFER = '1';
     try {
-      const cg2 = CodeGraph.initSync(tmpDir);
+      const cg2 = LatticeSensor.initSync(tmpDir);
       await cg2.indexAll();
       fs.writeFileSync(
         path.join(tmpDir, 'src', 'mod1.ts'),
@@ -290,7 +290,7 @@ describe('sync WAL deferral end-to-end (#1248)', () => {
       expect({ modified: r2.filesModified, nodes: r2.nodesUpdated }).toEqual(counts1);
       await cg2.close();
     } finally {
-      delete process.env.CODEGRAPH_NO_WAL_DEFER;
+      delete process.env.LATTICE_SENSOR_NO_WAL_DEFER;
     }
   });
 });

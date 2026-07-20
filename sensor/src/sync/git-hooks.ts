@@ -2,7 +2,7 @@
  * Git Sync Hooks
  *
  * When the live file watcher is disabled (e.g. on WSL2 `/mnt/*` drives,
- * see watch-policy.ts), the CodeGraph index would otherwise go stale until
+ * see watch-policy.ts), the LatticeSensor index would otherwise go stale until
  * the user runs `lattice sensor sync` by hand. As an opt-in alternative, we can
  * install Lattice-owned git hooks that refresh the index after the operations that change
  * files on disk: commit, merge (covers `git pull`), and checkout.
@@ -163,7 +163,7 @@ export function installGitSyncHook(
 }
 
 /**
- * Remove the CodeGraph sync hooks. Strips only our marker block; deletes the
+ * Remove the LatticeSensor sync hooks. Strips only our marker block; deletes the
  * hook file entirely when nothing but a shebang remains, otherwise rewrites
  * the user's content untouched.
  */
@@ -198,7 +198,7 @@ export function removeGitSyncHook(
   return { installed: removed, hooksDir };
 }
 
-/** Whether any CodeGraph sync hook is currently installed. */
+/** Whether any LatticeSensor sync hook is currently installed. */
 export function isSyncHookInstalled(
   projectRoot: string,
   hooks: GitHookName[] = DEFAULT_SYNC_HOOKS,

@@ -71,11 +71,11 @@ function buildFixture({ todos, capacity }) {
       writes,
       resources: [],
       state_effects: [],
-      codegraph_provenance: { queries: [] },
+      sensor_provenance: { queries: [] },
       affected_tests: [],
       unknowns: [],
     }])),
-    codegraph_query_set: { queries: [] },
+    sensor_query_set: { queries: [] },
     executor_capability: { adapters: ['isolated-worktree'] },
     claim_mode: 'exact_minimum',
   };

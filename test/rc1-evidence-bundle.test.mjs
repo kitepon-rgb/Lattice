@@ -11,7 +11,7 @@ import {
 } from '../src/rc1-evidence-bundle.mjs';
 
 const QUERY_SET = {
-  schema: 'lattice.codegraph_query_set.v2',
+  schema: 'lattice.sensor_query_set.v2',
   queries: [
     { id: 'status', operation: 'status' },
     { id: 'query-build', operation: 'query', target: 'buildDispatchRecord' },
@@ -31,7 +31,7 @@ function rawEvidence(root, { treatment = false } = {}) {
           initialized: true,
           version: '1.4.1',
           projectPath: root,
-          indexPath: `${root}/.codegraph`,
+          indexPath: `${root}/.lattice/sensor`,
           lastIndexed: treatment ? '2026-07-15T00:00:02.000Z' : '2026-07-15T00:00:01.000Z',
           dbSizeBytes: treatment ? 2_048 : 1_024,
           fileCount: treatment ? 20 : 18,
@@ -100,9 +100,9 @@ test('bundle separates opaque raw, sanitized diagnostic, and full portable preim
   });
 
   assert.equal(validateRc1EvidenceBundle(bundle), true);
-  assert.equal(bundle.raw.schema, 'lattice.codegraph_raw_opaque_receipt.v1');
-  assert.equal(bundle.diagnostic.schema, 'lattice.codegraph_sanitized_diagnostic.v1');
-  assert.equal(bundle.portable.schema, 'lattice.codegraph_portable_preimage.v1');
+  assert.equal(bundle.raw.schema, 'lattice.sensor_raw_opaque_receipt.v1');
+  assert.equal(bundle.diagnostic.schema, 'lattice.sensor_sanitized_diagnostic.v1');
+  assert.equal(bundle.portable.schema, 'lattice.sensor_portable_preimage.v1');
   assert.match(Buffer.from(bundle.raw.payload_base64, 'base64').toString('utf8'), /private\/tmp/);
   assert.equal(JSON.stringify(bundle.diagnostic).includes('/private/tmp'), false);
   assert.equal(JSON.stringify(bundle.portable).includes('/private/tmp'), false);

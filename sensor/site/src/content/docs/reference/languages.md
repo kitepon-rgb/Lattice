@@ -3,6 +3,8 @@ title: Languages
 description: Every language CodeGraph parses, and the extensions it recognizes.
 ---
 
+> **旧上流documentation（未配布）**: このページの名称、URL、CLI、設定、効果量は現行Latticeの仕様ではありません。現行仕様はroot `README.md` と `docs/00_product-contract.md` を参照してください。
+
 Language support is automatic from the file extension — there's nothing to configure.
 
 | Language | Extensions | Status |

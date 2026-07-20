@@ -362,7 +362,7 @@ async function phaseMutation({ repoRoot, env, planKey, phaseId, kind, payload })
 async function phaseStatus({ repoRoot, planKey }) {
   const store = await readTodoStore({ repoRoot });
   const [member] = selectMembers(store, planKey);
-  if (member.plan.schema !== 'lattice.todo_plan.v4') {
+  if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)) {
     throw new TodoStoreError('PHASE_UNAVAILABLE', 'plan_has_no_phase_contract');
   }
   const result = {
@@ -741,13 +741,16 @@ async function verify({ repoRoot, requestedPlanKey }) {
         task_id: unverified.task_id,
       });
     }
-    if (member.revision !== null && member.revision.schema !== 'lattice.phase_todo_revision.v1') {
+    if (member.revision !== null && ![
+      'lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2',
+    ].includes(member.revision.schema)) {
       await verifyTodoRevisionSources({ repoRoot, revision: member.revision });
     }
   }
   const verifiedMembers = members.map((member) => {
     const reconciled = member.revision !== null;
-    const phaseRevision = member.revision?.schema === 'lattice.phase_todo_revision.v1';
+    const phaseRevision = ['lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2']
+      .includes(member.revision?.schema);
     return {
       plan_key: member.descriptor.plan_key,
       plan_version: member.plan.plan_version,

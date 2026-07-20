@@ -313,7 +313,7 @@ function compilerReplayValid(context) {
           ? inputs.normalManualEvidence
           : inputs.negativeManualEvidence,
         querySet: inputs.querySet,
-        codegraphEvidence: rawEvidence,
+        sensorEvidence: rawEvidence,
         codeSnapshotDigest: run.code_snapshot_digest,
         planVersion: `rc1-v5-${condition}${variant === 'negative' ? '-negative' : ''}`,
       });
@@ -521,7 +521,7 @@ function evidenceSummary(bundles, querySet) {
       validateRc1EvidenceBundle(bundle)
         && bundle.diagnostic.payload.cwd === '<repo-root>'
         && bundle.diagnostic.sanitization_manifest.schema
-          === 'lattice.codegraph_sanitization_manifest.v1'
+          === 'lattice.sensor_sanitization_manifest.v1'
     )),
   };
 }

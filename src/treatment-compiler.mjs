@@ -8,7 +8,7 @@ import {
   validatePlanInput,
   validateTransformArtifact,
 } from './artifact-contracts.mjs';
-import { portableCodegraphOutcome } from './sensor-adapter.mjs';
+import { portableSensorOutcome } from './sensor-adapter.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
@@ -85,7 +85,7 @@ function assertManualEvidence(planInput, manualEvidence, label) {
 
 function assertQuerySet(querySet) {
   if (!exactRecord(querySet, ['schema', 'queries'])
-    || querySet.schema !== 'lattice.codegraph_query_set.v1'
+    || querySet.schema !== 'lattice.sensor_query_set.v1'
     || !Array.isArray(querySet.queries)
     || querySet.queries.length !== 10
     || new Set(querySet.queries.map(({ id }) => id)).size !== querySet.queries.length) {
@@ -93,21 +93,21 @@ function assertQuerySet(querySet) {
   }
 }
 
-function assertCodegraphEvidence(querySet, codegraphEvidence) {
-  if (!exactRecord(codegraphEvidence, ['cwd', 'outcomes'])
-    || !nonEmptyText(codegraphEvidence.cwd)
-    || !Array.isArray(codegraphEvidence.outcomes)
-    || codegraphEvidence.outcomes.length !== querySet.queries.length) {
-    fail('Codegraph evidence rootがquery setと一致しない');
+function assertLatticeSensorEvidence(querySet, sensorEvidence) {
+  if (!exactRecord(sensorEvidence, ['cwd', 'outcomes'])
+    || !nonEmptyText(sensorEvidence.cwd)
+    || !Array.isArray(sensorEvidence.outcomes)
+    || sensorEvidence.outcomes.length !== querySet.queries.length) {
+    fail('LatticeSensor evidence rootがquery setと一致しない');
   }
   for (let index = 0; index < querySet.queries.length; index += 1) {
     const query = querySet.queries[index];
-    const outcome = codegraphEvidence.outcomes[index];
+    const outcome = sensorEvidence.outcomes[index];
     if (!outcome || typeof outcome !== 'object' || Array.isArray(outcome)
       || outcome.id !== query.id
       || outcome.operation !== query.operation
       || !nonEmptyText(outcome.outcome)) {
-      fail(`Codegraph evidence ${query.id}がID／operation／順序と一致しない`);
+      fail(`LatticeSensor evidence ${query.id}がID／operation／順序と一致しない`);
     }
   }
 }
@@ -153,10 +153,10 @@ function assertQueryCoverage(planInput, querySet, seams) {
   }
 }
 
-function outcomeById(querySet, codegraphEvidence) {
+function outcomeById(querySet, sensorEvidence) {
   return new Map(querySet.queries.map((query, index) => [
     query.id,
-    codegraphEvidence.outcomes[index],
+    sensorEvidence.outcomes[index],
   ]));
 }
 
@@ -170,16 +170,16 @@ function exactSymbolAt(records, target, expectedPath) {
 function assertReadyOutcome(outcomes, query) {
   const outcome = outcomes.get(query.id);
   if (outcome?.outcome !== 'ready') {
-    fail(`Codegraph evidence ${query.id}はreadyでなく${outcome?.outcome ?? 'missing'}`);
+    fail(`LatticeSensor evidence ${query.id}はreadyでなく${outcome?.outcome ?? 'missing'}`);
   }
   return outcome;
 }
 
-function treatmentGraphFacts(planInput, querySet, codegraphEvidence, seams) {
-  const outcomes = outcomeById(querySet, codegraphEvidence);
+function treatmentGraphFacts(planInput, querySet, sensorEvidence, seams) {
+  const outcomes = outcomeById(querySet, sensorEvidence);
   const status = assertReadyOutcome(outcomes, findSingleQuery(querySet, 'status'));
   if (!status.data || !nonEmptyText(status.data.version)) {
-    fail('Codegraph statusにversionがない');
+    fail('LatticeSensor statusにversionがない');
   }
 
   const anchorSymbol = planInput.todos[0].anchor.symbol;
@@ -220,7 +220,7 @@ function treatmentGraphFacts(planInput, querySet, codegraphEvidence, seams) {
     fail('treatment source全体のaffected testがfixed verifierと一致しない');
   }
   return {
-    codegraphVersion: status.data.version,
+    sensorVersion: status.data.version,
     affectedTests: [AFFECTED_TEST],
   };
 }
@@ -348,12 +348,12 @@ function sharedManualConflicts(planInput, manuals) {
   return conflicts;
 }
 
-function graphRecords(querySet, codegraphEvidence) {
+function graphRecords(querySet, sensorEvidence) {
   return querySet.queries.map((query, index) => ({
     id: query.id,
     operation: query.operation,
-    status: codegraphEvidence.outcomes[index].outcome,
-    result_digest: digestArtifact(portableCodegraphOutcome(codegraphEvidence.outcomes[index])),
+    status: sensorEvidence.outcomes[index].outcome,
+    result_digest: digestArtifact(portableSensorOutcome(sensorEvidence.outcomes[index])),
   }));
 }
 
@@ -361,7 +361,7 @@ function compileManifest({
   planInput,
   manualEvidence,
   querySet,
-  codegraphEvidence,
+  sensorEvidence,
   codeSnapshotDigest,
   seams,
   facts,
@@ -406,9 +406,9 @@ function compileManifest({
       code_snapshot_digest: codeSnapshotDigest,
       query_set_digest: digestArtifact(querySet),
       manual_evidence_digest: digestArtifact(manualEvidence),
-      codegraph_version: facts.codegraphVersion,
+      sensor_version: facts.sensorVersion,
     },
-    graph_evidence: graphRecords(querySet, codegraphEvidence),
+    graph_evidence: graphRecords(querySet, sensorEvidence),
     manual_evidence: manualEvidenceRecords,
     todos,
     conflicts,
@@ -655,7 +655,7 @@ export function compileTreatmentArtifacts({
   manualNormal,
   manualNegative,
   querySet,
-  codegraphEvidence,
+  sensorEvidence,
   codeSnapshotDigest,
   transformArtifact,
   control,
@@ -665,7 +665,7 @@ export function compileTreatmentArtifacts({
     manualNormal,
     manualNegative,
     querySet,
-    codegraphEvidence,
+    sensorEvidence,
     transformArtifact,
     control,
   ]) {
@@ -678,7 +678,7 @@ export function compileTreatmentArtifacts({
   assertManualEvidence(planInput, manualNormal, 'normal');
   assertManualEvidence(planInput, manualNegative, 'negative');
   assertQuerySet(querySet);
-  assertCodegraphEvidence(querySet, codegraphEvidence);
+  assertLatticeSensorEvidence(querySet, sensorEvidence);
   const seams = treatmentSeams(planInput);
   assertQueryCoverage(planInput, querySet, seams);
   assertPredecessors({
@@ -690,10 +690,10 @@ export function compileTreatmentArtifacts({
     control,
     codeSnapshotDigest,
   });
-  const facts = treatmentGraphFacts(planInput, querySet, codegraphEvidence, seams);
+  const facts = treatmentGraphFacts(planInput, querySet, sensorEvidence, seams);
   const common = {
     querySet,
-    codegraphEvidence,
+    sensorEvidence,
     codeSnapshotDigest,
     seams,
     facts,

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { digestArtifact } from './artifact-contracts.mjs';
-import { collectCodegraphEvidence } from './sensor-adapter.mjs';
+import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { spawnSensorCliSync } from './sensor-runtime.mjs';
 import { scaffoldRc3DogfoodRepo, verifyRc3DogfoodScaffold } from './rc3-dogfood-scaffold.mjs';
 import { compileRuntimePlanV1, evidenceFromCollectedOutcomes } from './runtime-front-end.mjs';
@@ -46,7 +46,7 @@ import { selfDigest } from './runtime-contracts.mjs';
  */
 
 const RUN_TIMESTAMP = '2026-07-17T00:00:00.000Z';
-// dogfood scaffoldの実在3 file（Codegraph観測がreadyになる対象）をTODO所有面にする。
+// dogfood scaffoldの実在3 file（LatticeSensor観測がreadyになる対象）をTODO所有面にする。
 const DOC_A = 'research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs';
 const DOC_B = 'src/rc2-delivery-policy-oracle.mjs';
 const DOC_C = 'test/rc2-delivery-policy-fixture.test.mjs';
@@ -62,7 +62,7 @@ function docWitness(todoId, docPath, affectedTests, { extraWrites = [], unknowns
     writes: [docPath, ...extraWrites],
     resources: stateEffects.map(({ resource_id: id }) => id),
     state_effects: stateEffects,
-    codegraph_provenance: {
+    sensor_provenance: {
       queries: [{ query_id: `q-aff-${todoId}`, expect: { kind: 'affected', path: docPath } }],
     },
     affected_tests: affectedTests,
@@ -71,14 +71,14 @@ function docWitness(todoId, docPath, affectedTests, { extraWrites = [], unknowns
 }
 
 /**
- * manual witnessのaffected test宣言をfresh Codegraph観測から導出する
+ * manual witnessのaffected test宣言をfresh LatticeSensor観測から導出する
  * （宣言と観測のexact一致契約の下で、正解宣言を機械的に得る）。
  */
 async function probeAffectedTests(repoRoot, targets) {
   const querySet = {
     queries: targets.map((target, index) => ({ id: `probe-${index}`, operation: 'affected', target })),
   };
-  const collected = await collectCodegraphEvidence({ cwd: repoRoot, querySet });
+  const collected = await collectSensorEvidence({ cwd: repoRoot, querySet });
   const byTarget = {};
   collected.outcomes.forEach((outcome, index) => {
     const entry = Array.isArray(outcome.targets) ? outcome.targets[0] : null;
@@ -113,7 +113,7 @@ function buildDocRequest({ requestId, baseSha, todos, capacity }) {
     capacity: { executors: capacity },
     todos: Object.keys(todos).map((todoId) => ({ todo_id: todoId })),
     manual_witness: todos,
-    codegraph_query_set: { queries },
+    sensor_query_set: { queries },
     executor_capability: { adapters: ['isolated-worktree'] },
     claim_mode: 'exact_minimum',
   };
@@ -122,17 +122,17 @@ function buildDocRequest({ requestId, baseSha, todos, capacity }) {
 }
 
 async function compileForRepo({ request, repoRoot }) {
-  const collected = await collectCodegraphEvidence({
+  const collected = await collectSensorEvidence({
     cwd: repoRoot,
-    querySet: request.codegraph_query_set,
+    querySet: request.sensor_query_set,
   });
-  const codegraphEvidence = evidenceFromCollectedOutcomes({
-    querySet: request.codegraph_query_set,
+  const sensorEvidence = evidenceFromCollectedOutcomes({
+    querySet: request.sensor_query_set,
     collected,
   });
   return compileRuntimePlanV1({
     request,
-    codegraphEvidence,
+    sensorEvidence,
     planRef: `plan-${request.request_id}-e1`,
     planEpoch: 1,
     predecessorRefs: [],
@@ -594,7 +594,7 @@ async function runAcceptedSeam({ latticeRoot }) {
     writes: [entryPath],
     resources: [],
     state_effects: [],
-    codegraph_provenance: {
+    sensor_provenance: {
       queries: [
         { query_id: 'q-entry', expect: { kind: 'symbol', name: 'resolveDeliveryPolicy', path: entryPath } },
         { query_id: 'q-aff-entry', expect: { kind: 'affected', path: entryPath } },
@@ -610,7 +610,7 @@ async function runAcceptedSeam({ latticeRoot }) {
     capacity: { executors: 2 },
     todos: [{ todo_id: 'Temail' }, { todo_id: 'Tsms' }],
     manual_witness: { Temail: preWitness(), Tsms: preWitness() },
-    codegraph_query_set: {
+    sensor_query_set: {
       queries: [
         { id: 'q-status', operation: 'status' },
         { id: 'q-entry', operation: 'query', target: 'resolveDeliveryPolicy' },
@@ -665,7 +665,7 @@ async function runAcceptedSeam({ latticeRoot }) {
   const newBase = runGit(['rev-parse', 'HEAD']).trim();
   // fresh reindex（accepted seam後は必ず再index。syncで新規fileを収載する）。
   const syncResult = spawnSensorCliSync(['sync', '.'], { cwd: scaffold.repoRoot, encoding: 'utf8' });
-  if (syncResult.status !== 0) fail(`codegraph reindex(sync)が失敗: ${syncResult.stderr}`);
+  if (syncResult.status !== 0) fail(`sensor reindex(sync)が失敗: ${syncResult.stderr}`);
 
   const emailPath = 'research/fixtures/delivery-policy-registry/src/email-policy.mjs';
   const smsPath = 'research/fixtures/delivery-policy-registry/src/sms-policy.mjs';
@@ -676,7 +676,7 @@ async function runAcceptedSeam({ latticeRoot }) {
     writes: [filePath],
     resources: [],
     state_effects: [],
-    codegraph_provenance: {
+    sensor_provenance: {
       queries: [
         { query_id: `q-${todoId}`, expect: { kind: 'symbol', name: symbol, path: filePath } },
         { query_id: `q-aff-${todoId}`, expect: { kind: 'affected', path: filePath } },
@@ -695,7 +695,7 @@ async function runAcceptedSeam({ latticeRoot }) {
       Temail: postWitness('Temail', 'resolveEmailPolicy', emailPath),
       Tsms: postWitness('Tsms', 'resolveSmsPolicy', smsPath),
     },
-    codegraph_query_set: {
+    sensor_query_set: {
       queries: [
         { id: 'q-status', operation: 'status' },
         { id: 'q-Temail', operation: 'query', target: 'resolveEmailPolicy' },
@@ -711,13 +711,13 @@ async function runAcceptedSeam({ latticeRoot }) {
   // post-seam planはgenesisではなく、accepted transformとpre planをpredecessorに
   // 持つepoch 2 planとしてcompileする（Decision 11.2/plan barrier）。
   const transformArtifactDigest = digestArtifact(transformResult.artifact);
-  const postCollected = await collectCodegraphEvidence({
-    cwd: scaffold.repoRoot, querySet: postRequest.codegraph_query_set,
+  const postCollected = await collectSensorEvidence({
+    cwd: scaffold.repoRoot, querySet: postRequest.sensor_query_set,
   });
   const postCompiled = compileRuntimePlanV1({
     request: postRequest,
-    codegraphEvidence: evidenceFromCollectedOutcomes({
-      querySet: postRequest.codegraph_query_set, collected: postCollected,
+    sensorEvidence: evidenceFromCollectedOutcomes({
+      querySet: postRequest.sensor_query_set, collected: postCollected,
     }),
     planRef: `plan-${postRequest.request_id}-e2`,
     planEpoch: 2,

@@ -22,7 +22,7 @@ async function deadPid(): Promise<number> {
 }
 
 function rec(root: string, pid: number, startedAt = Date.now()): DaemonRecord {
-  return { root, pid, version: '1.0.0', socketPath: `${root}/.codegraph/daemon.sock`, startedAt };
+  return { root, pid, version: '1.0.0', socketPath: `${root}/.lattice/sensor/daemon.sock`, startedAt };
 }
 
 describe('daemon-registry', () => {
@@ -41,7 +41,7 @@ describe('daemon-registry', () => {
     expect(getRegistryDir().startsWith(tmpHome)).toBe(true);
     // ADR 0049 Decision 3(b): the registry is Lattice-specific
     // (`~/.lattice/sensor/daemons`), NOT the shared upstream
-    // `~/.codegraph/daemons` — pin the exact suffix so a regression back to
+    // `~/.lattice/sensor/daemons` — pin the exact suffix so a regression back to
     // the shared path (re-enabling cross-product `stop --all`) fails loudly.
     expect(getRegistryDir()).toBe(path.join(tmpHome, '.lattice', 'sensor', 'daemons'));
   });

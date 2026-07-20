@@ -89,7 +89,7 @@ async function options() {
     manualNormal,
     manualNegative,
     querySet,
-    codegraphEvidence: treatmentEvidence(querySet),
+    sensorEvidence: treatmentEvidence(querySet),
     codeSnapshotDigest: transformArtifact.output.snapshot_digest,
     transformArtifact,
     control: {
@@ -171,12 +171,12 @@ test('shared manual state remains serial after path separation', async () => {
 
 test('missing seam evidence, affected-test drift, and predecessor drift fail closed', async () => {
   const missingSeam = await options();
-  missingSeam.codegraphEvidence.outcomes[2].outcome = 'symbol_absent';
-  assert.throws(() => compileTreatmentArtifacts(missingSeam), /Codegraph evidence|seam/i);
+  missingSeam.sensorEvidence.outcomes[2].outcome = 'symbol_absent';
+  assert.throws(() => compileTreatmentArtifacts(missingSeam), /LatticeSensor evidence|seam/i);
 
   const affectedDrift = await options();
-  affectedDrift.codegraphEvidence.outcomes.at(-1).targets[1].data.affectedTests = [];
-  affectedDrift.codegraphEvidence.outcomes.at(-1).targets[1].outcome = 'empty';
+  affectedDrift.sensorEvidence.outcomes.at(-1).targets[1].data.affectedTests = [];
+  affectedDrift.sensorEvidence.outcomes.at(-1).targets[1].outcome = 'empty';
   assert.throws(() => compileTreatmentArtifacts(affectedDrift), /affected test/i);
 
   const predecessorDrift = await options();

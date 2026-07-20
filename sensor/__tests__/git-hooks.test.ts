@@ -32,7 +32,7 @@ describe('git sync hooks', () => {
   let repo: string;
 
   beforeEach(() => {
-    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-githooks-'));
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-githooks-'));
   });
 
   afterEach(() => {

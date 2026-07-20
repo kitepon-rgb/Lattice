@@ -202,8 +202,8 @@ function portable(querySet, treatment, fuzzy = false) {
     return readyOutcome(query, treatment, fuzzy);
   });
   const per_query = outcomes.map((outcome) => ({ id: outcome.id, operation: outcome.operation, outcome: outcome.outcome, result_digest: digestArtifact(outcome) }));
-  const preimage = { projection: 'lattice.codegraph_portable_outcome.v1', query_set_digest: digestArtifact(querySet), outcomes };
-  return { schema: 'lattice.codegraph_portable_preimage.v1', ...preimage, per_query, aggregate_digest: digestArtifact(preimage) };
+  const preimage = { projection: 'lattice.sensor_portable_outcome.v1', query_set_digest: digestArtifact(querySet), outcomes };
+  return { schema: 'lattice.sensor_portable_preimage.v1', ...preimage, per_query, aggregate_digest: digestArtifact(preimage) };
 }
 
 function collectQueryReferences(value, references = new Set()) {
@@ -225,7 +225,7 @@ async function invoke({ treatment = false, manual = 'manual-evidence.normal.json
   const { compileDeliveryPolicyBoundaryBundleV2 } = await import(FRONT_END);
   const [planInput, candidateSpec, manualEvidence, querySet] = await Promise.all(['plan-input.json', 'candidate-spec-v1.json', manual, 'query-set-v2.json'].map(readInput));
   if (capacity) planInput.capacity.writers = capacity;
-  const args = { planInput, candidateSpec, manualEvidence, querySet, sourceSnapshot: snapshot(treatment), codegraphEvidence: portable(querySet, treatment) };
+  const args = { planInput, candidateSpec, manualEvidence, querySet, sourceSnapshot: snapshot(treatment), sensorEvidence: portable(querySet, treatment) };
   mutate?.(args);
   return { bundle: compileDeliveryPolicyBoundaryBundleV2(args), args };
 }
@@ -265,9 +265,9 @@ for (const [name, mutate] of [
   ['candidate oracle digest', ({ candidateSpec }) => { candidateSpec.fixed_oracle.source_digest = '0'.repeat(64); }],
   ['query-set binding', ({ querySet }) => { querySet.queries.pop(); }],
   ['manual TODO set', ({ manualEvidence }) => { manualEvidence.evidence[2].todo_id = 'wrong'; }],
-  ['portable per-query digest', ({ codegraphEvidence }) => { codegraphEvidence.per_query[0].result_digest = '0'.repeat(64); }],
+  ['portable per-query digest', ({ sensorEvidence }) => { sensorEvidence.per_query[0].result_digest = '0'.repeat(64); }],
   ['sourceSnapshot oracle digest', ({ sourceSnapshot }) => { sourceSnapshot.files.find((file) => file.path === ORACLE).content_digest = '0'.repeat(64); }],
-  ['fuzzy exact-name mismatch', ({ codegraphEvidence, querySet }) => { Object.assign(codegraphEvidence, portable(querySet, true, true)); }],
+  ['fuzzy exact-name mismatch', ({ sensorEvidence, querySet }) => { Object.assign(sensorEvidence, portable(querySet, true, true)); }],
 ]) test(`front-end rejects isolated ${name} corruption`, async () => {
   await import(FRONT_END);
   await assert.rejects(() => invoke({ treatment: true, mutate }), /front-end|candidate|query|manual|portable|snapshot|exact/i);

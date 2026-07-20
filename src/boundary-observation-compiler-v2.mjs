@@ -8,11 +8,11 @@ const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 const RESOURCE_KINDS = new Set(['symbol', 'path', 'state', 'effect', 'dynamic']);
 const PROVENANCE_SOURCES = new Set([
-  'codegraph',
+  'sensor',
   'manual_candidate_spec',
   'manual_state_effect',
 ]);
-const CODEGRAPH_STATUSES = new Set([
+const SENSOR_STATUSES = new Set([
   'ready',
   'symbol_absent',
   'empty',
@@ -100,8 +100,8 @@ function normalizeProvenance(value, label) {
       || !DIGEST.test(entry.evidence_digest)) {
       fail(`${label}.provenance shapeが不正`);
     }
-    if (entry.source === 'codegraph') {
-      if (!CODEGRAPH_STATUSES.has(entry.status)) fail(`${label}.Codegraph statusが不正`);
+    if (entry.source === 'sensor') {
+      if (!SENSOR_STATUSES.has(entry.status)) fail(`${label}.LatticeSensor statusが不正`);
     } else if (entry.status !== 'asserted') {
       fail(`${label}.manual provenance statusがassertedではない`);
     }
@@ -156,8 +156,8 @@ function normalizeResource(value, todoSet) {
 
   let status;
   if (value.kind === 'symbol' || value.kind === 'path') {
-    requireExactSources(sources, ['codegraph', 'manual_candidate_spec'], `resource ${value.resource_id}`);
-    status = provenance.find((entry) => entry.source === 'codegraph').status === 'ready'
+    requireExactSources(sources, ['sensor', 'manual_candidate_spec'], `resource ${value.resource_id}`);
+    status = provenance.find((entry) => entry.source === 'sensor').status === 'ready'
       ? 'observed'
       : 'unknown';
   } else {
@@ -221,9 +221,9 @@ function assertAcyclic(todos, precedences) {
 }
 
 function unknownForResource(resource) {
-  const codegraph = resource.provenance.find((entry) => entry.source === 'codegraph');
-  const kind = resource.kind === 'dynamic' ? 'dynamic' : `codegraph_${codegraph.status}`;
-  const status = resource.kind === 'dynamic' ? 'dynamic' : codegraph.status;
+  const sensor = resource.provenance.find((entry) => entry.source === 'sensor');
+  const kind = resource.kind === 'dynamic' ? 'dynamic' : `sensor_${sensor.status}`;
+  const status = resource.kind === 'dynamic' ? 'dynamic' : sensor.status;
   return resource.todo_ids.map((todoId) => ({
     todo_id: todoId,
     kind,
@@ -250,7 +250,7 @@ function unknownOrder(left, right) {
 }
 
 /**
- * Codegraphの構造観測とmanual witnessをprovenance付きbundleへ正規化する。
+ * LatticeSensorの構造観測とmanual witnessをprovenance付きbundleへ正規化する。
  * @param {unknown} observationSet
  * @returns {object}
  */

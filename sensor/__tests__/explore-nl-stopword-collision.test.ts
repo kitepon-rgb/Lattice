@@ -1,5 +1,5 @@
 /**
- * codegraph_explore — NL-stopword collision guard (named-symbol seeding).
+ * lattice_sensor_explore — NL-stopword collision guard (named-symbol seeding).
  *
  * handleExplore's named-symbol seeding treats every identifier-shaped query
  * token as "a symbol the agent named" and grants its definition the
@@ -21,7 +21,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import CodeGraph from '../src/index';
+import LatticeSensor from '../src/index';
 import { ToolHandler } from '../src/mcp/tools';
 
 /** Paths explore rendered as full-body ``**`<path>`** —`` source sections, in order. */
@@ -34,13 +34,13 @@ function sourcedFiles(text: string): string[] {
   return out;
 }
 
-describe('codegraph_explore — NL-stopword collision guard', () => {
+describe('lattice_sensor_explore — NL-stopword collision guard', () => {
   let testDir: string;
-  let cg: CodeGraph;
+  let cg: LatticeSensor;
   let handler: ToolHandler;
 
   beforeEach(async () => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-stopword-'));
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-stopword-'));
 
     // --- The collision file: an unrelated class whose methods are ordinary
     // English words ("check", "drain", "fire" — the only defs of those names).
@@ -82,7 +82,7 @@ describe('codegraph_explore — NL-stopword collision guard', () => {
       `  return latest;\n` +
       `}\n`);
 
-    cg = CodeGraph.initSync(testDir, { config: { include: ['**/*.ts'], exclude: [] } });
+    cg = LatticeSensor.initSync(testDir, { config: { include: ['**/*.ts'], exclude: [] } });
     await cg.indexAll();
     handler = new ToolHandler(cg);
   });
@@ -93,7 +93,7 @@ describe('codegraph_explore — NL-stopword collision guard', () => {
   });
 
   async function explore(query: string): Promise<string> {
-    const res = await handler.execute('codegraph_explore', { query });
+    const res = await handler.execute('lattice_sensor_explore', { query });
     expect(res.isError).toBeFalsy();
     return res.content[0]!.text;
   }

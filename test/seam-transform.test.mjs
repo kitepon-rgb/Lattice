@@ -145,14 +145,14 @@ test('candidate or query-set drift fails before isolated execution', async () =>
   );
 
   const portabilityProofDrift = structuredClone(values);
-  portabilityProofDrift.controlCompilationEvidence.codegraph.portable_outcomes_equal = false;
+  portabilityProofDrift.controlCompilationEvidence.sensor.portable_outcomes_equal = false;
   await assert.rejects(
     runRc1SeamTreatment({ repoRoot: '/not-used', ...portabilityProofDrift }),
     /portability proof/i,
   );
 
   const outcomeDrift = structuredClone(values);
-  outcomeDrift.controlCompilationEvidence.codegraph.outcomes[0].result_digest = '0'.repeat(64);
+  outcomeDrift.controlCompilationEvidence.sensor.outcomes[0].result_digest = '0'.repeat(64);
   await assert.rejects(
     runRc1SeamTreatment({ repoRoot: '/not-used', ...outcomeDrift }),
     /graph evidence/i,

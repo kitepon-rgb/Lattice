@@ -1,7 +1,7 @@
 /**
  * lattice-mcp bin向けNode versionガード（ADR 0049 wave2レビューでのスコープ外
  * 発見の修理 — bin/lattice-mcp.mjs が sensor/dist/index.js を直import して
- * MCPServer を起動する経路には、sensor CLI (sensor/src/bin/codegraph.ts) が
+ * MCPServer を起動する経路には、sensor CLI (sensor/src/bin/sensor.ts) が
  * 持つNode versionガードが一切通っていなかった）。
  *
  * 閾値・banner文言は複製せず、sensor CLI と同じ
@@ -24,7 +24,7 @@ export { MIN_NODE_MAJOR };
 
 /**
  * @param {string} nodeVersion - process.versions.node相当の文字列 (例: "26.5.0")
- * @param {boolean} overrideActive - CODEGRAPH_ALLOW_UNSAFE_NODE が設定されているか
+ * @param {boolean} overrideActive - LATTICE_SENSOR_ALLOW_UNSAFE_NODE が設定されているか
  * @returns {{ blocked: boolean, banner: string | null }}
  *   banner: 表示すべきbanner文言（sensor CLIと同一文言）。null ならサポート
  *     対象内で表示不要。

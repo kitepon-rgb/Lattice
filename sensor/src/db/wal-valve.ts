@@ -56,7 +56,7 @@ const MAX_PAUSED_BACKFILL_PASSES = 20;
 const CHECK_INTERVAL_MS = 2000;
 
 /**
- * Resolve the valve's soft threshold from the `CODEGRAPH_WAL_VALVE_MB`
+ * Resolve the valve's soft threshold from the `LATTICE_SENSOR_WAL_VALVE_MB`
  * override; non-numeric / non-positive values fall back to the default.
  */
 export function resolveWalValveMb(envVal: string | undefined): number {
@@ -83,7 +83,7 @@ export class WalCheckpointValve {
 
   constructor(
     private readonly db: DatabaseConnection,
-    softMb: number = resolveWalValveMb(process.env.CODEGRAPH_WAL_VALVE_MB),
+    softMb: number = resolveWalValveMb(process.env.LATTICE_SENSOR_WAL_VALVE_MB),
     private readonly intervalMs: number = CHECK_INTERVAL_MS,
     private readonly log: (msg: string) => void = () => {}
   ) {

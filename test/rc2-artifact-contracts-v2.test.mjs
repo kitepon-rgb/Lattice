@@ -41,7 +41,7 @@ function resource({
   target = 'sharedSymbol',
   todoIds = ['A', 'B', 'C'],
   provenanceEntries = [
-    provenance('codegraph', 'ready'),
+    provenance('sensor', 'ready'),
     provenance('manual_candidate_spec', 'asserted'),
   ],
 } = {}) {
@@ -97,13 +97,13 @@ test('v2 observation compiler canonicalizes resource, TODO, and provenance input
   assert.deepEqual(compileBoundaryObservationV2(second), compileBoundaryObservationV2(first));
 });
 
-test('v2 observation compiler preserves Codegraph empty ownership as per-TODO unknowns', async () => {
+test('v2 observation compiler preserves LatticeSensor empty ownership as per-TODO unknowns', async () => {
   const { compileBoundaryObservationV2 } = await import(OBSERVATION_COMPILER_MODULE);
   await import(CONTRACTS_MODULE);
   const { compileSchedulabilityGraphV2 } = await import(SCHEDULABILITY_COMPILER_MODULE);
   const bundle = compileBoundaryObservationV2(observationSet({
     resources: [resource({ provenanceEntries: [
-      provenance('codegraph', 'empty'),
+      provenance('sensor', 'empty'),
       provenance('manual_candidate_spec', 'asserted'),
     ] })],
   }));
@@ -134,7 +134,7 @@ test('v2 observation compiler fails loudly when symbol ownership lacks manual ca
   const { compileBoundaryObservationV2 } = await import(OBSERVATION_COMPILER_MODULE);
   await import(CONTRACTS_MODULE);
   const input = observationSet({ resources: [resource({
-    provenanceEntries: [provenance('codegraph', 'ready')],
+    provenanceEntries: [provenance('sensor', 'ready')],
   })] });
 
   assert.throws(() => compileBoundaryObservationV2(input));

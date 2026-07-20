@@ -125,13 +125,13 @@ async function fixedInputs() {
   return { planInput, candidateSpec, normal, negative, querySet };
 }
 
-function compile(inputs, manualEvidence, codegraphEvidence, planVersion) {
+function compile(inputs, manualEvidence, sensorEvidence, planVersion) {
   return compileBoundaryCondition({
     planInput: inputs.planInput,
     candidateSpec: inputs.candidateSpec,
     manualEvidence,
     querySet: inputs.querySet,
-    codegraphEvidence,
+    sensorEvidence,
     codeSnapshotDigest: SNAPSHOT,
     planVersion,
   });
@@ -238,7 +238,7 @@ test('condition selector and fixed-input drift fail closed', async () => {
     candidateSpec: driftedCandidate,
     manualEvidence: inputs.normal,
     querySet: inputs.querySet,
-    codegraphEvidence: graphEvidence(inputs.querySet),
+    sensorEvidence: graphEvidence(inputs.querySet),
     codeSnapshotDigest: SNAPSHOT,
     planVersion: 'rc1-v4-control',
   }), /candidate TODO/i);

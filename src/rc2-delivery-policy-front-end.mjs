@@ -12,7 +12,7 @@ const INPUT_KEYS = [
   'manualEvidence',
   'querySet',
   'sourceSnapshot',
-  'codegraphEvidence',
+  'sensorEvidence',
 ];
 const EXPECTED_CANDIDATE_ID = 'shard-delivery-policy-registry-by-channel';
 const EXPECTED_ORACLE_DIGEST_BY_CANDIDATE_DIGEST = Object.freeze({
@@ -30,7 +30,7 @@ const QUERY_OPERATIONS = new Set([
   'impact',
   'affected',
 ]);
-const CODEGRAPH_OUTCOMES = new Set([
+const SENSOR_OUTCOMES = new Set([
   'ready',
   'symbol_absent',
   'empty',
@@ -106,7 +106,7 @@ function resourceId(kind, target) {
 
 function queryMapFor(querySet) {
   if (!exactRecord(querySet, ['schema', 'queries'])
-    || querySet.schema !== 'lattice.codegraph_query_set.v2') {
+    || querySet.schema !== 'lattice.sensor_query_set.v2') {
     fail('query set shapeまたはschemaが不正');
   }
   requireArray(querySet.queries, 'querySet.queries');
@@ -554,7 +554,7 @@ function validatePortableOutcomeShape(outcome, query) {
   if (!plainRecord(outcome)
     || outcome.id !== query.id
     || outcome.operation !== query.operation
-    || !CODEGRAPH_OUTCOMES.has(outcome.outcome)) {
+    || !SENSOR_OUTCOMES.has(outcome.outcome)) {
     fail(`portable outcome ${query.id} identityが不正`);
   }
   if (query.operation === 'status') {
@@ -609,7 +609,7 @@ function assertFreshStatus(statusOutcome) {
     || status.index.state !== 'complete'
     || status.index.pendingRefs !== 0
     || status.index.reindexRecommended !== false) {
-    fail('portable Codegraph statusがfresh／completeではない');
+    fail('portable LatticeSensor statusがfresh／completeではない');
   }
 }
 
@@ -642,13 +642,13 @@ function validateAffectedOutcome(outcome, query, filesByPath) {
 }
 
 function validatePortableEvidence({
-  codegraphEvidence,
+  sensorEvidence,
   querySet,
   queryById,
   candidateSpec,
   filesByPath,
 }) {
-  if (!exactRecord(codegraphEvidence, [
+  if (!exactRecord(sensorEvidence, [
     'schema',
     'projection',
     'query_set_digest',
@@ -656,22 +656,22 @@ function validatePortableEvidence({
     'per_query',
     'aggregate_digest',
   ])
-    || codegraphEvidence.schema !== 'lattice.codegraph_portable_preimage.v1'
-    || codegraphEvidence.projection !== 'lattice.codegraph_portable_outcome.v1'
-    || codegraphEvidence.query_set_digest !== digestArtifact(querySet)) {
+    || sensorEvidence.schema !== 'lattice.sensor_portable_preimage.v1'
+    || sensorEvidence.projection !== 'lattice.sensor_portable_outcome.v1'
+    || sensorEvidence.query_set_digest !== digestArtifact(querySet)) {
     fail('portable evidence identity／query bindingが不正');
   }
-  requireArray(codegraphEvidence.outcomes, 'portable.outcomes');
-  requireArray(codegraphEvidence.per_query, 'portable.per_query');
-  if (codegraphEvidence.outcomes.length !== querySet.queries.length
-    || codegraphEvidence.per_query.length !== querySet.queries.length) {
+  requireArray(sensorEvidence.outcomes, 'portable.outcomes');
+  requireArray(sensorEvidence.per_query, 'portable.per_query');
+  if (sensorEvidence.outcomes.length !== querySet.queries.length
+    || sensorEvidence.per_query.length !== querySet.queries.length) {
     fail('portable outcome件数がquery setと一致しない');
   }
   const byId = new Map();
   for (let index = 0; index < querySet.queries.length; index += 1) {
     const query = querySet.queries[index];
-    const outcome = codegraphEvidence.outcomes[index];
-    const receipt = codegraphEvidence.per_query[index];
+    const outcome = sensorEvidence.outcomes[index];
+    const receipt = sensorEvidence.per_query[index];
     validatePortableOutcomeShape(outcome, query);
     if (!exactRecord(receipt, ['id', 'operation', 'outcome', 'result_digest'])
       || receipt.id !== query.id
@@ -683,12 +683,12 @@ function validatePortableEvidence({
     byId.set(query.id, outcome);
   }
   const aggregatePreimage = {
-    projection: codegraphEvidence.projection,
-    query_set_digest: codegraphEvidence.query_set_digest,
-    outcomes: codegraphEvidence.outcomes,
+    projection: sensorEvidence.projection,
+    query_set_digest: sensorEvidence.query_set_digest,
+    outcomes: sensorEvidence.outcomes,
   };
-  if (!DIGEST.test(codegraphEvidence.aggregate_digest)
-    || codegraphEvidence.aggregate_digest !== digestArtifact(aggregatePreimage)) {
+  if (!DIGEST.test(sensorEvidence.aggregate_digest)
+    || sensorEvidence.aggregate_digest !== digestArtifact(aggregatePreimage)) {
     fail('portable aggregate digestがfull preimageから再計算できない');
   }
   assertFreshStatus(byId.get(candidateSpec.compiler_contract.status_query_id));
@@ -899,7 +899,7 @@ function structuralResources({
   candidateDigest,
   topology,
   outcomeById,
-  codegraphEvidence,
+  sensorEvidence,
 }) {
   const groups = new Map();
   const add = (kind, target, todoId, surface, ref) => {
@@ -958,12 +958,12 @@ function structuralResources({
     const queryIds = [...group.queryIds].sort(compareText);
     const outcomes = queryIds.map((id) => outcomeById.get(id));
     if (outcomes.some((outcome) => !outcome || outcome.outcome !== 'ready')) {
-      fail(`active resource ${group.kind}:${group.target}のCodegraph evidenceがreadyではない`);
+      fail(`active resource ${group.kind}:${group.target}のLatticeSensor evidenceがreadyではない`);
     }
     const evidenceDigest = digestArtifact({
-      schema: 'lattice.rc2.codegraph_resource_evidence.v1',
+      schema: 'lattice.rc2.sensor_resource_evidence.v1',
       topology,
-      portable_aggregate_digest: codegraphEvidence.aggregate_digest,
+      portable_aggregate_digest: sensorEvidence.aggregate_digest,
       query_ids: queryIds,
       outcomes,
     });
@@ -974,8 +974,8 @@ function structuralResources({
       todo_ids: [...group.todoIds].sort(compareText),
       provenance: [
         {
-          source: 'codegraph',
-          evidence_ref: `portable-codegraph#${queryIds.join(',')}`,
+          source: 'sensor',
+          evidence_ref: `portable-sensor#${queryIds.join(',')}`,
           evidence_digest: evidenceDigest,
           status: 'ready',
         },
@@ -1030,7 +1030,7 @@ export function compileDeliveryPolicyBoundaryBundleV2(inputs) {
     manualEvidence,
     querySet,
     sourceSnapshot,
-    codegraphEvidence,
+    sensorEvidence,
   } = inputs;
 
   if (!validatePlanInput(planInput)) fail('plan inputが不正');
@@ -1040,7 +1040,7 @@ export function compileDeliveryPolicyBoundaryBundleV2(inputs) {
   assertTodoBindings(planInput, candidateSpec, manualByTodo);
   const snapshot = validateSourceSnapshot(sourceSnapshot, candidateSpec);
   const outcomeById = validatePortableEvidence({
-    codegraphEvidence,
+    sensorEvidence,
     querySet,
     queryById,
     candidateSpec,
@@ -1055,7 +1055,7 @@ export function compileDeliveryPolicyBoundaryBundleV2(inputs) {
       candidateDigest,
       topology: snapshot.topology,
       outcomeById,
-      codegraphEvidence,
+      sensorEvidence,
     }),
     ...manualResources(manualByTodo, manualEvidenceDigest),
   ];

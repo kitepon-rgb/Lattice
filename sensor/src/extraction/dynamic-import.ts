@@ -42,7 +42,7 @@ import { getChildByField, getNodeText } from './tree-sitter-helpers';
  * unmatchable sentinel guarantees this never resolves via name-matching into
  * an accidental wrong edge. It is pushed as a normal unresolved reference so
  * it goes through the standard resolve-attempt -> mark `status='failed'`
- * lifecycle (ADR 0048's "no silent fallback" requirement) — a `codegraph
+ * lifecycle (ADR 0048's "no silent fallback" requirement) — a `lattice sensor
  * status`/`unresolved_refs` query surfaces it exactly like any other
  * unresolvable ref, grouped under this one name.
  */

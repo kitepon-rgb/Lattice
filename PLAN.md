@@ -24,7 +24,7 @@ unknown ───────→ evidence acquisition
 serial ────────→ intentional critical chain
 ```
 
-新規性の中心はDAG、Codegraph、refactorの個別要素ではなく、**予定されたmulti-agent開発TODOの純並列便益を
+新規性の中心はDAG、構造sensor、refactorの個別要素ではなく、**予定されたmulti-agent開発TODOの純並列便益を
 目的にcode architectureへ介入し、旧planと旧contextを失効させ、全TODO graphを再コンパイルする閉ループ**にある。
 
 ## 2. 八原則
@@ -48,12 +48,12 @@ serial ────────→ intentional critical chain
 
 ## 4. 内蔵sensorとの境界
 
-LatticeはCodegraph由来実装をMIT attribution付きの内蔵sensorとして吸収し、sensorのruntime、配布、
+Latticeは旧上流由来実装をMIT attribution付きの内蔵sensorとして吸収し、sensorのruntime、配布、
 schema、failure contractを自ら所有する。sensorはsymbol、call、import、reference、impact、affected test、
 heuristic provenance、dynamic frontierを扱う。一方、複数TODOの意味上の競合、外部effect、refactorの
 純便益、plan invalidationはLattice本体が所有する。
 
-低層graph情報が不足する場合はLattice repo内のsensorを正式に強化する。独立CodegraphのCLI／SDKや
+低層graph情報が不足する場合はLattice repo内のsensorを正式に強化する。独立した外部CLI／SDKや
 installed package patchへ逃げず、index不在・破損・version不整合はtyped failureまたは明示guidanceにする。
 
 ## 5. 成功の定義
@@ -71,8 +71,6 @@ installed package patchへ逃げず、index不在・破損・version不整合は
 論文、特許、既存製品は仕様書でなく踏み台である。先行技術の存在から製品価値を否定しない。
 失敗した変換も、境界modelとverifierを改善する教師データとして保存する。
 
-現在の工程状態は本repoのLattice storeを正本とする。RC1〜RC4の完了記録は[docs/archive/](docs/archive/)、
-Phase・revision・live/static Ganttの完了証拠は
-[Phase実装証拠](docs/evidence/2026-07-20-phase-live-implementation.md)、0.9.0の公開・install結果は
-[release証拠](docs/evidence/2026-07-21-v0.9.0-phase-release.md)、公開contractは
-[docs/00_product-contract.md](docs/00_product-contract.md)、研究証拠は[rag/INDEX.md](rag/INDEX.md)を正とする。
+現在の工程状態は本repoのLattice storeを正本とする。文書の役割と現行導線は
+[docs/README.md](docs/README.md)、公開contractは[docs/00_product-contract.md](docs/00_product-contract.md)、
+研究証拠は[rag/INDEX.md](rag/INDEX.md)を正とする。

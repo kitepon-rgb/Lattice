@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { digestArtifact } from './artifact-contracts.mjs';
 import { compileBoundaryObservationV2 } from './boundary-observation-compiler-v2.mjs';
-import { portableCodegraphOutcome } from './sensor-adapter.mjs';
+import { portableSensorOutcome } from './sensor-adapter.mjs';
 import { compileSchedulabilityGraphV2 } from './schedulability-compiler-v2.mjs';
 import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
 import {
@@ -16,11 +16,11 @@ import {
 /**
  * RC3-D generic front-end（ADR 0044 Decision 2・8、plan RC3-D）。
  *
- * `lattice.run_request.v1`のmanual witnessとfresh Codegraph観測evidenceから、
+ * `lattice.run_request.v1`のmanual witnessとfresh LatticeSensor観測evidenceから、
  * fixture名・期待conflict・期待waveの分岐なしに`lattice.runtime_plan.v1`と
  * TODOごとの`lattice.boundary_manifest.v2`をcompileする。
  *
- * adapter契約（witness.codegraph_provenance、RC3-Dで固定）:
+ * adapter契約（witness.sensor_provenance、RC3-Dで固定）:
  *   { queries: [{ query_id, expect }] }
  *   expect = { kind: 'symbol', name, path } — query outcomeにnode.name/filePathの
  *            exact一致がちょうど1件あることを要求（fuzzy解決の誤読防止）
@@ -32,7 +32,7 @@ import {
  *   NODE_LIMIT_EXCEEDED / BOUNDARY_UNKNOWN / SEARCH_BUDGET_EXHAUSTED /
  *   QUERY_DRIFT / AFFECTED_TEST_DRIFT
  *
- * Codegraph raw telemetryはevidence captureに留め、plan・manifest identityへは
+ * LatticeSensor raw telemetryはevidence captureに留め、plan・manifest identityへは
  * portable outcome projectionのcanonical digestだけを入れる（Decision 10.4）。
  */
 
@@ -124,10 +124,10 @@ function nonDispatchable(code, detail) {
   return { outcome: 'non_dispatchable', code, detail };
 }
 
-/** query set（run_request.codegraph_query_set）のexact shapeを検査する。 */
+/** query set（run_request.sensor_query_set）のexact shapeを検査する。 */
 function normalizeQuerySet(querySet) {
-  if (!exactRecord(querySet, ['queries'])) fail('codegraph_query_set shapeが不正');
-  if (!Array.isArray(querySet.queries)) fail('codegraph_query_set.queriesがarrayではない');
+  if (!exactRecord(querySet, ['queries'])) fail('sensor_query_set shapeが不正');
+  if (!Array.isArray(querySet.queries)) fail('sensor_query_set.queriesがarrayではない');
   const byId = new Map();
   for (const query of querySet.queries) {
     const keys = Object.hasOwn(query ?? {}, 'target')
@@ -150,7 +150,7 @@ function normalizeQuerySet(querySet) {
  * evidence = { outcomes: [{ query_id, operation, status, raw }] }（query set順）
  */
 function normalizeEvidence(evidence, queryById) {
-  if (!exactRecord(evidence, ['outcomes'])) fail('codegraph evidence shapeが不正');
+  if (!exactRecord(evidence, ['outcomes'])) fail('sensor evidence shapeが不正');
   if (!Array.isArray(evidence.outcomes)) fail('evidence.outcomesがarrayではない');
   if (evidence.outcomes.length !== queryById.size) {
     fail(`evidence件数(${evidence.outcomes.length})がquery set件数(${queryById.size})と一致しない`);
@@ -168,7 +168,7 @@ function normalizeEvidence(evidence, queryById) {
     if (typeof outcome.status !== 'string' || outcome.status.length === 0) {
       fail('evidence outcome statusが不正');
     }
-    const portable = portableCodegraphOutcome(outcome.raw);
+    const portable = portableSensorOutcome(outcome.raw);
     byQueryId.set(outcome.query_id, {
       query_id: outcome.query_id,
       operation: outcome.operation,
@@ -187,13 +187,13 @@ function normalizeEvidence(evidence, queryById) {
 }
 
 function normalizeProvenanceQueries(witness, todoId) {
-  const provenance = witness.codegraph_provenance;
+  const provenance = witness.sensor_provenance;
   if (!exactRecord(provenance, ['queries']) || !Array.isArray(provenance.queries)) {
-    fail(`witness ${todoId}.codegraph_provenance shapeが不正`);
+    fail(`witness ${todoId}.sensor_provenance shapeが不正`);
   }
   return provenance.queries.map((entry) => {
     if (!exactRecord(entry, ['query_id', 'expect']) || !identifier(entry.query_id)) {
-      fail(`witness ${todoId}.codegraph_provenance entry shapeが不正`);
+      fail(`witness ${todoId}.sensor_provenance entry shapeが不正`);
     }
     const expect = entry.expect;
     if (!plainRecord(expect) || !EXPECT_KINDS.has(expect.kind)) {
@@ -236,7 +236,7 @@ function rawPayload(raw) {
 }
 
 /**
- * affected outcomeのpayloadを取り出す。codegraph-adapterのper-target形
+ * affected outcomeのpayloadを取り出す。lattice-sensor-adapterのper-target形
  * （`{targets: [{target, outcome, data}]}`）と直接data形の両方を受ける。
  */
 function affectedPayload(raw, expectPath) {
@@ -262,7 +262,7 @@ function entryNode(entry) {
 }
 
 /**
- * 束縛queryのoutcomeへexpectをexact照合し、codegraph statusを決める。
+ * 束縛queryのoutcomeへexpectをexact照合し、sensor statusを決める。
  * fuzzy解決・空結果は依存なしへ丸めず、unknown系statusへ落とす（AGENTS.md）。
  */
 function resolveBindingStatus(binding, outcome) {
@@ -331,7 +331,7 @@ function candidateProvenance(request) {
 }
 
 /**
- * `collectCodegraphEvidence`のraw収集結果を、query set順へexact整合した
+ * `collectSensorEvidence`のraw収集結果を、query set順へexact整合した
  * front-end evidence契約（`{outcomes: [{query_id, operation, status, raw}]}`）へ写す。
  * 件数・id・operationの不一致はfail closed。
  */
@@ -369,15 +369,15 @@ export function evidenceFromCollectedOutcomes(options = {}) {
 }
 
 /**
- * run_requestとcodegraph evidenceからobservation set・graph・planを一括compileする。
+ * run_requestとsensor evidenceからobservation set・graph・planを一括compileする。
  * 成功時はdispatchable outcome、契約内の識別可能な不成立はtyped non-dispatchable、
  * 入力shape違反はTypeErrorでfail closed。
  */
 export function compileRuntimePlanV1(options = {}) {
-  if (!exactRecord(options, ['request', 'codegraphEvidence', 'planRef', 'planEpoch', 'predecessorRefs'])) {
+  if (!exactRecord(options, ['request', 'sensorEvidence', 'planRef', 'planEpoch', 'predecessorRefs'])) {
     fail('compileRuntimePlanV1 optionsがexact shapeでない');
   }
-  const { request, codegraphEvidence, planRef, planEpoch, predecessorRefs } = options;
+  const { request, sensorEvidence, planRef, planEpoch, predecessorRefs } = options;
   if (!validateRunRequest(request)) fail('run_request.v1がcontractを満たさない');
   if (!identifier(planRef)) fail('planRefがidentifierではない');
   if (!Number.isSafeInteger(planEpoch) || planEpoch < 0) fail('planEpochが不正');
@@ -385,8 +385,8 @@ export function compileRuntimePlanV1(options = {}) {
     fail('predecessorRefsがstring arrayではない');
   }
 
-  const queryById = normalizeQuerySet(request.codegraph_query_set);
-  const outcomeByQueryId = normalizeEvidence(codegraphEvidence, queryById);
+  const queryById = normalizeQuerySet(request.sensor_query_set);
+  const outcomeByQueryId = normalizeEvidence(sensorEvidence, queryById);
 
   const todoIds = request.todos.map((todo) => todo.todo_id);
 
@@ -425,7 +425,7 @@ export function compileRuntimePlanV1(options = {}) {
   const unknowns = [];
   if (statusOutcome.status !== 'ready') {
     for (const todoId of todoIds) {
-      unknowns.push({ todo_id: todoId, kind: `codegraph_${statusOutcome.status}`, ref: statusQueries[0].id });
+      unknowns.push({ todo_id: todoId, kind: `sensor_${statusOutcome.status}`, ref: statusQueries[0].id });
     }
   }
 
@@ -435,7 +435,7 @@ export function compileRuntimePlanV1(options = {}) {
     for (const binding of bindingsByTodo.get(todoId)) {
       const resolved = resolveBindingStatus(binding, outcomeByQueryId.get(binding.query_id));
       if (resolved !== 'ready') {
-        unknowns.push({ todo_id: todoId, kind: `codegraph_${resolved}`, ref: binding.query_id });
+        unknowns.push({ todo_id: todoId, kind: `sensor_${resolved}`, ref: binding.query_id });
       }
     }
   }
@@ -492,7 +492,7 @@ export function compileRuntimePlanV1(options = {}) {
         }
       }
       if (covering.length === 0) {
-        unknowns.push({ todo_id: todoId, kind: 'codegraph_unbound', ref: `${own.kind}:${own.target}` });
+        unknowns.push({ todo_id: todoId, kind: 'sensor_unbound', ref: `${own.kind}:${own.target}` });
       }
     }
   }
@@ -592,7 +592,7 @@ export function compileRuntimePlanV1(options = {}) {
       todo_ids: [...group.todoIds].sort(compareText),
       provenance: [
         {
-          source: 'codegraph',
+          source: 'sensor',
           evidence_ref: coveringQueryId,
           evidence_digest: outcome.portable_digest,
           status,
@@ -660,7 +660,7 @@ export function compileRuntimePlanV1(options = {}) {
     source: {
       snapshot_digest: digestArtifact({ base_sha: request.repo.base_sha }),
       candidate_witness_digest: digestArtifact(request.manual_witness),
-      query_set_digest: digestArtifact(request.codegraph_query_set),
+      query_set_digest: digestArtifact(request.sensor_query_set),
       manual_evidence_digest: request.request_digest,
     },
     capacity: request.capacity.executors,
@@ -698,7 +698,7 @@ export function compileRuntimePlanV1(options = {}) {
     for (const resource of resources) {
       if (!resource.todo_ids.includes(todoId)) continue;
       witnessProvenance[resource.resource_id] = resource.kind === 'symbol' || resource.kind === 'path'
-        ? 'codegraph'
+        ? 'sensor'
         : 'manual_state_effect';
     }
     const manifest = {

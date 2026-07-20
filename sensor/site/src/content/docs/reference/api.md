@@ -3,6 +3,8 @@ title: API
 description: Use CodeGraph as a TypeScript library.
 ---
 
+> **旧上流documentation（未配布）**: このページの名称、URL、CLI、設定、効果量は現行Latticeの仕様ではありません。現行仕様はroot `README.md` と `docs/00_product-contract.md` を参照してください。
+
 CodeGraph ships a TypeScript API. The public surface is the `CodeGraph` class.
 
 ```typescript

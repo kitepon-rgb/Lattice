@@ -1,4 +1,11 @@
-# Changelog
+# 旧上流changelog（履歴）
+
+このファイルはfork元の履歴とattributionを保持するための資料であり、Lattice Sensorの
+現行公開契約やrelease履歴ではない。現行releaseは[`../CHANGELOG.md`](../CHANGELOG.md)を参照する。
+
+以下の名称、URL、CLI、配布経路、telemetry記述は取得時点の旧上流に属し、Lattice runtimeでは使わない。
+
+# Upstream changelog
 
 All notable changes to CodeGraph are documented here. Each entry also ships as
 a [GitHub Release](https://github.com/colbymchenry/codegraph/releases) tagged

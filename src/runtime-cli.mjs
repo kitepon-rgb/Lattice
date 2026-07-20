@@ -14,7 +14,7 @@ import {
 import path from 'node:path';
 
 import { digestArtifact } from './artifact-contracts.mjs';
-import { collectCodegraphEvidence } from './codegraph-adapter.mjs';
+import { collectSensorEvidence } from './sensor-adapter.mjs';
 import {
   compileRuntimePlanV1,
   evidenceFromCollectedOutcomes,
@@ -57,7 +57,7 @@ import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
  * - exit 2: usage違反（未知command、引数の欠落・重複・余剰・順序不正）。
  * - `--executor`等の暗黙fallbackを持たず、未実装surfaceはusage違反として拒否する。
  *
- * plan verifyは保存planを信用せず、requestとfresh Codegraph観測からplanを
+ * plan verifyは保存planを信用せず、requestとfresh LatticeSensor観測からplanを
  * producerで再コンパイルしてdigest完全一致を要求し、さらにschedule minimumを
  * producer非依存の`verifySchedulabilityPlanV2`で再計算する（成功条件5）。
  */
@@ -218,20 +218,20 @@ async function loadRequest(requestPath) {
 }
 
 async function compileFromRepo({ request, cwd, planRef, planEpoch, predecessorRefs }) {
-  const collected = await collectCodegraphEvidence({
+  const collected = await collectSensorEvidence({
     cwd,
-    querySet: request.codegraph_query_set,
+    querySet: request.sensor_query_set,
   });
   // 観測中にHEADが動いた場合、観測とbase束縛が別snapshotになるためreject
   // （TOCTOU窓の閉鎖。base再確認は観測の後に行う）。
   await resolveRepoBinding(cwd, request);
-  const codegraphEvidence = evidenceFromCollectedOutcomes({
-    querySet: request.codegraph_query_set,
+  const sensorEvidence = evidenceFromCollectedOutcomes({
+    querySet: request.sensor_query_set,
     collected,
   });
   return compileRuntimePlanV1({
     request,
-    codegraphEvidence,
+    sensorEvidence,
     planRef,
     planEpoch,
     predecessorRefs,

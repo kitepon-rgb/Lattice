@@ -17,14 +17,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import CodeGraph from '../src/index';
+import LatticeSensor from '../src/index';
 
 describe('Orphaned refs sweep (#1187)', () => {
   let testDir: string;
-  let cg: CodeGraph;
+  let cg: LatticeSensor;
 
   beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-orphan-sweep-'));
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-orphan-sweep-'));
   });
 
   afterEach(() => {
@@ -103,7 +103,7 @@ describe('Orphaned refs sweep (#1187)', () => {
         ].join('\n')
       );
 
-      cg = CodeGraph.initSync(testDir);
+      cg = LatticeSensor.initSync(testDir);
       await cg.indexAll();
     });
 
@@ -162,7 +162,7 @@ describe('Orphaned refs sweep (#1187)', () => {
         ].join('\n')
       );
 
-      cg = CodeGraph.initSync(testDir);
+      cg = LatticeSensor.initSync(testDir);
       await cg.indexAll();
       expect(cg.getPendingReferenceCount()).toBe(0);
 
@@ -209,7 +209,7 @@ describe('Orphaned refs sweep (#1187)', () => {
         'export function target() { return 2; }\n'
       );
 
-      cg = CodeGraph.initSync(testDir);
+      cg = LatticeSensor.initSync(testDir);
       await cg.indexAll();
 
       // Re-queue A's refs then B's, in that order.

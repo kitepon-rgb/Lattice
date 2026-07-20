@@ -1,5 +1,5 @@
 /**
- * CodeGraph Type Definitions
+ * LatticeSensor Type Definitions
  *
  * Core types for the semantic knowledge graph system.
  */
@@ -469,7 +469,7 @@ export interface SearchResult {
 /**
  * A symbol whose name-segments match prose words from a prompt — the
  * graph-derived signal behind the front-load hook's medium tier
- * (CodeGraph.getSegmentMatches). Always verified to exist in `nodes` at the
+ * (LatticeSensor.getSegmentMatches). Always verified to exist in `nodes` at the
  * time it is returned.
  */
 export interface SegmentMatch {

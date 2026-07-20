@@ -56,14 +56,14 @@ test('status --jsonは未初期化repoを成功として発見し実在する次
   assert.equal(result.store.ref, '.lattice/todo');
   assert.equal(result.can_create_plan, true);
   assert.equal(result.next_action.command, 'lattice plan create --input .lattice/plan-create.json');
-  assert.equal(result.next_action.input_schema, 'lattice.plan_create_input.v1');
-  assert.equal(result.next_action.schema_command, 'lattice plan create --schema --json');
+  assert.equal(result.next_action.input_schema, 'lattice.plan_create_input.v3');
+  assert.equal(result.next_action.schema_command, 'lattice plan create --schema-version 3 --json');
   assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
   assert.equal(validateProjectStatus(result), true);
 
-  const schemaExecution = run(root, ['plan', 'create', '--schema', '--json']);
+  const schemaExecution = run(root, ['plan', 'create', '--schema-version', '3', '--json']);
   assert.equal(schemaExecution.status, 0, schemaExecution.stderr);
-  assert.equal(JSON.parse(schemaExecution.stdout).title, 'lattice.plan_create_input.v1');
+  assert.equal(JSON.parse(schemaExecution.stdout).title, 'lattice.plan_create_input.v3');
 });
 
 test('status --jsonはSHA-256 Git HEADもtyped projectとして返す', async (context) => {
@@ -211,6 +211,39 @@ test('plan create v2は第一級Phaseを作りlocked Phaseをnext_readyへ出さ
   assert.match(html, /Phase進捗/u);
   assert.match(html, /phase-1/u);
   assert.match(html, /accepted/u);
+});
+
+test('plan create v3はPhase監査順とToDo実行順を分離する', async (context) => {
+  const root = await workspace(context);
+  await mkdir(path.join(root, '.lattice'));
+  const schemaExecution = run(root, ['plan', 'create', '--schema-version', '3', '--json']);
+  assert.equal(schemaExecution.status, 0, schemaExecution.stderr);
+  assert.equal(JSON.parse(schemaExecution.stdout).title, 'lattice.plan_create_input.v3');
+  const input = {
+    schema: 'lattice.plan_create_input.v3', project_id: 'phase-project', plan_key: 'main', plan_version: 'v1',
+    actor: { host: 'host-1', session: 'session-1', agent: 'agent-1' },
+    recorded_at: new Date().toISOString(),
+    tasks: [
+      { task_id: 'T1', title: '設計', lane: 'main', narrative_ref: null,
+        narrative_anchor: null, compile_binding: null, parent_task_id: null, phase_id: 'phase-1' },
+      { task_id: 'T2', title: '実装', lane: 'main', narrative_ref: null,
+        narrative_anchor: null, compile_binding: null, parent_task_id: null, phase_id: 'phase-2' },
+    ],
+    phases: [
+      { phase_id: 'phase-1', title: '設計', gate_policy: 'heavy', predecessor_phase_ids: [], required_evidence_slots: ['heavy'] },
+      { phase_id: 'phase-2', title: '実装', gate_policy: 'heavy', predecessor_phase_ids: ['phase-1'], required_evidence_slots: ['heavy'] },
+    ],
+    hard_dependencies: [], joins: [], phase_accept_dependencies: [], input_digest: '',
+  };
+  input.input_digest = todoSelfDigest(input, 'input_digest');
+  await writeFile(path.join(root, '.lattice', 'phase-plan-v3.json'), `${canonicalizeTodoArtifact(input)}\n`);
+  const created = run(root, ['plan', 'create', '--input', '.lattice/phase-plan-v3.json']);
+  assert.equal(created.status, 0, created.stderr);
+  const status = JSON.parse(run(root, ['todo', 'status', '--json']).stdout);
+  assert.deepEqual(status.next_ready.map(({ task_id }) => task_id), ['T1', 'T2']);
+  const phases = JSON.parse(run(root, ['todo', 'phase', 'status', '--plan', 'main']).stdout);
+  assert.deepEqual(phases.phases.map(({ phase_id, status: phaseStatus }) => [phase_id, phaseStatus]),
+    [['phase-1', 'active'], ['phase-2', 'locked']]);
 });
 
 test('壊れたstore配置はMarkdown fallbackせずtyped invalidを返す', async (context) => {

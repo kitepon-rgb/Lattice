@@ -1,6 +1,6 @@
 /**
  * MCP shared engine — the heavyweight, *shared* state for an MCP server:
- * the project's {@link CodeGraph} instance, file watcher, and the
+ * the project's {@link LatticeSensor} instance, file watcher, and the
  * {@link ToolHandler} cache for cross-project queries.
  *
  * One engine, many sessions:
@@ -11,19 +11,19 @@
  */
 
 import * as os from 'os';
-import type CodeGraph from '../index';
-import { findNearestCodeGraphRoot } from '../directory';
+import type LatticeSensor from '../index';
+import { findNearestLatticeSensorRoot } from '../directory';
 import { watchDisabledReason } from '../sync';
 import { ToolHandler } from './tools';
 import { QueryPool, resolvePoolSize } from './query-pool';
 
-// Lazy-load the heavy CodeGraph chain (sqlite + query/graph/context layers) OFF
+// Lazy-load the heavy LatticeSensor chain (sqlite + query/graph/context layers) OFF
 // the MCP startup path. It's only needed once a tool actually opens a project —
 // not to answer initialize/tools-list — so deferring it lets `serve --mcp` (and
 // the daemon it spawns) bind + register tools in ~Node-startup time instead of
 // ~800ms, closing the "No such tool available" cold-start race that made headless
 // agents flounder. require() is sync + cached on the CommonJS build.
-const loadCodeGraph = (): typeof import('../index').default =>
+const loadLatticeSensor = (): typeof import('../index').default =>
   (require('../index') as typeof import('../index')).default;
 
 export interface MCPEngineOptions {
@@ -38,7 +38,7 @@ export interface MCPEngineOptions {
    * SHARED daemon wants this — it serves many concurrent clients on one event
    * loop, so without a pool concurrent explores serialize and starve the MCP
    * transport. Direct mode (one stdio client, no concurrency) leaves it off so a
-   * single call never pays a worker round-trip. `CODEGRAPH_QUERY_POOL_SIZE=0`
+   * single call never pays a worker round-trip. `LATTICE_SENSOR_QUERY_POOL_SIZE=0`
    * disables it even in daemon mode.
    */
   queryPool?: boolean;
@@ -51,10 +51,10 @@ export interface MCPEngineOptions {
  * connect never double-open the SQLite file.
  */
 export class MCPEngine {
-  private cg: CodeGraph | null = null;
+  private cg: LatticeSensor | null = null;
   private toolHandler: ToolHandler;
   // Project root we resolved to. Null until `ensureInitialized` succeeds
-  // (or null forever if no .codegraph/ ever turned up — that's a valid
+  // (or null forever if no .lattice/sensor/ ever turned up — that's a valid
   // state for the engine, since cross-project queries still work).
   private projectPath: string | null = null;
   // Set on first `ensureInitialized` so subsequent sessions don't redo work.
@@ -73,24 +73,24 @@ export class MCPEngine {
 
   /**
    * Start the worker-thread query pool once a default project is open (daemon
-   * mode only; honors `CODEGRAPH_QUERY_POOL_SIZE`). Idempotent and best-effort:
+   * mode only; honors `LATTICE_SENSOR_QUERY_POOL_SIZE`). Idempotent and best-effort:
    * if workers can't spawn on this platform the ToolHandler keeps serving reads
    * in-process, so the pool can only help, never break, tool calls.
    */
   private maybeStartPool(root: string): void {
     if (!this.opts.queryPool || this.queryPool || this.closed) return;
-    const size = resolvePoolSize(process.env.CODEGRAPH_QUERY_POOL_SIZE, os.cpus().length);
+    const size = resolvePoolSize(process.env.LATTICE_SENSOR_QUERY_POOL_SIZE, os.cpus().length);
     if (size <= 0) {
-      process.stderr.write('[CodeGraph MCP] Query pool disabled (CODEGRAPH_QUERY_POOL_SIZE=0); serving reads in-process.\n');
+      process.stderr.write('[LatticeSensor MCP] Query pool disabled (LATTICE_SENSOR_QUERY_POOL_SIZE=0); serving reads in-process.\n');
       return;
     }
     try {
       this.queryPool = new QueryPool({ root, size });
       this.toolHandler.setQueryPool(this.queryPool);
-      process.stderr.write(`[CodeGraph MCP] Query pool: up to ${size} worker thread(s) for concurrent reads.\n`);
+      process.stderr.write(`[LatticeSensor MCP] Query pool: up to ${size} worker thread(s) for concurrent reads.\n`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[CodeGraph MCP] Query pool unavailable (${msg}); serving reads in-process.\n`);
+      process.stderr.write(`[LatticeSensor MCP] Query pool unavailable (${msg}); serving reads in-process.\n`);
       this.queryPool = null;
     }
   }
@@ -119,7 +119,7 @@ export class MCPEngine {
   /**
    * ADR 0049 Decision 5④: record this engine's execution mode (`daemon` vs.
    * `direct` + a typed reason), delegated straight through to the
-   * ToolHandler so `codegraph_status` can report it. Callers: `MCPServer`
+   * ToolHandler so `lattice_sensor_status` can report it. Callers: `MCPServer`
    * (direct mode), `Daemon` (daemon mode), and the local-handshake proxy's
    * fallback engine (direct mode, various reasons).
    */
@@ -127,13 +127,13 @@ export class MCPEngine {
     this.toolHandler.setExecutionMode(mode, reason);
   }
 
-  /** Whether the default project's CodeGraph is open. */
-  hasDefaultCodeGraph(): boolean {
-    return this.toolHandler.hasDefaultCodeGraph();
+  /** Whether the default project's LatticeSensor is open. */
+  hasDefaultLatticeSensor(): boolean {
+    return this.toolHandler.hasDefaultLatticeSensor();
   }
 
   /**
-   * Walk up from `searchFrom` to find the nearest `.codegraph/` and open it.
+   * Walk up from `searchFrom` to find the nearest `.lattice/sensor/` and open it.
    * Idempotent: concurrent callers share one in-flight init; subsequent
    * callers after success are no-ops.
    *
@@ -143,7 +143,7 @@ export class MCPEngine {
    */
   async ensureInitialized(searchFrom: string): Promise<void> {
     if (this.closed) return;
-    if (this.toolHandler.hasDefaultCodeGraph()) return;
+    if (this.toolHandler.hasDefaultLatticeSensor()) return;
     if (this.initPromise) {
       try { await this.initPromise; } catch { /* let caller retry */ }
       return;
@@ -167,9 +167,9 @@ export class MCPEngine {
    */
   retryInitializeSync(searchFrom: string): void {
     if (this.closed) return;
-    if (this.toolHandler.hasDefaultCodeGraph()) return;
+    if (this.toolHandler.hasDefaultLatticeSensor()) return;
     this.toolHandler.setDefaultProjectHint(searchFrom);
-    const resolvedRoot = findNearestCodeGraphRoot(searchFrom);
+    const resolvedRoot = findNearestLatticeSensorRoot(searchFrom);
     if (!resolvedRoot) return;
     try {
       // Close any previously failed instance to avoid leaking resources.
@@ -177,19 +177,19 @@ export class MCPEngine {
         try { this.cg.close(); } catch { /* ignore */ }
         this.cg = null;
       }
-      this.cg = loadCodeGraph().openSync(resolvedRoot);
+      this.cg = loadLatticeSensor().openSync(resolvedRoot);
       this.projectPath = resolvedRoot;
-      this.toolHandler.setDefaultCodeGraph(this.cg);
+      this.toolHandler.setDefaultLatticeSensor(this.cg);
       this.startWatching();
       this.catchUpSync();
       this.maybeStartPool(resolvedRoot);
     } catch (err) {
-      // ADR 0049 Decision 5②: a `.codegraph/` root WAS found (this is the
-      // retry-sync path, only reached once `findNearestCodeGraphRoot`
+      // ADR 0049 Decision 5②: a `.lattice/sensor/` root WAS found (this is the
+      // retry-sync path, only reached once `findNearestLatticeSensorRoot`
       // succeeded above) but opening it failed — a genuine malfunction (DB
       // open error, schema mismatch, integrity error, lock contention), not
       // "no index". Record it so the next tool call fails closed instead of
-      // silently reading as NotIndexedError's success-shaped "run codegraph
+      // silently reading as NotIndexedError's success-shaped "run lattice sensor
       // init" guidance. Still failing — caller will try again on the next
       // tool call, which re-attempts the open (clearing this on success).
       this.toolHandler.setOpenFailure(err instanceof Error ? err : new Error(String(err)));
@@ -220,35 +220,35 @@ export class MCPEngine {
   private async doInitialize(searchFrom: string): Promise<void> {
     this.toolHandler.setDefaultProjectHint(searchFrom);
 
-    const resolvedRoot = findNearestCodeGraphRoot(searchFrom);
+    const resolvedRoot = findNearestLatticeSensorRoot(searchFrom);
     if (!resolvedRoot) {
-      // No .codegraph/ above searchFrom. Sessions may still discover one later via roots/list
+      // No .lattice/sensor/ above searchFrom. Sessions may still discover one later via roots/list
       this.projectPath = searchFrom;
       return;
     }
 
     this.projectPath = resolvedRoot;
     try {
-      this.cg = await loadCodeGraph().open(resolvedRoot);
-      this.toolHandler.setDefaultCodeGraph(this.cg);
+      this.cg = await loadLatticeSensor().open(resolvedRoot);
+      this.toolHandler.setDefaultLatticeSensor(this.cg);
       this.startWatching();
       this.catchUpSync();
       this.maybeStartPool(resolvedRoot);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[CodeGraph MCP] Failed to open project at ${resolvedRoot}: ${msg}\n`);
-      // ADR 0049 Decision 5②: `.codegraph/` WAS found (findNearestCodeGraphRoot
+      process.stderr.write(`[LatticeSensor MCP] Failed to open project at ${resolvedRoot}: ${msg}\n`);
+      // ADR 0049 Decision 5②: `.lattice/sensor/` WAS found (findNearestLatticeSensorRoot
       // succeeded above) but opening it threw — fail closed on the next tool
-      // call instead of letting `getCodeGraph()`'s default-not-loaded branch
+      // call instead of letting `getLatticeSensor()`'s default-not-loaded branch
       // read this as "no index" and hand back success-shaped guidance. The
       // stderr line above stays for operators tailing logs; this is the
-      // machine-readable half, consumed by ToolHandler.getCodeGraph().
+      // machine-readable half, consumed by ToolHandler.getLatticeSensor().
       this.toolHandler.setOpenFailure(err instanceof Error ? err : new Error(msg));
     }
   }
 
   /**
-   * Start file watching on the active CodeGraph instance. Idempotent — the
+   * Start file watching on the active LatticeSensor instance. Idempotent — the
    * watcher is per-engine, not per-session, which is why the daemon path
    * collapses N inotify sets to one. The wording of the disabled-reason log
    * exactly matches the prior in-tree implementation so log-driven dashboards
@@ -260,7 +260,7 @@ export class MCPEngine {
     const disabledReason = watchDisabledReason(this.projectPath ?? process.cwd());
     if (disabledReason) {
       process.stderr.write(
-        `[CodeGraph MCP] File watcher disabled — ${disabledReason}. ` +
+        `[LatticeSensor MCP] File watcher disabled — ${disabledReason}. ` +
         `The graph will not auto-update; run \`lattice sensor sync . --json\` (or initialize via \`lattice sensor init . --json\`) to refresh.\n`
       );
       this.watcherStarted = true;
@@ -272,9 +272,9 @@ export class MCPEngine {
     // large generated outputs) where the 2s default fires too often. Clamped
     // to [100ms, 60s]; out-of-range / non-numeric values fall back to the
     // FileWatcher default. We log the active value so it's discoverable.
-    const debounceMs = parseDebounceEnv(process.env.CODEGRAPH_WATCH_DEBOUNCE_MS);
+    const debounceMs = parseDebounceEnv(process.env.LATTICE_SENSOR_WATCH_DEBOUNCE_MS);
     if (debounceMs !== undefined) {
-      process.stderr.write(`[CodeGraph MCP] File watcher debounce: ${debounceMs}ms (CODEGRAPH_WATCH_DEBOUNCE_MS)\n`);
+      process.stderr.write(`[LatticeSensor MCP] File watcher debounce: ${debounceMs}ms (LATTICE_SENSOR_WATCH_DEBOUNCE_MS)\n`);
     }
 
     const started = this.cg.watch({
@@ -282,12 +282,12 @@ export class MCPEngine {
       onSyncComplete: (result) => {
         if (result.filesChanged > 0) {
           process.stderr.write(
-            `[CodeGraph MCP] Auto-synced ${result.filesChanged} file(s) in ${result.durationMs}ms\n`
+            `[LatticeSensor MCP] Auto-synced ${result.filesChanged} file(s) in ${result.durationMs}ms\n`
           );
         }
       },
       onSyncError: (err) => {
-        process.stderr.write(`[CodeGraph MCP] Auto-sync error: ${err.message}\n`);
+        process.stderr.write(`[LatticeSensor MCP] Auto-sync error: ${err.message}\n`);
       },
       onDegraded: (reason) => {
         // Live watching gave up permanently (watch-resource exhaustion or a
@@ -295,13 +295,13 @@ export class MCPEngine {
         // graph will no longer auto-update, so a long-running MCP session must
         // not keep assuming it's fresh. The reason already names the remedy
         // (`lattice sensor sync . --json` / git sync hooks).
-        process.stderr.write(`[CodeGraph MCP] File watcher degraded — ${reason}\n`);
+        process.stderr.write(`[LatticeSensor MCP] File watcher degraded — ${reason}\n`);
       },
     });
 
     this.watcherStarted = true;
     if (started) {
-      process.stderr.write('[CodeGraph MCP] File watcher active — graph will auto-sync on changes\n');
+      process.stderr.write('[LatticeSensor MCP] File watcher active — graph will auto-sync on changes\n');
     } else {
       process.stderr.write(
         '[Lattice sensor] File watcher unavailable on this platform — run `lattice sensor sync . --json` to refresh the graph after changes.\n'
@@ -327,19 +327,19 @@ export class MCPEngine {
       .then((result) => {
         const changed = result.filesAdded + result.filesModified + result.filesRemoved;
         if (changed > 0) {
-          process.stderr.write(`[CodeGraph MCP] Caught up ${changed} file(s) changed since last run\n`);
+          process.stderr.write(`[LatticeSensor MCP] Caught up ${changed} file(s) changed since last run\n`);
         }
       })
       .catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[CodeGraph MCP] Catch-up sync failed: ${msg}\n`);
+        process.stderr.write(`[LatticeSensor MCP] Catch-up sync failed: ${msg}\n`);
       });
     this.toolHandler.setCatchUpGate(p);
   }
 }
 
 /**
- * Parse and clamp the CODEGRAPH_WATCH_DEBOUNCE_MS env override.
+ * Parse and clamp the LATTICE_SENSOR_WATCH_DEBOUNCE_MS env override.
  *
  * Issue #403: workspaces with bursty writes (formatter-on-save, multi-file
  * refactors) sometimes want a longer quiet window before sync. Returns

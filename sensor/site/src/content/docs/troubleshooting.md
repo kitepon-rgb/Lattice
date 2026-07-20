@@ -3,6 +3,8 @@ title: Troubleshooting
 description: Fixes for the most common CodeGraph issues.
 ---
 
+> **旧上流documentation（未配布）**: このページの名称、URL、CLI、設定、効果量は現行Latticeの仕様ではありません。現行仕様はroot `README.md` と `docs/00_product-contract.md` を参照してください。
+
 ## "CodeGraph not initialized"
 
 Run `codegraph init` in your project directory first.

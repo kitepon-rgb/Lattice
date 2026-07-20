@@ -60,12 +60,15 @@ export function phaseTodoRevisionPlanVersion({
   projectId, planKey, predecessor, desiredPlan, taskMigration, phaseMigration,
 }) {
   const versionDigest = digestTodoArtifact({
-    schema: 'lattice.phase_todo_revision_version.v1', project_id: projectId,
+    schema: desiredPlan.schema === 'lattice.todo_plan.v5'
+      ? 'lattice.phase_todo_revision_version.v2' : 'lattice.phase_todo_revision_version.v1', project_id: projectId,
     plan_key: planKey, predecessor, desired_topology: {
       schema: desiredPlan.schema, project_id: desiredPlan.project_id,
       plan_key: desiredPlan.plan_key, predecessor_plan_digest: desiredPlan.predecessor_plan_digest,
       tasks: desiredPlan.tasks, phases: desiredPlan.phases,
       hard_dependencies: desiredPlan.hard_dependencies, joins: desiredPlan.joins,
+      ...(desiredPlan.schema === 'lattice.todo_plan.v5'
+        ? { phase_accept_dependencies: desiredPlan.phase_accept_dependencies } : {}),
     }, task_migration: taskMigration, phase_migration: phaseMigration,
   });
   return `rev-${versionDigest.slice(0, 24)}`;
@@ -206,11 +209,13 @@ function canonicalizeForCompare(value) {
 
 export function validatePhaseTodoRevision(value) {
   try {
+    const revisionV1 = value?.schema === 'lattice.phase_todo_revision.v1';
+    const revisionV2 = value?.schema === 'lattice.phase_todo_revision.v2';
     return exactRecord(value, PHASE_REVISION_KEYS)
-      && value.schema === 'lattice.phase_todo_revision.v1'
+      && (revisionV1 || revisionV2)
       && isTodoIdentifier(value.project_id) && isTodoIdentifier(value.plan_key)
       && validPredecessor(value.predecessor) && validateTodoPlan(value.desired_plan)
-      && value.desired_plan.schema === 'lattice.todo_plan.v4'
+      && value.desired_plan.schema === (revisionV2 ? 'lattice.todo_plan.v5' : 'lattice.todo_plan.v4')
       && value.desired_plan.project_id === value.project_id
       && value.desired_plan.plan_key === value.plan_key
       && value.desired_plan.predecessor_plan_digest === value.predecessor.plan_digest
@@ -306,7 +311,9 @@ export function validateTodoRevisionSet(value) {
         || (setV3 && validatePhaseTodoRevision(revision))
       ) && revision.project_id === value.project_id)
       && (!setV2 || value.revisions.some((revision) => revision.schema === 'lattice.todo_revision.v2'))
-      && (!setV3 || value.revisions.some((revision) => revision.schema === 'lattice.phase_todo_revision.v1'))
+      && (!setV3 || value.revisions.some((revision) => [
+        'lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2',
+      ].includes(revision.schema)))
       && value.revisions.every((revision, index) => index === 0
         || compareText(value.revisions[index - 1].plan_key, revision.plan_key) < 0)
       && isTodoDigest(value.revision_set_digest)

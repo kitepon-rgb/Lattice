@@ -9,7 +9,7 @@ import test from 'node:test';
 import { selfDigest } from '../../src/runtime-contracts.mjs';
 
 // RC3-D integration（ADR 0044 Decision 8・10.4）。
-// disposable git repo＋実Codegraph＋実CLI processで、plan compile／verifyの
+// disposable git repo＋実LatticeSensor＋実CLI processで、plan compile／verifyの
 // exit契約（0=成功JSON、1=typed error JSON、2=usage）とfail closed経路を検証する。
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -90,7 +90,7 @@ function buildRequest(baseSha) {
         writes: ['src/alpha.mjs'],
         resources: [],
         state_effects: [],
-        codegraph_provenance: {
+        sensor_provenance: {
           queries: [
             { query_id: 'q-alpha', expect: { kind: 'symbol', name: 'computeAlpha', path: 'src/alpha.mjs' } },
             { query_id: 'q-alpha-aff', expect: { kind: 'affected', path: 'src/alpha.mjs' } },
@@ -108,7 +108,7 @@ function buildRequest(baseSha) {
         writes: ['src/beta.mjs'],
         resources: [],
         state_effects: [],
-        codegraph_provenance: {
+        sensor_provenance: {
           queries: [
             { query_id: 'q-beta', expect: { kind: 'symbol', name: 'computeBeta', path: 'src/beta.mjs' } },
             { query_id: 'q-beta-aff', expect: { kind: 'affected', path: 'src/beta.mjs' } },
@@ -118,7 +118,7 @@ function buildRequest(baseSha) {
         unknowns: [],
       },
     },
-    codegraph_query_set: {
+    sensor_query_set: {
       queries: [
         { id: 'q-status', operation: 'status' },
         { id: 'q-alpha', operation: 'query', target: 'computeAlpha' },

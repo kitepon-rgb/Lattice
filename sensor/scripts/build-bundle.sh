@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Build a self-contained CodeGraph bundle: an official Node runtime + the
-# compiled app + its production deps, so CodeGraph runs with NO system Node and
+# Build a self-contained Lattice sensor bundle: an official Node runtime + the
+# compiled app + its production deps, so Lattice sensor runs with NO system Node and
 # NO native build — node:sqlite is built into the bundled Node. One archive per
 # platform.
 #
@@ -16,8 +16,8 @@
 #     node-version:  e.g. v24.16.0 (default below; pin for reproducible builds)
 #
 # Output:
-#   unix:    release/codegraph-<target>.tar.gz   (launcher: bin/codegraph)
-#   windows: release/codegraph-<target>.zip      (launcher: bin/codegraph.cmd)
+#   unix:    release/lattice-sensor-<target>.tar.gz   (launcher: bin/lattice-sensor)
+#   windows: release/lattice-sensor-<target>.zip      (launcher: bin/lattice-sensor.cmd)
 set -euo pipefail
 
 TARGET="${1:?usage: build-bundle.sh <target> [node-version]}"
@@ -60,7 +60,7 @@ echo "[bundle] building app"
 ( cd "$ROOT" && npm run build >/dev/null )
 
 # 3. Stage: app + production-only deps (pure JS/wasm → portable across platforms).
-STAGE="$WORK/codegraph-${TARGET}"
+STAGE="$WORK/lattice-sensor-${TARGET}"
 mkdir -p "$STAGE/lib" "$STAGE/bin"
 cp -R "$ROOT/dist" "$STAGE/lib/dist"
 cp "$ROOT/package.json" "$ROOT/package-lock.json" "$STAGE/lib/"
@@ -69,20 +69,20 @@ echo "[bundle] installing production dependencies"
 rm -f "$STAGE/lib/package-lock.json"
 
 # 3b. Native extraction kernel (optional). Included when a prebuilt .node for
-#     the target exists — release/kernel/<target>/codegraph-kernel.node (the
+#     the target exists — release/kernel/<target>/lattice-sensor-kernel.node (the
 #     release workflow's prebuild artifacts) or the locally staged
-#     codegraph-kernel/prebuilds/<target>/ (scripts/build-kernel.sh). Absent →
+#     lattice-sensor-kernel/prebuilds/<target>/ (scripts/build-kernel.sh). Absent →
 #     the bundle simply runs the wasm extraction path; the kernel is a
 #     per-language speedup, never a requirement (see
 #     docs/design/rust-kernel-migration-plan.md).
 KERNEL_NODE=""
-for candidate in "$ROOT/release/kernel/${TARGET}/codegraph-kernel.node" \
-                 "$ROOT/codegraph-kernel/prebuilds/${TARGET}/codegraph-kernel.node"; do
+for candidate in "$ROOT/release/kernel/${TARGET}/lattice-sensor-kernel.node" \
+                 "$ROOT/lattice-sensor-kernel/prebuilds/${TARGET}/lattice-sensor-kernel.node"; do
   if [ -f "$candidate" ]; then KERNEL_NODE="$candidate"; break; fi
 done
 if [ -n "$KERNEL_NODE" ]; then
   mkdir -p "$STAGE/lib/kernel"
-  cp "$KERNEL_NODE" "$STAGE/lib/kernel/codegraph-kernel.node"
+  cp "$KERNEL_NODE" "$STAGE/lib/kernel/lattice-sensor-kernel.node"
   echo "[bundle] native kernel included ($KERNEL_NODE)"
 else
   echo "[bundle] no native kernel for ${TARGET} — bundle uses the wasm extraction path"
@@ -101,13 +101,13 @@ fi
 # runs are covered too; passing it here avoids that extra spawn.)
 if [ "$OSFAM" = "win32" ]; then
   cp "$NODE_BIN" "$STAGE/node.exe"
-  printf '@"%%~dp0..\\node.exe" --liftoff-only --disable-warning=ExperimentalWarning "%%~dp0..\\lib\\dist\\bin\\codegraph.js" %%*\r\n' \
-    > "$STAGE/bin/codegraph.cmd"
+  printf '@"%%~dp0..\\node.exe" --liftoff-only --disable-warning=ExperimentalWarning "%%~dp0..\\lib\\dist\\bin\\lattice-sensor.js" %%*\r\n' \
+    > "$STAGE/bin/lattice-sensor.cmd"
 else
   cp "$NODE_BIN" "$STAGE/node"
-  cat > "$STAGE/bin/codegraph" <<'LAUNCH'
+  cat > "$STAGE/bin/lattice-sensor" <<'LAUNCH'
 #!/bin/sh
-# Resolve symlinks (e.g. the ~/.local/bin/codegraph link install.sh creates) so
+# Resolve symlinks (e.g. the ~/.local/bin/lattice-sensor link install.sh creates) so
 # we find the real bundle dir, not the symlink's location.
 SELF="$0"
 while [ -L "$SELF" ]; do
@@ -121,25 +121,25 @@ DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
 # Thread the MCP host's pid to the server's orphan watchdog (issue #1185).
 # $PPID is our parent — the host itself when it launched this script directly;
 # an already-threaded value (the npm shim sets the true host pid) wins.
-CODEGRAPH_HOST_PPID="${CODEGRAPH_HOST_PPID:-$PPID}"
-export CODEGRAPH_HOST_PPID
+LATTICE_SENSOR_HOST_PPID="${LATTICE_SENSOR_HOST_PPID:-$PPID}"
+export LATTICE_SENSOR_HOST_PPID
 # --liftoff-only: avoid the V8 turboshaft WASM Zone OOM (issues #293/#298).
 # --disable-warning=ExperimentalWarning: mute node:sqlite's per-thread
 # "experimental feature" warning that otherwise interleaves with the progress UI.
-exec "$DIR/node" --liftoff-only --disable-warning=ExperimentalWarning "$DIR/lib/dist/bin/codegraph.js" "$@"
+exec "$DIR/node" --liftoff-only --disable-warning=ExperimentalWarning "$DIR/lib/dist/bin/lattice-sensor.js" "$@"
 LAUNCH
-  chmod +x "$STAGE/bin/codegraph"
+  chmod +x "$STAGE/bin/lattice-sensor"
 fi
 
 # 5. Archive (.zip for Windows, .tar.gz otherwise).
 mkdir -p "$OUT"
 if [ "$OSFAM" = "win32" ]; then
-  ARCHIVE="$OUT/codegraph-${TARGET}.zip"
+  ARCHIVE="$OUT/lattice-sensor-${TARGET}.zip"
   rm -f "$ARCHIVE"
-  ( cd "$WORK" && zip -rqX "$ARCHIVE" "codegraph-${TARGET}" )
+  ( cd "$WORK" && zip -rqX "$ARCHIVE" "lattice-sensor-${TARGET}" )
 else
-  ARCHIVE="$OUT/codegraph-${TARGET}.tar.gz"
+  ARCHIVE="$OUT/lattice-sensor-${TARGET}.tar.gz"
   # --no-xattrs: don't embed macOS xattrs that make GNU tar warn on Linux.
-  tar --no-xattrs -czf "$ARCHIVE" -C "$WORK" "codegraph-${TARGET}"
+  tar --no-xattrs -czf "$ARCHIVE" -C "$WORK" "lattice-sensor-${TARGET}"
 fi
 echo "[bundle] wrote ${ARCHIVE} ($(du -h "$ARCHIVE" | cut -f1))"

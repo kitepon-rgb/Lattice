@@ -221,7 +221,7 @@ function derivedPhaseStatus(plan, taskStates, phaseStates, phaseId) {
 }
 
 function projectPhaseStates(plan, events, taskStates) {
-  if (plan.schema !== 'lattice.todo_plan.v4') return [];
+  if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema)) return [];
   const states = new Map(plan.phases.map(({ phase_id }) => [phase_id, emptyPhaseState(phase_id)]));
   for (const event of events) {
     if (event.schema === 'lattice.todo_event.v4') {
@@ -332,7 +332,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
       continue;
     }
     if (event.kind.startsWith('phase_')) {
-      if (plan.schema !== 'lattice.todo_plan.v4' || !phaseStates.has(event.phase_id)) {
+      if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema) || !phaseStates.has(event.phase_id)) {
         fail('STORE_INCONSISTENT', 'event_phase_missing');
       }
       const state = phaseStates.get(event.phase_id);
@@ -366,11 +366,17 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           || state.decision_event_digest !== event.payload.target_decision_digest) {
           fail('STORE_INCONSISTENT', 'phase_reopen_binding_invalid');
         }
-        const successorStarted = currentStatus === 'accepted'
-          && plan.phases.some((phase) => phase.predecessor_phase_ids.includes(event.phase_id)
-          && (phaseStates.get(phase.phase_id).status !== 'locked'
-            || plan.tasks.some((task) => task.phase_id === phase.phase_id
-              && states.get(task.task_id).status !== 'pending')));
+        const successorStarted = currentStatus === 'accepted' && (plan.schema === 'lattice.todo_plan.v4'
+          ? plan.phases.some((phase) => phase.predecessor_phase_ids.includes(event.phase_id)
+            && (phaseStates.get(phase.phase_id).status !== 'locked'
+              || plan.tasks.some((task) => task.phase_id === phase.phase_id
+                && states.get(task.task_id).status !== 'pending')))
+          : plan.phases.some((phase) => phase.predecessor_phase_ids.includes(event.phase_id)
+              && phaseStates.get(phase.phase_id).status !== 'locked')
+            || plan.phase_accept_dependencies.some((edge) => edge.from.project_id === plan.project_id
+              && edge.from.plan_key === plan.plan_key && edge.from.phase_id === event.phase_id
+              && edge.to.project_id === plan.project_id && edge.to.plan_key === plan.plan_key
+              && states.get(edge.to.task_id)?.status !== 'pending'));
         if (successorStarted && event.payload.override_reason === null) {
           fail('STORE_INCONSISTENT', 'phase_reopen_has_started_successor');
         }
@@ -438,7 +444,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
       if (state.status !== 'done' || doneDigest.get(event.task_id) !== event.payload.target_done_digest) {
         fail('STORE_INCONSISTENT', 'invalid_reopen_binding');
       }
-      if (plan.schema === 'lattice.todo_plan.v4') {
+      if (['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema)) {
         const phaseId = plan.tasks.find(({ task_id }) => task_id === event.task_id).phase_id;
         if (derivedPhaseStatus(plan, states, phaseStates, phaseId) === 'accepted') {
           fail('STORE_INCONSISTENT', 'task_reopen_requires_phase_reopen');
@@ -455,7 +461,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
 
 function snapshotFor(plan, events, tasks) {
   const head = events.at(-1);
-  const phasePlan = plan.schema === 'lattice.todo_plan.v4';
+  const phasePlan = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema);
   const snapshot = {
     schema: phasePlan ? 'lattice.todo_snapshot.v2' : 'lattice.todo_snapshot.v1',
     project_id: plan.project_id, plan_key: plan.plan_key,
@@ -474,10 +480,30 @@ function validateMergedGraph(members) {
     tasks.set(`${member.plan.project_id}\0${member.plan.plan_key}\0${task.task_id}`, member.plan.topology_digest);
   }
   const adjacency = new Map([...tasks.keys()].map((key) => [key, []]));
+  const phases = new Map();
+  for (const member of members) {
+    if (member.plan.schema !== 'lattice.todo_plan.v5') continue;
+    for (const phase of member.plan.phases) {
+      const key = `phase\0${member.plan.project_id}\0${member.plan.plan_key}\0${phase.phase_id}`;
+      phases.set(key, member.plan.topology_digest);
+      adjacency.set(key, []);
+    }
+  }
   const bind = (ref, ownerPlan) => {
     const key = `${ref.project_id}\0${ref.plan_key}\0${ref.task_id}`;
     const topology = tasks.get(key);
     if (topology === undefined) fail('STORE_INCONSISTENT', 'dangling_dependency');
+    if ((ref.project_id !== ownerPlan.project_id || ref.plan_key !== ownerPlan.plan_key)
+      && ref.expected_topology_digest === undefined) fail('STORE_INCONSISTENT', 'cross_plan_binding_missing');
+    if (ref.expected_topology_digest !== undefined && topology !== ref.expected_topology_digest) {
+      fail('STORE_INCONSISTENT', 'binding_stale');
+    }
+    return key;
+  };
+  const bindPhase = (ref, ownerPlan) => {
+    const key = `phase\0${ref.project_id}\0${ref.plan_key}\0${ref.phase_id}`;
+    const topology = phases.get(key);
+    if (topology === undefined) fail('STORE_INCONSISTENT', 'dangling_phase_dependency');
     if ((ref.project_id !== ownerPlan.project_id || ref.plan_key !== ownerPlan.plan_key)
       && ref.expected_topology_digest === undefined) fail('STORE_INCONSISTENT', 'cross_plan_binding_missing');
     if (ref.expected_topology_digest !== undefined && topology !== ref.expected_topology_digest) {
@@ -497,6 +523,22 @@ function validateMergedGraph(members) {
         const after = bind(afterRef, plan);
         if (after === before) fail('STORE_INCONSISTENT', 'join_self_edge');
         adjacency.get(after).push(before);
+      }
+    }
+    if (plan.schema === 'lattice.todo_plan.v5') {
+      for (const task of plan.tasks) {
+        const taskKey = `${plan.project_id}\0${plan.plan_key}\0${task.task_id}`;
+        const phaseKey = `phase\0${plan.project_id}\0${plan.plan_key}\0${task.phase_id}`;
+        adjacency.get(taskKey).push(phaseKey);
+      }
+      for (const phase of plan.phases) {
+        const to = `phase\0${plan.project_id}\0${plan.plan_key}\0${phase.phase_id}`;
+        for (const predecessor of phase.predecessor_phase_ids) {
+          adjacency.get(`phase\0${plan.project_id}\0${plan.plan_key}\0${predecessor}`).push(to);
+        }
+      }
+      for (const edge of plan.phase_accept_dependencies) {
+        adjacency.get(bindPhase(edge.from, plan)).push(bind(edge.to, plan));
       }
     }
   }
@@ -528,8 +570,8 @@ function mergedTaskPhase(store, taskKey) {
       project_id: member.plan.project_id, plan_key: member.plan.plan_key, task_id: entry.task_id,
     }) === taskKey);
     if (task === undefined) continue;
-    if (member.plan.schema !== 'lattice.todo_plan.v4') return null;
-    return { plan_key: member.plan.plan_key, phase_id: task.phase_id,
+    if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)) return null;
+    return { schema: member.plan.schema, plan_key: member.plan.plan_key, phase_id: task.phase_id,
       status: member.snapshot.phases.find(({ phase_id }) => phase_id === task.phase_id)?.status };
   }
   return undefined;
@@ -540,9 +582,25 @@ function mergedDependencyPhaseReady(store, predecessorKey, targetKey) {
   const target = mergedTaskPhase(store, targetKey);
   if (predecessor === undefined) return false;
   if (predecessor === null) return true;
+  if (predecessor.schema === 'lattice.todo_plan.v5') return true;
   if (target !== null && target !== undefined && predecessor.plan_key === target.plan_key
     && predecessor.phase_id === target.phase_id) return true;
   return predecessor.status === 'accepted';
+}
+
+function mergedPhaseAcceptReady(store, targetKey) {
+  for (const member of store.members) {
+    if (member.plan.schema !== 'lattice.todo_plan.v5') continue;
+    for (const edge of member.plan.phase_accept_dependencies) {
+      if (mergedTaskKey(edge.to) !== targetKey) continue;
+      const source = store.members.find((candidate) => candidate.plan.project_id === edge.from.project_id
+        && candidate.plan.plan_key === edge.from.plan_key);
+      if (source?.snapshot.phases.find(({ phase_id }) => phase_id === edge.from.phase_id)?.status !== 'accepted') {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 function mergedPredecessorKeys(store, targetKey) {
@@ -580,10 +638,12 @@ function validateMergedTransition(store, member, event) {
     project_id: member.plan.project_id, plan_key: member.plan.plan_key, task_id: event.task_id,
   });
   const states = mergedTaskStates(store);
-  const dependenciesDone = mergedPredecessorKeys(store, targetKey)
+  const taskDependenciesDone = mergedPredecessorKeys(store, targetKey)
     .every((key) => states.get(key) === 'done' && mergedDependencyPhaseReady(store, key, targetKey));
+  const phaseAcceptReady = mergedPhaseAcceptReady(store, targetKey);
+  const dependenciesDone = taskDependenciesDone && phaseAcceptReady;
   if (event.kind === 'start' && event.payload.start_mode !== 'historical_import'
-    && !dependenciesDone && event.payload.override_reason === null) {
+    && (!phaseAcceptReady || (!taskDependenciesDone && event.payload.override_reason === null))) {
     fail('STORE_INCONSISTENT', 'invalid_start_transition');
   }
   if (event.kind === 'done' && event.payload.done_mode === 'authored' && !dependenciesDone) {
@@ -595,11 +655,18 @@ function validateMergedTransition(store, member, event) {
     if (startedSuccessor) fail('STORE_INCONSISTENT', 'reopen_has_started_successor');
   }
   if (event.kind === 'phase_reopen' && event.payload.override_reason === null) {
-    const phaseTaskKeys = member.plan.tasks.filter(({ phase_id }) => phase_id === event.phase_id)
-      .map(({ task_id }) => mergedTaskKey({ project_id: member.plan.project_id,
-        plan_key: member.plan.plan_key, task_id }));
-    const startedSuccessor = phaseTaskKeys.flatMap((key) => mergedSuccessorKeys(store, key))
-      .some((key) => states.get(key) !== 'pending');
+    const startedSuccessor = member.plan.schema === 'lattice.todo_plan.v4'
+      ? member.plan.tasks.filter(({ phase_id }) => phase_id === event.phase_id)
+        .map(({ task_id }) => mergedTaskKey({ project_id: member.plan.project_id,
+          plan_key: member.plan.plan_key, task_id }))
+        .flatMap((key) => mergedSuccessorKeys(store, key))
+        .some((key) => states.get(key) !== 'pending')
+      : store.members.some((candidate) => candidate.plan.schema === 'lattice.todo_plan.v5'
+        && candidate.plan.phase_accept_dependencies.some((edge) => (
+          edge.from.project_id === member.plan.project_id
+          && edge.from.plan_key === member.plan.plan_key && edge.from.phase_id === event.phase_id
+          && states.get(mergedTaskKey(edge.to)) !== 'pending'
+        )));
     if (startedSuccessor) fail('STORE_INCONSISTENT', 'phase_reopen_has_started_successor');
   }
 }
@@ -736,8 +803,8 @@ function materializeImportedNarrativeAnchors(repoRoot, planInput, sources) {
 }
 
 function verifyPlanNarrativeAnchors(repoRoot, plan, trustedPlan = null) {
-  if (!['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4'].includes(plan.schema)) return;
-  const trusted = new Map((['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4'].includes(trustedPlan?.schema)
+  if (!['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema)) return;
+  const trusted = new Map((['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(trustedPlan?.schema)
     ? trustedPlan.tasks : [])
     .map((task) => [task.task_id, task.narrative_anchor]));
   for (const task of plan.tasks) {
@@ -966,12 +1033,13 @@ function nextEvent(input, storeMember) {
     ? { done_mode: 'authored', imported: false, evidence: input.payload.evidence }
     : input.payload;
   const event = {
-    schema: storeMember.plan.schema === 'lattice.todo_plan.v4'
+    schema: ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(storeMember.plan.schema)
       ? 'lattice.todo_event.v3' : 'lattice.todo_event.v1', project_id: storeMember.plan.project_id,
     plan_key: storeMember.plan.plan_key, plan_version: storeMember.plan.plan_version,
     sequence: previous.sequence + 1, previous_digest: previous.event_digest,
     kind: input.kind, task_id: input.task_id ?? null,
-    ...(storeMember.plan.schema === 'lattice.todo_plan.v4' ? { phase_id: input.phase_id ?? null } : {}),
+    ...(['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(storeMember.plan.schema)
+      ? { phase_id: input.phase_id ?? null } : {}),
     actor: input.actor, recorded_at: input.recorded_at,
     provenance: input.provenance ?? null, payload, event_digest: '',
   };
@@ -1071,7 +1139,9 @@ export function buildTodoPlan(input) {
   plan.topology_digest = digestTodoArtifact({
     project_id: plan.project_id, plan_key: plan.plan_key, plan_version: plan.plan_version,
     tasks: plan.tasks, hard_dependencies: plan.hard_dependencies, joins: plan.joins,
-    ...(plan.schema === 'lattice.todo_plan.v4' ? { phases: plan.phases } : {}),
+    ...(['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema) ? { phases: plan.phases } : {}),
+    ...(plan.schema === 'lattice.todo_plan.v5'
+      ? { phase_accept_dependencies: plan.phase_accept_dependencies } : {}),
   });
   plan.plan_digest = todoSelfDigest(plan, 'plan_digest');
   if (!validateTodoPlan(plan)) throw new TypeError('todo plan input violates its declared schema');
@@ -1080,11 +1150,12 @@ export function buildTodoPlan(input) {
 
 export function buildPlanGenesis(plan, input) {
   const event = {
-    schema: plan.schema === 'lattice.todo_plan.v4' ? 'lattice.todo_event.v3' : 'lattice.todo_event.v1',
+    schema: ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema)
+      ? 'lattice.todo_event.v3' : 'lattice.todo_event.v1',
     project_id: plan.project_id, plan_key: plan.plan_key,
     plan_version: plan.plan_version, sequence: 0, previous_digest: input.previous_digest ?? null,
     kind: 'plan_genesis', task_id: null,
-    ...(plan.schema === 'lattice.todo_plan.v4' ? { phase_id: null } : {}),
+    ...(['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema) ? { phase_id: null } : {}),
     actor: input.actor, recorded_at: input.recorded_at,
     provenance: input.provenance ?? null,
     payload: { plan_digest: plan.plan_digest, topology_digest: plan.topology_digest,
@@ -1613,7 +1684,13 @@ function taskSemantics(plan, taskId, idMap, { reconciliationMetadata = false } =
         .sort((left, right) => canonicalizeTodoArtifact(left) < canonicalizeTodoArtifact(right) ? -1 : 1),
       before: mappedNodeRef(join.before, plan, idMap),
     })).sort((left, right) => left.id < right.id ? -1 : 1);
-  return { task: normalizedTask, hard_dependencies: edges, joins };
+  const phaseAcceptDependencies = plan.schema === 'lattice.todo_plan.v5'
+    ? plan.phase_accept_dependencies
+      .filter(({ to }) => localTaskRef(to, plan, taskId))
+      .map(({ from, to }) => ({ from, to: mappedNodeRef(to, plan, idMap) }))
+      .sort((left, right) => canonicalizeTodoArtifact(left) < canonicalizeTodoArtifact(right) ? -1 : 1)
+    : [];
+  return { task: normalizedTask, hard_dependencies: edges, joins, phase_accept_dependencies: phaseAcceptDependencies };
 }
 
 function stateMigrationFor(previous, revision) {
@@ -1647,7 +1724,7 @@ function stateMigrationFor(previous, revision) {
 }
 
 function phaseStateMigrationFor(previous, revision) {
-  const predecessorPhases = previous.plan.schema === 'lattice.todo_plan.v4'
+  const predecessorPhases = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(previous.plan.schema)
     ? previous.plan.phases : [];
   const sourceIds = revision.phase_migration
     .filter(({ from_phase_id }) => from_phase_id !== null).map(({ from_phase_id }) => from_phase_id);
@@ -1796,7 +1873,8 @@ function parseRevisionSetMarker(bytes) {
       && isTodoIdentifier(value.project_id) && isTodoDigest(value.revision_set_digest)
       && Array.isArray(value.entries) && value.entries.length > 0
       && value.entries.every((entry) => {
-        const phase = entry?.revision?.schema === 'lattice.phase_todo_revision.v1';
+        const phase = ['lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2']
+          .includes(entry?.revision?.schema);
         return exactRecord(entry, phase && value.schema.endsWith('.v2') ? [
           'revision', 'state_migration', 'phase_state_migration', 'genesis',
         ] : ['revision', 'state_migration', 'genesis'])
@@ -2439,7 +2517,8 @@ export async function applyTodoRevisionSet(options = {}) {
     const activeDesired = revisions.map((revision) => {
       const member = byPlan.get(revision.plan_key);
       const genesis = member?.journal.events[0];
-      const expectedGenesisSchema = revision.schema === 'lattice.phase_todo_revision.v1'
+      const expectedGenesisSchema = ['lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2']
+        .includes(revision.schema)
         ? 'lattice.todo_event.v4' : 'lattice.todo_event.v2';
       return member !== undefined
         && member.plan.plan_digest === revision.desired_plan.plan_digest
@@ -2474,7 +2553,8 @@ export async function applyTodoRevisionSet(options = {}) {
         || previous.journal.events.at(-1).event_digest !== revision.predecessor.journal_head_digest) {
         fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
       }
-      const phaseRevision = revision.schema === 'lattice.phase_todo_revision.v1';
+      const phaseRevision = ['lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2']
+        .includes(revision.schema);
       const activeGenesis = previous.journal.events[0];
       if (!phaseRevision) {
         const predecessorReconciliationDigest = activeGenesis.schema === 'lattice.todo_event.v2'
@@ -2516,9 +2596,9 @@ export async function applyTodoRevisionSet(options = {}) {
       ? { ...member, plan: desiredByPlan.get(member.descriptor.plan_key) } : member));
 
     await ensureSafeStoreDirectory(repoRoot, transaction);
-    const mixedPhaseSet = prepared.some(({ revision }) => (
-      revision.schema === 'lattice.phase_todo_revision.v1'
-    ));
+    const mixedPhaseSet = prepared.some(({ revision }) => ([
+      'lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2',
+    ].includes(revision.schema)));
     let marker = {
       schema: mixedPhaseSet
         ? 'lattice.todo_revision_set_transaction.v2' : 'lattice.todo_revision_set_transaction.v1',
@@ -2679,7 +2759,7 @@ export async function createSuccessorTodoPlan(options = {}) {
     }
     const schemaRank = new Map([
       ['lattice.todo_plan.v1', 1], ['lattice.todo_plan.v2', 2], ['lattice.todo_plan.v3', 3],
-      ['lattice.todo_plan.v4', 4],
+      ['lattice.todo_plan.v4', 4], ['lattice.todo_plan.v5', 5],
     ]);
     if (schemaRank.get(plan.schema) < schemaRank.get(previous.plan.schema)) {
       throw new TypeError(previous.plan.schema === 'lattice.todo_plan.v2'

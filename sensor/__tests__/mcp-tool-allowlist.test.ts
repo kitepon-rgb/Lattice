@@ -1,14 +1,14 @@
 /**
- * CODEGRAPH_MCP_TOOLS allowlist — lets an operator (or an A/B harness) trim the
+ * LATTICE_SENSOR_MCP_TOOLS allowlist — lets an operator (or an A/B harness) trim the
  * exposed MCP tool surface without touching the client config. Inert when unset.
  * Filtering happens in ListTools (getTools) and is enforced again on execute().
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { ToolHandler } from '../src/mcp/tools';
 
-const ENV = 'CODEGRAPH_MCP_TOOLS';
+const ENV = 'LATTICE_SENSOR_MCP_TOOLS';
 
-describe('CODEGRAPH_MCP_TOOLS allowlist', () => {
+describe('LATTICE_SENSOR_MCP_TOOLS allowlist', () => {
   const original = process.env[ENV];
   afterEach(() => {
     if (original === undefined) delete process.env[ENV];
@@ -20,46 +20,46 @@ describe('CODEGRAPH_MCP_TOOLS allowlist', () => {
   it('exposes the eight Lattice-owned compatibility tools by default when unset', () => {
     delete process.env[ENV];
     expect(listed()).toEqual([
-      'codegraph_callees', 'codegraph_callers', 'codegraph_explore', 'codegraph_files',
-      'codegraph_impact', 'codegraph_node', 'codegraph_search', 'codegraph_status',
+      'lattice_sensor_callees', 'lattice_sensor_callers', 'lattice_sensor_explore', 'lattice_sensor_files',
+      'lattice_sensor_impact', 'lattice_sensor_node', 'lattice_sensor_search', 'lattice_sensor_status',
     ]);
   });
 
   it('re-enables an unlisted tool via the allowlist (impact)', () => {
     process.env[ENV] = 'explore,impact';
-    expect(listed()).toEqual(['codegraph_explore', 'codegraph_impact']);
+    expect(listed()).toEqual(['lattice_sensor_explore', 'lattice_sensor_impact']);
   });
 
   it('filters ListTools to the allowlisted short names', () => {
     process.env[ENV] = 'explore,search,node';
-    expect(listed()).toEqual(['codegraph_explore', 'codegraph_node', 'codegraph_search']);
+    expect(listed()).toEqual(['lattice_sensor_explore', 'lattice_sensor_node', 'lattice_sensor_search']);
   });
 
-  it('accepts fully-qualified codegraph_ names and ignores whitespace', () => {
-    process.env[ENV] = ' codegraph_explore , search ';
-    expect(listed()).toEqual(['codegraph_explore', 'codegraph_search']);
+  it('accepts fully-qualified lattice_sensor_ names and ignores whitespace', () => {
+    process.env[ENV] = ' lattice_sensor_explore , search ';
+    expect(listed()).toEqual(['lattice_sensor_explore', 'lattice_sensor_search']);
   });
 
   it('treats an empty/whitespace value as unset (default surface)', () => {
     process.env[ENV] = '   ';
     expect(listed()).toEqual([
-      'codegraph_callees', 'codegraph_callers', 'codegraph_explore', 'codegraph_files',
-      'codegraph_impact', 'codegraph_node', 'codegraph_search', 'codegraph_status',
+      'lattice_sensor_callees', 'lattice_sensor_callers', 'lattice_sensor_explore', 'lattice_sensor_files',
+      'lattice_sensor_impact', 'lattice_sensor_node', 'lattice_sensor_search', 'lattice_sensor_status',
     ]);
   });
 
   it('rejects a disabled tool on execute (defense in depth)', async () => {
     process.env[ENV] = 'node';
-    const res = await new ToolHandler(null).execute('codegraph_explore', {});
+    const res = await new ToolHandler(null).execute('lattice_sensor_explore', {});
     expect(res.isError).toBe(true);
-    expect(res.content[0].text).toMatch(/disabled via CODEGRAPH_MCP_TOOLS/);
+    expect(res.content[0].text).toMatch(/disabled via LATTICE_SENSOR_MCP_TOOLS/);
   });
 
   it('lets an allowlisted tool past the guard', async () => {
     process.env[ENV] = 'search';
-    // No CodeGraph attached, so it fails *after* the allowlist guard — the
+    // No LatticeSensor attached, so it fails *after* the allowlist guard — the
     // "disabled" message must NOT appear, proving the guard passed it through.
-    const res = await new ToolHandler(null).execute('codegraph_search', { query: 'x' });
-    expect(res.content[0].text).not.toMatch(/disabled via CODEGRAPH_MCP_TOOLS/);
+    const res = await new ToolHandler(null).execute('lattice_sensor_search', { query: 'x' });
+    expect(res.content[0].text).not.toMatch(/disabled via LATTICE_SENSOR_MCP_TOOLS/);
   });
 });

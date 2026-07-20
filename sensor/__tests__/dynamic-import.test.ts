@@ -25,7 +25,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { CodeGraph } from '../src';
+import { LatticeSensor } from '../src';
 import { DatabaseConnection } from '../src/db';
 import { QueryBuilder } from '../src/db/queries';
 import {
@@ -34,10 +34,10 @@ import {
 
 describe('Dynamic import()/require() extraction + resolution', () => {
   let tempDir: string;
-  let cg: CodeGraph;
+  let cg: LatticeSensor;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-dynimport-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-dynimport-'));
   });
 
   afterEach(() => {
@@ -55,9 +55,9 @@ describe('Dynamic import()/require() extraction + resolution', () => {
     );
     fs.writeFileSync(path.join(tempDir, 'x.mjs'), `export const val = 1;\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const q = new QueryBuilder(db.getDb());
     const edge = db
       .getDb()
@@ -80,9 +80,9 @@ describe('Dynamic import()/require() extraction + resolution', () => {
     );
     fs.writeFileSync(path.join(tempDir, 'x.js'), `module.exports = { val: 1 };\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const q = new QueryBuilder(db.getDb());
     const edge = db
       .getDb()
@@ -113,9 +113,9 @@ describe('Dynamic import()/require() extraction + resolution', () => {
       `export function reject() {}\n`
     );
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const q = new QueryBuilder(db.getDb());
     const edge = db
       .getDb()
@@ -141,9 +141,9 @@ describe('Dynamic import()/require() extraction + resolution', () => {
     );
     fs.writeFileSync(path.join(tempDir, 'x.mjs'), `export const val = 1;\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const edge = db
       .getDb()
       .prepare(
@@ -165,9 +165,9 @@ describe('Dynamic import()/require() extraction + resolution', () => {
     // coincidental symbol it could wrongly bind to.
     fs.writeFileSync(path.join(tempDir, 'other.js'), `export const p = 1;\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const importEdges = db
       .getDb()
       .prepare(`SELECT count(*) c FROM edges WHERE kind = 'imports'`)
@@ -216,9 +216,9 @@ describe('Dynamic import()/require() extraction + resolution', () => {
     );
     fs.writeFileSync(path.join(tempDir, 'lib', 'x.ts'), `export const val = 1;\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const edges = db
       .getDb()
       .prepare(
@@ -240,9 +240,9 @@ describe('Dynamic import()/require() extraction + resolution', () => {
     );
     fs.writeFileSync(path.join(tempDir, 'x.mjs'), `export const val = 1;\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const edge = db
       .getDb()
       .prepare(
@@ -265,9 +265,9 @@ describe('Dynamic import()/require() extraction + resolution', () => {
     // fallback in resolveViaImport).
     fs.writeFileSync(path.join(tempDir, 'lodash.js'), `module.exports = {};\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const edge = db
       .getDb()
       .prepare(`SELECT count(*) c FROM edges WHERE kind = 'imports'`)

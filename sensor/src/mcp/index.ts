@@ -1,14 +1,14 @@
 /**
- * CodeGraph MCP Server
+ * LatticeSensor MCP Server
  *
- * Model Context Protocol server that exposes CodeGraph functionality
+ * Model Context Protocol server that exposes LatticeSensor functionality
  * as tools for AI assistants like Claude.
  *
  * @module mcp
  *
  * @example
  * ```typescript
- * import { MCPServer } from 'codegraph';
+ * import { MCPServer } from 'lattice sensor';
  *
  * const server = new MCPServer('/path/to/project');
  * await server.start();
@@ -17,14 +17,14 @@
  * Runtime modes (decided in {@link MCPServer.start}):
  *
  * - **Direct** — one process serves one MCP client over stdio. The pre-#411
- *   behavior; used when the user opts out (`CODEGRAPH_NO_DAEMON=1`), no
- *   `.codegraph/` is reachable, or the daemon machinery fails for any reason.
+ *   behavior; used when the user opts out (`LATTICE_SENSOR_NO_DAEMON=1`), no
+ *   `.lattice/sensor/` is reachable, or the daemon machinery fails for any reason.
  * - **Proxy** — what an MCP host actually talks to when sharing is on: a thin
  *   stdio↔socket pipe to the shared daemon. The proxy carries the #277 PPID
  *   watchdog, so a SIGKILL'd host reaps its proxy promptly. See {@link ./proxy.ts}.
  * - **Daemon** — a *detached* background process (its own session/process
  *   group) that serves N proxies over a Unix-domain socket / named pipe,
- *   sharing one CodeGraph + watcher + SQLite handle. Spawned on demand; never a
+ *   sharing one LatticeSensor + watcher + SQLite handle. Spawned on demand; never a
  *   child of any host, so it survives individual sessions and is reaped by
  *   client-refcount + idle timeout. See {@link ./daemon.ts} and issue #411.
  *
@@ -37,7 +37,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn, StdioOptions } from 'child_process';
-import { findNearestCodeGraphRoot, getCodeGraphDir } from '../directory';
+import { findNearestLatticeSensorRoot, getLatticeSensorDir } from '../directory';
 import { StdioTransport } from './transport';
 import { MCPEngine } from './engine';
 import { MCPSession } from './session';
@@ -50,7 +50,7 @@ import {
 import { connectWithHello, runLocalHandshakeProxy, DaemonSocketOutcome } from './proxy';
 import { getDaemonSocketCandidates } from './daemon-paths';
 import { getTelemetry } from '../telemetry';
-import { CodeGraphPackageVersion } from './version';
+import { LatticeSensorPackageVersion } from './version';
 import { EARLY_PPID } from './early-ppid';
 import { supervisionLostReason, parsePpidPollMs, parseHostPpid } from './ppid-watchdog';
 import { installMainThreadWatchdog, WatchdogHandle } from './liveness-watchdog';
@@ -64,7 +64,7 @@ import { HOST_PPID_ENV } from '../extraction/wasm-runtime-flags';
  * `serve --mcp` invocation is a launcher that connects-or-spawns; with it, the
  * process IS the daemon and must never try to spawn another (infinite spawn).
  */
-const DAEMON_INTERNAL_ENV = 'CODEGRAPH_DAEMON_INTERNAL';
+const DAEMON_INTERNAL_ENV = 'LATTICE_SENSOR_DAEMON_INTERNAL';
 
 /**
  * Retries for the detached daemon arbitrating the O_EXCL lock against a racing
@@ -85,14 +85,14 @@ const TAKEOVER_RETRY_DELAY_MS = 100;
 // daemon binds, instead of waiting up to a coarse 100ms after — shaves the
 // cold-start handshake (the window the headless agent races). Same ~6s total
 // give-up budget (240 × 25ms), just finer granularity; socket-connect probes
-// are cheap. Paired with deferring the CodeGraph load (engine.ts) off the bind
+// are cheap. Paired with deferring the LatticeSensor load (engine.ts) off the bind
 // path, this narrows the "No such tool available" race window.
 const DAEMON_CONNECT_MAX_RETRIES = 240;
 const DAEMON_CONNECT_RETRY_DELAY_MS = 25;
 
-/** Whether `CODEGRAPH_NO_DAEMON` was set to a truthy value. */
+/** Whether `LATTICE_SENSOR_NO_DAEMON` was set to a truthy value. */
 function daemonOptOutSet(): boolean {
-  const raw = process.env.CODEGRAPH_NO_DAEMON;
+  const raw = process.env.LATTICE_SENSOR_NO_DAEMON;
   if (!raw) return false;
   return raw !== '0' && raw.toLowerCase() !== 'false';
 }
@@ -105,16 +105,16 @@ function daemonInternalSet(): boolean {
 
 /**
  * ADR 0049 Decision 5①④: map the prose reason `startDirect` already carried
- * (used for the CODEGRAPH_MCP_DEBUG log line) onto the enumerated
- * machine-readable reason codegraph_status reports. Falls back to the
+ * (used for the LATTICE_SENSOR_MCP_DEBUG log line) onto the enumerated
+ * machine-readable reason lattice_sensor_status reports. Falls back to the
  * generic 'no-daemon' for any reason string not in the enumerated list
  * (defensive — every current caller passes one of the three below).
  */
 function mapDirectReason(reason: string): string {
   switch (reason) {
-    case 'CODEGRAPH_NO_DAEMON set':
+    case 'LATTICE_SENSOR_NO_DAEMON set':
       return 'opt-out';
-    case 'no .codegraph/ root found':
+    case 'no .lattice/sensor/ root found':
       return 'no-root-index';
     case 'proxy path threw':
       return 'proxy-setup-failed';
@@ -125,9 +125,9 @@ function mapDirectReason(reason: string): string {
 
 /**
  * Resolve the project root the daemon machinery should key on. Returns
- * `null` when no `.codegraph/` is reachable from the candidate path — in
+ * `null` when no `.lattice/sensor/` is reachable from the candidate path — in
  * that case the caller must run in direct mode, since the daemon lockfile
- * and socket both live under `.codegraph/`.
+ * and socket both live under `.lattice/sensor/`.
  *
  * The result is canonicalized with `realpathSync` so every client converges on
  * the same socket/lock path regardless of how it expressed the path: a client
@@ -138,7 +138,7 @@ function mapDirectReason(reason: string): string {
  */
 function resolveDaemonRoot(explicitPath: string | null): string | null {
   const candidate = explicitPath ?? process.cwd();
-  const root = findNearestCodeGraphRoot(candidate);
+  const root = findNearestLatticeSensorRoot(candidate);
   if (!root) return null;
   try { return fs.realpathSync(root); } catch { return root; }
 }
@@ -147,7 +147,7 @@ function resolveDaemonRoot(explicitPath: string | null): string | null {
  * Spawn the shared daemon as a fully detached background process: its own
  * session/process group (so a SIGHUP/SIGINT to the launcher's terminal can't
  * reach it) with stdio decoupled from the launcher (logs to
- * `.codegraph/daemon.log`). Re-invokes the *same* CLI faithfully across dev and
+ * `.lattice/sensor/daemon.log`). Re-invokes the *same* CLI faithfully across dev and
  * bundled launches by reusing `process.argv[0]` (the right node), the current
  * `process.execArgv` (carries `--liftoff-only`, so the daemon never re-execs)
  * and `process.argv[1]` (this script). The spawned process self-arbitrates the
@@ -165,7 +165,7 @@ function spawnDetachedDaemon(root: string): void {
   let logFd: number | null = null;
   let stdio: StdioOptions = 'ignore';
   try {
-    logFd = fs.openSync(path.join(getCodeGraphDir(root), 'daemon.log'), 'a');
+    logFd = fs.openSync(path.join(getLatticeSensorDir(root), 'daemon.log'), 'a');
     stdio = ['ignore', logFd, logFd];
   } catch {
     stdio = 'ignore'; // no log file — discard daemon output rather than fail
@@ -196,9 +196,9 @@ function spawnDetachedDaemon(root: string): void {
 }
 
 /**
- * MCP Server for CodeGraph
+ * MCP Server for LatticeSensor
  *
- * Implements the Model Context Protocol to expose CodeGraph
+ * Implements the Model Context Protocol to expose LatticeSensor
  * functionality as tools that can be called by AI assistants.
  *
  * Backwards-compatible constructor and `start()` signature with the
@@ -234,10 +234,10 @@ export class MCPServer {
    * Start the MCP server.
    *
    * Decision order:
-   *   1. `CODEGRAPH_NO_DAEMON=1` → direct mode (unchanged pre-#411 behavior).
-   *   2. `CODEGRAPH_DAEMON_INTERNAL=1` → we ARE the detached daemon; listen.
-   *   3. No `.codegraph/` reachable → direct mode (the daemon's lockfile and
-   *      socket both live under `.codegraph/`).
+   *   1. `LATTICE_SENSOR_NO_DAEMON=1` → direct mode (unchanged pre-#411 behavior).
+   *   2. `LATTICE_SENSOR_DAEMON_INTERNAL=1` → we ARE the detached daemon; listen.
+   *   3. No `.lattice/sensor/` reachable → direct mode (the daemon's lockfile and
+   *      socket both live under `.lattice/sensor/`).
    *   4. Otherwise connect to (or spawn) the shared daemon and proxy to it.
    *
    * On any unexpected failure in step 4 we transparently fall back to direct
@@ -250,7 +250,7 @@ export class MCPServer {
     // Lattice product-identity contract that's a build defect, not a
     // degraded-but-working state: fail loudly at MCP server startup instead
     // of shipping a server that can never rendezvous with its own daemon.
-    if (CodeGraphPackageVersion === '0.0.0-unknown') {
+    if (LatticeSensorPackageVersion === '0.0.0-unknown') {
       process.stderr.write(
         '[Lattice sensor] Fatal: could not read package.json to resolve the running ' +
         'version (got the "0.0.0-unknown" sentinel). This indicates a broken or ' +
@@ -282,14 +282,14 @@ export class MCPServer {
     // Direct mode if the user opted out. Setting the env var is sufficient to
     // get the pre-#411 single-process behavior.
     if (daemonOptOutSet()) {
-      return this.startDirect('CODEGRAPH_NO_DAEMON set');
+      return this.startDirect('LATTICE_SENSOR_NO_DAEMON set');
     }
 
     const root = resolveDaemonRoot(this.projectPath);
     if (!root) {
       // No initialized project found — daemon mode has nowhere to put its
       // socket. The fresh-checkout / outside-project case; behave as before.
-      return this.startDirect('no .codegraph/ root found');
+      return this.startDirect('no .lattice/sensor/ root found');
     }
 
     try {
@@ -305,7 +305,7 @@ export class MCPServer {
       // Belt-and-braces: a throw during proxy SETUP (before the client was served)
       // is still safe to recover from with a direct-mode session.
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[CodeGraph MCP] Proxy path failed (${msg}); falling back to direct mode.\n`);
+      process.stderr.write(`[LatticeSensor MCP] Proxy path failed (${msg}); falling back to direct mode.\n`);
       return this.startDirect('proxy path threw');
     }
   }
@@ -344,12 +344,12 @@ export class MCPServer {
 
   /** Single-process stdio MCP session — the pre-issue-#411 code path. */
   private async startDirect(reason: string): Promise<void> {
-    if (reason && process.env.CODEGRAPH_MCP_DEBUG) {
-      process.stderr.write(`[CodeGraph MCP] Direct mode: ${reason}.\n`);
+    if (reason && process.env.LATTICE_SENSOR_MCP_DEBUG) {
+      process.stderr.write(`[LatticeSensor MCP] Direct mode: ${reason}.\n`);
     }
     this.engine = new MCPEngine();
     // ADR 0049 Decision 5④: record the machine-readable direct-mode reason so
-    // codegraph_status can report it without relying on stderr prose.
+    // lattice_sensor_status can report it without relying on stderr prose.
     this.engine.setExecutionMode('direct', mapDirectReason(reason));
     const transport = new StdioTransport();
     this.session = new MCPSession(transport, this.engine, {
@@ -376,8 +376,8 @@ export class MCPServer {
     // after session.start() attached the real stdin consumer.
     armStartupHandshakeTimeout(() => {
       process.stderr.write(
-        '[CodeGraph MCP] No MCP traffic since startup; assuming an abandoned launch and shutting down (#1185). ' +
-        'Tune with CODEGRAPH_STARTUP_HANDSHAKE_TIMEOUT_MS (0 disables).\n'
+        '[LatticeSensor MCP] No MCP traffic since startup; assuming an abandoned launch and shutting down (#1185). ' +
+        'Tune with LATTICE_SENSOR_STARTUP_HANDSHAKE_TIMEOUT_MS (0 disables).\n'
       );
       this.stop();
     });
@@ -390,7 +390,7 @@ export class MCPServer {
 
   /**
    * Run as the detached shared daemon (process spawned with
-   * `CODEGRAPH_DAEMON_INTERNAL=1`). Arbitrate the O_EXCL lock, then either
+   * `LATTICE_SENSOR_DAEMON_INTERNAL=1`). Arbitrate the O_EXCL lock, then either
    * become the daemon (bind the socket, serve forever) or — if a live daemon
    * already holds the lock — exit so we don't leak a redundant process.
    *
@@ -419,7 +419,7 @@ export class MCPServer {
       const existing = lock.existing;
       if (existing && existing.pid > 0 && isProcessAlive(existing.pid)) {
         process.stderr.write(
-          `[CodeGraph daemon] Another daemon (pid ${existing.pid}) already holds the lock; exiting.\n`
+          `[LatticeSensor daemon] Another daemon (pid ${existing.pid}) already holds the lock; exiting.\n`
         );
         process.exit(0);
       }
@@ -430,7 +430,7 @@ export class MCPServer {
       await sleep(TAKEOVER_RETRY_DELAY_MS);
     }
 
-    process.stderr.write('[CodeGraph daemon] Could not acquire the daemon lock; exiting.\n');
+    process.stderr.write('[LatticeSensor daemon] Could not acquire the daemon lock; exiting.\n');
     process.exit(0);
   }
 
@@ -500,7 +500,7 @@ export class MCPServer {
    */
   private installPpidWatchdog(): void {
     if (this.mode !== 'direct') return;
-    const pollMs = parsePpidPollMs(process.env.CODEGRAPH_PPID_POLL_MS);
+    const pollMs = parsePpidPollMs(process.env.LATTICE_SENSOR_PPID_POLL_MS);
     if (pollMs <= 0) return;
     this.ppidWatchdog = setInterval(() => {
       const reason = supervisionLostReason({
@@ -511,7 +511,7 @@ export class MCPServer {
       });
       if (reason) {
         process.stderr.write(
-          `[CodeGraph MCP] Parent process exited (${reason}); shutting down.\n`
+          `[LatticeSensor MCP] Parent process exited (${reason}); shutting down.\n`
         );
         this.stop();
       }
@@ -533,4 +533,4 @@ export { StdioTransport } from './transport';
 export { tools, ToolHandler } from './tools';
 // Surface a few daemon-mode bits for tests + diagnostics.
 export { Daemon } from './daemon';
-export { CodeGraphPackageVersion } from './version';
+export { LatticeSensorPackageVersion } from './version';

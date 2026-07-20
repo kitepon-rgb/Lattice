@@ -43,14 +43,14 @@ describe('buildNode25BlockBanner', () => {
     expect(banner).toContain('brew install node@22');
   });
 
-  it('documents the CODEGRAPH_ALLOW_UNSAFE_NODE override', () => {
+  it('documents the LATTICE_SENSOR_ALLOW_UNSAFE_NODE override', () => {
     const banner = buildNode25BlockBanner('25.7.0');
-    expect(banner).toContain('CODEGRAPH_ALLOW_UNSAFE_NODE=1');
+    expect(banner).toContain('LATTICE_SENSOR_ALLOW_UNSAFE_NODE=1');
   });
 
   it('links to issue #81 for the root-cause writeup', () => {
     expect(buildNode25BlockBanner('25.7.0')).toContain(
-      'github.com/colbymchenry/codegraph/issues/81'
+      'github.com/kitepon-rgb/Lattice/issues/81'
     );
   });
 });
@@ -76,7 +76,7 @@ describe('buildNodeTooOldBanner', () => {
     expect(banner).toContain('brew install node@22');
   });
 
-  it('documents the CODEGRAPH_ALLOW_UNSAFE_NODE override', () => {
-    expect(buildNodeTooOldBanner('18.0.0')).toContain('CODEGRAPH_ALLOW_UNSAFE_NODE=1');
+  it('documents the LATTICE_SENSOR_ALLOW_UNSAFE_NODE override', () => {
+    expect(buildNodeTooOldBanner('18.0.0')).toContain('LATTICE_SENSOR_ALLOW_UNSAFE_NODE=1');
   });
 });

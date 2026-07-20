@@ -67,12 +67,12 @@ async function makeFixtureRepo(t) {
     copyRepoFile(repoRoot, SHARED_TEST),
     copyRepoFile(repoRoot, ORACLE_PATH),
   ]);
-  await mkdir(path.join(repoRoot, '.codegraph'), { recursive: true });
+  await mkdir(path.join(repoRoot, '.lattice/sensor'), { recursive: true });
   await writeFile(
-    path.join(repoRoot, '.codegraph', '.gitignore'),
+    path.join(repoRoot, '.lattice/sensor', '.gitignore'),
     [
-      '# CodeGraph data files — local to each machine, not for committing.',
-      '# Ignore everything in .codegraph/ except this file itself, so transient',
+      '# LatticeSensor data files — local to each machine, not for committing.',
+      '# Ignore everything in .lattice/sensor/ except this file itself, so transient',
       '# files (the database, daemon.pid, sockets, logs) never show up in git.',
       '*',
       '!.gitignore',

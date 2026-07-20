@@ -6,8 +6,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 // RC3-B integration safety net（ADR 0044 Decision 10.3）:
-// RC3 event store root `research/runs/`はtracked exclusionでCodegraph coverageから
-// 除外され、JSON非index挙動への暗黙依存なしに`codegraph files`照合で検証できる。
+// RC3 event store root `research/runs/`はtracked exclusionでLatticeSensor coverageから
+// 除外され、JSON非index挙動への暗黙依存なしに`sensor files`照合で検証できる。
 // 除外の生きた証明として、言語index対象になり得る.mjs probeをevent store側と
 // fixture側の両方へ置き、fixture側だけが収載されることを固定する。
 const REPO_ROOT = path.resolve(new URL('../..', import.meta.url).pathname);
@@ -37,14 +37,14 @@ async function writeProbe(repoRoot, relativePath, contents) {
   await writeFile(absolutePath, contents);
 }
 
-test('Codegraph tracked exclusionはRC3 event storeをlive coverageから除外する', async (context) => {
+test('LatticeSensor tracked exclusionはRC3 event storeをlive coverageから除外する', async (context) => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-rc3-event-store-scope-'));
   context.after(() => rm(temporaryRoot, { recursive: true, force: true }));
   const repoRoot = path.join(temporaryRoot, 'repo');
   run('git', ['clone', '--quiet', '--no-hardlinks', REPO_ROOT, repoRoot], REPO_ROOT);
 
   // commit済みHEADでなく、現在のworking treeのexclusion設定を検証対象にする。
-  await copyFile(path.join(REPO_ROOT, 'codegraph.json'), path.join(repoRoot, 'codegraph.json'));
+  await copyFile(path.join(REPO_ROOT, 'lattice-sensor.json'), path.join(repoRoot, 'lattice-sensor.json'));
   await writeProbe(repoRoot, EXCLUDED_PROBE_PATH, [
     '/** RC3 event store側のprobe。live coverageへ収載されてはならない。 */',
     'export function rc3ScopeProbeExcluded() {',

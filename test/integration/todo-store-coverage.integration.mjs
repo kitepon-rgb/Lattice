@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-// ADR 0053 Decision 3: TODO storeはtrackedだがCodegraph coverageから除外し、
+// ADR 0053 Decision 3: TODO storeはtrackedだがLatticeSensor coverageから除外し、
 // generated projectionはgitignoredかつcoverageから除外する。両rootにはindex対象の
 // .mjs probeを置き、拡張子の非対応へ依存せずcoverage分離を検証する。
 const REPO_ROOT = path.resolve(new URL('../..', import.meta.url).pathname);
@@ -39,7 +39,7 @@ async function writeProbe(repoRoot, relativePath, contents) {
   await writeFile(absolutePath, contents);
 }
 
-test('TODO storeとgenerated projectionをCodegraph coverageから分離する', async (context) => {
+test('TODO storeとgenerated projectionをLatticeSensor coverageから分離する', async (context) => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-todo-store-coverage-'));
   context.after(() => rm(temporaryRoot, { recursive: true, force: true }));
   const repoRoot = path.join(temporaryRoot, 'repo');
@@ -47,7 +47,7 @@ test('TODO storeとgenerated projectionをCodegraph coverageから分離する',
 
   // commit済みHEADでなく、現在のworking treeのcoverage設定を検証対象にする。
   await copyFile(path.join(REPO_ROOT, '.gitignore'), path.join(repoRoot, '.gitignore'));
-  await copyFile(path.join(REPO_ROOT, 'codegraph.json'), path.join(repoRoot, 'codegraph.json'));
+  await copyFile(path.join(REPO_ROOT, 'lattice-sensor.json'), path.join(repoRoot, 'lattice-sensor.json'));
   await writeProbe(repoRoot, STORE_PROBE_PATH, [
     'export function todoStoreProbe() {',
     "  return 'tracked-but-excluded';",
@@ -79,7 +79,7 @@ test('TODO storeとgenerated projectionをCodegraph coverageから分離する',
   ], repoRoot);
 
   const configuration = JSON.parse(await readFile(
-    path.join(repoRoot, 'codegraph.json'),
+    path.join(repoRoot, 'lattice-sensor.json'),
     'utf8',
   ));
   assert.equal(configuration.exclude.includes('.lattice/todo/'), true);

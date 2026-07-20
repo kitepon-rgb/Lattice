@@ -71,12 +71,12 @@ const PHP_PROP_SHAPE = /^this->\w+\.\w+$/;
  * stays flat on large codebases (20k+ files). Sizes were chosen to
  * cover the working set for typical resolution batches without
  * exceeding a few hundred MB worst-case. Override via the env var
- * `CODEGRAPH_RESOLVER_CACHE_SIZE` (single integer applied to all
+ * `LATTICE_SENSOR_RESOLVER_CACHE_SIZE` (single integer applied to all
  * caches) when tuning for very large or very small projects.
  */
 const DEFAULT_CACHE_LIMIT = 5_000;
 function resolveCacheLimit(): number {
-  const raw = process.env.CODEGRAPH_RESOLVER_CACHE_SIZE;
+  const raw = process.env.LATTICE_SENSOR_RESOLVER_CACHE_SIZE;
   if (!raw) return DEFAULT_CACHE_LIMIT;
   const parsed = Number.parseInt(raw, 10);
   if (Number.isFinite(parsed) && parsed > 0) return parsed;
@@ -1391,7 +1391,7 @@ export class ReferenceResolver {
     onSynthesisProgress?: (done: number, total: number) => void,
     // When provided, big batches fan out across a read-only resolver-worker
     // pool with results admitted in canonical order (see resolver-pool.ts).
-    // Sequential fallback on any pool failure. CODEGRAPH_NO_PARALLEL_RESOLVE=1
+    // Sequential fallback on any pool failure. LATTICE_SENSOR_NO_PARALLEL_RESOLVE=1
     // disables entirely. bulkEdgeLoad hooks (when provided) bracket the batch
     // loop with drop/recreate of the non-unique edge indexes on big runs —
     // see DatabaseConnection.beginBulkEdgeLoad.
@@ -1429,7 +1429,7 @@ export class ReferenceResolver {
       pool?.ready().then(
         () => {
           poolReady = true;
-          if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[pool-timing] pool ready after ${Date.now() - tPoolStart}ms`);
+          if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[pool-timing] pool ready after ${Date.now() - tPoolStart}ms`);
         },
         () => { void pool?.destroy().catch(() => undefined); pool = null; }
       );
@@ -1530,7 +1530,7 @@ export class ReferenceResolver {
 
       const tBatch = Date.now();
       const result = await settleBatch(inFlight, batch);
-      if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[pool-timing] batch ${inFlight.mode}: ${batch.length} refs in ${Date.now() - tBatch}ms`);
+      if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[pool-timing] batch ${inFlight.mode}: ${batch.length} refs in ${Date.now() - tBatch}ms`);
 
       // Persist in bounded sub-transactions with yields between: a whole
       // batch's edge insert / keyed deletes are otherwise one solid
@@ -1589,7 +1589,7 @@ export class ReferenceResolver {
         await maybeYield();
       }
 
-      if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[pool-timing] batch persist: ${Date.now() - tPersist}ms`);
+      if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[pool-timing] batch persist: ${Date.now() - tPersist}ms`);
 
       // Aggregate stats
       aggregateStats.total += result.stats.total;
@@ -1640,7 +1640,7 @@ export class ReferenceResolver {
       if (bulkEdgesActive) {
         const tIdx = Date.now();
         await parallel!.bulkEdgeLoad!.end();
-        if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[phase-timing] edge-index-recreate: ${Date.now() - tIdx}ms`);
+        if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] edge-index-recreate: ${Date.now() - tIdx}ms`);
       }
     }
 
@@ -1662,7 +1662,7 @@ export class ReferenceResolver {
     } catch {
       // synthesis is additive and optional; ignore failures
     }
-    if (process.env.CODEGRAPH_SYNTH_TIMINGS) console.error(`[phase-timing] callback-synthesis: ${Date.now() - tSynth}ms`);
+    if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] callback-synthesis: ${Date.now() - tSynth}ms`);
     } finally {
       if (pool) await pool.destroy().catch(() => undefined);
     }

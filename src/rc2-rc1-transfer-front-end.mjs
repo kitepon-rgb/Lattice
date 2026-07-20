@@ -30,7 +30,7 @@ const QUERY_OPERATIONS = new Set([
   'impact',
   'affected',
 ]);
-const V2_CODEGRAPH_STATUSES = new Set([
+const V2_SENSOR_STATUSES = new Set([
   'ready',
   'symbol_absent',
   'empty',
@@ -119,7 +119,7 @@ function validateCandidateSpec(candidateSpec) {
 
 function queryMapFor(querySet) {
   if (!exactRecord(querySet, ['schema', 'queries'])
-    || querySet.schema !== 'lattice.codegraph_query_set.v2') {
+    || querySet.schema !== 'lattice.sensor_query_set.v2') {
     fail('query set shapeまたはschemaが不正');
   }
   requireArray(querySet.queries, 'querySet.queries');
@@ -341,8 +341,8 @@ function structuralResources({
     }
     const queryId = [...group.queryIds][0];
     const evidence = evidenceById.get(queryId);
-    if (!evidence || !V2_CODEGRAPH_STATUSES.has(evidence.status)) {
-      fail(`resource ${group.kind}:${group.target}のCodegraph statusをv2へ保持できない`);
+    if (!evidence || !V2_SENSOR_STATUSES.has(evidence.status)) {
+      fail(`resource ${group.kind}:${group.target}のLatticeSensor statusをv2へ保持できない`);
     }
     return {
       resource_id: resourceId(group.kind, group.target),
@@ -351,7 +351,7 @@ function structuralResources({
       todo_ids: [...group.todoIds].sort(compareText),
       provenance: [
         {
-          source: 'codegraph',
+          source: 'sensor',
           evidence_ref: `boundary-manifest.graph_evidence#${queryId}`,
           evidence_digest: evidence.result_digest,
           status: evidence.status,

@@ -29,7 +29,7 @@ import {
   __setFsWatchForTests,
   type WatchOptions,
 } from '../src/sync/watcher';
-import CodeGraph from '../src/index';
+import LatticeSensor from '../src/index';
 
 type SyncFn = () => Promise<{ filesChanged: number; durationMs: number }>;
 
@@ -63,7 +63,7 @@ describe('FileWatcher', () => {
     new FileWatcher(testDir, syncFn, { inertForTests: true, ...opts });
 
   beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-watcher-'));
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-watcher-'));
     // Create a source file so the directory isn't empty
     const srcDir = path.join(testDir, 'src');
     fs.mkdirSync(srcDir);
@@ -120,7 +120,7 @@ describe('FileWatcher', () => {
     // uses — recursive on macOS/Windows, per-directory on Linux. Each uses its
     // OWN EMPTY temp dir so exactly one watch is installed and the close-count
     // is deterministic across platforms.
-    const mkEmptyDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-exhaust-'));
+    const mkEmptyDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-exhaust-'));
 
     it('fails to start and degrades when fs.watch setup exhausts watch resources', () => {
       const dir = mkEmptyDir();
@@ -216,7 +216,7 @@ describe('FileWatcher', () => {
         // Empty-but-for-one-subdir temp dir: the root watch succeeds, then the
         // child watch hits the (simulated) inotify budget — the realistic
         // "partial watch installed, then exhausted" shape.
-        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-inotify-'));
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-inotify-'));
         fs.mkdirSync(path.join(dir, 'sub'));
         const onDegraded = vi.fn();
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -475,14 +475,14 @@ describe('FileWatcher', () => {
     });
 
     it('end-to-end: deleting a subdirectory removes its files from the index via watch sync (#1285)', async () => {
-      // Real CodeGraph as the sync target; the watcher is inert and driven
+      // Real LatticeSensor as the sync target; the watcher is inert and driven
       // by the synthetic event seam for determinism.
       fs.writeFileSync(path.join(testDir, 'root.ts'), 'export const r = 1;');
       const deep = path.join(testDir, 'docs', 'a', 'b');
       fs.mkdirSync(deep, { recursive: true });
       fs.writeFileSync(path.join(deep, 'inner.ts'), 'export const i = 2;');
 
-      const cg = CodeGraph.initSync(testDir);
+      const cg = LatticeSensor.initSync(testDir);
       await cg.indexAll();
       const before = cg.getFiles().map((f) => f.path);
       expect(before).toContain('docs/a/b/inner.ts');
@@ -510,16 +510,16 @@ describe('FileWatcher', () => {
       cg.close();
     });
 
-    it('should ignore .codegraph directory changes', async () => {
+    it('should ignore .lattice/sensor directory changes', async () => {
       const syncFn = vi.fn().mockResolvedValue({ filesChanged: 0, durationMs: 0 });
       const watcher = newWatcher(syncFn, { debounceMs: 200 });
 
       watcher.start();
       await watcher.waitUntilReady();
 
-      // A .codegraph event — FileWatcher's `isAlwaysIgnored` filter must drop
+      // A .lattice/sensor event — FileWatcher's `isAlwaysIgnored` filter must drop
       // it before scheduling sync.
-      __emitWatchEventForTests(testDir, '.codegraph/db.sqlite');
+      __emitWatchEventForTests(testDir, '.lattice/sensor/db.sqlite');
 
       await new Promise((r) => setTimeout(r, 400));
       expect(syncFn).not.toHaveBeenCalled();
@@ -619,7 +619,7 @@ describe('FileWatcher', () => {
     });
 
     it('should retain pending files and retry when syncFn throws LockUnavailableError (#449)', async () => {
-      // CodeGraph.watch() converts the cross-process lock-failure no-op
+      // LatticeSensor.watch() converts the cross-process lock-failure no-op
       // into LockUnavailableError so the watcher's retry path picks it up
       // instead of falsely clearing pendingFiles. This test exercises the
       // contract directly.
@@ -698,15 +698,15 @@ describe('FileWatcher', () => {
     });
   });
 
-  describe('CodeGraph integration', () => {
-    let cg: CodeGraph;
+  describe('LatticeSensor integration', () => {
+    let cg: LatticeSensor;
 
     afterEach(() => {
       if (cg) cg.close();
     });
 
-    it('should watch and unwatch via CodeGraph API', async () => {
-      cg = CodeGraph.initSync(testDir, {
+    it('should watch and unwatch via LatticeSensor API', async () => {
+      cg = LatticeSensor.initSync(testDir, {
         config: { include: ['**/*.ts'], exclude: [] },
       });
       await cg.indexAll();
@@ -722,7 +722,7 @@ describe('FileWatcher', () => {
     });
 
     it('should stop watching on close', async () => {
-      cg = CodeGraph.initSync(testDir, {
+      cg = LatticeSensor.initSync(testDir, {
         config: { include: ['**/*.ts'], exclude: [] },
       });
       await cg.indexAll();
@@ -739,7 +739,7 @@ describe('FileWatcher', () => {
     it('should auto-sync when files change while watching (real fs.watch end-to-end)', async () => {
       // The one test that exercises the genuine native watcher: a real file
       // write must propagate through fs.watch → debounce → sync into the graph.
-      cg = CodeGraph.initSync(testDir, {
+      cg = LatticeSensor.initSync(testDir, {
         config: { include: ['**/*.ts'], exclude: [] },
       });
       await cg.indexAll();

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# Build the native extraction kernel (codegraph-kernel) and stage the .node
+# Build the native extraction kernel (lattice-sensor-kernel) and stage the .node
 # where the TS loader (src/extraction/kernel/loader.ts) finds it for
 # from-source runs and tests:
 #
-#   codegraph-kernel/prebuilds/<platform>-<arch>/codegraph-kernel.node
+#   lattice-sensor-kernel/prebuilds/<platform>-<arch>/lattice-sensor-kernel.node
 #
 # The kernel is OPTIONAL everywhere: when the .node is absent the extraction
 # path falls back to the wasm pipeline. This script needs a Rust toolchain
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CRATE="$ROOT/codegraph-kernel"
+CRATE="$ROOT/lattice-sensor-kernel"
 
 TARGET=""
 PLATFORM=""
@@ -57,7 +57,7 @@ if [ -z "$PLATFORM" ]; then
   fi
 fi
 
-echo "[kernel] building codegraph-kernel for ${PLATFORM}${TARGET:+ (target $TARGET)}"
+echo "[kernel] building lattice-sensor-kernel for ${PLATFORM}${TARGET:+ (target $TARGET)}"
 cd "$CRATE"
 if [ -n "$TARGET" ]; then
   rustup target add "$TARGET" >/dev/null 2>&1 || true
@@ -68,15 +68,15 @@ else
   OUTDIR="$CRATE/target/release"
 fi
 
-# cdylib name differs per OS; the staged name is always codegraph-kernel.node.
+# cdylib name differs per OS; the staged name is always lattice-sensor-kernel.node.
 case "$PLATFORM" in
-  darwin-*) LIB="$OUTDIR/libcodegraph_kernel.dylib" ;;
-  linux-*)  LIB="$OUTDIR/libcodegraph_kernel.so" ;;
-  win32-*)  LIB="$OUTDIR/codegraph_kernel.dll" ;;
+  darwin-*) LIB="$OUTDIR/liblattice_sensor_kernel.dylib" ;;
+  linux-*)  LIB="$OUTDIR/liblattice_sensor_kernel.so" ;;
+  win32-*)  LIB="$OUTDIR/lattice_sensor_kernel.dll" ;;
 esac
 [ -f "$LIB" ] || { echo "[kernel] error: built library not found at $LIB" >&2; exit 1; }
 
 DEST="$CRATE/prebuilds/$PLATFORM"
 mkdir -p "$DEST"
-cp "$LIB" "$DEST/codegraph-kernel.node"
-echo "[kernel] staged $DEST/codegraph-kernel.node ($(du -h "$DEST/codegraph-kernel.node" | cut -f1))"
+cp "$LIB" "$DEST/lattice-sensor-kernel.node"
+echo "[kernel] staged $DEST/lattice-sensor-kernel.node ($(du -h "$DEST/lattice-sensor-kernel.node" | cut -f1))"

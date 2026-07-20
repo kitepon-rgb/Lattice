@@ -8,7 +8,7 @@ import {
   validateBoundaryVerdict,
   validatePlanGraph,
 } from '../src/artifact-contracts.mjs';
-import { portableCodegraphOutcome } from '../src/codegraph-adapter.mjs';
+import { portableSensorOutcome } from '../src/sensor-adapter.mjs';
 import { compileControlArtifacts } from '../src/control-compiler.mjs';
 
 const sha = (character) => character.repeat(64);
@@ -70,7 +70,7 @@ async function inputs() {
     manualNormal,
     manualNegative,
     querySet,
-    codegraphEvidence: graphEvidence(querySet),
+    sensorEvidence: graphEvidence(querySet),
     codeSnapshotDigest: sha('c'),
   };
 }
@@ -81,7 +81,7 @@ test('normal control compiles one write conflict, seam candidate, and two waves 
     planInput: value.planInput,
     manualEvidence: value.manualNormal,
     querySet: value.querySet,
-    codegraphEvidence: value.codegraphEvidence,
+    sensorEvidence: value.sensorEvidence,
     codeSnapshotDigest: value.codeSnapshotDigest,
   };
   const before = structuredClone(options);
@@ -119,23 +119,23 @@ test('normal control compiles one write conflict, seam candidate, and two waves 
 test('control artifact digests portable graph outcomes instead of execution telemetry', async () => {
   const left = await inputs();
   const right = structuredClone(left);
-  const leftStatus = left.codegraphEvidence.outcomes[0];
-  const rightStatus = right.codegraphEvidence.outcomes[0];
+  const leftStatus = left.sensorEvidence.outcomes[0];
+  const rightStatus = right.sensorEvidence.outcomes[0];
   Object.assign(leftStatus.data, {
     projectPath: '/tmp/first',
-    indexPath: '/tmp/first/.codegraph',
+    indexPath: '/tmp/first/.lattice/sensor',
     lastIndexed: '2026-07-15T00:00:00.000Z',
     dbSizeBytes: 1_024,
   });
   Object.assign(rightStatus.data, {
     projectPath: '/tmp/second',
-    indexPath: '/tmp/second/.codegraph',
+    indexPath: '/tmp/second/.lattice/sensor',
     lastIndexed: '2026-07-15T00:00:01.000Z',
     dbSizeBytes: 2_048,
   });
-  const leftQuery = left.codegraphEvidence.outcomes
+  const leftQuery = left.sensorEvidence.outcomes
     .find(({ id }) => id === 'query-build-dispatch-record');
-  const rightQuery = right.codegraphEvidence.outcomes
+  const rightQuery = right.sensorEvidence.outcomes
     .find(({ id }) => id === 'query-build-dispatch-record');
   leftQuery.data[0].node.updatedAt = 1;
   rightQuery.data[0].node.updatedAt = 2;
@@ -144,7 +144,7 @@ test('control artifact digests portable graph outcomes instead of execution tele
     planInput: value.planInput,
     manualEvidence: value.manualNormal,
     querySet: value.querySet,
-    codegraphEvidence: value.codegraphEvidence,
+    sensorEvidence: value.sensorEvidence,
     codeSnapshotDigest: value.codeSnapshotDigest,
   });
   const first = compile(left);
@@ -157,8 +157,8 @@ test('control artifact digests portable graph outcomes instead of execution tele
     .find(({ id }) => id === 'status');
   const queryRecord = first.boundary_manifest.graph_evidence
     .find(({ id }) => id === 'query-build-dispatch-record');
-  assert.equal(statusRecord.result_digest, digestArtifact(portableCodegraphOutcome(leftStatus)));
-  assert.equal(queryRecord.result_digest, digestArtifact(portableCodegraphOutcome(leftQuery)));
+  assert.equal(statusRecord.result_digest, digestArtifact(portableSensorOutcome(leftStatus)));
+  assert.equal(queryRecord.result_digest, digestArtifact(portableSensorOutcome(leftQuery)));
 });
 
 test('shared-state negative control preserves manual provenance and refuses false parallel', async () => {
@@ -167,7 +167,7 @@ test('shared-state negative control preserves manual provenance and refuses fals
     planInput: value.planInput,
     manualEvidence: value.manualNegative,
     querySet: value.querySet,
-    codegraphEvidence: value.codegraphEvidence,
+    sensorEvidence: value.sensorEvidence,
     codeSnapshotDigest: value.codeSnapshotDigest,
   });
 
@@ -197,13 +197,13 @@ test('compiler fails closed on graph, manual, query, and affected-test drift', a
     planInput: value.planInput,
     manualEvidence: value.manualNormal,
     querySet: value.querySet,
-    codegraphEvidence: value.codegraphEvidence,
+    sensorEvidence: value.sensorEvidence,
     codeSnapshotDigest: value.codeSnapshotDigest,
   };
 
   const missingGraph = structuredClone(base);
-  missingGraph.codegraphEvidence.outcomes.pop();
-  assert.throws(() => compileControlArtifacts(missingGraph), /Codegraph evidence/i);
+  missingGraph.sensorEvidence.outcomes.pop();
+  assert.throws(() => compileControlArtifacts(missingGraph), /LatticeSensor evidence/i);
 
   const manualMismatch = structuredClone(base);
   manualMismatch.manualEvidence.evidence[0].todo_id = 'not-a-plan-todo';
@@ -218,7 +218,7 @@ test('compiler fails closed on graph, manual, query, and affected-test drift', a
   assert.throws(() => compileControlArtifacts(capacityDrift), /capacity/i);
 
   const noAffectedTest = structuredClone(base);
-  const affected = noAffectedTest.codegraphEvidence.outcomes
+  const affected = noAffectedTest.sensorEvidence.outcomes
     .find(({ operation }) => operation === 'affected');
   affected.targets[0].data.affectedTests = [];
   affected.targets[0].outcome = 'empty';

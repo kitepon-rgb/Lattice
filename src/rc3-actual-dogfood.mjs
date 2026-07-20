@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { digestArtifact } from './artifact-contracts.mjs';
-import { collectCodegraphEvidence } from './sensor-adapter.mjs';
+import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { scaffoldRc3DogfoodRepo, verifyRc3DogfoodScaffold } from './rc3-dogfood-scaffold.mjs';
 import { compileRuntimePlanV1, evidenceFromCollectedOutcomes } from './runtime-front-end.mjs';
 import {
@@ -95,7 +95,7 @@ function witness(todoId, target, affectedTests) {
     writes: [target],
     resources: [],
     state_effects: [],
-    codegraph_provenance: {
+    sensor_provenance: {
       queries: [{ query_id: `q-aff-${todoId}`, expect: { kind: 'affected', path: target } }],
     },
     affected_tests: affectedTests,
@@ -152,7 +152,7 @@ export async function initActualDogfoodRun({ latticeRoot, stateDir }) {
       { id: `probe-${index}`, operation: 'affected', target }
     )),
   };
-  const probed = await collectCodegraphEvidence({ cwd: scaffold.repoRoot, querySet: probeQuerySet });
+  const probed = await collectSensorEvidence({ cwd: scaffold.repoRoot, querySet: probeQuerySet });
   const affectedByTarget = {};
   probed.outcomes.forEach((outcome, index) => {
     const entry = Array.isArray(outcome.targets) ? outcome.targets[0] : null;
@@ -172,7 +172,7 @@ export async function initActualDogfoodRun({ latticeRoot, stateDir }) {
       TB: witness('TB', ORACLE, affectedByTarget[ORACLE]),
       TC: witness('TC', SHARED_TEST, affectedByTarget[SHARED_TEST]),
     },
-    codegraph_query_set: {
+    sensor_query_set: {
       queries: [
         { id: 'q-status', operation: 'status' },
         { id: 'q-aff-TA', operation: 'affected', target: ENTRY },
@@ -185,10 +185,10 @@ export async function initActualDogfoodRun({ latticeRoot, stateDir }) {
   };
   request.request_digest = selfDigest(request, 'request_digest');
 
-  const collected = await collectCodegraphEvidence({ cwd: scaffold.repoRoot, querySet: request.codegraph_query_set });
+  const collected = await collectSensorEvidence({ cwd: scaffold.repoRoot, querySet: request.sensor_query_set });
   const compiled = compileRuntimePlanV1({
     request,
-    codegraphEvidence: evidenceFromCollectedOutcomes({ querySet: request.codegraph_query_set, collected }),
+    sensorEvidence: evidenceFromCollectedOutcomes({ querySet: request.sensor_query_set, collected }),
     planRef: 'plan-rc3i-actual-e1',
     planEpoch: 1,
     predecessorRefs: [],

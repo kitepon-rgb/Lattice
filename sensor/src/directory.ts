@@ -1,113 +1,52 @@
-/**
- * Directory Management
- *
- * Manages the .codegraph/ directory structure for CodeGraph data.
- */
+/** Lattice sensor project-state directory management. */
 
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-/** The default per-project data directory name. */
-const DEFAULT_CODEGRAPH_DIR = '.codegraph';
+const LATTICE_STATE_DIR = '.lattice';
+const SENSOR_STATE_DIR = 'sensor';
 
-let warnedBadDirName = false;
+/** Stable repository-relative owner path. It deliberately has no legacy override. */
+export function latticeSensorRelativeDir(): string {
+  return path.join(LATTICE_STATE_DIR, SENSOR_STATE_DIR);
+}
 
-/**
- * Resolve the per-project data directory name, honoring the `CODEGRAPH_DIR`
- * environment override (default `.codegraph`). The override is a single path
- * segment that lives in the project root.
- *
- * Why this exists: two environments that share one working tree must NOT share
- * one `.codegraph/` — most concretely Windows-native and WSL (issue #636). The
- * daemon lockfile (`.codegraph/daemon.pid`) records a platform-specific pid and
- * socket path (a Windows named pipe vs a WSL Unix socket), and SQLite file
- * locking across the WSL2 ↔ Windows filesystem boundary is unreliable, so two
- * daemons sharing one index risks corruption. Setting `CODEGRAPH_DIR=.codegraph-win`
- * on one side gives each environment its own index in the same tree.
- *
- * Read live (not captured at load) so it is both process-accurate and testable.
- * An override that isn't a plain directory name — empty, containing a path
- * separator, `.`, `..`/traversal, or absolute — is ignored (we keep the
- * default) rather than risk writing the index outside the project or into the
- * project root itself; we warn once to stderr so the misconfiguration is seen.
- */
-export function codeGraphDirName(): string {
-  const raw = process.env.CODEGRAPH_DIR?.trim();
-  if (!raw) return DEFAULT_CODEGRAPH_DIR;
-  const invalid =
-    raw === '.' ||
-    raw.includes('..') ||
-    raw.includes('/') ||
-    raw.includes('\\') ||
-    path.isAbsolute(raw);
-  if (invalid) {
-    if (!warnedBadDirName) {
-      warnedBadDirName = true;
-      // stderr only — stdout is the MCP protocol channel.
-      console.warn(
-        `[codegraph] Ignoring invalid CODEGRAPH_DIR="${raw}" — it must be a plain ` +
-          `directory name (no path separators, no "..", not absolute). Using "${DEFAULT_CODEGRAPH_DIR}".`
-      );
-    }
-    return DEFAULT_CODEGRAPH_DIR;
-  }
-  return raw;
+/** Repository-relative sensor state path. */
+export const LATTICE_SENSOR_DIR = latticeSensorRelativeDir();
+
+/** Lattice owns `.lattice`; source extraction and watching never descend into it. */
+export function isLatticeStateDir(name: string): boolean {
+  return name === LATTICE_STATE_DIR;
+}
+
+/** Absolute sensor state directory for a project. */
+export function getLatticeSensorDir(projectRoot: string): string {
+  return path.join(projectRoot, LATTICE_STATE_DIR, SENSOR_STATE_DIR);
 }
 
 /**
- * CodeGraph directory name — a load-time snapshot of {@link codeGraphDirName}.
- * A running process's environment is fixed, so this equals the live value;
- * it's kept as a stable string export for backward compatibility. Internal code
- * resolves the name through {@link codeGraphDirName} / {@link getCodeGraphDir}
- * so the `CODEGRAPH_DIR` override always applies.
- */
-export const CODEGRAPH_DIR = codeGraphDirName();
-
-/**
- * Is `name` (a single path segment) a CodeGraph data directory? Matches the
- * default `.codegraph`, the active `CODEGRAPH_DIR` override, and any
- * `.codegraph-*` sibling. File-watching and the indexer skip ALL of these, so
- * when two environments share one working tree (Windows + WSL, issue #636)
- * neither indexes or watches the other's index directory.
- */
-export function isCodeGraphDataDir(name: string): boolean {
-  return (
-    name === DEFAULT_CODEGRAPH_DIR ||
-    name === codeGraphDirName() ||
-    name.startsWith(DEFAULT_CODEGRAPH_DIR + '-')
-  );
-}
-
-/**
- * Get the .codegraph directory path for a project
- */
-export function getCodeGraphDir(projectRoot: string): string {
-  return path.join(projectRoot, codeGraphDirName());
-}
-
-/**
- * Check if a project has been initialized with CodeGraph
- * Requires both .codegraph/ directory AND codegraph.db to exist
+ * Check if a project has been initialized with LatticeSensor
+ * Requires both .lattice/sensor/ directory AND sensor.db to exist
  */
 export function isInitialized(projectRoot: string): boolean {
-  const codegraphDir = getCodeGraphDir(projectRoot);
-  if (!fs.existsSync(codegraphDir) || !fs.statSync(codegraphDir).isDirectory()) {
+  const sensorDir = getLatticeSensorDir(projectRoot);
+  if (!fs.existsSync(sensorDir) || !fs.statSync(sensorDir).isDirectory()) {
     return false;
   }
-  // Must have codegraph.db, not just .codegraph folder
-  const dbPath = path.join(codegraphDir, 'codegraph.db');
+  // Must have sensor.db, not just .lattice/sensor folder
+  const dbPath = path.join(sensorDir, 'sensor.db');
   return fs.existsSync(dbPath);
 }
 
 /**
- * Find the nearest parent directory containing .codegraph/
+ * Find the nearest parent directory containing .lattice/sensor/
  *
- * Walks up from the given path to find a CodeGraph-initialized project,
+ * Walks up from the given path to find a LatticeSensor-initialized project,
  * similar to how git finds .git/ directories.
  *
  * @param startPath - Directory to start searching from
- * @returns The project root containing .codegraph/, or null if not found
+ * @returns The project root containing .lattice/sensor/, or null if not found
  */
 /**
  * Reason a directory is unsafe to use as an index ROOT, or null when it's fine.
@@ -155,7 +94,7 @@ export function unsafeIndexRootReason(projectRoot: string): string | null {
   return null;
 }
 
-export function findNearestCodeGraphRoot(startPath: string): string | null {
+export function findNearestLatticeSensorRoot(startPath: string): string | null {
   let current = path.resolve(startPath);
   const root = path.parse(current).root;
 
@@ -204,7 +143,7 @@ function escapeRegExp(s: string): string {
 /**
  * Indexed sub-project roots beneath `root` (bounded breadth-first scan). For
  * the monorepo case behind #964: the index lives in a CHILD
- * (`packages/x/.codegraph/`), not at the workspace root the agent's cwd points
+ * (`packages/x/.lattice/sensor/`), not at the workspace root the agent's cwd points
  * at. Descent stops at the first indexed directory on a branch (a project's
  * own sub-dirs aren't separate projects) and is bounded by depth + count so it
  * never turns into a full-tree crawl on a large repo.
@@ -523,13 +462,13 @@ export interface FrontloadPlan {
   nudgeProjects: string[];
   /** True when the plan came from scanning DOWN into sub-projects (cwd itself
    *  is not under any index) — the monorepo case, where a follow-up
-   *  `codegraph_explore` needs an explicit `projectPath`. */
+   *  `lattice_sensor_explore` needs an explicit `projectPath`. */
   viaSubScan: boolean;
 }
 
 /**
  * Decide what the front-load hook injects for a `prompt` issued from `cwd`,
- * shaped by where the `.codegraph/` index(es) actually are:
+ * shaped by where the `.lattice/sensor/` index(es) actually are:
  *   1. **cwd (or an ancestor) is indexed** → front-load that project. The
  *      normal single-project / nested-file case.
  *   2. **cwd isn't indexed but looks like a workspace root** → the indexes live
@@ -583,25 +522,25 @@ export function planFrontload(cwd: string, prompt: string): FrontloadPlan {
 }
 
 /**
- * Contents of `.codegraph/.gitignore`. A single wildcard ignore keeps every
+ * Contents of `.lattice/sensor/.gitignore`. A single wildcard ignore keeps every
  * transient file in the index dir — the database, `daemon.pid`, the socket,
  * logs, cache, and anything future versions add — out of git, without having
  * to enumerate each name (issues #788, #492, #484). Older versions wrote an
  * explicit allowlist that never listed `daemon.pid` or the socket, so those
  * runtime files were silently committed.
  */
-const GITIGNORE_CONTENT = `# CodeGraph data files — local to each machine, not for committing.
-# Ignore everything in .codegraph/ except this file itself, so transient
+const GITIGNORE_CONTENT = `# LatticeSensor data files — local to each machine, not for committing.
+# Ignore everything in .lattice/sensor/ except this file itself, so transient
 # files (the database, daemon.pid, sockets, logs) never show up in git.
 *
 !.gitignore
 `;
 
-/** Header line that prefixes every .gitignore CodeGraph has auto-generated. */
-const GITIGNORE_MARKER = '# CodeGraph data files';
+/** Header line that prefixes every .gitignore LatticeSensor has auto-generated. */
+const GITIGNORE_MARKER = '# LatticeSensor data files';
 
 /**
- * Is `content` a stale CodeGraph-generated `.gitignore` that should be
+ * Is `content` a stale LatticeSensor-generated `.gitignore` that should be
  * regenerated in place? True when it carries our header but predates the
  * wildcard ignore (it has no bare `*` line) — i.e. one of the old explicit
  * allowlists (`*.db`, `cache/`, `.dirty`, …) that never ignored `daemon.pid`
@@ -616,8 +555,8 @@ function isStaleDefaultGitignore(content: string): boolean {
 }
 
 /**
- * Write `.codegraph/.gitignore` if it's absent, or upgrade a stale
- * CodeGraph-generated default in place; a user-customized file is left alone.
+ * Write `.lattice/sensor/.gitignore` if it's absent, or upgrade a stale
+ * LatticeSensor-generated default in place; a user-customized file is left alone.
  * Best-effort — returns `false` only if a needed write failed.
  */
 function ensureGitignore(gitignorePath: string): boolean {
@@ -638,62 +577,62 @@ function ensureGitignore(gitignorePath: string): boolean {
 }
 
 /**
- * Create the .codegraph directory structure
- * Note: Only throws if codegraph.db already exists, not just if .codegraph/ exists.
+ * Create the .lattice/sensor directory structure
+ * Note: Only throws if sensor.db already exists, not just if .lattice/sensor/ exists.
  */
 export function createDirectory(projectRoot: string): void {
-  const codegraphDir = getCodeGraphDir(projectRoot);
-  const dbPath = path.join(codegraphDir, 'codegraph.db');
+  const sensorDir = getLatticeSensorDir(projectRoot);
+  const dbPath = path.join(sensorDir, 'sensor.db');
 
-  // Only throw if CodeGraph is actually initialized (db exists)
-  // .codegraph/ folder alone is fine
+  // Only throw if LatticeSensor is actually initialized (db exists)
+  // .lattice/sensor/ folder alone is fine
   if (fs.existsSync(dbPath)) {
-    throw new Error(`CodeGraph already initialized in ${projectRoot}`);
+    throw new Error(`LatticeSensor already initialized in ${projectRoot}`);
   }
 
   // Create main directory (if it doesn't exist)
-  fs.mkdirSync(codegraphDir, { recursive: true });
+  fs.mkdirSync(sensorDir, { recursive: true });
 
-  // Write .gitignore inside .codegraph (create if absent, upgrade a stale
+  // Write .gitignore inside .lattice/sensor (create if absent, upgrade a stale
   // pre-wildcard default left by an older version — issue #788).
-  ensureGitignore(path.join(codegraphDir, '.gitignore'));
+  ensureGitignore(path.join(sensorDir, '.gitignore'));
 }
 
 /**
- * Remove the .codegraph directory
+ * Remove the .lattice/sensor directory
  */
 export function removeDirectory(projectRoot: string): void {
-  const codegraphDir = getCodeGraphDir(projectRoot);
+  const sensorDir = getLatticeSensorDir(projectRoot);
 
-  if (!fs.existsSync(codegraphDir)) {
+  if (!fs.existsSync(sensorDir)) {
     return;
   }
 
-  // Verify .codegraph is a real directory, not a symlink pointing elsewhere
-  const lstat = fs.lstatSync(codegraphDir);
+  // Verify .lattice/sensor is a real directory, not a symlink pointing elsewhere
+  const lstat = fs.lstatSync(sensorDir);
   if (lstat.isSymbolicLink()) {
     // Only remove the symlink itself, never follow it for recursive delete
-    fs.unlinkSync(codegraphDir);
+    fs.unlinkSync(sensorDir);
     return;
   }
 
   if (!lstat.isDirectory()) {
     // Not a directory - remove the single file
-    fs.unlinkSync(codegraphDir);
+    fs.unlinkSync(sensorDir);
     return;
   }
 
   // Recursively remove directory
-  fs.rmSync(codegraphDir, { recursive: true, force: true });
+  fs.rmSync(sensorDir, { recursive: true, force: true });
 }
 
 /**
- * Get all files in the .codegraph directory
+ * Get all files in the .lattice/sensor directory
  */
 export function listDirectoryContents(projectRoot: string): string[] {
-  const codegraphDir = getCodeGraphDir(projectRoot);
+  const sensorDir = getLatticeSensorDir(projectRoot);
 
-  if (!fs.existsSync(codegraphDir)) {
+  if (!fs.existsSync(sensorDir)) {
     return [];
   }
 
@@ -705,7 +644,7 @@ export function listDirectoryContents(projectRoot: string): string[] {
     for (const entry of entries) {
       const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
 
-      // Skip symlinks to prevent following links outside .codegraph
+      // Skip symlinks to prevent following links outside .lattice/sensor
       if (entry.isSymbolicLink()) {
         continue;
       }
@@ -718,17 +657,17 @@ export function listDirectoryContents(projectRoot: string): string[] {
     }
   }
 
-  walkDir(codegraphDir);
+  walkDir(sensorDir);
   return files;
 }
 
 /**
- * Get the total size of the .codegraph directory in bytes
+ * Get the total size of the .lattice/sensor directory in bytes
  */
 export function getDirectorySize(projectRoot: string): number {
-  const codegraphDir = getCodeGraphDir(projectRoot);
+  const sensorDir = getLatticeSensorDir(projectRoot);
 
-  if (!fs.existsSync(codegraphDir)) {
+  if (!fs.existsSync(sensorDir)) {
     return 0;
   }
 
@@ -738,7 +677,7 @@ export function getDirectorySize(projectRoot: string): number {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
 
     for (const entry of entries) {
-      // Skip symlinks to prevent following links outside .codegraph
+      // Skip symlinks to prevent following links outside .lattice/sensor
       if (entry.isSymbolicLink()) {
         continue;
       }
@@ -754,19 +693,19 @@ export function getDirectorySize(projectRoot: string): number {
     }
   }
 
-  walkDir(codegraphDir);
+  walkDir(sensorDir);
   return totalSize;
 }
 
 /**
- * Ensure a subdirectory exists within .codegraph
+ * Ensure a subdirectory exists within .lattice/sensor
  */
 export function ensureSubdirectory(projectRoot: string, subdirName: string): string {
   if (subdirName.includes('..') || subdirName.includes(path.sep) || subdirName.includes('/')) {
     throw new Error(`Invalid subdirectory name: ${subdirName}`);
   }
 
-  const subdirPath = path.join(getCodeGraphDir(projectRoot), subdirName);
+  const subdirPath = path.join(getLatticeSensorDir(projectRoot), subdirName);
 
   if (!fs.existsSync(subdirPath)) {
     fs.mkdirSync(subdirPath, { recursive: true });
@@ -776,34 +715,34 @@ export function ensureSubdirectory(projectRoot: string, subdirName: string): str
 }
 
 /**
- * Check if the .codegraph directory has valid structure
+ * Check if the .lattice/sensor directory has valid structure
  */
 export function validateDirectory(projectRoot: string): {
   valid: boolean;
   errors: string[];
 } {
   const errors: string[] = [];
-  const codegraphDir = getCodeGraphDir(projectRoot);
+  const sensorDir = getLatticeSensorDir(projectRoot);
 
-  if (!fs.existsSync(codegraphDir)) {
-    errors.push('CodeGraph directory does not exist');
+  if (!fs.existsSync(sensorDir)) {
+    errors.push('LatticeSensor directory does not exist');
     return { valid: false, errors };
   }
 
-  if (!fs.statSync(codegraphDir).isDirectory()) {
-    errors.push('.codegraph exists but is not a directory');
+  if (!fs.statSync(sensorDir).isDirectory()) {
+    errors.push('.lattice/sensor exists but is not a directory');
     return { valid: false, errors };
   }
 
   // Auto-repair / upgrade .gitignore (non-critical file). A missing one is
   // recreated; a stale pre-wildcard default that never ignored daemon.pid is
   // regenerated in place (issue #788); a user-authored file is left alone.
-  const gitignorePath = path.join(codegraphDir, '.gitignore');
+  const gitignorePath = path.join(sensorDir, '.gitignore');
   const existedBefore = fs.existsSync(gitignorePath);
   if (!ensureGitignore(gitignorePath) && !existedBefore) {
     // Only a missing-and-uncreatable file is surfaced; a failed in-place
     // upgrade of an existing file is non-fatal — the index still works.
-    errors.push('.gitignore missing in .codegraph directory and could not be created');
+    errors.push('.gitignore missing in .lattice/sensor directory and could not be created');
   }
 
   return {

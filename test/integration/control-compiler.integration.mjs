@@ -31,19 +31,19 @@ const worktreePath = path.join(isolatedRoot, 'worktree');
 const git = (args) => spawnSync('git', args, { cwd: sourceRoot, encoding: 'utf8' });
 const added = git(['worktree', 'add', '--detach', worktreePath, 'HEAD']);
 assert.equal(added.status, 0, added.stderr);
-let codegraphEvidence;
+let sensorEvidence;
 try {
   const initialized = spawnSensorCliSync(['init', '.'], {
     cwd: worktreePath, encoding: 'utf8', env: { ...process.env,
-      CODEGRAPH_DIR: '.lattice-sensor-control-integration', CODEGRAPH_NO_DAEMON: '1',
-      CODEGRAPH_NO_WATCH: '1', CODEGRAPH_NO_UPDATE_CHECK: '1', DO_NOT_TRACK: '1', NO_COLOR: '1' },
+      LATTICE_SENSOR_DIR: '.lattice-sensor-control-integration', LATTICE_SENSOR_NO_DAEMON: '1',
+      LATTICE_SENSOR_NO_WATCH: '1', LATTICE_SENSOR_NO_UPDATE_CHECK: '1', DO_NOT_TRACK: '1', NO_COLOR: '1' },
   });
   assert.equal(initialized.status, 0, initialized.stderr);
-  codegraphEvidence = await collectSensorEvidence({ cwd: worktreePath, querySet,
+  sensorEvidence = await collectSensorEvidence({ cwd: worktreePath, querySet,
     execute: ({ args, cwd }) => {
       const result = spawnSensorCliSync(args, { cwd, encoding: 'utf8', env: { ...process.env,
-        CODEGRAPH_DIR: '.lattice-sensor-control-integration', CODEGRAPH_NO_DAEMON: '1',
-        CODEGRAPH_NO_WATCH: '1', CODEGRAPH_NO_UPDATE_CHECK: '1', DO_NOT_TRACK: '1', NO_COLOR: '1' } });
+        LATTICE_SENSOR_DIR: '.lattice-sensor-control-integration', LATTICE_SENSOR_NO_DAEMON: '1',
+        LATTICE_SENSOR_NO_WATCH: '1', LATTICE_SENSOR_NO_UPDATE_CHECK: '1', DO_NOT_TRACK: '1', NO_COLOR: '1' } });
       return { code: result.status, stdout: result.stdout, stderr: result.stderr,
         ...(result.error ? { error: result.error.message } : {}) };
     } });
@@ -63,7 +63,7 @@ const compiled = compileControlArtifacts({
   planInput,
   manualEvidence,
   querySet,
-  codegraphEvidence,
+  sensorEvidence,
   codeSnapshotDigest,
 });
 
@@ -80,5 +80,5 @@ process.stdout.write(`${JSON.stringify({
   boundary_manifest_digest: compiled.boundary_manifest_digest,
   boundary_verdict_digest: compiled.boundary_verdict_digest,
   plan_graph_digest: compiled.plan_graph_digest,
-  graph_outcomes: codegraphEvidence.outcomes.map(({ id, outcome }) => ({ id, outcome })),
+  graph_outcomes: sensorEvidence.outcomes.map(({ id, outcome }) => ({ id, outcome })),
 })}\n`);

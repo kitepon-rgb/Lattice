@@ -1,4 +1,12 @@
-# Starlight Starter Kit: Basics
+# 旧上流documentation site（未配布）
+
+このtreeはfork元の表示・機能調査に使う履歴sourceであり、Latticeの製品siteではない。
+build・deploy・公開は行わず、各ページの旧名称、URL、CLI、設定、効果量を現行仕様として引用しない。
+
+現行の利用手順は[`../../README.md`](../../README.md)、製品契約は
+[`../../docs/00_product-contract.md`](../../docs/00_product-contract.md)を参照する。
+
+## Upstream scaffold notes
 
 [![Built with Starlight](https://astro.badg.es/v2/built-with-starlight/tiny.svg)](https://starlight.astro.build)
 

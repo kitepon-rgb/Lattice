@@ -16,7 +16,7 @@ function run(args, cwd) {
     env: {
       ...process.env,
       PATH: '/usr/bin:/bin',
-      CODEGRAPH_ALLOW_UNSAFE_NODE: '1',
+      LATTICE_SENSOR_ALLOW_UNSAFE_NODE: '1',
     },
   });
 }
@@ -49,16 +49,17 @@ test('lattice sensorは未知commandをtyped usage errorで拒否する', () => 
   assert.equal(JSON.parse(result.stderr).code, 'USAGE');
 });
 
-test('公開packageは旧Codegraph CLIを同梱せずsensorをprivate実装へ固定する', async () => {
+test('公開packageは独立sensor CLIを公開せずLattice Sensorをprivate実装へ固定する', async () => {
   const rootPackage = JSON.parse(await readFile(path.join(ROOT, 'package.json'), 'utf8'));
   const sensorPackage = JSON.parse(await readFile(path.join(ROOT, 'sensor', 'package.json'), 'utf8'));
 
   assert.equal(rootPackage.files.includes('sensor/dist'), true);
-  assert.equal(rootPackage.files.includes('!sensor/dist/bin/codegraph.*'), true);
+  assert.equal(rootPackage.files.includes('!sensor/dist/bin/lattice-sensor.*'), true);
   assert.equal(rootPackage.files.includes('sensor/dist/bin/lattice-sensor.js'), true);
   assert.equal(sensorPackage.private, true);
-  assert.equal(sensorPackage.files.includes('!dist/bin/codegraph.*'), true);
+  assert.equal(Object.hasOwn(sensorPackage, 'bin'), false);
   assert.equal(Object.hasOwn(sensorPackage.scripts, 'cli'), false);
+  assert.equal(Object.hasOwn(sensorPackage.scripts, 'build:private-runtime'), false);
   assert.doesNotMatch(sensorPackage.scripts.build, /chmodSync/u);
-  assert.match(sensorPackage.scripts['build:private-runtime'], /lattice-sensor\.js/u);
+  assert.match(sensorPackage.scripts.build, /tsc/u);
 });

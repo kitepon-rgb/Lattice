@@ -1,6 +1,9 @@
-# Lattice 工程表・ガント出力面 計画（Phase LG実装側）
+# Lattice 工程表・ガント出力面 計画（完了済み履歴）
 
-**Status:** Active
+> このMarkdownは着手時の判断理由を残す履歴であり、工程状態の正本ではない。
+> 現在のtask・Phase・完了証拠はLattice storeだけを参照する。
+
+**Status:** Completed history（現行状態はLattice storeを参照）
 **作成日:** 2026-07-18
 **親裁定:** dotagents [Lattice編入計画 Phase LG](../../dotagents/docs/plan_lattice-factory-integration.md)（オーナー裁定 2026-07-18）・親queue 23
 **対象repo:** Lattice（実装）／dotagents（消費者adapter・受入）

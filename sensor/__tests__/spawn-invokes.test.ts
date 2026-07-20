@@ -23,16 +23,16 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { CodeGraph } from '../src';
+import { LatticeSensor } from '../src';
 import { DatabaseConnection } from '../src/db';
 import { SPAWN_INVOKES_UNRESOLVED_MARKER } from '../src/extraction/spawn-invokes';
 
 describe('child_process spawn-family `invokes` edge indexing', () => {
   let tempDir: string;
-  let cg: CodeGraph;
+  let cg: LatticeSensor;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-spawn-invokes-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-spawn-invokes-'));
   });
 
   afterEach(() => {
@@ -58,9 +58,9 @@ describe('child_process spawn-family `invokes` edge indexing', () => {
     );
     fs.writeFileSync(path.join(tempDir, 'bin', 'orchestrate-run.mjs'), `console.log('run');\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const edge = db
       .getDb()
       .prepare(
@@ -83,9 +83,9 @@ describe('child_process spawn-family `invokes` edge indexing', () => {
     );
     fs.writeFileSync(path.join(tempDir, 'x.mjs'), `export const val = 1;\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const edge = db
       .getDb()
       .prepare(
@@ -108,9 +108,9 @@ describe('child_process spawn-family `invokes` edge indexing', () => {
     );
     fs.writeFileSync(path.join(tempDir, 'y.mjs'), `export const val = 1;\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const edge = db
       .getDb()
       .prepare(
@@ -130,9 +130,9 @@ describe('child_process spawn-family `invokes` edge indexing', () => {
         `export function runGit() {\n  return spawn('git', ['status']);\n}\n`
     );
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const count = db
       .getDb()
       .prepare(`SELECT count(*) c FROM edges WHERE kind = 'invokes'`)
@@ -148,9 +148,9 @@ describe('child_process spawn-family `invokes` edge indexing', () => {
     );
     fs.writeFileSync(path.join(tempDir, 'should-not-resolve.mjs'), `export const val = 1;\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const count = db
       .getDb()
       .prepare(`SELECT count(*) c FROM edges WHERE kind = 'invokes'`)
@@ -173,9 +173,9 @@ describe('child_process spawn-family `invokes` edge indexing', () => {
     );
     fs.writeFileSync(path.join(tempDir, 'vcs.mjs'), `export function git(args) {\n  return args;\n}\n`);
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const count = db
       .getDb()
       .prepare(`SELECT count(*) c FROM edges WHERE kind = 'invokes'`)
@@ -190,9 +190,9 @@ describe('child_process spawn-family `invokes` edge indexing', () => {
         `export function run(mod) {\n  return fork(mod);\n}\n`
     );
 
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
 
-    const db = DatabaseConnection.open(path.join(tempDir, '.codegraph', 'codegraph.db'));
+    const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
     const count = db
       .getDb()
       .prepare(`SELECT count(*) c FROM edges WHERE kind = 'invokes'`)

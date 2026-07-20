@@ -1,17 +1,17 @@
 /**
  * No-root-index session policy tests (#964).
  *
- * A server whose own root has no .codegraph/ still exposes its tools — gating
+ * A server whose own root has no .lattice/sensor/ still exposes its tools — gating
  * tool AVAILABILITY on whether `./` is indexed broke monorepos (only
  * sub-projects indexed) and hid the tools from a session that started before
- * `codegraph init`. So `initialize` returns the per-project instructions
+ * `latticeSensor init`. So `initialize` returns the per-project instructions
  * variant (not the full single-project playbook, and NOT an "inactive" note),
  * `tools/list` exposes the tool surface, and a query against an indexed project
  * by `projectPath` works even with no default project. Safety is preserved by
  * the response SHAPE, not by hiding tools: a call against an un-indexed path
- * returns SUCCESS-shaped guidance ("pass projectPath / run codegraph init"),
+ * returns SUCCESS-shaped guidance ("pass projectPath / run latticeSensor init"),
  * never `isError: true` — one or two early isError responses teach an agent to
- * abandon codegraph for the whole session, and that failure mode is still
+ * abandon latticeSensor for the whole session, and that failure mode is still
  * guarded below.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -19,24 +19,24 @@ import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { CodeGraph } from '../src';
+import { LatticeSensor } from '../src';
 import { ToolHandler } from '../src/mcp/tools';
 
-const BIN = path.resolve(__dirname, '../dist/bin/codegraph.js');
+const BIN = path.resolve(__dirname, '../dist/bin/lattice-sensor.js');
 
 function spawnServer(cwd: string): ChildProcessWithoutNullStreams {
   return spawn(process.execPath, [BIN, 'serve', '--mcp'], {
     cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
     // Direct (in-process) mode — the unindexed path never has a daemon
-    // anyway (the daemon socket lives in .codegraph/), and this keeps the
+    // anyway (the daemon socket lives in .lattice/sensor/), and this keeps the
     // suite from leaking a detached daemon in the indexed test.
-    // CODEGRAPH_WASM_RELAUNCHED skips the --liftoff-only re-exec: without
+    // LATTICE_SENSOR_WASM_RELAUNCHED skips the --liftoff-only re-exec: without
     // it the server runs as a GRANDCHILD that survives child.kill() on
     // Windows and holds the temp cwd/SQLite handles, failing teardown with
     // EPERM no matter how long rmSync retries (the class documented for
     // the mcp-initialize/mcp-roots suites).
-    env: { ...process.env, CODEGRAPH_NO_DAEMON: '1', CODEGRAPH_WASM_RELAUNCHED: '1' },
+    env: { ...process.env, LATTICE_SENSOR_NO_DAEMON: '1', LATTICE_SENSOR_WASM_RELAUNCHED: '1' },
   }) as ChildProcessWithoutNullStreams;
 }
 
@@ -91,7 +91,7 @@ describe('No-root-index session policy', () => {
   let child: ChildProcessWithoutNullStreams | null = null;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-unindexed-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-unindexed-'));
   });
 
   afterEach(async () => {
@@ -121,7 +121,7 @@ describe('No-root-index session policy', () => {
     expect(instructions).not.toMatch(/inactive/i);
     // It steers the agent to target a project explicitly via projectPath...
     expect(instructions).toMatch(/projectPath/);
-    expect(instructions).toMatch(/codegraph_explore/);
+    expect(instructions).toMatch(/lattice_sensor_explore/);
     expect(instructions).toMatch(/lattice sensor init/);
     // ...but it is NOT the full single-project playbook (that's sent only when
     // the root itself is indexed — keeps the common case tight).
@@ -135,13 +135,13 @@ describe('No-root-index session policy', () => {
     const res = await request(child, { id: 1, method: 'tools/list' });
     const tools = (res.result as { tools: Array<{ name: string }> }).tools;
     expect(tools.length).toBeGreaterThanOrEqual(1);
-    expect(tools.map((t) => t.name)).toContain('codegraph_explore');
+    expect(tools.map((t) => t.name)).toContain('lattice_sensor_explore');
   });
 
   it('a query by projectPath reaches an INDEXED sub-project of an unindexed root (monorepo) (#964)', async () => {
     // The server root (tempDir) has no index; an indexed sub-project lives
     // under it — exactly the monorepo shape. The query must resolve to the
-    // sub-project's .codegraph/ and return real results. Run through the real
+    // sub-project's .lattice/sensor/ and return real results. Run through the real
     // spawned server (a second-project open can't be exercised in-process under
     // vitest — see mcp-toolhandler cache notes — but a child process can).
     const svc = path.join(tempDir, 'service_a');
@@ -150,7 +150,7 @@ describe('No-root-index session policy', () => {
       path.join(svc, 'auth.ts'),
       'export function validateToken(t: string): boolean { return !!t; }\n'
     );
-    const cg = await CodeGraph.init(svc, { index: true });
+    const cg = await LatticeSensor.init(svc, { index: true });
     cg.close();
 
     child = spawnServer(tempDir);
@@ -159,7 +159,7 @@ describe('No-root-index session policy', () => {
     const res = await request(child, {
       id: 1,
       method: 'tools/call',
-      params: { name: 'codegraph_search', arguments: { query: 'validateToken', projectPath: svc } },
+      params: { name: 'lattice_sensor_search', arguments: { query: 'validateToken', projectPath: svc } },
     });
     const result = res.result as { content: Array<{ text: string }>; isError?: boolean };
     expect(result.isError).toBeUndefined();
@@ -169,7 +169,7 @@ describe('No-root-index session policy', () => {
 
   it('an INDEXED workspace still gets the full playbook and the explore tool', async () => {
     fs.writeFileSync(path.join(tempDir, 'index.ts'), 'export function hello(): string { return "hi"; }\n');
-    const cg = await CodeGraph.init(tempDir, { index: true });
+    const cg = await LatticeSensor.init(tempDir, { index: true });
     cg.close();
 
     child = spawnServer(tempDir);
@@ -184,7 +184,7 @@ describe('No-root-index session policy', () => {
     // contract under test is "indexed → tools are PRESENT", in contrast to the
     // unindexed empty list above.
     expect(tools.length).toBeGreaterThanOrEqual(1);
-    expect(tools.map((t) => t.name)).toContain('codegraph_explore');
+    expect(tools.map((t) => t.name)).toContain('lattice_sensor_explore');
   });
 });
 
@@ -192,7 +192,7 @@ describe('No-error policy on expected conditions', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-noerror-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-noerror-'));
   });
 
   afterEach(() => {
@@ -200,7 +200,7 @@ describe('No-error policy on expected conditions', () => {
   });
 
   it('cross-project query to an unindexed path is SUCCESS-shaped guidance, not isError', async () => {
-    const res = await new ToolHandler(null).execute('codegraph_search', {
+    const res = await new ToolHandler(null).execute('lattice_sensor_search', {
       query: 'anything',
       projectPath: tempDir,
     });
@@ -212,10 +212,10 @@ describe('No-error policy on expected conditions', () => {
   });
 
   it('no-default-project (working-directory detection miss) is SUCCESS-shaped guidance', async () => {
-    const res = await new ToolHandler(null).execute('codegraph_search', { query: 'anything' });
+    const res = await new ToolHandler(null).execute('lattice_sensor_search', { query: 'anything' });
 
     expect(res.isError).toBeUndefined();
-    expect(res.content[0]!.text).toMatch(/No CodeGraph project is loaded/);
+    expect(res.content[0]!.text).toMatch(/No LatticeSensor project is loaded/);
     expect(res.content[0]!.text).toMatch(/projectPath/);
   });
 
@@ -223,7 +223,7 @@ describe('No-error policy on expected conditions', () => {
   it.runIf(process.platform !== 'win32')(
     'sensitive-path refusal stays a hard error (no retry encouragement)',
     async () => {
-      const res = await new ToolHandler(null).execute('codegraph_search', {
+      const res = await new ToolHandler(null).execute('lattice_sensor_search', {
         query: 'anything',
         projectPath: '/etc',
       });
@@ -235,7 +235,7 @@ describe('No-error policy on expected conditions', () => {
 
   // ADR 0049 Decision 5②: fail closed on a genuine open malfunction of the
   // DEFAULT project (DB open error, schema mismatch, integrity error, lock
-  // contention) — as opposed to "no .codegraph/ found" (the NotIndexedError
+  // contention) — as opposed to "no .lattice/sensor/ found" (the NotIndexedError
   // success-shaped guidance covered by the sibling tests above). The engine's
   // init path calls ToolHandler.setOpenFailure when this happens (see
   // engine.ts doInitialize / retryInitializeSync); this test exercises the
@@ -244,44 +244,44 @@ describe('No-error policy on expected conditions', () => {
     const handler = new ToolHandler(null);
     handler.setOpenFailure(new Error('database disk image is malformed'));
 
-    const res = await handler.execute('codegraph_search', { query: 'anything' });
+    const res = await handler.execute('lattice_sensor_search', { query: 'anything' });
 
     expect(res.isError).toBe(true);
     expect(res.content[0]!.text).toMatch(/database disk image is malformed/);
     expect(res.content[0]!.text).toMatch(/genuine malfunction/);
-    // Must NOT read as the "just run codegraph init" guidance — that would
+    // Must NOT read as the "just run latticeSensor init" guidance — that would
     // misleadingly imply the project simply isn't indexed.
-    expect(res.content[0]!.text).not.toMatch(/No CodeGraph project is loaded/);
+    expect(res.content[0]!.text).not.toMatch(/No LatticeSensor project is loaded/);
   });
 
-  it('a successful setDefaultCodeGraph clears a previously recorded open failure', async () => {
+  it('a successful setDefaultLatticeSensor clears a previously recorded open failure', async () => {
     const handler = new ToolHandler(null);
     handler.setOpenFailure(new Error('stale failure from a previous attempt'));
-    const cg = await CodeGraph.init(tempDir, { index: true });
+    const cg = await LatticeSensor.init(tempDir, { index: true });
     try {
-      handler.setDefaultCodeGraph(cg);
-      const res = await handler.execute('codegraph_search', { query: 'anything' });
+      handler.setDefaultLatticeSensor(cg);
+      const res = await handler.execute('lattice_sensor_search', { query: 'anything' });
       expect(res.isError).toBeUndefined();
     } finally {
       cg.close();
     }
   });
 
-  // ADR 0049 Decision 5④: codegraph_status's machine-readable execution-mode
+  // ADR 0049 Decision 5④: lattice_sensor_status's machine-readable execution-mode
   // declaration, exercised directly against ToolHandler (the daemon/proxy/
   // direct integration coverage lives in mcp-daemon.test.ts).
-  it('codegraph_status reports the execution mode set via setExecutionMode', async () => {
-    const cg = await CodeGraph.init(tempDir, { index: true });
+  it('lattice_sensor_status reports the execution mode set via setExecutionMode', async () => {
+    const cg = await LatticeSensor.init(tempDir, { index: true });
     try {
       const handler = new ToolHandler(cg);
       handler.setExecutionMode('direct', 'no-root-index');
-      const res = await handler.execute('codegraph_status', {});
+      const res = await handler.execute('lattice_sensor_status', {});
       expect(res.isError).toBeUndefined();
       expect(res.content[0]!.text).toMatch(/mode: direct/);
       expect(res.content[0]!.text).toMatch(/reason: no-root-index/);
 
       handler.setExecutionMode('daemon', 'daemon');
-      const res2 = await handler.execute('codegraph_status', {});
+      const res2 = await handler.execute('lattice_sensor_status', {});
       expect(res2.content[0]!.text).toMatch(/mode: daemon/);
       expect(res2.content[0]!.text).toMatch(/reason: daemon/);
     } finally {
@@ -292,15 +292,15 @@ describe('No-error policy on expected conditions', () => {
 
 describe('search kind filter', () => {
   let tempDir: string;
-  let cg: CodeGraph;
+  let cg: LatticeSensor;
 
   beforeEach(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-kind-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-kind-'));
     fs.writeFileSync(
       path.join(tempDir, 'types.ts'),
       'export type PaymentMethod = { id: string };\nexport function pay(): void {}\n'
     );
-    cg = await CodeGraph.init(tempDir, { index: true });
+    cg = await LatticeSensor.init(tempDir, { index: true });
   });
 
   afterEach(() => {
@@ -309,7 +309,7 @@ describe('search kind filter', () => {
   });
 
   it("kind: 'type' (the advertised enum value) finds type aliases", async () => {
-    const res = await new ToolHandler(cg).execute('codegraph_search', {
+    const res = await new ToolHandler(cg).execute('lattice_sensor_search', {
       query: 'PaymentMethod',
       kind: 'type',
     });

@@ -1,9 +1,9 @@
 /**
  * Git Worktree Awareness
  *
- * A CodeGraph index lives in a `.codegraph/` directory and is resolved by
+ * A LatticeSensor index lives in a `.lattice/sensor/` directory and is resolved by
  * walking up parent directories to the nearest one (see
- * `findNearestCodeGraphRoot`). That walk is unaware of git worktrees: when a
+ * `findNearestLatticeSensorRoot`). That walk is unaware of git worktrees: when a
  * worktree is created *inside* the main checkout (e.g. some tools place them
  * under `.gitignore`d paths like `.claude/worktrees/<name>/`), a command run
  * from the worktree walks up and silently resolves the MAIN checkout's index.
@@ -75,19 +75,19 @@ export function gitCommonDir(dir: string): string | null {
 export interface WorktreeIndexMismatch {
   /** The git working tree the command was run from. */
   worktreeRoot: string;
-  /** The (different) working tree whose `.codegraph` index is being used. */
+  /** The (different) working tree whose `.lattice/sensor` index is being used. */
   indexRoot: string;
 }
 
 /**
  * Detect when `startPath` lives in one git working tree but the resolved
- * CodeGraph index (`indexRoot`) belongs to a *different* working tree.
+ * LatticeSensor index (`indexRoot`) belongs to a *different* working tree.
  *
  * Returns null — meaning "nothing to warn about" — when:
  *   - `startPath` isn't in a git repo (or git is unavailable),
  *   - the index already lives in `startPath`'s own working tree, or
  *   - `indexRoot` isn't itself a working-tree root (an unrelated parent dir
- *     that merely happens to contain a `.codegraph/`), which keeps non-git
+ *     that merely happens to contain a `.lattice/sensor/`), which keeps non-git
  *     and monorepo-subdir layouts from producing false warnings.
  */
 export function detectWorktreeIndexMismatch(
@@ -125,7 +125,7 @@ export function detectWorktreeIndexMismatch(
 /** One-line-per-fact warning describing a detected mismatch. */
 export function worktreeMismatchWarning(m: WorktreeIndexMismatch): string {
   return (
-    `This CodeGraph index belongs to a different git working tree.\n` +
+    `This LatticeSensor index belongs to a different git working tree.\n` +
     `  Running in: ${m.worktreeRoot}\n` +
     `  Index from: ${m.indexRoot}\n` +
     `Results reflect that tree's code (often a different branch), not this worktree — ` +
@@ -141,7 +141,7 @@ export function worktreeMismatchWarning(m: WorktreeIndexMismatch): string {
  */
 export function worktreeMismatchNotice(m: WorktreeIndexMismatch): string {
   return (
-    `⚠ CodeGraph results below come from a different git worktree (${m.indexRoot}), ` +
+    `⚠ LatticeSensor results below come from a different git worktree (${m.indexRoot}), ` +
     `not where you're working (${m.worktreeRoot}) — they may reflect another branch, ` +
     `and symbols changed only here are missing. Run "lattice sensor init -i" here for a ` +
     `worktree-local index.`

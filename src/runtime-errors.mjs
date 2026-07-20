@@ -30,7 +30,7 @@ const LOCK_RETRY_MS = 100;
 const LOCK_TIMEOUT_MS = 5_000;
 
 const definitions = Object.freeze({
-  'LATTICE.CODEGRAPH_EVIDENCE_FAILED': { component: 'sensor_adapter', severity: 'high', template: 'Lattice codegraph evidence collection failed' },
+  'LATTICE.SENSOR_EVIDENCE_FAILED': { component: 'sensor_adapter', severity: 'high', template: 'LatticeSensor evidence collection failed' },
   'LATTICE.RUN_STORE_IO_FAILED': { component: 'run_store', severity: 'high', template: 'Lattice run store IO failed' },
   'LATTICE.EVENT_CHAIN_INTEGRITY_FAILED': { component: 'event_store', severity: 'high', template: 'Lattice run event chain integrity check failed' },
   'LATTICE.CLI_INTERNAL_FAILED': { component: 'cli', severity: 'high', template: 'Lattice CLI crashed outside the typed error contract' },

@@ -16,16 +16,15 @@ import {
   validateTransformArtifact,
 } from './artifact-contracts.mjs';
 import {
-  collectCodegraphEvidence,
-  portableCodegraphOutcome,
+  collectSensorEvidence,
+  portableSensorOutcome,
 } from './sensor-adapter.mjs';
 import { spawnSensorCli } from './sensor-runtime.mjs';
 import { compileTreatmentArtifacts } from './treatment-compiler.mjs';
 
 const SHA1 = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
-const INDEX_DIRECTORY = '.codegraph-rc1-treatment';
-const PORTABLE_PROJECTION = 'lattice.codegraph_portable_outcome.v1';
+const PORTABLE_PROJECTION = 'lattice.sensor_portable_outcome.v1';
 const VERIFIER = Object.freeze({
   id: 'dispatch-characterization',
   command: 'node',
@@ -81,13 +80,12 @@ function run(command, args, { cwd, env, input, allowExitCodes = [0] } = {}) {
   });
 }
 
-function codegraphEnvironment() {
+function sensorEnvironment() {
   const env = {
     ...process.env,
-    CODEGRAPH_DIR: INDEX_DIRECTORY,
-    CODEGRAPH_NO_DAEMON: '1',
-    CODEGRAPH_NO_WATCH: '1',
-    CODEGRAPH_NO_UPDATE_CHECK: '1',
+    LATTICE_SENSOR_NO_DAEMON: '1',
+    LATTICE_SENSOR_NO_WATCH: '1',
+    LATTICE_SENSOR_NO_UPDATE_CHECK: '1',
     DO_NOT_TRACK: '1',
     NO_COLOR: '1',
   };
@@ -95,11 +93,11 @@ function codegraphEnvironment() {
   return env;
 }
 
-function executeCodegraph({ args, cwd }) {
+function executeLatticeSensor({ args, cwd }) {
   return new Promise((resolve) => {
     const child = spawnSensorCli(args, {
       cwd,
-      env: codegraphEnvironment(),
+      env: sensorEnvironment(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -134,7 +132,7 @@ function assertPortableControlEvidence(evidence) {
     'executor_head',
     'graph_digest_projection',
     'input_digests',
-    'codegraph',
+    'sensor',
     'artifacts',
     'observed_facts',
     'presentation_note',
@@ -160,7 +158,7 @@ function assertPortableControlEvidence(evidence) {
     || !exactRecord(evidence.artifacts, ['control', 'shared_state_negative'])
     || !artifactSet(evidence.artifacts.control)
     || !artifactSet(evidence.artifacts.shared_state_negative)
-    || !exactRecord(evidence.codegraph, [
+    || !exactRecord(evidence.sensor, [
       'version',
       'file_count',
       'node_count',
@@ -175,19 +173,19 @@ function assertPortableControlEvidence(evidence) {
       'portable_outcomes_equal',
       'outcomes',
     ])
-    || evidence.codegraph.fresh_index_repetitions !== 2
-    || !Array.isArray(evidence.codegraph.raw_outcomes_digests)
-    || evidence.codegraph.raw_outcomes_digests.length !== 2
-    || evidence.codegraph.raw_outcomes_digests.some((digest) => (
+    || evidence.sensor.fresh_index_repetitions !== 2
+    || !Array.isArray(evidence.sensor.raw_outcomes_digests)
+    || evidence.sensor.raw_outcomes_digests.length !== 2
+    || evidence.sensor.raw_outcomes_digests.some((digest) => (
       typeof digest !== 'string' || !SHA256.test(digest)
     ))
-    || new Set(evidence.codegraph.raw_outcomes_digests).size !== 2
-    || evidence.codegraph.raw_outcomes_equal !== false
-    || typeof evidence.codegraph.portable_outcomes_digest !== 'string'
-    || !SHA256.test(evidence.codegraph.portable_outcomes_digest)
-    || evidence.codegraph.portable_outcomes_equal !== true
-    || !Array.isArray(evidence.codegraph.outcomes)
-    || evidence.codegraph.outcomes.length === 0) {
+    || new Set(evidence.sensor.raw_outcomes_digests).size !== 2
+    || evidence.sensor.raw_outcomes_equal !== false
+    || typeof evidence.sensor.portable_outcomes_digest !== 'string'
+    || !SHA256.test(evidence.sensor.portable_outcomes_digest)
+    || evidence.sensor.portable_outcomes_equal !== true
+    || !Array.isArray(evidence.sensor.outcomes)
+    || evidence.sensor.outcomes.length === 0) {
     fail('portable control evidence v2のdigest metadataが不正');
   }
 }
@@ -336,14 +334,14 @@ function assertAdmission({
     || transformArtifact.source.query_set_digest !== digestArtifact(querySet)) {
     fail('query setまたはcontrol artifact digest chainがportable predecessorと一致しない');
   }
-  if (evidence.codegraph.outcomes.length !== querySet.queries.length
-    || evidence.codegraph.outcomes.some((outcome, index) => (
+  if (evidence.sensor.outcomes.length !== querySet.queries.length
+    || evidence.sensor.outcomes.some((outcome, index) => (
       outcome.id !== querySet.queries[index]?.id
       || outcome.operation !== querySet.queries[index]?.operation
       || typeof outcome.result_digest !== 'string'
       || !SHA256.test(outcome.result_digest)
     ))
-    || JSON.stringify(evidence.codegraph.outcomes.map((outcome) => ({
+    || JSON.stringify(evidence.sensor.outcomes.map((outcome) => ({
       id: outcome.id,
       operation: outcome.operation,
       status: outcome.outcome,
@@ -446,9 +444,9 @@ async function runVerifier(worktreePath) {
 }
 
 function portableStatusSummary(outcome) {
-  const portable = portableCodegraphOutcome(outcome);
+  const portable = portableSensorOutcome(outcome);
   const status = portable?.data;
-  if (!status || typeof status !== 'object') fail('portable Codegraph statusがない');
+  if (!status || typeof status !== 'object') fail('portable LatticeSensor statusがない');
   return {
     version: status.version,
     file_count: status.fileCount,
@@ -478,7 +476,7 @@ async function assertSourceUnchanged(repoRoot, expected) {
 }
 
 /**
- * accepted seam patchをdisposable worktreeへ適用し、fresh Codegraph indexからRC1 plan v2をcompileする。
+ * accepted seam patchをdisposable worktreeへ適用し、fresh LatticeSensor indexからRC1 plan v2をcompileする。
  * @param {object} options
  * @returns {Promise<{compiled: object, execution: object}>}
  */
@@ -493,7 +491,7 @@ export async function runRc1TreatmentRecompile({
   transformPatch,
   controlCompilationEvidence,
   control,
-  execute = executeCodegraph,
+  execute = executeLatticeSensor,
 } = {}) {
   const admission = assertAdmission({
     planInput,
@@ -534,7 +532,7 @@ export async function runRc1TreatmentRecompile({
   let verifierReceipt;
   let rawOutcomesDigest;
   let portableOutcomesDigest;
-  let codegraphSummary;
+  let sensorSummary;
   let applyVerifyMs;
   let indexMs;
   let compileMs;
@@ -563,19 +561,19 @@ export async function runRc1TreatmentRecompile({
     const indexStarted = performance.now();
     const initialized = await execute({ args: ['init', '.'], cwd: worktreePath });
     if (initialized?.code !== 0) {
-      throw new Error(`Codegraph init failed (${initialized?.code ?? 'unknown'}): ${initialized?.stderr ?? ''}`);
+      throw new Error(`LatticeSensor init failed (${initialized?.code ?? 'unknown'}): ${initialized?.stderr ?? ''}`);
     }
-    const codegraphEvidence = await collectCodegraphEvidence({
+    const sensorEvidence = await collectSensorEvidence({
       cwd: worktreePath,
       querySet,
       execute,
     });
     indexMs = Number((performance.now() - indexStarted).toFixed(3));
-    rawOutcomesDigest = digestArtifact(codegraphEvidence.outcomes);
+    rawOutcomesDigest = digestArtifact(sensorEvidence.outcomes);
     portableOutcomesDigest = digestArtifact(
-      codegraphEvidence.outcomes.map(portableCodegraphOutcome),
+      sensorEvidence.outcomes.map(portableSensorOutcome),
     );
-    codegraphSummary = portableStatusSummary(codegraphEvidence.outcomes[0]);
+    sensorSummary = portableStatusSummary(sensorEvidence.outcomes[0]);
     await assertPatchScope(worktreePath, transformArtifact.scope.changed_paths, {
       allowSensor: true,
     });
@@ -587,7 +585,7 @@ export async function runRc1TreatmentRecompile({
       manualNormal,
       manualNegative,
       querySet,
-      codegraphEvidence,
+      sensorEvidence,
       codeSnapshotDigest,
       transformArtifact,
       control,
@@ -597,7 +595,7 @@ export async function runRc1TreatmentRecompile({
     await rm(path.join(worktreePath, INDEX_DIRECTORY), { recursive: true, force: true });
     try {
       await access(path.join(worktreePath, INDEX_DIRECTORY));
-      throw new Error('Codegraph sensor state cleanup failed');
+      throw new Error('LatticeSensor sensor state cleanup failed');
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
@@ -641,7 +639,7 @@ export async function runRc1TreatmentRecompile({
       graph_digest_projection: PORTABLE_PROJECTION,
       raw_outcomes_digest: rawOutcomesDigest,
       portable_outcomes_digest: portableOutcomesDigest,
-      codegraph: codegraphSummary,
+      sensor: sensorSummary,
       verifier: verifierReceipt,
       timings_ms: {
         apply_and_verify: applyVerifyMs,

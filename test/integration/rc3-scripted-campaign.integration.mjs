@@ -11,7 +11,7 @@ import {
 } from '../../src/rc3-scripted-campaign.mjs';
 
 // RC3-H integration（plan RC3-H、ADR 0044 Decision 10・11）。
-// 8条件scripted campaignを実dogfood scaffold・実worktree・実Codegraphで完走させ、
+// 8条件scripted campaignを実dogfood scaffold・実worktree・実LatticeSensorで完走させ、
 // immutable artifact rootのartifact-only verificationとno-overwrite規律を固定する。
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');

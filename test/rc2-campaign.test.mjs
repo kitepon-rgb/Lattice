@@ -294,8 +294,8 @@ test('RC2 campaignはaccepted patchだけを変数に6 fresh worktree runとfixe
     assert.equal(runRecord.fresh_index, true);
     assert.equal(runRecord.source_invariant.outcome, 'passed');
     assert.equal(runRecord.cleanup.outcome, 'passed');
-    assert.equal(runRecord.measurement.codegraph_identity_digest,
-      result.identity.codegraph_identity_digest);
+    assert.equal(runRecord.measurement.sensor_identity_digest,
+      result.identity.sensor_identity_digest);
     assert.equal(runRecord.measurement.base_sha, result.base_sha);
     assert.equal(runRecord.cost.index.state, 'measured');
     assert.equal(runRecord.cost.query.state, 'measured');
@@ -337,15 +337,15 @@ test('RC2 campaignはaccepted patchだけを変数に6 fresh worktree runとfixe
   );
   assert.equal(result.identity.before_digest, result.identity.after_digest);
   assert.equal(result.identity.schema, 'lattice.rc2.execution_identity.v4');
-  assert.equal(result.identity.codegraph_identity.schema, 'lattice.rc2.codegraph_identity.v2');
+  assert.equal(result.identity.sensor_identity.schema, 'lattice.rc2.sensor_identity.v2');
   assert.equal(
-    result.identity.codegraph_identity.project_config_ref,
-    'identity/codegraph-config.json',
+    result.identity.sensor_identity.project_config_ref,
+    'identity/lattice-sensor-config.json',
   );
-  const configBytes = result.identity_payloads.get('identity/codegraph-config.json');
+  const configBytes = result.identity_payloads.get('identity/lattice-sensor-config.json');
   assert.ok(Buffer.isBuffer(configBytes));
   assert.equal(
-    result.identity.codegraph_identity.project_config_digest,
+    result.identity.sensor_identity.project_config_digest,
     sha256(configBytes),
   );
   assert.deepEqual(JSON.parse(configBytes.toString('utf8')), {
@@ -358,7 +358,7 @@ test('RC2 campaignはaccepted patchだけを変数に6 fresh worktree runとfixe
   });
   assert.equal(result.identity.before_digest, digestArtifact({
     sources: result.identity.sources,
-    codegraph_identity: result.identity.codegraph_identity,
+    sensor_identity: result.identity.sensor_identity,
   }));
 });
 
@@ -424,7 +424,7 @@ test('同じv2 coreはprimary、partial、capacity、unknown、RC1 transferを�
   )));
   assert.equal(result.plan_diff.causal_predecessors.length, 39);
   for (const ref of [
-    'identity/codegraph-config.json',
+    'identity/lattice-sensor-config.json',
     'predecessors/adr-0040.md',
     'predecessors/rc2-v1-artifact-manifest.json',
     'predecessors/rc2-v1-new-plan-version.json',
@@ -467,8 +467,8 @@ test('RC2 artifact writerはatomic immutableでdisk-only検査が不整合集合
       'source_schema',
       'storage_encoding',
     ]);
-    assert.equal(storedRaw.schema, 'lattice.rc2.chunked_codegraph_raw_receipt.v1');
-    assert.equal(storedRaw.source_schema, 'lattice.codegraph_raw_opaque_receipt.v1');
+    assert.equal(storedRaw.schema, 'lattice.rc2.chunked_sensor_raw_receipt.v1');
+    assert.equal(storedRaw.source_schema, 'lattice.sensor_raw_opaque_receipt.v1');
     assert.equal(storedRaw.source_encoding, 'canonical-json-base64');
     assert.equal(storedRaw.storage_encoding, 'ordered-base64-chunks');
     assert.ok(storedRaw.payload_base64_chunks.every((chunk) => (
@@ -570,12 +570,12 @@ test('RC2 artifact writerはatomic immutableでdisk-only検査が不整合集合
   assert.ok(predecessorVerification.failed_conditions.includes('predecessor_binding'));
 
   const configCorruption = copyArtifactSet(fixture);
-  mutateJson(configCorruption, 'identity/codegraph-config.json', (value) => {
+  mutateJson(configCorruption, 'identity/lattice-sensor-config.json', (value) => {
     value.exclude = [];
   });
   const configVerification = fixture.artifactSet.verifyRc2CampaignArtifactSet(configCorruption);
   assert.equal(configVerification.valid, false);
-  assert.ok(configVerification.failed_conditions.includes('codegraph_config_binding'));
+  assert.ok(configVerification.failed_conditions.includes('sensor_config_binding'));
 
   for (const relativePath of [
     'predecessors/rc2-v1-artifact-manifest.json',

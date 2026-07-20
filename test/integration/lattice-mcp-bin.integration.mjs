@@ -12,7 +12,7 @@ import { evaluateNodeVersionGuard } from '../../src/node-version-guard.mjs';
 // ADR 0049 Decision 8 — lattice-mcp bin契約の統合検証（実プロセス）。
 //
 //   ① stdoutはMCP protocol frame専用（診断は全てstderr）
-//   ② 内部daemon再invoke形（`serve --mcp --path <root>` + CODEGRAPH_DAEMON_INTERNAL）
+//   ② 内部daemon再invoke形（`serve --mcp --path <root>` + LATTICE_SENSOR_DAEMON_INTERNAL）
 //      を受理する — daemon spawn（sensor/src/mcp/index.ts `spawnDetachedDaemon`）が
 //      `process.argv[1]` を再invokeするため、lattice-mcp.mjs経由でも同じ形で
 //      daemon化できることを実測する
@@ -29,12 +29,12 @@ function run(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
-    // CODEGRAPH_ALLOW_UNSAFE_NODE: this fixture setup runs the sensor's own
-    // CLI directly (not the globally-installed `codegraph`), which carries a
+    // LATTICE_SENSOR_ALLOW_UNSAFE_NODE: this fixture setup runs the sensor's own
+    // CLI directly (not the globally-installed `sensor`), which carries a
     // Node-version guard (#81, a real V8/turboshaft OOM bug on Node 25.x) —
     // irrelevant to the fixture's `init` call and unrelated to the MCP surface
     // under test here, so it's overridden for this harness only.
-    env: { ...process.env, NO_COLOR: '1', CODEGRAPH_ALLOW_UNSAFE_NODE: '1' },
+    env: { ...process.env, NO_COLOR: '1', LATTICE_SENSOR_ALLOW_UNSAFE_NODE: '1' },
   });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}: ${result.stdout}\n${result.stderr}`);
   return result.stdout;
@@ -100,11 +100,11 @@ async function waitForFile(filePath, timeoutMs) {
 }
 
 // Node version guard(④, lattice-mcp.mjs)は起動時にargv解析より前に走るため、
-// このusage違反テストはCODEGRAPH_ALLOW_UNSAFE_NODEでガードを迂回する — でない
+// このusage違反テストはLATTICE_SENSOR_ALLOW_UNSAFE_NODEでガードを迂回する — でない
 // とテスト実行ホストのNodeがサポート対象外の場合、usage違反(exit 2)に届く前に
 // version guardのblock(exit 1)で止まってしまう。ガードそのものの境界は
 // test/node-version-guard.test.mjsで固定している。
-const UNSAFE_NODE_ENV = { ...process.env, CODEGRAPH_ALLOW_UNSAFE_NODE: '1' };
+const UNSAFE_NODE_ENV = { ...process.env, LATTICE_SENSOR_ALLOW_UNSAFE_NODE: '1' };
 
 test('lattice-mcp: 未知のフラグはstartup前のusage違反としてexit 2', () => {
   const result = spawnSync(process.execPath, [MCP_BIN, '--totally-unknown-flag'], { encoding: 'utf8', env: UNSAFE_NODE_ENV });
@@ -122,23 +122,23 @@ test('lattice-mcp: --path に値が無いのはusage違反でexit 2', () => {
 });
 
 test(
-  'lattice-mcp: initialize→codegraph_status往復でstdoutが純粋なJSON-RPC、serverInfo versionがLattice系列、mode/reasonが機械可読',
+  'lattice-mcp: initialize→lattice_sensor_status往復でstdoutが純粋なJSON-RPC、serverInfo versionがLattice系列、mode/reasonが機械可読',
   async (t) => {
     const root = await mkdtemp(path.join(tmpdir(), 'lattice-mcp-smoke-'));
     t.after(async () => { await rm(root, { recursive: true, force: true }); });
     await scaffoldIndexedRepo(root);
 
-    // Direct mode (CODEGRAPH_NO_DAEMON=1) — no detached daemon process to leak
+    // Direct mode (LATTICE_SENSOR_NO_DAEMON=1) — no detached daemon process to leak
     // out of this particular test; the daemon re-invoke path has its own test.
     const child = spawn(process.execPath, [MCP_BIN, '--path', root], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      // CODEGRAPH_ALLOW_UNSAFE_NODE: same override as UNSAFE_NODE_ENV above —
+      // LATTICE_SENSOR_ALLOW_UNSAFE_NODE: same override as UNSAFE_NODE_ENV above —
       // this exercises the JSON-RPC round trip regardless of whether the
       // test-runner's own Node major happens to be inside the supported
       // range; the version guard's block/override boundary is covered
       // separately (test/node-version-guard.test.mjs, plus the dedicated
       // spawn test below).
-      env: { ...process.env, CODEGRAPH_NO_DAEMON: '1', CODEGRAPH_ALLOW_UNSAFE_NODE: '1' },
+      env: { ...process.env, LATTICE_SENSOR_NO_DAEMON: '1', LATTICE_SENSOR_ALLOW_UNSAFE_NODE: '1' },
     });
     t.after(() => { try { child.kill(); } catch { /* already gone */ } });
     const client = jsonRpcClient(child);
@@ -163,20 +163,20 @@ test(
     const listResp = await client.waitForId(2);
     assert.equal(listResp.error, undefined, JSON.stringify(listResp));
     const expectedTools = [
-      'codegraph_search', 'codegraph_callers', 'codegraph_callees', 'codegraph_impact',
-      'codegraph_node', 'codegraph_explore', 'codegraph_status', 'codegraph_files',
+      'lattice_sensor_search', 'lattice_sensor_callers', 'lattice_sensor_callees', 'lattice_sensor_impact',
+      'lattice_sensor_node', 'lattice_sensor_explore', 'lattice_sensor_status', 'lattice_sensor_files',
     ];
     assert.deepEqual(listResp.result.tools.map(({ name }) => name), expectedTools);
 
     const calls = [
-      ['codegraph_search', { query: 'caller' }],
-      ['codegraph_callers', { symbol: 'leaf' }],
-      ['codegraph_callees', { symbol: 'root' }],
-      ['codegraph_impact', { symbol: 'leaf' }],
-      ['codegraph_node', { symbol: 'caller' }],
-      ['codegraph_explore', { query: 'root caller leaf' }],
-      ['codegraph_status', {}],
-      ['codegraph_files', {}],
+      ['lattice_sensor_search', { query: 'caller' }],
+      ['lattice_sensor_callers', { symbol: 'leaf' }],
+      ['lattice_sensor_callees', { symbol: 'root' }],
+      ['lattice_sensor_impact', { symbol: 'leaf' }],
+      ['lattice_sensor_node', { symbol: 'caller' }],
+      ['lattice_sensor_explore', { query: 'root caller leaf' }],
+      ['lattice_sensor_status', {}],
+      ['lattice_sensor_files', {}],
     ];
     const responses = new Map();
     for (const [offset, [name, args]] of calls.entries()) {
@@ -187,7 +187,7 @@ test(
       assert.ok(response.result.content.length > 0, `${name}: empty content`);
       responses.set(name, response);
     }
-    const statusResp = responses.get('codegraph_status');
+    const statusResp = responses.get('lattice_sensor_status');
     assert.equal(statusResp.error, undefined, JSON.stringify(statusResp));
     const text = statusResp.result.content[0].text;
     assert.match(text, /^provider: lattice$/m);
@@ -214,19 +214,19 @@ test(
     t.after(async () => { await rm(root, { recursive: true, force: true }); });
     await scaffoldIndexedRepo(root);
 
-    // No CODEGRAPH_NO_DAEMON here — the normal proxy path, which spawns the
+    // No LATTICE_SENSOR_NO_DAEMON here — the normal proxy path, which spawns the
     // shared daemon by re-invoking `process.argv[1]` (this bin) with
-    // `serve --mcp --path <root>` + CODEGRAPH_DAEMON_INTERNAL=1 (see
+    // `serve --mcp --path <root>` + LATTICE_SENSOR_DAEMON_INTERNAL=1 (see
     // sensor/src/mcp/index.ts spawnDetachedDaemon). If lattice-mcp.mjs
     // rejected that re-invoke form, the daemon could never bind and this
     // project would be silently pinned to direct mode forever.
-    // CODEGRAPH_ALLOW_UNSAFE_NODE is set on the launcher's own env — the
+    // LATTICE_SENSOR_ALLOW_UNSAFE_NODE is set on the launcher's own env — the
     // daemon re-invoke (spawnDetachedDaemon) inherits `process.env` when it
     // re-execs this same bin (sensor/src/mcp/index.ts), so this override
     // propagates to both the launcher AND the detached daemon it spawns.
     const child = spawn(process.execPath, [MCP_BIN, '--path', root], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, CODEGRAPH_ALLOW_UNSAFE_NODE: '1' },
+      env: { ...process.env, LATTICE_SENSOR_ALLOW_UNSAFE_NODE: '1' },
     });
     t.after(() => { try { child.kill(); } catch { /* already gone */ } });
     const client = jsonRpcClient(child);
@@ -243,7 +243,7 @@ test(
     });
     await client.waitForId(1);
 
-    const pidPath = path.join(root, '.codegraph', 'daemon.pid');
+    const pidPath = path.join(root, '.lattice/sensor', 'daemon.pid');
     const bound = await waitForFile(pidPath, 10000);
     assert.ok(bound, `daemon did not bind within 10s (pidfile never appeared at ${pidPath}) — the internal re-invoke form was not accepted`);
 

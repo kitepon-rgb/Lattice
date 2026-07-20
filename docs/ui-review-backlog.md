@@ -1,5 +1,8 @@
 # ガントHTML 初見レビュー指摘（文脈ゼロの批評レーン・renderer v3時点）
 
+> 状態: renderer v3〜v7の履歴レビュー。現行仕様は[06_design-spec.md](06_design-spec.md)、
+> 未完項目の実行状態はLattice storeを正本とする。
+
 対象: smoke store 7 taskの生成HTML。批評者には一切の文脈を与えていない。
 
 ## 優先度付き修正推奨（批評者判定）

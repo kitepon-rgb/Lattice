@@ -435,12 +435,12 @@ export function validateBoundaryManifest(value) {
       'code_snapshot_digest',
       'query_set_digest',
       'manual_evidence_digest',
-      'codegraph_version',
+      'sensor_version',
     ])
       || !digest(manifest.source.code_snapshot_digest)
       || !digest(manifest.source.query_set_digest)
       || !digest(manifest.source.manual_evidence_digest)
-      || !boundedText(manifest.source.codegraph_version, 128)) {
+      || !boundedText(manifest.source.sensor_version, 128)) {
       return false;
     }
     if (!boundedArray(manifest.graph_evidence, graphEvidence, { min: 1 })

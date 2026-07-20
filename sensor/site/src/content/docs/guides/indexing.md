@@ -3,6 +3,8 @@ title: Indexing a Project
 description: Full index, incremental sync, and the file watcher.
 ---
 
+> **旧上流documentation（未配布）**: このページの名称、URL、CLI、設定、効果量は現行Latticeの仕様ではありません。現行仕様はroot `README.md` と `docs/00_product-contract.md` を参照してください。
+
 ## Initialize and index
 
 ```bash

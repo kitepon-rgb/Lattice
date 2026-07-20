@@ -16,9 +16,9 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { CodeGraph } from '../src';
+import { LatticeSensor } from '../src';
 
-const BIN = path.resolve(__dirname, '../dist/bin/codegraph.js');
+const BIN = path.resolve(__dirname, '../dist/bin/lattice-sensor.js');
 
 // eslint-disable-next-line no-control-regex
 const ANSI = /\x1b\[/;
@@ -31,8 +31,8 @@ const ANSI = /\x1b\[/;
 function colorEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    CODEGRAPH_NO_DAEMON: '1',
-    CODEGRAPH_TELEMETRY: '0',
+    LATTICE_SENSOR_NO_DAEMON: '1',
+    LATTICE_SENSOR_TELEMETRY: '0',
   };
   delete env.NO_COLOR;
   delete env.FORCE_COLOR;
@@ -53,12 +53,12 @@ describe('CLI color handling (#1281)', () => {
   let tempDir: string;
 
   beforeAll(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-no-color-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-no-color-'));
     fs.writeFileSync(
       path.join(tempDir, 'a.ts'),
       'export function alpha(): number { return beta(); }\nexport function beta(): number { return 1; }\n'
     );
-    const cg = CodeGraph.initSync(tempDir);
+    const cg = LatticeSensor.initSync(tempDir);
     await cg.indexAll();
     cg.close();
   }, 60000);
@@ -98,7 +98,7 @@ describe('CLI color handling (#1281)', () => {
     expect(out).toContain('alpha');
   });
 
-  it('piped `codegraph index` emits plain per-phase lines: no ANSI, no \\r rewrites', () => {
+  it('piped `latticeSensor index` emits plain per-phase lines: no ANSI, no \\r rewrites', () => {
     const out = run(['index'], colorEnv(), tempDir);
     expect(out).not.toMatch(ANSI);
     expect(out).not.toContain('\r');

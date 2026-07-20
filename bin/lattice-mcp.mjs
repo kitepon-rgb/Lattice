@@ -3,7 +3,7 @@
  * Lattice MCP server entrypoint (ADR 0049 Decision 8).
  *
  * Thin bin that delegates to the sensor's MCP server — the same server
- * `codegraph serve --mcp` starts (see sensor/src/bin/codegraph.ts `serve`
+ * `sensor serve --mcp` starts (see sensor/src/bin/sensor.ts `serve`
  * command and sensor/src/mcp/index.ts `MCPServer`). Deliberately a SEPARATE
  * bin from `bin/lattice.mjs`: the CLI 6 面 axioms (stdout versioned JSON 1
  * 行, exit 0/1/2, `lattice.cli_error.v2`) apply ONLY to lattice.mjs, never
@@ -14,7 +14,7 @@
  *      (The sensor's own MCPServer already honors this; nothing here writes
  *      to stdout.)
  *   ② Accepts the INTERNAL daemon re-invoke form (`serve --mcp --path
- *      <root>` + CODEGRAPH_DAEMON_INTERNAL=1 env). The shared daemon
+ *      <root>` + LATTICE_SENSOR_DAEMON_INTERNAL=1 env). The shared daemon
  *      re-execs `process.argv[1]` with exactly this argv shape
  *      (sensor/src/mcp/index.ts `spawnDetachedDaemon`) — when this process
  *      IS `process.argv[1]` (an MCP host launched it directly as
@@ -30,7 +30,7 @@
  *      process alive for those).
  *   ④ Node version guard (wave2レビューでのスコープ外発見の修理): this bin
  *      imports `../sensor/dist/index.js` directly, bypassing the sensor
- *      CLI's own Node-version guard (sensor/src/bin/codegraph.ts, guarding
+ *      CLI's own Node-version guard (sensor/src/bin/sensor.ts, guarding
  *      against a Node 25.x V8 turboshaft WASM JIT Zone allocator OOM during
  *      tree-sitter grammar compilation, and a MIN_NODE_MAJOR floor). This
  *      file re-applies the SAME check — reusing thresholds/banners from
@@ -95,12 +95,12 @@ function parseArgs(argv) {
 // Node version guard (④) — runs before anything else, including argv
 // parsing, so it also covers the internal daemon re-invoke form (②) which
 // re-execs this exact file. Same semantics as the sensor CLI: nodeMajor >=
-// 25 or < MIN_NODE_MAJOR blocks unless CODEGRAPH_ALLOW_UNSAFE_NODE is set,
+// 25 or < MIN_NODE_MAJOR blocks unless LATTICE_SENSOR_ALLOW_UNSAFE_NODE is set,
 // in which case the banner is shown for visibility only and startup
 // continues.
 const nodeVersionGuard = evaluateNodeVersionGuard(
   process.versions.node,
-  Boolean(process.env.CODEGRAPH_ALLOW_UNSAFE_NODE),
+  Boolean(process.env.LATTICE_SENSOR_ALLOW_UNSAFE_NODE),
 );
 if (nodeVersionGuard.banner) {
   process.stderr.write(`${nodeVersionGuard.banner}\n`);
