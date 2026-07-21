@@ -4,6 +4,7 @@ import sensorPackage from '../sensor/package.json' with { type: 'json' };
 import { spawnSensorCli } from './sensor-runtime.mjs';
 
 const MAX_CAPTURE_BYTES = 1024 * 1024;
+const MAX_DIAGNOSTIC_BYTES = 16 * 1024;
 
 function writeJson(stream, value) {
   stream.write(`${JSON.stringify(value)}\n`);
@@ -28,6 +29,8 @@ function parse(argv) {
 function execute(command, projectPath) {
   return new Promise((resolve, reject) => {
     let captured = 0;
+    const stderrChunks = [];
+    let diagnosticBytes = 0;
     const hasIndex = existsSync(path.resolve(projectPath, '.lattice/sensor', 'sensor.db'));
     const sensorArgs = command === 'init' && hasIndex
       ? ['index', projectPath, '--quiet']
@@ -41,14 +44,24 @@ function execute(command, projectPath) {
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const observe = (chunk) => {
+    const observe = (chunk, retain = false) => {
       captured += chunk.length;
+      if (retain && diagnosticBytes < MAX_DIAGNOSTIC_BYTES) {
+        const retained = chunk.subarray(0, MAX_DIAGNOSTIC_BYTES - diagnosticBytes);
+        stderrChunks.push(retained);
+        diagnosticBytes += retained.length;
+      }
       if (captured > MAX_CAPTURE_BYTES) child.kill('SIGTERM');
     };
     child.stdout.on('data', observe);
-    child.stderr.on('data', observe);
+    child.stderr.on('data', (chunk) => observe(chunk, true));
     child.once('error', reject);
-    child.once('close', (code, signal) => resolve({ code, signal, overflow: captured > MAX_CAPTURE_BYTES }));
+    child.once('close', (code, signal) => resolve({
+      code,
+      signal,
+      overflow: captured > MAX_CAPTURE_BYTES,
+      stderr: Buffer.concat(stderrChunks).toString('utf8').trim(),
+    }));
   });
 }
 
@@ -58,10 +71,18 @@ export async function runSensorCli({ argv, stdout, stderr }) {
   try {
     const result = await execute(request.command, request.path);
     if (result.code !== 0 || result.signal || result.overflow) {
+      const notInitialized = request.command === 'sync' && /not initialized/u.test(result.stderr);
       writeJson(stderr, {
         schema: 'lattice.cli_error.v2',
-        code: result.overflow ? 'LATTICE_SENSOR_OUTPUT_LIMIT' : 'LATTICE_SENSOR_COMMAND_FAILED',
+        code: result.overflow ? 'LATTICE_SENSOR_OUTPUT_LIMIT'
+          : notInitialized ? 'LATTICE_SENSOR_NOT_INITIALIZED' : 'LATTICE_SENSOR_COMMAND_FAILED',
         message: `LatticeSensor ${request.command} failed`,
+        detail: {
+          exit_code: result.code,
+          signal: result.signal,
+          stderr: result.stderr,
+          next_action: notInitialized ? `lattice sensor init ${request.path} --json` : null,
+        },
       });
       return 1;
     }
@@ -79,6 +100,7 @@ export async function runSensorCli({ argv, stdout, stderr }) {
       schema: 'lattice.cli_error.v2',
       code: error?.code === 'LATTICE_SENSOR_UNAVAILABLE' ? error.code : 'LATTICE_SENSOR_COMMAND_FAILED',
       message: `LatticeSensor ${request.command} failed`,
+      detail: { cause: error?.message ?? 'unknown error' },
     });
     return 1;
   }

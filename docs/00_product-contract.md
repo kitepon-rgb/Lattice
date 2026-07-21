@@ -1,4 +1,4 @@
-# Lattice 製品契約（0.11.0）
+# Lattice 製品契約（0.11.2）
 
 ## Product outcome
 
@@ -70,6 +70,9 @@ rendezvous nodeに限る）。廃止済みcache/dataは入力またはfallback�
 MCP server提供と矛盾しない。MCP面は外部networkへ一切通信しない（v1受入条件）。
 runtimeは配布物内の`./sensor/dist`だけを起動し、PATH上の独立CLI、npx、外部SDKを解決しない。
 MCP toolは`lattice_sensor_*`だけを公開し、提供者と所有者を`lattice`として機械表示する。
+CLIの`lattice sensor sync`を未初期化projectで実行した場合は`LATTICE_SENSOR_NOT_INITIALIZED`を返し、
+`detail.next_action`へ同じpathの正規`lattice sensor init ... --json`を示す。その他のsensor失敗も
+exit code、signal、最大16 KiBのstderrをtyped detailへ保持し、原因を汎用messageへ隠さない。
 
 ## TODO工程store面（ADR 0053・0055・0056・0058）
 

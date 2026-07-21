@@ -23,6 +23,9 @@ spotter doctor
 codex-sidecar diagnostics --project . --preset auditor --json
 ```
 
+未初期化projectで`sensor sync`した場合は`LATTICE_SENSOR_NOT_INITIALIZED`と正規`next_action`を返します。
+その他のsensor失敗もexit code、signal、bounded stderrをtyped detailへ残し、原因を隠しません。
+
 Node.js 22.13以上を使用します。境界観測は配布物に同梱したLattice sensorだけを使い、PATH上の
 廃止済みruntimeや旧cache/dataへfallbackしません。Spotterはproject単位で生成stateの所有境界を守ります。
 

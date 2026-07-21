@@ -49,6 +49,21 @@ test('lattice sensorは未知commandをtyped usage errorで拒否する', () => 
   assert.equal(JSON.parse(result.stderr).code, 'USAGE');
 });
 
+test('lattice sensor syncは未初期化をtyped errorとnext actionで返す', async (t) => {
+  const repo = await mkdtemp(path.join(tmpdir(), 'lattice-sensor-uninitialized-'));
+  t.after(() => rm(repo, { recursive: true, force: true }));
+  await writeFile(path.join(repo, 'fixture.mjs'), 'export const fixture = true;\n');
+
+  const result = run(['sensor', 'sync', '.', '--json'], repo);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  const error = JSON.parse(result.stderr);
+  assert.equal(error.code, 'LATTICE_SENSOR_NOT_INITIALIZED');
+  assert.equal(error.detail.exit_code, 1);
+  assert.match(error.detail.stderr, /not initialized/u);
+  assert.equal(error.detail.next_action, 'lattice sensor init . --json');
+});
+
 test('公開packageは独立sensor CLIを公開せずLattice Sensorをprivate実装へ固定する', async () => {
   const rootPackage = JSON.parse(await readFile(path.join(ROOT, 'package.json'), 'utf8'));
   const sensorPackage = JSON.parse(await readFile(path.join(ROOT, 'sensor', 'package.json'), 'utf8'));
