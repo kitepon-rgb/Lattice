@@ -37,6 +37,7 @@ test('公開namespace helpは正規構文をstore非依存で表示する', () =
     ['sensor', /sensor <init\|sync>/u],
     ['factory-diagnostics', /factory-diagnostics --json/u],
     ['runtime-errors', /snapshot \[--after-cursor <n>\]/u],
+    ['bridge', /setup --listen <IP>/u],
   ]);
   for (const [namespace, pattern] of expected) {
     for (const args of [[namespace, '--help'], [namespace, '-h'], ['help', namespace]]) {
@@ -61,6 +62,7 @@ test('公開subcommand helpは正規構文をstore非依存で表示する', () 
     [['todo', 'phase', 'accept', '-h'], /--input <file>/u],
     [['help', 'todo', 'done'], /--evidence <file>/u],
     [['help', 'run', 'abandon'], /--reason <reason>/u],
+    [['bridge', 'setup', '--help'], /--listen <IP>/u],
   ];
   for (const [args, pattern] of cases) {
     const result = runCli(args);

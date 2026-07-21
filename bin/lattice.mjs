@@ -65,6 +65,11 @@ if (help !== null) {
     stdout: process.stdout,
     stderr: process.stderr,
   });
+} else if (args[0] === 'bridge') {
+  const { runBridgeCli } = await import('../src/bridge-cli.mjs');
+  process.exitCode = await runBridgeCli({
+    argv: args.slice(1), stdout: process.stdout, stderr: process.stderr, env: process.env,
+  });
 } else {
   try {
     process.exitCode = await runRuntimeCli({

@@ -137,7 +137,7 @@ export async function startTodoGanttDashboardServer({ registry, port = 0, redire
         response.writeHead(200, { 'content-type': 'application/json; charset=utf-8',
           'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
         response.end(`${JSON.stringify({ schema: 'lattice.todo_dashboard_health.v1', pid: process.pid,
-          project_ids: registry.list().map(({ projectId }) => projectId) })}\n`);
+          port: actualPort, project_ids: registry.list().map(({ projectId }) => projectId) })}\n`);
         return;
       }
       if (url.pathname === '/' || url.pathname === '/projects/') {

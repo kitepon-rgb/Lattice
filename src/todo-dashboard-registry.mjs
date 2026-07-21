@@ -159,7 +159,8 @@ async function daemonHealthy(descriptor) {
     });
     if (response.status !== 200) return false;
     const body = await response.json();
-    return body?.schema === 'lattice.todo_dashboard_health.v1' && body.pid === descriptor.pid;
+    return body?.schema === 'lattice.todo_dashboard_health.v1' && body.pid === descriptor.pid
+      && body.port === descriptor.port;
   } catch { return false; }
 }
 
@@ -211,6 +212,7 @@ export async function ensureTodoDashboardActivity(options) {
       });
       const health = response.status === 200 ? await response.json() : null;
       visible = health?.schema === 'lattice.todo_dashboard_health.v1'
+        && health.port === daemon.port
         && health.project_ids?.includes(registered.projectId);
     } catch { visible = false; }
     if (!visible) await new Promise((resolve) => setTimeout(resolve, 50));

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -48,6 +48,7 @@ test('通常session activityだけでdashboard daemonを起動し同じdaemonを
       displayName: 'Lattice', sessionId: 'session-a', env }),
   ]);
   const descriptor = JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8'));
+  assert.equal((await stat(path.join(runtime, 'daemon.json'))).mode & 0o777, 0o600);
   daemonPid = descriptor.pid;
   assert.ok(first.port > 0);
   assert.equal(concurrent.port, first.port);

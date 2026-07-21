@@ -9,6 +9,7 @@ Commands:
   sensor <command>              Initialize or synchronize the bundled sensor
   factory-diagnostics --json    Check native factory integration
   runtime-errors <command>      Inspect the local runtime error store
+  bridge <command>              Configure the optional network bridge
 
 Options:
   -h, --help                    Show help
@@ -80,6 +81,14 @@ Commands:
   reopen <fingerprint>
   compact
 `,
+  bridge: `Usage: lattice bridge <command> [options] --json
+
+Commands:
+  setup --listen <IP> [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--allow-host <host>...]
+  reconfigure [--listen <IP>] [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--allow-host <host>...]
+  status
+  disable
+`,
 });
 
 const SUBCOMMAND_USAGE = Object.freeze({
@@ -122,6 +131,10 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'runtime-errors resolve': 'runtime-errors resolve <fingerprint> --json',
   'runtime-errors reopen': 'runtime-errors reopen <fingerprint> --json',
   'runtime-errors compact': 'runtime-errors compact --json',
+  'bridge setup': 'bridge setup --listen <IP> [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--allow-host <host>...] --json',
+  'bridge reconfigure': 'bridge reconfigure [--listen <IP>] [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--allow-host <host>...] --json',
+  'bridge status': 'bridge status --json',
+  'bridge disable': 'bridge disable --json',
 });
 
 function requestedNamespace(argv) {
