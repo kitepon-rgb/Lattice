@@ -1,0 +1,9 @@
+{
+  "evidence_id": "lpg-027-runtime-hold-recovery-20260721",
+  "repo_id": "self",
+  "path": "test/runtime-conflict-cli.test.mjs",
+  "git_blob_oid": "8a7fdff9842d5a46154e071d8261ed7865f03fbd",
+  "content_digest": "eb21350bd4de35a5b5b1cc2d87fc00b2065bcf343ec27543d798cc77b2f7a273",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}

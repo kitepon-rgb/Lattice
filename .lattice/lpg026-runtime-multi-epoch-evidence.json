@@ -1,0 +1,9 @@
+{
+  "evidence_id": "lpg-026-runtime-multi-epoch-20260721",
+  "repo_id": "self",
+  "path": "test/runtime-multi-epoch-store.test.mjs",
+  "git_blob_oid": "19b76fd32024ee48591907d5f8be8ca6d6371766",
+  "content_digest": "5b96ead5306bdba863f42ce9247387da3436e4177389f90318d1f7d4b0885f7f",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
