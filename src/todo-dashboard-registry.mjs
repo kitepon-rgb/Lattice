@@ -149,19 +149,89 @@ export async function registerTodoDashboardActivity({
   return { projectId, displayName, repoRoot: canonicalRoot, sessionId };
 }
 
-async function daemonHealthy(descriptor) {
-  if (descriptor === null || typeof descriptor !== 'object' || descriptor.schema !== DAEMON_SCHEMA
-    || !Number.isSafeInteger(descriptor.pid) || descriptor.pid <= 0
-    || !Number.isSafeInteger(descriptor.port) || descriptor.port <= 0 || descriptor.port > 65_535) return false;
+function validDaemonDescriptor(descriptor) {
+  return descriptor !== null && typeof descriptor === 'object' && !Array.isArray(descriptor)
+    && Object.keys(descriptor).sort().join(',') === 'pid,port,schema,started_at'
+    && descriptor.schema === DAEMON_SCHEMA
+    && Number.isSafeInteger(descriptor.pid) && descriptor.pid > 0
+    && Number.isSafeInteger(descriptor.port) && descriptor.port > 0 && descriptor.port <= 65_535
+    && typeof descriptor.started_at === 'string' && Number.isFinite(Date.parse(descriptor.started_at));
+}
+
+async function daemonAttestation(descriptor) {
+  if (!validDaemonDescriptor(descriptor)) return null;
   try {
     const response = await fetch(`http://127.0.0.1:${descriptor.port}/__lattice/health`, {
       signal: AbortSignal.timeout(500),
     });
-    if (response.status !== 200) return false;
+    if (response.status !== 200) return null;
     const body = await response.json();
-    return body?.schema === 'lattice.todo_dashboard_health.v1' && body.pid === descriptor.pid
-      && body.port === descriptor.port;
-  } catch { return false; }
+    if (body?.schema !== 'lattice.todo_dashboard_health.v1' || body.pid !== descriptor.pid
+      || !Array.isArray(body.project_ids)) return null;
+    const keys = Object.keys(body).sort().join(',');
+    if (keys === 'pid,port,project_ids,schema' && body.port === descriptor.port) return 'current';
+    if (keys === 'pid,project_ids,schema') return 'legacy';
+    return null;
+  } catch { return null; }
+}
+
+async function daemonHealthy(descriptor) {
+  return await daemonAttestation(descriptor) === 'current';
+}
+
+function processIsAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (error) {
+    if (error?.code === 'ESRCH') return false;
+    throw error;
+  }
+}
+
+async function stopAttestedLegacyDaemon(descriptor, {
+  signalProcess = process.kill, isProcessAlive = processIsAlive, timeoutMs = 3_000,
+} = {}) {
+  const attestation = await daemonAttestation(descriptor);
+  if (attestation !== 'legacy') {
+    if (!await isProcessAlive(descriptor.pid) && attestation === null) return;
+    const error = new Error('legacy dashboard daemon attestation was lost before signal');
+    error.code = 'DASHBOARD_LEGACY_ATTESTATION_LOST';
+    throw error;
+  }
+  signalProcess(descriptor.pid, 'SIGTERM');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const alive = await isProcessAlive(descriptor.pid);
+    const stillServing = await daemonAttestation(descriptor) !== null;
+    if (!alive && !stillServing) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const error = new Error('legacy dashboard daemon did not stop');
+  error.code = 'DASHBOARD_LEGACY_STOP_FAILED';
+  throw error;
+}
+
+async function stopSpawnedReplacement(child, descriptor, {
+  isProcessAlive = processIsAlive, timeoutMs = 3_000,
+} = {}) {
+  const stopped = async () => {
+    const exited = child.exitCode !== null || child.signalCode !== null
+      || !await isProcessAlive(child.pid);
+    return exited && await daemonAttestation(descriptor) === null;
+  };
+  child.kill('SIGTERM');
+  let deadline = Date.now() + Math.ceil(timeoutMs / 2);
+  while (Date.now() < deadline) {
+    if (await stopped()) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  child.kill('SIGKILL');
+  deadline = Date.now() + Math.floor(timeoutMs / 2);
+  while (Date.now() < deadline) {
+    if (await stopped()) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const error = new Error('replacement dashboard daemon rollback did not stop');
+  error.code = 'DASHBOARD_REPLACEMENT_ROLLBACK_FAILED';
+  throw error;
 }
 
 export async function writeTodoDashboardDaemonDescriptor({ port, env = process.env }) {
@@ -172,28 +242,49 @@ export async function writeTodoDashboardDaemonDescriptor({ port, env = process.e
     started_at: new Date().toISOString() });
 }
 
-export async function ensureTodoDashboardDaemon({ env = process.env } = {}) {
+export async function ensureTodoDashboardDaemon({ env = process.env, spawnDaemon = spawn,
+  signalProcess = process.kill, isProcessAlive = processIsAlive, startupTimeoutMs = 4_000,
+  legacyStopTimeoutMs = 3_000, replacementIsProcessAlive = processIsAlive } = {}) {
   const refs = paths(env);
   await mkdir(refs.root, { recursive: true, mode: 0o700 });
   return withLock(refs.startupLock, async () => {
     const existing = await readJson(refs.descriptor, null);
-    if (await daemonHealthy(existing)) return existing;
+    const existingAttestation = await daemonAttestation(existing);
+    if (existingAttestation === 'current') return existing;
+    const legacy = existingAttestation === 'legacy' ? existing : null;
     const portText = env.LATTICE_DASHBOARD_PORT;
-    const port = typeof portText === 'string' && /^(?:0|[1-9][0-9]{0,4})$/u.test(portText)
+    const configuredPort = typeof portText === 'string' && /^(?:0|[1-9][0-9]{0,4})$/u.test(portText)
       && Number(portText) <= 65_535 ? Number(portText) : DEFAULT_PORT;
-    await rm(refs.descriptor, { force: true });
-    const child = spawn(process.execPath, [path.resolve(import.meta.dirname, '../bin/lattice-dashboard.mjs')], {
+    const port = legacy === null ? configuredPort : 0;
+    if (legacy === null) await rm(refs.descriptor, { force: true });
+    const child = spawnDaemon(process.execPath, [path.resolve(import.meta.dirname, '../bin/lattice-dashboard.mjs')], {
       detached: true,
       stdio: 'ignore',
       env: { ...env, LATTICE_DASHBOARD_RUNTIME_DIR: refs.root, LATTICE_DASHBOARD_PORT: String(port) },
     });
     child.unref();
-    const deadline = Date.now() + 4_000;
+    const deadline = Date.now() + startupTimeoutMs;
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 50));
       const descriptor = await readJson(refs.descriptor, null);
-      if (await daemonHealthy(descriptor)) return descriptor;
+      if (await daemonHealthy(descriptor) && descriptor.pid !== legacy?.pid) {
+        if (legacy !== null) {
+          try {
+            await stopAttestedLegacyDaemon(legacy, {
+              signalProcess, isProcessAlive, timeoutMs: legacyStopTimeoutMs,
+            });
+          } catch (error) {
+            await stopSpawnedReplacement(child, descriptor, { isProcessAlive: replacementIsProcessAlive });
+            await atomicJson(refs.descriptor, legacy);
+            throw error;
+          }
+        }
+        return descriptor;
+      }
     }
+    child.kill?.('SIGTERM');
+    if (legacy !== null) await atomicJson(refs.descriptor, legacy);
+    else await rm(refs.descriptor, { force: true });
     const error = new Error('dashboard daemon did not become ready');
     error.code = 'DASHBOARD_DAEMON_UNAVAILABLE';
     throw error;

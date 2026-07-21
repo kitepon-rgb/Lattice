@@ -1,16 +1,36 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { runTodoCli } from '../src/todo-cli.mjs';
 import {
+  ensureTodoDashboardDaemon,
   ensureTodoDashboardActivity,
   readActiveTodoDashboardProjects,
   registerTodoDashboardActivity,
   TODO_DASHBOARD_STALE_MS,
 } from '../src/todo-dashboard-registry.mjs';
+
+async function healthServer(body) {
+  const server = createServer((request, response) => {
+    if (request.url !== '/__lattice/health') { response.writeHead(404).end(); return; }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(`${JSON.stringify(typeof body === 'function' ? body() : body)}\n`);
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  return { server, port: server.address().port };
+}
+
+async function writeDaemonDescriptor(runtime, descriptor) {
+  await writeFile(path.join(runtime, 'daemon.json'), `${JSON.stringify(descriptor)}\n`, { mode: 0o600 });
+}
 
 test('session activity registryはprojectをupsertし期限切れentryを一覧から除外する', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-registry-'));
@@ -69,6 +89,140 @@ test('通常session activityだけでdashboard daemonを起動し同じdaemonを
   assert.ok(restarted.port > 0);
   daemonPid = replacement.pid;
 });
+
+test('legacy health daemonは新daemon成功後だけPID一致を根拠に停止して置換する', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-legacy-upgrade-'));
+  const runtime = path.join(root, 'runtime');
+  await rm(runtime, { recursive: true, force: true });
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const legacyPid = 987_654;
+  const legacy = await healthServer({ schema: 'lattice.todo_dashboard_health.v1', pid: legacyPid,
+    project_ids: ['lattice'] });
+  await writeDaemonDescriptor(runtime, { schema: 'lattice.todo_dashboard_daemon.v1', pid: legacyPid,
+    port: legacy.port, started_at: new Date().toISOString() });
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime, LATTICE_DASHBOARD_PORT: '61234' };
+  let replacement = null;
+  let signaled = false;
+  context.after(async () => {
+    if (replacement !== null) try { process.kill(replacement.pid, 'SIGTERM'); } catch {}
+    await new Promise((resolve) => legacy.server.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  replacement = await ensureTodoDashboardDaemon({ env,
+    signalProcess(pid, signal) {
+      assert.equal(pid, legacyPid); assert.equal(signal, 'SIGTERM'); signaled = true; legacy.server.close();
+    },
+    isProcessAlive: () => !signaled,
+  });
+  assert.equal(signaled, true);
+  assert.notEqual(replacement.pid, legacyPid);
+  assert.notEqual(replacement.port, legacy.port);
+});
+
+test('PID不一致healthの無関係serviceにはsignalせず新daemonへ置換する', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-unrelated-'));
+  const runtime = path.join(root, 'runtime');
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const unrelated = await healthServer({ schema: 'lattice.todo_dashboard_health.v1', pid: 222_222,
+    project_ids: [] });
+  await writeDaemonDescriptor(runtime, { schema: 'lattice.todo_dashboard_daemon.v1', pid: 111_111,
+    port: unrelated.port, started_at: new Date().toISOString() });
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime, LATTICE_DASHBOARD_PORT: '0' };
+  let replacement = null;
+  context.after(async () => {
+    if (replacement !== null) try { process.kill(replacement.pid, 'SIGTERM'); } catch {}
+    await new Promise((resolve) => unrelated.server.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  replacement = await ensureTodoDashboardDaemon({ env,
+    signalProcess() { throw new Error('unrelated PID must not be signaled'); },
+  });
+  assert.notEqual(replacement.pid, 111_111);
+  assert.equal((await fetch(`http://127.0.0.1:${unrelated.port}/__lattice/health`)).status, 200);
+});
+
+test('新daemon起動中にlegacy再attestationを失ったPIDへはsignalしない', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-attestation-race-'));
+  const runtime = path.join(root, 'runtime');
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const legacyPid = 555_555;
+  let legacyBody = { schema: 'lattice.todo_dashboard_health.v1', pid: legacyPid,
+    project_ids: ['lattice'] };
+  const legacy = await healthServer(() => legacyBody);
+  await writeDaemonDescriptor(runtime, { schema: 'lattice.todo_dashboard_daemon.v1', pid: legacyPid,
+    port: legacy.port, started_at: new Date().toISOString() });
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime, LATTICE_DASHBOARD_PORT: '0' };
+  context.after(async () => {
+    const descriptor = JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8'));
+    if (descriptor.pid !== legacyPid) try { process.kill(descriptor.pid, 'SIGTERM'); } catch {}
+    await new Promise((resolve) => legacy.server.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  await assert.rejects(ensureTodoDashboardDaemon({ env,
+    spawnDaemon(...args) {
+      legacyBody = { ...legacyBody, pid: legacyPid + 1 };
+      return spawn(...args);
+    },
+    signalProcess() { throw new Error('lost attestation PID must not be signaled'); },
+    isProcessAlive: () => true,
+  }), (error) => error.code === 'DASHBOARD_LEGACY_ATTESTATION_LOST');
+});
+
+test('新daemon起動失敗時はattested legacyを停止せずdescriptorと可用性を維持する',
+  async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-upgrade-rollback-'));
+    const runtime = path.join(root, 'runtime');
+    await mkdir(runtime, { recursive: true, mode: 0o700 });
+    const legacyPid = 333_333;
+    const legacy = await healthServer({ schema: 'lattice.todo_dashboard_health.v1', pid: legacyPid,
+      project_ids: ['lattice'] });
+    const descriptor = { schema: 'lattice.todo_dashboard_daemon.v1', pid: legacyPid,
+      port: legacy.port, started_at: new Date().toISOString() };
+    await writeDaemonDescriptor(runtime, descriptor);
+    const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime, LATTICE_DASHBOARD_PORT: '0' };
+    let fakeKilled = false;
+    context.after(async () => {
+      await new Promise((resolve) => legacy.server.close(resolve));
+      await rm(root, { recursive: true, force: true });
+    });
+    await assert.rejects(ensureTodoDashboardDaemon({ env, startupTimeoutMs: 120,
+      spawnDaemon: () => ({ pid: 444_444, unref() {}, kill() { fakeKilled = true; } }),
+      signalProcess() { throw new Error('legacy must remain available'); },
+    }), (error) => error.code === 'DASHBOARD_DAEMON_UNAVAILABLE');
+    assert.equal(fakeKilled, true);
+    assert.deepEqual(JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8')), descriptor);
+    assert.equal((await fetch(`http://127.0.0.1:${legacy.port}/__lattice/health`)).status, 200);
+  });
+
+test('旧daemon停止失敗時はreplacementを停止確認してlegacy descriptorへrollbackする',
+  async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-stop-rollback-'));
+    const runtime = path.join(root, 'runtime');
+    await mkdir(runtime, { recursive: true, mode: 0o700 });
+    const legacyPid = 666_666;
+    const legacy = await healthServer({ schema: 'lattice.todo_dashboard_health.v1', pid: legacyPid,
+      project_ids: ['lattice'] });
+    const descriptor = { schema: 'lattice.todo_dashboard_daemon.v1', pid: legacyPid,
+      port: legacy.port, started_at: new Date().toISOString() };
+    await writeDaemonDescriptor(runtime, descriptor);
+    const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime, LATTICE_DASHBOARD_PORT: '0' };
+    let replacementChild = null;
+    context.after(async () => {
+      if (replacementChild?.exitCode === null && replacementChild?.signalCode === null) {
+        replacementChild.kill('SIGKILL');
+      }
+      await new Promise((resolve) => legacy.server.close(resolve));
+      await rm(root, { recursive: true, force: true });
+    });
+    await assert.rejects(ensureTodoDashboardDaemon({ env, legacyStopTimeoutMs: 120,
+      spawnDaemon(...args) { replacementChild = spawn(...args); return replacementChild; },
+      signalProcess() {},
+      isProcessAlive: () => true,
+    }), (error) => error.code === 'DASHBOARD_LEGACY_STOP_FAILED');
+    assert.ok(replacementChild.exitCode !== null || replacementChild.signalCode !== null);
+    assert.deepEqual(JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8')), descriptor);
+    assert.equal((await fetch(`http://127.0.0.1:${legacy.port}/__lattice/health`)).status, 200);
+  });
 
 test('todo CLIの通常activityが明示serveなしでproject登録とdaemon起動をensureする', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-cli-'));
