@@ -44,7 +44,7 @@ let requestPath;
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
-    cwd, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' },
+    cwd, encoding: 'utf8', env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1' },
   });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}: ${result.stderr}`);
   return result.stdout;
@@ -54,7 +54,7 @@ function runCli(args, cwd = fixtureRoot) {
   const result = spawnSync(process.execPath, [CLI, ...args], {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: '1' },
+    env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1' },
   });
   assert.equal(result.error, undefined);
   return result;

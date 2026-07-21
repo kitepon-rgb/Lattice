@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -527,6 +527,22 @@ test('実controller daemonはholdからsuccessor prepare/release/中央gate/inta
   assert.equal(gateControlBatch[2].payload.gate_digest, gate.gate_digest);
   assert.equal(gateControlBatch.every((event) => event.session_nonce_digest
     === activeRuntime.pointer.session_nonce_digest), true);
+  const activeStatus = JSON.parse(exec(process.execPath,
+    [CLI, 'run', 'status', '--run', fixture.runRef], fixture.repo).stdout);
+  assert.equal(activeStatus.runtime_projection.intake_frozen, false);
+  assert.equal(activeStatus.runtime_projection.runtime_frozen, false);
+  const gatePath = path.join(runDir, 'supervisor', 'write-gate.json');
+  const hiddenGatePath = path.join(runDir, 'supervisor', 'write-gate.status-test.json');
+  await rename(gatePath, hiddenGatePath);
+  try {
+    const frozenWithoutGate = JSON.parse(exec(process.execPath,
+      [CLI, 'run', 'status', '--run', fixture.runRef], fixture.repo).stdout);
+    assert.equal(frozenWithoutGate.runtime_projection.intake_frozen, false);
+    assert.equal(frozenWithoutGate.runtime_projection.runtime_frozen, true);
+    assert.deepEqual(frozenWithoutGate.dispatchable, []);
+  } finally {
+    await rename(hiddenGatePath, gatePath);
+  }
   const reprocessedQueue = JSON.parse(await readFile(path.join(runDir, 'queued-events.json')));
   assert.deepEqual(reprocessedQueue.entries, []);
   assert.deepEqual(events.filter((event) => event.kind === 'context_invalidated')
@@ -638,6 +654,19 @@ test('activate後もdaemonが生存しfinding→conflict→hold receiptとdispat
   const held = JSON.parse(await readFile(path.join(runDir, 'hold-result.json')));
   assert.equal(held.outcome, 'held');
   assert.equal(held.quiescence_ack_digests.length, 1);
+  const status = JSON.parse(exec(process.execPath,
+    [CLI, 'run', 'status', '--run', fixture.runRef], fixture.repo).stdout);
+  assert.equal(status.schema, 'lattice.managed_run_status.v1');
+  assert.deepEqual(Object.keys(status.runtime_projection).sort(), [
+    'carry_over', 'held', 'intake_frozen', 'projection_digest', 'redispatch',
+    'runtime_frozen', 'schema',
+  ]);
+  assert.equal(status.runtime_projection.schema, 'lattice.runtime_status_projection.v1');
+  assert.deepEqual(status.runtime_projection.held, ['T1']);
+  assert.deepEqual(status.runtime_projection.carry_over, []);
+  assert.deepEqual(status.runtime_projection.redispatch, []);
+  assert.equal(status.runtime_projection.intake_frozen, true);
+  assert.equal(status.runtime_projection.runtime_frozen, true);
   assert.match(exec('/bin/ps', ['-o', 'state=', '-p', String(worker.pid)], fixture.repo).stdout.trim(), /^T/u);
   const resume = exec(process.execPath, [CLI, 'run', 'resume', '--run', fixture.runRef], fixture.repo);
   assert.deepEqual(JSON.parse(resume.stdout).dispatchable, []);

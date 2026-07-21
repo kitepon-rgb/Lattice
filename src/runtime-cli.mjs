@@ -42,7 +42,7 @@ import {
   classifyObservedDiff,
 } from './runtime-decision-verifier.mjs';
 import { verifyRunEventChain } from './runtime-event-store.mjs';
-import { projectRuntimeState } from './runtime-projection.mjs';
+import { projectRuntimeState, projectRuntimeStatusOverlays } from './runtime-projection.mjs';
 import {
   decideHoldAndCarryOver,
   recompileNextEpochPlan,
@@ -726,6 +726,16 @@ async function runStatus({ runDir, stdout }) {
     closed: state.closed,
     event_count: events.length,
   };
+  if (managed !== null) {
+    output.schema = 'lattice.managed_run_status.v1';
+    const runtimeProjection = {
+      schema: 'lattice.runtime_status_projection.v1',
+      ...projectRuntimeStatusOverlays({ events }),
+      runtime_frozen: managedFrozen,
+    };
+    runtimeProjection.projection_digest = digestArtifact(runtimeProjection);
+    output.runtime_projection = runtimeProjection;
+  }
   output.result_digest = digestArtifact(output);
   stdout.write(`${JSON.stringify(output)}\n`);
   return 0;

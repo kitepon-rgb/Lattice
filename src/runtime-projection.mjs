@@ -178,3 +178,65 @@ export function projectRuntimeState(options = {}) {
     closed,
   };
 }
+
+/**
+ * managed runの一時状態をevent prefixだけから表示用に投影する。
+ *
+ * TODO本体の状態機械とは独立したoverlayであり、hold/carry-over/redispatchを
+ * 相互排他的に保つ。receipt accepted後は運用上の一時状態ではなくなるため
+ * overlayから除く。intake_frozenはevent prefix上の論理状態だけを表し、中央
+ * write gateまで含むmanaged runtimeの実効freeze判定は所有しない。
+ */
+export function projectRuntimeStatusOverlays(options = {}) {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)
+    || !Array.isArray(options.events)) {
+    invalidProjection('eventsの配列が必要');
+  }
+  const { events } = options;
+  // sequence順、未知event、subject等の既存projection契約を先に検証する。
+  const runtimeState = projectRuntimeState({ events });
+  const overlays = new Map();
+
+  const setOverlay = (todoId, state) => {
+    if (typeof todoId !== 'string' || todoId.length === 0) {
+      invalidProjection(`${state} overlayのtodo idが不正`);
+    }
+    overlays.set(todoId, state);
+  };
+
+  for (const event of events) {
+    const todoRef = event.subject?.kind === 'todo' ? event.subject.ref : null;
+    switch (event.kind) {
+      case 'hold_decided':
+        for (const todoId of event.payload?.hold_set ?? []) setOverlay(todoId, 'held');
+        for (const todoId of event.payload?.continue_set ?? []) setOverlay(todoId, 'carry_over');
+        break;
+      case 'carry_over_witnessed':
+      case 'epoch_rebound':
+        if (todoRef === null) invalidProjection(`${event.kind}はtodo subjectが必要`);
+        setOverlay(todoRef, 'carry_over');
+        break;
+      case 'context_invalidated':
+        if (todoRef === null) invalidProjection('context_invalidatedはtodo subjectが必要');
+        if (event.payload?.reauthorized_via === 'epoch_rebind') setOverlay(todoRef, 'carry_over');
+        else if (event.payload?.reauthorized_via === 'redispatch') setOverlay(todoRef, 'redispatch');
+        break;
+      case 'receipt_accepted':
+        if (todoRef === null) invalidProjection('receipt_acceptedはtodo subjectが必要');
+        overlays.delete(todoRef);
+        break;
+      default:
+        break;
+    }
+  }
+
+  const members = (state) => sortedArray(
+    [...overlays.entries()].filter(([, value]) => value === state).map(([todoId]) => todoId),
+  );
+  return {
+    held: members('held'),
+    carry_over: members('carry_over'),
+    redispatch: members('redispatch'),
+    intake_frozen: runtimeState.freeze !== null,
+  };
+}
