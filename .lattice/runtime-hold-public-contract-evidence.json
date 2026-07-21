@@ -1,0 +1,9 @@
+{
+  "anchor_digest": null,
+  "content_digest": "11711ccba7b6f10bb1335890ff90ee29761f869b68fc02928a60a4edf6704879",
+  "evidence_id": "runtime-hold-public-contract-20260721",
+  "git_blob_oid": "99536abc0d203305a5383229665b9660e6fba463",
+  "media_type": "text/markdown",
+  "path": "docs/adr/0064-runtime-hold-public-bridge.md",
+  "repo_id": "self"
+}
