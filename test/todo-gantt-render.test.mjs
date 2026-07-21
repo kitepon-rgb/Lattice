@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
@@ -53,11 +54,11 @@ function topology(read) {
   };
 }
 
-function renderFixture(read, narratives = [], anchorOutcomes = [], document = null) {
+function renderFixture(read, narratives = [], anchorOutcomes = [], document = null, metadata = {}) {
   const chain = projectTodoChainV1(topology(read));
   const layout = layoutTodoGantt(read, chain);
   const presentation = projectTodoGanttPresentation(read, document);
-  return renderTodoGanttHtml({ readModel: read, layout, narratives, anchorOutcomes, presentation });
+  return renderTodoGanttHtml({ readModel: read, layout, narratives, anchorOutcomes, presentation, metadata });
 }
 
 test('v5 GanttはPhaseを通常ToDoのschedule gateとして説明しない', () => {
@@ -205,6 +206,9 @@ function taskNodeY(html) {
 
 test('small real store E2E generates the default self-contained gantt and exact binding result', async (context) => {
   const root = await workspace(context);
+  await writeFile(path.join(root, '.lattice', 'project.json'), `${JSON.stringify({
+    schema: 'lattice.project_identity.v1', project_id: 'project-1', display_name: 'Fixture Project',
+  })}\n`);
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   assert.equal(execution.stderr, '');
@@ -216,7 +220,9 @@ test('small real store E2E generates the default self-contained gantt and exact 
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v7');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v8');
+  const generatedHtml = await readFile(path.join(root, '.lattice', 'generated', 'gantt.html'), 'utf8');
+  assert.match(generatedHtml, /<title>Lattice — Fixture Project 依存工程図<\/title>/u);
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
   assert.equal(result.narrative_bindings_digest, digestTodoArtifact([{
     project_id: 'project-1',
@@ -242,6 +248,30 @@ test('small real store E2E generates the default self-contained gantt and exact 
   assert.match(html, /"presentation_digest":"[0-9a-f]{64}"/u);
   assert.match(html, /"schema":"lattice\.todo_gantt_presentation_model\.v1"/u);
   assert.match(html, /"task_id":"T1","display_number":"1","normalized_number":"1"/u);
+});
+
+test('manual gantt serveもproject identity fileのdisplay nameを使う', async (context) => {
+  const root = await workspace(context);
+  await writeFile(path.join(root, '.lattice', 'project.json'), `${JSON.stringify({
+    schema: 'lattice.project_identity.v1', project_id: 'project-1', display_name: 'Manual Fixture',
+  })}\n`);
+  const child = spawn(process.execPath, [CLI, 'todo', 'gantt', 'serve', '--port', '0'], {
+    cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, LATTICE_DASHBOARD_AUTOSTART: '0' },
+  });
+  context.after(() => { if (child.exitCode === null) child.kill('SIGTERM'); });
+  let stdout = '';
+  while (!stdout.includes('\n')) {
+    const [chunk] = await once(child.stdout, 'data');
+    stdout += chunk.toString('utf8');
+  }
+  const live = JSON.parse(stdout.split('\n')[0]);
+  const response = await fetch(live.url);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /<title>Lattice — Manual Fixture 依存工程図<\/title>/u);
+  child.kill('SIGTERM');
+  const [code] = await once(child, 'exit');
+  assert.equal(code, 0);
 });
 
 test('gantt statusはmissing/current/staleを区別しartifact改竄をtyped拒否する', async (context) => {
@@ -333,7 +363,7 @@ test('real store smoke draws every edge and emits readable nodes plus named cate
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v7');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v8');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
@@ -459,19 +489,55 @@ test('right pane exposes overview/detail/current task index states while retaini
   assert.match(output.html, /const toggleLane=\(key\)=>applyLane\(activeLaneKey===key\?null:key\)/u);
   assert.match(output.html, /edge\.dataset\.fromLaneKey!==key&&edge\.dataset\.toLaneKey!==key/u);
   assert.doesNotMatch(output.html, /<p class="notice">/u);
-  assert.match(output.html, /<title>Lattice 依存工程図<\/title>/u);
+  assert.match(output.html, /<title>Lattice — project-1 依存工程図<\/title>/u);
+  assert.match(output.html, /class="project-heading">project-1 依存工程図<\/strong>/u);
   assert.match(output.html, /縦方向は時間ではなく、登録済み依存関係による工程段階/u);
   assert.match(output.html, /class="diagram-legend"[^>]*aria-label="工程図の凡例"/u);
+  assert.match(output.html, /class="status-symbol status-in-progress"[^>]*>▶<\/span> 作業中/u);
   assert.match(output.html, /☐ 未着手/u);
   assert.match(output.html, /破線枠: ready frontier（同時dispatch推奨）/u);
   assert.match(output.html, /ready frontierは全件同時dispatchが既定/u);
   assert.match(output.html, /太線: 構造上の最長依存鎖/u);
-  assert.match(output.html, /菱形: 複数工程の合流/u);
+  assert.match(output.html, /半円: 非接触の線交差/u);
+  assert.match(output.html, /黒丸: 論理上の合流/u);
   assert.match(output.html, /body\{display:grid;grid-template-rows:minmax\(0,1fr\)/u);
   assert.doesNotMatch(output.html, /data-show-all|data-view-state="all"|data-view-state="selected"/u);
   assert.doesNotMatch(output.html, /class="task-facts"|class="evidence"/u);
   assert.equal(output.html.includes('innerHTML'), false);
   assert.doesNotMatch(output.html, /\son[a-z]+\s*=/iu);
+});
+
+test('project display name is preserved exactly in the visible heading and browser title', () => {
+  const read = readFixture(1);
+  const html = renderFixture(read, [], [], null, { project_display_name: 'AIShell' }).html;
+  assert.match(html, /<title>Lattice — AIShell 依存工程図<\/title>/u);
+  assert.match(html, /class="project-heading">AIShell 依存工程図<\/strong>/u);
+  assert.doesNotMatch(html, /Aishell/u);
+});
+
+test('geometric crossings render a semicircle bridge without a logical junction dot', () => {
+  const T0 = ref('T0000'); const T1 = ref('T0001'); const T2 = ref('T0002');
+  const read = readFixture(3, [{ from: T0, to: T1 }, { from: T0, to: T2 }]);
+  read.members[0].plan.tasks[1].lane = 'z-lane';
+  read.members[0].plan.tasks[2].lane = 'a-lane';
+  const html = renderFixture(read).html;
+  assert.match(html, /class="edge-route" d="[^"]* A 5 5 /u);
+  assert.doesNotMatch(html, /class="join-marker"/u);
+  assert.equal((html.match(/class="edge-arrow"/gu) ?? []).length, 2);
+});
+
+test('overlapping logical joins render one distinct black dot per fully-qualified join', () => {
+  const T0 = ref('T0000'); const T1 = ref('T0001'); const T2 = ref('T0002'); const T3 = ref('T0003');
+  const read = readFixture(4);
+  read.members[0].plan.joins = [
+    { id: 'j1', after: [T0, T1], before: T3 },
+    { id: 'j2', after: [T0, T2], before: T3 },
+  ];
+  const html = renderFixture(read).html;
+  const markers = [...html.matchAll(/<g class="join-marker"[^>]*><circle cx="([^"]+)" cy="([^"]+)"/gu)];
+  assert.equal(markers.length, 2);
+  assert.equal(new Set(markers.map((match) => `${match[1]},${match[2]}`)).size, 2);
+  assert.equal((html.match(/data-from-node-key="\[&quot;project-1&quot;,&quot;main&quot;,&quot;T0000&quot;\]"/gu) ?? []).length, 2);
 });
 
 test('全工程一覧はanchor成否に依存せずstoreの現在状態と全文タイトルを登録順で表示する', () => {
@@ -521,6 +587,9 @@ test('SVG renders readable status nodes, every edge, join marker, and hierarchic
   assert.match(html, /class="dependency-edge longest-chain-edge/u);
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.match(html, /class="join-marker" aria-label="join join-all"/u);
+  assert.equal((html.match(/class="join-marker"/gu) ?? []).length, 1);
+  assert.match(html, /class="join-marker"[^>]*><circle[^>]*r="4"><\/circle>/u);
+  assert.doesNotMatch(html, /class="join-marker"[^>]*><polygon/u);
   assert.match(html, /class="todo-summary" aria-label="カテゴリ別ToDo集計表"/u);
   assert.match(html, /class="summary-plan"[^>]*><rect[^>]*class="summary-chip plan-chip"/u);
   assert.match(html, /class="summary-lane"/u);

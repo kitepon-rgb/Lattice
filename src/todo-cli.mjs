@@ -17,6 +17,8 @@ import {
   validateEvidenceDescriptor,
 } from './todo-contracts.mjs';
 import { projectTodoChainV1 } from './todo-chain.mjs';
+import { ensureTodoDashboardActivity } from './todo-dashboard-registry.mjs';
+import { resolveProjectIdentity } from './project-identity.mjs';
 import { layoutTodoGantt } from './todo-gantt-layout.mjs';
 import { loadTodoGanttPresentation } from './todo-gantt-presentation.mjs';
 import { startTodoGanttLiveServer } from './todo-gantt-live.mjs';
@@ -631,8 +633,13 @@ function parseGanttDescriptor(bytes, descriptorRef) {
   return value;
 }
 
-async function renderGantt({ repoRoot, stable = false }) {
+export async function renderTodoGanttForProject({
+  repoRoot, stable = false, displayName = null, env = process.env,
+}) {
   const store = stable ? await readTodoStoreStable({ repoRoot }) : await readTodoStore({ repoRoot });
+  const identity = displayName === null
+    ? await resolveProjectIdentity({ repoRoot, projectId: store.project_id, env })
+    : { displayName };
   const presentation = await loadTodoGanttPresentation({ repoRoot, readModel: store });
   const topology = mergedTopology(store);
   const chain = projectTodoChainV1(topology);
@@ -663,6 +670,7 @@ async function renderGantt({ repoRoot, stable = false }) {
     chain_digest: digestTodoArtifact(chain),
     layout_digest: digestTodoArtifact(layout),
     renderer_version: TODO_GANTT_RENDERER_VERSION,
+    project_display_name: identity.displayName,
   };
   const rendered = renderTodoGanttHtml({
     readModel: store,
@@ -675,8 +683,8 @@ async function renderGantt({ repoRoot, stable = false }) {
   return { store, metadata, memberBindings, rendered };
 }
 
-async function gantt({ repoRoot, outputRef }) {
-  const { store, metadata, memberBindings, rendered } = await renderGantt({ repoRoot });
+async function gantt({ repoRoot, outputRef, env }) {
+  const { store, metadata, memberBindings, rendered } = await renderTodoGanttForProject({ repoRoot, env });
   await atomicWriteOutput(repoRoot, outputRef, rendered.html);
   const descriptor = { schema: 'lattice.todo_gantt_artifact.v1', project_id: store.project_id,
     output_ref: outputRef, manifest_digest: metadata.manifest_digest,
@@ -702,7 +710,7 @@ async function gantt({ repoRoot, outputRef }) {
   return result;
 }
 
-async function ganttStatus({ repoRoot, outputRef }) {
+async function ganttStatus({ repoRoot, outputRef, env }) {
   const descriptorRef = ganttDescriptorRef(outputRef);
   const [htmlBytes, descriptorBytes] = await Promise.all([
     readOptionalOutput(repoRoot, outputRef, TODO_GANTT_HTML_MAX_BYTES),
@@ -727,7 +735,7 @@ async function ganttStatus({ repoRoot, outputRef }) {
     throw new TodoStoreError('GANTT_ARTIFACT_INVALID', 'artifact_digest_mismatch', undefined,
       { output_ref: outputRef, descriptor_ref: descriptorRef });
   }
-  const current = await renderGantt({ repoRoot });
+  const current = await renderTodoGanttForProject({ repoRoot, env });
   if (descriptor.project_id !== current.store.project_id) {
     throw new TodoStoreError('GANTT_ARTIFACT_INVALID', 'artifact_project_mismatch', undefined,
       { output_ref: outputRef });
@@ -744,13 +752,17 @@ async function ganttStatus({ repoRoot, outputRef }) {
   return result;
 }
 
-async function serveGantt({ repoRoot, port, stdout }) {
+async function serveGantt({ repoRoot, port, stdout, env }) {
   const initialStore = await readTodoStoreStable({ repoRoot });
+  const identity = await resolveProjectIdentity({ repoRoot, projectId: initialStore.project_id, env });
   const live = await startTodoGanttLiveServer({
     projectId: initialStore.project_id,
+    displayName: identity.displayName,
     port,
     render: async () => {
-      const { rendered, metadata } = await renderGantt({ repoRoot, stable: true });
+      const { rendered, metadata } = await renderTodoGanttForProject({
+        repoRoot, stable: true, displayName: identity.displayName,
+      });
       return { html: rendered.html, head_digest: metadata.manifest_digest };
     },
     readHead: async () => (await readTodoStoreStable({ repoRoot })).manifest.manifest_digest,
@@ -765,6 +777,27 @@ async function serveGantt({ repoRoot, port, stdout }) {
   });
   await live.close();
   return null;
+}
+
+async function ensureActiveProjectDashboard({ repoRoot, env }) {
+  if (env.LATTICE_DASHBOARD_AUTOSTART === '0') return null;
+  const actorIdentity = ACTOR_ENV_KEYS.map((key) => env[key]);
+  if (!actorIdentity.every(isTodoIdentifier)) return null;
+  const sessionId = env.LATTICE_TODO_ACTOR_SESSION;
+  const store = await readTodoStoreStable({ repoRoot });
+  let identity;
+  try { identity = await resolveProjectIdentity({ repoRoot, projectId: store.project_id, env }); } catch (error) {
+    throw new TodoStoreError(error?.code ?? 'PROJECT_IDENTITY_INVALID',
+      'project_identity_resolve_failed', undefined, error?.detail ?? {});
+  }
+  try {
+    return await ensureTodoDashboardActivity({
+      repoRoot, projectId: store.project_id, displayName: identity.displayName, sessionId, env,
+    });
+  } catch (error) {
+    throw new TodoStoreError(error?.code ?? 'DASHBOARD_DAEMON_UNAVAILABLE',
+      'dashboard_daemon_ensure_failed', undefined, { project_id: store.project_id });
+  }
 }
 
 async function verify({ repoRoot, requestedPlanKey }) {
@@ -883,19 +916,19 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
     action = (repoRoot) => rebuildSnapshot({ repoRoot, planKey: argv[3] });
   } else if (argv.length === 1 && argv[0] === 'gantt') {
-    action = (repoRoot) => gantt({ repoRoot, outputRef: DEFAULT_GANTT_REF });
+    action = (repoRoot) => gantt({ repoRoot, outputRef: DEFAULT_GANTT_REF, env });
   } else if (argv.length === 3 && argv[0] === 'gantt' && argv[1] === '--out'
     && isTodoRef(argv[2])) {
-    action = (repoRoot) => gantt({ repoRoot, outputRef: argv[2] });
+    action = (repoRoot) => gantt({ repoRoot, outputRef: argv[2], env });
   } else if (argv.length === 2 && argv[0] === 'gantt' && argv[1] === 'status') {
-    action = (repoRoot) => ganttStatus({ repoRoot, outputRef: DEFAULT_GANTT_REF });
+    action = (repoRoot) => ganttStatus({ repoRoot, outputRef: DEFAULT_GANTT_REF, env });
   } else if (argv.length === 4 && argv[0] === 'gantt' && argv[1] === 'status'
     && argv[2] === '--out' && isTodoRef(argv[3])) {
-    action = (repoRoot) => ganttStatus({ repoRoot, outputRef: argv[3] });
+    action = (repoRoot) => ganttStatus({ repoRoot, outputRef: argv[3], env });
   } else if (argv.length === 4 && argv[0] === 'gantt' && argv[1] === 'serve'
     && argv[2] === '--port' && /^(?:0|[1-9][0-9]{0,4})$/u.test(argv[3])
     && Number(argv[3]) <= 65_535) {
-    action = (repoRoot) => serveGantt({ repoRoot, port: Number(argv[3]), stdout });
+    action = (repoRoot) => serveGantt({ repoRoot, port: Number(argv[3]), stdout, env });
   } else if (argv.length === 3 && argv[0] === 'migrate' && argv[1] === '--input'
     && isTodoRef(argv[2])) {
     action = (repoRoot) => migrate({ repoRoot, inputRef: argv[2] });
@@ -976,7 +1009,10 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   if (action === null) return usageFailure(stderr, argv);
 
   try {
-    const result = await action(resolveRepoRoot(cwd));
+    const repoRoot = resolveRepoRoot(cwd);
+    const manualServe = argv[0] === 'gantt' && argv[1] === 'serve';
+    if (!manualServe) await ensureActiveProjectDashboard({ repoRoot, env });
+    const result = await action(repoRoot);
     if (result !== null) stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
   } catch (error) {

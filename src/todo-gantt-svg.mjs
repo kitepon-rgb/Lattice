@@ -7,7 +7,7 @@ const STATUS_CLASSES = Object.freeze({
   done: 'status-done',
 });
 
-const STATUS_PRESENTATION = Object.freeze({
+export const TODO_GANTT_STATUS_PRESENTATION = Object.freeze({
   pending: Object.freeze({ mark: '☐', label: '未着手' }),
   'in-progress': Object.freeze({ mark: '▶', label: '作業中' }),
   blocked: Object.freeze({ mark: '⛔', label: 'ブロック中' }),
@@ -31,13 +31,52 @@ function laneKey(planKey, lane) {
   return JSON.stringify([planKey, lane]);
 }
 
-function points(route) {
-  return route.map(([x, y]) => `${x},${y}`).join(' ');
+const BRIDGE_RADIUS = 5;
+
+function edgePath(edge) {
+  const commands = [`M ${edge.route[0][0]} ${edge.route[0][1]}`];
+  for (let segmentIndex = 0; segmentIndex < edge.route.length - 1; segmentIndex += 1) {
+    const start = edge.route[segmentIndex];
+    const end = edge.route[segmentIndex + 1];
+    const bridges = (edge.bridges ?? []).filter((bridge) => bridge.segment_index === segmentIndex);
+    if (start[1] !== end[1] || bridges.length === 0) {
+      commands.push(`L ${end[0]} ${end[1]}`);
+      continue;
+    }
+    const direction = end[0] > start[0] ? 1 : -1;
+    for (const bridge of bridges) {
+      commands.push(`L ${bridge.x - direction * BRIDGE_RADIUS} ${bridge.y}`);
+      commands.push(`A ${BRIDGE_RADIUS} ${BRIDGE_RADIUS} 0 0 ${direction > 0 ? 1 : 0} ${bridge.x + direction * BRIDGE_RADIUS} ${bridge.y}`);
+    }
+    commands.push(`L ${end[0]} ${end[1]}`);
+  }
+  return commands.join(' ');
 }
 
 function arrowHead(route) {
   const [x, y] = route.at(-1);
-  return `<polygon class="edge-arrow" points="${x},${y} ${x - 3},${y - 6} ${x + 3},${y - 6}"></polygon>`;
+  const [previousX, previousY] = route.at(-2);
+  const deltaX = x - previousX;
+  const deltaY = y - previousY;
+  const length = Math.hypot(deltaX, deltaY) || 1;
+  const unitX = deltaX / length;
+  const unitY = deltaY / length;
+  const baseX = x - unitX * 6;
+  const baseY = y - unitY * 6;
+  const perpendicularX = -unitY * 3;
+  const perpendicularY = unitX * 3;
+  const compact = (value) => Number(value.toFixed(3));
+  return `<polygon class="edge-arrow" points="${x},${y} ${compact(baseX + perpendicularX)},${compact(baseY + perpendicularY)} ${compact(baseX - perpendicularX)},${compact(baseY - perpendicularY)}"></polygon>`;
+}
+
+function renderJunction(edge) {
+  if (edge.junction === null || edge.junction === undefined) return '';
+  const [x, y] = edge.junction;
+  return `<g class="join-marker" aria-label="join ${escapeSvgAttribute(edge.join_ids.join(', '))}"><circle cx="${x}" cy="${y}" r="4"></circle><title>${escapeSvgText(edge.join_ids.join(', '))}</title></g>`;
+}
+
+function renderConnector(connector) {
+  return `<g class="join-connector" data-connector-id="${escapeSvgAttribute(connector.id)}"><path class="edge-route" d="${escapeSvgAttribute(edgePath(connector))}"></path></g>`;
 }
 
 function renderEdge(edge, laneKeysByNode) {
@@ -47,11 +86,7 @@ function renderEdge(edge, laneKeysByNode) {
   if (edge.visibility.selected_incident) classes.push('selected-incident-edge');
   const fromLaneKey = laneKeysByNode.get(nodeKey(edge.from));
   const toLaneKey = laneKeysByNode.get(nodeKey(edge.to));
-  const join = edge.join_ids.length === 0 ? '' : (() => {
-    const [x, y] = edge.route[Math.floor(edge.route.length / 2)];
-    return `<g class="join-marker" aria-label="join ${escapeSvgAttribute(edge.join_ids.join(', '))}"><polygon points="${x},${y - 6} ${x + 6},${y} ${x},${y + 6} ${x - 6},${y}"></polygon><title>${escapeSvgText(edge.join_ids.join(', '))}</title></g>`;
-  })();
-  return `<g class="${classes.join(' ')}" data-edge-id="${escapeSvgAttribute(edge.id)}" data-from-node-key="${escapeSvgAttribute(nodeKey(edge.from))}" data-to-node-key="${escapeSvgAttribute(nodeKey(edge.to))}" data-from-lane-key="${escapeSvgAttribute(fromLaneKey)}" data-to-lane-key="${escapeSvgAttribute(toLaneKey)}"><polyline points="${points(edge.route)}"></polyline>${arrowHead(edge.route)}${join}</g>`;
+  return `<g class="${classes.join(' ')}" data-edge-id="${escapeSvgAttribute(edge.id)}" data-from-node-key="${escapeSvgAttribute(nodeKey(edge.from))}" data-to-node-key="${escapeSvgAttribute(nodeKey(edge.to))}" data-from-lane-key="${escapeSvgAttribute(fromLaneKey)}" data-to-lane-key="${escapeSvgAttribute(toLaneKey)}"><path class="edge-route" d="${escapeSvgAttribute(edgePath(edge))}"></path>${arrowHead(edge.route)}</g>`;
 }
 
 function truncateLabel(value, maximum = 17) {
@@ -112,7 +147,7 @@ function renderNode(node, maps) {
   if (node.visibility.selected) classes.push('selected-node');
   const key = nodeKey(node.ref);
   const nodeLaneKey = laneKey(node.ref.plan_key, node.lane);
-  const status = STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' };
+  const status = TODO_GANTT_STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' };
   const lane = maps.lanes.get(nodeLaneKey);
   const laneLabel = lane === undefined ? node.lane : `${node.lane}、${lane.name}`;
   const taskNumber = maps.taskNumbers.get(key);
@@ -189,8 +224,26 @@ export function renderTodoGanttSvg(layout, options = {}) {
     return renderNode({ ...node, geometry: { ...node.geometry, y: node.geometry.y + contentOffset } }, maps);
   }).join('');
   // Edge coordinates need the same vertical offset as nodes.
-  const shiftedEdges = layout.edges.map((edge) => renderEdge(edge.route === null ? edge : {
-    ...edge, route: edge.route.map(([x, y]) => [x, y + contentOffset]),
-  }, laneKeysByNode)).join('');
-  return `<svg class="todo-gantt" data-gantt-svg data-svg-width="${width}" data-svg-height="${height}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="group" aria-label="Todo依存工程図"><desc>縦方向は登録済み依存関係による工程段階。構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・資源律速を表さない。</desc>${summary.markup}<g class="edge-layer">${shiftedEdges}</g><g class="node-layer">${nodes}</g></svg>`;
+  const shiftedEdgeModels = layout.edges.map((edge) => edge.route === null ? edge : ({
+    ...edge,
+    route: edge.route.map(([x, y]) => [x, y + contentOffset]),
+    bridges: (edge.bridges ?? []).map((bridge) => ({ ...bridge, y: bridge.y + contentOffset })),
+    junction: edge.junction === null || edge.junction === undefined
+      ? null : [edge.junction[0], edge.junction[1] + contentOffset],
+  }));
+  const shiftedConnectors = (layout.connectors ?? []).map((connector) => ({
+    ...connector,
+    route: connector.route.map(([x, y]) => [x, y + contentOffset]),
+    bridges: (connector.bridges ?? []).map((bridge) => ({ ...bridge, y: bridge.y + contentOffset })),
+    contacts: (connector.contacts ?? []).map(([x, y]) => [x, y + contentOffset]),
+  }));
+  const shiftedEdges = shiftedEdgeModels.map((edge) => renderEdge(edge, laneKeysByNode)).join('');
+  const connectors = shiftedConnectors.map(renderConnector).join('');
+  const junctions = shiftedEdgeModels.map(renderJunction).join('');
+  const mainJunctions = new Set(shiftedEdgeModels.filter(({ junction }) => junction !== null)
+    .map(({ junction }) => junction.join(',')));
+  const contactMarkers = shiftedConnectors.flatMap(({ contacts }) => contacts)
+    .filter((contact) => !mainJunctions.has(contact.join(',')))
+    .map(([x, y]) => `<circle class="join-contact-marker" cx="${x}" cy="${y}" r="3"></circle>`).join('');
+  return `<svg class="todo-gantt" data-gantt-svg data-svg-width="${width}" data-svg-height="${height}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="group" aria-label="Todo依存工程図"><desc>縦方向は登録済み依存関係による工程段階。構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・資源律速を表さない。</desc>${summary.markup}<g class="edge-layer">${shiftedEdges}<g class="connector-layer">${connectors}</g><g class="junction-layer">${junctions}${contactMarkers}</g></g><g class="node-layer">${nodes}</g></svg>`;
 }

@@ -278,7 +278,7 @@ test('revision set v3はPhase revisionと通常revisionを混在して同時acti
     stdout: { write: (value) => { stdout += value; } },
     stderr: { write: (value) => { stderr += value; } },
     env: { LATTICE_TODO_ACTOR_HOST: ACTOR.host, LATTICE_TODO_ACTOR_SESSION: ACTOR.session,
-      LATTICE_TODO_ACTOR_AGENT: ACTOR.agent } });
+      LATTICE_TODO_ACTOR_AGENT: ACTOR.agent, LATTICE_DASHBOARD_AUTOSTART: '0' } });
   assert.equal(exit, 0, stderr);
   assert.equal(JSON.parse(stdout).revision_set_digest, set.revision_set_digest);
   const active = await readTodoStore({ repoRoot: root });
@@ -300,6 +300,7 @@ test('todo revise-set CLIはcanonical setだけを受理して一行JSONを返�
       LATTICE_TODO_ACTOR_HOST: ACTOR.host,
       LATTICE_TODO_ACTOR_SESSION: ACTOR.session,
       LATTICE_TODO_ACTOR_AGENT: ACTOR.agent,
+      LATTICE_DASHBOARD_AUTOSTART: '0',
     },
   });
   assert.equal(exit, 0, stderr);

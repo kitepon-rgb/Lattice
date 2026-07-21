@@ -9,7 +9,72 @@ const GEOMETRY = Object.freeze({
   lane_gap: 296,
   node_width: 272,
   node_height: 68,
+  route_inset: 8,
+  route_spacing: 12,
 });
+
+function segmentKind(left, right) {
+  if (left[1] === right[1] && left[0] !== right[0]) return 'horizontal';
+  if (left[0] === right[0] && left[1] !== right[1]) return 'vertical';
+  return 'point';
+}
+
+function strictlyBetween(value, left, right) {
+  return value > Math.min(left, right) && value < Math.max(left, right);
+}
+
+function addCrossingBridges(projectedEdges, logicalContacts = new Set()) {
+  const horizontalByY = new Map();
+  const verticals = [];
+  for (const edge of projectedEdges) {
+    for (let segment = 0; segment < edge.route.length - 1; segment += 1) {
+      const start = edge.route[segment];
+      const end = edge.route[segment + 1];
+      const kind = segmentKind(start, end);
+      if (kind === 'horizontal') {
+        if (!horizontalByY.has(start[1])) horizontalByY.set(start[1], []);
+        horizontalByY.get(start[1]).push({ edge, segment, start, end });
+      } else if (kind === 'vertical') verticals.push({ edge, start, end });
+    }
+  }
+  const yValues = [...horizontalByY.keys()].sort((left, right) => left - right);
+  const firstGreater = (value) => {
+    let low = 0; let high = yValues.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (yValues[middle] <= value) low = middle + 1; else high = middle;
+    }
+    return low;
+  };
+  const firstAtLeast = (value) => {
+    let low = 0; let high = yValues.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (yValues[middle] < value) low = middle + 1; else high = middle;
+    }
+    return low;
+  };
+  for (const vertical of verticals) {
+    const minimumY = Math.min(vertical.start[1], vertical.end[1]);
+    const maximumY = Math.max(vertical.start[1], vertical.end[1]);
+    for (let yIndex = firstGreater(minimumY); yIndex < firstAtLeast(maximumY); yIndex += 1) {
+      const y = yValues[yIndex];
+      for (const horizontal of horizontalByY.get(y)) {
+        if (horizontal.edge === vertical.edge
+          || !strictlyBetween(vertical.start[0], horizontal.start[0], horizontal.end[0])) continue;
+        if (logicalContacts.has(`${vertical.start[0]},${y}`)) continue;
+        horizontal.edge.bridges.push({
+          segment_index: horizontal.segment, x: vertical.start[0], y,
+        });
+      }
+    }
+  }
+  for (const edge of projectedEdges) {
+    edge.bridges.sort((left, right) => left.segment_index - right.segment_index
+      || (edge.route[left.segment_index][0] <= edge.route[left.segment_index + 1][0]
+        ? left.x - right.x : right.x - left.x));
+  }
+}
 
 export class TodoGanttLayoutError extends Error {
   constructor(code, message, detail = null) {
@@ -116,7 +181,7 @@ function normalizeInput(readModel, chainProjection) {
   }
 
   const edgeMap = new Map();
-  const addEdge = (fromValue, toValue, kind, joinId = null) => {
+  const addEdge = (fromValue, toValue, kind, joinIdentity = null) => {
     const fromRef = refOf(fromValue, 'edge.from');
     const toRef = refOf(toValue, 'edge.to');
     const from = refKey(fromRef);
@@ -127,11 +192,16 @@ function normalizeInput(readModel, chainProjection) {
     const key = JSON.stringify([from, to]);
     let edge = edgeMap.get(key);
     if (edge === undefined) {
-      edge = { key, from, to, kinds: new Set(), joinIds: new Set() };
+      edge = { key, from, to, kinds: new Set(), joinIdentities: new Map() };
       edgeMap.set(key, edge);
     }
     edge.kinds.add(kind);
-    if (joinId !== null) edge.joinIds.add(joinId);
+    if (joinIdentity !== null) {
+      const identityKey = JSON.stringify([
+        joinIdentity.project_id, joinIdentity.plan_key, joinIdentity.join_id,
+      ]);
+      edge.joinIdentities.set(identityKey, joinIdentity);
+    }
   };
   for (const member of members) {
     for (const edge of member.plan.hard_dependencies) addEdge(edge.from, edge.to, 'hard');
@@ -139,7 +209,9 @@ function normalizeInput(readModel, chainProjection) {
       if (!plain(join) || !Array.isArray(join.after) || typeof join.id !== 'string') {
         fail('TODO_LAYOUT_INVALID_INPUT', 'join has an invalid shape');
       }
-      for (const after of join.after) addEdge(after, join.before, 'join', join.id);
+      const identity = { project_id: member.plan.project_id, plan_key: member.plan.plan_key,
+        join_id: join.id };
+      for (const after of join.after) addEdge(after, join.before, 'join', identity);
     }
   }
   if (edgeMap.size > EDGE_LIMIT) {
@@ -324,14 +396,59 @@ export function layoutTodoGantt(readModel, chainProjection) {
   }));
   const readyKeys = readyTaskKeys(readModel, nodes, nodesByKey, incoming);
   const visibleKeys = new Set(nodes.map(({ key }) => key));
+  const displayBranches = edges.flatMap((edge, semanticIndex) => {
+    const identities = [...edge.joinIdentities.entries()]
+      .sort(([left], [right]) => compareText(left, right)).map(([, identity]) => identity);
+    const variants = identities.length === 0 ? [null] : identities;
+    return variants.map((joinIdentity, branchIndex) => ({
+      key: JSON.stringify([edge.key, joinIdentity]), edge, semanticIndex, branchIndex, joinIdentity,
+    }));
+  });
+
+  const gapGroups = new Map();
+  const portGroups = new Map();
+  const portGroupKey = (gap, row) => `${gap}\0${row}`;
+  const portEntryKey = (edgeKey, direction) => `${edgeKey}\0${direction}`;
+  const addPort = (gap, row, entry) => {
+    const key = portGroupKey(gap, row);
+    if (!portGroups.has(key)) portGroups.set(key, []);
+    portGroups.get(key).push(entry);
+  };
+  displayBranches.forEach((branch) => {
+    const { edge } = branch;
+    for (const gap of new Set([wave.get(edge.from), wave.get(edge.to) - 1])) {
+      if (!gapGroups.has(gap)) gapGroups.set(gap, []);
+      gapGroups.get(gap).push(branch.key);
+    }
+    addPort(wave.get(edge.from), transversePosition.get(edge.from), portEntryKey(branch.key, 'departure'));
+    addPort(wave.get(edge.to) - 1, transversePosition.get(edge.to), portEntryKey(branch.key, 'arrival'));
+  });
+  for (const keys of gapGroups.values()) keys.sort(compareText);
+  for (const entries of portGroups.values()) entries.sort(compareText);
+  const maximumPortTraffic = Math.max(0, ...[...portGroups.values()].map(({ length }) => length));
+  const connectorGroupKeysByGap = new Map();
+  for (const branch of displayBranches) {
+    if (branch.joinIdentity === null) continue;
+    const targetGap = wave.get(branch.edge.to) - 1;
+    if (!connectorGroupKeysByGap.has(targetGap)) connectorGroupKeysByGap.set(targetGap, new Set());
+    connectorGroupKeysByGap.get(targetGap).add(JSON.stringify([branch.edge.to, branch.joinIdentity]));
+  }
+  const allGapIndexes = new Set([...gapGroups.keys(), ...connectorGroupKeysByGap.keys()]);
+  const maximumGapOccupancy = Math.max(0, ...[...allGapIndexes].map((gap) =>
+    (gapGroups.get(gap)?.length ?? 0) + (connectorGroupKeysByGap.get(gap)?.size ?? 0)));
+  const nodeWidth = Math.max(GEOMETRY.node_width,
+    GEOMETRY.route_inset * 2 + (maximumPortTraffic + 1) * GEOMETRY.route_spacing);
+  const laneGap = nodeWidth + 24;
+  const waveGap = GEOMETRY.node_height + Math.max(36,
+    (maximumGapOccupancy + 1) * GEOMETRY.route_spacing);
 
   const coordinates = new Map();
   const projectedNodes = nodes.map((node) => {
     const visible = visibleKeys.has(node.key);
     const geometry = visible ? {
-      x: GEOMETRY.left + transversePosition.get(node.key) * GEOMETRY.lane_gap,
-      y: GEOMETRY.top + wave.get(node.key) * GEOMETRY.wave_gap,
-      width: GEOMETRY.node_width,
+      x: GEOMETRY.left + transversePosition.get(node.key) * laneGap,
+      y: GEOMETRY.top + wave.get(node.key) * waveGap,
+      width: nodeWidth,
       height: GEOMETRY.node_height,
     } : null;
     if (geometry !== null) coordinates.set(node.key, geometry);
@@ -347,22 +464,107 @@ export function layoutTodoGantt(readModel, chainProjection) {
     };
   });
 
-  const projectedEdges = edges.map((edge, index) => {
+  const gapPosition = (edgeKey, waveIndex) => {
+    const keys = gapGroups.get(waveIndex);
+    const index = keys.indexOf(edgeKey);
+    return GEOMETRY.top + waveIndex * waveGap + GEOMETRY.node_height
+      + GEOMETRY.route_spacing * (index + 1);
+  };
+  const maximumLayerWidth = Math.max(...layers.map((layer) => layer.length));
+  const routeRight = GEOMETRY.left + (maximumLayerWidth - 1) * laneGap + nodeWidth + 12;
+  const branchCounts = new Map();
+  for (const branch of displayBranches) {
+    branchCounts.set(branch.semanticIndex, (branchCounts.get(branch.semanticIndex) ?? 0) + 1);
+  }
+  const portPosition = (edgeKey, direction, gap, row, nodeX) => {
+    const entries = portGroups.get(portGroupKey(gap, row));
+    return nodeX + GEOMETRY.route_inset
+      + GEOMETRY.route_spacing * (entries.indexOf(portEntryKey(edgeKey, direction)) + 1);
+  };
+
+  const projectedEdges = displayBranches.map((branch, index) => {
+    const { edge } = branch;
     const onLongestChain = longestEdgeKeys.has(edge.key);
     const from = coordinates.get(edge.from);
     const to = coordinates.get(edge.to);
-    const startX = from.x + Math.floor(from.width / 2);
+    const departureGap = wave.get(edge.from);
+    const arrivalGap = wave.get(edge.to) - 1;
+    const startX = portPosition(branch.key, 'departure', departureGap,
+      transversePosition.get(edge.from), from.x);
     const startY = from.y + from.height;
-    const endX = to.x + Math.floor(to.width / 2);
+    const endX = portPosition(branch.key, 'arrival', arrivalGap,
+      transversePosition.get(edge.to), to.x);
     const endY = to.y;
-    const channelY = startY + Math.max(16, Math.floor((endY - startY) / 2));
-    const route = [[startX, startY], [startX, channelY], [endX, channelY], [endX, endY]];
+    const departureY = gapPosition(branch.key, departureGap);
+    const arrivalY = gapPosition(branch.key, arrivalGap);
+    const corridorX = routeRight + GEOMETRY.route_spacing * (index + 1);
+    const route = [[startX, startY], [startX, departureY]];
+    if (arrivalY === departureY) route.push([endX, arrivalY]);
+    else route.push([corridorX, departureY], [corridorX, arrivalY], [endX, arrivalY]);
+    route.push([endX, endY]);
     return {
-      id: `edge-${index}`, from: { ...nodesByKey.get(edge.from).ref }, to: { ...nodesByKey.get(edge.to).ref },
-      kinds: [...edge.kinds].sort(compareText), join_ids: [...edge.joinIds].sort(compareText),
-      visible: true, visibility: { longest_dependency_chain: onLongestChain, selected_incident: false }, route,
+      id: branchCounts.get(branch.semanticIndex) === 1
+        ? `edge-${branch.semanticIndex}` : `edge-${branch.semanticIndex}-join-${branch.branchIndex}`,
+      semantic_edge_id: `edge-${branch.semanticIndex}`,
+      from: { ...nodesByKey.get(edge.from).ref }, to: { ...nodesByKey.get(edge.to).ref },
+      kinds: [...edge.kinds].sort(compareText),
+      join_ids: branch.joinIdentity === null ? [] : [branch.joinIdentity.join_id],
+      join_owners: branch.joinIdentity === null ? [] : [{ ...branch.joinIdentity }],
+      visible: true, visibility: { longest_dependency_chain: onLongestChain, selected_incident: false },
+      route, bridges: [], junction: null,
     };
   });
+  const joinGroups = new Map();
+  for (const edge of projectedEdges) {
+    if (edge.join_ids.length === 0) continue;
+    const key = JSON.stringify([edge.to, edge.join_owners[0]]);
+    if (!joinGroups.has(key)) joinGroups.set(key, []);
+    joinGroups.get(key).push(edge);
+  }
+  const junctionConnectors = [];
+  const logicalContacts = new Set();
+  const connectorGapRanks = new Map();
+  for (const [, group] of [...joinGroups.entries()].sort(([left], [right]) => compareText(left, right))) {
+    group.sort((left, right) => compareText(left.id, right.id));
+    const target = coordinates.get(refKey(group[0].to));
+    const targetGap = wave.get(refKey(group[0].to)) - 1;
+    const groupRank = connectorGapRanks.get(targetGap) ?? 0;
+    connectorGapRanks.set(targetGap, groupRank + 1);
+    const primaryTargetPortX = group[0].route.at(-1)[0];
+    const junction = [primaryTargetPortX,
+      GEOMETRY.top + targetGap * waveGap + GEOMETRY.node_height
+        + GEOMETRY.route_spacing * ((gapGroups.get(targetGap)?.length ?? 0) + groupRank + 1)];
+    const contacts = [];
+    for (const [index, edge] of group.entries()) {
+      edge.route.pop();
+      const contact = [edge.route.at(-1)[0], junction[1]];
+      if (edge.route.at(-1)[1] !== contact[1]) edge.route.push(contact);
+      contacts.push(contact);
+      logicalContacts.add(`${contact[0]},${contact[1]}`);
+      if (index === 0) {
+        edge.route.push([junction[0], target.y]);
+        edge.junction = junction;
+      }
+    }
+    const contactXs = contacts.map(([x]) => x);
+    if (Math.min(...contactXs) !== Math.max(...contactXs)) {
+      junctionConnectors.push({
+        id: `join-connector-${junctionConnectors.length}`,
+        join_ids: [...group[0].join_ids], join_owners: group[0].join_owners.map((owner) => ({ ...owner })),
+        route: [[Math.min(...contactXs), junction[1]], [Math.max(...contactXs), junction[1]]],
+        bridges: [], contacts,
+      });
+    }
+  }
+  addCrossingBridges([...projectedEdges, ...junctionConnectors], logicalContacts);
+  let routeMaximumX = nodes.length === 0 ? 0
+    : GEOMETRY.left + (maximumLayerWidth - 1) * laneGap + nodeWidth;
+  for (const edge of projectedEdges) {
+    for (const [x] of edge.route) routeMaximumX = Math.max(routeMaximumX, x);
+  }
+  for (const connector of junctionConnectors) {
+    for (const [x] of connector.route) routeMaximumX = Math.max(routeMaximumX, x);
+  }
 
   const planMap = new Map();
   const laneMap = new Map();
@@ -378,15 +580,14 @@ export function layoutTodoGantt(readModel, chainProjection) {
     assumptions: { logical_time: 'dependency_wave', duration_estimation: false, lane_is_presentation_only: true },
     sweep: { method: 'stable_median', rounds: SWEEP_ROUNDS, tie_break: 'previous_position_then_task_ref' },
     bounds: {
-      width: nodes.length === 0 ? 0 : GEOMETRY.left * 2
-        + (Math.max(...layers.map((layer) => layer.length)) - 1) * GEOMETRY.lane_gap
-        + GEOMETRY.node_width,
+      width: nodes.length === 0 ? 0 : routeMaximumX + GEOMETRY.left,
       height: nodes.length === 0 ? 0 : GEOMETRY.top * 2
-        + (layers.length - 1) * GEOMETRY.wave_gap + GEOMETRY.node_height,
+        + (layers.length - 1) * waveGap + GEOMETRY.node_height,
       wave_count: layers.length,
     },
     nodes: projectedNodes,
     edges: projectedEdges,
+    connectors: junctionConnectors,
     groups: {
       plans: [...planMap.entries()].map(([plan_key, task_count]) => ({ plan_key, task_count })),
       lanes: [...laneMap.values()],

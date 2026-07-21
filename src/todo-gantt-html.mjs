@@ -4,18 +4,25 @@ import {
   renderTodoMarkdownDocument,
   serializeJsonForScript,
 } from './todo-markdown-renderer.mjs';
-import { renderTodoGanttSvg } from './todo-gantt-svg.mjs';
+import { renderTodoGanttSvg, TODO_GANTT_STATUS_PRESENTATION } from './todo-gantt-svg.mjs';
 
-export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v7';
+export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v8';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
 export const TODO_GANTT_HTML_MAX_BYTES = 24 * 1024 * 1024;
 
-const DOCUMENT_STATUS = Object.freeze({
-  pending: Object.freeze({ mark: '☐', label: '未着手' }),
-  'in-progress': Object.freeze({ mark: '▶', label: '作業中' }),
-  blocked: Object.freeze({ mark: '⛔', label: 'ブロック中' }),
-  done: Object.freeze({ mark: '✅', label: '完了' }),
-});
+const DOCUMENT_STATUS = TODO_GANTT_STATUS_PRESENTATION;
+
+function statusMarkup(status, suffix = '') {
+  const value = DOCUMENT_STATUS[status] ?? { mark: '?', label: '状態不明' };
+  return `<span class="status-symbol status-${escapeHtmlAttribute(status)}" role="img" aria-label="${escapeHtmlAttribute(value.label)}">${escapeHtmlText(value.mark)}</span>${suffix}`;
+}
+
+function projectDisplayName(readModel, metadata) {
+  for (const candidate of [metadata?.project_display_name, metadata?.project_name]) {
+    if (typeof candidate === 'string' && candidate.trim() !== '') return candidate.trim();
+  }
+  return readModel.project_id;
+}
 
 export class TodoGanttRenderError extends Error {
   constructor(code, message, detail = {}) {
@@ -188,9 +195,19 @@ function renderRightPane(sections, layout, presentation, readModel) {
   const nodeByKey = new Map(layout.nodes.map((node) => [refKey(node.ref), node]));
   const incoming = new Map(sections.map((section) => [refKey(section.ref), []]));
   const outgoing = new Map(sections.map((section) => [refKey(section.ref), []]));
+  const addRelation = (relations, ownerKey, ref, joinIds) => {
+    const entries = relations.get(ownerKey);
+    if (entries === undefined) return;
+    let entry = entries.find((candidate) => refKey(candidate.ref) === refKey(ref));
+    if (entry === undefined) {
+      entry = { ref, joinIds: [] };
+      entries.push(entry);
+    }
+    entry.joinIds = [...new Set([...entry.joinIds, ...joinIds])].sort();
+  };
   for (const edge of layout.edges) {
-    incoming.get(refKey(edge.to))?.push({ ref: edge.from, joinIds: edge.join_ids });
-    outgoing.get(refKey(edge.from))?.push({ ref: edge.to, joinIds: edge.join_ids });
+    addRelation(incoming, refKey(edge.to), edge.from, edge.join_ids);
+    addRelation(outgoing, refKey(edge.from), edge.to, edge.join_ids);
   }
   const counts = { pending: 0, 'in-progress': 0, blocked: 0, done: 0 };
   for (const section of sections) counts[section.state.status] += 1;
@@ -230,7 +247,7 @@ function renderRightPane(sections, layout, presentation, readModel) {
 function renderDiagramLegend(presentation) {
   const categories = (presentation?.lanes ?? []).map((lane) => `<div class="category-entry"><dt><code>${escapeHtmlText(lane.lane)}</code> — ${escapeHtmlText(lane.name)}</dt><dd>${escapeHtmlText(lane.description)}</dd></div>`).join('');
   const categoryDetails = categories === '' ? '' : `<details class="category-legend"><summary>カテゴリ説明</summary><dl>${categories}</dl></details>`;
-  return `<div class="diagram-legend" aria-label="工程図の凡例"><span>☐ 未着手</span><span>▶ 作業中</span><span>✅ 完了</span><span>⛔ ブロック中</span><span>破線枠: ready frontier（同時dispatch推奨）</span><span>太線: 構造上の最長依存鎖</span><span>菱形: 複数工程の合流</span>${categoryDetails}<p>縦方向は時間ではなく、登録済み依存関係による工程段階です。ready frontierは全件同時dispatchが既定です。未登録の資源・host制約によりsubsetだけを選ぶ場合は理由を記録します。構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・納期を表しません。</p></div>`;
+  return `<div class="diagram-legend" aria-label="工程図の凡例"><span>${statusMarkup('pending', ' 未着手')}</span><span>${statusMarkup('in-progress', ' 作業中')}</span><span>${statusMarkup('done', ' 完了')}</span><span>${statusMarkup('blocked', ' ブロック中')}</span><span>破線枠: ready frontier（同時dispatch推奨）</span><span>太線: 構造上の最長依存鎖</span><span>半円: 非接触の線交差</span><span>黒丸: 論理上の合流</span>${categoryDetails}<p>縦方向は時間ではなく、登録済み依存関係による工程段階です。ready frontierは全件同時dispatchが既定です。未登録の資源・host制約によりsubsetだけを選ぶ場合は理由を記録します。構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・納期を表しません。</p></div>`;
 }
 
 const CSS = `
@@ -259,6 +276,7 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .diagram-toolbar button:focus-visible{outline:2px solid var(--text-primary);outline-offset:2px}
 .zoom-readout{min-width:48px;text-align:center;font-size:12px;font-weight:500;font-variant-numeric:tabular-nums}
 .diagram-note{margin-left:auto;color:var(--text-secondary);font-size:12px;font-weight:500}
+.project-heading{margin-right:8px;color:var(--text-primary);font-size:13px;font-weight:650;white-space:nowrap}.status-symbol.status-in-progress{color:var(--accent)}.status-symbol.status-done{color:var(--good)}.status-symbol.status-blocked{color:var(--critical)}
 .diagram-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--surface-1);color:var(--text-secondary);font-size:12px;font-weight:500}
 .diagram-legend>span{white-space:nowrap}.diagram-legend>p{flex:1 0 100%;margin:0;font-weight:400}
 .category-legend{margin-left:auto}.category-legend summary{cursor:pointer;color:var(--text-primary)}
@@ -301,11 +319,12 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .status-blocked .status-mark{fill:var(--critical)}
 .next-ready-node .node-surface{stroke:var(--accent);stroke-width:2;stroke-dasharray:4 3}
 .todo-node:focus .node-surface,.selected-node .node-surface{stroke:var(--text-primary);stroke-width:2.5}
-.dependency-edge polyline{fill:none;stroke:var(--text-secondary);stroke-width:1.5;opacity:.4}
+.dependency-edge .edge-route{fill:none;stroke:var(--text-secondary);stroke-width:1.5;stroke-linejoin:round;opacity:.4}
 .dependency-edge .edge-arrow{fill:var(--text-secondary);opacity:.7}
-.longest-chain-edge polyline,.selected-incident-edge polyline{stroke:var(--text-primary);stroke-width:2.5;opacity:1}
+.longest-chain-edge .edge-route,.selected-incident-edge .edge-route{stroke:var(--text-primary);stroke-width:2.5;opacity:1}
 .longest-chain-edge .edge-arrow,.selected-incident-edge .edge-arrow{fill:var(--text-primary);opacity:1}
-.join-marker polygon{fill:var(--surface-1);stroke:var(--text-secondary);stroke-width:1}
+.join-marker circle{fill:var(--text-primary);stroke:none}
+.join-contact-marker{fill:var(--text-primary);stroke:none}.join-connector .edge-route{fill:none;stroke:var(--text-secondary);stroke-width:1.5;opacity:.7}
 .summary-container{fill:var(--surface-1);stroke:var(--border);stroke-width:1;stroke-opacity:.5}
 .summary-chip{fill:var(--surface-2);stroke:none}
 .summary-plan text{fill:var(--text-primary);font-size:12px;font-weight:500}
@@ -378,6 +397,7 @@ export function renderTodoGanttHtml({
     throw new TypeError('presentation must be lattice.todo_gantt_presentation_model.v1');
   }
   const normalized = normalizeSections(readModel, narratives, anchorOutcomes);
+  const displayName = projectDisplayName(readModel, metadata);
   const svg = renderTodoGanttSvg(layout, { presentation });
   const rightPane = renderRightPane(normalized.sections, layout, presentation, readModel);
   const staticData = serializeJsonForScript({
@@ -385,7 +405,7 @@ export function renderTodoGanttHtml({
     metadata,
     presentation,
   });
-  const html = `<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lattice 依存工程図</title><style>${CSS}</style></head><body data-gantt-root data-view-state="overview"><main class="shell"><section class="gantt-pane" aria-label="依存工程図"><div class="diagram-toolbar" role="group" aria-label="図のズーム"><button type="button" data-zoom-action="out" aria-label="縮小">−</button><button type="button" data-zoom-action="reset">等倍</button><button type="button" data-zoom-action="in" aria-label="拡大">＋</button><button type="button" data-zoom-action="fit">全体表示</button><output class="zoom-readout" data-zoom-output aria-live="polite">100%</output><span class="diagram-note">縦=依存段階（時間ではない）</span></div>${renderDiagramLegend(presentation)}<div class="diagram-scroll" data-diagram-scroll tabindex="0" aria-label="縦方向を主にスクロール可能な依存工程図">${svg}</div></section><div class="pane-divider" data-pane-divider aria-hidden="true"></div><aside class="narrative-pane" aria-label="選択工程の詳細と全工程一覧">${rightPane}</aside></main><script type="application/json" id="todo-gantt-data">${staticData}</script><script>${CONTROLLER}</script></body></html>`;
+  const html = `<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lattice — ${escapeHtmlText(displayName)} 依存工程図</title><style>${CSS}</style></head><body data-gantt-root data-view-state="overview"><main class="shell"><section class="gantt-pane" aria-label="${escapeHtmlAttribute(displayName)} 依存工程図"><div class="diagram-toolbar" role="group" aria-label="図のズーム"><strong class="project-heading">${escapeHtmlText(displayName)} 依存工程図</strong><button type="button" data-zoom-action="out" aria-label="縮小">−</button><button type="button" data-zoom-action="reset">等倍</button><button type="button" data-zoom-action="in" aria-label="拡大">＋</button><button type="button" data-zoom-action="fit">全体表示</button><output class="zoom-readout" data-zoom-output aria-live="polite">100%</output><span class="diagram-note">縦=依存段階（時間ではない）</span></div>${renderDiagramLegend(presentation)}<div class="diagram-scroll" data-diagram-scroll tabindex="0" aria-label="縦方向を主にスクロール可能な依存工程図">${svg}</div></section><div class="pane-divider" data-pane-divider aria-hidden="true"></div><aside class="narrative-pane" aria-label="選択工程の詳細と全工程一覧">${rightPane}</aside></main><script type="application/json" id="todo-gantt-data">${staticData}</script><script>${CONTROLLER}</script></body></html>`;
   const htmlBytes = Buffer.byteLength(html, 'utf8');
   if (htmlBytes > TODO_GANTT_HTML_MAX_BYTES) {
     throw new TodoGanttRenderError('TODO_SCALE_EXCEEDED', 'todo gantt HTML limit exceeded', {

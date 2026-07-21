@@ -98,7 +98,8 @@ async function parallelWorkspace(context) {
 }
 
 function runCli(root, args, { actor = true } = {}) {
-  const env = { ...process.env, NO_COLOR: '1' };
+  const env = { ...process.env, NO_COLOR: '1', LATTICE_DASHBOARD_AUTOSTART: '0' };
+  delete env.FORCE_COLOR;
   if (actor) {
     env.LATTICE_TODO_ACTOR_HOST = ACTOR.host;
     env.LATTICE_TODO_ACTOR_SESSION = ACTOR.session;

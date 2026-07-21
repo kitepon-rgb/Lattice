@@ -29,6 +29,32 @@ function layoutOf(input) {
   return layoutTodoGantt(input.read, projectTodoChainV1(input.topology));
 }
 
+function assertNoCollinearOverlap(edges) {
+  const segments = edges.flatMap((edge) => edge.route.slice(0, -1).map((start, index) => ({
+    edge: edge.id, index, start, end: edge.route[index + 1],
+  })));
+  for (let leftIndex = 0; leftIndex < segments.length; leftIndex += 1) {
+    const left = segments[leftIndex];
+    for (let rightIndex = leftIndex + 1; rightIndex < segments.length; rightIndex += 1) {
+      const right = segments[rightIndex];
+      const leftVector = [left.end[0] - left.start[0], left.end[1] - left.start[1]];
+      const rightVector = [right.end[0] - right.start[0], right.end[1] - right.start[1]];
+      if ((leftVector[0] === 0 && leftVector[1] === 0)
+        || (rightVector[0] === 0 && rightVector[1] === 0)) continue;
+      const parallel = leftVector[0] * rightVector[1] - leftVector[1] * rightVector[0] === 0;
+      const offset = [right.start[0] - left.start[0], right.start[1] - left.start[1]];
+      const collinear = parallel && leftVector[0] * offset[1] - leftVector[1] * offset[0] === 0;
+      if (!collinear) continue;
+      const axis = Math.abs(leftVector[0]) >= Math.abs(leftVector[1]) ? 0 : 1;
+      const leftRange = [left.start[axis], left.end[axis]];
+      const rightRange = [right.start[axis], right.end[axis]];
+      const overlap = Math.min(Math.max(...leftRange), Math.max(...rightRange))
+        - Math.max(Math.min(...leftRange), Math.min(...rightRange));
+      assert.ok(overlap <= 0, `${left.edge}[${left.index}] and ${right.edge}[${right.index}] overlap`);
+    }
+  }
+}
+
 test('small branch/join/multi-lane DAG has a deterministic coordinate snapshot', () => {
   const A = ref('A', 'alpha');
   const B = ref('B', 'alpha');
@@ -44,18 +70,187 @@ test('small branch/join/multi-lane DAG has a deterministic coordinate snapshot',
     id: `${nodeRef.plan_key}/${nodeRef.task_id}`, wave, row, visible, geometry,
   })), [
     { id: 'alpha/A', wave: 0, row: 0, visible: true, geometry: { x: 16, y: 16, width: 272, height: 68 } },
-    { id: 'alpha/B', wave: 1, row: 1, visible: true, geometry: { x: 312, y: 120, width: 272, height: 68 } },
-    { id: 'alpha/C', wave: 1, row: 0, visible: true, geometry: { x: 16, y: 120, width: 272, height: 68 } },
-    { id: 'beta/D', wave: 2, row: 0, visible: true, geometry: { x: 16, y: 224, width: 272, height: 68 } },
+    { id: 'alpha/B', wave: 1, row: 1, visible: true, geometry: { x: 312, y: 132, width: 272, height: 68 } },
+    { id: 'alpha/C', wave: 1, row: 0, visible: true, geometry: { x: 16, y: 132, width: 272, height: 68 } },
+    { id: 'beta/D', wave: 2, row: 0, visible: true, geometry: { x: 16, y: 248, width: 272, height: 68 } },
   ]);
   assert.deepEqual(result.edges.map(({ kinds, join_ids, visible, route }) => ({ kinds, join_ids, visible, route })), [
-    { kinds: ['hard'], join_ids: [], visible: true, route: [[152, 84], [152, 102], [448, 102], [448, 120]] },
-    { kinds: ['hard'], join_ids: [], visible: true, route: [[152, 84], [152, 102], [152, 102], [152, 120]] },
-    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[448, 188], [448, 206], [152, 206], [152, 224]] },
-    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[152, 188], [152, 206], [152, 206], [152, 224]] },
+    { kinds: ['hard'], join_ids: [], visible: true, route: [[36, 84], [36, 96], [332, 96], [332, 132]] },
+    { kinds: ['hard'], join_ids: [], visible: true, route: [[60, 84], [60, 108], [48, 108], [48, 132]] },
+    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[332, 200], [332, 212], [36, 212], [36, 236], [36, 248]] },
+    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[60, 200], [60, 224], [48, 224], [48, 236]] },
   ]);
+  const logicalJoinEdges = result.edges.filter(({ join_ids }) => join_ids.includes('join-1'));
+  assert.equal(logicalJoinEdges.filter(({ junction }) => junction !== null).length, 1);
+  assert.ok(logicalJoinEdges.every(({ route }) => result.connectors[0].contacts.some((contact) => route
+    .some((point) => point[0] === contact[0] && point[1] === contact[1]))));
   assert.deepEqual(result.sweep, { method: 'stable_median', rounds: 4, tie_break: 'previous_position_then_task_ref' });
   assert.equal(JSON.stringify(result).includes('critical'), false);
+});
+
+test('opposite row edges reserve distinct vertical ports across the whole wave gap', () => {
+  const Z = ref('Z'); const A = ref('A'); const B = ref('B'); const D = ref('D');
+  const input = fixture([{ plan_key: 'plan', tasks: [
+    { id: 'Z', lane: 'a' }, { id: 'A', lane: 'z' },
+    { id: 'B', lane: 'a' }, { id: 'D', lane: 'z' },
+  ] }], [dependency(A, B), dependency(Z, D)]);
+  const result = layoutOf(input);
+  assert.deepEqual(result.nodes.filter(({ wave }) => wave === 0)
+    .sort((left, right) => left.row - right.row).map(({ ref: nodeRef }) => nodeRef.task_id), ['Z', 'A']);
+  assert.deepEqual(result.nodes.filter(({ wave }) => wave === 1)
+    .sort((left, right) => left.row - right.row).map(({ ref: nodeRef }) => nodeRef.task_id), ['B', 'D']);
+  const verticals = result.edges.flatMap((edge) => edge.route.slice(0, -1)
+    .map((start, index) => ({ edge: edge.id, start, end: edge.route[index + 1] }))
+    .filter(({ start, end }) => start[0] === end[0] && start[1] !== end[1]));
+  for (let leftIndex = 0; leftIndex < verticals.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < verticals.length; rightIndex += 1) {
+      const left = verticals[leftIndex]; const right = verticals[rightIndex];
+      if (left.edge === right.edge || left.start[0] !== right.start[0]) continue;
+      const overlap = Math.min(Math.max(left.start[1], left.end[1]), Math.max(right.start[1], right.end[1]))
+        - Math.max(Math.min(left.start[1], left.end[1]), Math.min(right.start[1], right.end[1]));
+      assert.ok(overlap <= 0, `${left.edge} and ${right.edge} reuse x=${left.start[0]}`);
+    }
+  }
+});
+
+test('multiple logical join groups targeting one task receive distinct dots and trunks', () => {
+  const A = ref('A'); const B = ref('B'); const C = ref('C'); const D = ref('D');
+  const input = fixture([{ plan_key: 'plan', tasks: [A, B, C, D]
+    .map(({ task_id }) => ({ id: task_id, lane: 'same' })) }], [], [
+    { owner: 'plan', id: 'j1', after: [A, B], before: D },
+    { owner: 'plan', id: 'j2', after: [C], before: D },
+  ]);
+  const result = layoutOf(input);
+  const junctionEdges = result.edges.filter(({ junction }) => junction !== null);
+  assert.equal(junctionEdges.length, 2);
+  assert.equal(new Set(junctionEdges.map(({ junction }) => junction.join(','))).size, 2);
+  const trunks = junctionEdges.map((edge) => edge.route.slice(-2));
+  assert.equal(new Set(trunks.map(([[x]]) => x)).size, 2);
+  for (const [[fromX, fromY], [toX, toY]] of trunks) {
+    assert.equal(fromX, toX);
+    assert.ok(toY > fromY);
+  }
+});
+
+test('one semantic dependency gets a distinct display branch into every overlapping join', () => {
+  const A = ref('A'); const B = ref('B'); const C = ref('C'); const D = ref('D');
+  const input = fixture([{ plan_key: 'plan', tasks: [A, B, C, D]
+    .map(({ task_id }) => ({ id: task_id, lane: 'same' })) }], [], [
+    { owner: 'plan', id: 'j1', after: [A, B], before: D },
+    { owner: 'plan', id: 'j2', after: [A, C], before: D },
+  ]);
+  const result = layoutOf(input);
+  assert.equal(result.metrics.edge_count, 3);
+  assert.equal(result.edges.length, 4);
+  assert.equal(result.edges.filter(({ from, to }) => from.task_id === 'A' && to.task_id === 'D').length, 2);
+  for (const joinId of ['j1', 'j2']) {
+    const branches = result.edges.filter(({ join_owners }) => join_owners[0]?.join_id === joinId);
+    assert.equal(branches.length, 2);
+    const primary = branches.find(({ junction }) => junction !== null);
+    const connector = result.connectors.find(({ join_owners }) => join_owners[0].join_id === joinId);
+    assert.ok(primary.route.some((point) => point[0] === primary.junction[0]
+      && point[1] === primary.junction[1]));
+    assert.ok(branches.every(({ route }) => connector.contacts.some((contact) => route
+      .some((point) => point[0] === contact[0] && point[1] === contact[1]))));
+  }
+  const dots = result.edges.filter(({ junction }) => junction !== null).map(({ junction }) => junction.join(','));
+  assert.equal(dots.length, 2);
+  assert.equal(new Set(dots).size, 2);
+  assertNoCollinearOverlap([...result.edges, ...result.connectors]);
+});
+
+test('same join id owned by different plans remains two fully-qualified junctions', () => {
+  const A = ref('A', 'alpha'); const B = ref('B', 'beta'); const D = ref('D', 'target');
+  const input = fixture([
+    { plan_key: 'alpha', tasks: [{ id: 'A', lane: 'same' }] },
+    { plan_key: 'beta', tasks: [{ id: 'B', lane: 'same' }] },
+    { plan_key: 'target', tasks: [{ id: 'D', lane: 'same' }] },
+  ], [], [
+    { owner: 'alpha', id: 'same', after: [A], before: D },
+    { owner: 'beta', id: 'same', after: [B], before: D },
+  ]);
+  const result = layoutOf(input);
+  const junctionEdges = result.edges.filter(({ junction }) => junction !== null);
+  assert.equal(junctionEdges.length, 2);
+  assert.deepEqual(junctionEdges.map(({ join_owners }) => join_owners[0].plan_key).sort(), ['alpha', 'beta']);
+  assert.equal(new Set(junctionEdges.map(({ junction }) => junction.join(','))).size, 2);
+  assertNoCollinearOverlap([...result.edges, ...result.connectors]);
+});
+
+test('join fan routes stay orthogonal and every nonlogical crossing receives bridge metadata', () => {
+  const A = ref('A'); const B = ref('B'); const C = ref('C');
+  const D = ref('D'); const E = ref('E'); const F = ref('F');
+  const input = fixture([{ plan_key: 'plan', tasks: [
+    { id: 'A', lane: '0' }, { id: 'B', lane: '0' }, { id: 'C', lane: '0' },
+    { id: 'D', lane: '2' }, { id: 'E', lane: '1' }, { id: 'F', lane: '1' },
+  ] }], [dependency(A, F)], [
+    { owner: 'plan', id: 'j2-0', after: [B], before: C },
+    { owner: 'plan', id: 'j3-1', after: [A, B, C], before: D },
+    { owner: 'plan', id: 'j4-2', after: [C], before: E },
+  ]);
+  const result = layoutOf(input);
+  const models = [...result.edges, ...result.connectors];
+  for (const model of models) {
+    for (let index = 0; index < model.route.length - 1; index += 1) {
+      const [start, end] = [model.route[index], model.route[index + 1]];
+      assert.ok(start[0] === end[0] || start[1] === end[1], `${model.id} has a diagonal segment`);
+    }
+  }
+  const logicalContacts = new Set(result.connectors.flatMap(({ contacts }) => contacts.map((point) => point.join(','))));
+  let nonlogicalCrossings = 0;
+  for (let leftIndex = 0; leftIndex < models.length; leftIndex += 1) {
+    const left = models[leftIndex];
+    for (let rightIndex = leftIndex + 1; rightIndex < models.length; rightIndex += 1) {
+      const right = models[rightIndex];
+      for (let leftSegment = 0; leftSegment < left.route.length - 1; leftSegment += 1) {
+        for (let rightSegment = 0; rightSegment < right.route.length - 1; rightSegment += 1) {
+          const leftStart = left.route[leftSegment]; const leftEnd = left.route[leftSegment + 1];
+          const rightStart = right.route[rightSegment]; const rightEnd = right.route[rightSegment + 1];
+          const leftHorizontal = leftStart[1] === leftEnd[1] && leftStart[0] !== leftEnd[0];
+          const rightHorizontal = rightStart[1] === rightEnd[1] && rightStart[0] !== rightEnd[0];
+          if (leftHorizontal === rightHorizontal) continue;
+          const horizontal = leftHorizontal
+            ? { model: left, segment: leftSegment, start: leftStart, end: leftEnd }
+            : { model: right, segment: rightSegment, start: rightStart, end: rightEnd };
+          const vertical = leftHorizontal ? { start: rightStart, end: rightEnd } : { start: leftStart, end: leftEnd };
+          const [x, y] = [vertical.start[0], horizontal.start[1]];
+          const strictH = x > Math.min(horizontal.start[0], horizontal.end[0])
+            && x < Math.max(horizontal.start[0], horizontal.end[0]);
+          const strictV = y > Math.min(vertical.start[1], vertical.end[1])
+            && y < Math.max(vertical.start[1], vertical.end[1]);
+          if (!strictH || !strictV || logicalContacts.has(`${x},${y}`)) continue;
+          nonlogicalCrossings += 1;
+          assert.ok(horizontal.model.bridges.some((bridge) => bridge.segment_index === horizontal.segment
+            && bridge.x === x && bridge.y === y));
+        }
+      }
+    }
+  }
+  assert.ok(nonlogicalCrossings > 0);
+  assertNoCollinearOverlap(models);
+});
+
+test('routes use exclusive channels, avoid unrelated boxes, and mark only geometric crossings as bridges', () => {
+  const A = ref('A'); const B = ref('B'); const C = ref('C'); const D = ref('D');
+  const input = fixture([{ plan_key: 'plan', tasks: [A, B, C, D]
+    .map(({ task_id }, index) => ({ id: task_id, lane: `lane-${index % 2}` })) }], [
+    dependency(A, B), dependency(A, C), dependency(B, D), dependency(A, D),
+  ]);
+  const result = layoutOf(input);
+  assertNoCollinearOverlap(result.edges);
+  const unrelated = result.nodes.find(({ ref: nodeRef }) => nodeRef.task_id === 'C').geometry;
+  const skip = result.edges.find(({ from, to }) => from.task_id === 'A' && to.task_id === 'D');
+  for (const [start, end] of skip.route.slice(0, -1).map((point, index) => [point, skip.route[index + 1]])) {
+    const horizontal = start[1] === end[1];
+    const hitsInterior = horizontal
+      ? start[1] > unrelated.y && start[1] < unrelated.y + unrelated.height
+        && Math.max(start[0], end[0]) > unrelated.x && Math.min(start[0], end[0]) < unrelated.x + unrelated.width
+      : start[0] > unrelated.x && start[0] < unrelated.x + unrelated.width
+        && Math.max(start[1], end[1]) > unrelated.y && Math.min(start[1], end[1]) < unrelated.y + unrelated.height;
+    assert.equal(hitsInterior, false);
+  }
+  assert.ok(result.edges.some(({ bridges }) => bridges.length > 0));
+  assert.ok(result.edges.every(({ junction, join_ids }) => junction === null && join_ids.length === 0));
 });
 
 test('stable median sweep reduces crossings versus task-ref naive order', () => {

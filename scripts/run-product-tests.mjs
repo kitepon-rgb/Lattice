@@ -67,7 +67,8 @@ process.stdout.write([
 const result = spawnSync(
   process.execPath,
   ['--test', ...productTests.map((relative) => path.join('test', relative))],
-  { cwd: repoRoot, encoding: 'utf8', stdio: 'inherit' },
+  { cwd: repoRoot, encoding: 'utf8', stdio: 'inherit',
+    env: { ...process.env, LATTICE_DASHBOARD_AUTOSTART: '0' } },
 );
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;
