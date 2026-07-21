@@ -16,7 +16,7 @@ import { invokeSensorCli } from '../../src/sensor-runtime.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = path.join(ROOT, 'bin', 'lattice.mjs');
-const CONTROLLER = path.join(ROOT, 'test', 'fixtures', 'aishell-runtime-conflict', 'controller-host.mjs');
+const CONTROLLER = path.join(ROOT, 'test', 'fixtures', 'aishell-runtime-conflict', 'controller-host.js');
 const RUN_ID = 'aishell-runtime-conflict';
 const RUN_REF = `.lattice/runs/${RUN_ID}`;
 const SERVICE = 'Sources/AIShellCore/ChangeSetService.swift';
