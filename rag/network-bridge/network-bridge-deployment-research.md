@@ -12,5 +12,14 @@ LAN上のMac bridgeへHTTP reverse proxyする。
 container内validate成功後だけgraceful reloadする。その後、Cloudflareのremote-managed Tunnelへpublic
 hostnameを追加し、外部HTTPSからproject一覧とproject別工程表を確認する。
 
+remote-managed routeはpublic hostname `lattice.kitepon.dev`から`https://caddy:443`へ接続し、TLSの
+Origin Server Nameを`lattice.kitepon.dev`へ固定する（同等の`Match SNI to Host`でもよい）。
+`http://caddy:80`はCaddyのHTTPS redirectを公開URLへ返すため選択しない。外部gateはredirect追従を無効にし、
+最初のHTTPS応答が200であることを要求する。
+
 途中状態を成功扱いしない。LAN bridge 200、Caddy経由HTTP/2 200、Cloudflare DNS／Tunnel経由HTTPS 200は
 別々のgateであり、最後のpublic hostnameが未設定なら「Caddyまで完了、外部公開は未完了」と明示する。
+外部HTTPS gateは、`/projects/`の一覧、`/projects/<project_id>/`の200とproject別title、
+`/projects/<project_id>/events`の200かつ`text/event-stream`を一組で検査する。SSEは接続直後の`state`、
+接続中にheadが変わった時の次の`state`、切断・再接続後の最新`state`が通ることを必要条件とし、単発のHTTP 200で
+streaming成功を代用しない。

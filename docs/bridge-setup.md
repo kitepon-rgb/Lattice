@@ -58,5 +58,30 @@ bind mountしている構成では、atomic renameでhost側fileを置換する�
 更新前backupを残し、inodeを維持するin-place更新を使うか、directory bind mountへ変更する。
 
 remote-managed Cloudflare Tunnelでは、Tunnel実行tokenを設定APIの代用にしない。Cloudflareの正規管理面で
-public hostnameを既存Caddy serviceへ対応付け、DNS作成後に外部HTTPSから`/projects/`、project別URL、
-各pageのtitleを確認する。LAN 200、Caddy 200、外部Tunnel 200は独立した受入gateとして記録する。
+public hostname `lattice.kitepon.dev` を次のoriginへ対応付ける。
+
+- Service: `https://caddy:443`
+- TLS Origin Server Name: `lattice.kitepon.dev`（管理面に同等の設定がある場合は`Match SNI to Host`でもよい）
+
+`http://caddy:80`は選ばない。CaddyのHTTPからHTTPSへのredirectをTunnelがorigin応答として返す構成は、
+外部requestが同じ公開URLへ戻るredirect loopになり得るためである。外部gateではredirectを追って200にせず、
+最初の応答がHTTPSの200であることを確認する。
+
+受入は次の3 gateを独立して記録し、後段の成功で前段を代用しない。
+
+1. **LAN bridge**: reverse proxy hostから許可Host付きで`http://MAC_LAN_IP:BRIDGE_PORT/projects/`が200。
+2. **Docker Caddy**: Caddyへ`Host: lattice.kitepon.dev`を付けたHTTPS requestが200。証明書検証を省略する
+   内部probeを外部公開成功の証拠にはしない。
+3. **Cloudflare public HTTPS**: `https://lattice.kitepon.dev/projects/`がredirectなしで200となり、一覧から開いた
+   `/projects/<project_id>/`のHTML titleが`Lattice — <project名> 依存工程図`である。
+
+外部gateはHTMLだけで閉じず、各projectの
+`https://lattice.kitepon.dev/projects/<project_id>/events`も確認する。応答は200かつ
+`Content-Type: text/event-stream`で、接続直後に`event: state`と現在の`head_digest`を返さなければならない。
+接続を開いたまま正規のTodo更新を行い、新しい`state`が同じstreamへ届くことを確認する。切断後に再接続しても
+再び初回`state`が届き、そのdigestが最新headと一致することまでを継続・再接続gateとする。
+
+```bash
+curl --fail --show-error --include --no-buffer --max-time 15 \
+  https://lattice.kitepon.dev/projects/PROJECT_ID/events
+```

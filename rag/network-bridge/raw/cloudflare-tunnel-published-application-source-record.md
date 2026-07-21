@@ -11,4 +11,16 @@ Cloudflare TunnelでWeb applicationを公開する時は、public hostnameをtun
 
 本件のcloudflaredはDocker内Caddyへ接続するremote-managed構成である。したがってLatticeの公開追加は、
 既存cloudflared tokenを解析・転用せず、Cloudflareの正規管理画面でpublic hostnameを既存Caddy serviceへ
-追加する。
+追加する。対象routeは次の値で固定する。
+
+- public hostname: `lattice.kitepon.dev`
+- service: `https://caddy:443`
+- TLS origin name: `lattice.kitepon.dev`（管理面の同等機能として`Match SNI to Host`も可）
+
+このCaddyはHTTPを同一hostnameのHTTPSへredirectするため、serviceを`http://caddy:80`にすると公開URLへ戻る
+redirect loopを作り得る。外部受入ではredirect追従後の最終200を証拠にせず、最初のHTTPS応答が200であることを
+検査する。Tunnel実行tokenや個人tokenはroute設定、取得記録、証拠へ記載しない。
+
+公開routeの受入範囲は通常のHTMLだけではない。`/projects/`とproject別URLに加え、
+`/projects/<project_id>/events`のSSEが`text/event-stream`を返し、接続直後の`state`、接続中の更新、
+切断後の再接続時の最新`state`までCloudflare Tunnel越しに保持されることを検査する。
