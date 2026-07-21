@@ -36,6 +36,7 @@ import {
   readTodoStore,
   readTodoStoreStable,
   rebuildTodoSnapshot,
+  verifyPhaseTodoRevisionSources,
   verifyTodoRevisionSources,
 } from './todo-store.mjs';
 import {
@@ -777,10 +778,21 @@ async function verify({ repoRoot, requestedPlanKey }) {
         task_id: unverified.task_id,
       });
     }
-    if (member.revision !== null && ![
-      'lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2',
-    ].includes(member.revision.schema)) {
-      await verifyTodoRevisionSources({ repoRoot, revision: member.revision });
+    if (member.revision !== null) {
+      switch (member.revision.schema) {
+        case 'lattice.todo_revision.v1':
+        case 'lattice.todo_revision.v2':
+          await verifyTodoRevisionSources({ repoRoot, revision: member.revision });
+          break;
+        case 'lattice.phase_todo_revision.v1':
+        case 'lattice.phase_todo_revision.v2':
+          break;
+        case 'lattice.phase_todo_revision.v3':
+          await verifyPhaseTodoRevisionSources({ repoRoot, revision: member.revision });
+          break;
+        default:
+          throw new TodoStoreError('REVISION_INVALID', 'revision_schema_or_digest_invalid');
+      }
     }
   }
   const verifiedMembers = members.map((member) => {

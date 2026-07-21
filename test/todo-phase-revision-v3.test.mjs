@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import {
@@ -15,11 +16,14 @@ import {
 import {
   phaseTodoRevisionPlanVersion, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
 } from '../src/todo-revision.mjs';
+import { projectTodoStatus } from '../src/todo-status.mjs';
 import {
   appendTodoEvent, applyPhaseTodoRevision, buildTodoPlan, createTodoStoreWriter,
-  initializeTodoStore, readTodoStore,
+  initializeTodoStore, readTodoStore, verifyPhaseTodoRevisionSources,
 } from '../src/todo-store.mjs';
 
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
 const ACTOR = { host: 'host-1', session: 'session-1', agent: 'agent-1' };
 const INITIAL_AT = '2026-07-21T00:00:00.000Z';
 const COMMIT_AT = '2026-07-21T00:00:01.000Z';
@@ -290,6 +294,37 @@ test('phase v3 transactionはsourceとreceiptをmanifest v2 CASでactivateしret
   const retry = await applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,
     recordedAt: '2026-07-21T00:00:02.000Z', now: '2026-07-21T00:00:02.000Z' });
   assert.deepEqual(retry, receipt);
+});
+
+test('todo verifyはactive phase v3を正規verifierへrouteしsource digest driftを拒否する', async (t) => {
+  const { root, revision, writer } = await fixture(t);
+  await applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,
+    recordedAt: COMMIT_AT, now: COMMIT_AT });
+  assert.equal(await verifyPhaseTodoRevisionSources({ repoRoot: root, revision }), true);
+  const verified = spawnSync(process.execPath, [CLI, 'todo', 'verify'], { cwd: root, encoding: 'utf8' });
+  assert.equal(verified.status, 0, verified.stderr);
+  assert.equal(JSON.parse(verified.stdout).verified_members[0].revision_digest,
+    revision.revision_digest);
+  const status = spawnSync(process.execPath, [CLI, 'todo', 'status'], { cwd: root, encoding: 'utf8' });
+  assert.equal(status.status, 0, status.stderr);
+  assert.equal(JSON.parse(status.stdout).member_heads[0].reconciliation_digest,
+    revision.reconciliation.reconciliation_digest);
+  const legacyReadModel = await readTodoStore({ repoRoot: root, now: COMMIT_AT });
+  legacyReadModel.members[0].revision.schema = 'lattice.phase_todo_revision.v2';
+  assert.equal(projectTodoStatus(legacyReadModel).member_heads[0].reconciliation_digest,
+    revision.revision_digest);
+
+  const archiveRef = path.join(root, revision.source_cutover_batch.archive_ref);
+  const archive = await readFile(archiveRef, 'utf8');
+  await writeFile(archiveRef, archive.replace('- [ ] T1 source', '- [ ] T1 drifted'));
+  await assert.rejects(verifyPhaseTodoRevisionSources({ repoRoot: root, revision }),
+    (error) => error.code === 'RECONCILIATION_INCOMPLETE'
+      && error.detail.reason === 'source_digest_mismatch');
+  const drifted = spawnSync(process.execPath, [CLI, 'todo', 'verify'], { cwd: root, encoding: 'utf8' });
+  assert.equal(drifted.status, 1);
+  const failure = JSON.parse(drifted.stderr);
+  assert.equal(failure.code, 'RECONCILIATION_INCOMPLETE');
+  assert.equal(failure.detail.reason, 'source_digest_mismatch');
 });
 
 test('phase v3はsource publish crashをsame digestだけroll-forwardする', async (t) => {

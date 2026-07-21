@@ -200,17 +200,20 @@ export function projectTodoStatus(readModel) {
     if (!plain(head) || !isNonNegativeSafeInteger(head.sequence) || !isTodoDigest(head.event_digest)) {
       fail('TODO_STATUS_INVALID_INPUT', 'todo_status_member_head_invalid');
     }
+    const reconciled = ['lattice.todo_event.v2', 'lattice.todo_event.v4'].includes(genesis.schema);
+    const phaseV3 = genesis.schema === 'lattice.todo_event.v4'
+      && member.revision?.schema === 'lattice.phase_todo_revision.v3';
     memberHeads.push({
       plan_key: member.plan.plan_key,
       plan_version: member.plan.plan_version,
       through_sequence: head.sequence,
       journal_head_digest: head.event_digest,
-      reconciliation_state: ['lattice.todo_event.v2', 'lattice.todo_event.v4'].includes(genesis.schema)
-        ? 'reconciled' : 'registered_unreconciled',
-      revision_digest: ['lattice.todo_event.v2', 'lattice.todo_event.v4'].includes(genesis.schema)
-        ? genesis.revision_digest : null,
-      reconciliation_digest: ['lattice.todo_event.v2', 'lattice.todo_event.v4'].includes(genesis.schema)
-        ? genesis.schema === 'lattice.todo_event.v4' ? genesis.revision_digest : genesis.reconciliation_digest
+      reconciliation_state: reconciled ? 'reconciled' : 'registered_unreconciled',
+      revision_digest: reconciled ? genesis.revision_digest : null,
+      reconciliation_digest: reconciled
+        ? phaseV3 ? member.revision.reconciliation.reconciliation_digest
+          : genesis.schema === 'lattice.todo_event.v4' ? genesis.revision_digest
+            : genesis.reconciliation_digest
         : todoLegacyReconciliationDigest({
           planDigest: member.plan.plan_digest, journalHeadDigest: head.event_digest,
         }),

@@ -1658,6 +1658,18 @@ export async function verifyTodoRevisionSources(options = {}) {
   return true;
 }
 
+export async function verifyPhaseTodoRevisionSources(options = {}) {
+  const revision = options.revision;
+  if (!validatePhaseTodoRevision(revision)) {
+    fail('REVISION_INVALID', 'phase_revision_schema_or_digest_invalid');
+  }
+  if (revision.schema !== 'lattice.phase_todo_revision.v3') {
+    fail('REVISION_INVALID', 'phase_revision_source_inventory_unsupported');
+  }
+  await verifyRevisionSources(path.resolve(options.repoRoot ?? process.cwd()), revision.source_inventory);
+  return true;
+}
+
 function mappedNodeRef(ref, plan, idMap) {
   if (ref.project_id !== plan.project_id || ref.plan_key !== plan.plan_key) return ref;
   return { ...ref, task_id: idMap.get(ref.task_id) ?? ref.task_id };
