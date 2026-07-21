@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -31,6 +31,20 @@ async function healthServer(body) {
 async function writeDaemonDescriptor(runtime, descriptor) {
   await writeFile(path.join(runtime, 'daemon.json'), `${JSON.stringify(descriptor)}\n`, { mode: 0o600 });
 }
+
+test('dashboard --helpはdaemonやregistryを作らず終了する', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-help-'));
+  const runtime = path.join(root, 'runtime');
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const result = spawnSync(process.execPath, [path.resolve('bin/lattice-dashboard.mjs'), '--help'], {
+    cwd: process.cwd(),
+    env: { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'Usage: lattice-dashboard\n');
+  await assert.rejects(stat(runtime), (error) => error.code === 'ENOENT');
+});
 
 test('session activity registryはprojectをupsertし期限切れentryを一覧から除外する', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-registry-'));

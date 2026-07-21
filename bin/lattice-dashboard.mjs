@@ -11,6 +11,16 @@ import {
   startTodoGanttDashboardServer,
 } from '../src/todo-gantt-live.mjs';
 
+const args = process.argv.slice(2);
+if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
+  process.stdout.write('Usage: lattice-dashboard\n');
+  process.exit(0);
+}
+if (args.length > 0) {
+  process.stderr.write('Usage: lattice-dashboard\n');
+  process.exit(2);
+}
+
 const env = process.env;
 const configured = env.LATTICE_DASHBOARD_PORT;
 const port = typeof configured === 'string' && /^(?:0|[1-9][0-9]{0,4})$/u.test(configured)
