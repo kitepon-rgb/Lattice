@@ -9,6 +9,7 @@ import { scaffoldRc3DogfoodRepo, verifyRc3DogfoodScaffold } from './rc3-dogfood-
 import { compileRuntimePlanV1, evidenceFromCollectedOutcomes } from './runtime-front-end.mjs';
 import {
   adjudicatePendingReceipts,
+  buildNextRunEvent,
   buildExecutorPackets,
   classifyCheckpointObservation,
   closeRunIfComplete,
@@ -50,6 +51,7 @@ const RUN_TIMESTAMP = '2026-07-17T00:00:00.000Z';
 const DOC_A = 'research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs';
 const DOC_B = 'src/rc2-delivery-policy-oracle.mjs';
 const DOC_C = 'test/rc2-delivery-policy-fixture.test.mjs';
+const MAX_SCRIPTED_REBINDS = 64;
 
 function fail(reason) {
   throw new TypeError(`rc3 campaign契約違反: ${reason}`);
@@ -187,6 +189,43 @@ async function driveToClose({ runId, plan, events, packets, manifests, adapter, 
   }
   fail('closed loopがmaxRounds内に完走しない');
   return null;
+}
+
+/**
+ * legacy scripted campaign内だけで、controller rebindとactivation gateの完了を模擬する。
+ * productionのACK/gate検証を迂回する入口ではなく、既にscriptで完了させたactivationを
+ * event contractへ投影するための有界fixture helperである。
+ */
+function activateScriptedRecompile({ runId, events, plan, planDiff, rebindPackets }) {
+  const entries = Object.entries(rebindPackets).sort(([left], [right]) => left.localeCompare(right));
+  if (entries.length > MAX_SCRIPTED_REBINDS) {
+    fail(`scripted rebind数が上限を超えた: ${entries.length}`);
+  }
+  let next = [...events];
+  for (const [todoId, packet] of entries) {
+    if (packet?.todo_id !== todoId || packet?.new_plan_epoch !== plan.plan_epoch) {
+      fail(`scripted rebind packetの帰属が不正: ${todoId}`);
+    }
+    next.push(buildNextRunEvent({
+      events: next,
+      runId,
+      kind: 'epoch_rebound',
+      planEpoch: plan.plan_epoch,
+      subject: { kind: 'todo', ref: todoId },
+      payload: packet,
+      recordedAt: RUN_TIMESTAMP,
+    }));
+  }
+  next.push(buildNextRunEvent({
+    events: next,
+    runId,
+    kind: 'intake_resumed',
+    planEpoch: plan.plan_epoch,
+    subject: { kind: 'runtime_plan', ref: plan.plan_ref },
+    payload: { plan_diff_digest: planDiff.diff_digest },
+    recordedAt: RUN_TIMESTAMP,
+  }));
+  return next;
 }
 
 function decisionReplayChecks({ plan, events }) {
@@ -337,6 +376,13 @@ async function runLateConflict({ scaffold }) {
   await adapter.rebind({
     executor_handle: projectRuntimeState({ events }).dispatches.TC.payload.executor_handle,
     rebind: recompiled.rebindPackets.TC,
+  });
+  events = activateScriptedRecompile({
+    runId,
+    events,
+    plan: recompiled.newPlan,
+    planDiff: recompiled.planDiff,
+    rebindPackets: recompiled.rebindPackets,
   });
   {
     const tcTerminal = await observeExecutor({
@@ -841,6 +887,13 @@ async function runIrreducibleConflict({ scaffold }) {
   });
   events = recompiled.events;
   const newPlan = recompiled.newPlan;
+  events = activateScriptedRecompile({
+    runId,
+    events,
+    plan: newPlan,
+    planDiff: recompiled.planDiff,
+    rebindPackets: recompiled.rebindPackets,
+  });
   // vN+1でserial redispatch（conflict pairは同時に載らない）。
   const epoch2Adapter = createScriptedExecutorAdapter({
     script: { TA: [{ kind: 'terminal' }], TB: [{ kind: 'terminal' }] },
