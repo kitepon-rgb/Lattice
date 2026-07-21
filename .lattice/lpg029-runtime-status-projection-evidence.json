@@ -1,0 +1,9 @@
+{
+  "evidence_id": "lpg-029-runtime-status-projection-20260721",
+  "repo_id": "self",
+  "path": "test/runtime-conflict-cli.test.mjs",
+  "git_blob_oid": "fadd9643b43683f6c964097daf0f53e14049f1a7",
+  "content_digest": "efe6692b793e1c97b453192af6cf52cf9ab81e9dbbe6537892233b9421dc806c",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
