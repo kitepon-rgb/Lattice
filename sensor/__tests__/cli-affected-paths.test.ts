@@ -98,3 +98,28 @@ describe('latticeSensor affected — Swift test classification', () => {
       .toEqual(['Tests/FeatureTests/FeatureTests.swift']);
   });
 });
+
+describe('latticeSensor affected — e2e directory classification', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-affected-e2e-'));
+    fs.mkdirSync(path.join(tempDir, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'e2e'), { recursive: true });
+    fs.writeFileSync(path.join(tempDir, 'src', 'session.ts'),
+      'export function session(){ return "ready"; }\n');
+    fs.writeFileSync(path.join(tempDir, 'e2e', 'login.ts'),
+      "import { session } from '../src/session';\nsession();\n");
+    const cg = LatticeSensor.initSync(tempDir);
+    await cg.indexAll();
+    cg.close();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('discovers an extension-neutral e2e file from production source', () => {
+    expect(affected(tempDir, 'src/session.ts')).toEqual(['e2e/login.ts']);
+  });
+});

@@ -57,4 +57,9 @@ describe('isTestFile', () => {
     expect(isTestFile('fixtures/session.ts')).toBe(true);
     expect(isRunnableTestFile('fixtures/session.ts')).toBe(false);
   });
+
+  it('keeps extension-neutral e2e directories runnable', () => {
+    expect(isRunnableTestFile('e2e/login.ts')).toBe(true);
+    expect(isRunnableTestFile('packages/web/e2e/login.ts')).toBe(true);
+  });
 });
