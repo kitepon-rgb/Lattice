@@ -10,6 +10,10 @@ import {
   removeBridgeDaemonActiveMarker, removeBridgeDaemonDescriptor, requestBridgeDaemonStop,
   stopBridgeDaemon,
 } from './bridge-daemon.mjs';
+import {
+  disableBridgeLaunchAgent, installBridgeLaunchAgent, restoreBridgeLaunchAgent,
+  snapshotBridgeLaunchAgent,
+} from './bridge-launch-agent.mjs';
 
 const RESULT_SCHEMA = 'lattice.bridge_cli_result.v1';
 
@@ -98,6 +102,8 @@ export async function collectBridgeSetupWizard({ input, output, prompts = clack 
 export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
   stdin = process.stdin, daemon = { ensure: ensureBridgeDaemon, requestStop: requestBridgeDaemonStop,
     stop: stopBridgeDaemon, clearStop: clearBridgeStopControl },
+  launchAgent = { snapshot: snapshotBridgeLaunchAgent, install: installBridgeLaunchAgent,
+    disable: disableBridgeLaunchAgent, restore: restoreBridgeLaunchAgent },
   prompts = clack } = {}) {
   if (!Array.isArray(argv)) {
     return fail(stderr, 'USAGE', 'usage: lattice bridge <setup|reconfigure|status|disable> [options] --json');
@@ -118,6 +124,7 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
     else if (command === 'disable' && words.length === 0) {
       config = await withBridgeOperationLock({ env }, async () => {
         let previous;
+        let descriptor = null;
         let invalidConfig = false;
         let invalidDescriptor = false;
         try {
@@ -126,22 +133,41 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
           if (!['BRIDGE_CONFIG_INVALID', 'BRIDGE_CONFIG_MODE_INVALID'].includes(error?.code)) throw error;
           invalidConfig = true;
         }
-        try { await readBridgeDaemonDescriptor({ env }); } catch (error) {
+        try { descriptor = await readBridgeDaemonDescriptor({ env }); } catch (error) {
           if (error?.code !== 'BRIDGE_DAEMON_DESCRIPTOR_INVALID') throw error;
           invalidDescriptor = true;
         }
-        const requestStop = daemon.requestStop ?? daemon.stop ?? requestBridgeDaemonStop;
-        const stopResult = await requestStop({ env, listen: previous?.listen ?? null });
-        const disabled = invalidConfig ? await restoreBridgeConfig(null, { env })
-          : await disableBridge({ env });
-        if (invalidConfig) recovery = 'invalid_config_removed_after_fail_closed_shutdown';
-        else if (invalidDescriptor) recovery = 'invalid_descriptor_removed_after_fail_closed_shutdown';
-        await removeBridgeDaemonDescriptor({ env });
-        await removeBridgeDaemonActiveMarker({ env });
-        const clearStop = daemon.clearStop ?? clearBridgeStopControl;
-        await clearStop({ env });
-        if (stopResult?.state === 'not_running' && recovery === null) recovery = 'bridge_was_not_running';
-        return disabled;
+        const agentSnapshot = await launchAgent.snapshot({ env });
+        const witnessedListen = previous?.listen ?? (descriptor === null ? null
+          : { address: descriptor.address, port: descriptor.port });
+        let stopResult = null;
+        try {
+          await launchAgent.disable({ snapshot: agentSnapshot, listen: witnessedListen, env });
+          if (!agentSnapshot.loaded) {
+            const requestStop = daemon.requestStop ?? daemon.stop ?? requestBridgeDaemonStop;
+            stopResult = await requestStop({ env, listen: witnessedListen });
+          }
+          const disabled = invalidConfig ? await restoreBridgeConfig(null, { env })
+            : await disableBridge({ env });
+          if (invalidConfig) recovery = 'invalid_config_removed_after_fail_closed_shutdown';
+          else if (invalidDescriptor) recovery = 'invalid_descriptor_removed_after_fail_closed_shutdown';
+          await removeBridgeDaemonDescriptor({ env });
+          await removeBridgeDaemonActiveMarker({ env });
+          const clearStop = daemon.clearStop ?? clearBridgeStopControl;
+          await clearStop({ env });
+          if (stopResult?.state === 'not_running' && recovery === null) recovery = 'bridge_was_not_running';
+          return disabled;
+        } catch (error) {
+          try {
+            await launchAgent.restore({ snapshot: agentSnapshot, listen: witnessedListen,
+              config: previous, env });
+          }
+          catch (rollbackError) {
+            throw new BridgeConfigError('BRIDGE_ROLLBACK_FAILED',
+              `bridge disable failed and LaunchAgent rollback failed: ${rollbackError.message}`, undefined, error);
+          }
+          throw error;
+        }
       });
     }
     else if (command === 'setup' || command === 'reconfigure') {
@@ -158,6 +184,7 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
         const clearStop = daemon.clearStop ?? clearBridgeStopControl;
         await clearStop({ env });
         const current = await readBridgeConfig({ env });
+        const agentSnapshot = await launchAgent.snapshot({ env });
         const configured = await configureBridge({
           address: options.address ?? current?.listen.address,
           port: options.port === undefined ? (command === 'reconfigure' ? current?.listen.port ?? null : null) : options.port,
@@ -166,10 +193,24 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
             : current?.allowed_hosts?.filter((host) => host !== current.listen.address) ?? [],
           reuseCurrentPort: options.port === undefined,
         });
-        try { await daemon.ensure({ env }); } catch (error) {
-          await restoreBridgeConfig(current, { env });
-          if (current?.enabled) await daemon.ensure({ env });
-          else await daemon.stop({ env });
+        try {
+          if (!agentSnapshot.loaded && current !== null) {
+            const requestStop = daemon.requestStop ?? daemon.stop ?? requestBridgeDaemonStop;
+            await requestStop({ env, listen: current.listen });
+            await clearStop({ env });
+          }
+          await launchAgent.install({ config: configured, previousListen: current?.listen ?? null, env });
+        } catch (error) {
+          try {
+            await restoreBridgeConfig(current, { env });
+            await clearStop({ env });
+            await launchAgent.restore({ snapshot: agentSnapshot, listen: configured.listen,
+              config: current, env });
+            if (current?.enabled && !agentSnapshot.loaded) await daemon.ensure({ env });
+          } catch (rollbackError) {
+            throw new BridgeConfigError('BRIDGE_ROLLBACK_FAILED',
+              `bridge setup failed and rollback failed: ${rollbackError.message}`, undefined, error);
+          }
           throw error;
         }
         return configured;
