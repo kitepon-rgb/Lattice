@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.3 — 2026-07-21
+
+- TODO mutationのactor解決失敗へrequired／missing／invalid環境キーと正規次操作を追加した。
+- OS由来identityへのfallbackとstore変更は行わず、callerが設定不備を機械判定して同じ操作を再試行できるようにした。
+
+## 0.11.2 — 2026-07-21
+
+- bundled sensor失敗時にexit code、signal、bounded stderrを保持し、未初期化をtyped errorへ分類した。
+- 未初期化syncへ同一pathの正規`lattice sensor init`次操作を返し、silent initやfallbackを追加せず根因を公開した。
+
 ## 0.11.1 — 2026-07-21
 
 - 公開subcommandの`--help`／`help`入口を追加し、`todo reopen`等の正規optionをstore非依存で確認可能にした。

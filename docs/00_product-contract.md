@@ -115,7 +115,8 @@ mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,
 `LATTICE_TODO_ACTOR_AGENT`をすべてtodo identifierとして明示し、欠落時は書き込まない。`done`の
 evidenceはrepo内descriptor JSONとpinned Git objectをwrite時にhard検証する。成功は
 `lattice.todo_mutation_result.v1`一行、失敗は`lattice.cli_error.v2`一行、usage違反は人間向け診断一行で、
-失敗時のstore bytesは不変とする。
+失敗時のstore bytesは不変とする。actor解決失敗はrequired／missing／invalid環境キーと正規次操作を
+error detailへ返し、OS由来の偽identityへfallbackしない。
 
 PhaseはToDoの直列化groupではなく重監査の制御境界である。`todo_plan.v5`は各ToDoの`phase_id`、
 gate policy、前段Phase、required evidence slotを所有するが、通常ToDoのstart/done readinessはToDo DAGだけで決める。

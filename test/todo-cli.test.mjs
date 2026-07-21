@@ -368,6 +368,14 @@ test('authoring CLIはactor欠落・順序違反・blocked中doneを無変更拒
     const error = JSON.parse(result.stderr);
     assert.equal(error.code, code);
     assert.equal(error.detail.reason, reason);
+    if (code === 'ACTOR_UNRESOLVED') {
+      assert.deepEqual(error.detail.required_environment, [
+        'LATTICE_TODO_ACTOR_HOST', 'LATTICE_TODO_ACTOR_SESSION', 'LATTICE_TODO_ACTOR_AGENT',
+      ]);
+      assert.deepEqual(error.detail.missing_environment, error.detail.required_environment);
+      assert.deepEqual(error.detail.invalid_environment, []);
+      assert.equal(error.detail.next_action, 'set_required_actor_environment_and_retry');
+    }
     assert.equal(await storeDigest(root), before);
   }
   successJson(runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']));
@@ -377,6 +385,25 @@ test('authoring CLIはactor欠落・順序違反・blocked中doneを無変更拒
   assert.equal(blockedDone.status, 1);
   assert.equal(JSON.parse(blockedDone.stderr).detail.reason, 'invalid_done_transition');
   assert.equal(await storeDigest(root), before);
+});
+
+test('authoring CLIは不正actor環境を不足と不正へ分けて次操作を返す', async (context) => {
+  const root = await workspace(context);
+  const env = {
+    ...process.env,
+    LATTICE_TODO_ACTOR_HOST: 'host-1',
+    LATTICE_TODO_ACTOR_SESSION: 'invalid session',
+  };
+  delete env.LATTICE_TODO_ACTOR_AGENT;
+  const result = spawnSync(process.execPath, [CLI, 'todo', 'start', '--plan', 'main', '--task', 'T1'], {
+    cwd: root, env, encoding: 'utf8',
+  });
+  assert.equal(result.status, 1);
+  const error = JSON.parse(result.stderr);
+  assert.equal(error.code, 'ACTOR_UNRESOLVED');
+  assert.deepEqual(error.detail.missing_environment, ['LATTICE_TODO_ACTOR_AGENT']);
+  assert.deepEqual(error.detail.invalid_environment, ['LATTICE_TODO_ACTOR_SESSION']);
+  assert.equal(error.detail.next_action, 'set_required_actor_environment_and_retry');
 });
 
 test('start/reopen overrideとdescriptor schema拒否をexact argvで処理する', async (context) => {

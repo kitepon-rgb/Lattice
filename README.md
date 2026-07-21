@@ -90,5 +90,9 @@ export LATTICE_TODO_ACTOR_SESSION=<session-id>
 export LATTICE_TODO_ACTOR_AGENT=<agent-id>
 ```
 
+不足またはidentifierとして不正な値がある場合、mutationはstoreを変更せず`ACTOR_UNRESOLVED`を返します。
+error detailの`missing_environment`／`invalid_environment`と
+`next_action: set_required_actor_environment_and_retry`を確認し、正規値を設定して同じ操作を再試行してください。
+
 正確なargv、evidence descriptor、result wireは
 [ADR 0056](docs/adr/0056-todo-authoring-transitions.md)を参照してください。

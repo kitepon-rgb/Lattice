@@ -272,11 +272,22 @@ async function readEvidenceInput(repoRoot, inputRef) {
 }
 
 function mutationActor(env) {
-  const values = ACTOR_ENV_KEYS.map((key) => env[key]);
-  if (!values.every(isTodoIdentifier)) {
-    throw new TodoStoreError('ACTOR_UNRESOLVED', 'actor_environment_invalid');
+  const entries = ACTOR_ENV_KEYS.map((key) => ({ key, value: env[key] }));
+  const missingEnvironment = entries
+    .filter(({ value }) => typeof value !== 'string' || value.length === 0)
+    .map(({ key }) => key);
+  const invalidEnvironment = entries
+    .filter(({ value }) => typeof value === 'string' && value.length > 0 && !isTodoIdentifier(value))
+    .map(({ key }) => key);
+  if (missingEnvironment.length > 0 || invalidEnvironment.length > 0) {
+    throw new TodoStoreError('ACTOR_UNRESOLVED', 'actor_environment_invalid', undefined, {
+      required_environment: ACTOR_ENV_KEYS,
+      missing_environment: missingEnvironment,
+      invalid_environment: invalidEnvironment,
+      next_action: 'set_required_actor_environment_and_retry',
+    });
   }
-  return { host: values[0], session: values[1], agent: values[2] };
+  return { host: entries[0].value, session: entries[1].value, agent: entries[2].value };
 }
 
 async function mutate({ repoRoot, env, planKey, taskId, kind, payload, evidenceRef }) {

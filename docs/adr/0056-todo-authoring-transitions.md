@@ -34,7 +34,9 @@ successor revision を別の公開面として維持する。
   `LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`, `LATTICE_TODO_ACTOR_AGENT` を
   event の `{host, session, agent}` へそのまま写す。3 値はすべて todo identifier でなければならない。
 - 1 値でも欠落・空・不正なら `ACTOR_UNRESOLVED` / `detail.reason: actor_environment_invalid`
-  で無変更拒否する。OS hostname、PID、ユーザー名、親 process、乱数への fallback は禁止する。
+  で無変更拒否する。detailは`required_environment`、`missing_environment`、`invalid_environment`と
+  `next_action: set_required_actor_environment_and_retry`を返し、callerが不足と形式不正を区別して
+  正規設定後に同じmutationを再試行できるようにする。OS hostname、PID、ユーザー名、親 process、乱数への fallback は禁止する。
   hook と AI shell は実 session identity を明示的に渡す。
 - `recorded_at` は writer が lock 取得後に観測する UTC `Date#toISOString()` とする。CLI 引数や
   environment から時刻を注入しない。test は store primitive の既存 `now` seam を使い、公開 CLI に
