@@ -4,19 +4,26 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { configureBridge, disableBridge } from '../src/bridge-config.mjs';
+import { configureBridge, disableBridge, readBridgeConfig } from '../src/bridge-config.mjs';
 import { runBridgeCli } from '../src/bridge-cli.mjs';
 import {
   bridgeDaemonActiveMarkerPath, bridgeDaemonDescriptorPath, ensureBridgeDaemon,
   readBridgeDaemonDescriptor, readBridgeStopRequest, stopBridgeDaemon, writeBridgeDaemonDescriptor,
 } from '../src/bridge-daemon.mjs';
 
+const unmanagedLaunchAgent = Object.freeze({
+  snapshot: async () => ({ installed: false, loaded: false, content: null }),
+  install: async () => {},
+  disable: async () => {},
+  restore: async () => {},
+});
+
 test('未設定でdaemon state証拠もなければdisableはno-op成功する', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-fresh-disable-'));
   const env = { ...process.env, LATTICE_CONFIG_DIR: root };
   context.after(() => rm(root, { recursive: true, force: true }));
   let stdout = ''; let stderr = '';
-  const code = await runBridgeCli({ argv: ['disable', '--json'], env,
+  const code = await runBridgeCli({ argv: ['disable', '--json'], env, launchAgent: unmanagedLaunchAgent,
     stdout: { write: (chunk) => { stdout += chunk; } },
     stderr: { write: (chunk) => { stderr += chunk; } } });
   assert.equal(code, 0, stderr);
@@ -30,7 +37,7 @@ test('enabled configでもdaemon socketが存在しなければdisableできる'
   await configureBridge({ address: '127.0.0.1', port: 58_759, env,
     upstream: { mode: 'url', url: 'http://127.0.0.1:4318/' } });
   let stdout = ''; let stderr = '';
-  const code = await runBridgeCli({ argv: ['disable', '--json'], env,
+  const code = await runBridgeCli({ argv: ['disable', '--json'], env, launchAgent: unmanagedLaunchAgent,
     stdout: { write: (chunk) => { stdout += chunk; } },
     stderr: { write: (chunk) => { stderr += chunk; } } });
   assert.equal(code, 0, stderr);
@@ -51,7 +58,7 @@ test('configが既にdisabledでも残存daemonの停止確認を省略しない
   assert.equal((await fetch(health)).status, 200);
   await disableBridge({ env });
   let stdout = ''; let stderr = '';
-  const code = await runBridgeCli({ argv: ['disable', '--json'], env,
+  const code = await runBridgeCli({ argv: ['disable', '--json'], env, launchAgent: unmanagedLaunchAgent,
     stdout: { write: (chunk) => { stdout += chunk; } },
     stderr: { write: (chunk) => { stderr += chunk; } } });
   assert.equal(code, 0, stderr);
@@ -71,7 +78,7 @@ test('config fileが消えても残存daemonの停止確認を省略しない', 
   const health = `http://127.0.0.1:${config.listen.port}/__lattice/bridge-health`;
   await rm(path.join(root, 'bridge.json'), { force: true });
   let stdout = ''; let stderr = '';
-  const code = await runBridgeCli({ argv: ['disable', '--json'], env,
+  const code = await runBridgeCli({ argv: ['disable', '--json'], env, launchAgent: unmanagedLaunchAgent,
     stdout: { write: (chunk) => { stdout += chunk; } },
     stderr: { write: (chunk) => { stderr += chunk; } } });
   assert.equal(code, 0, stderr);
@@ -92,7 +99,7 @@ test('configとdescriptorが同時に消えてもactive markerで停止受領証
   await rm(path.join(root, 'bridge.json'), { force: true });
   await rm(bridgeDaemonDescriptorPath(env), { force: true });
   let stdout = ''; let stderr = '';
-  const code = await runBridgeCli({ argv: ['disable', '--json'], env,
+  const code = await runBridgeCli({ argv: ['disable', '--json'], env, launchAgent: unmanagedLaunchAgent,
     stdout: { write: (chunk) => { stdout += chunk; } },
     stderr: { write: (chunk) => { stderr += chunk; } } });
   assert.equal(code, 0, stderr);
@@ -112,7 +119,7 @@ test('crash後のstale active markerは保存listenのsocket不存在を証明�
     await assert.rejects(fetch(health, { signal: AbortSignal.timeout(500) }));
     await rm(bridgeDaemonDescriptorPath(env), { force: true });
     let stdout = ''; let stderr = '';
-    const code = await runBridgeCli({ argv: ['disable', '--json'], env,
+    const code = await runBridgeCli({ argv: ['disable', '--json'], env, launchAgent: unmanagedLaunchAgent,
       stdout: { write: (chunk) => { stdout += chunk; } },
       stderr: { write: (chunk) => { stderr += chunk; } } });
     assert.equal(code, 0, stderr);
@@ -133,7 +140,7 @@ test('descriptor missingかつactive marker破損でもunknownとしてnonce停�
     await rm(bridgeDaemonDescriptorPath(env), { force: true });
     await writeFile(bridgeDaemonActiveMarkerPath(env), '{}\n', { mode: 0o600 });
     let stdout = ''; let stderr = '';
-    const code = await runBridgeCli({ argv: ['disable', '--json'], env,
+    const code = await runBridgeCli({ argv: ['disable', '--json'], env, launchAgent: unmanagedLaunchAgent,
       stdout: { write: (chunk) => { stdout += chunk; } },
       stderr: { write: (chunk) => { stderr += chunk; } } });
     assert.equal(code, 0, stderr);
@@ -221,16 +228,23 @@ test('invalid config/descriptorでもdisableは未証明PIDをkillせずpublic s
       await stopBridgeDaemon({ env }).catch(() => {});
       await rm(root, { recursive: true, force: true });
     });
+    const directDaemonLaunchAgent = { ...unmanagedLaunchAgent,
+      install: async ({ env: installEnv }) => ensureBridgeDaemon({ env: installEnv }) };
     const invoke = async (argv) => {
       let stdout = ''; let stderr = '';
-      const code = await runBridgeCli({ argv, env,
+      const code = await runBridgeCli({ argv, env, launchAgent: directDaemonLaunchAgent,
         stdout: { write: (value) => { stdout += value; } },
         stderr: { write: (value) => { stderr += value; } } });
       return { code, stdout, stderr };
     };
-    const setupArgs = ['setup', '--listen', '127.0.0.1', '--port', '58760', '--dashboard', '--json'];
-    assert.equal((await invoke(setupArgs)).code, 0);
-    const health = 'http://127.0.0.1:58760/__lattice/bridge-health';
+    const setupArgs = ['setup', '--listen', '127.0.0.1', '--port', 'auto', '--dashboard', '--json'];
+    const configuredHealth = async () => {
+      const config = await readBridgeConfig({ env });
+      return `http://127.0.0.1:${config.listen.port}/__lattice/bridge-health`;
+    };
+    const initialSetup = await invoke(setupArgs);
+    assert.equal(initialSetup.code, 0, initialSetup.stderr);
+    const health = await configuredHealth();
     assert.equal((await fetch(health)).status, 200);
     await writeFile(path.join(root, 'bridge.json'), '{}\n', { mode: 0o600 });
     const invalidConfig = await invoke(['disable', '--json']);
@@ -239,19 +253,23 @@ test('invalid config/descriptorでもdisableは未証明PIDをkillせずpublic s
       'invalid_config_removed_after_fail_closed_shutdown');
     await assert.rejects(fetch(health, { signal: AbortSignal.timeout(300) }));
 
-    assert.equal((await invoke(setupArgs)).code, 0);
-    assert.equal((await fetch(health)).status, 200);
+    const secondSetup = await invoke(setupArgs);
+    assert.equal(secondSetup.code, 0, secondSetup.stderr);
+    const secondHealth = await configuredHealth();
+    assert.equal((await fetch(secondHealth)).status, 200);
     await rm(bridgeDaemonDescriptorPath(env), { force: true });
     const absentDescriptor = await invoke(['disable', '--json']);
     assert.equal(absentDescriptor.code, 0, absentDescriptor.stderr);
-    await assert.rejects(fetch(health, { signal: AbortSignal.timeout(300) }));
+    await assert.rejects(fetch(secondHealth, { signal: AbortSignal.timeout(300) }));
 
-    assert.equal((await invoke(setupArgs)).code, 0);
-    assert.equal((await fetch(health)).status, 200);
+    const thirdSetup = await invoke(setupArgs);
+    assert.equal(thirdSetup.code, 0, thirdSetup.stderr);
+    const thirdHealth = await configuredHealth();
+    assert.equal((await fetch(thirdHealth)).status, 200);
     await writeFile(bridgeDaemonDescriptorPath(env), '{}\n', { mode: 0o600 });
     const invalidDescriptor = await invoke(['disable', '--json']);
     assert.equal(invalidDescriptor.code, 0, invalidDescriptor.stderr);
     assert.equal(JSON.parse(invalidDescriptor.stdout).recovery,
       'invalid_descriptor_removed_after_fail_closed_shutdown');
-    await assert.rejects(fetch(health, { signal: AbortSignal.timeout(300) }));
+    await assert.rejects(fetch(thirdHealth, { signal: AbortSignal.timeout(300) }));
   });
