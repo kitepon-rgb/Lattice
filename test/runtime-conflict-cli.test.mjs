@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { canonicalizeArtifact, digestArtifact } from '../src/artifact-contracts.mjs';
-import { CONTROLLER_OPERATIONS, validateProcessStartIdentity } from '../src/runtime-controller-protocol.mjs';
+import { CONTROLLER_OPERATIONS, createRuntimeControlRequest,
+  validateProcessStartIdentity } from '../src/runtime-controller-protocol.mjs';
 import { buildNextRunEvent } from '../src/runtime-engine.mjs';
 import { observeMacosBinaryIdentity, observeManagedProcessStartIdentity, resolveActiveRuntimePaths } from '../src/runtime-managed-supervisor.mjs';
 import { selfDigest } from '../src/runtime-contracts.mjs';
@@ -110,7 +111,7 @@ async function installManagedControllerFixture(fixture, { signed = false } = {})
 import net from 'node:net';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { canonicalizeArtifact, digestArtifact } from ${JSON.stringify(artifactUrl)};
 import { selfDigest } from ${JSON.stringify(contractsUrl)};
 import { observeManagedProcessStartIdentity } from ${JSON.stringify(supervisorUrl)};
@@ -395,37 +396,105 @@ test('実controller daemonはholdからsuccessor prepare/release/中央gate/inta
   assert.equal(JSON.parse(await readFile(path.join(runDir, 'committed-epoch.json'))).plan_epoch, 1);
   const restartedForReprocess = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo, 0,
     { ...process.env, NODE_ENV: 'test', LATTICE_INTERNAL_TEST_CONTROLLER_COUNT: '2',
-      LATTICE_INTERNAL_TEST_CRASH_POINT: 'after_first_controller_release' });
+      LATTICE_INTERNAL_TEST_RELEASE_FAIL_ONCE: '1' });
   assert.equal(JSON.parse(restartedForReprocess.stdout).outcome, 'activated');
-  const crashedReprocess = exec(process.execPath, [CLI, 'run', 'reprocess', '--run', fixture.runRef,
-    '--request-id', 'reprocess-stage-crash'], fixture.repo, 1);
-  assert.equal(JSON.parse(crashedReprocess.stderr).code, 'RUN_OUTCOME_UNKNOWN', crashedReprocess.stderr);
+  const rejectedReprocess = exec(process.execPath, [CLI, 'run', 'reprocess', '--run', fixture.runRef,
+    '--request-id', 'reprocess-release-reject'], fixture.repo, 1);
+  assert.equal(JSON.parse(rejectedReprocess.stderr).code, 'ADAPTER_CONTROLLER_UNAVAILABLE',
+    rejectedReprocess.stderr);
   const committedAfterReplay = JSON.parse(await readFile(path.join(runDir, 'committed-epoch.json')));
   assert.equal(committedAfterReplay.plan_epoch, 2);
   await assert.rejects(readFile(path.join(runDir, 'supervisor', 'write-gate.json')), { code: 'ENOENT' });
   const preRecoveryEvents = JSON.parse(await readFile(path.join(runDir, 'events.json')));
   assert.equal(preRecoveryEvents.some((event) => event.kind === 'intake_resumed'
     && event.plan_epoch === 2), false);
-  const restarted = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo, 0,
-    { ...process.env, NODE_ENV: 'test', LATTICE_INTERNAL_TEST_CONTROLLER_COUNT: '2' });
-  assert.equal(JSON.parse(restarted.stdout).outcome, 'activated');
   const completedAfterGate = exec(process.execPath, [CLI, 'run', 'reprocess', '--run', fixture.runRef,
-    '--request-id', 'reprocess-stage-crash'], fixture.repo);
+    '--request-id', 'reprocess-release-reject'], fixture.repo);
   assert.equal(JSON.parse(completedAfterGate.stdout).outcome, 'reprocessed');
+  const completedCrashRequest = exec(process.execPath, [CLI, 'run', 'reprocess', '--run', fixture.runRef,
+    '--request-id', 'reprocess-stage-crash'], fixture.repo);
+  assert.equal(JSON.parse(completedCrashRequest.stdout).outcome, 'reprocessed');
   const completedLedger = JSON.parse(await readFile(path.join(runDir, 'control-request-ledger.json')));
-  assert.equal(completedLedger.entries.find((entry) => entry.request_id === 'reprocess-stage-crash')?.state,
+  assert.equal(completedLedger.entries.find((entry) => entry.request_id === 'reprocess-release-reject')?.state,
     'completed');
+  assert.equal(completedLedger.entries.find((entry) => entry.request_id === 'reprocess-release-reject')
+    ?.response?.outcome, 'completed');
   events = JSON.parse(await readFile(path.join(runDir, 'events.json')));
   assert.equal(events.some((event) => event.kind === 'intake_resumed'
     && event.plan_epoch === 2), true);
   const completedRuntime = await resolveActiveRuntimePaths({ runDir });
   process.kill(JSON.parse(await readFile(completedRuntime.descriptorPath)).pid, 'SIGKILL');
   await new Promise((resolve) => setTimeout(resolve, 300));
-  const restartedAfterGate = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo, 0,
+  const activationCrash = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef,
+    '--request-id', 'activation-ledger-crash'], fixture.repo, 1,
+    { ...process.env, NODE_ENV: 'test', LATTICE_INTERNAL_TEST_CONTROLLER_COUNT: '2',
+      LATTICE_INTERNAL_TEST_CRASH_POINT: 'after_active_runtime_pointer_commit' });
+  assert.equal(JSON.parse(activationCrash.stderr).code, 'RUN_OUTCOME_UNKNOWN', activationCrash.stderr);
+  const restartedAfterGate = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef,
+    '--request-id', 'activation-ledger-crash'], fixture.repo, 0,
     { ...process.env, NODE_ENV: 'test', LATTICE_INTERNAL_TEST_CONTROLLER_COUNT: '2' });
   assert.equal(JSON.parse(restartedAfterGate.stdout).outcome, 'activated');
+  const retryPointerBefore = await readFile(path.join(runDir, 'supervisor', 'active-runtime.json'));
+  const retryControllersBefore = (await readdir(path.join(runDir, 'controllers'))).sort();
+  const retryCandidatesBefore = (await readdir(path.join(runDir, 'supervisor', 'restart-candidates'))).sort();
+  const retryControlBefore = await readFile((await resolveActiveRuntimePaths({ runDir })).controlEventsPath);
+  const retryLedgerBefore = JSON.parse(await readFile(path.join(runDir, 'control-request-ledger.json')));
+  const activationLedgerEntry = retryLedgerBefore.entries
+    .find((entry) => entry.request_id === 'activation-ledger-crash');
+  const activationResponseDigest = activationLedgerEntry?.response?.response_digest;
+  const retryActive = await resolveActiveRuntimePaths({ runDir });
+  const retrySessionNonce = (await readFile(retryActive.sessionPath, 'utf8')).trim();
+  const retryPayload = { schema: 'lattice.runtime_control_operation.v1', operation: 'activate',
+    run_ref: fixture.runRef, artifact: null, artifact_digest: null, checkpoint_digest: null,
+    expected_epoch: 1, expected_queue_digest: null, shutdown_reason: null, operation_digest: '' };
+  retryPayload.operation_digest = selfDigest(retryPayload, 'operation_digest');
+  const retryRequest = createRuntimeControlRequest({ requestId: 'activation-ledger-crash',
+    runId: fixture.request.request_id, operation: 'activate', payload: retryPayload,
+    sessionNonce: retrySessionNonce });
+  assert.equal(retryActive.pointer.activation_request_digest, retryRequest.request_digest);
+  assert.equal(activationLedgerEntry?.request_digest, retryRequest.request_digest);
+  assert.equal(retryActive.pointer.session_nonce_digest, digestArtifact(retrySessionNonce));
+  const sameSessionRetry = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef,
+    '--request-id', 'activation-ledger-crash'], fixture.repo, 0);
+  assert.equal(JSON.parse(sameSessionRetry.stdout).outcome, 'activated');
+  const retryPointerAfter = await readFile(path.join(runDir, 'supervisor', 'active-runtime.json'));
+  assert.deepEqual(retryPointerAfter, retryPointerBefore);
+  assert.deepEqual((await readdir(path.join(runDir, 'controllers'))).sort(), retryControllersBefore);
+  assert.deepEqual((await readdir(path.join(runDir, 'supervisor', 'restart-candidates'))).sort(),
+    retryCandidatesBefore);
+  assert.deepEqual(await readFile((await resolveActiveRuntimePaths({ runDir })).controlEventsPath),
+    retryControlBefore);
+  const retryLedgerAfter = JSON.parse(await readFile(path.join(runDir, 'control-request-ledger.json')));
+  assert.equal(retryLedgerAfter.entries
+    .find((entry) => entry.request_id === 'activation-ledger-crash')?.response?.response_digest,
+  activationResponseDigest);
+  process.kill(JSON.parse(await readFile(retryActive.descriptorPath)).pid, 'SIGKILL');
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const activationB = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef,
+    '--request-id', 'activation-b'], fixture.repo, 0,
+    { ...process.env, NODE_ENV: 'test', LATTICE_INTERNAL_TEST_CONTROLLER_COUNT: '2' });
+  assert.equal(JSON.parse(activationB.stdout).outcome, 'activated');
+  const activeB = await resolveActiveRuntimePaths({ runDir });
+  assert.equal(activeB.pointer.activation_request_id, 'activation-b');
+  assert.notEqual(activeB.pointer.session_nonce_digest, retryActive.pointer.session_nonce_digest);
+  process.kill(JSON.parse(await readFile(activeB.descriptorPath)).pid, 'SIGKILL');
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const reusedActivationA = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef,
+    '--request-id', 'activation-ledger-crash'], fixture.repo, 0,
+    { ...process.env, NODE_ENV: 'test', LATTICE_INTERNAL_TEST_CONTROLLER_COUNT: '2' });
+  assert.equal(JSON.parse(reusedActivationA.stdout).outcome, 'activated');
+  const activeC = await resolveActiveRuntimePaths({ runDir });
+  assert.equal(activeC.pointer.activation_request_id, 'activation-ledger-crash');
+  assert.notEqual(activeC.pointer.session_nonce_digest, activeB.pointer.session_nonce_digest);
+  assert.notEqual(activeC.pointer.pointer_digest, activeB.pointer.pointer_digest);
+  const activeCBytes = await readFile(path.join(runDir, 'supervisor', 'active-runtime.json'));
+  const currentControl = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef,
+    '--request-id', 'activation-ledger-crash'], fixture.repo, 0);
+  assert.equal(JSON.parse(currentControl.stdout).outcome, 'activated');
+  assert.deepEqual(await readFile(path.join(runDir, 'supervisor', 'active-runtime.json')),
+    activeCBytes);
   const result = exec(process.execPath, [CLI, 'run', 'reprocess', '--run', fixture.runRef,
-    '--request-id', 'reprocess-stage-crash'], fixture.repo);
+    '--request-id', 'reprocess-release-reject'], fixture.repo);
   assert.equal(JSON.parse(result.stdout).outcome, 'reprocessed');
   const pointer = JSON.parse(await readFile(path.join(runDir, 'committed-epoch.json')));
   const release = JSON.parse(await readFile(path.join(runDir, 'release-epoch.json')));

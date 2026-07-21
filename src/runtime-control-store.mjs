@@ -483,6 +483,42 @@ export function createRuntimeControlStore({ runDir, runId, clock = () => new Dat
     });
   }
 
+  async function replaceCompletedActivationRequest(request, response) {
+    return enqueue(normalizedRunDir, async () => {
+      await ensureRunDirectory(normalizedRunDir);
+      assertRequest(request, runId);
+      if (request.operation !== 'activate' || !validateRuntimeControlResponse(response, 'activate')
+        || response.request_id !== request.request_id || response.run_id !== runId
+        || response.outcome !== 'completed') {
+        fail('INVALID_CONTROL_RESPONSE', 'activation recovery response binding不正');
+      }
+      const prior = await readCanonical(ledgerPath, ledgerValidator, 'request_ledger');
+      const ledger = prior.value;
+      const index = ledger.entries.findIndex((entry) => entry.request_id === request.request_id);
+      if (index < 0) fail('REQUEST_NOT_STARTED', 'request ledgerにactivation entryがない');
+      const existing = ledger.entries[index];
+      if (existing.intent_digest !== logicalIntentDigest(request)) {
+        fail('REQUEST_ID_CONFLICT', '同一request_idへ異なるlogical intent');
+      }
+      if (existing.state === 'completed' && existing.request_digest === request.request_digest
+        && existing.response.response_digest === response.response_digest) {
+        await fsyncDirectory(normalizedRunDir);
+        return structuredClone(existing.response);
+      }
+      const recovered = { ...existing, request_digest: request.request_digest,
+        state: 'completed', response: structuredClone(response) };
+      const entries = [...ledger.entries];
+      entries[index] = recovered;
+      const next = withLedgerEntries(ledger, entries);
+      await replaceCanonical({
+        pathname: ledgerPath, expectedBytes: prior.bytes, value: next,
+        validator: ledgerValidator, crashInjector, label: 'request_ledger',
+        directoryFsyncPoint: 'after_request_ledger_directory_fsync',
+      });
+      return structuredClone(response);
+    });
+  }
+
   async function readRequest(request) {
     return enqueue(normalizedRunDir, async () => {
       await ensureRunDirectory(normalizedRunDir);
@@ -507,5 +543,5 @@ export function createRuntimeControlStore({ runDir, runId, clock = () => new Dat
   }
 
   return Object.freeze({ append, beginRequest, completeRequest, recoverCompletedRequest,
-    readRequest, readEvents });
+    replaceCompletedActivationRequest, readRequest, readEvents });
 }

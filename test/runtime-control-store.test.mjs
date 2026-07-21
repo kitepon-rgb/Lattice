@@ -116,7 +116,9 @@ function publicEntry(input, disposition, state, output = null) {
 function response(value, outcome = 'completed') {
   const result = {
     schema: 'lattice.runtime_control_result.v1', operation: value.operation,
-    outcome: outcome === 'completed' ? 'held' : 'rejected', event_head_digest: D('c'),
+    outcome: outcome === 'completed'
+      ? ({ activate: 'activated', hold: 'held' }[value.operation] ?? 'reprocessed') : 'rejected',
+    event_head_digest: D('c'),
     control_head_digest: D('d'), active_epoch: 1, staged_epoch: null, unmet: [], result_digest: '',
   };
   result.result_digest = selfDigest(result, 'result_digest');
@@ -250,6 +252,38 @@ test('durable recoveryだけは同一intentのrejected responseをcompletedへ�
     publicEntry(retried, 'completed', 'completed', recovered));
   await assert.rejects(store(value.runDir).recoverCompletedRequest(retried, response(retried)),
     (error) => error instanceof RuntimeControlStoreError && error.code === 'REQUEST_RESPONSE_CONFLICT');
+});
+
+test('restart activationは同一intentのfresh session responseへledgerを更新する', async (t) => {
+  const value = await fixture();
+  t.after(() => rm(value.root, { recursive: true, force: true }));
+  const first = request('activation-a', 'activate');
+  await store(value.runDir).beginRequest(first);
+  await store(value.runDir).completeRequest(first, response(first));
+  const retried = createRuntimeControlRequest({ requestId: first.request_id, runId: first.run_id,
+    operation: first.operation, payload: first.payload, sessionNonce: 'm'.repeat(64) });
+  const fresh = response(retried);
+  fresh.result.control_head_digest = D('e');
+  fresh.result.result_digest = selfDigest(fresh.result, 'result_digest');
+  fresh.control_head_digest = fresh.result.control_head_digest;
+  fresh.response_digest = selfDigest(fresh, 'response_digest');
+  assert.notEqual(fresh.response_digest, response(first).response_digest);
+  assert.deepEqual(await store(value.runDir).replaceCompletedActivationRequest(retried, fresh), fresh);
+  assert.deepEqual(await store(value.runDir).readRequest(retried),
+    publicEntry(retried, 'completed', 'completed', fresh));
+});
+
+test('pointer commit後のin_progress activationもcurrent session responseへledgerを結び直す', async (t) => {
+  const value = await fixture();
+  t.after(() => rm(value.root, { recursive: true, force: true }));
+  const first = request('activation-in-progress', 'activate');
+  await store(value.runDir).beginRequest(first);
+  const retried = createRuntimeControlRequest({ requestId: first.request_id, runId: first.run_id,
+    operation: first.operation, payload: first.payload, sessionNonce: 'm'.repeat(64) });
+  const fresh = response(retried);
+  assert.deepEqual(await store(value.runDir).replaceCompletedActivationRequest(retried, fresh), fresh);
+  assert.deepEqual(await store(value.runDir).readRequest(retried),
+    publicEntry(retried, 'completed', 'completed', fresh));
 });
 
 for (const crashPoint of [

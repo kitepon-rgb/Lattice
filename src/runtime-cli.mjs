@@ -1002,7 +1002,7 @@ async function runManagedControl({ runDir, runRef, operation, artifact = null, a
   } catch (error) {
     if (!(error instanceof CliContractError) || error.code !== 'INPUT_UNREADABLE') throw error;
   }
-  let expectedEpoch = operation === 'recompile'
+  let expectedEpoch = operation === 'activate' ? 1 : operation === 'recompile'
     && Number.isSafeInteger(artifact?.predecessor_epoch)
     ? artifact.predecessor_epoch : committed.pointer.plan_epoch;
   if (operation === 'recompile' && requestId !== null) {
@@ -1031,6 +1031,7 @@ async function runManagedControl({ runDir, runRef, operation, artifact = null, a
       }
     }
   }
+  if (operation === 'activate') expectedQueueDigest = null;
   const payload = controlOperationPayload({
     operation, runRef, artifact, artifactDigest, checkpointDigest,
     expectedEpoch,
@@ -1051,13 +1052,20 @@ async function runManagedControl({ runDir, runRef, operation, artifact = null, a
         eventHeadDigest: events.at(-1)?.event_digest ?? null,
         controlHeadDigest: journal.at(-1)?.event_digest ?? null,
         activeEpoch: committed.pointer.plan_epoch, stagedEpoch: null });
-      const response = buildControlResponse(request, 'completed', result,
+      let response = buildControlResponse(request, 'completed', result,
         journal.at(-1)?.event_digest ?? null);
       const store = createRuntimeControlStore({ runDir, runId: committed.meta.run_id,
         clock: canonicalNow });
-      await store.completeRequest(request, response);
-      if (emit) stdout.write(`${JSON.stringify(result)}\n`);
-      return emit ? 0 : result;
+      const known = await store.readRequest(request);
+      if (known?.state === 'completed' && known.response.outcome === 'completed') {
+        response = known.response;
+      } else if (known?.state === 'completed' && known.response.outcome === 'rejected') {
+        response = await store.recoverCompletedRequest(request, response);
+      } else {
+        response = await store.completeRequest(request, response);
+      }
+      if (emit) stdout.write(`${JSON.stringify(response.result)}\n`);
+      return emit ? 0 : response.result;
     }
   }
   let response;
@@ -1189,10 +1197,10 @@ export function reconstructHoldResultFromJournal({ journal, runId, requestId, in
 
 async function runActivate({ runDir, runRef, repoRoot, stdout, requestId = null }) {
   return withLifecycleLock(runDir, async () => {
-  const { events, meta } = await readRunStore(runDir);
+  const { events, meta, managed } = await readRunStore(runDir);
   if (!['lattice.run_meta.v1', 'lattice.run_meta.v2'].includes(meta.schema)) throw new CliContractError('RUN_NOT_MANAGED', 'run metaがactivate対象でない');
   if (projectRuntimeState({ events }).closed) throw new CliContractError('RUN_CLOSED', 'closed runは再activateできない');
-  if (meta.schema === 'lattice.run_meta.v2' && requestId !== null) {
+  if (managed !== null && requestId !== null) {
     try {
       return await runManagedControl({ runDir, runRef, operation: 'activate', artifactDigest: null,
         stdout, requestId });
@@ -1200,7 +1208,7 @@ async function runActivate({ runDir, runRef, repoRoot, stdout, requestId = null 
       if (error?.code !== 'RUN_NOT_MANAGED') throw error;
     }
   }
-  if (meta.schema === 'lattice.run_meta.v2') await prepareManagedSupervisorRestart({ runDir });
+  if (managed !== null) await prepareManagedSupervisorRestart({ runDir });
   const launched = await launchDurableSupervisor({ runDir });
   const payload = controlOperationPayload({
     operation: 'activate', runRef, artifactDigest: null, expectedEpoch: 1, expectedQueueDigest: null,
@@ -2186,20 +2194,45 @@ export async function runManagedSupervisorDaemon({
         known = { ...known, state: 'in_progress', response: null };
       }
     }
-    if (known?.state === 'completed') return known.response;
-    if (known?.state === 'in_progress' && controlRequest.operation === 'activate') {
+    if (known !== null && controlRequest.operation === 'activate') {
       const active = await resolveActiveRuntimePaths({ runDir }).catch(() => null);
       if (active?.pointer?.activation_request_id === controlRequest.request_id
         && active.pointer.activation_intent_digest === controlIntentDigest(controlRequest)) {
-        const response = await readBoundedJson(path.join(path.dirname(active.descriptorPath),
+        const priorResponse = await readBoundedJson(path.join(path.dirname(active.descriptorPath),
           'activation-response.json'), 'activation response');
-        if (!validateRuntimeControlResponse(response, controlRequest.operation)
-          || response.response_digest !== active.pointer.activation_response_digest) {
+        if (!validateRuntimeControlResponse(priorResponse, controlRequest.operation)
+          || priorResponse.response_digest !== active.pointer.activation_response_digest) {
           throw new ManagedRuntimeError('RUN_RECOVERY_REQUIRED', 'committed activation response binding不正');
         }
-        return requestStore.completeRequest(controlRequest, response);
+        const currentActivation = active.pointer.activation_request_digest
+            === controlRequest.request_digest
+          && active.pointer.session_nonce_digest === digestArtifact(sessionNonce)
+          && known.request_digest === controlRequest.request_digest
+          && managedSupervisor !== null;
+        if (currentActivation) {
+          if (known.state === 'completed') {
+            if (known.response.response_digest !== priorResponse.response_digest) {
+              throw new ManagedRuntimeError('RUN_RECOVERY_REQUIRED',
+                'current activation ledger/pointer response binding不正');
+            }
+            return known.response;
+          }
+          return requestStore.replaceCompletedActivationRequest(controlRequest, priorResponse);
+        }
+      }
+      let activationLock;
+      try {
+        activationLock = await acquireRuntimeLifecycleLock({ runDir,
+          sessionNonceDigest: digestArtifact(sessionNonce), operation: controlRequest.operation,
+          requestId: controlRequest.request_id, timeoutMs: 0 });
+        const freshResponse = await executeControl(controlRequest);
+        if (freshResponse.outcome !== 'completed') return freshResponse;
+        return requestStore.replaceCompletedActivationRequest(controlRequest, freshResponse);
+      } finally {
+        await activationLock?.release();
       }
     }
+    if (known?.state === 'completed') return known.response;
     if (known?.state === 'in_progress' && controlRequest.operation === 'reprocess'
       && sessionRecoveryResponse === null) {
       const recovered = await readBoundedJson(path.join(runDir,
@@ -2583,17 +2616,6 @@ export async function runManagedSupervisorDaemon({
         : response;
     }
     if (known?.state === 'in_progress') {
-      const active = await resolveActiveRuntimePaths({ runDir });
-      if (active.pointer?.activation_request_id === controlRequest.request_id
-        && active.pointer.activation_intent_digest === controlIntentDigest(controlRequest)) {
-        const response = await readBoundedJson(path.join(path.dirname(active.descriptorPath),
-          'activation-response.json'), 'activation response');
-        if (!validateRuntimeControlResponse(response, controlRequest.operation)
-          || response.response_digest !== active.pointer.activation_response_digest) {
-          throw new ManagedRuntimeError('RUN_RECOVERY_REQUIRED', 'committed activation response binding不正');
-        }
-        return requestStore.completeRequest(controlRequest, response);
-      }
       const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events').catch(() => []);
       const journal = await eventStore.readEvents();
       const result = buildControlResult({ operation: controlRequest.operation, outcome: 'unknown',

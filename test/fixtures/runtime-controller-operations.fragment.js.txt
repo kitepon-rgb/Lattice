@@ -29,6 +29,14 @@ if(request.schema==='lattice.adapter_activate_request.v1'){
   socket.write(canonicalizeArtifact(response)+'\n');return;
 }
 if(request.schema==='lattice.adapter_release_request.v1'){
+  if(process.env.LATTICE_INTERNAL_TEST_RELEASE_FAIL_ONCE==='1'){
+    const marker=path.join(process.cwd(),'release-fail-once.marker');
+    if(!existsSync(marker)) writeFileSync(marker,'first\n');
+    else if(readFileSync(marker,'utf8')==='first\n'){
+      writeFileSync(marker,'failed\n');
+      return;
+    }
+  }
   const armed=[];
   for(const digest of request.staged_lease_digests){
     const prior=globalThis.__stagedLeases.get(digest);
