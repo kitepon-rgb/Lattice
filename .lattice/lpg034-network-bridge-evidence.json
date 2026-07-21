@@ -1,0 +1,9 @@
+{
+  "evidence_id": "lpg-034-network-bridge-20260721",
+  "repo_id": "self",
+  "path": "test/bridge-daemon.test.mjs",
+  "git_blob_oid": "b5b4e492e1d53aa811831b42a45757ea8b9c4c76",
+  "content_digest": "779050587572a114c2d3fa97f46181579717cbb97f0ea2eb6132f854e1e880f5",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
