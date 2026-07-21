@@ -36,6 +36,13 @@ const SOURCE_CUTOVER_BARRIER_REF = `${STORE_ROOT_REF}/source-cutover-recovery.js
 const SOURCE_CUTOVER_RECOVERY_CAPABILITY = Symbol('lattice.todo.source-cutover-recovery');
 const MAX_FUTURE_SKEW_MS = 5 * 60 * 1_000;
 const WRITER_CALLERS = new Set(['g4-migration', 'g5-authoring']);
+const TODO_REVISION_SCHEMAS = Object.freeze([
+  'lattice.todo_revision.v1', 'lattice.todo_revision.v2',
+]);
+const PHASE_TODO_REVISION_SCHEMAS = Object.freeze([
+  'lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2',
+  'lattice.phase_todo_revision.v3',
+]);
 
 export class TodoStoreError extends Error {
   constructor(code, reason, message = reason, detail = {}) {
@@ -55,6 +62,17 @@ export function createTodoStoreWriter(options = {}) {
 
 function fail(code, reason, detail) {
   throw new TodoStoreError(code, reason, reason, detail);
+}
+
+function rejectUnsupportedRevisionSchema(value, { family, supportedSchemas }) {
+  const schema = value?.schema;
+  if (typeof schema === 'string'
+    && new RegExp(`^lattice\\.${family}\\.v[1-9]\\d*$`, 'u').test(schema)
+    && !supportedSchemas.includes(schema)) {
+    fail('UNSUPPORTED_SCHEMA', 'unsupported_revision_schema', {
+      schema, supported_schemas: [...supportedSchemas],
+    });
+  }
 }
 
 function requireWriter(writer, caller) {
@@ -866,9 +884,17 @@ export async function readTodoStore(options = {}) {
     const genesis = journal.events[0];
     if (['lattice.todo_event.v2', 'lattice.todo_event.v4'].includes(genesis.schema)) {
       const revisionRef = path.posix.join(path.posix.dirname(descriptor.plan_ref), 'revision.json');
+      const phaseRevision = genesis.schema === 'lattice.todo_event.v4';
       revision = await readArtifact(repoRoot, revisionRef, {
         code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes,
-        validate: genesis.schema === 'lattice.todo_event.v4' ? validatePhaseTodoRevision : validateTodoRevision,
+        validate: (value) => {
+          rejectUnsupportedRevisionSchema(value, phaseRevision ? {
+            family: 'phase_todo_revision', supportedSchemas: PHASE_TODO_REVISION_SCHEMAS,
+          } : {
+            family: 'todo_revision', supportedSchemas: TODO_REVISION_SCHEMAS,
+          });
+          return phaseRevision ? validatePhaseTodoRevision(value) : validateTodoRevision(value);
+        },
       });
       const migrationProjection = genesis.state_migration.map((entry) => ({
         from_task_id: entry.from_task_id, to_task_id: entry.to_task_id,

@@ -327,6 +327,70 @@ test('todo verifyはactive phase v3を正規verifierへrouteしsource digest dri
   assert.equal(failure.detail.reason, 'source_digest_mismatch');
 });
 
+test('active revisionのfuture schemaは破損と分離してstatus/verifyへtyped公開する', async (t) => {
+  const { root, revision, writer } = await fixture(t);
+  await applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,
+    recordedAt: COMMIT_AT, now: COMMIT_AT });
+  const revisionPath = path.join(root, '.lattice', 'todo', 'plans', 'main',
+    revision.desired_plan.plan_version, 'revision.json');
+  const futureRevision = { ...revision, schema: 'lattice.phase_todo_revision.v4' };
+  await writeFile(revisionPath, `${canonicalizeTodoArtifact(futureRevision)}\n`);
+
+  await assert.rejects(readTodoStore({ repoRoot: root, now: COMMIT_AT }), (error) => (
+    error.code === 'UNSUPPORTED_SCHEMA'
+      && error.detail.reason === 'unsupported_revision_schema'
+      && error.detail.schema === 'lattice.phase_todo_revision.v4'
+      && error.detail.supported_schemas.at(-1) === 'lattice.phase_todo_revision.v3'
+  ));
+  const status = spawnSync(process.execPath, [CLI, 'status', '--json'], {
+    cwd: root, encoding: 'utf8',
+  });
+  assert.equal(status.status, 1);
+  assert.equal(JSON.parse(status.stdout).next_action.reason,
+    'UNSUPPORTED_SCHEMA:unsupported_revision_schema');
+  const verification = spawnSync(process.execPath, [CLI, 'todo', 'verify'], {
+    cwd: root, encoding: 'utf8',
+  });
+  assert.equal(verification.status, 1);
+  assert.equal(verification.stdout, '');
+  assert.deepEqual(JSON.parse(verification.stderr), {
+    schema: 'lattice.cli_error.v2',
+    code: 'UNSUPPORTED_SCHEMA',
+    message: 'unsupported_revision_schema',
+    detail: {
+      reason: 'unsupported_revision_schema',
+      schema: 'lattice.phase_todo_revision.v4',
+      supported_schemas: [
+        'lattice.phase_todo_revision.v1',
+        'lattice.phase_todo_revision.v2',
+        'lattice.phase_todo_revision.v3',
+      ],
+    },
+  });
+});
+
+test('active revisionの既知schema構造破損はSTORE_INCONSISTENTのままfail closedする', async (t) => {
+  const { root, revision, writer } = await fixture(t);
+  await applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,
+    recordedAt: COMMIT_AT, now: COMMIT_AT });
+  const revisionPath = path.join(root, '.lattice', 'todo', 'plans', 'main',
+    revision.desired_plan.plan_version, 'revision.json');
+  const corrupted = structuredClone(revision);
+  delete corrupted.runtime_task_migration;
+  await writeFile(revisionPath, `${canonicalizeTodoArtifact(corrupted)}\n`);
+
+  await assert.rejects(readTodoStore({ repoRoot: root, now: COMMIT_AT }), (error) => (
+    error.code === 'STORE_INCONSISTENT' && error.detail.reason === 'schema_invalid'
+  ));
+  const verification = spawnSync(process.execPath, [CLI, 'todo', 'verify'], {
+    cwd: root, encoding: 'utf8',
+  });
+  assert.equal(verification.status, 1);
+  const failure = JSON.parse(verification.stderr);
+  assert.equal(failure.code, 'STORE_INCONSISTENT');
+  assert.equal(failure.detail.reason, 'schema_invalid');
+});
+
 test('phase v3はsource publish crashをsame digestだけroll-forwardする', async (t) => {
   const { root, revision, writer } = await fixture(t);
   await assert.rejects(applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,

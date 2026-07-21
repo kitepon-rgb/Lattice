@@ -1,6 +1,7 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(new URL('..', import.meta.url).pathname);
 const testRoot = path.join(repoRoot, 'test');
@@ -49,26 +50,37 @@ async function collectTests(directory, prefix = '') {
   return files;
 }
 
-const allTests = (await collectTests(testRoot)).sort();
-const missingRetired = [...retiredArtifactReplaySuites]
-  .filter((relative) => !allTests.includes(relative));
-if (missingRetired.length > 0) {
-  throw new Error(`retired artifact replay suite list drifted: ${missingRetired.join(', ')}`);
+export function productTestEnvironment(parentEnv = process.env) {
+  const env = { ...parentEnv, LATTICE_DASHBOARD_AUTOSTART: '0' };
+  delete env.FORCE_COLOR;
+  return env;
 }
 
-const productTests = allTests.filter((relative) => !retiredArtifactReplaySuites.has(relative));
-process.stdout.write([
-  `Current product gate: ${productTests.length} suites`,
-  `Retired immutable artifact replay (not used for product verdict): ${retiredArtifactReplaySuites.size} suites`,
-  ...[...retiredArtifactReplaySuites].sort().map((relative) => `  - test/${relative}`),
-  '',
-].join('\n'));
+async function runProductTests() {
+  const allTests = (await collectTests(testRoot)).sort();
+  const missingRetired = [...retiredArtifactReplaySuites]
+    .filter((relative) => !allTests.includes(relative));
+  if (missingRetired.length > 0) {
+    throw new Error(`retired artifact replay suite list drifted: ${missingRetired.join(', ')}`);
+  }
 
-const result = spawnSync(
-  process.execPath,
-  ['--test', ...productTests.map((relative) => path.join('test', relative))],
-  { cwd: repoRoot, encoding: 'utf8', stdio: 'inherit',
-    env: { ...process.env, LATTICE_DASHBOARD_AUTOSTART: '0' } },
-);
-if (result.error) throw result.error;
-process.exitCode = result.status ?? 1;
+  const productTests = allTests.filter((relative) => !retiredArtifactReplaySuites.has(relative));
+  process.stdout.write([
+    `Current product gate: ${productTests.length} suites`,
+    `Retired immutable artifact replay (not used for product verdict): ${retiredArtifactReplaySuites.size} suites`,
+    ...[...retiredArtifactReplaySuites].sort().map((relative) => `  - test/${relative}`),
+    '',
+  ].join('\n'));
+
+  const result = spawnSync(
+    process.execPath,
+    ['--test', ...productTests.map((relative) => path.join('test', relative))],
+    { cwd: repoRoot, encoding: 'utf8', stdio: 'inherit',
+      env: productTestEnvironment() },
+  );
+  if (result.error) throw result.error;
+  process.exitCode = result.status ?? 1;
+}
+
+if (process.argv[1] !== undefined
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await runProductTests();
