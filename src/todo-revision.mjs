@@ -1,4 +1,5 @@
 import {
+  canonicalizeTodoArtifact,
   digestTodoArtifact,
   exactRecord,
   isTodoDigest,
@@ -16,6 +17,11 @@ const REVISION_V2_KEYS = [...REVISION_V1_KEYS, 'source_cutover_batch'];
 const PHASE_REVISION_KEYS = [
   'schema', 'project_id', 'plan_key', 'predecessor', 'desired_plan', 'task_migration',
   'phase_migration', 'revision_digest',
+];
+const PHASE_REVISION_V3_KEYS = [
+  'schema', 'project_id', 'plan_key', 'predecessor', 'desired_plan',
+  'runtime_task_migration', 'task_migration', 'phase_migration', 'source_inventory',
+  'reconciliation', 'source_cutover_batch', 'revision_digest',
 ];
 
 const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
@@ -204,33 +210,127 @@ function validPhaseMigration(value, desiredPlan) {
 }
 
 function canonicalizeForCompare(value) {
-  return JSON.stringify([...value].sort(compareText));
+  return canonicalizeTodoArtifact([...value].sort((left, right) => compareText(
+    canonicalizeTodoArtifact(left), canonicalizeTodoArtifact(right),
+  )));
+}
+
+function todoTaskMigrationDigest(taskMigration) {
+  return todoSelfDigest({ task_migration: taskMigration, task_migration_digest: '' },
+    'task_migration_digest');
+}
+
+function validRuntimeTaskMigration(value) {
+  if (!exactRecord(value, ['schema', 'entries', 'migration_digest'])
+    || value.schema !== 'lattice.runtime_task_migration.v1'
+    || !Array.isArray(value.entries) || value.entries.length < 1 || value.entries.length > 512
+    || !isTodoDigest(value.migration_digest)
+    || value.migration_digest !== todoSelfDigest(value, 'migration_digest')) return false;
+  const targets = [];
+  for (const [index, entry] of value.entries.entries()) {
+    if (!exactRecord(entry, [
+      'predecessor_task_id', 'disposition', 'successor_task_ids', 'reason', 'evidence_digests',
+    ]) || !isTodoIdentifier(entry.predecessor_task_id)
+      || !['carry', 'stay', 'replace', 'split', 'retire'].includes(entry.disposition)
+      || !Array.isArray(entry.successor_task_ids) || entry.successor_task_ids.length > 512
+      || !entry.successor_task_ids.every(isTodoIdentifier)
+      || new Set(entry.successor_task_ids).size !== entry.successor_task_ids.length
+      || entry.successor_task_ids.some((id, targetIndex) => targetIndex > 0
+        && compareText(entry.successor_task_ids[targetIndex - 1], id) >= 0)
+      || !boundedText(entry.reason) || !Array.isArray(entry.evidence_digests)
+      || entry.evidence_digests.length < 1 || entry.evidence_digests.length > 512
+      || !entry.evidence_digests.every(isTodoDigest)
+      || new Set(entry.evidence_digests).size !== entry.evidence_digests.length
+      || entry.evidence_digests.some((digest, digestIndex) => digestIndex > 0
+        && compareText(entry.evidence_digests[digestIndex - 1], digest) >= 0)
+      || (index > 0 && compareText(value.entries[index - 1].predecessor_task_id,
+        entry.predecessor_task_id) >= 0)) return false;
+    if (['carry', 'stay'].includes(entry.disposition)
+      && (entry.successor_task_ids.length !== 1
+        || entry.successor_task_ids[0] !== entry.predecessor_task_id)) return false;
+    if (entry.disposition === 'retire' && entry.successor_task_ids.length !== 0) return false;
+    if (['replace', 'split'].includes(entry.disposition) && entry.successor_task_ids.length === 0) return false;
+    targets.push(...entry.successor_task_ids);
+  }
+  return new Set(targets).size === targets.length;
+}
+
+function projectRuntimeTaskMigration(value) {
+  return value.entries.map((entry) => {
+    if (['carry', 'stay'].includes(entry.disposition)) return {
+      from_task_id: entry.predecessor_task_id,
+      to_task_id: entry.predecessor_task_id,
+      state_policy: 'carry',
+    };
+    if (entry.disposition === 'retire') return {
+      from_task_id: entry.predecessor_task_id, to_task_id: 'removed', state_policy: 'removed',
+    };
+    return { from_task_id: entry.predecessor_task_id,
+      to_task_id: entry.successor_task_ids[0], state_policy: 'reset_pending' };
+  });
+}
+
+function validRuntimeTodoProjection(runtimeMigration, taskMigration) {
+  const projected = projectRuntimeTaskMigration(runtimeMigration);
+  return projected.length === taskMigration.length && projected.every((expected, index) => {
+    const actual = taskMigration[index];
+    return expected.from_task_id === actual.from_task_id && expected.to_task_id === actual.to_task_id
+      && (expected.state_policy === 'carry'
+        ? ['carry', 'carry_reconciled_metadata'].includes(actual.state_policy)
+        : expected.state_policy === actual.state_policy);
+  });
 }
 
 export function validatePhaseTodoRevision(value) {
   try {
     const revisionV1 = value?.schema === 'lattice.phase_todo_revision.v1';
     const revisionV2 = value?.schema === 'lattice.phase_todo_revision.v2';
-    return exactRecord(value, PHASE_REVISION_KEYS)
-      && (revisionV1 || revisionV2)
-      && isTodoIdentifier(value.project_id) && isTodoIdentifier(value.plan_key)
-      && validPredecessor(value.predecessor) && validateTodoPlan(value.desired_plan)
-      && value.desired_plan.schema === (revisionV2 ? 'lattice.todo_plan.v5' : 'lattice.todo_plan.v4')
-      && value.desired_plan.project_id === value.project_id
-      && value.desired_plan.plan_key === value.plan_key
-      && value.desired_plan.predecessor_plan_digest === value.predecessor.plan_digest
-      && validTaskMigration(value.task_migration)
-      && validPhaseMigration(value.phase_migration, value.desired_plan)
-      && value.desired_plan.plan_version === phaseTodoRevisionPlanVersion({
+    const revisionV3 = value?.schema === 'lattice.phase_todo_revision.v3';
+    const keys = revisionV3 ? PHASE_REVISION_V3_KEYS : PHASE_REVISION_KEYS;
+    if (!exactRecord(value, keys) || (!revisionV1 && !revisionV2 && !revisionV3)) return false;
+    if (!isTodoIdentifier(value.project_id) || !isTodoIdentifier(value.plan_key)) return false;
+    if (!validPredecessor(value.predecessor) || !validateTodoPlan(value.desired_plan)
+      || value.desired_plan.schema !== ((revisionV2 || revisionV3)
+        ? 'lattice.todo_plan.v5' : 'lattice.todo_plan.v4')
+      || value.desired_plan.project_id !== value.project_id
+      || value.desired_plan.plan_key !== value.plan_key
+      || value.desired_plan.predecessor_plan_digest !== value.predecessor.plan_digest
+      || !validTaskMigration(value.task_migration)
+      || !validPhaseMigration(value.phase_migration, value.desired_plan)) return false;
+    if (value.desired_plan.plan_version !== phaseTodoRevisionPlanVersion({
         projectId: value.project_id, planKey: value.plan_key, predecessor: value.predecessor,
         desiredPlan: value.desired_plan, taskMigration: value.task_migration,
         phaseMigration: value.phase_migration,
-      }) && isTodoDigest(value.revision_digest)
+      })) return false;
+    if (revisionV3) {
+      if (!validRuntimeTaskMigration(value.runtime_task_migration)
+        || !validRuntimeTodoProjection(value.runtime_task_migration, value.task_migration)
+        || canonicalizeForCompare(value.runtime_task_migration.entries
+          .flatMap(({ successor_task_ids: ids }) => ids))
+          !== canonicalizeForCompare(value.desired_plan.tasks.map(({ task_id: id }) => id))
+        || !validSourceInventory(value.source_inventory, value.desired_plan,
+          { requireNarrativeRef: true })
+        || !validSourceCutoverBatch(value.source_cutover_batch, value)
+        || !exactRecord(value.reconciliation, [
+          'predecessor_reconciliation_digest', 'source_inventory_digest', 'desired_plan_digest',
+          'runtime_task_migration_digest', 'task_migration_digest', 'phase_migration_digest',
+          'source_cutover_batch_digest', 'reconciliation_digest',
+        ]) || !isTodoDigest(value.reconciliation.predecessor_reconciliation_digest)
+        || value.reconciliation.source_inventory_digest !== todoSourceInventoryDigest(value.source_inventory)
+        || value.reconciliation.desired_plan_digest !== value.desired_plan.plan_digest
+        || value.reconciliation.runtime_task_migration_digest !== value.runtime_task_migration.migration_digest
+        || value.reconciliation.task_migration_digest !== todoTaskMigrationDigest(value.task_migration)
+        || value.reconciliation.phase_migration_digest !== digestTodoArtifact(value.phase_migration)
+        || value.reconciliation.source_cutover_batch_digest !== value.source_cutover_batch.batch_digest
+        || value.reconciliation.reconciliation_digest
+          !== todoSelfDigest(value.reconciliation, 'reconciliation_digest')) return false;
+    }
+    return isTodoDigest(value.revision_digest)
       && value.revision_digest === todoSelfDigest(value, 'revision_digest');
   } catch { return false; }
 }
 
-function validSourceInventory(value, desiredPlan) {
+function validSourceInventory(value, desiredPlan, { requireNarrativeRef = false } = {}) {
   if (!exactRecord(value, ['active', 'excluded_tombstones'])
     || !Array.isArray(value.active) || !Array.isArray(value.excluded_tombstones)
     || value.active.length > 512 || value.excluded_tombstones.length > 2_048
@@ -247,6 +347,8 @@ function validSourceInventory(value, desiredPlan) {
   const tombstoneRefs = value.excluded_tombstones.map(({ source_ref }) => source_ref);
   const activeRefSet = new Set(activeRefs);
   return taskIds.length === activeIds.length && taskIds.every((id, index) => id === activeIds[index])
+    && (!requireNarrativeRef || value.active.every((entry) => desiredPlan.tasks
+      .find(({ task_id }) => task_id === entry.task_id)?.narrative_ref === entry.source_ref))
     && activeRefSet.size === activeRefs.length
     && new Set(tombstoneRefs).size === tombstoneRefs.length
     && tombstoneRefs.every((ref) => !activeRefSet.has(ref))
@@ -308,7 +410,8 @@ export function validateTodoRevisionSet(value) {
       && value.revisions.every((revision) => (
         (validateTodoRevision(revision)
           && (setV2 || setV3 || revision.schema === 'lattice.todo_revision.v1'))
-        || (setV3 && validatePhaseTodoRevision(revision))
+        || (setV3 && ['lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2']
+          .includes(revision.schema) && validatePhaseTodoRevision(revision))
       ) && revision.project_id === value.project_id)
       && (!setV2 || value.revisions.some((revision) => revision.schema === 'lattice.todo_revision.v2'))
       && (!setV3 || value.revisions.some((revision) => [

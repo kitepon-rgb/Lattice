@@ -728,7 +728,7 @@ function markdownCheckboxState(lineBytes) {
   if (lineBytes.length >= 3 && lineBytes[0] === 0xef && lineBytes[1] === 0xbb && lineBytes[2] === 0xbf) return null;
   let line;
   try { line = new TextDecoder('utf-8', { fatal: true }).decode(lineBytes); } catch { return null; }
-  const match = /^[\t ]*(?:[-+*]|\d+[A-Za-z]?\.|\d+\))[\t ]+\[([ xX])\](?:[\t ]+.*)?$/u.exec(line);
+  const match = /^[\t ]*(?:[-+*]|\d+[A-Za-z]?\.|\d+\))[\t ]+\[([ xX])\](?:[\t ]+.*?)?\r?$/u.exec(line);
   if (match === null) return null;
   return match[1] === ' ' ? 'unchecked' : 'checked';
 }
@@ -882,6 +882,10 @@ export async function readTodoStore(options = {}) {
           !== canonicalizeTodoArtifact(migrationProjection)) {
         fail('STORE_INCONSISTENT', 'revision_genesis_binding_mismatch');
       }
+      if (manifest.schema === 'lattice.todo_manifest.v2'
+        && descriptor.active_revision_digest !== genesis.revision_digest) {
+        fail('STORE_INCONSISTENT', 'manifest_revision_binding_mismatch');
+      }
       if (genesis.schema === 'lattice.todo_event.v2'
         && revision.reconciliation.reconciliation_digest !== genesis.reconciliation_digest) {
         fail('STORE_INCONSISTENT', 'revision_genesis_binding_mismatch');
@@ -897,6 +901,10 @@ export async function readTodoStore(options = {}) {
           fail('STORE_INCONSISTENT', 'revision_genesis_binding_mismatch');
         }
       }
+    }
+    if (manifest.schema === 'lattice.todo_manifest.v2' && revision === null
+      && descriptor.active_revision_digest !== plan.plan_digest) {
+      fail('STORE_INCONSISTENT', 'manifest_revision_binding_mismatch');
     }
     const verifyEvidence = evidenceVerifier(manifest, repoRoot, options.forWrite === true);
     const verifyImportSource = importSourceVerifier(repoRoot, options.forWrite === true, pinnedSourceCache);
@@ -1693,6 +1701,67 @@ function taskSemantics(plan, taskId, idMap, { reconciliationMetadata = false } =
   return { task: normalizedTask, hard_dependencies: edges, joins, phase_accept_dependencies: phaseAcceptDependencies };
 }
 
+function phaseV3CarrySemantics(plan, taskId, taskIdMap, phaseIdMap,
+  { reconciliationMetadata = false } = {}) {
+  const task = plan.tasks.find(({ task_id: id }) => id === taskId);
+  if (task === undefined) return null;
+  const mapTaskRef = (ref) => ref.project_id === plan.project_id && ref.plan_key === plan.plan_key
+    ? { ...ref, task_id: taskIdMap.get(ref.task_id) ?? ref.task_id } : ref;
+  const mapPhaseRef = (ref) => ref.project_id === plan.project_id && ref.plan_key === plan.plan_key
+    ? { ...ref, phase_id: phaseIdMap.get(ref.phase_id) ?? ref.phase_id } : ref;
+  const mappedTask = reconciliationMetadata ? {
+    task_id: taskIdMap.get(task.task_id) ?? task.task_id, title: task.title, lane: task.lane,
+    compile_binding: task.compile_binding,
+    phase_id: phaseIdMap.get(task.phase_id) ?? task.phase_id,
+  } : { ...task,
+    task_id: taskIdMap.get(task.task_id) ?? task.task_id,
+    phase_id: phaseIdMap.get(task.phase_id) ?? task.phase_id,
+    parent_task_id: task.parent_task_id === null ? null
+      : taskIdMap.get(task.parent_task_id) ?? task.parent_task_id,
+  };
+  const incoming = [];
+  const outgoing = [];
+  for (const edge of plan.hard_dependencies) {
+    const mapped = { kind: 'hard', from: mapTaskRef(edge.from), to: mapTaskRef(edge.to) };
+    if (localTaskRef(edge.to, plan, taskId)) incoming.push(mapped);
+    if (localTaskRef(edge.from, plan, taskId)) outgoing.push(mapped);
+  }
+  for (const join of plan.joins) {
+    const to = mapTaskRef(join.before);
+    for (const after of join.after) {
+      const tuple = { kind: 'join', join_id: join.id, from: mapTaskRef(after), to };
+      if (localTaskRef(join.before, plan, taskId)) incoming.push(tuple);
+      if (localTaskRef(after, plan, taskId)) outgoing.push(tuple);
+    }
+  }
+  if (plan.schema === 'lattice.todo_plan.v5') for (const edge of plan.phase_accept_dependencies) {
+    if (localTaskRef(edge.to, plan, taskId)) incoming.push({ kind: 'phase_accept',
+      from: mapPhaseRef(edge.from), to: mapTaskRef(edge.to) });
+  }
+  const sort = (entries) => entries.map(canonicalizeTodoArtifact).sort();
+  return { task: mappedTask, incoming: sort(incoming), outgoing: sort(outgoing) };
+}
+
+function validatePhaseV3Carry(previous, revision, migration, idMap, state) {
+  const reconciliationMetadata = migration.state_policy === 'carry_reconciled_metadata';
+  const phaseIdMap = new Map(revision.phase_migration
+    .filter(({ from_phase_id, to_phase_id }) => from_phase_id !== null && to_phase_id !== 'removed')
+    .map(({ from_phase_id, to_phase_id }) => [from_phase_id, to_phase_id]));
+  const before = phaseV3CarrySemantics(previous.plan, migration.from_task_id, idMap, phaseIdMap,
+    { reconciliationMetadata });
+  const after = phaseV3CarrySemantics(revision.desired_plan, migration.to_task_id,
+    new Map(), new Map(),
+    { reconciliationMetadata });
+  if (canonicalizeTodoArtifact(before.task) !== canonicalizeTodoArtifact(after.task)
+    || canonicalizeTodoArtifact(before.incoming) !== canonicalizeTodoArtifact(after.incoming)) {
+    fail('REVISION_INVALID', 'carry_semantics_changed', { from_task_id: migration.from_task_id });
+  }
+  const successorOutgoing = new Set(after.outgoing);
+  if (!before.outgoing.every((edge) => successorOutgoing.has(edge))) {
+    fail('REVISION_INVALID', 'carry_outgoing_edge_removed', { from_task_id: migration.from_task_id });
+  }
+}
+
 function stateMigrationFor(previous, revision) {
   const oldIds = previous.plan.tasks.map(({ task_id }) => task_id);
   const migrationIds = revision.task_migration.map(({ from_task_id }) => from_task_id);
@@ -1707,15 +1776,19 @@ function stateMigrationFor(previous, revision) {
     const carriesState = ['carry', 'carry_reconciled_metadata'].includes(migration.state_policy);
     if (!carriesState) return { ...migration, state: null };
     const reconciliationMetadata = migration.state_policy === 'carry_reconciled_metadata';
-    const before = taskSemantics(previous.plan, migration.from_task_id, idMap,
-      { reconciliationMetadata });
-    const after = taskSemantics(revision.desired_plan, migration.to_task_id, new Map(),
-      { reconciliationMetadata });
-    if (canonicalizeTodoArtifact(before) !== canonicalizeTodoArtifact(after)) {
-      fail('REVISION_INVALID', 'carry_semantics_changed', { from_task_id: migration.from_task_id });
-    }
     const state = states.get(migration.from_task_id);
     if (!state) fail('STORE_INCONSISTENT', 'predecessor_task_state_missing');
+    if (revision.schema === 'lattice.phase_todo_revision.v3') {
+      validatePhaseV3Carry(previous, revision, migration, idMap, state);
+    } else {
+      const before = taskSemantics(previous.plan, migration.from_task_id, idMap,
+        { reconciliationMetadata });
+      const after = taskSemantics(revision.desired_plan, migration.to_task_id, new Map(),
+        { reconciliationMetadata });
+      if (canonicalizeTodoArtifact(before) !== canonicalizeTodoArtifact(after)) {
+        fail('REVISION_INVALID', 'carry_semantics_changed', { from_task_id: migration.from_task_id });
+      }
+    }
     return { ...migration, state: {
       status: state.status, started_at: state.started_at, done_at: state.done_at,
       blocked_reason: state.blocked_reason, evidence: state.evidence, imported: state.imported,
@@ -1778,6 +1851,134 @@ function phaseRevisionResult(revision, genesis, recovered = false) {
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
+}
+
+function sourceCutoverCleanupBinding(revision, stagingRef) {
+  return { schema: 'lattice.source_cutover_cleanup_binding.v1',
+    revision_digest: revision.revision_digest, staging_ref: stagingRef,
+    cleanup_state: 'cleanup_complete' };
+}
+
+function sourceCutoverArchiveRootList(revision, entries) {
+  return { schema: 'lattice.source_cutover_archive_root_list.v1', roots: [{
+    archive_ref: revision.source_cutover_batch.archive_ref,
+    entry_digests: entries.map(({ entry_digest: digest }) => digest),
+  }] };
+}
+
+async function buildPhaseV3SourceReceipt(repoRoot, revision, transactionRef) {
+  const stagingRef = `${transactionRef}/source-originals.md`;
+  const entries = [];
+  for (const [operationIndex, operation] of revision.source_cutover_batch.operations.entries()) {
+    const publishedBytes = await sourceItemBytes(repoRoot, operation.source_ref);
+    const archiveRef = todoCutoverArchiveSourceRef(revision.source_cutover_batch, operationIndex);
+    const archivedBytes = await sourceItemBytes(repoRoot, archiveRef);
+    const expectedPublishedBytes = phaseV3PublishedSourceBytes(operation, archivedBytes);
+    const entry = { operation_index: operationIndex, task_id: operation.task_id,
+      disposition: operation.disposition, source_ref: operation.source_ref,
+      staging_ref: `${stagingRef}#L${operationIndex + 1}`, published_ref: operation.source_ref,
+      archive_ref: archiveRef, replacement: operation.live_replacement,
+      staged_source_bytes_digest: operation.source_digest,
+      published_source_bytes_digest: sha256Bytes(publishedBytes),
+      archived_source_bytes_digest: sha256Bytes(archivedBytes), entry_digest: '' };
+    if (entry.published_source_bytes_digest !== sha256Bytes(expectedPublishedBytes)
+      || entry.archived_source_bytes_digest !== operation.source_digest) {
+      fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_receipt_bytes_mismatch');
+    }
+    entry.entry_digest = todoSelfDigest(entry, 'entry_digest');
+    entries.push(entry);
+  }
+  const cleanupBinding = sourceCutoverCleanupBinding(revision, stagingRef);
+  const receipt = { schema: 'lattice.source_cutover_receipt.v1', project_id: revision.project_id,
+    plan_key: revision.plan_key, plan_version: revision.desired_plan.plan_version,
+    revision_digest: revision.revision_digest,
+    source_cutover_batch_digest: revision.source_cutover_batch.batch_digest, entries,
+    archive_root_list_digest: digestTodoArtifact(sourceCutoverArchiveRootList(revision, entries)),
+    published_state: 'source_and_archive_published',
+    cleanup_binding_digest: digestTodoArtifact(cleanupBinding), receipt_digest: '' };
+  receipt.receipt_digest = todoSelfDigest(receipt, 'receipt_digest');
+  return receipt;
+}
+
+function phaseV3PublishedSourceBytes(operation, archivedBytes) {
+  return Buffer.from(`${operation.live_replacement}${archivedBytes.at(-1) === 0x0d ? '\r' : ''}`,
+    'utf8');
+}
+
+function validSourceCutoverReceipt(value, revision) {
+  if (!exactRecord(value, ['schema', 'project_id', 'plan_key', 'plan_version', 'revision_digest',
+    'source_cutover_batch_digest', 'entries', 'archive_root_list_digest', 'published_state',
+    'cleanup_binding_digest', 'receipt_digest'])
+    || value.schema !== 'lattice.source_cutover_receipt.v1'
+    || value.project_id !== revision.project_id || value.plan_key !== revision.plan_key
+    || value.plan_version !== revision.desired_plan.plan_version
+    || value.revision_digest !== revision.revision_digest
+    || value.source_cutover_batch_digest !== revision.source_cutover_batch.batch_digest
+    || value.published_state !== 'source_and_archive_published'
+    || !Array.isArray(value.entries)
+    || value.entries.length !== revision.source_cutover_batch.operations.length
+    || value.receipt_digest !== todoSelfDigest(value, 'receipt_digest')) return false;
+  for (const [index, entry] of value.entries.entries()) {
+    const operation = revision.source_cutover_batch.operations[index];
+    if (!exactRecord(entry, ['operation_index', 'task_id', 'disposition', 'source_ref',
+      'staging_ref', 'published_ref', 'archive_ref', 'replacement',
+      'staged_source_bytes_digest', 'published_source_bytes_digest',
+      'archived_source_bytes_digest', 'entry_digest'])
+      || entry.operation_index !== index || entry.task_id !== operation.task_id
+      || entry.disposition !== operation.disposition || entry.source_ref !== operation.source_ref
+      || entry.published_ref !== operation.source_ref
+      || entry.archive_ref !== todoCutoverArchiveSourceRef(revision.source_cutover_batch, index)
+      || entry.replacement !== operation.live_replacement
+      || entry.staged_source_bytes_digest !== operation.source_digest
+      || !isTodoDigest(entry.published_source_bytes_digest)
+      || entry.archived_source_bytes_digest !== operation.source_digest
+      || entry.entry_digest !== todoSelfDigest(entry, 'entry_digest')) return false;
+  }
+  const expectedRootDigest = digestTodoArtifact(sourceCutoverArchiveRootList(revision, value.entries));
+  const stagingRef = value.entries[0].staging_ref.replace(/#L[1-9]\d*$/u, '');
+  const expectedStagingRef = `${STORE_ROOT_REF}/transactions/phase-v3/${revision.plan_key}/${revision.desired_plan.plan_version}/source-originals.md`;
+  return stagingRef === expectedStagingRef
+    && value.entries.every((entry, index) => entry.staging_ref === `${stagingRef}#L${index + 1}`)
+    && value.archive_root_list_digest === expectedRootDigest
+    && value.cleanup_binding_digest
+      === digestTodoArtifact(sourceCutoverCleanupBinding(revision, stagingRef));
+}
+
+async function verifyPhaseV3SourceReceipt(repoRoot, revision, receipt) {
+  if (!validSourceCutoverReceipt(receipt, revision)) return false;
+  const stagingRef = receipt.entries[0].staging_ref.replace(/#L[1-9]\d*$/u, '');
+  if (await exactFileOrNull(path.resolve(repoRoot, stagingRef)) !== null) return false;
+  for (const [index, entry] of receipt.entries.entries()) {
+    const source = parseTodoSourceRef(entry.published_ref);
+    const archive = parseTodoSourceRef(entry.archive_ref);
+    if (source === null || archive === null) return false;
+    await safeRepoFile(repoRoot, source.path);
+    await safeRepoFile(repoRoot, archive.path);
+    const publishedBytes = await sourceItemBytes(repoRoot, entry.published_ref);
+    const archivedBytes = await sourceItemBytes(repoRoot, entry.archive_ref);
+    if (sha256Bytes(publishedBytes) !== entry.published_source_bytes_digest
+      || sha256Bytes(archivedBytes) !== entry.archived_source_bytes_digest
+      || entry.published_source_bytes_digest !== sha256Bytes(phaseV3PublishedSourceBytes(
+        revision.source_cutover_batch.operations[index], archivedBytes))) return false;
+  }
+  return true;
+}
+
+function validPhaseRevisionCommitReceipt(value, revision, descriptor, genesis, sourceReceipt) {
+  return exactRecord(value, ['schema', 'project_id', 'plan_key', 'plan_version', 'revision_digest',
+    'committed_member_digest', 'active_plan_digest', 'journal_genesis_digest',
+    'reconciliation_digest', 'source_cutover_receipt_digest', 'committed_at', 'receipt_digest'])
+    && value.schema === 'lattice.phase_revision_commit_receipt.v1'
+    && value.project_id === revision.project_id && value.plan_key === revision.plan_key
+    && value.plan_version === revision.desired_plan.plan_version
+    && value.revision_digest === revision.revision_digest
+    && value.committed_member_digest === digestTodoArtifact(descriptor)
+    && value.active_plan_digest === revision.desired_plan.plan_digest
+    && value.journal_genesis_digest === genesis.event_digest
+    && value.reconciliation_digest === revision.reconciliation.reconciliation_digest
+    && value.source_cutover_receipt_digest === sourceReceipt.receipt_digest
+    && isStrictTodoTimestamp(value.committed_at)
+    && value.receipt_digest === todoSelfDigest(value, 'receipt_digest');
 }
 
 function revisionResult(revision, genesis, { recovered = false } = {}) {
@@ -1905,6 +2106,53 @@ async function rejectCompetingRevisionTransaction(repoRoot, revision) {
     const markerBytes = await exactFileOrNull(path.join(root, name, 'marker.json'));
     if (markerBytes === null) fail('REVISION_CONFLICT', 'revision_marker_missing');
     const marker = parseRevisionMarker(markerBytes);
+    if (canonicalizeTodoArtifact(marker.revision.predecessor)
+        === canonicalizeTodoArtifact(revision.predecessor)
+      && marker.revision.revision_digest !== revision.revision_digest) {
+      fail('REVISION_CONFLICT', 'revision_bytes_conflict');
+    }
+  }
+}
+
+async function rejectCompetingPhaseV3Transaction(repoRoot, revision) {
+  const root = path.join(repoRoot, STORE_ROOT_REF, 'transactions', 'phase-v3', revision.plan_key);
+  let names;
+  try {
+    const state = await lstat(root);
+    const canonicalRepoRoot = await realpath(repoRoot);
+    const canonicalRoot = path.resolve(canonicalRepoRoot, path.relative(repoRoot, root));
+    if (state.isSymbolicLink() || !state.isDirectory() || await realpath(root) !== canonicalRoot) {
+      fail('REVISION_CONFLICT', 'revision_transaction_root_unsafe');
+    }
+    names = await readdir(root);
+  } catch (error) {
+    if (error instanceof TodoStoreError) throw error;
+    if (error?.code === 'ENOENT') return;
+    throw error;
+  }
+  for (const name of names) {
+    if (!isTodoIdentifier(name)) fail('REVISION_CONFLICT', 'revision_transaction_entry_invalid');
+    const directory = path.join(root, name);
+    const state = await lstat(directory);
+    const canonicalDirectory = path.join(await realpath(root), name);
+    if (state.isSymbolicLink() || !state.isDirectory()
+      || await realpath(directory) !== canonicalDirectory) {
+      fail('REVISION_CONFLICT', 'revision_transaction_entry_invalid');
+    }
+    const markerBytes = await exactFileOrNull(path.join(directory, 'marker.json'));
+    if (markerBytes === null) {
+      if (name !== revision.desired_plan.plan_version) {
+        fail('REVISION_CONFLICT', 'revision_marker_missing');
+      }
+      for (const artifact of await readdir(directory, { withFileTypes: true })) {
+        if (!artifact.isFile() || artifact.isSymbolicLink()
+          || !/^\.marker\.json\.\d+\.[0-9a-f]{12}\.tmp$/u.test(artifact.name)) {
+          fail('REVISION_CONFLICT', 'revision_marker_missing');
+        }
+      }
+      continue;
+    }
+    const marker = parsePhaseRevisionMarker(markerBytes);
     if (canonicalizeTodoArtifact(marker.revision.predecessor)
         === canonicalizeTodoArtifact(revision.predecessor)
       && marker.revision.revision_digest !== revision.revision_digest) {
@@ -2090,16 +2338,38 @@ async function loadSourceCutoverStage(repoRoot, transaction, revision) {
     if (error instanceof TodoStoreError) throw error;
     fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'stage_invalid');
   }
-  if (descriptor?.schema !== 'lattice.todo_source_cutover_stage.v1'
+  if (!bytes.equals(canonicalLine(descriptor))) {
+    fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'stage_invalid');
+  }
+  const expectedRefs = [...new Set(revision.source_cutover_batch.operations.map((operation) => (
+    parseTodoSourceRef(operation.source_ref).path)))].sort();
+  if (!exactRecord(descriptor, [
+    'schema', 'revision_digest', 'archive_ref', 'archive_digest', 'files',
+  ]) || descriptor.schema !== 'lattice.todo_source_cutover_stage.v1'
     || descriptor.revision_digest !== revision.revision_digest
     || descriptor.archive_ref !== revision.source_cutover_batch.archive_ref
-    || !Array.isArray(descriptor.files)) {
+    || !isTodoDigest(descriptor.archive_digest) || !Array.isArray(descriptor.files)
+    || descriptor.files.length !== expectedRefs.length) {
     fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'stage_invalid');
   }
   const files = [];
-  for (const file of descriptor.files) {
-    const before = await exactFileOrNull(path.join(transaction, file.before));
-    const after = await exactFileOrNull(path.join(transaction, file.after));
+  for (const [index, file] of descriptor.files.entries()) {
+    const expectedBefore = `source-${index}-before.bin`;
+    const expectedAfter = `source-${index}-after.bin`;
+    if (!exactRecord(file, [
+      'ref', 'before', 'after', 'mode', 'before_digest', 'after_digest',
+    ]) || file.ref !== expectedRefs[index] || file.before !== expectedBefore
+      || file.after !== expectedAfter || !isTodoDigest(file.before_digest)
+      || !isTodoDigest(file.after_digest)) {
+      fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
+    }
+    const beforeAbsolute = path.resolve(transaction, file.before);
+    const afterAbsolute = path.resolve(transaction, file.after);
+    if (path.dirname(beforeAbsolute) !== transaction || path.dirname(afterAbsolute) !== transaction) {
+      fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
+    }
+    const before = await exactFileOrNull(beforeAbsolute);
+    const after = await exactFileOrNull(afterAbsolute);
     if (before === null || after === null || sha256Bytes(before) !== file.before_digest
       || sha256Bytes(after) !== file.after_digest) {
       fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
@@ -2108,10 +2378,42 @@ async function loadSourceCutoverStage(repoRoot, transaction, revision) {
       fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
     }
     const state = await safeRepoFile(repoRoot, file.ref);
-    files.push({ ...file, absolute: state.absolute, before, after });
+    if ((state.state.mode & 0o7777) !== file.mode) {
+      fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
+    }
+    const lines = splitSourceLines(before);
+    let expectedAfterBytes = before;
+    const replacements = [];
+    for (const operation of revision.source_cutover_batch.operations) {
+      const source = parseTodoSourceRef(operation.source_ref);
+      if (source.path !== file.ref) continue;
+      const line = lines[source.line - 1];
+      if (line === undefined || sha256Bytes(line.bytes) !== operation.source_digest
+        || markdownCheckboxState(line.bytes) === null
+        || !liveReplacementPreservesListStructure(line.bytes, operation.live_replacement)) {
+        fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
+      }
+      replacements.push({ line: source.line, start: line.start, end: line.end,
+        bytes: phaseV3PublishedSourceBytes(operation, line.bytes) });
+    }
+    for (const replacement of replacements.sort((left, right) => right.line - left.line)) {
+      expectedAfterBytes = Buffer.concat([expectedAfterBytes.subarray(0, replacement.start),
+        replacement.bytes, expectedAfterBytes.subarray(replacement.end)]);
+    }
+    if (!after.equals(expectedAfterBytes)) {
+      fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
+    }
+    files.push({ ...file, absolute: state.absolute, beforeAbsolute, afterAbsolute, before, after });
   }
   const archiveBytes = await exactFileOrNull(path.join(transaction, 'source-archive.bin'));
-  if (archiveBytes === null || sha256Bytes(archiveBytes) !== descriptor.archive_digest) {
+  const originalByRef = new Map(files.map((file) => [file.ref, splitSourceLines(file.before)]));
+  const originals = revision.source_cutover_batch.operations.map((operation) => {
+    const source = parseTodoSourceRef(operation.source_ref);
+    return originalByRef.get(source.path)?.[source.line - 1]?.bytes;
+  });
+  if (archiveBytes === null || sha256Bytes(archiveBytes) !== descriptor.archive_digest
+    || originals.some((line) => line === undefined)
+    || !archiveBytes.equals(sourceCutoverArchiveBytes(revision, originals))) {
     fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
   }
   const archiveAbsolute = path.resolve(await realpath(repoRoot), descriptor.archive_ref);
@@ -2154,12 +2456,318 @@ async function rollbackSourceCutover(staged, barrierAbsolute, { removeBarrier = 
   return true;
 }
 
+async function cleanupPhaseV3Staging(transaction, staged) {
+  const known = new Set(['source-archive.bin', 'source-cutover.json', 'source-originals.md']);
+  await rm(path.join(transaction, 'source-cutover.json'), { force: true });
+  await fsyncDirectory(transaction);
+  for (const file of staged.files ?? []) {
+    if (path.dirname(file.beforeAbsolute) !== transaction || path.dirname(file.afterAbsolute) !== transaction) {
+      fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');
+    }
+    await rm(file.beforeAbsolute, { force: true });
+    await rm(file.afterAbsolute, { force: true });
+  }
+  for (const name of await readdir(transaction)) {
+    if (known.has(name) || /^source-\d+-(?:before|after)\.bin$/u.test(name)) {
+      await rm(path.join(transaction, name), { force: true });
+    }
+  }
+  await fsyncDirectory(transaction);
+}
+
+async function predecessorSourceInventory(repoRoot, previous) {
+  if (previous.revision?.source_inventory !== undefined) return previous.revision.source_inventory;
+  const versionsRoot = path.join(repoRoot, STORE_ROOT_REF, 'plans', previous.plan.plan_key);
+  const plansByDigest = new Map();
+  for (const entry of await readdir(versionsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    const planBytes = await exactFileOrNull(path.join(versionsRoot, entry.name, 'plan.json'));
+    if (planBytes === null) continue;
+    let plan;
+    try { plan = JSON.parse(decodeUtf8(planBytes, 'STORE_INCONSISTENT', 'plan_invalid')); }
+    catch { continue; }
+    if (!planBytes.equals(canonicalLine(plan)) || !validateTodoPlan(plan)
+      || plan.plan_key !== previous.plan.plan_key) continue;
+    plansByDigest.set(plan.plan_digest, { plan, directory: path.join(versionsRoot, entry.name) });
+  }
+  const visited = new Set();
+  let digest = previous.plan.predecessor_plan_digest;
+  while (digest !== null && !visited.has(digest) && visited.size < 512) {
+    visited.add(digest);
+    const candidate = plansByDigest.get(digest);
+    if (candidate === undefined) break;
+    const revisionBytes = await exactFileOrNull(path.join(candidate.directory, 'revision.json'));
+    if (revisionBytes !== null) {
+      let revision;
+      try { revision = JSON.parse(decodeUtf8(revisionBytes,
+        'STORE_INCONSISTENT', 'revision_invalid')); } catch { revision = null; }
+      if (revision !== null && revisionBytes.equals(canonicalLine(revision))
+        && (validateTodoRevision(revision) || validatePhaseTodoRevision(revision))
+        && revision.project_id === candidate.plan.project_id
+        && revision.plan_key === candidate.plan.plan_key
+        && canonicalizeTodoArtifact(revision.desired_plan)
+          === canonicalizeTodoArtifact(candidate.plan)
+        && revision.source_inventory !== undefined) return revision.source_inventory;
+    }
+    digest = candidate.plan.predecessor_plan_digest;
+  }
+  return { active: [], excluded_tombstones: [] };
+}
+
+function validatePhaseV3SourceInventoryDiff(previousInventory, revision) {
+  const desired = revision.source_inventory;
+  const previousActive = new Map(previousInventory.active.map((entry) => [entry.task_id, entry]));
+  const desiredTombstoneKeys = new Set(desired.excluded_tombstones.map((entry) => (
+    `${entry.source_ref}\0${entry.source_digest}`)));
+  for (const entry of previousInventory.active) {
+    const active = desired.active.find(({ task_id }) => task_id === entry.task_id);
+    const continued = active?.source_ref === entry.source_ref && active.source_digest === entry.source_digest;
+    if (!continued && !desiredTombstoneKeys.has(`${entry.source_ref}\0${entry.source_digest}`)) {
+      fail('REVISION_INVALID', 'predecessor_source_silently_dropped', { task_id: entry.task_id });
+    }
+  }
+  const previousTombstoneKeys = new Set(previousInventory.excluded_tombstones.map((entry) => (
+    `${entry.source_ref}\0${entry.source_digest}`)));
+  const previousSourceKeys = new Set([...previousTombstoneKeys,
+    ...previousInventory.active.map((entry) => `${entry.source_ref}\0${entry.source_digest}`)]);
+  if ([...previousTombstoneKeys].some((key) => !desiredTombstoneKeys.has(key))) {
+    fail('REVISION_INVALID', 'predecessor_source_silently_dropped');
+  }
+  const expected = [
+    ...desired.active.filter((entry) => {
+      const old = previousActive.get(entry.task_id);
+      return old?.source_ref !== entry.source_ref || old.source_digest !== entry.source_digest;
+    }).map((entry) => `active\0${entry.task_id}\0${entry.source_ref}\0${entry.source_digest}`),
+    ...desired.excluded_tombstones.filter((entry) => (
+      !previousSourceKeys.has(`${entry.source_ref}\0${entry.source_digest}`)
+    )).map((entry) => `excluded\0null\0${entry.source_ref}\0${entry.source_digest}`),
+  ].sort();
+  const actual = revision.source_cutover_batch.operations.map((operation, index) => (
+    `${operation.disposition}\0${operation.task_id}\0${todoCutoverArchiveSourceRef(
+      revision.source_cutover_batch, index)}\0${operation.source_digest}`)).sort();
+  if (canonicalizeTodoArtifact(actual) !== canonicalizeTodoArtifact(expected)) {
+    fail('REVISION_INVALID', 'source_cutover_inventory_diff_mismatch');
+  }
+}
+
+async function applyPhaseTodoRevisionV3(options, revision, repoRoot) {
+  return withLock(repoRoot, async () => {
+    const barrierAbsolute = path.resolve(repoRoot, SOURCE_CUTOVER_BARRIER_REF);
+    const barrierBytes = await exactFileOrNull(barrierAbsolute);
+    let recovering = false;
+    if (barrierBytes !== null) {
+      let barrier;
+      try { barrier = JSON.parse(decodeUtf8(barrierBytes,
+        'SOURCE_CUTOVER_RECOVERY_REQUIRED', 'barrier_invalid')); }
+      catch (error) {
+        if (error instanceof TodoStoreError) throw error;
+        fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'barrier_invalid');
+      }
+      if (barrier?.schema !== 'lattice.todo_source_cutover_barrier.v1'
+        || barrier.revision_digest !== revision.revision_digest) {
+        fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_recovery_required');
+      }
+      recovering = true;
+    }
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now,
+      ...(recovering ? { allowSourceCutoverRevisionDigest: revision.revision_digest,
+        sourceCutoverRecoveryCapability: SOURCE_CUTOVER_RECOVERY_CAPABILITY } : {}) });
+    const previous = store.members.find(({ descriptor }) => descriptor.plan_key === revision.plan_key);
+    if (!previous || revision.project_id !== store.project_id) fail('STORE_INCONSISTENT', 'plan_not_active');
+    const base = `${STORE_ROOT_REF}/plans/${revision.plan_key}/${revision.desired_plan.plan_version}`;
+    const revisionRef = `${base}/revision.json`; const planRef = `${base}/plan.json`;
+    const journalRef = `${base}/journal/active.jsonl`; const snapshotRef = `${base}/snapshot.json`;
+    const sourceReceiptRef = `${base}/source-cutover-receipt.json`;
+    const commitReceiptRef = `${base}/phase-revision-commit-receipt.json`;
+    const transactionRef = `${STORE_ROOT_REF}/transactions/phase-v3/${revision.plan_key}/${revision.desired_plan.plan_version}`;
+    const transaction = path.resolve(repoRoot, transactionRef);
+    const activeGenesis = previous.journal.events[0];
+    if (previous.plan.plan_digest === revision.desired_plan.plan_digest
+      && activeGenesis.schema === 'lattice.todo_event.v4'
+      && activeGenesis.revision_digest === revision.revision_digest) {
+      const sourceReceiptBytes = await exactFileOrNull(path.resolve(repoRoot, sourceReceiptRef));
+      const commitReceiptBytes = await exactFileOrNull(path.resolve(repoRoot, commitReceiptRef));
+      if (sourceReceiptBytes === null || commitReceiptBytes === null
+        || previous.descriptor.active_revision_digest !== revision.revision_digest) {
+        fail('STORE_INCONSISTENT', 'phase_revision_receipt_missing');
+      }
+      const sourceReceipt = JSON.parse(decodeUtf8(sourceReceiptBytes,
+        'STORE_INCONSISTENT', 'phase_revision_receipt_invalid'));
+      const commitReceipt = JSON.parse(decodeUtf8(commitReceiptBytes,
+        'STORE_INCONSISTENT', 'phase_revision_receipt_invalid'));
+      if (!sourceReceiptBytes.equals(canonicalLine(sourceReceipt))
+        || !commitReceiptBytes.equals(canonicalLine(commitReceipt))
+        || !await verifyPhaseV3SourceReceipt(repoRoot, revision, sourceReceipt)
+        || !validPhaseRevisionCommitReceipt(commitReceipt, revision, previous.descriptor,
+          activeGenesis, sourceReceipt)) fail('STORE_INCONSISTENT', 'phase_revision_receipt_invalid');
+      await rm(barrierAbsolute, { force: true });
+      await rm(transaction, { recursive: true, force: true });
+      return commitReceipt;
+    }
+    if (previous.plan.plan_digest !== revision.predecessor.plan_digest
+      || previous.plan.plan_version !== revision.predecessor.plan_version
+      || previous.journal.events.at(-1).event_digest !== revision.predecessor.journal_head_digest) {
+      fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
+    }
+    const predecessorGenesis = previous.journal.events[0];
+    const predecessorReconciliationDigest = predecessorGenesis.schema === 'lattice.todo_event.v2'
+      ? predecessorGenesis.reconciliation_digest
+      : previous.revision?.reconciliation?.reconciliation_digest
+        ?? todoLegacyReconciliationDigest({ planDigest: previous.plan.plan_digest,
+          journalHeadDigest: previous.journal.events.at(-1).event_digest });
+    if (revision.reconciliation.predecessor_reconciliation_digest
+      !== predecessorReconciliationDigest) fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
+    validatePhaseV3SourceInventoryDiff(await predecessorSourceInventory(repoRoot, previous), revision);
+    await rejectCompetingPhaseV3Transaction(repoRoot, revision);
+    verifyPlanNarrativeAnchors(repoRoot, revision.desired_plan, previous.plan);
+    const stateMigration = stateMigrationFor(previous, revision);
+    const phaseStateMigration = phaseStateMigrationFor(previous, revision);
+    validateMergedGraph(store.members.map((member) => member === previous
+      ? { ...member, plan: revision.desired_plan } : member));
+    const candidateGenesis = buildPhaseRevisionGenesis(revision.desired_plan, {
+      previous_digest: revision.predecessor.journal_head_digest, actor: options.actor,
+      recorded_at: options.recordedAt, provenance: options.provenance ?? null,
+      revision_digest: revision.revision_digest, state_migration: stateMigration,
+      phase_state_migration: phaseStateMigration,
+    });
+    await ensureSafeStoreDirectory(repoRoot, transaction);
+    for (const ref of [revisionRef, planRef, journalRef, snapshotRef,
+      sourceReceiptRef, commitReceiptRef]) {
+      await ensureSafeStoreDirectory(repoRoot, path.dirname(path.resolve(repoRoot, ref)));
+    }
+    const markerAbsolute = path.join(transaction, 'marker.json');
+    const markerBytes = await exactFileOrNull(markerAbsolute);
+    let genesis = candidateGenesis;
+    if (markerBytes === null) {
+      await atomicWrite(markerAbsolute, canonicalLine({
+        schema: 'lattice.phase_todo_revision_transaction.v1', revision, genesis,
+      }));
+    } else {
+      const marker = parsePhaseRevisionMarker(markerBytes);
+      if (canonicalizeTodoArtifact(marker.revision) !== canonicalizeTodoArtifact(revision)
+        || canonicalizeTodoArtifact(marker.genesis.state_migration)
+          !== canonicalizeTodoArtifact(stateMigration)
+        || canonicalizeTodoArtifact(marker.genesis.phase_state_migration)
+          !== canonicalizeTodoArtifact(phaseStateMigration)) {
+        fail('REVISION_CONFLICT', 'revision_bytes_conflict');
+      }
+      genesis = marker.genesis;
+    }
+    await protocolStage(options, 'phase_v3_marker_durable');
+    const tasks = replay(revision.desired_plan, [genesis], {
+      now: options.now ? new Date(options.now) : new Date(),
+      verifyEvidence: evidenceVerifier(store.manifest, repoRoot, true),
+      verifyImportSource: importSourceVerifier(repoRoot, true),
+    });
+    const snapshot = snapshotFor(revision.desired_plan, [genesis], tasks);
+    for (const [stage, ref, bytes] of [
+      ['phase_v3_revision_durable', revisionRef, canonicalLine(revision)],
+      ['phase_v3_plan_durable', planRef, canonicalLine(revision.desired_plan)],
+      ['phase_v3_genesis_durable', journalRef, canonicalLine(genesis)],
+      ['phase_v3_snapshot_durable', snapshotRef, canonicalLine(snapshot)],
+    ]) {
+      await publishRevisionArtifact(path.join(transaction, path.basename(ref)),
+        path.resolve(repoRoot, ref), bytes);
+      await protocolStage(options, stage);
+    }
+    let sourceReceiptBytes = await exactFileOrNull(path.resolve(repoRoot, sourceReceiptRef));
+    let sourceReceipt;
+    if (sourceReceiptBytes === null) {
+      let staged;
+      if (recovering) {
+        try { staged = await loadSourceCutoverStage(repoRoot, transaction, revision); }
+        catch (error) {
+          if (!(error instanceof TodoStoreError)
+            || error.code !== 'SOURCE_CUTOVER_RECOVERY_REQUIRED'
+            || error.detail?.reason !== 'source_cutover_stage_missing') throw error;
+          staged = { descriptor: { files: [] }, files: [] };
+        }
+      } else {
+        const images = await buildSourceCutoverImages(repoRoot, revision);
+        const originals = await Promise.all(revision.source_cutover_batch.operations
+          .map((operation) => sourceItemBytes(repoRoot, operation.source_ref)));
+        await atomicWrite(path.join(transaction, 'source-originals.md'),
+          Buffer.concat(originals.flatMap((bytes) => [bytes, Buffer.from('\n')])));
+        await stageSourceCutover(transaction, revision, images);
+        staged = await loadSourceCutoverStage(repoRoot, transaction, revision);
+        await atomicWrite(barrierAbsolute, canonicalLine({
+          schema: 'lattice.todo_source_cutover_barrier.v1', revision_digest: revision.revision_digest,
+        }));
+        await protocolStage(options, 'phase_v3_cutover_barrier_durable');
+      }
+      if (staged.descriptor.files.length > 0) await publishSourceCutover(repoRoot, staged);
+      await protocolStage(options, 'phase_v3_source_published');
+      try {
+        await verifyRevisionSources(repoRoot, revision.source_inventory);
+        sourceReceipt = await buildPhaseV3SourceReceipt(repoRoot, revision, transactionRef);
+      } catch (error) {
+        if (!(error instanceof TodoStoreError)) throw error;
+        fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_postimage_invalid');
+      }
+      await cleanupPhaseV3Staging(transaction, staged);
+      await protocolStage(options, 'phase_v3_source_cleanup');
+      await publishRevisionArtifact(path.join(transaction, 'source-cutover-receipt.json'),
+        path.resolve(repoRoot, sourceReceiptRef), canonicalLine(sourceReceipt));
+      await protocolStage(options, 'phase_v3_source_receipt_durable');
+    } else {
+      sourceReceipt = JSON.parse(decodeUtf8(sourceReceiptBytes,
+        'SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_receipt_invalid'));
+      if (!sourceReceiptBytes.equals(canonicalLine(sourceReceipt))
+        || !await verifyPhaseV3SourceReceipt(repoRoot, revision, sourceReceipt)) {
+        fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_receipt_invalid');
+      }
+    }
+    const currentManifest = await readArtifact(repoRoot, MANIFEST_REF, {
+      code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
+    });
+    if (currentManifest.manifest_digest !== store.manifest.manifest_digest) {
+      fail('STORE_WRITE_CONFLICT', 'manifest_digest_changed');
+    }
+    const members = currentManifest.members.map((member) => ({ ...member,
+      active_revision_digest: member.plan_key === revision.plan_key ? revision.revision_digest
+        : store.members.find(({ descriptor }) => descriptor.plan_key === member.plan_key)
+          ?.revision?.revision_digest ?? store.members.find(({ descriptor }) => (
+          descriptor.plan_key === member.plan_key))?.plan.plan_digest }));
+    const descriptor = members.find(({ plan_key: key }) => key === revision.plan_key);
+    Object.assign(descriptor, { active_plan_version: revision.desired_plan.plan_version,
+      plan_ref: planRef, journal_ref: journalRef, snapshot_ref: snapshotRef,
+      topology_digest: revision.desired_plan.topology_digest,
+      journal_head_digest: genesis.event_digest, active_revision_digest: revision.revision_digest });
+    const commitReceipt = { schema: 'lattice.phase_revision_commit_receipt.v1',
+      project_id: revision.project_id, plan_key: revision.plan_key,
+      plan_version: revision.desired_plan.plan_version, revision_digest: revision.revision_digest,
+      committed_member_digest: digestTodoArtifact(descriptor),
+      active_plan_digest: revision.desired_plan.plan_digest,
+      journal_genesis_digest: genesis.event_digest,
+      reconciliation_digest: revision.reconciliation.reconciliation_digest,
+      source_cutover_receipt_digest: sourceReceipt.receipt_digest,
+      committed_at: genesis.recorded_at, receipt_digest: '' };
+    commitReceipt.receipt_digest = todoSelfDigest(commitReceipt, 'receipt_digest');
+    await publishRevisionArtifact(path.join(transaction, 'phase-revision-commit-receipt.json'),
+      path.resolve(repoRoot, commitReceiptRef), canonicalLine(commitReceipt));
+    await protocolStage(options, 'phase_v3_commit_receipt_durable');
+    const nextManifest = { schema: 'lattice.todo_manifest.v2', project_id: currentManifest.project_id,
+      repositories: currentManifest.repositories, members, manifest_digest: '' };
+    nextManifest.manifest_digest = todoSelfDigest(nextManifest, 'manifest_digest');
+    if (!validateTodoManifest(nextManifest)) fail('REVISION_INVALID', 'manifest_v2_invalid');
+    await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(nextManifest));
+    await protocolStage(options, 'phase_v3_manifest_activated');
+    await rm(barrierAbsolute, { force: true });
+    await fsyncDirectory(path.dirname(barrierAbsolute));
+    await rm(transaction, { recursive: true, force: true });
+    return commitReceipt;
+  });
+}
+
 /** Native successor transaction for first-class Phase plans; no Markdown source inventory is involved. */
 export async function applyPhaseTodoRevision(options = {}) {
   requireWriter(options.writer, 'g5-authoring');
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
   const revision = options.revision;
   if (!validatePhaseTodoRevision(revision)) fail('REVISION_INVALID', 'phase_revision_schema_or_digest_invalid');
+  if (revision.schema === 'lattice.phase_todo_revision.v3') {
+    return applyPhaseTodoRevisionV3(options, revision, repoRoot);
+  }
   return withLock(repoRoot, async () => {
     const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
     const previous = store.members.find(({ descriptor }) => descriptor.plan_key === revision.plan_key);

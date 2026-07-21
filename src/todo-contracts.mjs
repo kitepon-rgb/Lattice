@@ -441,8 +441,10 @@ export function validateTodoEvent(value) {
 
 export function validateTodoManifest(value) {
   try {
+    const manifestV1 = value?.schema === 'lattice.todo_manifest.v1';
+    const manifestV2 = value?.schema === 'lattice.todo_manifest.v2';
     return exactRecord(value, ['schema', 'project_id', 'repositories', 'members', 'manifest_digest'])
-      && value.schema === 'lattice.todo_manifest.v1' && isTodoIdentifier(value.project_id)
+      && (manifestV1 || manifestV2) && isTodoIdentifier(value.project_id)
       && Array.isArray(value.repositories) && value.repositories.length > 0 && value.repositories.length <= 256
       && value.repositories.every((repo) => exactRecord(repo, ['repo_id', 'path'])
         && isTodoIdentifier(repo.repo_id) && (repo.path === '.' || isTodoRef(repo.path)))
@@ -451,10 +453,11 @@ export function validateTodoManifest(value) {
       && Array.isArray(value.members) && value.members.length > 0 && value.members.length <= 256
       && value.members.every((member) => exactRecord(member, [
         'plan_key', 'active_plan_version', 'plan_ref', 'journal_ref', 'snapshot_ref',
-        'topology_digest', 'journal_head_digest',
+        'topology_digest', 'journal_head_digest', ...(manifestV2 ? ['active_revision_digest'] : []),
       ]) && isTodoIdentifier(member.plan_key) && isTodoIdentifier(member.active_plan_version)
         && isTodoRef(member.plan_ref) && isTodoRef(member.journal_ref) && isTodoRef(member.snapshot_ref)
-        && isTodoDigest(member.topology_digest) && isTodoDigest(member.journal_head_digest))
+        && isTodoDigest(member.topology_digest) && isTodoDigest(member.journal_head_digest)
+        && (!manifestV2 || isTodoDigest(member.active_revision_digest)))
       && value.members.every((member, index) => index === 0 || value.members[index - 1].plan_key < member.plan_key)
       && new Set(value.members.map(({ plan_key }) => plan_key)).size === value.members.length
       && isTodoDigest(value.manifest_digest) && value.manifest_digest === todoSelfDigest(value, 'manifest_digest');

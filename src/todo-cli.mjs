@@ -785,7 +785,8 @@ async function verify({ repoRoot, requestedPlanKey }) {
   }
   const verifiedMembers = members.map((member) => {
     const reconciled = member.revision !== null;
-    const phaseRevision = ['lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2']
+    const phaseRevision = ['lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2',
+      'lattice.phase_todo_revision.v3']
       .includes(member.revision?.schema);
     return {
       plan_key: member.descriptor.plan_key,
@@ -797,15 +798,20 @@ async function verify({ repoRoot, requestedPlanKey }) {
       reconciliation_state: reconciled ? 'reconciled' : 'registered_unreconciled',
       revision_digest: reconciled ? member.revision.revision_digest : null,
       reconciliation_digest: reconciled
-        ? phaseRevision ? member.revision.revision_digest : member.revision.reconciliation.reconciliation_digest
+        ? phaseRevision && member.revision.schema !== 'lattice.phase_todo_revision.v3'
+          ? member.revision.revision_digest : member.revision.reconciliation.reconciliation_digest
         : todoLegacyReconciliationDigest({ planDigest: member.plan.plan_digest,
           journalHeadDigest: member.journal.events.at(-1).event_digest }),
       source_inventory_count: reconciled
-        ? phaseRevision ? 0 : member.revision.source_inventory.active.length
+        ? phaseRevision && member.revision.schema !== 'lattice.phase_todo_revision.v3' ? 0
+          : member.revision.source_inventory.active.length
           + member.revision.source_inventory.excluded_tombstones.length : null,
-      active_task_count: reconciled ? phaseRevision ? 0 : member.revision.source_inventory.active.length : null,
+      active_task_count: reconciled
+        ? phaseRevision && member.revision.schema !== 'lattice.phase_todo_revision.v3'
+          ? 0 : member.revision.source_inventory.active.length : null,
       excluded_tombstone_count: reconciled
-        ? phaseRevision ? 0 : member.revision.source_inventory.excluded_tombstones.length : null,
+        ? phaseRevision && member.revision.schema !== 'lattice.phase_todo_revision.v3'
+          ? 0 : member.revision.source_inventory.excluded_tombstones.length : null,
     };
   });
   const result = {
