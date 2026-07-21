@@ -1,0 +1,25 @@
+{
+  "schema": "lattice.dashboard_expansion_migration_evidence.v1",
+  "project_id": "lattice",
+  "plan_key": "phase-control-live-gantt",
+  "predecessor_plan_version": "rev-634bdc4ae41878ae10b3e233",
+  "decision": {
+    "carry_completed_through": "lpg-028",
+    "carry_pending": [
+      "lpg-031"
+    ],
+    "replace_pending": [
+      "lpg-030"
+    ],
+    "split_predecessor": "lpg-029",
+    "split_successors": [
+      "lpg-029",
+      "lpg-032",
+      "lpg-033",
+      "lpg-034",
+      "lpg-035"
+    ],
+    "phase_policy": "reset"
+  },
+  "basis": "lpg-001からlpg-028の完了状態はactive journalの実証拠を維持し、未完了lpg-029の複合責務を5 successorへ分割する。新しいincoming dependency lpg-035→lpg-030を受ける未着手lpg-030はreplaceしてpendingへresetし、lpg-031は意味を変えずsource metadataだけをreconcileする。"
+}
