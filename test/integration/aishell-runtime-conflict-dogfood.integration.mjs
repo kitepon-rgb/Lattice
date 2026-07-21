@@ -161,6 +161,27 @@ async function waitDead(pid) {
   assert.fail(`process ${pid} did not stop`);
 }
 
+async function stopFixtureProcesses(runDir) {
+  const controllerPids = [];
+  for (const controllerId of await readdir(path.join(runDir, 'controllers')).catch(() => [])) {
+    try {
+      const descriptor = JSON.parse(await readFile(
+        path.join(runDir, 'controllers', controllerId, 'descriptor.json')));
+      controllerPids.push(descriptor.pid);
+    } catch { /* controller registration was not committed */ }
+  }
+  try {
+    const active = await resolveActiveRuntimePaths({ runDir });
+    const supervisorPid = JSON.parse(await readFile(active.descriptorPath)).pid;
+    try { process.kill(supervisorPid, 'SIGTERM'); } catch {}
+    await waitDead(supervisorPid);
+  } catch { /* supervisor already stopped */ }
+  for (const pid of controllerPids) {
+    try { process.kill(pid, 'SIGTERM'); } catch { continue; }
+    await waitDead(pid);
+  }
+}
+
 test('AIShell ownership conflictはstay直列化・seam分割・managed再起動後の再処理へ収束する', async (t) => {
   const temporary = await mkdtemp(path.join(tmpdir(), 'lattice-aishell-dogfood-'));
   const repo = path.join(temporary, 'repo');
@@ -176,10 +197,7 @@ test('AIShell ownership conflictはstay直列化・seam分割・managed再起動
   const baseSha = git(repo, ['rev-parse', 'HEAD']);
   invokeSensorCli((command, args, cwd) => exec(command, args, cwd).stdout, ['init', '.'], repo);
   t.after(async () => {
-    try {
-      const active = await resolveActiveRuntimePaths({ runDir: path.join(repo, RUN_REF) });
-      process.kill(JSON.parse(await readFile(active.descriptorPath)).pid, 'SIGTERM');
-    } catch { /* already stopped */ }
+    await stopFixtureProcesses(path.join(repo, RUN_REF));
     await rm(temporary, { recursive: true, force: true });
   });
 
