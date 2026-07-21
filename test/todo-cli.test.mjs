@@ -468,11 +468,10 @@ test('複数readyの最初のstartは並列宣言または直列化理由を要�
   assert.equal(journal.at(-1).payload.override_reason, 'single host capacity');
 
   const singleRoot = await workspace(context);
-  const unnecessary = runCli(singleRoot, [
+  const acknowledgedSingleFrontier = successJson(runCli(singleRoot, [
     'todo', 'start', '--plan', 'main', '--task', 'T1', '--parallel-frontier',
-  ]);
-  assert.equal(unnecessary.status, 1);
-  assert.equal(JSON.parse(unnecessary.stderr).code, 'PARALLEL_DISPATCH_INVALID');
+  ]));
+  assert.equal(acknowledgedSingleFrontier.status, 'in-progress');
 });
 
 test('evidence promote CLIはlock内でunknown historical doneを解決する', async (context) => {

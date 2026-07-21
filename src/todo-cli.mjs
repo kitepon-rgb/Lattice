@@ -331,7 +331,7 @@ async function startTask({ repoRoot, env, planKey, taskId, overrideReason, paral
   const targetReady = projection.next_ready.some((task) => (
     task.plan_key === planKey && task.task_id === taskId
   ));
-  if (parallelFrontier && (!targetReady || projection.next_ready.length < 2)) {
+  if (parallelFrontier && !targetReady) {
     throw new TodoStoreError('PARALLEL_DISPATCH_INVALID', 'parallel_frontier_not_applicable');
   }
   if (targetReady && projection.active_set.length === 0 && projection.next_ready.length > 1
