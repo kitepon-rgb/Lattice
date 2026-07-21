@@ -32,3 +32,31 @@ fileを除去し、JSON結果の`recovery`へ処置を明示する。その後�
 
 自動化・隔離testではabsoluteな`LATTICE_CONFIG_DIR`で設定rootを変更できる。無効な設定、低いport、
 使用中の明示port、危険なrequest target、到達不能upstreamはsilent fallbackせずtyped errorを返す。
+
+## Docker Caddy／Cloudflare Tunnelへ接続する
+
+bridgeを有効化したMacとreverse proxy hostの間で、まず許可Hostを付けたLAN到達を確認する。
+この段階が失敗している時はDNSやTunnelを追加しない。
+
+```bash
+curl --fail --header 'Host: lattice.example.com' \
+  http://MAC_LAN_IP:BRIDGE_PORT/projects/
+```
+
+Caddyは既存のDocker networkと証明書運用を維持し、Lattice用siteだけを追加する。
+
+```caddyfile
+lattice.example.com {
+	reverse_proxy MAC_LAN_IP:BRIDGE_PORT {
+		flush_interval -1
+	}
+}
+```
+
+本番反映はcontainer内で`caddy validate`を通してから`caddy reload`する。Caddyfileを単一ファイルで
+bind mountしている構成では、atomic renameでhost側fileを置換するとcontainerが旧inodeを参照し続ける。
+更新前backupを残し、inodeを維持するin-place更新を使うか、directory bind mountへ変更する。
+
+remote-managed Cloudflare Tunnelでは、Tunnel実行tokenを設定APIの代用にしない。Cloudflareの正規管理面で
+public hostnameを既存Caddy serviceへ対応付け、DNS作成後に外部HTTPSから`/projects/`、project別URL、
+各pageのtitleを確認する。LAN 200、Caddy 200、外部Tunnel 200は独立した受入gateとして記録する。
