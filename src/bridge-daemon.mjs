@@ -140,6 +140,10 @@ export async function clearBridgeStopControl({ env = process.env } = {}) {
 export async function requestBridgeDaemonStop({ env = process.env, listen = null } = {}) {
   let descriptor = null;
   try { descriptor = await readBridgeDaemonDescriptor({ env }); } catch {}
+  if (descriptor !== null && await attest(descriptor) === null
+    && !await bridgeEndpointAvailable({ address: descriptor.address, port: descriptor.port })) {
+    return { state: 'not_running', nonce: null };
+  }
   if (descriptor === null) {
     const refs = bridgeStopPaths(env);
     let descriptorExists = true;

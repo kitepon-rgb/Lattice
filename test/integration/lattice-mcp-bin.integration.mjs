@@ -34,7 +34,8 @@ function run(command, args, cwd) {
     // Node-version guard (#81, a real V8/turboshaft OOM bug on Node 25.x) —
     // irrelevant to the fixture's `init` call and unrelated to the MCP surface
     // under test here, so it's overridden for this harness only.
-    env: { ...process.env, NO_COLOR: '1', LATTICE_SENSOR_ALLOW_UNSAFE_NODE: '1' },
+    env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1',
+      LATTICE_SENSOR_ALLOW_UNSAFE_NODE: '1' },
   });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}: ${result.stdout}\n${result.stderr}`);
   return result.stdout;

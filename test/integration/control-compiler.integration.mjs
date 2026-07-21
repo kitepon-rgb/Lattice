@@ -36,14 +36,16 @@ try {
   const initialized = spawnSensorCliSync(['init', '.'], {
     cwd: worktreePath, encoding: 'utf8', env: { ...process.env,
       LATTICE_SENSOR_DIR: '.lattice-sensor-control-integration', LATTICE_SENSOR_NO_DAEMON: '1',
-      LATTICE_SENSOR_NO_WATCH: '1', LATTICE_SENSOR_NO_UPDATE_CHECK: '1', DO_NOT_TRACK: '1', NO_COLOR: '1' },
+      LATTICE_SENSOR_NO_WATCH: '1', LATTICE_SENSOR_NO_UPDATE_CHECK: '1', DO_NOT_TRACK: '1',
+      FORCE_COLOR: undefined, NO_COLOR: '1' },
   });
   assert.equal(initialized.status, 0, initialized.stderr);
   sensorEvidence = await collectSensorEvidence({ cwd: worktreePath, querySet,
     execute: ({ args, cwd }) => {
       const result = spawnSensorCliSync(args, { cwd, encoding: 'utf8', env: { ...process.env,
         LATTICE_SENSOR_DIR: '.lattice-sensor-control-integration', LATTICE_SENSOR_NO_DAEMON: '1',
-        LATTICE_SENSOR_NO_WATCH: '1', LATTICE_SENSOR_NO_UPDATE_CHECK: '1', DO_NOT_TRACK: '1', NO_COLOR: '1' } });
+        LATTICE_SENSOR_NO_WATCH: '1', LATTICE_SENSOR_NO_UPDATE_CHECK: '1', DO_NOT_TRACK: '1',
+        FORCE_COLOR: undefined, NO_COLOR: '1' } });
       return { code: result.status, stdout: result.stdout, stderr: result.stderr,
         ...(result.error ? { error: result.error.message } : {}) };
     } });

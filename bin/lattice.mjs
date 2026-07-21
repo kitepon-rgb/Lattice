@@ -15,7 +15,7 @@ if (help !== null) {
   const { projectStatusFailure, runProjectStatus } = await import('../src/project-cli.mjs');
   try {
     process.exitCode = await runProjectStatus({
-      cwd: process.cwd(), stdout: process.stdout, cliVersion: packageJson.version,
+      cwd: process.cwd(), stdout: process.stdout, cliVersion: packageJson.version, env: process.env,
     });
   } catch (error) {
     process.exitCode = projectStatusFailure({

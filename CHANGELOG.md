@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.1 — 2026-07-22
+
+- crash後にstale daemon descriptorだけが残ったbridge再構成を`not_running`へ収束させ、停止receipt timeoutで公開経路を復旧できない問題を修正した。
+- actor環境のないsession開始時の`lattice status --json`でもactive projectをdashboardへ登録し、既存セッションのprojectが一覧から欠落する問題を修正した。
+- 親環境の`FORCE_COLOR`がCLI JSON-only testへNode警告を混入させないよう、子process環境を明示的に隔離した。
+
 ## 0.12.0 — 2026-07-22
 
 - actor付きの通常TODO activityからactive projectを自動登録し、一つのloopback dashboardでproject一覧、project固有工程図、SSE更新を提供するようにした。

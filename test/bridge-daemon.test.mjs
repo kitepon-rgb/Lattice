@@ -8,7 +8,8 @@ import { configureBridge, disableBridge, readBridgeConfig } from '../src/bridge-
 import { runBridgeCli } from '../src/bridge-cli.mjs';
 import {
   bridgeDaemonActiveMarkerPath, bridgeDaemonDescriptorPath, ensureBridgeDaemon,
-  readBridgeDaemonDescriptor, readBridgeStopRequest, stopBridgeDaemon, writeBridgeDaemonDescriptor,
+  readBridgeDaemonDescriptor, readBridgeStopRequest, requestBridgeDaemonStop, stopBridgeDaemon,
+  writeBridgeDaemonDescriptor,
 } from '../src/bridge-daemon.mjs';
 
 const unmanagedLaunchAgent = Object.freeze({
@@ -198,6 +199,21 @@ test('stale descriptorの未証明PIDにはsignalを送らない', async (contex
   await writeBridgeDaemonDescriptor({ config, env });
   await assert.rejects(stopBridgeDaemon({ env }),
     (error) => error.code === 'BRIDGE_DAEMON_ATTESTATION_FAILED');
+  assert.doesNotThrow(() => process.kill(process.pid, 0));
+});
+
+test('stale descriptorだけが残った停止要求は待たずにnot_runningへ収束する', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-stale-stop-request-'));
+  const env = { ...process.env, LATTICE_CONFIG_DIR: root,
+    LATTICE_BRIDGE_INSTANCE_TOKEN: 'a'.repeat(64) };
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const config = await configureBridge({ address: '127.0.0.1', env });
+  await writeBridgeDaemonDescriptor({ config, env });
+
+  const result = await requestBridgeDaemonStop({ env, listen: config.listen });
+
+  assert.deepEqual(result, { state: 'not_running', nonce: null });
+  assert.equal(await readBridgeStopRequest({ env }), null);
   assert.doesNotThrow(() => process.kill(process.pid, 0));
 });
 

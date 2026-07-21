@@ -103,7 +103,7 @@ function runCli(root, inputRef) {
   const result = spawnSync(process.execPath, [CLI, 'todo', 'migrate', '--input', inputRef], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: '1' },
+    env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1' },
   });
   assert.equal(result.error, undefined);
   return result;

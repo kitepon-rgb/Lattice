@@ -90,8 +90,10 @@ async function workspace(context) {
 }
 
 function runStatus(root) {
+  const env = { ...process.env, NO_COLOR: '1' };
+  delete env.FORCE_COLOR;
   const result = spawnSync(process.execPath, [CLI, 'todo', 'status'], {
-    cwd: root, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' },
+    cwd: root, encoding: 'utf8', env,
   });
   assert.equal(result.error, undefined);
   return result;

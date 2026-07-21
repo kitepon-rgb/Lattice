@@ -35,7 +35,7 @@ function run(command, args, { cwd } = {}) {
       cwd,
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, NO_COLOR: '1' },
+      env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1' },
     });
     const stdout = [];
     const stderr = [];

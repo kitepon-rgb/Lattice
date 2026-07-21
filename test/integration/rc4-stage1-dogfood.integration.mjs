@@ -35,7 +35,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 import { invokeSensorCli } from '../../src/sensor-runtime.mjs';
 
 function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1' } });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}: ${result.stderr}`);
   return result.stdout;
 }

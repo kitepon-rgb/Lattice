@@ -7,7 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { canonicalizeTodoArtifact, todoSelfDigest } from '../src/todo-contracts.mjs';
-import { validateProjectStatus } from '../src/project-cli.mjs';
+import { runProjectStatus, validateProjectStatus } from '../src/project-cli.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
@@ -20,8 +20,12 @@ async function workspace(context) {
 }
 
 function run(root, args, env = {}) {
+  const childEnv = {
+    ...process.env, NO_COLOR: '1', LATTICE_DASHBOARD_AUTOSTART: '0', ...env,
+  };
+  delete childEnv.FORCE_COLOR;
   return spawnSync(process.execPath, [CLI, ...args], {
-    cwd: root, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ...env },
+    cwd: root, encoding: 'utf8', env: childEnv,
   });
 }
 
@@ -311,4 +315,26 @@ test('plan createはunsafe .latticeで失敗してもstagingを残さない', as
   assert.equal(failure.code, 'STORE_INCONSISTENT');
   assert.equal(failure.detail.reason, 'unsafe_lattice_root');
   assert.deepEqual((await readdir(root)).filter((name) => name.startsWith('.lattice-todo-authoring-')), []);
+});
+
+test('status discoveryはactor環境がなくてもactive projectをdashboardへ登録する', async (context) => {
+  const root = await workspace(context);
+  const input = createInput();
+  await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(input)}\n`);
+  const created = run(root, ['plan', 'create', '--input', 'plan.json']);
+  assert.equal(created.status, 0, created.stderr);
+  let output = '';
+  let activity = null;
+
+  const code = await runProjectStatus({
+    cwd: root, cliVersion: 'test', env: {}, stdout: { write: (chunk) => { output += chunk; } },
+    ensureDashboardActivity: async (options) => { activity = options; },
+  });
+
+  assert.equal(code, 0);
+  assert.equal(JSON.parse(output).project.project_id, 'sample-project');
+  assert.equal(activity.projectId, 'sample-project');
+  assert.equal(activity.displayName, 'sample-project');
+  assert.match(activity.sessionId, /^status-\d+$/u);
+  assert.equal(await realpath(activity.repoRoot), await realpath(root));
 });

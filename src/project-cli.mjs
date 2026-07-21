@@ -13,6 +13,8 @@ import {
   todoSelfDigest,
 } from './todo-contracts.mjs';
 import { projectTodoStatus } from './todo-status.mjs';
+import { ensureTodoDashboardActivity } from './todo-dashboard-registry.mjs';
+import { resolveProjectIdentity } from './project-identity.mjs';
 import {
   buildTodoPlan,
   createTodoStoreWriter,
@@ -122,7 +124,8 @@ function invalidStatus({ cliVersion, repoRoot, reason }) {
   });
 }
 
-export async function runProjectStatus({ cwd, stdout, cliVersion }) {
+export async function runProjectStatus({ cwd, stdout, cliVersion, env = process.env,
+  ensureDashboardActivity = ensureTodoDashboardActivity }) {
   const repoRoot = resolveRepoRoot(cwd);
   if (repoRoot === null) {
     stdout.write(`${JSON.stringify(invalidStatus({ cliVersion, repoRoot, reason: 'git_repository_unresolved' }))}\n`);
@@ -202,6 +205,14 @@ export async function runProjectStatus({ cwd, stdout, cliVersion }) {
       can_create_plan: false,
       next_action: next,
     });
+    if (env.LATTICE_DASHBOARD_AUTOSTART !== '0') {
+      const identity = await resolveProjectIdentity({ repoRoot, projectId: store.project_id, env });
+      const actorSession = env.LATTICE_TODO_ACTOR_SESSION;
+      await ensureDashboardActivity({
+        repoRoot, projectId: store.project_id, displayName: identity.displayName,
+        sessionId: isTodoIdentifier(actorSession) ? actorSession : `status-${process.pid}`, env,
+      });
+    }
     stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
   } catch (error) {

@@ -19,7 +19,7 @@ function run(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: '1' },
+    env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1' },
   });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
   return result.stdout;
@@ -29,7 +29,7 @@ function status(command, args, cwd) {
   return spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: '1' },
+    env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1' },
   }).status;
 }
 
