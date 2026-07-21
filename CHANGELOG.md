@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0 — 2026-07-22
+
+- actor付きの通常TODO activityからactive projectを自動登録し、一つのloopback dashboardでproject一覧、project固有工程図、SSE更新を提供するようにした。
+- Ganttの依存線を専用channelへ直交routingし、box回避、join connector、交差bridgeを追加した。
+- 明示IP bindとHost allowlistを持つopt-in network bridge、daemon自動復旧、reverse proxy向けの配備手順を追加した。
+- managed runtimeに保存済み競合のfreeze、全running barrier、successor再compile、epoch再bindを追加し、AIShellの実fixtureで競合回収をend-to-end検証した。
+- bundled sensorのaffected結果へ`Tests/`配下および`*Tests.swift`のSwift testを含め、既存の`e2e/`分類も維持した。
+
 ## 0.11.3 — 2026-07-21
 
 - TODO mutationのactor解決失敗へrequired／missing／invalid環境キーと正規次操作を追加した。

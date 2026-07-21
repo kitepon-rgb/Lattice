@@ -79,6 +79,8 @@ required evidenceを束縛した`todo phase accept`で重監査の判断を記�
 `lattice todo phase status --plan <key>`、閲覧中に進捗が更新される工程表は
 `lattice todo gantt serve --port 0`で確認できます。live viewerはloopback-only、read-onlyで、
 `/projects/<project_id>/`というproject固有URLを返します。別projectからそれぞれ起動すれば、独立port・独立SSE経路で同時表示できます。
+actor環境変数を持つ通常のTODO操作はactive projectを自動登録し、一つのloopback dashboard daemonを再利用します。
+`/projects/`の一覧からproject固有の工程図を開け、各projectのSSE更新は互いに分離されます。
 LANや外部reverse proxyから閲覧するoptional bridgeは既定で無効です。明示したIPにだけbindする初回設定、
 再設定、停止方法は[bridge setup](docs/bridge-setup.md)を参照してください。
 静的工程表は`lattice todo gantt status`で`current / stale / missing`を確認でき、HTMLまたは
