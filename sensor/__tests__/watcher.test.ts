@@ -74,7 +74,15 @@ describe('FileWatcher', () => {
     __setFsWatchForTests(null); // reset the injected fs.watch seam
     vi.restoreAllMocks();
     if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+      // A nested integration cleanup can close the real fs.watch handle at the
+      // same time. macOS may briefly repopulate the watched directory, so use
+      // Node's bounded ENOTEMPTY retry instead of making the suite flaky.
+      fs.rmSync(testDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 50,
+      });
     }
   });
 

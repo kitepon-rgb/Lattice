@@ -733,7 +733,9 @@ async function ganttStatus({ repoRoot, outputRef }) {
 }
 
 async function serveGantt({ repoRoot, port, stdout }) {
+  const initialStore = await readTodoStoreStable({ repoRoot });
   const live = await startTodoGanttLiveServer({
+    projectId: initialStore.project_id,
     port,
     render: async () => {
       const { rendered, metadata } = await renderGantt({ repoRoot, stable: true });
@@ -741,8 +743,9 @@ async function serveGantt({ repoRoot, port, stdout }) {
     },
     readHead: async () => (await readTodoStoreStable({ repoRoot })).manifest.manifest_digest,
   });
-  const result = { schema: 'lattice.todo_gantt_live_result.v1', host: live.host,
-    port: live.port, url: live.url };
+  const result = { schema: 'lattice.todo_gantt_live_result.v2', project_id: live.projectId,
+    host: live.host, port: live.port, project_path: live.projectPath,
+    url: live.url, events_url: live.eventsUrl };
   stdout.write(`${JSON.stringify(result)}\n`);
   await new Promise((resolve) => {
     const stop = () => resolve();

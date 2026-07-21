@@ -46,7 +46,7 @@ Read commands:
   snapshot --rebuild --plan <key>
   gantt [--out <file>]
   gantt status [--out <file>]
-  gantt serve --port <port>
+  gantt serve --port <port>  # /projects/<project_id>/ をforeground配信
   phase status --plan <key>
 
 Write commands:

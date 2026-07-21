@@ -86,7 +86,9 @@
 - `todo gantt status`は現在の決定的renderと照合して`current / stale / missing`を返す。
   HTML・descriptorの片側欠落、non-canonical bytes、digest不一致はtyped failureとする。
 - live viewerはloopback-only、read-only、foregroundとし、SSEでmanifest head更新を通知する。
-  browserからstore mutationを行わない。
+  URLとSSE endpointは`/projects/<project_id>/`配下へ固定し、live result v2で`project_id`、
+  `project_path`、`url`、`events_url`を返す。projectごとのserver sessionは独立portを所有し、
+  複数projectを同時表示してもread modelやevent streamを共有しない。browserからstore mutationを行わない。
 
 ## 9. ready frontierと並列dispatch
 

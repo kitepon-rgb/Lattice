@@ -1,4 +1,4 @@
-# Lattice 製品契約（0.10.1）
+# Lattice 製品契約（0.11.0）
 
 ## Product outcome
 
@@ -128,6 +128,8 @@ reject/reopenはDecisionへ束縛し、開始済み後続を持つreopenは明�
 
 静的`todo gantt`はoffline証拠として維持する。`todo gantt serve --port <0..65535>`はloopback-onlyの
 foreground read-only viewerで、stable store readとSSEにより更新を反映し、mixed viewを最新として表示しない。
+live result v2は`project_id`、`/projects/<project_id>/`のproject固有URL、同じnamespace配下の`events_url`を返す。
+各projectのforeground sessionは独立portで同時起動でき、project間でHTML、SSE、store stateを共有しない。
 静的生成時はHTMLと`<output_ref>.status.json` descriptorを発行する。`todo gantt status [--out <ref>]`は
 現在の決定的renderとdescriptor／HTML digestを照合し、`current / stale / missing`を返す。
 片側欠落、non-canonical descriptor、digest不一致、project不一致は`GANTT_ARTIFACT_INVALID`として失敗し、

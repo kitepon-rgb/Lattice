@@ -72,7 +72,8 @@ ToDo完了は軽量確認までで、所属ToDoが全てdoneになったPhaseは
 required evidenceを束縛した`todo phase accept`で重監査の判断を記録します。監査回数やPhase数を自動追加する
 機能ではありません。Phase状態は
 `lattice todo phase status --plan <key>`、閲覧中に進捗が更新される工程表は
-`lattice todo gantt serve --port 0`で確認できます。live viewerはloopback-only、read-onlyです。
+`lattice todo gantt serve --port 0`で確認できます。live viewerはloopback-only、read-onlyで、
+`/projects/<project_id>/`というproject固有URLを返します。別projectからそれぞれ起動すれば、独立port・独立SSE経路で同時表示できます。
 静的工程表は`lattice todo gantt status`で`current / stale / missing`を確認でき、HTMLまたは
 digest付きsidecarの欠落・改ざんはtyped failureになります。
 状態を書き込む`start / block / unblock / done / evidence promote / reopen / revise / revise-phase / revise-set`

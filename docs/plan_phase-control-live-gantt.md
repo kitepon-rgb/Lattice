@@ -26,7 +26,8 @@ Lattice 0.8.0で成立したtyped ToDo storeと内蔵sensorを土台に、0.9.0�
   `phase_gate_policy`を所有し、maintenance wave、full regression、Find→Dedup→反証→Critic、
   最終Decisionに必要な証拠slotを定義する。
 - 既存の静的Gantt exportは決定的なoffline証拠として維持する。live viewはforeground、
-  loopback-only、read-onlyの別surfaceとし、storeをbrowserから変更しない。
+  loopback-only、read-onlyの別surfaceとし、storeをbrowserから変更しない。各projectは
+  `/projects/<project_id>/`の固有URLと独立SSE endpointを持ち、別portのforeground sessionとして同時表示できる。
 - 「そのファイルだけのrefactor」は文字どおり一pathに限定しない。元の競合file、抽出先、必要なtestを
   explicit bounded locusとして固定し、それ以外のrepo surfaceを変更しないという意味にする。
 
