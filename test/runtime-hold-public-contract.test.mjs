@@ -177,11 +177,22 @@ test('valid run storeで既存observe・status・resume wireとread-only性を�
   assert.deepEqual(await snapshotRegularFiles(runStore), before);
 });
 
-test('未実装managed公開verbとexternal ack形は公開されていない', () => {
-  const futureSurface = [
+test('LPG028 managed verbは公開しexternal ack形だけを公開しない', async () => {
+  const runStore = path.join(fixtureRoot, RUN_REF);
+  const before = await snapshotRegularFiles(runStore);
+  const publicSurface = [
     ['run', 'finding', 'record', '--run', RUN_REF, '--checkpoint', DIGEST,
       '--input', 'finding-candidate.json'],
     ['run', 'recompile', '--run', RUN_REF, '--input', 'recompile-request.json'],
+  ];
+  for (const args of publicSurface) {
+    const result = runCli(args);
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(JSON.parse(result.stderr).code, 'RUN_NOT_MANAGED');
+  }
+  assert.deepEqual(await snapshotRegularFiles(runStore), before);
+
+  const futureSurface = [
     ['todo', 'runtime', 'bind', '--plan', 'main', '--task', 'T1', '--run', RUN_REF,
       '--runtime-task', 'T1', '--evidence', 'binding-evidence.json'],
     ['todo', 'runtime', 'unbind', '--plan', 'main', '--task', 'T1', '--reason', 'run-finished'],
@@ -306,6 +317,12 @@ const CONTROLLER_PROTOCOL = Object.freeze({
     requestKeys: ['schema', 'request_id', 'registration_digest', 'executor_handle', 'expected_epoch', 'expected_lease_digest', 'request_digest'],
     responseSchema: 'lattice.adapter_observe_response.v1',
     responseKeys: ['schema', 'request_id', 'observation', 'observation_digest', 'response_digest'],
+  },
+  inventory: {
+    requestSchema: 'lattice.adapter_running_inventory_request.v1',
+    requestKeys: ['schema', 'request_id', 'registration_digest', 'frozen_event_digest', 'request_digest'],
+    responseSchema: 'lattice.adapter_running_inventory_response.v1',
+    responseKeys: ['schema', 'request_id', 'running_bindings', 'inventory_digest', 'response_digest'],
   },
   barrier: {
     requestSchema: 'lattice.adapter_barrier_request.v1',

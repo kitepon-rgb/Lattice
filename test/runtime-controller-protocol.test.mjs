@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { digestArtifact } from '../src/artifact-contracts.mjs';
 import { selfDigest } from '../src/runtime-contracts.mjs';
 import {
   CONTROLLER_OPERATIONS, armStagedWriteLease, createControllerRequest, createWriteGate,
   createRuntimeControlRequest,
-  validateArmedWriteLease, validateControllerDescriptor, validateControllerRequest,
+  validateArmedWriteLease, validateControllerDescriptor, validateControllerRequest, validateControllerResponse,
   validateControllerRegistration, validateReleaseAck, validateRuntimeControlRequest,
   validateRuntimeControlResponse, validateStagedWriteLease,
   verifyCentralWriteGate,
@@ -13,11 +14,14 @@ import {
 const D = (c) => c.repeat(64);
 function sign(value, field) { value[field] = ''; value[field] = selfDigest(value, field); return value; }
 function controlPayload(operation = 'hold') {
-  const artifactDigest = ['finding_record', 'conflict', 'recompile'].includes(operation) ? D('1') : null;
+  const artifact = ['finding_record', 'recompile'].includes(operation) ? { schema: `test.${operation}.v1` } : null;
+  const artifactDigest = artifact === null ? (operation === 'conflict' ? D('1') : null) : digestArtifact(artifact);
   const shutdownReason = ['close', 'abandon'].includes(operation) ? 'requested' : null;
   return sign({
     schema: 'lattice.runtime_control_operation.v1', operation, run_ref: 'run-a',
-    artifact_digest: artifactDigest, expected_epoch: 1, expected_queue_digest: null,
+    artifact, artifact_digest: artifactDigest,
+    checkpoint_digest: operation === 'finding_record' ? D('4') : null,
+    expected_epoch: 1, expected_queue_digest: null,
     shutdown_reason: shutdownReason, operation_digest: '',
   }, 'operation_digest');
 }
@@ -73,6 +77,28 @@ test('controller operationのschema cross-useと余剰fieldを拒否する', () 
   assert.equal(validateControllerRequest('observe', { ...request, acknowledged: true }), false);
 });
 
+test('controller inventoryはsorted full running binding集合と集合digestをexact検証する', () => {
+  const request = createControllerRequest('inventory', { request_id: 'inventory-a',
+    registration_digest: D('a'), frozen_event_digest: D('b') });
+  assert.equal(validateControllerRequest('inventory', request), true);
+  const binding = { todo_id: 'T1', executor_handle: 'exec-a', worktree_id: 'wt-a',
+    plan_epoch: 1, packet_digest: D('c'), write_lease_id: 'lease-a',
+    controller_registration_digest: D('a') };
+  const response = sign({ schema: 'lattice.adapter_running_inventory_response.v1',
+    request_id: request.request_id, running_bindings: [binding],
+    inventory_digest: digestArtifact([binding]), response_digest: '' }, 'response_digest');
+  assert.equal(validateControllerResponse('inventory', response, request.request_id), true);
+  const forged = structuredClone(response);
+  forged.running_bindings[0].packet_digest = D('d');
+  sign(forged, 'response_digest');
+  assert.equal(validateControllerResponse('inventory', forged, request.request_id), false);
+  const duplicateExecutor = structuredClone(response);
+  duplicateExecutor.running_bindings.push({ ...binding, todo_id: 'T2' });
+  duplicateExecutor.inventory_digest = digestArtifact(duplicateExecutor.running_bindings);
+  sign(duplicateExecutor, 'response_digest');
+  assert.equal(validateControllerResponse('inventory', duplicateExecutor, request.request_id), false);
+});
+
 test('runtime control requestはnested operationをexact・digest・operation binding検証する', () => {
   const request = createRuntimeControlRequest({
     requestId: 'request-a', runId: 'run-a', operation: 'hold',
@@ -106,6 +132,23 @@ test('runtime control requestはnested operationをexact・digest・operation bi
   assert.throws(() => createRuntimeControlRequest({ requestId: 'request-hold', runId: 'run-a',
     operation: 'hold', payload: holdWithArtifact, sessionNonce: 'n'.repeat(64) }),
   /INVALID_RUNTIME_CONTROL_REQUEST/);
+});
+
+test('finding/recompile artifactはbounded canonical本文とdigestをsocket request内でexact束縛する', () => {
+  for (const operation of ['finding_record', 'recompile']) {
+    const payload = controlPayload(operation);
+    const request = createRuntimeControlRequest({ requestId: `request-${operation}`,
+      runId: 'run-a', operation, payload, sessionNonce: 'n'.repeat(64) });
+    assert.equal(validateRuntimeControlRequest(request), true);
+    const changed = structuredClone(request);
+    changed.payload.artifact.extra = true;
+    sign(changed.payload, 'operation_digest'); sign(changed, 'request_digest');
+    assert.equal(validateRuntimeControlRequest(changed), false);
+    const cross = structuredClone(request);
+    cross.operation = 'hold'; cross.payload.operation = 'hold';
+    sign(cross.payload, 'operation_digest'); sign(cross, 'request_digest');
+    assert.equal(validateRuntimeControlRequest(cross), false);
+  }
 });
 
 test('runtime control responseはnested resultをexact・digest・control head binding検証する', () => {

@@ -1,11 +1,11 @@
-import { digestArtifact } from './artifact-contracts.mjs';
+import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { selfDigest, validateEpochRebindPacket, validateExecutorPacket } from './runtime-contracts.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const ID = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
 
 export const CONTROLLER_OPERATIONS = Object.freeze([
-  'dispatch', 'observe', 'barrier', 'rebind', 'prepare', 'activate', 'release', 'revoke',
+  'dispatch', 'observe', 'inventory', 'barrier', 'rebind', 'prepare', 'activate', 'release', 'revoke',
 ]);
 
 const RUNTIME_CONTROL_OUTCOMES = Object.freeze({
@@ -18,7 +18,9 @@ const RUNTIME_CONTROL_OUTCOMES = Object.freeze({
   close: 'closed',
   abandon: 'abandoned',
 });
-const ARTIFACT_CONTROL_OPERATIONS = new Set(['finding_record', 'conflict', 'recompile']);
+const ARTIFACT_CONTROL_OPERATIONS = new Set(['finding_record', 'recompile']);
+const DIGEST_REFERENCE_OPERATIONS = new Set(['conflict']);
+const MAX_CONTROL_ARTIFACT_BYTES = 8_388_608;
 
 const WIRES = Object.freeze({
   dispatch: {
@@ -32,6 +34,12 @@ const WIRES = Object.freeze({
     requestSchema: 'lattice.adapter_observe_request.v1',
     response: ['schema', 'request_id', 'observation', 'observation_digest', 'response_digest'],
     responseSchema: 'lattice.adapter_observe_response.v1',
+  },
+  inventory: {
+    request: ['schema', 'request_id', 'registration_digest', 'frozen_event_digest', 'request_digest'],
+    requestSchema: 'lattice.adapter_running_inventory_request.v1',
+    response: ['schema', 'request_id', 'running_bindings', 'inventory_digest', 'response_digest'],
+    responseSchema: 'lattice.adapter_running_inventory_response.v1',
   },
   barrier: {
     request: ['schema', 'request_id', 'registration_digest', 'barrier_id', 'reason', 'running_bindings', 'frozen_event_digest', 'barrier_control_digest', 'request_digest'],
@@ -222,12 +230,21 @@ export function validateRuntimeControlRequest(value) {
 }
 
 function validateRuntimeControlOperation(value) {
-  return exact(value, ['schema', 'operation', 'run_ref', 'artifact_digest', 'expected_epoch', 'expected_queue_digest', 'shutdown_reason', 'operation_digest'])
+  return exact(value, ['schema', 'operation', 'run_ref', 'artifact', 'artifact_digest', 'checkpoint_digest',
+    'expected_epoch', 'expected_queue_digest', 'shutdown_reason', 'operation_digest'])
     && value.schema === 'lattice.runtime_control_operation.v1'
     && ['activate', 'finding_record', 'conflict', 'hold', 'recompile', 'reprocess', 'close', 'abandon'].includes(value.operation)
     && typeof value.run_ref === 'string' && value.run_ref.length > 0
     && (ARTIFACT_CONTROL_OPERATIONS.has(value.operation)
-      ? digest(value.artifact_digest) : value.artifact_digest === null)
+      ? plain(value.artifact)
+        && Buffer.byteLength(canonicalizeArtifact(value.artifact), 'utf8') <= MAX_CONTROL_ARTIFACT_BYTES
+        && digest(value.artifact_digest) && digestArtifact(value.artifact) === value.artifact_digest
+      : value.artifact === null)
+    && (DIGEST_REFERENCE_OPERATIONS.has(value.operation)
+      ? digest(value.artifact_digest)
+      : (ARTIFACT_CONTROL_OPERATIONS.has(value.operation) || value.artifact_digest === null))
+    && (value.operation === 'finding_record'
+      ? digest(value.checkpoint_digest) : value.checkpoint_digest === null)
     && Number.isSafeInteger(value.expected_epoch) && value.expected_epoch > 0
     && nullableDigest(value.expected_queue_digest)
     && (['close', 'abandon'].includes(value.operation)
@@ -259,7 +276,10 @@ export function validateRuntimeControlResponse(value, expectedOperation = null) 
 }
 
 function validateRuntimeControlResult(value) {
-  return exact(value, ['schema', 'operation', 'outcome', 'event_head_digest', 'control_head_digest', 'active_epoch', 'staged_epoch', 'unmet', 'result_digest'])
+  const fields = ['schema', 'operation', 'outcome', 'event_head_digest', 'control_head_digest',
+    'active_epoch', 'staged_epoch', 'unmet', 'result_digest'];
+  if (value?.operation === 'finding_record' && value?.outcome === 'recorded') fields.push('finding_digest');
+  return exact(value, fields)
     && value.schema === 'lattice.runtime_control_result.v1'
     && Object.hasOwn(RUNTIME_CONTROL_OUTCOMES, value.operation)
     && [RUNTIME_CONTROL_OUTCOMES[value.operation], 'rejected', 'unknown'].includes(value.outcome)
@@ -269,6 +289,8 @@ function validateRuntimeControlResult(value) {
       || (Number.isSafeInteger(value.staged_epoch) && value.staged_epoch > 0))
     && Array.isArray(value.unmet) && value.unmet.length <= 256
     && value.unmet.every((entry) => typeof entry === 'string' && entry.length > 0)
+    && (value.operation !== 'finding_record' || value.outcome !== 'recorded'
+      || digest(value.finding_digest))
     && selfValid(value, 'result_digest');
 }
 
@@ -289,6 +311,7 @@ export function validateControllerRequest(operation, value) {
   if (operation === 'dispatch') return validateExecutorPacket(value.packet) && validateArmedWriteLease(value.write_lease);
   if (operation === 'observe') return identifier(value.executor_handle) && Number.isSafeInteger(value.expected_epoch)
     && value.expected_epoch > 0 && digest(value.expected_lease_digest);
+  if (operation === 'inventory') return digest(value.frozen_event_digest);
   if (operation === 'barrier') return identifier(value.barrier_id) && typeof value.reason === 'string'
     && value.reason.length > 0 && Array.isArray(value.running_bindings)
     && value.running_bindings.every(validateProtocolRunningBinding) && digest(value.frozen_event_digest)
@@ -317,6 +340,14 @@ export function validateControllerResponse(operation, value, expectedRequestId =
     && value.observation.plan_epoch > 0 && digest(value.observation.lease_digest)
     && digest(value.observation.payload_digest) && selfValid(value.observation, 'observation_digest')
     && value.observation_digest === value.observation.observation_digest;
+  if (operation === 'inventory') return Array.isArray(value.running_bindings)
+    && value.running_bindings.length <= 4096
+    && value.running_bindings.every(validateProtocolRunningBinding)
+    && value.running_bindings.every((binding, index) => index === 0
+      || value.running_bindings[index - 1].todo_id < binding.todo_id)
+    && new Set(value.running_bindings.map((binding) => binding.executor_handle)).size === value.running_bindings.length
+    && digest(value.inventory_digest)
+    && value.inventory_digest === digestArtifact(value.running_bindings);
   if (operation === 'barrier') return identifier(value.barrier_id) && Array.isArray(value.quiescence_acks)
     && value.quiescence_acks.every(validateQuiescenceAck);
   if (operation === 'rebind') return validateEpochRebindAck(value.rebind_ack) && digest(value.staged_lease_digest);

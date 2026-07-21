@@ -217,6 +217,20 @@ export class RuntimeManagedSupervisor {
     this.#shutdownFinalizer = shutdownFinalizer;
   }
 
+  async hydrateCommittedGate() {
+    if (typeof this.#gateWriter.read !== 'function') return null;
+    const committed = await this.#gateWriter.read();
+    if (committed === null) return null;
+    if (committed.gate.run_id !== this.#runId
+      || !Number.isSafeInteger(committed.gate.gate_generation)
+      || committed.gate.gate_generation < 1) {
+      fail('EPOCH_ACTIVATION_INCOMPLETE', 'persisted gate generation binding不正');
+    }
+    this.#gate = structuredClone(committed.gate);
+    this.#gateGeneration = committed.gate.gate_generation;
+    return structuredClone(committed.gate);
+  }
+
   get runId() { return this.#runId; }
   get frozen() { return this.#frozen; }
   get gate() { return this.#gate === null ? null : structuredClone(this.#gate); }
@@ -289,12 +303,13 @@ export class RuntimeManagedSupervisor {
 
   /** 全running bindingを一件も省略せずbarrierし、controller ackと独立OS観測を照合する。 */
   async barrierAll({ barrierId, reason, frozenEventDigest }) {
-    const runningBindings = await this.#runningBindingResolver({ runId: this.#runId, frozenEventDigest });
+    const durableBindings = await this.#runningBindingResolver({ runId: this.#runId, frozenEventDigest });
     if (!identifier(barrierId) || typeof reason !== 'string' || reason.length === 0
-      || !digest(frozenEventDigest) || !Array.isArray(runningBindings)
-      || !runningBindings.every(validateRunningBinding)) fail('HOLD_ACKS_INCOMPLETE', 'running binding不正');
+      || !digest(frozenEventDigest) || !Array.isArray(durableBindings)
+      || !durableBindings.every(validateRunningBinding)) fail('HOLD_ACKS_INCOMPLETE', 'durable running binding不正');
     await this.assertControllerHealth();
     this.#frozen = true;
+    const runningBindings = await this.#resolveRunningUnion({ durableBindings, frozenEventDigest });
     const unique = new Set(runningBindings.map((binding) => binding.todo_id));
     if (unique.size !== runningBindings.length) fail('HOLD_ACKS_INCOMPLETE', 'running TODO重複');
     const barrierControlDigest = await this.#append('barrier_requested', { barrier_id: barrierId,
@@ -327,13 +342,59 @@ export class RuntimeManagedSupervisor {
           || observed?.final_checkpoint_digest !== ack.final_checkpoint_digest
           || observed?.quiesced !== true) fail('HOLD_ACKS_INCOMPLETE', `直接再観測不一致: ${binding.todo_id}`);
         acknowledgements.push(ack);
+        const directObservation = structuredClone(observed);
         await this.#append('executor_quiesced', { barrier_id: barrierId,
-          barrier_control_digest: barrierControlDigest,
-          todo_id: binding.todo_id, ack_digest: ack.ack_digest });
+          barrier_control_digest: barrierControlDigest, todo_id: binding.todo_id,
+          ack: structuredClone(ack), direct_observation: directObservation,
+          evidence_digest: digestArtifact({ ack, direct_observation: directObservation }) });
       }
     }
     if (acknowledgements.length !== runningBindings.length) fail('HOLD_ACKS_INCOMPLETE', '未登録controller所有bindingあり');
+    const residualBindings = await this.#collectControllerRunning({ frozenEventDigest });
+    if (residualBindings.length !== 0) {
+      fail('HOLD_ACKS_INCOMPLETE', `barrier後もrunning executor残存: ${residualBindings.map((binding) => binding.todo_id).join(',')}`);
+    }
     return acknowledgements.map((ack) => structuredClone(ack));
+  }
+
+  /** durable storeと全controllerの直接inventoryをexact binding単位で和集合にする。 */
+  async #resolveRunningUnion({ durableBindings, frozenEventDigest }) {
+    const observedBindings = await this.#collectControllerRunning({ frozenEventDigest });
+    const union = new Map();
+    const executorOwners = new Map();
+    for (const binding of [...durableBindings, ...observedBindings]) {
+      const controllerId = this.#registrationToController.get(binding.controller_registration_digest);
+      if (controllerId === undefined) fail('HOLD_ACKS_INCOMPLETE', `未登録controller binding: ${binding.todo_id}`);
+      const canonical = canonicalizeArtifact(binding);
+      const prior = union.get(binding.todo_id);
+      if (prior !== undefined && prior.canonical !== canonical) {
+        fail('HOLD_ACKS_INCOMPLETE', `durable/controller running binding不一致: ${binding.todo_id}`);
+      }
+      const executorOwner = executorOwners.get(binding.executor_handle);
+      if (executorOwner !== undefined && executorOwner !== binding.todo_id) {
+        fail('HOLD_ACKS_INCOMPLETE', `executor handle重複: ${binding.executor_handle}`);
+      }
+      union.set(binding.todo_id, { canonical, binding: structuredClone(binding) });
+      executorOwners.set(binding.executor_handle, binding.todo_id);
+    }
+    return [...union.values()].map(({ binding }) => binding)
+      .sort((left, right) => left.todo_id < right.todo_id ? -1 : left.todo_id > right.todo_id ? 1 : 0);
+  }
+
+  async #collectControllerRunning({ frozenEventDigest }) {
+    const observed = [];
+    for (const record of this.#controllers.values()) {
+      const response = await this.routeWhileFrozen('inventory', record, {
+        request_id: randomUUID(), frozen_event_digest: frozenEventDigest,
+      });
+      if (response.inventory_digest !== digestArtifact(response.running_bindings)
+        || response.running_bindings.some((binding) => (
+          binding.controller_registration_digest !== record.registration.registration_digest))) {
+        fail('HOLD_ACKS_INCOMPLETE', `controller inventory binding不一致: ${record.descriptor.controller_id}`);
+      }
+      observed.push(...response.running_bindings.map((binding) => structuredClone(binding)));
+    }
+    return observed;
   }
 
   /** finding/store永続化後に呼ぶtyped hold閉路。全running quiescence以外はheldを返さない。 */
@@ -376,8 +437,38 @@ export class RuntimeManagedSupervisor {
       request_id: randomUUID(), rebind_packet: rebindPacket, staged_lease: stagedLease,
     });
     if (response.staged_lease_digest !== stagedLease.lease_digest) fail('EPOCH_REBIND_INCOMPLETE', 'staged lease response不一致');
-    await this.#acceptRebindAck({ controllerId, ack: response.rebind_ack, stagedLease, expected });
-    return structuredClone(response.rebind_ack);
+    const controlEventDigest = await this.#acceptRebindAck({ controllerId,
+      ack: response.rebind_ack, stagedLease, expected });
+    return { ack: structuredClone(response.rebind_ack), control_event_digest: controlEventDigest };
+  }
+
+  /** affected successorを実行不能なstaged leaseのままprepareする。 */
+  async prepareController({ controllerId, executorPacket, stagedLease }) {
+    const record = this.#requireController(controllerId);
+    if (!this.#frozen || !validateStagedWriteLease(stagedLease)
+      || stagedLease.run_id !== this.#runId || stagedLease.state !== 'staged'
+      || stagedLease.todo_id !== executorPacket?.todo_id
+      || stagedLease.packet_digest !== executorPacket?.packet_digest
+      || stagedLease.controller_registration_digest !== record.registration.registration_digest) {
+      fail('EPOCH_REBIND_INCOMPLETE', 'prepare staged binding不正');
+    }
+    const response = await this.routeWhileFrozen('prepare', record, {
+      request_id: randomUUID(), executor_packet: executorPacket, staged_lease: stagedLease,
+    });
+    const ack = response.prepare_ack;
+    if (response.staged_lease_digest !== stagedLease.lease_digest
+      || ack.run_id !== this.#runId || ack.todo_id !== executorPacket.todo_id
+      || ack.plan_epoch !== executorPacket.plan_epoch
+      || ack.packet_digest !== executorPacket.packet_digest
+      || ack.staged_lease_digest !== stagedLease.lease_digest
+      || ack.registration_digest !== record.registration.registration_digest
+      || ack.controller_id !== controllerId
+      || ack.supervisor_session_nonce_digest !== this.#sessionNonceDigest) {
+      fail('EPOCH_REBIND_INCOMPLETE', 'direct prepare ack不一致');
+    }
+    this.#leases.set(stagedLease.lease_digest, { lease: structuredClone(stagedLease),
+      controllerId, issuedAt: this.#clock(), revoked: false });
+    return structuredClone(ack);
   }
 
   async #acceptRebindAck({ controllerId, ack, stagedLease, expected }) {
@@ -393,18 +484,22 @@ export class RuntimeManagedSupervisor {
     const observed = await this.#processObserver({ kind: 'rebind', ack: structuredClone(ack), stagedLease: structuredClone(stagedLease), descriptor: structuredClone(record.descriptor) });
     if (observed?.write_enabled !== false) fail('EPOCH_REBIND_INCOMPLETE', 'rebind直接再観測不一致');
     this.#leases.set(stagedLease.lease_digest, { lease: structuredClone(stagedLease), controllerId, issuedAt: this.#clock(), revoked: false });
-    await this.#append('epoch_rebind_acknowledged', { todo_id: ack.todo_id, ack_digest: ack.ack_digest, staged_lease_digest: stagedLease.lease_digest });
+    return this.#append('epoch_rebind_acknowledged', { todo_id: ack.todo_id,
+      ack_digest: ack.ack_digest, staged_lease_digest: stagedLease.lease_digest });
   }
 
   /** 全release ackを回収した後だけ、中央gateを一回commitしてstaged v1→armed v2を有効化する。 */
-  async commitWriteGate({ planEpoch, committedEpochDigest, activationDigest, releaseBarrierDigest, committedAt }) {
+  async commitWriteGate({ planEpoch, committedEpochDigest, activationDigest,
+    releaseBarrierDigest = null, commitReleaseBarrier = null,
+    afterControllerRelease = null, committedAt }) {
     await this.assertControllerHealth();
-    if (!this.#frozen || !Number.isSafeInteger(planEpoch) || planEpoch < 1 || !digest(releaseBarrierDigest)
+    if (!this.#frozen || !Number.isSafeInteger(planEpoch) || planEpoch < 1
+      || !(releaseBarrierDigest === null || digest(releaseBarrierDigest))
       || !digest(committedEpochDigest) || !digest(activationDigest)) fail('EPOCH_ACTIVATION_INCOMPLETE', 'gate入力不正');
     const staged = [...this.#leases.values()].filter((entry) => !entry.revoked && entry.lease.plan_epoch === planEpoch && validateStagedWriteLease(entry.lease));
     const nextGeneration = this.#gateGeneration + 1;
-    const armed = staged.map((entry) => armStagedWriteLease(entry.lease, { releaseBarrierDigest, gateGeneration: nextGeneration }));
-    const releaseAcks = [];
+    const readyAcks = [];
+    let releaseIndex = 0;
     for (const record of this.#controllers.values()) {
       const ownedStaged = staged.filter((entry) => entry.lease.controller_registration_digest === record.registration.registration_digest).map((entry) => entry.lease.lease_digest).sort();
       const ready = await this.routeWhileFrozen('activate', record, {
@@ -418,6 +513,25 @@ export class RuntimeManagedSupervisor {
         || ready.ready_ack.activation_digest !== activationDigest
         || ready.ready_ack.supervisor_session_nonce_digest !== this.#sessionNonceDigest
         || JSON.stringify(ready.ready_ack.staged_lease_digests) !== JSON.stringify(ownedStaged)) fail('EPOCH_ACTIVATION_INCOMPLETE', 'ready pointer/binding不一致');
+      readyAcks.push(ready.ready_ack);
+    }
+    if (typeof commitReleaseBarrier === 'function') {
+      const barrier = { schema: 'lattice.release_epoch_barrier.v1', run_id: this.#runId,
+        committed_epoch_pointer_digest: committedEpochDigest, plan_epoch: planEpoch,
+        activation_digest: activationDigest,
+        controller_ready_ack_digests: readyAcks.map((ack) => ack.ack_digest).sort(),
+        staged_lease_digests: staged.map((entry) => entry.lease.lease_digest).sort(),
+        gate_generation: nextGeneration, release_digest: '' };
+      barrier.release_digest = selfDigest(barrier, 'release_digest');
+      const receipt = await commitReleaseBarrier(structuredClone(barrier));
+      if (receipt?.release_digest !== barrier.release_digest) fail('EPOCH_ACTIVATION_INCOMPLETE', 'release barrier commit不一致');
+      releaseBarrierDigest = barrier.release_digest;
+    }
+    if (!digest(releaseBarrierDigest)) fail('EPOCH_ACTIVATION_INCOMPLETE', 'release barrier未commit');
+    const armed = staged.map((entry) => armStagedWriteLease(entry.lease, { releaseBarrierDigest, gateGeneration: nextGeneration }));
+    const releaseAcks = [];
+    for (const record of this.#controllers.values()) {
+      const ownedStaged = staged.filter((entry) => entry.lease.controller_registration_digest === record.registration.registration_digest).map((entry) => entry.lease.lease_digest).sort();
       const released = await this.routeWhileFrozen('release', record, {
         request_id: randomUUID(), release_barrier_digest: releaseBarrierDigest,
         activation_digest: activationDigest, gate_generation: nextGeneration,
@@ -428,6 +542,11 @@ export class RuntimeManagedSupervisor {
         || JSON.stringify(released.armed_lease_digests) !== JSON.stringify(ownedArmed)
         || !validateReleaseAck(released.release_ack)) fail('EPOCH_ACTIVATION_INCOMPLETE', 'direct release ack不一致');
       releaseAcks.push(released.release_ack);
+      releaseIndex += 1;
+      if (typeof afterControllerRelease === 'function') await afterControllerRelease({
+        release_index: releaseIndex, controller_id: record.descriptor.controller_id,
+        release_ack_digest: released.release_ack.ack_digest,
+      });
     }
     const registrations = [...this.#controllers.values()].map((entry) => entry.registration);
     const controllers = [...this.#controllers.values()].map((entry) => entry.descriptor);
@@ -756,11 +875,8 @@ async function activateManagedSupervisorController({ repoRoot, runDir, runId, ad
       }
       await rm(controllerSocketPath, { force: true }).catch(() => {});
     };
-    const createManagedSupervisor = async ({ clock, resolveObservationBinding, resolveRunningBindings, processObserver = null, allowTestObserver = false, journal, gateWriter }) => {
-      if (processObserver !== null && allowTestObserver !== true) fail('SUPERVISOR_CONFIGURATION_INVALID', 'production observer差替え禁止');
-      const directObserver = processObserver ?? createDirectOsProcessObserverV2({ resolveObservationBinding });
+    const registerWithManagedSupervisor = async (managedSupervisor) => {
       await controllerTransport.ensureConnected();
-      const managedSupervisor = new RuntimeManagedSupervisor({ runId, sessionNonceDigest, clock, processObserver: directObserver, runningBindingResolver: resolveRunningBindings, journal, gateWriter, shutdownFinalizer: disposeController });
       await managedSupervisor.registerController({ descriptor: controllerDescriptor, registration, transport: controllerTransport });
       controllerTransport.setHeartbeatHandler(async (heartbeat) => {
         if (digestArtifact(heartbeat.supervisor_session_nonce) !== sessionNonceDigest
@@ -777,9 +893,16 @@ async function activateManagedSupervisorController({ repoRoot, runDir, runId, ad
         });
       });
       controllerTransport.setDisconnectHandler(() => managedSupervisor.disconnect(controllerDescriptor.controller_id));
+    };
+    const createManagedSupervisor = async ({ clock, resolveObservationBinding, resolveRunningBindings, processObserver = null, allowTestObserver = false, journal, gateWriter }) => {
+      if (processObserver !== null && allowTestObserver !== true) fail('SUPERVISOR_CONFIGURATION_INVALID', 'production observer差替え禁止');
+      const directObserver = processObserver ?? createDirectOsProcessObserverV2({ resolveObservationBinding });
+      const managedSupervisor = new RuntimeManagedSupervisor({ runId, sessionNonceDigest, clock, processObserver: directObserver, runningBindingResolver: resolveRunningBindings, journal, gateWriter, shutdownFinalizer: disposeController });
+      await managedSupervisor.hydrateCommittedGate();
+      await registerWithManagedSupervisor(managedSupervisor);
       return managedSupervisor;
     };
-    return { supervisorDescriptor, activationControlEvent, controllerDescriptor, registration, sessionNonce: supervisorSessionNonce, childPid: child?.pid ?? controllerDescriptor.pid, createManagedSupervisor, disposeController };
+    return { supervisorDescriptor, activationControlEvent, controllerDescriptor, registration, sessionNonce: supervisorSessionNonce, childPid: child?.pid ?? controllerDescriptor.pid, createManagedSupervisor, registerWithManagedSupervisor, disposeController };
   } catch (error) {
     if (child?.pid) { try { process.kill(child.pid, 'SIGTERM'); } catch { /* already exited */ } }
     await rm(controllerSocketPath, { force: true }).catch(() => {});
@@ -1104,8 +1227,12 @@ const isDirectDaemon = process.argv[1] && fileURLToPath(import.meta.url) === pro
 if (isDirectDaemon) {
   const runDir = process.argv[3];
   const sessionNonce = randomBytes(32).toString('hex');
-  import('./runtime-cli.mjs')
-    .then(async ({ runManagedSupervisorDaemon }) => {
+  Promise.all([
+    import('./runtime-cli.mjs'),
+    import('./todo-revision.mjs'),
+    import('./todo-store.mjs'),
+  ]).then(async ([{ runManagedSupervisorDaemon }, { validatePhaseTodoRevision },
+    { applyPhaseTodoRevision, createTodoStoreWriter }]) => {
       if (typeof runManagedSupervisorDaemon !== 'function') fail('SUPERVISOR_CONFIGURATION_INVALID', 'runtime-cli daemon handlerなし');
       let daemonCleanup = async () => {};
       let shuttingDown = false;
@@ -1129,6 +1256,12 @@ if (isDirectDaemon) {
             if (point === process.env.LATTICE_INTERNAL_TEST_CRASH_POINT) process.kill(process.pid, 'SIGKILL');
           }
           : null,
+        validatePhaseRevision: validatePhaseTodoRevision,
+        commitPhaseRevision: (revision) => applyPhaseTodoRevision({
+          repoRoot: path.resolve(runDir, '..', '..', '..'),
+          writer: createTodoStoreWriter({ caller: 'g5-authoring' }), revision,
+          actor: 'lattice-runtime-supervisor', recordedAt: new Date().toISOString(),
+        }),
       });
     })
     .catch((error) => {

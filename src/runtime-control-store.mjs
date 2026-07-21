@@ -3,9 +3,10 @@ import { constants as fsConstants } from 'node:fs';
 import { lstat, open, readFile, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
-import { canonicalizeArtifact } from './artifact-contracts.mjs';
+import { canonicalizeArtifact, digestArtifact as canonicalDigest } from './artifact-contracts.mjs';
 import { selfDigest } from './runtime-contracts.mjs';
 import {
+  validateQuiescenceAck,
   validateRuntimeControlRequest,
   validateRuntimeControlResponse,
 } from './runtime-controller-protocol.mjs';
@@ -113,9 +114,25 @@ export function validateRuntimeControlEventPayload(kind, value) {
       && timestamp(value.recorded_at);
   }
   if (kind === 'executor_quiesced') {
-    return exact(value, ['barrier_id', 'barrier_control_digest', 'todo_id', 'ack_digest'])
+    const observed = value.direct_observation;
+    return exact(value, ['barrier_id', 'barrier_control_digest', 'todo_id', 'ack',
+      'direct_observation', 'evidence_digest'])
       && identifier(value.barrier_id) && digest(value.barrier_control_digest)
-      && identifier(value.todo_id) && digest(value.ack_digest);
+      && identifier(value.todo_id) && validateQuiescenceAck(value.ack)
+      && value.ack.todo_id === value.todo_id
+      && value.ack.barrier_control_digest === value.barrier_control_digest
+      && exact(observed, ['quiesced', 'process_observation_digest', 'worktree_fingerprint_digest',
+        'final_checkpoint_digest', 'observation', 'worktree_fingerprint', 'checkpoint', 'write_enabled'])
+      && observed.quiesced === true && observed.write_enabled === false
+      && digest(observed.process_observation_digest)
+      && digest(observed.worktree_fingerprint_digest) && digest(observed.final_checkpoint_digest)
+      && observed.process_observation_digest === canonicalDigest(observed.observation)
+      && observed.worktree_fingerprint_digest === canonicalDigest(observed.worktree_fingerprint)
+      && observed.final_checkpoint_digest === observed.checkpoint?.checkpoint_digest
+      && value.ack.process_observation_digest === observed.process_observation_digest
+      && value.ack.worktree_fingerprint_digest === observed.worktree_fingerprint_digest
+      && value.ack.final_checkpoint_digest === observed.final_checkpoint_digest
+      && value.evidence_digest === canonicalDigest({ ack: value.ack, direct_observation: observed });
   }
   if (kind === 'lease_revoked') {
     return (exact(value, ['controller_id', 'reason'])
@@ -432,6 +449,40 @@ export function createRuntimeControlStore({ runDir, runId, clock = () => new Dat
     });
   }
 
+  async function recoverCompletedRequest(request, response) {
+    return enqueue(normalizedRunDir, async () => {
+      await ensureRunDirectory(normalizedRunDir);
+      assertRequest(request, runId);
+      if (!validateRuntimeControlResponse(response)
+        || response.request_id !== request.request_id || response.run_id !== runId
+        || response.result.operation !== request.operation || response.outcome !== 'completed') {
+        fail('INVALID_CONTROL_RESPONSE', 'recovery response exact schema又はrequest binding不正');
+      }
+      const prior = await readCanonical(ledgerPath, ledgerValidator, 'request_ledger');
+      const ledger = prior.value;
+      const index = ledger.entries.findIndex((entry) => entry.request_id === request.request_id);
+      if (index < 0) fail('REQUEST_NOT_STARTED', 'request ledgerにentryがない');
+      const existing = ledger.entries[index];
+      if (existing.intent_digest !== logicalIntentDigest(request)) {
+        fail('REQUEST_ID_CONFLICT', '同一request_idへ異なるlogical intent');
+      }
+      if (existing.state !== 'completed' || existing.response?.outcome !== 'rejected') {
+        fail('REQUEST_RESPONSE_CONFLICT', 'rejected response以外はrecovery昇格できない');
+      }
+      const recovered = { ...existing, request_digest: request.request_digest,
+        response: structuredClone(response) };
+      const entries = [...ledger.entries];
+      entries[index] = recovered;
+      const next = withLedgerEntries(ledger, entries);
+      await replaceCanonical({
+        pathname: ledgerPath, expectedBytes: prior.bytes, value: next,
+        validator: ledgerValidator, crashInjector, label: 'request_ledger',
+        directoryFsyncPoint: 'after_request_ledger_directory_fsync',
+      });
+      return structuredClone(response);
+    });
+  }
+
   async function readRequest(request) {
     return enqueue(normalizedRunDir, async () => {
       await ensureRunDirectory(normalizedRunDir);
@@ -455,5 +506,6 @@ export function createRuntimeControlStore({ runDir, runId, clock = () => new Dat
     });
   }
 
-  return Object.freeze({ append, beginRequest, completeRequest, readRequest, readEvents });
+  return Object.freeze({ append, beginRequest, completeRequest, recoverCompletedRequest,
+    readRequest, readEvents });
 }

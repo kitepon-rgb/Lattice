@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   adjudicatePendingReceipts,
+  buildNextRunEvent,
   buildExecutorPackets,
   classifyCheckpointObservation,
   closeRunIfComplete,
@@ -15,6 +16,9 @@ import {
   decideHoldAndCarryOver,
   recompileNextEpochPlan,
   routeConflictTreatment,
+  validateRunRequestV2,
+  validateRuntimeRecompileRequest,
+  validateRuntimeTaskMigration,
 } from '../src/runtime-hold-recompile.mjs';
 import { detectCheckpointFindings } from '../src/runtime-diff-observer.mjs';
 import { createScriptedExecutorAdapter } from '../src/runtime-scripted-executor.mjs';
@@ -202,7 +206,7 @@ test('後発path conflictはexact affected集合のholdとwitness付きcontinue�
   assert.ok(refuted.reasons.includes('carry_over_unprovable'));
 });
 
-test('plan vN+1はrebind／redispatch／失効／intake再開まで閉ループで完走する', async () => {
+test('plan vN+1 producerはack前にfreezeを維持し、ack後の明示activationで完走する', async () => {
   const { fixture, packets, adapter, events: heldEvents, held } = await runLateConflictScenario();
   const { request, plan, manifests } = fixture;
 
@@ -233,6 +237,16 @@ test('plan vN+1はrebind／redispatch／失効／intake再開まで閉ループ�
   assert.equal(rebind.context_content_digest, packets.T3.context_content_digest);
   assert.equal(rebind.new_plan_epoch, 2);
   await adapter.rebind({ executor_handle: 'scripted-T3-h1', rebind });
+
+  // pure producerはack前eventを出さない。ここからはlegacy scripted harnessが
+  // controller ack＋activation gate完了を明示的に模擬する。
+  assert.notEqual(projectRuntimeState({ events }).freeze, null);
+  assert.deepEqual(sortedTodoRefs(events, 'epoch_rebound'), []);
+  events.push(buildNextRunEvent({ events, runId: RUN_ID, kind: 'epoch_rebound', planEpoch: 2,
+    subject: { kind: 'todo', ref: 'T3' }, payload: rebind, recordedAt: AT }));
+  events.push(buildNextRunEvent({ events, runId: RUN_ID, kind: 'intake_resumed', planEpoch: 2,
+    subject: { kind: 'runtime_plan', ref: newPlan.plan_ref },
+    payload: { plan_diff_digest: recompiled.planDiff.diff_digest }, recordedAt: AT }));
 
   // 失効・終端・resumeがevent chainへ保存されている。
   const state = projectRuntimeState({ events });
@@ -381,6 +395,47 @@ test('routeConflictTreatmentはpredeclared seamだけをtransform laneへ送る'
     predeclaredTreatments: predeclared,
   });
   assert.equal(sharedState.lane, 'intentional_serial');
+});
+
+test('run_request.v2とintentional serialはfull migration/finding維持をexact検証する', () => {
+  const fixture = buildFixture({ todos: ['T1', 'T2'], capacity: 1 });
+  const migration = { schema: 'lattice.runtime_task_migration.v1', entries: [
+    { predecessor_task_id: 'T1', disposition: 'stay', successor_task_ids: ['T1'],
+      reason: 'seam cost', evidence_digests: ['1'.repeat(64)] },
+    { predecessor_task_id: 'T2', disposition: 'carry', successor_task_ids: ['T2'],
+      reason: 'serial peer', evidence_digests: ['2'.repeat(64)] },
+  ], migration_digest: '' };
+  migration.migration_digest = selfDigest(migration, 'migration_digest');
+  assert.equal(validateRuntimeTaskMigration(migration, {
+    predecessorTaskIds: ['T1', 'T2'], successorTaskIds: ['T1', 'T2'],
+  }), true);
+  const successor = { ...fixture.request, schema: 'lattice.run_request.v2',
+    predecessor_request_digest: fixture.request.request_digest,
+    task_migration_digest: migration.migration_digest, request_digest: '' };
+  successor.request_digest = selfDigest(successor, 'request_digest');
+  assert.equal(validateRunRequestV2(successor), true);
+  const serial = { schema: 'lattice.runtime_intentional_serial.v1',
+    finding_digest: '3'.repeat(64), todo_ids: ['T1', 'T2'], resource_id: 'shared-state',
+    stay_todo_id: 'T1', reason: 'split cost exceeds serial cost', serial_digest: '' };
+  serial.serial_digest = selfDigest(serial, 'serial_digest');
+  const request = { schema: 'lattice.runtime_recompile_request.v1', request_id: 'recompile-1',
+    run_id: successor.request_id, predecessor_epoch: 1, frozen_event_digest: '4'.repeat(64),
+    hold_decision_digest: '5'.repeat(64), mode: 'intentional_serial', reason: 'shared state',
+    successor_request: successor, task_migration: migration, phase_revision: null,
+    seam_split: null, intentional_serial: serial, request_digest: '' };
+  request.request_digest = selfDigest(request, 'request_digest');
+  assert.equal(validateRuntimeRecompileRequest(request, {
+    predecessorBundle: { plan_epoch: 1, request: fixture.request, plan: fixture.plan },
+  }), true);
+  const missing = structuredClone(request);
+  missing.task_migration.entries.pop();
+  missing.task_migration.migration_digest = selfDigest(missing.task_migration, 'migration_digest');
+  missing.successor_request.task_migration_digest = missing.task_migration.migration_digest;
+  missing.successor_request.request_digest = selfDigest(missing.successor_request, 'request_digest');
+  missing.request_digest = selfDigest(missing, 'request_digest');
+  assert.equal(validateRuntimeRecompileRequest(missing, {
+    predecessorBundle: { plan_epoch: 1, request: fixture.request, plan: fixture.plan },
+  }), false);
 });
 
 test('rebindなしのepoch自称receiptはunrebound_epochでrejectされる', async () => {

@@ -1,4 +1,4 @@
-import { digestArtifact } from './artifact-contracts.mjs';
+import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { buildNextRunEvent, buildExecutorPackets } from './runtime-engine.mjs';
 import { projectRuntimeState } from './runtime-projection.mjs';
 import {
@@ -63,6 +63,173 @@ function sha16(value) {
 }
 
 const WITNESS_KINDS = Object.freeze(['state', 'schema', 'invariant', 'effect', 'external_effect']);
+const HEX_DIGEST = /^[0-9a-f]{64}$/u;
+const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/u;
+
+function selfDigestValid(value, field) {
+  return plainRecord(value) && HEX_DIGEST.test(value[field] ?? '')
+    && selfDigest(value, field) === value[field];
+}
+
+function sortedUnique(values, predicate) {
+  return Array.isArray(values) && values.every(predicate)
+    && values.every((value, index) => index === 0
+      || canonicalizeArtifact(values[index - 1]) < canonicalizeArtifact(value));
+}
+
+/** ADR 0064 Decision 5のfull predecessor→successor mapping。 */
+export function validateRuntimeTaskMigration(value, { predecessorTaskIds = null,
+  successorTaskIds = null } = {}) {
+  if (!exactRecord(value, ['schema', 'entries', 'migration_digest'])
+    || value.schema !== 'lattice.runtime_task_migration.v1'
+    || !Array.isArray(value.entries) || value.entries.length > 10_000
+    || !selfDigestValid(value, 'migration_digest')) return false;
+  const predecessor = [];
+  const successorOwners = new Map();
+  for (const entry of value.entries) {
+    if (!exactRecord(entry, ['predecessor_task_id', 'disposition', 'successor_task_ids',
+      'reason', 'evidence_digests'])
+      || !IDENTIFIER.test(entry.predecessor_task_id ?? '')
+      || !['carry', 'replace', 'split', 'retire', 'stay'].includes(entry.disposition)
+      || typeof entry.reason !== 'string' || entry.reason.length === 0
+      || !sortedUnique(entry.successor_task_ids, (id) => IDENTIFIER.test(id))
+      || !sortedUnique(entry.evidence_digests, (digest) => HEX_DIGEST.test(digest))) return false;
+    if (['carry', 'stay'].includes(entry.disposition)
+      && canonicalizeArtifact(entry.successor_task_ids) !== canonicalizeArtifact([entry.predecessor_task_id])) return false;
+    if (entry.disposition === 'retire' && entry.successor_task_ids.length !== 0) return false;
+    if (['replace', 'split'].includes(entry.disposition) && entry.successor_task_ids.length === 0) return false;
+    predecessor.push(entry.predecessor_task_id);
+    for (const id of entry.successor_task_ids) {
+      const owners = successorOwners.get(id) ?? [];
+      owners.push(entry.predecessor_task_id);
+      successorOwners.set(id, owners);
+    }
+  }
+  if (!sortedUnique(predecessor, (id) => IDENTIFIER.test(id))) return false;
+  if ([...successorOwners.values()].some((owners) => owners.length !== 1)) return false;
+  if (predecessorTaskIds !== null
+    && canonicalizeArtifact(predecessor) !== canonicalizeArtifact(sorted(predecessorTaskIds))) return false;
+  if (successorTaskIds !== null) {
+    const mapped = sorted(successorOwners.keys());
+    if (canonicalizeArtifact(mapped) !== canonicalizeArtifact(sorted(successorTaskIds))) return false;
+  }
+  return true;
+}
+
+export function validateRunRequestV2(value) {
+  if (!exactRecord(value, ['schema', 'request_id', 'repo', 'capacity', 'todos', 'manual_witness',
+    'sensor_query_set', 'executor_capability', 'claim_mode', 'predecessor_request_digest',
+    'task_migration_digest', 'request_digest'])
+    || value.schema !== 'lattice.run_request.v2'
+    || !HEX_DIGEST.test(value.predecessor_request_digest ?? '')
+    || !HEX_DIGEST.test(value.task_migration_digest ?? '')
+    || !selfDigestValid(value, 'request_digest')) return false;
+  const projected = {
+    schema: 'lattice.run_request.v1', request_id: value.request_id, repo: value.repo,
+    capacity: value.capacity, todos: value.todos, manual_witness: value.manual_witness,
+    sensor_query_set: value.sensor_query_set, executor_capability: value.executor_capability,
+    claim_mode: value.claim_mode, request_digest: '',
+  };
+  projected.request_digest = selfDigest(projected, 'request_digest');
+  return validateRunRequest(projected);
+}
+
+export function validateRuntimeRecompileRequest(value, { predecessorBundle = null,
+  frozenEventDigest = null, holdDecisionDigest = null, validatePhaseRevision = null } = {}) {
+  if (!exactRecord(value, ['schema', 'request_id', 'run_id', 'predecessor_epoch',
+    'frozen_event_digest', 'hold_decision_digest', 'mode', 'reason', 'successor_request',
+    'task_migration', 'phase_revision', 'seam_split', 'intentional_serial', 'request_digest'])
+    || value.schema !== 'lattice.runtime_recompile_request.v1'
+    || !IDENTIFIER.test(value.request_id ?? '') || !IDENTIFIER.test(value.run_id ?? '')
+    || !Number.isSafeInteger(value.predecessor_epoch) || value.predecessor_epoch < 1
+    || !HEX_DIGEST.test(value.frozen_event_digest ?? '')
+    || !HEX_DIGEST.test(value.hold_decision_digest ?? '')
+    || !['seam_split', 'intentional_serial'].includes(value.mode)
+    || typeof value.reason !== 'string' || value.reason.length === 0
+    || !validateRunRequestV2(value.successor_request)
+    || !validateRuntimeTaskMigration(value.task_migration, {
+      predecessorTaskIds: predecessorBundle?.plan?.nodes?.map(({ todo_id: id }) => id) ?? null,
+      successorTaskIds: value.successor_request.todos?.map(({ todo_id: id }) => id) ?? null,
+    })
+    || value.successor_request.request_id !== value.run_id
+    || value.successor_request.task_migration_digest !== value.task_migration.migration_digest
+    || !selfDigestValid(value, 'request_digest')) return false;
+  if (predecessorBundle !== null
+    && (value.predecessor_epoch !== predecessorBundle.plan_epoch
+      || value.successor_request.predecessor_request_digest !== predecessorBundle.request.request_digest)) return false;
+  if (frozenEventDigest !== null && value.frozen_event_digest !== frozenEventDigest) return false;
+  if (holdDecisionDigest !== null && value.hold_decision_digest !== holdDecisionDigest) return false;
+  if (value.phase_revision === null) {
+    // phase revisionを省略できるのは、TODO/source/edge入力とtask identityが完全に不変な時だけ。
+    // intentional_serialのruntime conflict edgeはplan overlayでありTODO工程revisionではない。
+    if (predecessorBundle !== null) {
+      const predecessorRequest = predecessorBundle.request;
+      const stableInputs = ['todos', 'manual_witness', 'sensor_query_set'];
+      if (stableInputs.some((key) => canonicalizeArtifact(value.successor_request[key])
+        !== canonicalizeArtifact(predecessorRequest[key]))) return false;
+      if (value.task_migration.entries.some((entry) => !['stay', 'carry'].includes(entry.disposition)
+        || entry.successor_task_ids.length !== 1
+        || entry.successor_task_ids[0] !== entry.predecessor_task_id)) return false;
+    }
+  } else if (typeof validatePhaseRevision !== 'function'
+    || validatePhaseRevision(structuredClone(value.phase_revision)) !== true
+    || canonicalizeArtifact(value.phase_revision.runtime_task_migration)
+      !== canonicalizeArtifact(value.task_migration)) return false;
+  if (value.mode === 'seam_split') {
+    if (value.intentional_serial !== null || !validateRuntimeSeamSplit(value.seam_split, value)) return false;
+    if (value.phase_revision === null && [
+      value.seam_split.ownership_diff.added, value.seam_split.ownership_diff.removed,
+      value.seam_split.edge_diff.added, value.seam_split.edge_diff.removed,
+    ].some((entries) => entries.length > 0)) return false;
+  } else if (value.seam_split !== null || !validateRuntimeIntentionalSerial(value.intentional_serial, value)) return false;
+  return true;
+}
+
+function validateRuntimeSeamSplit(value, request) {
+  return exactRecord(value, ['schema', 'finding_digest', 'predecessor_task_ids',
+    'task_migration_digest', 'ownership_diff', 'edge_diff', 'verifier_refs', 'split_digest'])
+    && value.schema === 'lattice.runtime_seam_split.v1'
+    && HEX_DIGEST.test(value.finding_digest ?? '')
+    && sortedUnique(value.predecessor_task_ids, (id) => IDENTIFIER.test(id))
+    && value.task_migration_digest === request.task_migration.migration_digest
+    && validateOwnershipDiff(value.ownership_diff) && validateEdgeDiff(value.edge_diff)
+    && sortedUnique(value.verifier_refs, (ref) => typeof ref === 'string' && ref.length > 0)
+    && selfDigestValid(value, 'split_digest');
+}
+
+function validateOwnershipDiff(value) {
+  const entry = (item) => exactRecord(item, ['resource_id', 'owner_todo_id', 'access_kind'])
+    && IDENTIFIER.test(item.resource_id ?? '') && IDENTIFIER.test(item.owner_todo_id ?? '')
+    && ['read', 'write', 'own'].includes(item.access_kind);
+  return exactRecord(value, ['schema', 'added', 'removed', 'diff_digest'])
+    && value.schema === 'lattice.runtime_ownership_diff.v1'
+    && sortedUnique(value.added, entry) && sortedUnique(value.removed, entry)
+    && selfDigestValid(value, 'diff_digest');
+}
+
+function validateEdgeDiff(value) {
+  const entry = (item) => exactRecord(item, ['from_todo_id', 'to_todo_id', 'kind'])
+    && IDENTIFIER.test(item.from_todo_id ?? '') && IDENTIFIER.test(item.to_todo_id ?? '')
+    && ['hard_dependency', 'conflict'].includes(item.kind);
+  return exactRecord(value, ['schema', 'added', 'removed', 'diff_digest'])
+    && value.schema === 'lattice.runtime_edge_diff.v1'
+    && sortedUnique(value.added, entry) && sortedUnique(value.removed, entry)
+    && selfDigestValid(value, 'diff_digest');
+}
+
+function validateRuntimeIntentionalSerial(value, request) {
+  if (!exactRecord(value, ['schema', 'finding_digest', 'todo_ids', 'resource_id',
+    'stay_todo_id', 'reason', 'serial_digest'])
+    || value.schema !== 'lattice.runtime_intentional_serial.v1'
+    || !HEX_DIGEST.test(value.finding_digest ?? '')
+    || !sortedUnique(value.todo_ids, (id) => IDENTIFIER.test(id)) || value.todo_ids.length < 2
+    || !IDENTIFIER.test(value.resource_id ?? '') || !value.todo_ids.includes(value.stay_todo_id)
+    || typeof value.reason !== 'string' || value.reason.length === 0
+    || !selfDigestValid(value, 'serial_digest')) return false;
+  const byId = new Map(request.task_migration.entries.map((entry) => [entry.predecessor_task_id, entry]));
+  return value.todo_ids.every((id) => byId.has(id))
+    && byId.get(value.stay_todo_id)?.disposition === 'stay';
+}
 
 function manifestResourceIds(manifest) {
   const ids = new Set(manifest?.resources ?? []);
@@ -234,6 +401,7 @@ export function decideHoldAndCarryOver(options = {}) {
       && event.subject?.kind === 'todo'
       && event.subject.ref === todoId
       && ['checkpoint_observed', 'receipt_recorded'].includes(event.kind)
+      && event.payload?.barrier_final !== true
     ));
     if (postFreezeEvents) {
       holdSet.add(todoId);
@@ -372,7 +540,8 @@ export function routeConflictTreatment(options = {}) {
 /**
  * hold決定後のplan vN+1をcompileする。carried-over TODOへはepoch rebind packet
  * （content不変・epoch/plan refのみ更新）、hold TODOへは新plan_ref由来の
- * 新context packetを発行し、旧contextを失効してintakeを再開する。
+ * 新context packetを発行し、旧contextを失効する。rebind／prepare ack、epoch pointer、
+ * controller ready/release ack、中央gate commit前にはepoch_rebound/intake_resumedを発行しない。
  */
 export function recompileNextEpochPlan(options = {}) {
   if (!exactRecord(options, [
@@ -550,15 +719,6 @@ export function recompileNextEpochPlan(options = {}) {
       fail(`rebindのcontent digestがvN packet contentと一致しない: ${todoId}`);
     }
     rebindPackets[todoId] = rebind;
-    next.push(buildNextRunEvent({
-      events: next,
-      runId,
-      kind: 'epoch_rebound',
-      planEpoch: newEpoch,
-      subject: { kind: 'todo', ref: todoId },
-      payload: structuredClone(rebind),
-      recordedAt,
-    }));
   }
 
   // redispatch TODOへは新plan_ref由来の別content packetを発行する。
@@ -584,18 +744,6 @@ export function recompileNextEpochPlan(options = {}) {
   planDiff.diff_digest = selfDigest(planDiff, 'diff_digest');
   if (!validateRuntimePlanDiff(planDiff)) fail('plan diffがcontractを満たさない');
 
-  // intake再開（freeze境界はfreeze_historyとして永続し、receipt stale判定は
-  // 最初のfreezeに対して行われ続ける）。
-  next.push(buildNextRunEvent({
-    events: next,
-    runId,
-    kind: 'intake_resumed',
-    planEpoch: newEpoch,
-    subject: { kind: 'runtime_plan', ref: newPlanRef },
-    payload: { plan_diff_digest: planDiff.diff_digest },
-    recordedAt,
-  }));
-
   return {
     events: next,
     newPlan,
@@ -603,4 +751,47 @@ export function recompileNextEpochPlan(options = {}) {
     rebindPackets,
     redispatchPackets,
   };
+}
+
+/**
+ * controller direct ackと中央gate commitが全件揃った後だけrun eventを公開する。
+ * producer compileとは分離し、ack前の呼出しは一切のpartial eventを返さない。
+ */
+export function finalizeRecompileActivation(options = {}) {
+  if (!exactRecord(options, ['runId', 'events', 'plan', 'planDiff', 'rebindPackets',
+    'rebindAcks', 'gateDigest', 'gateControlEventDigest', 'recordedAt'])) {
+    fail('finalizeRecompileActivation optionsがexact shapeでない');
+  }
+  const { runId, events, plan, planDiff, rebindPackets, rebindAcks, gateDigest,
+    gateControlEventDigest, recordedAt } = options;
+  if (!validateRuntimePlan(plan) || !validateRuntimePlanDiff(planDiff)
+    || !HEX_DIGEST.test(gateDigest ?? '') || !HEX_DIGEST.test(gateControlEventDigest ?? '')
+    || !plainRecord(rebindPackets) || !plainRecord(rebindAcks)) {
+    fail('activation bindingが不正');
+  }
+  const packetIds = Object.keys(rebindPackets).sort();
+  if (canonicalizeArtifact(Object.keys(rebindAcks).sort()) !== canonicalizeArtifact(packetIds)) {
+    fail('rebind ack集合がpacket集合とexact一致しない');
+  }
+  for (const todoId of packetIds) {
+    const packet = rebindPackets[todoId];
+    const ack = rebindAcks[todoId];
+    if (!validateEpochRebindPacket(packet)
+      || !plainRecord(ack) || ack.schema !== 'lattice.executor_epoch_rebind_ack.v1'
+      || ack.todo_id !== todoId || ack.rebind_packet_digest !== packet.packet_digest
+      || ack.successor_epoch !== plan.plan_epoch || !HEX_DIGEST.test(ack.ack_digest ?? '')
+      || !selfDigestValid(ack, 'ack_digest')) fail(`rebind ack bindingが不正: ${todoId}`);
+  }
+  let next = [...events];
+  // 全件を先に検証した後にだけbatchを構築する（partial epoch_rebound禁止）。
+  for (const todoId of packetIds) {
+    next.push(buildNextRunEvent({ events: next, runId, kind: 'epoch_rebound',
+      planEpoch: plan.plan_epoch, subject: { kind: 'todo', ref: todoId },
+      payload: structuredClone(rebindPackets[todoId]), recordedAt }));
+  }
+  next.push(buildNextRunEvent({ events: next, runId, kind: 'intake_resumed',
+    planEpoch: plan.plan_epoch, subject: { kind: 'runtime_plan', ref: plan.plan_ref },
+    payload: { plan_diff_digest: planDiff.diff_digest, write_gate_digest: gateDigest,
+      control_event_digest: gateControlEventDigest }, recordedAt }));
+  return { events: next, redispatchTodoIds: [...planDiff.redispatched].sort() };
 }

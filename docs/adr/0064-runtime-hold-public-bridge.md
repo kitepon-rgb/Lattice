@@ -446,6 +446,9 @@ recompile開始条件は全running executorの`executor_quiesced`である。sup
   v1 staged documentのfieldをin-place追加せず、v2 self digestへ置換した全armed lease集合を中央gateがbindする。
 - affectedのprepare dispatch ackとcarryのrebind ackが**全件**揃うまでrun event `epoch_rebound`を一件も保存しない。
   missing／unknown ackはfreeze維持。affected又はcarryの一部だけを再開する部分成功は禁止する。
+  各`epoch_rebound` payloadはrebind packet全fieldに加え、`rebind_ack_digest,
+  control_event_digest, controller_registration_digest`を持ち、packet→direct ack→
+  `epoch_rebind_acknowledged` control event→staged lease ownerを一意に辿れるようにする。
 
 freeze中に到着したfinding、checkpoint、receipt、adapter eventはsequence付きqueueへ保存し、捨てない。
 新epoch dispatch前に全件をsuccessor plan／manifest／packetへ対して順にreplayする。
@@ -457,6 +460,10 @@ freeze中に到着したfinding、checkpoint、receipt、adapter eventはsequenc
 - queueが空で全staged ack済みの場合だけepoch directoryを確定し、全carryのrun event `epoch_rebound`を一batchで保存し、
   `epoch_commit_decided`、committed pointerの順に耐久化する。この時点では`intake_resumed`を保存せず、
   pointer commitより前にも後にも中央write gate commitまではleaseを有効化しない。
+- recompile run event batchは`lattice.runtime_run_event_batch_receipt.v1`をevents publishより先に保存する。
+  exact fieldは`schema, transaction_id, phase, plan_epoch, binding_digest, base_event_digests,
+  batch_events, ordered_event_digests, batch_digest, receipt_digest`。同transaction／binding retryは
+  保存済みevent objectを再利用し、partial prefixだけをroll-forwardする。別batch又は別branchは拒否する。
 - pointer commit後、supervisorは同一`activation_digest`を全controllerへ`global_activation_requested`として送り、
   controllerはpointer／session nonce／epoch／packet／lease setを再検証して**ready ackだけ**を返す。
   activation ackが全件揃ってもleaseはstagedのままで、read／write／process開始を禁止する。
@@ -484,6 +491,9 @@ freeze中に到着したfinding、checkpoint、receipt、adapter eventはsequenc
   stale nonce、registration bytes／digest不一致、descriptor差替え、summary objectへの縮退をfail closedで拒否する。
   gate commit後に`write_gate_committed`、`epoch_activated`、最後に`intake_resumed`を同じdurable event batchへ保存する。
   一つでもrelease ack不足ならgate generationを進めず、全controllerで旧generationを維持する。
+- restart candidateがactive runtime正本なら、rebind ackからgate三eventまで同じcandidate control journalへ追記する。
+  root journalとの二重化は禁止する。restartはcommitted gate receipt chainから直前generation／gate digestをhydrateし、
+  新session nonceのready／release証拠で必ず次generationをcommitする。
 - committed pointerから中央write gate commitまでの観測は`committed_epoch=successor / active_epoch=predecessor /
   fully_activated=false`へ帰属し、successor runtime receiptとして受理しない。中央gate commit後の観測だけをsuccessor
   active epochと新leaseへ帰属させる。
@@ -597,6 +607,7 @@ lock競合は`RUN_BUSY`、control timeoutは`unknown`であり、同じrequest I
 | `lattice.process_start_identity.v1` | `schema, platform, pid, started_identity, identity_digest` |
 | `lattice.macos_binary_identity.v1` | `schema, kind, cdhash, signing_identifier, team_identifier, designated_requirement_digest, identity_digest` |
 | `lattice.runtime_conflict_finding.v1` | `schema, kind, todo_ids, path, resource_id, evidence_digests, finding_digest`（非該当path/resourceは`null`） |
+| `lattice.runtime_run_event_batch_receipt.v1` | `schema, transaction_id, phase, plan_epoch, binding_digest, base_event_digests, batch_events, ordered_event_digests, batch_digest, receipt_digest` |
 | `lattice.runtime_task_migration.v1` | `schema, entries, migration_digest` |
 | migration entry | `predecessor_task_id, disposition, successor_task_ids, reason, evidence_digests` |
 | phase TODO migration entry | `from_task_id, to_task_id, state_policy` |
@@ -617,8 +628,8 @@ lock競合は`RUN_BUSY`、control timeoutは`unknown`であり、同じrequest I
 | queue entry | `sequence, kind, subject_digest, artifact_digest` |
 | `lattice.runtime_observer_identity.v1` | `schema, kind, controller_registration_digest, executor_handle, identity_digest`（非executorはnullable fieldを`null`） |
 | `lattice.runtime_binding_target.v1` | `schema, project_id, plan_key, task_id, run_id, runtime_todo_id, target_digest` |
-| `lattice.runtime_control_operation.v1` | `schema, operation, run_ref, artifact_digest, expected_epoch, expected_queue_digest, shutdown_reason, operation_digest`。`artifact_digest`は`finding_record | conflict | recompile`だけSHA-256、他は`null`。`shutdown_reason`は`close | abandon`だけ非空文字列、他は`null` |
-| `lattice.runtime_control_result.v1` | `schema, operation, outcome, event_head_digest, control_head_digest, active_epoch, staged_epoch, unmet, result_digest` |
+| `lattice.runtime_control_operation.v1` | `schema, operation, run_ref, artifact, artifact_digest, checkpoint_digest, expected_epoch, expected_queue_digest, shutdown_reason, operation_digest`。`finding_record | recompile`だけ`artifact`へ8 MiB以下のfull canonical JSON objectを置き`artifact_digest`をそのbytesへexact bindする。`conflict`は保存済みfinding参照の`artifact_digest`だけを持つ。`finding_record`だけ`checkpoint_digest`を持ち、その他のoperationでは`artifact`／`checkpoint_digest`は`null`。`shutdown_reason`は`close | abandon`だけ非空文字列、他は`null`。CLIからrun storeへ入力本文を先行保存したり、任意pathをsupervisorへ渡したりしない |
+| `lattice.runtime_control_result.v1` | 通常は`schema, operation, outcome, event_head_digest, control_head_digest, active_epoch, staged_epoch, unmet, result_digest`。`finding_record→recorded`だけ、後続`run conflict --finding`が参照する保存済みrecordの`finding_digest`を追加する。他operation／failureへ流用しない |
 | `lattice.runtime_control_event.v1` payload | event `kind`をdiscriminatorにした下記exact field。payload自体に別schema wrapperは置かない |
 
 control resultの成功outcomeはoperationへexact bindする。対応は`activate→activated`、
@@ -638,7 +649,7 @@ control event payloadのkind別exact fieldは次のとおり。
 | `dispatch_routed`, `observation_routed` | `controller_id, request_digest, response_digest` |
 | `hold_prepared` | `request_id, logical_intent_digest, finding_digest, barrier_id, recorded_at` |
 | `barrier_requested` | `barrier_id, reason, running_count, running_todo_ids, frozen_event_digest` |
-| `executor_quiesced` | `barrier_id, barrier_control_digest, todo_id, ack_digest` |
+| `executor_quiesced` | `barrier_id, barrier_control_digest, todo_id, ack, direct_observation, evidence_digest` |
 | `lease_revoked` | `controller_id, reason`。controller responseを取得した経路だけ`response_digest`を加える |
 | `epoch_rebind_acknowledged` | `todo_id, ack_digest, staged_lease_digest` |
 | `write_gate_committed` | `gate_digest, gate_generation` |

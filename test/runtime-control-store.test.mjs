@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { canonicalizeArtifact } from '../src/artifact-contracts.mjs';
+import { canonicalizeArtifact, digestArtifact } from '../src/artifact-contracts.mjs';
 import { selfDigest } from '../src/runtime-contracts.mjs';
 import { createRuntimeControlRequest } from '../src/runtime-controller-protocol.mjs';
 import {
@@ -41,11 +41,14 @@ function event(kind, recordedAt = WHEN) {
 }
 
 function operation(operation = 'hold') {
-  const artifactDigest = ['finding_record', 'conflict', 'recompile'].includes(operation) ? D('b') : null;
+  const artifact = ['finding_record', 'recompile'].includes(operation) ? { schema: `test.${operation}.v1` } : null;
+  const artifactDigest = artifact === null ? (operation === 'conflict' ? D('b') : null) : digestArtifact(artifact);
   const shutdownReason = ['close', 'abandon'].includes(operation) ? 'requested' : null;
   const value = {
     schema: 'lattice.runtime_control_operation.v1', operation, run_ref: 'run-a',
-    artifact_digest: artifactDigest, expected_epoch: 1, expected_queue_digest: null,
+    artifact, artifact_digest: artifactDigest,
+    checkpoint_digest: operation === 'finding_record' ? D('c') : null,
+    expected_epoch: 1, expected_queue_digest: null,
     shutdown_reason: shutdownReason, operation_digest: '',
   };
   value.operation_digest = selfDigest(value, 'operation_digest');
@@ -53,6 +56,22 @@ function operation(operation = 'hold') {
 }
 
 test('control event payloadは現producer全kindをdiscriminator別exact検証する', () => {
+  const observation = { schema: 'test.process.v1', quiesced: true };
+  const worktreeFingerprint = { schema: 'test.worktree.v1', checkpoint_digest: D('f') };
+  const checkpoint = { schema: 'test.checkpoint.v1', checkpoint_digest: D('f') };
+  const directObservation = { quiesced: true,
+    process_observation_digest: digestArtifact(observation),
+    worktree_fingerprint_digest: digestArtifact(worktreeFingerprint),
+    final_checkpoint_digest: checkpoint.checkpoint_digest, observation,
+    worktree_fingerprint: worktreeFingerprint, checkpoint, write_enabled: false };
+  const ack = { schema: 'lattice.executor_quiescence_ack.v1', ack_id: 'ack-a', run_id: 'run-a',
+    todo_id: 'T1', executor_handle: 'exec-a', worktree_id: 'wt-a', plan_epoch: 1,
+    packet_digest: D('1'), write_lease_id: 'lease-a', barrier_control_digest: D('9'),
+    final_checkpoint_digest: directObservation.final_checkpoint_digest,
+    process_observation_digest: directObservation.process_observation_digest,
+    worktree_fingerprint_digest: directObservation.worktree_fingerprint_digest,
+    supervisor_session_nonce_digest: D('a'), ack_digest: '' };
+  ack.ack_digest = selfDigest(ack, 'ack_digest');
   const valid = {
     supervisor_activated: { supervisor_descriptor_digest: D('1'), controller_descriptor_digest: D('2'), registration_digest: D('3') },
     supervisor_stopped: { shutdown_result_digest: D('4') },
@@ -63,7 +82,9 @@ test('control event payloadは現producer全kindをdiscriminator別exact検証�
     observation_routed: { controller_id: 'controller-a', request_digest: D('7'), response_digest: D('8') },
     hold_prepared: { request_id: 'request-a', logical_intent_digest: D('8'), finding_digest: D('7'), barrier_id: 'barrier-a', recorded_at: WHEN },
     barrier_requested: { barrier_id: 'barrier-a', reason: 'test', running_count: 0, running_todo_ids: [], frozen_event_digest: D('9') },
-    executor_quiesced: { barrier_id: 'barrier-a', barrier_control_digest: D('9'), todo_id: 'T1', ack_digest: D('a') },
+    executor_quiesced: { barrier_id: 'barrier-a', barrier_control_digest: D('9'), todo_id: 'T1',
+      ack, direct_observation: directObservation,
+      evidence_digest: digestArtifact({ ack, direct_observation: directObservation }) },
     lease_revoked: { controller_id: 'controller-a', reason: 'test', response_digest: D('b') },
     epoch_rebind_acknowledged: { todo_id: 'T1', ack_digest: D('c'), staged_lease_digest: D('d') },
     write_gate_committed: { gate_digest: D('e'), gate_generation: 1 },
@@ -212,6 +233,22 @@ test('同一request_idの異digestとcompleted response差替えを拒否する'
   changed.result.result_digest = selfDigest(changed.result, 'result_digest');
   changed.response_digest = selfDigest(changed, 'response_digest');
   await assert.rejects(store(value.runDir).completeRequest(first, changed),
+    (error) => error instanceof RuntimeControlStoreError && error.code === 'REQUEST_RESPONSE_CONFLICT');
+});
+
+test('durable recoveryだけは同一intentのrejected responseをcompletedへ単調昇格する', async (t) => {
+  const value = await fixture();
+  t.after(() => rm(value.root, { recursive: true, force: true }));
+  const first = request();
+  await store(value.runDir).beginRequest(first);
+  await store(value.runDir).completeRequest(first, response(first, 'rejected'));
+  const retried = createRuntimeControlRequest({ requestId: first.request_id, runId: first.run_id,
+    operation: first.operation, payload: first.payload, sessionNonce: 'm'.repeat(64) });
+  const recovered = response(retried);
+  assert.deepEqual(await store(value.runDir).recoverCompletedRequest(retried, recovered), recovered);
+  assert.deepEqual(await store(value.runDir).readRequest(retried),
+    publicEntry(retried, 'completed', 'completed', recovered));
+  await assert.rejects(store(value.runDir).recoverCompletedRequest(retried, response(retried)),
     (error) => error instanceof RuntimeControlStoreError && error.code === 'REQUEST_RESPONSE_CONFLICT');
 });
 

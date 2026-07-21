@@ -1,0 +1,51 @@
+if(request.schema==='lattice.adapter_running_inventory_request.v1'){
+  const running=[...(globalThis.__directRunningBindings??[])].sort((a,b)=>a.todo_id<b.todo_id?-1:a.todo_id>b.todo_id?1:0);
+  const response=sign({schema:'lattice.adapter_running_inventory_response.v1',request_id:request.request_id,
+    running_bindings:running,inventory_digest:digestArtifact(running),response_digest:''},'response_digest');
+  socket.write(canonicalizeArtifact(response)+'\n');return;
+}
+if(request.schema==='lattice.adapter_prepare_request.v1'){
+  globalThis.__stagedLeases ??= new Map();
+  globalThis.__stagedLeases.set(request.staged_lease.lease_digest,request.staged_lease);
+  const packet=request.executor_packet;
+  const ack=sign({schema:'lattice.adapter_prepare_ack.v1',ack_id:'prepare-'+packet.todo_id,
+    registration_digest:request.registration_digest,controller_id:controllerId,run_id:bootstrap.run_id,
+    todo_id:packet.todo_id,plan_epoch:packet.plan_epoch,packet_digest:packet.packet_digest,
+    staged_lease_digest:request.staged_lease.lease_digest,
+    supervisor_session_nonce_digest:digestArtifact(bootstrap.supervisor_session_nonce),ack_digest:''},'ack_digest');
+  const response=sign({schema:'lattice.adapter_prepare_response.v1',request_id:request.request_id,
+    prepare_ack:ack,staged_lease_digest:request.staged_lease.lease_digest,response_digest:''},'response_digest');
+  socket.write(canonicalizeArtifact(response)+'\n');return;
+}
+if(request.schema==='lattice.adapter_activate_request.v1'){
+  const epoch=[...(globalThis.__stagedLeases?.values()??[])][0]?.plan_epoch??1;
+  const ack=sign({schema:'lattice.adapter_ready_ack.v1',ack_id:'ready-'+controllerId,
+    registration_digest:request.registration_digest,controller_id:controllerId,run_id:bootstrap.run_id,
+    plan_epoch:epoch,activation_digest:request.activation_digest,
+    staged_lease_digests:request.staged_lease_digests,
+    supervisor_session_nonce_digest:digestArtifact(bootstrap.supervisor_session_nonce),ack_digest:''},'ack_digest');
+  const response=sign({schema:'lattice.adapter_activate_response.v1',request_id:request.request_id,
+    ready_ack:ack,observed_pointer_digest:request.committed_epoch_digest,response_digest:''},'response_digest');
+  socket.write(canonicalizeArtifact(response)+'\n');return;
+}
+if(request.schema==='lattice.adapter_release_request.v1'){
+  const armed=[];
+  for(const digest of request.staged_lease_digests){
+    const prior=globalThis.__stagedLeases.get(digest);
+    const lease={...prior,schema:'lattice.runtime_write_lease.v2',state:'armed',
+      release_barrier_digest:request.release_barrier_digest,gate_generation:request.gate_generation,
+      lease_digest:''};
+    lease.lease_digest=selfDigest(lease,'lease_digest');armed.push(lease.lease_digest);
+  }
+  armed.sort();
+  const epoch=[...(globalThis.__stagedLeases.values())][0]?.plan_epoch??1;
+  const ack=sign({schema:'lattice.adapter_release_ack.v1',ack_id:'release-'+controllerId,
+    registration_digest:request.registration_digest,controller_id:controllerId,run_id:bootstrap.run_id,
+    plan_epoch:epoch,release_barrier_digest:request.release_barrier_digest,
+    gate_generation:request.gate_generation,armed_lease_digests:armed,
+    supervisor_session_nonce_digest:digestArtifact(bootstrap.supervisor_session_nonce),ack_digest:''},'ack_digest');
+  const response=sign({schema:'lattice.adapter_release_response.v1',request_id:request.request_id,
+    release_ack:ack,armed_lease_digests:armed,observed_gate_generation:request.gate_generation,
+    response_digest:''},'response_digest');
+  socket.write(canonicalizeArtifact(response)+'\n');return;
+}

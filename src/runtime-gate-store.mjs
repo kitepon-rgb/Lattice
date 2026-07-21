@@ -266,12 +266,12 @@ function gateName(generation, suffix) {
   return `${String(generation).padStart(8, '0')}.${suffix}.json`;
 }
 
-function pathsFor(runDir, generation) {
+function pathsFor(runDir, generation, controlEventsPath = null) {
   const supervisorDir = path.join(runDir, 'supervisor');
   return {
     supervisorDir,
     gate: path.join(supervisorDir, 'write-gate.json'),
-    events: path.join(runDir, 'control-events.json'),
+    events: controlEventsPath ?? path.join(runDir, 'control-events.json'),
     bundle: path.join(supervisorDir, 'gate-commits', gateName(generation, 'bundle')),
     receipt: path.join(supervisorDir, 'gate-receipts', gateName(generation, 'receipt')),
   };
@@ -348,14 +348,15 @@ async function readPriorState(runDir, gate) {
   return { currentGate, previousReceipt };
 }
 
-async function buildCommit({ runDir, runId, sessionNonceDigest, activation }) {
+async function buildCommit({ runDir, runId, sessionNonceDigest, activation,
+  controlEventsPath = null }) {
   if (!plain(activation) || !exact(activation, ['gate', 'control_events'])
     || !validateSupervisorWriteGate(activation.gate)
     || activation.gate.run_id !== runId || !digest(sessionNonceDigest)) {
     fail('INVALID_GATE_COMMIT', 'gate activation入力不正');
   }
   const { previousReceipt } = await readPriorState(runDir, activation.gate);
-  const eventPath = pathsFor(runDir, activation.gate.gate_generation).events;
+  const eventPath = pathsFor(runDir, activation.gate.gate_generation, controlEventsPath).events;
   const priorEvents = await readCanonical(eventPath, validateControlJournal, 'control_events', { missing: true }) ?? [];
   const alreadyAppended = priorEvents.slice(-3);
   let baseEvents = priorEvents;
@@ -388,9 +389,9 @@ async function buildCommit({ runDir, runId, sessionNonceDigest, activation }) {
   return { bundle, receipt, baseEvents, newEvents, currentGate: (await readPriorState(runDir, activation.gate)).currentGate };
 }
 
-async function commitBuilt({ runDir, built, crashInjector }) {
+async function commitBuilt({ runDir, built, crashInjector, controlEventsPath = null }) {
   const generation = built.bundle.gate.gate_generation;
-  const paths = pathsFor(runDir, generation);
+  const paths = pathsFor(runDir, generation, controlEventsPath);
   await atomicPublish(paths.bundle, built.bundle, validateRuntimeGateBundle, crashInjector, 'bundle');
   const committedBundle = await readCanonical(paths.bundle, validateRuntimeGateBundle, 'bundle');
   if (committedBundle.bundle_digest !== built.bundle.bundle_digest) fail('GATE_COMMIT_CONFLICT', 'bundle digest衝突');
@@ -403,19 +404,21 @@ async function commitBuilt({ runDir, built, crashInjector }) {
 
 export async function commitRuntimeGateActivation(options) {
   const built = await buildCommit(options);
-  return commitBuilt({ runDir: options.runDir, built, crashInjector: options.crashInjector });
+  return commitBuilt({ runDir: options.runDir, built, crashInjector: options.crashInjector,
+    controlEventsPath: options.controlEventsPath ?? null });
 }
 
 export async function recoverRuntimeGateCommit(options) {
   return commitRuntimeGateActivation(options);
 }
 
-export async function readCommittedRuntimeGate({ runDir, expectedRunId = null }) {
+export async function readCommittedRuntimeGate({ runDir, expectedRunId = null,
+  controlEventsPath = null }) {
   const gatePath = path.join(runDir, 'supervisor', 'write-gate.json');
   const gate = await readCanonical(gatePath, validateSupervisorWriteGate, 'gate', { missing: true });
   if (gate === null) return null;
   if (expectedRunId !== null && gate.run_id !== expectedRunId) fail('INVALID_GATE_STORE', 'gate run binding不一致');
-  const paths = pathsFor(runDir, gate.gate_generation);
+  const paths = pathsFor(runDir, gate.gate_generation, controlEventsPath);
   const bundle = await readCanonical(paths.bundle, validateRuntimeGateBundle, 'bundle');
   const receipt = await readCanonical(paths.receipt, validateRuntimeGateCommitReceipt, 'receipt');
   const events = await readCanonical(paths.events, validateControlJournal, 'control_events');
@@ -424,7 +427,7 @@ export async function readCommittedRuntimeGate({ runDir, expectedRunId = null })
     || receipt.gate_generation !== gate.gate_generation
     || receipt.gate_digest !== gate.gate_digest
     || receipt.bundle_digest !== bundle.bundle_digest
-    || receipt.control_head_digest !== events.at(-1)?.event_digest
+    || !events.some((event) => event.event_digest === receipt.control_head_digest)
     || receipt.control_head_digest !== bundle.control_events.at(-1)?.event_digest
     || receipt.previous_receipt_digest !== bundle.previous_receipt_digest
     || receipt.committed_at !== gate.committed_at) {
@@ -459,13 +462,16 @@ export async function readCommittedRuntimeGate({ runDir, expectedRunId = null })
 }
 
 /** RuntimeManagedSupervisorの`gateWriter` dependencyへそのまま渡せるadapter。 */
-export function createRuntimeGateStore({ runDir, runId, sessionNonceDigest, crashInjector = null }) {
+export function createRuntimeGateStore({ runDir, runId, sessionNonceDigest,
+  controlEventsPath = null, crashInjector = null }) {
   if (typeof runDir !== 'string' || !path.isAbsolute(runDir) || !identifier(runId) || !digest(sessionNonceDigest)) {
     fail('INVALID_GATE_COMMIT', 'gate store設定不正');
   }
   return Object.freeze({
-    commit: (activation) => commitRuntimeGateActivation({ runDir, runId, sessionNonceDigest, activation, crashInjector }),
-    recover: (activation) => recoverRuntimeGateCommit({ runDir, runId, sessionNonceDigest, activation, crashInjector }),
-    read: () => readCommittedRuntimeGate({ runDir, expectedRunId: runId }),
+    commit: (activation) => commitRuntimeGateActivation({ runDir, runId, sessionNonceDigest,
+      controlEventsPath, activation, crashInjector }),
+    recover: (activation) => recoverRuntimeGateCommit({ runDir, runId, sessionNonceDigest,
+      controlEventsPath, activation, crashInjector }),
+    read: () => readCommittedRuntimeGate({ runDir, expectedRunId: runId, controlEventsPath }),
   });
 }

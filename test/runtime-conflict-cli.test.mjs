@@ -45,16 +45,21 @@ function exec(command, args, cwd, expected = 0, env = process.env) {
   return result;
 }
 
-async function createUnmanagedRun() {
+async function createUnmanagedRun({ twoTodos = false, sharedResource = false } = {}) {
   const temporary = await mkdtemp(path.join(tmpdir(), 'lattice-conflict-cli-'));
   const repo = path.join(temporary, 'repo');
   await mkdir(path.join(repo, 'src'), { recursive: true });
   await mkdir(path.join(repo, 'test'), { recursive: true });
   await writeFile(path.join(repo, '.gitignore'), '.lattice/runs/\n');
   await writeFile(path.join(repo, 'src', 'alpha.mjs'), 'export const alpha = 1;\n');
+  if (twoTodos) await writeFile(path.join(repo, 'src', 'beta.mjs'), 'export const beta = 2;\n');
   await writeFile(path.join(repo, 'test', 'alpha.test.mjs'), [
     "import assert from 'node:assert/strict';", "import test from 'node:test';",
     "import { alpha } from '../src/alpha.mjs';", "test('alpha', () => assert.equal(alpha, 1));", '',
+  ].join('\n'));
+  if (twoTodos) await writeFile(path.join(repo, 'test', 'beta.test.mjs'), [
+    "import assert from 'node:assert/strict';", "import test from 'node:test';",
+    "import { beta } from '../src/beta.mjs';", "test('beta', () => assert.equal(beta, 2));", '',
   ].join('\n'));
   exec('git', ['init', '--quiet', '--initial-branch=main'], repo);
   exec('git', ['-c', 'user.email=test@example.invalid', '-c', 'user.name=test', 'add', '.'], repo);
@@ -64,30 +69,39 @@ async function createUnmanagedRun() {
   const request = {
     schema: 'lattice.run_request.v1', request_id: 'conflict-cli-fixture',
     repo: { base_sha: baseSha, root_kind: 'git-worktree' }, capacity: { executors: 1 },
-    todos: [{ todo_id: 'T1' }], manual_witness: { T1: {
+    todos: [{ todo_id: 'T1' }, ...(twoTodos ? [{ todo_id: 'T2' }] : [])], manual_witness: { T1: {
       owns: [{ kind: 'symbol', target: 'alpha' }, { kind: 'path', target: 'src/alpha.mjs' }],
-      reads: [], writes: ['src/alpha.mjs'], resources: [], state_effects: [],
+      reads: [], writes: ['src/alpha.mjs'], resources: sharedResource ? ['shared-state'] : [], state_effects: [],
       sensor_provenance: { queries: [
         { query_id: 'q-alpha', expect: { kind: 'symbol', name: 'alpha', path: 'src/alpha.mjs' } },
         { query_id: 'q-aff', expect: { kind: 'affected', path: 'src/alpha.mjs' } },
       ] }, affected_tests: ['test/alpha.test.mjs'], unknowns: [],
-    } }, sensor_query_set: { queries: [
+    }, ...(twoTodos ? { T2: {
+      owns: [{ kind: 'symbol', target: 'beta' }, { kind: 'path', target: 'src/beta.mjs' }],
+      reads: [], writes: ['src/beta.mjs'], resources: sharedResource ? ['shared-state'] : [], state_effects: [],
+      sensor_provenance: { queries: [
+        { query_id: 'q-beta', expect: { kind: 'symbol', name: 'beta', path: 'src/beta.mjs' } },
+        { query_id: 'q-beta-aff', expect: { kind: 'affected', path: 'src/beta.mjs' } },
+      ] }, affected_tests: ['test/beta.test.mjs'], unknowns: [],
+    } } : {}) }, sensor_query_set: { queries: [
       { id: 'q-status', operation: 'status' }, { id: 'q-alpha', operation: 'query', target: 'alpha' },
       { id: 'q-aff', operation: 'affected', target: 'src/alpha.mjs' },
+      ...(twoTodos ? [{ id: 'q-beta', operation: 'query', target: 'beta' },
+        { id: 'q-beta-aff', operation: 'affected', target: 'src/beta.mjs' }] : []),
     ] }, executor_capability: { adapters: ['scripted'] }, claim_mode: 'exact_minimum',
   };
   request.request_digest = selfDigest(request, 'request_digest');
   const requestPath = path.join(temporary, 'request.json');
   await writeFile(requestPath, `${JSON.stringify(request)}\n`);
   exec(process.execPath, [CLI, 'run', 'start', '--request', requestPath, '--executor', 'scripted'], repo);
-  return { temporary, repo, runRef: '.lattice/runs/conflict-cli-fixture' };
+  return { temporary, repo, runRef: '.lattice/runs/conflict-cli-fixture', request };
 }
 
 async function installManagedControllerFixture(fixture, { signed = false } = {}) {
   const runtimeDir = path.join(fixture.repo, '.lattice', 'runtime', 'adapter-registry');
   const descriptorDir = path.join(runtimeDir, 'descriptors');
   await mkdir(descriptorDir, { recursive: true });
-  const controllerPath = path.join(fixture.repo, 'controller-host.mjs');
+  const controllerPath = path.join(runtimeDir, 'controller-host.mjs');
   const artifactUrl = new URL('../src/artifact-contracts.mjs', import.meta.url).href;
   const contractsUrl = new URL('../src/runtime-contracts.mjs', import.meta.url).href;
   const supervisorUrl = new URL('../src/runtime-managed-supervisor.mjs', import.meta.url).href;
@@ -117,7 +131,13 @@ const server = net.createServer((socket) => { connectionCount += 1; const persis
 server.listen(socketPath);
 process.on('SIGTERM', () => server.close(() => process.exit(0)));
 `;
-  await writeFile(controllerPath, controllerSource, { mode: 0o700 });
+  const extraOperations = await readFile(path.join(ROOT, 'test', 'fixtures',
+    'runtime-controller-operations.fragment.js.txt'), 'utf8');
+  const enhancedControllerSource = controllerSource.replace(
+    "if(request.schema==='lattice.adapter_revoke_request.v1')",
+    `${extraOperations}if(request.schema==='lattice.adapter_revoke_request.v1')`,
+  );
+  await writeFile(controllerPath, enhancedControllerSource, { mode: 0o700 });
   await chmod(controllerPath, 0o700);
   const configRef = '.lattice/runtime/adapter-registry/controller-config.json';
   const configPath = path.join(fixture.repo, configRef);
@@ -156,6 +176,50 @@ test('conflict・hold・reprocessは公開argvだがunmanaged runへfallbackし�
     assert.equal(result.stdout, '');
     assert.equal(JSON.parse(result.stderr).code, 'RUN_NOT_MANAGED');
   }
+});
+
+test('public finding recordは保存checkpointから再導出できないcandidateを実daemonで拒否する', async (t) => {
+  const fixture = await createUnmanagedRun({ twoTodos: true });
+  const runDir = path.join(fixture.repo, fixture.runRef);
+  t.after(async () => {
+    try {
+      for (const controllerId of await readdir(path.join(runDir, 'controllers'))) {
+        try {
+          const descriptor = JSON.parse(await readFile(path.join(runDir, 'controllers', controllerId,
+            'descriptor.json')));
+          process.kill(descriptor.pid, 'SIGTERM');
+        } catch { /* already stopped */ }
+      }
+    } catch { /* activation前失敗 */ }
+    await rm(fixture.temporary, { recursive: true, force: true });
+  });
+  await installManagedControllerFixture(fixture);
+  exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo);
+  let events = JSON.parse(await readFile(path.join(runDir, 'events.json')));
+  const checkpointDigest = digestArtifact({ todo_id: 'T1', path: 'src/beta.mjs', sequence: 1 });
+  events.push(buildNextRunEvent({ events, runId: fixture.request.request_id,
+    kind: 'checkpoint_observed', planEpoch: 1, subject: { kind: 'todo', ref: 'T1' },
+    payload: { checkpoint_digest: checkpointDigest, diff: { entries: [{
+      path: 'src/beta.mjs', change: 'modified', content_digest: digestArtifact('beta-change'),
+    }] } }, recordedAt: new Date().toISOString() }));
+  await writeFile(path.join(runDir, 'events.json'), `${JSON.stringify(events)}\n`);
+  const candidate = { schema: 'lattice.runtime_finding_candidate.v1',
+    proposed_kind: 'stale_context', todo_ids: ['T1'], path: 'src/beta.mjs', resource_id: null,
+    evidence_digests: [checkpointDigest], candidate_digest: '' };
+  candidate.candidate_digest = selfDigest(candidate, 'candidate_digest');
+  const input = path.join(fixture.temporary, 'finding-candidate.json');
+  await writeFile(input, `${canonicalizeArtifact(candidate)}\n`);
+  const rejected = exec(process.execPath, [CLI, 'run', 'finding', 'record', '--run', fixture.runRef,
+    '--checkpoint', checkpointDigest, '--input', input], fixture.repo, 1);
+  assert.equal(JSON.parse(rejected.stderr).code, 'FINDING_UNRESOLVED');
+  assert.deepEqual(await readdir(path.join(runDir, 'findings')).catch(() => []), []);
+
+  candidate.proposed_kind = 'scope_violation';
+  candidate.candidate_digest = selfDigest(candidate, 'candidate_digest');
+  await writeFile(input, `${canonicalizeArtifact(candidate)}\n`);
+  const accepted = exec(process.execPath, [CLI, 'run', 'finding', 'record', '--run', fixture.runRef,
+    '--checkpoint', checkpointDigest, '--input', input], fixture.repo);
+  assert.equal(JSON.parse(accepted.stdout).outcome, 'recorded');
 });
 
 test('external hold ack surfaceはusage違反のまま閉じる', async (t) => {
@@ -244,6 +308,177 @@ test('restart activation失敗は旧descriptor/session/control/gate証拠をbyte
   assert.deepEqual(await readFile(path.join(supervisorDir, 'write-gate.json')), gateSentinel);
   const candidates = await readdir(path.join(supervisorDir, 'restart-candidates')).catch(() => []);
   assert.deepEqual(candidates, []);
+});
+
+test('実controller daemonはholdからsuccessor prepare/release/中央gate/intake resumeまで公開CLIで完走する', async (t) => {
+  const fixture = await createUnmanagedRun({ twoTodos: true, sharedResource: true });
+  t.after(async () => {
+    const runDir = path.join(fixture.repo, fixture.runRef);
+    try {
+      const active = await resolveActiveRuntimePaths({ runDir });
+      process.kill(JSON.parse(await readFile(active.descriptorPath)).pid, 'SIGTERM');
+    } catch { /* already stopped */ }
+    await rm(fixture.temporary, { recursive: true, force: true });
+  });
+  await installManagedControllerFixture(fixture);
+  exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo, 0,
+    { ...process.env, NODE_ENV: 'test',
+      LATTICE_INTERNAL_TEST_CONTROLLER_COUNT: '2',
+      LATTICE_INTERNAL_TEST_CRASH_POINT: 'after_run_event_batch_receipt' });
+  const runDir = path.join(fixture.repo, fixture.runRef);
+  let events = JSON.parse(await readFile(path.join(runDir, 'events.json')));
+  const finding = { schema: 'lattice.runtime_finding_record.v1', finding_id: 'finding-recompile-e2e',
+    run_id: fixture.request.request_id, plan_epoch: 1, source_checkpoint_digest: 'a'.repeat(64),
+    observed_event_digest: events.at(-1).event_digest,
+    finding: { schema: 'lattice.runtime_conflict_finding.v1', kind: 'effect_conflict_unknown',
+      todo_ids: ['T1', 'T2'], path: null, resource_id: 'shared-state',
+      evidence_digests: ['b'.repeat(64)], finding_digest: '' },
+    recorded_by: { schema: 'lattice.runtime_observer_identity.v1', kind: 'supervisor',
+      controller_registration_digest: null, executor_handle: null, identity_digest: '' },
+    finding_digest: '' };
+  finding.finding.finding_digest = selfDigest(finding.finding, 'finding_digest');
+  finding.recorded_by.identity_digest = selfDigest(finding.recorded_by, 'identity_digest');
+  finding.finding_digest = selfDigest(finding, 'finding_digest');
+  await writeFile(path.join(runDir, 'findings', `${finding.finding_digest}.json`),
+    `${canonicalizeArtifact(finding)}\n`);
+  exec(process.execPath, [CLI, 'run', 'conflict', '--run', fixture.runRef,
+    '--finding', finding.finding_digest], fixture.repo);
+  exec(process.execPath, [CLI, 'run', 'hold', '--run', fixture.runRef], fixture.repo);
+  const queued = { schema: 'lattice.runtime_queue.v1', run_id: fixture.request.request_id,
+    frozen_epoch: 1, entries: [{ sequence: 1, kind: 'finding',
+      subject_digest: finding.finding.finding_digest, artifact_digest: finding.finding_digest }],
+    queue_digest: '' };
+  queued.queue_digest = selfDigest(queued, 'queue_digest');
+  await writeFile(path.join(runDir, 'queued-events.json'), `${canonicalizeArtifact(queued)}\n`);
+  events = JSON.parse(await readFile(path.join(runDir, 'events.json')));
+  const freeze = events.findLast((event) => event.kind === 'intake_frozen');
+  const hold = events.findLast((event) => event.kind === 'hold_decided');
+  const migration = { schema: 'lattice.runtime_task_migration.v1', entries: [
+    { predecessor_task_id: 'T1', disposition: 'stay', successor_task_ids: ['T1'],
+      reason: 'serial owner', evidence_digests: ['1'.repeat(64)] },
+    { predecessor_task_id: 'T2', disposition: 'carry', successor_task_ids: ['T2'],
+      reason: 'serial peer', evidence_digests: ['2'.repeat(64)] },
+  ], migration_digest: '' };
+  migration.migration_digest = selfDigest(migration, 'migration_digest');
+  const successor = { ...fixture.request, schema: 'lattice.run_request.v2',
+    predecessor_request_digest: fixture.request.request_digest,
+    task_migration_digest: migration.migration_digest, request_digest: '' };
+  successor.request_digest = selfDigest(successor, 'request_digest');
+  const serial = { schema: 'lattice.runtime_intentional_serial.v1',
+    finding_digest: finding.finding_digest, todo_ids: ['T1', 'T2'], resource_id: 'shared-state',
+    stay_todo_id: 'T1', reason: 'intentional serial e2e', serial_digest: '' };
+  serial.serial_digest = selfDigest(serial, 'serial_digest');
+  const recompile = { schema: 'lattice.runtime_recompile_request.v1', request_id: 'recompile-e2e',
+    run_id: fixture.request.request_id, predecessor_epoch: 1,
+    frozen_event_digest: freeze.event_digest, hold_decision_digest: hold.payload.decision_digest,
+    mode: 'intentional_serial', reason: 'shared state', successor_request: successor,
+    task_migration: migration, phase_revision: null, seam_split: null,
+    intentional_serial: serial, request_digest: '' };
+  recompile.request_digest = selfDigest(recompile, 'request_digest');
+  const input = path.join(fixture.temporary, 'recompile.json');
+  await writeFile(input, `${canonicalizeArtifact(recompile)}\n`);
+  const crashed = exec(process.execPath, [CLI, 'run', 'recompile', '--run', fixture.runRef,
+    '--input', input, '--request-id', 'recompile-pointer-crash'], fixture.repo, 1);
+  assert.equal(JSON.parse(crashed.stderr).code, 'RUN_OUTCOME_UNKNOWN');
+  const committedBeforeRestart = JSON.parse(await readFile(path.join(runDir, 'committed-epoch.json')));
+  assert.equal(committedBeforeRestart.plan_epoch, 1);
+  events = JSON.parse(await readFile(path.join(runDir, 'events.json')));
+  assert.equal(events.some((event) => event.kind === 'plan_recompiled'), false);
+  assert.equal((await readdir(runDir)).filter((name) => name.startsWith('run-event-batch-')).length, 1);
+  const restartedForStage = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo, 0,
+    { ...process.env, NODE_ENV: 'test', LATTICE_INTERNAL_TEST_CONTROLLER_COUNT: '2',
+      LATTICE_INTERNAL_TEST_CRASH_POINT: 'after_successor_stage' });
+  assert.equal(JSON.parse(restartedForStage.stdout).outcome, 'activated');
+  const crashedStageReplay = exec(process.execPath, [CLI, 'run', 'reprocess', '--run', fixture.runRef,
+    '--request-id', 'reprocess-stage-crash'], fixture.repo, 1);
+  assert.equal(JSON.parse(crashedStageReplay.stderr).code, 'RUN_OUTCOME_UNKNOWN', crashedStageReplay.stderr);
+  assert.equal(JSON.parse(await readFile(path.join(runDir, 'committed-epoch.json'))).plan_epoch, 1);
+  const restartedForReprocess = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo, 0,
+    { ...process.env, NODE_ENV: 'test', LATTICE_INTERNAL_TEST_CONTROLLER_COUNT: '2',
+      LATTICE_INTERNAL_TEST_CRASH_POINT: 'after_first_controller_release' });
+  assert.equal(JSON.parse(restartedForReprocess.stdout).outcome, 'activated');
+  const crashedReprocess = exec(process.execPath, [CLI, 'run', 'reprocess', '--run', fixture.runRef,
+    '--request-id', 'reprocess-stage-crash'], fixture.repo, 1);
+  assert.equal(JSON.parse(crashedReprocess.stderr).code, 'RUN_OUTCOME_UNKNOWN', crashedReprocess.stderr);
+  const committedAfterReplay = JSON.parse(await readFile(path.join(runDir, 'committed-epoch.json')));
+  assert.equal(committedAfterReplay.plan_epoch, 2);
+  await assert.rejects(readFile(path.join(runDir, 'supervisor', 'write-gate.json')), { code: 'ENOENT' });
+  const preRecoveryEvents = JSON.parse(await readFile(path.join(runDir, 'events.json')));
+  assert.equal(preRecoveryEvents.some((event) => event.kind === 'intake_resumed'
+    && event.plan_epoch === 2), false);
+  const restarted = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo, 0,
+    { ...process.env, NODE_ENV: 'test', LATTICE_INTERNAL_TEST_CONTROLLER_COUNT: '2' });
+  assert.equal(JSON.parse(restarted.stdout).outcome, 'activated');
+  const completedAfterGate = exec(process.execPath, [CLI, 'run', 'reprocess', '--run', fixture.runRef,
+    '--request-id', 'reprocess-stage-crash'], fixture.repo);
+  assert.equal(JSON.parse(completedAfterGate.stdout).outcome, 'reprocessed');
+  const completedLedger = JSON.parse(await readFile(path.join(runDir, 'control-request-ledger.json')));
+  assert.equal(completedLedger.entries.find((entry) => entry.request_id === 'reprocess-stage-crash')?.state,
+    'completed');
+  events = JSON.parse(await readFile(path.join(runDir, 'events.json')));
+  assert.equal(events.some((event) => event.kind === 'intake_resumed'
+    && event.plan_epoch === 2), true);
+  const completedRuntime = await resolveActiveRuntimePaths({ runDir });
+  process.kill(JSON.parse(await readFile(completedRuntime.descriptorPath)).pid, 'SIGKILL');
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const restartedAfterGate = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo, 0,
+    { ...process.env, NODE_ENV: 'test', LATTICE_INTERNAL_TEST_CONTROLLER_COUNT: '2' });
+  assert.equal(JSON.parse(restartedAfterGate.stdout).outcome, 'activated');
+  const result = exec(process.execPath, [CLI, 'run', 'reprocess', '--run', fixture.runRef,
+    '--request-id', 'reprocess-stage-crash'], fixture.repo);
+  assert.equal(JSON.parse(result.stdout).outcome, 'reprocessed');
+  const pointer = JSON.parse(await readFile(path.join(runDir, 'committed-epoch.json')));
+  const release = JSON.parse(await readFile(path.join(runDir, 'release-epoch.json')));
+  const gate = JSON.parse(await readFile(path.join(runDir, 'supervisor', 'write-gate.json')));
+  events = JSON.parse(await readFile(path.join(runDir, 'events.json')));
+  assert.equal(pointer.plan_epoch, 2);
+  assert.equal(release.plan_epoch, 2);
+  assert.equal(release.controller_ready_ack_digests.length, 2);
+  assert.equal(gate.plan_epoch, 2);
+  assert.equal(gate.gate_generation, 2);
+  assert.equal(gate.release_barrier_digest, release.release_digest);
+  assert.equal(gate.controller_release_ack_digests.length, 2);
+  assert.equal(gate.armed_lease_digests.length, release.staged_lease_digests.length);
+  assert.equal(new Set(gate.controller_release_ack_digests).size, 2);
+  assert.equal(new Set(gate.armed_lease_digests).size, gate.armed_lease_digests.length);
+  assert.equal(events.at(-1).kind, 'intake_resumed');
+  assert.equal(events.at(-1).payload.write_gate_digest, gate.gate_digest);
+  const activeRuntime = await resolveActiveRuntimePaths({ runDir });
+  const controlEvents = JSON.parse(await readFile(activeRuntime.controlEventsPath));
+  const intakeControlIndex = controlEvents.findLastIndex((event) => event.kind === 'intake_resumed'
+    && event.payload.plan_epoch === 2);
+  const gateControlBatch = controlEvents.slice(intakeControlIndex - 2, intakeControlIndex + 1);
+  assert.deepEqual(gateControlBatch.map((event) => event.kind),
+    ['write_gate_committed', 'epoch_activated', 'intake_resumed']);
+  assert.equal(gateControlBatch[0].payload.gate_digest, gate.gate_digest);
+  assert.equal(gateControlBatch[0].payload.gate_generation, gate.gate_generation);
+  assert.equal(gateControlBatch[1].previous_digest, gateControlBatch[0].event_digest);
+  assert.equal(gateControlBatch[1].payload.gate_digest, gate.gate_digest);
+  assert.equal(gateControlBatch[2].previous_digest, gateControlBatch[1].event_digest);
+  assert.equal(gateControlBatch[2].payload.gate_digest, gate.gate_digest);
+  assert.equal(gateControlBatch.every((event) => event.session_nonce_digest
+    === activeRuntime.pointer.session_nonce_digest), true);
+  const reprocessedQueue = JSON.parse(await readFile(path.join(runDir, 'queued-events.json')));
+  assert.deepEqual(reprocessedQueue.entries, []);
+  assert.deepEqual(events.filter((event) => event.kind === 'context_invalidated')
+    .map((event) => event.subject.ref).sort(), ['T1', 'T2']);
+  assert.equal(events.filter((event) => event.kind === 'plan_recompiled'
+    && event.plan_epoch === 2).length, 1);
+  assert.equal(events.filter((event) => event.kind === 'epoch_rebound'
+    && event.plan_epoch === 2).length, 0);
+  const eventBatchReceipts = (await readdir(runDir))
+    .filter((name) => name.startsWith('run-event-batch-'));
+  const eventBatchPhases = await Promise.all(eventBatchReceipts.map(async (name) =>
+    JSON.parse(await readFile(path.join(runDir, name))).phase));
+  assert.equal(eventBatchPhases.filter((phase) => phase === 'recompile').length, 1);
+  assert.equal(eventBatchPhases.filter((phase) => phase === 'epoch_rebound').length, 1);
+  assert.equal(eventBatchPhases.filter((phase) => phase.startsWith('epoch_rebound_recovery_')).length, 2);
+  const ledger = JSON.parse(await readFile(path.join(runDir, 'control-request-ledger.json')));
+  const reprocessLedger = ledger.entries.find((entry) => entry.request_id === 'reprocess-stage-crash');
+  assert.equal(reprocessLedger?.state, 'completed');
+  assert.equal(reprocessLedger?.response?.result?.outcome, 'reprocessed');
+  exec(process.execPath, [CLI, 'run', 'abandon', '--run', fixture.runRef,
+    '--reason', 'recompile-e2e-cleanup'], fixture.repo);
 });
 
 test('activate後もdaemonが生存しfinding→conflict→hold receiptとdispatch freezeを維持する', async (t) => {

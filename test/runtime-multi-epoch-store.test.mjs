@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,9 +8,11 @@ import test from 'node:test';
 
 import { digestArtifact } from '../src/artifact-contracts.mjs';
 import { selfDigest } from '../src/runtime-contracts.mjs';
+import { buildExecutorPackets } from '../src/runtime-engine.mjs';
 import {
   RuntimeEpochStoreError,
   activateEpochOneStore,
+  commitStagedSuccessorEpoch,
   readCommittedEpochStore,
   stageSuccessorEpoch,
 } from '../src/runtime-multi-epoch-store.mjs';
@@ -88,6 +90,31 @@ async function activationEvidence(runDir) {
     activationRunEventDigest: runEvents.at(-1).event_digest,
     activationControlEventDigest: control.event_digest,
   };
+}
+
+function successorBundle(active) {
+  const migration = { schema: 'lattice.runtime_task_migration.v1', entries: [{
+    predecessor_task_id: 'T1', disposition: 'stay', successor_task_ids: ['T1'],
+    reason: 'intentional serial', evidence_digests: ['1'.repeat(64)],
+  }], migration_digest: '' };
+  migration.migration_digest = selfDigest(migration, 'migration_digest');
+  const request = { ...active.bundle.request, schema: 'lattice.run_request.v2',
+    predecessor_request_digest: active.bundle.request.request_digest,
+    task_migration_digest: migration.migration_digest, request_digest: '' };
+  request.request_digest = selfDigest(request, 'request_digest');
+  const plan = { ...active.bundle.plan, plan_ref: 'plan-multi-epoch-fixture-e2', plan_epoch: 2,
+    request_digest: request.request_digest, predecessor_refs: [active.bundle.plan.plan_ref],
+    plan_digest: '' };
+  plan.plan_digest = selfDigest(plan, 'plan_digest');
+  const bundle = { schema: 'lattice.runtime_epoch_bundle.v1', run_id: active.bundle.run_id,
+    plan_epoch: 2, request, plan, manifests: active.bundle.manifests,
+    executor_packets: buildExecutorPackets({ plan, manifests: active.bundle.manifests }),
+    rebind_packets: {}, plan_diff: {}, task_migration: migration,
+    treatment: { schema: 'test.intentional_serial.v1' }, phase_revision_digest: null,
+    phase_revision_commit_receipt: null, predecessor_bundle_digest: active.bundle.bundle_digest,
+    bundle_digest: '' };
+  bundle.bundle_digest = selfDigest(bundle, 'bundle_digest');
+  return bundle;
 }
 
 test('v1 alias bytesを変えずepoch 1 bundleとpointerを最後にcommitする', async (t) => {
@@ -187,4 +214,26 @@ test('epoch bundle/meta後pointer前crashはsame activation digestだけroll-for
   (error) => error.code === 'INVALID_RUN_STORE');
   await assert.rejects(readFile(path.join(value.runDir, 'committed-epoch.json')),
     (error) => error.code === 'ENOENT');
+});
+
+test('successor directory rename後pointer前crashはsame transactionだけroll-forwardする', async (t) => {
+  const value = await fixture();
+  t.after(() => rm(value.root, { recursive: true, force: true }));
+  const request = JSON.parse(await readFile(path.join(value.runDir, 'request.json')));
+  const compileArtifact = JSON.parse(await readFile(path.join(value.runDir, 'plan-compile-result.json')));
+  const legacyMeta = JSON.parse(await readFile(path.join(value.runDir, 'run-meta.json')));
+  const evidence = await activationEvidence(value.runDir);
+  const active = await activateEpochOneStore({ runDir: value.runDir, request, compileArtifact,
+    legacyMeta, ...evidence });
+  const bundle = successorBundle(active);
+  await stageSuccessorEpoch({ runDir: value.runDir, transactionId: 'successor-2', bundle,
+    validateSuccessor: () => true });
+  await rename(path.join(value.runDir, 'staging', 'successor-2'),
+    path.join(value.runDir, 'epochs', '00000002'));
+  const committed = await commitStagedSuccessorEpoch({ runDir: value.runDir,
+    transactionId: 'successor-2', ...evidence });
+  assert.equal(committed.pointer.plan_epoch, 2);
+  const retried = await commitStagedSuccessorEpoch({ runDir: value.runDir,
+    transactionId: 'successor-2', ...evidence });
+  assert.equal(retried.pointer.pointer_digest, committed.pointer.pointer_digest);
 });

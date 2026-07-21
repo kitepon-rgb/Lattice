@@ -18,6 +18,7 @@ import path from 'node:path';
 
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
+import { detectCheckpointFindings } from './runtime-diff-observer.mjs';
 import {
   compileRuntimePlanV1,
   evidenceFromCollectedOutcomes,
@@ -31,21 +32,34 @@ import {
 } from './runtime-contracts.mjs';
 import {
   buildNextRunEvent,
+  buildExecutorPackets,
   closeRunIfComplete,
   initializeRunEvents,
 } from './runtime-engine.mjs';
 import {
   computeReadyFrontier,
   recomputeReceiptDecisions,
+  classifyObservedDiff,
 } from './runtime-decision-verifier.mjs';
 import { verifyRunEventChain } from './runtime-event-store.mjs';
 import { projectRuntimeState } from './runtime-projection.mjs';
+import {
+  decideHoldAndCarryOver,
+  recompileNextEpochPlan,
+  validateRuntimeRecompileRequest,
+} from './runtime-hold-recompile.mjs';
 import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
 import {
   activateEpochOneStore,
+  commitStagedSuccessorEpoch,
+  commitReleaseEpochBarrier,
   RuntimeEpochStoreError,
   isManagedRunFrozen,
   readCommittedEpochStore,
+  recordRuntimeFinding,
+  stageSuccessorEpoch,
+  validateRuntimeEpochBundle,
+  validateRuntimeFindingCandidate,
   validateRuntimeFindingRecord,
 } from './runtime-multi-epoch-store.mjs';
 import { createRuntimeControlRequest, validateRuntimeControlResponse } from './runtime-controller-protocol.mjs';
@@ -462,6 +476,89 @@ async function replaceCanonicalJsonAtomically(directory, name, value) {
   await durableReplaceBytes(directory, name, Buffer.from(`${canonicalizeArtifact(value)}\n`));
 }
 
+function runtimeEventBatchReceiptName(transactionId, phase) {
+  return `run-event-batch-${digestArtifact({ transaction_id: transactionId, phase })}.json`;
+}
+
+function sameDigestPrefix(left, right) {
+  return left.length <= right.length && left.every((digest, index) => digest === right[index]);
+}
+
+/**
+ * Recompileのrun event副作用をtransaction単位でexact-once publishする。
+ * receiptをevents.jsonより先にdurable化するため、receipt直後のcrashは同じ
+ * event object（recorded_atを含む）をroll-forwardできる。events.jsonはatomic
+ * replaceだが、検証はpartial prefixも受け、別branchや別batchは拒否する。
+ */
+async function publishRuntimeEventBatch({ runDir, transactionId, phase, planEpoch,
+  bindingDigest, currentEvents, proposedBatch, crashInjector }) {
+  if (!verifyRunEventChain({ events: currentEvents }).valid) {
+    throw new ManagedRuntimeError('EVENT_CHAIN_INVALID', 'event batch publish前のrun event chainが不正');
+  }
+  const receiptName = runtimeEventBatchReceiptName(transactionId, phase);
+  const receiptPath = path.join(runDir, receiptName);
+  let receipt = await readBoundedJson(receiptPath, 'runtime event batch receipt').catch((error) => {
+    if (error?.code === 'INPUT_UNREADABLE') return null;
+    throw error;
+  });
+  if (receipt === null) {
+    const combined = [...currentEvents, ...proposedBatch];
+    const chain = verifyRunEventChain({ events: combined });
+    if (!chain.valid) {
+      throw new ManagedRuntimeError('EVENT_CHAIN_INVALID', 'recompile event batchのchainが不正');
+    }
+    receipt = {
+      schema: 'lattice.runtime_run_event_batch_receipt.v1',
+      transaction_id: transactionId,
+      phase,
+      plan_epoch: planEpoch,
+      binding_digest: bindingDigest,
+      base_event_digests: currentEvents.map((event) => event.event_digest),
+      batch_events: structuredClone(proposedBatch),
+      ordered_event_digests: proposedBatch.map((event) => event.event_digest),
+      batch_digest: digestArtifact(proposedBatch.map((event) => event.event_digest)),
+      receipt_digest: '',
+    };
+    receipt.receipt_digest = selfDigest(receipt, 'receipt_digest');
+    await replaceCanonicalJsonAtomically(runDir, receiptName, receipt);
+    if (typeof crashInjector === 'function') await crashInjector('after_run_event_batch_receipt', {
+      transaction_id: transactionId, phase, receipt_digest: receipt.receipt_digest,
+    });
+  }
+  const receiptValid = receipt?.schema === 'lattice.runtime_run_event_batch_receipt.v1'
+    && receipt.transaction_id === transactionId
+    && receipt.phase === phase
+    && receipt.plan_epoch === planEpoch
+    && receipt.binding_digest === bindingDigest
+    && receipt.receipt_digest === selfDigest(receipt, 'receipt_digest')
+    && Array.isArray(receipt.base_event_digests)
+    && Array.isArray(receipt.batch_events)
+    && Array.isArray(receipt.ordered_event_digests)
+    && canonicalizeArtifact(receipt.batch_events.map((event) => event.event_digest))
+      === canonicalizeArtifact(receipt.ordered_event_digests)
+    && receipt.batch_digest === digestArtifact(receipt.ordered_event_digests);
+  if (!receiptValid) {
+    throw new ManagedRuntimeError('RECOMPILE_EVENT_BATCH_CONFLICT', 'event batch receiptのbindingが不正');
+  }
+  const currentDigests = currentEvents.map((event) => event.event_digest);
+  const fullDigests = [...receipt.base_event_digests, ...receipt.ordered_event_digests];
+  if (!sameDigestPrefix(currentDigests, fullDigests) && !sameDigestPrefix(fullDigests, currentDigests)) {
+    throw new ManagedRuntimeError('RECOMPILE_EVENT_BATCH_CONFLICT', 'events.jsonがreceiptと異なるbranchにある');
+  }
+  if (currentDigests.length >= fullDigests.length) return currentEvents;
+  if (currentDigests.length < receipt.base_event_digests.length) {
+    throw new ManagedRuntimeError('RECOMPILE_EVENT_BATCH_CONFLICT', 'receiptのbase event chainが欠落している');
+  }
+  const baseEvents = currentEvents.slice(0, receipt.base_event_digests.length);
+  const completed = [...baseEvents, ...receipt.batch_events];
+  const chain = verifyRunEventChain({ events: completed });
+  if (!chain.valid) {
+    throw new ManagedRuntimeError('EVENT_CHAIN_INVALID', 'receiptから復元したevent batchのchainが不正');
+  }
+  await replaceEventsAtomically(runDir, completed);
+  return completed;
+}
+
 async function durableReplaceBytes(directory, name, bytes) {
   const temporaryPath = path.join(directory, `.${name}-${process.pid}-${randomUUID()}.tmp`);
   let handle;
@@ -854,12 +951,15 @@ async function readManagedSession(runDir) {
   return { descriptor, sessionNonce, socketPath };
 }
 
-function controlOperationPayload({ operation, runRef, artifactDigest, expectedEpoch, expectedQueueDigest, shutdownReason = null }) {
+function controlOperationPayload({ operation, runRef, artifact = null, artifactDigest,
+  checkpointDigest = null, expectedEpoch, expectedQueueDigest, shutdownReason = null }) {
   const value = {
     schema: 'lattice.runtime_control_operation.v1',
     operation,
     run_ref: runRef,
+    artifact,
     artifact_digest: artifactDigest,
+    checkpoint_digest: checkpointDigest,
     expected_epoch: expectedEpoch,
     expected_queue_digest: expectedQueueDigest,
     shutdown_reason: shutdownReason,
@@ -868,8 +968,27 @@ function controlOperationPayload({ operation, runRef, artifactDigest, expectedEp
   return value;
 }
 
-async function runManagedControl({ runDir, runRef, operation, artifactDigest, stdout,
-  shutdownReason = null, emit = true, requestId = null }) {
+async function isActiveSupervisorGateCommitted(runDir, events, expectedEpoch) {
+  if (await isManagedRunFrozen(runDir, events)) return false;
+  const active = await resolveActiveRuntimePaths({ runDir });
+  const sessionNonceDigest = active.pointer?.session_nonce_digest
+    ?? digestArtifact((await readFile(active.sessionPath, 'utf8')).trim());
+  const gateDocument = await readBoundedJson(path.join(runDir, 'supervisor', 'write-gate.json'),
+    'supervisor write gate');
+  const committedGate = await createRuntimeGateStore({ runDir, runId: gateDocument.run_id,
+    sessionNonceDigest, controlEventsPath: active.controlEventsPath }).read();
+  if (committedGate === null || committedGate.gate.plan_epoch !== expectedEpoch) return false;
+  const gate = committedGate.gate;
+  const controlEvents = await readBoundedJson(active.controlEventsPath,
+    'runtime control events');
+  const resumed = controlEvents.findLast((event) => event.kind === 'intake_resumed'
+    && event.payload?.plan_epoch === expectedEpoch
+    && event.payload?.gate_digest === gate.gate_digest);
+  return resumed !== undefined && resumed.session_nonce_digest === sessionNonceDigest;
+}
+
+async function runManagedControl({ runDir, runRef, operation, artifact = null, artifactDigest, stdout,
+  checkpointDigest = null, shutdownReason = null, emit = true, requestId = null }) {
   const committed = await readCommittedEpochStore(runDir);
   if (committed === null) throw new CliContractError('RUN_NOT_MANAGED', 'runがmanaged storeへactivateされていない');
   const { descriptor, sessionNonce, socketPath } = await readManagedSession(runDir);
@@ -883,28 +1002,99 @@ async function runManagedControl({ runDir, runRef, operation, artifactDigest, st
   } catch (error) {
     if (!(error instanceof CliContractError) || error.code !== 'INPUT_UNREADABLE') throw error;
   }
+  let expectedEpoch = operation === 'recompile'
+    && Number.isSafeInteger(artifact?.predecessor_epoch)
+    ? artifact.predecessor_epoch : committed.pointer.plan_epoch;
+  if (operation === 'recompile' && requestId !== null) {
+    const transaction = await readBoundedJson(path.join(runDir,
+      'epoch-activation-transaction.json'), 'epoch activation transaction').catch(() => null);
+    if (transaction?.request_id === requestId
+      && transaction.recompile_request_digest === artifact?.request_digest) {
+      expectedEpoch = transaction.successor_epoch - 1;
+      expectedQueueDigest = transaction.queue_head_digest;
+    }
+  }
+  if (operation === 'reprocess' && requestId !== null) {
+    const pending = await readBoundedJson(path.join(runDir, 'pending-recompile.json'),
+      'pending recompile').catch(() => null);
+    if (pending?.reprocess_request_id === requestId
+      && pending.pending_digest === selfDigest(pending, 'pending_digest')) {
+      expectedEpoch = pending.predecessor_epoch;
+      expectedQueueDigest = pending.reprocess_queue_digest;
+    } else {
+      const transaction = await readBoundedJson(path.join(runDir,
+        'epoch-activation-transaction.json'), 'epoch activation transaction').catch(() => null);
+      if (transaction?.schema === 'lattice.runtime_epoch_activation_transaction.v1'
+        && transaction.transaction_digest === selfDigest(transaction, 'transaction_digest')) {
+        expectedEpoch = transaction.successor_epoch - 1;
+        expectedQueueDigest = transaction.queue_head_digest;
+      }
+    }
+  }
   const payload = controlOperationPayload({
-    operation, runRef, artifactDigest, expectedEpoch: committed.pointer.plan_epoch,
+    operation, runRef, artifact, artifactDigest, checkpointDigest,
+    expectedEpoch,
     expectedQueueDigest, shutdownReason,
   });
   const request = createRuntimeControlRequest({
     requestId: requestId ?? randomUUID(), runId: committed.meta.run_id, operation,
     payload, sessionNonce,
   });
+  if (operation === 'reprocess' && requestId !== null
+    && committed.pointer.plan_epoch === expectedEpoch + 1) {
+    const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+    if (await isActiveSupervisorGateCommitted(runDir, events, committed.pointer.plan_epoch)) {
+      const activeRuntime = await resolveActiveRuntimePaths({ runDir });
+      const journal = await readBoundedJson(activeRuntime.controlEventsPath,
+        'runtime control events');
+      const result = buildControlResult({ operation: 'reprocess', outcome: 'reprocessed',
+        eventHeadDigest: events.at(-1)?.event_digest ?? null,
+        controlHeadDigest: journal.at(-1)?.event_digest ?? null,
+        activeEpoch: committed.pointer.plan_epoch, stagedEpoch: null });
+      const response = buildControlResponse(request, 'completed', result,
+        journal.at(-1)?.event_digest ?? null);
+      const store = createRuntimeControlStore({ runDir, runId: committed.meta.run_id,
+        clock: canonicalNow });
+      await store.completeRequest(request, response);
+      if (emit) stdout.write(`${JSON.stringify(result)}\n`);
+      return emit ? 0 : result;
+    }
+  }
   let response;
   let ambiguous = false;
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      response = await sendRuntimeControlRequest({ socketPath, request });
+      response = await sendRuntimeControlRequest({ socketPath, request,
+        timeoutMs: ['recompile', 'reprocess'].includes(operation) ? 60_000 : 5_000 });
     } catch (error) {
       if (error?.code === 'RUN_OUTCOME_UNKNOWN') ambiguous = true;
       else if (!(ambiguous && error?.code === 'RUN_NOT_MANAGED')) throw error;
+      if (operation === 'reprocess' && requestId !== null) {
+        const latest = await readCommittedEpochStore(runDir);
+        const latestEvents = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+        if (latest?.pointer.plan_epoch === expectedEpoch + 1
+          && await isActiveSupervisorGateCommitted(runDir, latestEvents,
+            latest.pointer.plan_epoch)) {
+          return runManagedControl({ runDir, runRef, operation, artifact, artifactDigest,
+            stdout, checkpointDigest, shutdownReason, emit, requestId });
+        }
+      }
       if (attempt === 99) throw new CliContractError('RUN_OUTCOME_UNKNOWN',
         `managed ${operation}の結果が確定しない。同一request_id=${request.request_id}`);
       await new Promise((resolve) => setTimeout(resolve, 50));
       continue;
     }
     if (response.outcome !== 'unknown') break;
+    if (operation === 'reprocess' && requestId !== null) {
+      const latest = await readCommittedEpochStore(runDir);
+      const latestEvents = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+      if (latest?.pointer.plan_epoch === expectedEpoch + 1
+        && await isActiveSupervisorGateCommitted(runDir, latestEvents,
+          latest.pointer.plan_epoch)) {
+        return runManagedControl({ runDir, runRef, operation, artifact, artifactDigest,
+          stdout, checkpointDigest, shutdownReason, emit, requestId });
+      }
+    }
     if (attempt === 99) throw new CliContractError('RUN_OUTCOME_UNKNOWN',
       `managed ${operation}の結果が確定しない。同一request_id=${request.request_id}`);
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -915,6 +1105,7 @@ async function runManagedControl({ runDir, runRef, operation, artifactDigest, st
   }
   const resultKeys = ['schema', 'operation', 'outcome', 'event_head_digest', 'control_head_digest',
     'active_epoch', 'staged_epoch', 'unmet', 'result_digest'];
+  if (operation === 'finding_record') resultKeys.push('finding_digest');
   const resultBody = { ...response.result };
   delete resultBody.result_digest;
   if (response.result?.schema !== 'lattice.runtime_control_result.v1'
@@ -946,6 +1137,21 @@ function buildControlResponse(request, outcome, result, controlHeadDigest) {
   return response;
 }
 
+function validateRuntimeQueue(queue, runId, frozenEpoch) {
+  return queue !== null && typeof queue === 'object' && !Array.isArray(queue)
+    && Object.keys(queue).sort().join('\0') === ['schema', 'run_id', 'frozen_epoch', 'entries', 'queue_digest'].sort().join('\0')
+    && queue.schema === 'lattice.runtime_queue.v1' && queue.run_id === runId
+    && queue.frozen_epoch === frozenEpoch && Array.isArray(queue.entries)
+    && queue.entries.every((entry, index) => entry !== null && typeof entry === 'object'
+      && !Array.isArray(entry)
+      && Object.keys(entry).sort().join('\0') === ['sequence', 'kind', 'subject_digest', 'artifact_digest'].sort().join('\0')
+      && Number.isSafeInteger(entry.sequence) && entry.sequence === index + 1
+      && typeof entry.kind === 'string' && entry.kind.length > 0
+      && /^[0-9a-f]{64}$/u.test(entry.subject_digest)
+      && /^[0-9a-f]{64}$/u.test(entry.artifact_digest))
+    && queue.queue_digest === selfDigest(queue, 'queue_digest');
+}
+
 function controlIntentDigest(request) {
   return selfDigest({ request_id: request.request_id, run_id: request.run_id,
     operation: request.operation, payload: request.payload, intent_digest: '' }, 'intent_digest');
@@ -968,12 +1174,13 @@ export function reconstructHoldResultFromJournal({ journal, runId, requestId, in
       && event.payload?.barrier_control_digest === barrier.event_digest);
   const acknowledgedTodos = acknowledgements.map((event) => event.payload.todo_id).sort();
   if (acknowledgements.length !== barrier.payload.running_count
+    || acknowledgements.some((event) => typeof event.payload?.ack?.ack_digest !== 'string')
     || new Set(acknowledgedTodos).size !== acknowledgedTodos.length
     || JSON.stringify(acknowledgedTodos) !== JSON.stringify(barrier.payload.running_todo_ids)) return null;
   const result = {
     schema: 'lattice.runtime_hold_result.v1', run_id: runId,
     finding_digest: prepared.payload.finding_digest, barrier_id: prepared.payload.barrier_id,
-    quiescence_ack_digests: acknowledgements.map((event) => event.payload.ack_digest).sort(),
+    quiescence_ack_digests: acknowledgements.map((event) => event.payload.ack.ack_digest).sort(),
     outcome: 'held', recorded_at: prepared.payload.recorded_at, result_digest: '',
   };
   result.result_digest = selfDigest(result, 'result_digest');
@@ -1034,7 +1241,7 @@ async function runActivate({ runDir, runRef, repoRoot, stdout, requestId = null 
   }
   // daemonがpointerまでcommitしたことを再読してから成功を返す。
   const committed = await readCommittedEpochStore(runDir);
-  if (committed?.pointer.plan_epoch !== 1
+  if (committed === null
     || !events.some((event) => event.event_digest === committed.pointer.activation_run_event_digest)) {
     throw new CliContractError('RUN_NOT_MANAGED', 'activate commitを再検証できない');
   }
@@ -1046,6 +1253,7 @@ async function runActivate({ runDir, runRef, repoRoot, stdout, requestId = null 
 export async function runManagedSupervisorDaemon({
   runDir, sessionNonce, serveRuntimeControlSocket, activateController, onReady,
   registerDaemonCleanup = () => {}, crashInjector = null,
+  validatePhaseRevision = null, commitPhaseRevision = null,
 }) {
   const repoRoot = await realpath(path.resolve(runDir, '..', '..', '..'));
   const request = await readBoundedJson(path.join(runDir, 'request.json'), 'run request');
@@ -1056,6 +1264,7 @@ export async function runManagedSupervisorDaemon({
   const socketPath = path.join(supervisorDir, 'control.sock');
   let managedSupervisor = null;
   let activation = null;
+  let additionalActivations = [];
   let activationCommitted = false;
   let controlEvents = [];
   const restarting = legacyMeta.schema === 'lattice.run_meta.v2';
@@ -1073,9 +1282,7 @@ export async function runManagedSupervisorDaemon({
     controlEvents = await eventStore.readEvents();
     return eventDigest;
   };
-  const gateWriter = createRuntimeGateStore({
-    runDir, runId: request.request_id, sessionNonceDigest: digestArtifact(sessionNonce),
-  });
+  let gateWriter = null;
   const resolveObservationBinding = async ({ binding }) => {
     const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
     const dispatch = events.findLast((event) => event.kind === 'executor_dispatched'
@@ -1129,6 +1336,11 @@ export async function runManagedSupervisorDaemon({
         }
         activation = await activateController({ repoRoot, runId: request.request_id,
           adapterKind: legacyMeta.executor_adapter });
+        if (process.env.NODE_ENV === 'test'
+          && process.env.LATTICE_INTERNAL_TEST_CONTROLLER_COUNT === '2') {
+          additionalActivations = [await activateController({ repoRoot, runId: request.request_id,
+            adapterKind: legacyMeta.executor_adapter })];
+        }
         if (restarting) recoveryRegistrationDigest = activation.registration.registration_digest;
         const activationControlDigest = await appendControl({ run_id: request.request_id,
           kind: 'supervisor_activated', session_nonce_digest: digestArtifact(sessionNonce),
@@ -1151,6 +1363,12 @@ export async function runManagedSupervisorDaemon({
         await mkdir(controllerDir, { recursive: true, mode: 0o700 });
         await writeCanonicalJsonFile(path.join(controllerDir, 'descriptor.json'), activation.controllerDescriptor);
         await writeCanonicalJsonFile(path.join(controllerDir, 'registration.json'), activation.registration);
+        for (const extra of additionalActivations) {
+          const extraDir = path.join(runDir, 'controllers', extra.controllerDescriptor.controller_id);
+          await mkdir(extraDir, { recursive: true, mode: 0o700 });
+          await writeCanonicalJsonFile(path.join(extraDir, 'descriptor.json'), extra.controllerDescriptor);
+          await writeCanonicalJsonFile(path.join(extraDir, 'registration.json'), extra.registration);
+        }
         if (restarting) {
           await replaceCanonicalJsonAtomically(candidateDir, 'descriptor.json', activation.supervisorDescriptor);
           await durableReplaceBytes(candidateDir, 'session', Buffer.from(`${sessionNonce}\n`));
@@ -1158,6 +1376,10 @@ export async function runManagedSupervisorDaemon({
           await writeCanonicalJsonFile(path.join(supervisorDir, 'descriptor.json'), activation.supervisorDescriptor);
           await durableReplaceBytes(supervisorDir, 'session', Buffer.from(`${sessionNonce}\n`));
         }
+        gateWriter = createRuntimeGateStore({ runDir, runId: request.request_id,
+          sessionNonceDigest: digestArtifact(sessionNonce),
+          controlEventsPath: restarting ? path.join(candidateDir, 'control-events.json')
+            : path.join(runDir, 'control-events.json') });
         const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
         const committed = restarting
           ? await readCommittedEpochStore(runDir)
@@ -1168,6 +1390,9 @@ export async function runManagedSupervisorDaemon({
           resolveObservationBinding, resolveRunningBindings,
           journal: { append: appendControl }, gateWriter,
         });
+        for (const extra of additionalActivations) {
+          await extra.registerWithManagedSupervisor(managedSupervisor);
+        }
         if (restarting) {
           await managedSupervisor.recoveryBarrier({ barrierId: `recovery-${randomUUID()}`,
             frozenEventDigest: events.at(-1).event_digest });
@@ -1196,6 +1421,9 @@ export async function runManagedSupervisorDaemon({
           activePointer.pointer_digest = selfDigest(activePointer, 'pointer_digest');
           await replaceCanonicalJsonAtomically(supervisorDir, 'active-runtime.json', activePointer);
           activationCommitted = true;
+          if (typeof crashInjector === 'function') await crashInjector(
+            'after_active_runtime_pointer_commit', { request_id: controlRequest.request_id,
+              pointer_digest: activePointer.pointer_digest });
           return restartResponse;
         }
         if (!restarting) activationCommitted = true;
@@ -1205,31 +1433,171 @@ export async function runManagedSupervisorDaemon({
         return buildControlResponse(controlRequest, 'completed', result, controlEvents.at(-1).event_digest);
       }
       if (managedSupervisor === null) throw new ManagedRuntimeError('RUN_NOT_MANAGED', 'activate未完了');
+      if (controlRequest.operation === 'finding_record') {
+        const candidate = controlRequest.payload.artifact;
+        if (!validateRuntimeFindingCandidate(candidate)
+          || digestArtifact(candidate) !== controlRequest.payload.artifact_digest) {
+          throw new ManagedRuntimeError('FINDING_UNRESOLVED', 'finding candidate/digest binding不正');
+        }
+        const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+        const active = await readCommittedEpochStore(runDir);
+        const checkpointDigest = controlRequest.payload.checkpoint_digest;
+        const observed = events.findLast((event) => event.plan_epoch === controlRequest.payload.expected_epoch
+          && event.payload?.checkpoint_digest === checkpointDigest);
+        if (observed === undefined) {
+          if (events.some((event) => event.payload?.checkpoint_digest === checkpointDigest)) {
+            throw new ManagedRuntimeError('STALE_FINDING', 'checkpointは旧epochに属する');
+          }
+          throw new ManagedRuntimeError('FINDING_UNRESOLVED', '保存checkpointをactive event prefixから解決できない');
+        }
+        const activeRequestV1 = active.bundle.request.schema === 'lattice.run_request.v1'
+          ? structuredClone(active.bundle.request) : {
+            schema: 'lattice.run_request.v1', request_id: active.bundle.request.request_id,
+            repo: active.bundle.request.repo, capacity: active.bundle.request.capacity,
+            todos: active.bundle.request.todos, manual_witness: active.bundle.request.manual_witness,
+            sensor_query_set: active.bundle.request.sensor_query_set,
+            executor_capability: active.bundle.request.executor_capability,
+            claim_mode: active.bundle.request.claim_mode, request_digest: '',
+          };
+        activeRequestV1.request_digest = selfDigest(activeRequestV1, 'request_digest');
+        const fresh = await compileFromRepo({ request: activeRequestV1, cwd: repoRoot,
+          planRef: active.bundle.plan.plan_ref, planEpoch: active.pointer.plan_epoch,
+          predecessorRefs: active.bundle.plan.predecessor_refs });
+        if (fresh.outcome !== 'dispatchable'
+          || canonicalizeArtifact(fresh.manifests) !== canonicalizeArtifact(active.bundle.manifests)
+          || canonicalizeArtifact(fresh.plan.nodes.map(({ todo_id: id }) => id))
+            !== canonicalizeArtifact(active.bundle.plan.nodes.map(({ todo_id: id }) => id))) {
+          throw new ManagedRuntimeError('STALE_FINDING', 'current compile/sensorがactive epochから変化した');
+        }
+        const checkpointEntries = Array.isArray(observed.payload?.diff?.entries)
+          ? observed.payload.diff.entries : [];
+        const durableEvidence = new Set([checkpointDigest, observed.event_digest]);
+        for (const entry of checkpointEntries) {
+          if (/^[0-9a-f]{64}$/u.test(entry?.content_digest ?? '')) durableEvidence.add(entry.content_digest);
+        }
+        for (const manifest of Object.values(fresh.manifests)) {
+          for (const graph of manifest.graph_evidence) {
+            if (/^[0-9a-f]{64}$/u.test(graph?.result_digest ?? '')) durableEvidence.add(graph.result_digest);
+          }
+        }
+        let derivedTodoIds;
+        let derivedKind;
+        const observationSet = events.filter((event) => event.plan_epoch === active.pointer.plan_epoch
+          && event.kind === 'checkpoint_observed' && Array.isArray(event.payload?.diff?.entries)
+          && event.subject?.kind === 'todo').map((event) => ({ todo_id: event.subject.ref,
+          paths: event.payload.diff.entries.map((entry) => entry.path) }));
+        const independentlyClassified = classifyObservedDiff({ plan: active.bundle.plan,
+          manifests: fresh.manifests, observations: observationSet }).findings;
+        if (candidate.path !== null) {
+          const producer = detectCheckpointFindings({ todoId: observed.subject.ref,
+            checkpoint: observed.payload, packets: active.bundle.executor_packets,
+            runningTodoIds: projectRuntimeState({ events }).running }).findings;
+          const match = producer.find((findingValue) => findingValue.kind === candidate.proposed_kind
+            && findingValue.path === candidate.path
+            && canonicalizeArtifact(findingValue.todo_ids) === canonicalizeArtifact(candidate.todo_ids));
+          const verified = independentlyClassified.find((findingValue) => findingValue.kind === candidate.proposed_kind
+            && findingValue.path === candidate.path
+            && canonicalizeArtifact(findingValue.todo_ids) === canonicalizeArtifact(candidate.todo_ids));
+          if (match === undefined || verified === undefined) throw new ManagedRuntimeError(
+            'FINDING_UNRESOLVED', 'path findingのproducer/verifier再導出が一致しない');
+          derivedTodoIds = [...match.todo_ids];
+          derivedKind = match.kind;
+        } else {
+          const match = independentlyClassified.find((findingValue) => findingValue.kind === candidate.proposed_kind
+            && findingValue.resource_id === candidate.resource_id
+            && canonicalizeArtifact(findingValue.todo_ids) === canonicalizeArtifact(candidate.todo_ids));
+          if (match === undefined) throw new ManagedRuntimeError('FINDING_UNRESOLVED',
+            'resource findingをindependent checkpoint classifierから再導出できない');
+          derivedTodoIds = [...match.todo_ids];
+          derivedKind = match.kind;
+        }
+        if (derivedTodoIds.length === 0
+          || derivedKind !== candidate.proposed_kind
+          || canonicalizeArtifact(derivedTodoIds) !== canonicalizeArtifact(candidate.todo_ids)) {
+          throw new ManagedRuntimeError('FINDING_UNRESOLVED', 'candidate todo集合をcheckpoint/current manifestsから再導出できない');
+        }
+        if (!candidate.evidence_digests.every((digest) => durableEvidence.has(digest))) {
+          throw new ManagedRuntimeError('FINDING_UNRESOLVED', 'candidate evidenceをdurable checkpoint/sensor artifactへ解決できない');
+        }
+        const observer = { schema: 'lattice.runtime_observer_identity.v1', kind: 'supervisor',
+          controller_registration_digest: activation.registration.registration_digest,
+          executor_handle: null, identity_digest: '' };
+        observer.identity_digest = selfDigest(observer, 'identity_digest');
+        const finding = await recordRuntimeFinding({ runDir, candidate, checkpointDigest,
+          observedEventDigest: observed.event_digest, recordedBy: observer,
+          // producerとは別のcallbackでも同一active bundle/checkpoint bindingを再検査する。
+          deriveFinding: (_untrusted, evidence) => {
+            return { schema: 'lattice.runtime_conflict_finding.v1',
+              kind: derivedKind, todo_ids: derivedTodoIds,
+              path: candidate.path, resource_id: candidate.resource_id,
+              evidence_digests: [...new Set([checkpointDigest,
+                ...candidate.evidence_digests])].sort(), finding_digest: '' };
+          },
+          verifyFinding: (derived, evidence) => derived.kind === candidate.proposed_kind
+            && derived.finding_digest === selfDigest(derived, 'finding_digest')
+            && evidence.checkpoint.event_digest === observed.event_digest
+            && canonicalizeArtifact(evidence.bundle.manifests)
+              === canonicalizeArtifact(fresh.manifests)
+            && derived.todo_ids.every((id) => Object.hasOwn(fresh.manifests, id)) });
+        if (projectRuntimeState({ events }).freeze !== null) {
+          let queue = await readBoundedJson(path.join(runDir, 'queued-events.json'),
+            'runtime queue').catch((error) => {
+            if (error instanceof CliContractError && error.code === 'INPUT_UNREADABLE') return null;
+            throw error;
+          });
+          if (queue === null) queue = { schema: 'lattice.runtime_queue.v1',
+            run_id: request.request_id, frozen_epoch: controlRequest.payload.expected_epoch,
+            entries: [], queue_digest: '' };
+          else if (!validateRuntimeQueue(queue, request.request_id,
+            controlRequest.payload.expected_epoch)) {
+            throw new ManagedRuntimeError('RUN_RECOVERY_REQUIRED', 'finding queue binding不正');
+          }
+          queue.entries.push({ sequence: queue.entries.length + 1, kind: 'finding',
+            subject_digest: candidate.candidate_digest,
+            artifact_digest: finding.finding_digest });
+          queue.queue_digest = selfDigest(queue, 'queue_digest');
+          await replaceCanonicalJsonAtomically(runDir, 'queued-events.json', queue);
+        }
+        const result = buildControlResult({ operation: 'finding_record', outcome: 'recorded',
+          eventHeadDigest: events.at(-1).event_digest,
+          controlHeadDigest: controlEvents.at(-1).event_digest,
+          activeEpoch: controlRequest.payload.expected_epoch,
+          stagedEpoch: null });
+        result.finding_digest = finding.finding_digest;
+        const unsigned = { ...result }; delete unsigned.result_digest;
+        result.result_digest = digestArtifact(unsigned);
+        return buildControlResponse(controlRequest, 'completed', result,
+          controlEvents.at(-1).event_digest);
+      }
       if (controlRequest.operation === 'conflict') {
         const findingDigest = controlRequest.payload.artifact_digest;
         const finding = await readBoundedJson(path.join(runDir, 'findings', `${findingDigest}.json`), 'runtime finding');
+        const active = await readCommittedEpochStore(runDir);
         if (!validateRuntimeFindingRecord(finding)
           || finding.finding_digest !== findingDigest
-          || finding.run_id !== request.request_id || finding.plan_epoch !== 1) {
+          || finding.run_id !== request.request_id) {
           throw new ManagedRuntimeError('FINDING_UNRESOLVED', 'finding binding不正');
         }
+        if (finding.plan_epoch !== active.pointer.plan_epoch) {
+          throw new ManagedRuntimeError('STALE_FINDING', 'findingはactive epochに属さない');
+        }
         let events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
-        const todoId = finding.finding?.todo_ids?.[0] ?? compileArtifact.plan.nodes[0].todo_id;
-        events.push(buildNextRunEvent({ events, runId: request.request_id, kind: 'conflict_found', planEpoch: 1,
+        const todoId = finding.finding?.todo_ids?.[0] ?? active.bundle.plan.nodes[0].todo_id;
+        events.push(buildNextRunEvent({ events, runId: request.request_id, kind: 'conflict_found', planEpoch: active.pointer.plan_epoch,
           subject: { kind: 'todo', ref: todoId }, payload: {
             ...finding.finding, finding_digest: findingDigest, reported_by: 'lattice-supervisor',
           }, recordedAt: canonicalNow() }));
-        events.push(buildNextRunEvent({ events, runId: request.request_id, kind: 'intake_frozen', planEpoch: 1,
-          subject: { kind: 'runtime_plan', ref: compileArtifact.plan.plan_ref },
+        events.push(buildNextRunEvent({ events, runId: request.request_id, kind: 'intake_frozen', planEpoch: active.pointer.plan_epoch,
+          subject: { kind: 'runtime_plan', ref: active.bundle.plan.plan_ref },
           payload: { frozen_prefix_digest: digestArtifact(events.map(({ event_digest: value }) => value)), reason_kind: finding.finding.kind }, recordedAt: canonicalNow() }));
         await replaceEventsAtomically(runDir, events);
         const result = buildControlResult({ operation: 'conflict', outcome: 'frozen',
           eventHeadDigest: events.at(-1).event_digest, controlHeadDigest: controlEvents.at(-1).event_digest,
-          activeEpoch: 1 });
+          activeEpoch: active.pointer.plan_epoch });
         return buildControlResponse(controlRequest, 'completed', result, controlEvents.at(-1).event_digest);
       }
       if (controlRequest.operation === 'hold') {
-        const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+        let events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
         const conflict = events.findLast((event) => event.kind === 'conflict_found');
         if (!conflict) throw new ManagedRuntimeError('FINDING_UNRESOLVED', '保存済みconflictなし');
         const holdBarrierId = `barrier-${randomUUID()}`;
@@ -1246,6 +1614,25 @@ export async function runManagedSupervisorDaemon({
           barrierId: holdBarrierId, reason: conflict.payload.kind,
           recordedAt: holdRecordedAt,
         });
+        controlEvents = await eventStore.readEvents();
+        const quiesced = controlEvents.filter((event) => event.kind === 'executor_quiesced'
+          && held.quiescence_ack_digests.includes(event.payload?.ack?.ack_digest));
+        for (const evidence of quiesced) {
+          const checkpoint = evidence.payload.direct_observation.checkpoint;
+          events.push(buildNextRunEvent({ events, runId: request.request_id,
+            kind: 'checkpoint_observed', planEpoch: controlRequest.payload.expected_epoch,
+            subject: { kind: 'todo', ref: evidence.payload.todo_id },
+            payload: { ...structuredClone(checkpoint), barrier_final: true,
+              barrier_evidence_digest: evidence.payload.evidence_digest },
+            recordedAt: holdRecordedAt }));
+        }
+        const active = await readCommittedEpochStore(runDir);
+        const decided = decideHoldAndCarryOver({ runId: request.request_id,
+          request: active.bundle.request, plan: active.bundle.plan,
+          manifests: active.bundle.manifests, packets: active.bundle.executor_packets,
+          events, recordedAt: holdRecordedAt });
+        events = decided.events;
+        await replaceEventsAtomically(runDir, events);
         if (typeof crashInjector === 'function') await crashInjector('after_hold_effect', {
           request_id: controlRequest.request_id, hold_result_digest: held.result_digest,
         });
@@ -1264,8 +1651,461 @@ export async function runManagedSupervisorDaemon({
           activeEpoch: 1 });
         return buildControlResponse(controlRequest, 'completed', result, controlEvents.at(-1).event_digest);
       }
+      if (controlRequest.operation === 'recompile') {
+        const recompileRequest = controlRequest.payload.artifact;
+        if (digestArtifact(recompileRequest) !== controlRequest.payload.artifact_digest) {
+          throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST', 'recompile artifact digest不一致');
+        }
+        const active = await readCommittedEpochStore(runDir);
+        let events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+        const freeze = events.findLast((event) => event.kind === 'intake_frozen');
+        const holdEvent = events.findLast((event) => event.kind === 'hold_decided'
+          && event.plan_epoch === active.pointer.plan_epoch);
+        if (freeze === undefined || holdEvent === undefined
+          || !validateRuntimeRecompileRequest(recompileRequest, {
+            predecessorBundle: active.bundle, frozenEventDigest: freeze.event_digest,
+            holdDecisionDigest: holdEvent.payload?.decision_digest, validatePhaseRevision,
+          })) throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST', 'frozen/hold/successor binding不正');
+
+        // front-endはv1入力を再利用するが、successor identityはv2 digestへ再封印する。
+        const successorV1 = { schema: 'lattice.run_request.v1',
+          request_id: recompileRequest.successor_request.request_id,
+          repo: recompileRequest.successor_request.repo,
+          capacity: recompileRequest.successor_request.capacity,
+          todos: recompileRequest.successor_request.todos,
+          manual_witness: recompileRequest.successor_request.manual_witness,
+          sensor_query_set: recompileRequest.successor_request.sensor_query_set,
+          executor_capability: recompileRequest.successor_request.executor_capability,
+          claim_mode: recompileRequest.successor_request.claim_mode, request_digest: '' };
+        successorV1.request_digest = selfDigest(successorV1, 'request_digest');
+        const nextEpoch = active.pointer.plan_epoch + 1;
+        const compiled = await compileFromRepo({ request: successorV1, cwd: repoRoot,
+          planRef: `plan-${recompileRequest.run_id}-e${nextEpoch}`, planEpoch: nextEpoch,
+          predecessorRefs: [active.bundle.plan.plan_ref] });
+        if (compiled.outcome !== 'dispatchable') {
+          throw new ManagedRuntimeError(compiled.code ?? 'SEAM_SPLIT_UNPROVEN', 'successor compileがdispatchableでない');
+        }
+        const newPlan = structuredClone(compiled.plan);
+        newPlan.request_digest = recompileRequest.successor_request.request_digest;
+        if (recompileRequest.mode === 'intentional_serial') {
+          const serial = recompileRequest.intentional_serial;
+          const key = `${serial.todo_ids.join('\0')}\0${serial.resource_id}`;
+          const exists = newPlan.conflicts.some((entry) => `${entry.todo_ids.join('\0')}\0${entry.resource_id}` === key);
+          if (!exists) newPlan.conflicts.push({ todo_ids: [...serial.todo_ids], resource_id: serial.resource_id });
+          newPlan.conflicts.sort((left, right) => `${left.todo_ids.join('\0')}\0${left.resource_id}`
+            .localeCompare(`${right.todo_ids.join('\0')}\0${right.resource_id}`));
+        }
+        newPlan.plan_digest = selfDigest(newPlan, 'plan_digest');
+        const executorPackets = buildExecutorPackets({ plan: newPlan, manifests: compiled.manifests });
+
+        // 既存pure coreからcontext invalidationとcarry rebind packetだけを再利用する。
+        const predecessorRequest = active.bundle.request.schema === 'lattice.run_request.v1'
+          ? active.bundle.request : { ...active.bundle.request, schema: 'lattice.run_request.v1' };
+        delete predecessorRequest.predecessor_request_digest;
+        delete predecessorRequest.task_migration_digest;
+        predecessorRequest.request_digest = selfDigest(predecessorRequest, 'request_digest');
+        const corePlan = active.bundle.request.schema === 'lattice.run_request.v1'
+          ? active.bundle.plan : { ...active.bundle.plan, request_digest: predecessorRequest.request_digest };
+        corePlan.plan_digest = selfDigest(corePlan, 'plan_digest');
+        const predecessorEvents = events;
+        // event batch receiptより先に、outer reprocessが同じrecompile transactionを
+        // 再構成できるbindingをdurable化する。
+        const priorPending = await readBoundedJson(path.join(runDir, 'pending-recompile.json'),
+          'pending recompile').catch(() => null);
+        const pendingRecompile = {
+          schema: 'lattice.runtime_pending_recompile.v1',
+          control_request_id: controlRequest.request_id,
+          reprocess_request_id: priorPending?.reprocess_request_id ?? null,
+          reprocess_queue_digest: priorPending?.reprocess_queue_digest ?? null,
+          recovery_response_outcome: priorPending?.recovery_response_outcome ?? null,
+          recompile_request: structuredClone(recompileRequest),
+          predecessor_epoch: active.pointer.plan_epoch,
+          frozen_event_digest: freeze.event_digest,
+          hold_decision_digest: holdEvent.payload.decision_digest,
+          pending_digest: '',
+        };
+        pendingRecompile.pending_digest = selfDigest(pendingRecompile, 'pending_digest');
+        await replaceCanonicalJsonAtomically(runDir, 'pending-recompile.json', pendingRecompile);
+        const core = recompileNextEpochPlan({ runId: active.meta.run_id,
+          request: predecessorRequest, plan: corePlan, manifests: active.bundle.manifests,
+          packets: active.bundle.executor_packets, events, holdDecision: holdEvent.payload,
+          additionalConflicts: recompileRequest.mode === 'intentional_serial'
+            ? [{ todo_ids: recompileRequest.intentional_serial.todo_ids,
+              resource_id: recompileRequest.intentional_serial.resource_id }] : [],
+          recordedAt: canonicalNow() });
+        const proposedCoreBatch = [];
+        let proposedCoreEvents = [...predecessorEvents];
+        for (const proposed of core.events.slice(predecessorEvents.length)) {
+          const payload = proposed.kind === 'plan_recompiled'
+            ? { ...proposed.payload, new_plan_digest: newPlan.plan_digest }
+            : proposed.payload;
+          const event = buildNextRunEvent({ events: proposedCoreEvents, runId: active.meta.run_id,
+            kind: proposed.kind, planEpoch: proposed.plan_epoch,
+            subject: proposed.kind === 'plan_recompiled'
+              ? { kind: 'runtime_plan', ref: newPlan.plan_ref } : proposed.subject,
+            payload, recordedAt: proposed.recorded_at });
+          proposedCoreEvents.push(event);
+          proposedCoreBatch.push(event);
+        }
+        events = [...predecessorEvents];
+        const planDiff = { ...core.planDiff, new_plan_ref: newPlan.plan_ref };
+        planDiff.diff_digest = selfDigest(planDiff, 'diff_digest');
+        const rebindPackets = Object.fromEntries(Object.entries(core.rebindPackets)
+          .filter(([todoId]) => Object.hasOwn(executorPackets, todoId)));
+        const bundleBody = { schema: 'lattice.runtime_epoch_bundle.v1', run_id: active.meta.run_id,
+          plan_epoch: nextEpoch, request: recompileRequest.successor_request, plan: newPlan,
+          manifests: compiled.manifests, executor_packets: executorPackets,
+          rebind_packets: rebindPackets, plan_diff: planDiff,
+          task_migration: recompileRequest.task_migration,
+          treatment: recompileRequest.mode === 'seam_split'
+            ? recompileRequest.seam_split : recompileRequest.intentional_serial,
+          phase_revision_digest: null, phase_revision_commit_receipt: null,
+          predecessor_bundle_digest: active.bundle.bundle_digest };
+        bundleBody.bundle_digest = digestArtifact(bundleBody);
+        const treatment = recompileRequest.mode === 'seam_split'
+          ? recompileRequest.seam_split : recompileRequest.intentional_serial;
+        const treatmentFinding = await readBoundedJson(path.join(runDir, 'findings',
+          `${treatment.finding_digest}.json`), 'runtime finding');
+        if (!validateRuntimeFindingRecord(treatmentFinding)
+          || treatmentFinding.run_id !== active.meta.run_id
+          || treatmentFinding.plan_epoch !== active.pointer.plan_epoch
+          || treatmentFinding.finding_digest !== treatment.finding_digest) {
+          throw new ManagedRuntimeError(treatmentFinding?.plan_epoch !== active.pointer.plan_epoch
+            ? 'STALE_FINDING' : 'FINDING_UNRESOLVED', 'treatment findingがactive epochへbindしない');
+        }
+        if (treatment.finding_digest !== holdEvent.payload?.finding?.finding_digest
+          || canonicalizeArtifact(treatmentFinding.finding.todo_ids)
+            !== canonicalizeArtifact(treatment.todo_ids ?? treatment.predecessor_task_ids)) {
+          throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST', 'treatmentがhold finding/todo集合と一致しない');
+        }
+        if (recompileRequest.mode === 'intentional_serial'
+          && treatmentFinding.finding.resource_id !== treatment.resource_id) {
+          throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST', 'serial resourceがfinding resourceと一致しない');
+        }
+        if (recompileRequest.mode === 'intentional_serial'
+          && !treatment.todo_ids.every((todoId) => {
+            const manifest = active.bundle.manifests[todoId];
+            return manifest?.resources?.includes(treatment.resource_id)
+              || manifest?.state_effects?.some((effect) => effect.resource_id === treatment.resource_id);
+          })) {
+          throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST', 'serial resourceをfresh ownershipから再導出できない');
+        }
+        if (recompileRequest.mode === 'seam_split') {
+          const ownership = (manifests) => Object.entries(manifests).flatMap(([todoId, manifest]) => [
+            ...manifest.resources.map((resourceId) => ({ resource_id: resourceId,
+              owner_todo_id: todoId, access_kind: 'own' })),
+            ...manifest.state_effects.map((effect) => ({ resource_id: effect.resource_id,
+              owner_todo_id: todoId, access_kind: 'write' })),
+          ]).sort((left, right) => canonicalizeArtifact(left).localeCompare(canonicalizeArtifact(right)));
+          const edges = (planValue) => [
+            ...planValue.precedence.map((edge) => ({ from_todo_id: edge.from_todo_id,
+              to_todo_id: edge.to_todo_id, kind: 'hard_dependency' })),
+            ...planValue.conflicts.map((edge) => ({ from_todo_id: edge.todo_ids[0],
+              to_todo_id: edge.todo_ids[1], kind: 'conflict' })),
+          ].sort((left, right) => canonicalizeArtifact(left).localeCompare(canonicalizeArtifact(right)));
+          const difference = (left, right) => left.filter((entry) => !right.some((other) =>
+            canonicalizeArtifact(entry) === canonicalizeArtifact(other)));
+          const beforeOwnership = ownership(active.bundle.manifests);
+          const afterOwnership = ownership(compiled.manifests);
+          const beforeEdges = edges(active.bundle.plan);
+          const afterEdges = edges(newPlan);
+          const derivedOwnership = { added: difference(afterOwnership, beforeOwnership),
+            removed: difference(beforeOwnership, afterOwnership) };
+          const derivedEdges = { added: difference(afterEdges, beforeEdges),
+            removed: difference(beforeEdges, afterEdges) };
+          if (canonicalizeArtifact(derivedOwnership.added)
+              !== canonicalizeArtifact(treatment.ownership_diff.added)
+            || canonicalizeArtifact(derivedOwnership.removed)
+              !== canonicalizeArtifact(treatment.ownership_diff.removed)
+            || canonicalizeArtifact(derivedEdges.added)
+              !== canonicalizeArtifact(treatment.edge_diff.added)
+            || canonicalizeArtifact(derivedEdges.removed)
+              !== canonicalizeArtifact(treatment.edge_diff.removed)) {
+            throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST',
+              'seam ownership/edge diffをfresh predecessor/successorから再導出できない');
+          }
+          const findingPath = treatmentFinding.finding.path;
+          if (findingPath !== null) {
+            const coversPath = (manifest) => manifest.writes.some((declared) =>
+              declared === findingPath || (declared.endsWith('/') && findingPath.startsWith(declared)));
+            const overlappingBefore = Object.values(active.bundle.manifests)
+              .filter(coversPath).length;
+            const overlappingAfter = Object.values(compiled.manifests)
+              .filter(coversPath).length;
+            if (overlappingAfter > 1) {
+              throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST',
+                'seam successorでfinding pathがsingle ownerへ収束していない');
+            }
+          } else {
+            const findingResource = treatmentFinding.finding.resource_id;
+            const resourceOwners = (manifests) => Object.values(manifests).filter((manifest) =>
+              manifest.resources.includes(findingResource)
+              || manifest.state_effects.some((effect) => effect.resource_id === findingResource)).length;
+            if (resourceOwners(compiled.manifests) > 1) {
+              throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST',
+                'seam successorでresourceがsingle ownerへ収束していない');
+            }
+          }
+          const findingConflictResource = treatmentFinding.finding.resource_id ?? treatmentFinding.finding.path;
+          if (newPlan.conflicts.some((conflict) => conflict.resource_id === findingConflictResource
+            && treatmentFinding.finding.todo_ids.every((todoId) => conflict.todo_ids.includes(todoId)))) {
+            throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST',
+              'seam successorにfinding conflict edgeが残存している');
+          }
+        }
+        const validateCompiledSuccessor = (candidate, context) => validateRuntimeEpochBundle(candidate)
+          && candidate.predecessor_bundle_digest === context.predecessor.bundle_digest
+          && candidate.plan_epoch === context.pointer.plan_epoch + 1
+          && candidate.request.request_digest === recompileRequest.successor_request.request_digest
+          && candidate.task_migration.migration_digest === recompileRequest.task_migration.migration_digest
+          && canonicalizeArtifact(candidate.treatment) === canonicalizeArtifact(treatment)
+          && canonicalizeArtifact(candidate.plan) === canonicalizeArtifact(newPlan)
+          && canonicalizeArtifact(candidate.manifests) === canonicalizeArtifact(compiled.manifests)
+          && canonicalizeArtifact(candidate.executor_packets) === canonicalizeArtifact(executorPackets)
+          && (recompileRequest.mode !== 'intentional_serial'
+            || candidate.plan.conflicts.some((entry) => canonicalizeArtifact(entry.todo_ids)
+              === canonicalizeArtifact(recompileRequest.intentional_serial.todo_ids)
+              && entry.resource_id === recompileRequest.intentional_serial.resource_id));
+        const staged = await stageSuccessorEpoch({ runDir,
+          transactionId: recompileRequest.request_id, bundle: bundleBody, recompileRequest,
+          validateSuccessor: validateCompiledSuccessor, validatePhaseRevision, commitPhaseRevision });
+        if (typeof crashInjector === 'function') await crashInjector('after_successor_stage', {
+          request_id: controlRequest.request_id, bundle_digest: staged.bundle_digest,
+        });
+        const queue = await readBoundedJson(path.join(runDir, 'queued-events.json'),
+          'runtime queue').catch((error) => {
+          if (error instanceof CliContractError && error.code === 'INPUT_UNREADABLE') return null;
+          throw error;
+        });
+        let queuedReplayCommit = null;
+        if (queue !== null) {
+          if (!validateRuntimeQueue(queue, active.meta.run_id, active.pointer.plan_epoch)
+            || queue.queue_digest !== controlRequest.payload.expected_queue_digest) {
+            throw new ManagedRuntimeError('RUN_RECOVERY_REQUIRED', 'queued event prefix binding不正');
+          }
+          const head = queue.entries[0];
+          if (head !== undefined && (!['finding', 'conflict_found'].includes(head.kind)
+            || head.artifact_digest !== treatment.finding_digest)) {
+            throw new ManagedRuntimeError('QUEUED_REPLAY_REQUIRED', 'queue headを同一stagingへ順序通りreplayする必要がある');
+          }
+          const remaining = head === undefined ? [] : queue.entries.slice(1);
+          if (remaining.length > 0) throw new ManagedRuntimeError('QUEUED_REPLAY_REQUIRED',
+            'successor activation前にqueue全entryの順序replayが必要');
+          const cleared = { schema: 'lattice.runtime_queue.v1', run_id: active.meta.run_id,
+            frozen_epoch: active.pointer.plan_epoch, entries: remaining, queue_digest: '' };
+          cleared.queue_digest = selfDigest(cleared, 'queue_digest');
+          queuedReplayCommit = cleared;
+        }
+
+        // treatment/finding、fresh successor、stage、queue headを全検証した後にだけ
+        // public run event batchをpublishする。
+        events = await publishRuntimeEventBatch({ runDir,
+          transactionId: recompileRequest.request_id, phase: 'recompile', planEpoch: nextEpoch,
+          bindingDigest: digestArtifact({ successor_epoch: nextEpoch,
+            successor_plan_digest: newPlan.plan_digest,
+            recompile_request_digest: recompileRequest.request_digest }),
+          currentEvents: predecessorEvents, proposedBatch: proposedCoreBatch, crashInjector });
+
+        const controllerActivations = [activation, ...additionalActivations];
+        const sortedSuccessorIds = newPlan.nodes.map((node) => node.todo_id).sort();
+        const controllerForTodo = (todoId) => controllerActivations[
+          Math.max(0, sortedSuccessorIds.indexOf(todoId)) % controllerActivations.length];
+        const nonceDigest = digestArtifact(sessionNonce);
+        const issuedControlDigest = controlEvents.at(-1).event_digest;
+        const activationTransaction = {
+          schema: 'lattice.runtime_epoch_activation_transaction.v1',
+          request_id: controlRequest.request_id,
+          request_digest: controlRequest.request_digest,
+          logical_intent_digest: controlIntentDigest(controlRequest),
+          recompile_request_digest: recompileRequest.request_digest,
+          predecessor_pointer_digest: active.pointer.pointer_digest,
+          predecessor_bundle_digest: active.bundle.bundle_digest,
+          successor_bundle_digest: staged.bundle_digest,
+          successor_epoch: nextEpoch,
+          queue_head_digest: controlRequest.payload.expected_queue_digest,
+          queue_replay_commit: queuedReplayCommit,
+          state: 'prepared', committed_pointer_digest: null, gate_digest: null,
+          recovered_todo_ids: [],
+          recovery_error: null,
+          transaction_digest: '',
+        };
+        activationTransaction.transaction_digest = selfDigest(activationTransaction, 'transaction_digest');
+        await replaceCanonicalJsonAtomically(runDir, 'epoch-activation-transaction.json', activationTransaction);
+        const stagedLease = (todoId, packetDigest, owner) => {
+          const lease = { schema: 'lattice.runtime_write_lease.v1',
+            lease_id: `lease-${recompileRequest.request_id}-${todoId}`, run_id: active.meta.run_id,
+            todo_id: todoId, plan_epoch: nextEpoch, packet_digest: packetDigest,
+            controller_registration_digest: owner.registration.registration_digest,
+            supervisor_session_nonce_digest: nonceDigest, state: 'staged',
+            ttl_ms: owner.controllerDescriptor.heartbeat.ttl_ms,
+            issued_control_digest: issuedControlDigest, lease_digest: '' };
+          lease.lease_digest = selfDigest(lease, 'lease_digest');
+          return lease;
+        };
+        const rebound = new Set(Object.keys(rebindPackets));
+        const rebindEvidence = new Map();
+        const preparedSuccessors = new Set();
+        for (const [todoId, packet] of Object.entries(rebindPackets)) {
+          const owner = controllerForTodo(todoId);
+          const dispatch = projectRuntimeState({ events }).dispatches[todoId];
+          const evidence = await managedSupervisor.rebindController({ controllerId: owner.controllerDescriptor.controller_id, rebindPacket: packet,
+            stagedLease: stagedLease(todoId, packet.packet_digest, owner), expected: { todo_id: todoId,
+              executor_handle: dispatch.payload.executor_handle, worktree_id: dispatch.payload.worktree_id,
+              predecessor_packet_digest: active.bundle.executor_packets[todoId].packet_digest,
+              rebind_packet_digest: packet.packet_digest } });
+          rebindEvidence.set(todoId, { ...evidence,
+            controller_registration_digest: owner.registration.registration_digest });
+        }
+        for (const todoId of core.planDiff.redispatched) {
+          const successors = recompileRequest.task_migration.entries
+            .find((entry) => entry.predecessor_task_id === todoId)?.successor_task_ids ?? [];
+          for (const successorId of successors) {
+            if (rebound.has(successorId)) continue;
+            const packet = executorPackets[successorId];
+            const owner = controllerForTodo(successorId);
+            if (packet !== undefined) await managedSupervisor.prepareController({
+              controllerId: owner.controllerDescriptor.controller_id,
+              executorPacket: packet, stagedLease: stagedLease(successorId, packet.packet_digest, owner) });
+            if (packet !== undefined) preparedSuccessors.add(successorId);
+          }
+        }
+        const acceptedCheckpointDigests = new Set(planDiff.accepted_checkpoints);
+        const acceptedTodoIds = new Set(projectRuntimeState({ events }).receipts
+          .filter((receipt) => receipt.accepted_sequence !== null
+            && acceptedCheckpointDigests.has(receipt.payload?.checkpoint_digest))
+          .map((receipt) => receipt.todo_id));
+        const expectedLiveTodoIds = newPlan.nodes.map((node) => node.todo_id)
+          .filter((todoId) => !acceptedTodoIds.has(todoId)).sort();
+        const activatedTodoIds = [...new Set([...rebound, ...preparedSuccessors])].sort();
+        if (canonicalizeArtifact(expectedLiveTodoIds) !== canonicalizeArtifact(activatedTodoIds)) {
+          throw new ManagedRuntimeError('EPOCH_REBIND_INCOMPLETE', 'successor live taskのrebind/prepare集合が完全でない');
+        }
+        // 全direct ack後だけepoch_reboundをexact-once batchで保存する。
+        const reboundRecordedAt = canonicalNow();
+        const proposedReboundBatch = [];
+        let proposedReboundEvents = [...events];
+        for (const [todoId, packet] of Object.entries(rebindPackets)
+          .sort(([left], [right]) => left.localeCompare(right))) {
+          const event = buildNextRunEvent({ events: proposedReboundEvents,
+            runId: active.meta.run_id, kind: 'epoch_rebound', planEpoch: nextEpoch,
+            subject: { kind: 'todo', ref: todoId }, payload: { ...packet,
+              rebind_ack_digest: rebindEvidence.get(todoId).ack.ack_digest,
+              control_event_digest: rebindEvidence.get(todoId).control_event_digest,
+              controller_registration_digest: rebindEvidence.get(todoId).controller_registration_digest },
+            recordedAt: reboundRecordedAt });
+          proposedReboundEvents.push(event);
+          proposedReboundBatch.push(event);
+        }
+        events = await publishRuntimeEventBatch({ runDir,
+          transactionId: recompileRequest.request_id, phase: 'epoch_rebound', planEpoch: nextEpoch,
+          bindingDigest: digestArtifact({ successor_epoch: nextEpoch,
+            successor_bundle_digest: staged.bundle_digest,
+            ordered_rebind_packet_digests: Object.entries(rebindPackets)
+              .sort(([left], [right]) => left.localeCompare(right))
+              .map(([, packet]) => packet.packet_digest) }),
+          currentEvents: events, proposedBatch: proposedReboundBatch, crashInjector });
+        controlEvents = await eventStore.readEvents();
+        const committed = await commitStagedSuccessorEpoch({ runDir,
+          transactionId: staged.transaction_id,
+          activationRunEventDigest: events.at(-1).event_digest,
+          activationControlEventDigest: controlEvents.at(-1).event_digest,
+          readActivationControlEvents: () => eventStore.readEvents() });
+        if (typeof crashInjector === 'function') await crashInjector('after_successor_pointer_rename', {
+          request_id: controlRequest.request_id, pointer_digest: committed.pointer.pointer_digest,
+        });
+        activationTransaction.state = 'pointer_committed';
+        activationTransaction.committed_pointer_digest = committed.pointer.pointer_digest;
+        activationTransaction.transaction_digest = selfDigest(activationTransaction, 'transaction_digest');
+        await replaceCanonicalJsonAtomically(runDir, 'epoch-activation-transaction.json', activationTransaction);
+        if (typeof crashInjector === 'function') await crashInjector('after_successor_pointer_commit', {
+          request_id: controlRequest.request_id, pointer_digest: committed.pointer.pointer_digest,
+        });
+        const activationDigest = digestArtifact({ pointer_digest: committed.pointer.pointer_digest,
+          staged_bundle_digest: staged.bundle_digest });
+        const activated = await managedSupervisor.commitWriteGate({ planEpoch: nextEpoch,
+          committedEpochDigest: committed.pointer.pointer_digest, activationDigest,
+          commitReleaseBarrier: (barrier) => commitReleaseEpochBarrier({ runDir, barrier }),
+          afterControllerRelease: async (released) => {
+            if (released.release_index === 1 && typeof crashInjector === 'function') {
+              await crashInjector('after_first_controller_release', released);
+            }
+          },
+          committedAt: canonicalNow() });
+        if (queuedReplayCommit !== null) {
+          await replaceCanonicalJsonAtomically(runDir, 'queued-events.json', queuedReplayCommit);
+        }
+        activationTransaction.state = 'gate_committed';
+        activationTransaction.gate_digest = activated.gate.gate_digest;
+        activationTransaction.transaction_digest = selfDigest(activationTransaction, 'transaction_digest');
+        await replaceCanonicalJsonAtomically(runDir, 'epoch-activation-transaction.json', activationTransaction);
+        events.push(buildNextRunEvent({ events, runId: active.meta.run_id, kind: 'intake_resumed',
+          planEpoch: nextEpoch, subject: { kind: 'runtime_plan', ref: newPlan.plan_ref },
+          payload: { plan_diff_digest: planDiff.diff_digest,
+            write_gate_digest: activated.gate.gate_digest }, recordedAt: canonicalNow() }));
+        await replaceEventsAtomically(runDir, events);
+        if (typeof crashInjector === 'function') await crashInjector('after_successor_intake_resume', {
+          request_id: controlRequest.request_id, gate_digest: activated.gate.gate_digest,
+          event_digest: events.at(-1).event_digest,
+        });
+        const result = buildControlResult({ operation: 'recompile', outcome: 'recompiled',
+          eventHeadDigest: events.at(-1).event_digest,
+          controlHeadDigest: (await eventStore.readEvents()).at(-1).event_digest,
+          activeEpoch: nextEpoch, stagedEpoch: null });
+        return buildControlResponse(controlRequest, 'completed', result, result.control_head_digest);
+      }
+      if (controlRequest.operation === 'reprocess') {
+        const active = await readCommittedEpochStore(runDir);
+        const queue = await readBoundedJson(path.join(runDir, 'queued-events.json'), 'runtime queue');
+        if (!validateRuntimeQueue(queue, active.meta.run_id, active.pointer.plan_epoch)
+          || queue.queue_digest !== controlRequest.payload.expected_queue_digest) {
+          throw new ManagedRuntimeError('RUN_RECOVERY_REQUIRED', 'reprocess queue binding不正');
+        }
+        const pending = await readBoundedJson(path.join(runDir, 'pending-recompile.json'),
+          'pending recompile').catch(() => null);
+        if (pending?.schema !== 'lattice.runtime_pending_recompile.v1'
+          || pending.pending_digest !== selfDigest(pending, 'pending_digest')
+          || pending.predecessor_epoch !== active.pointer.plan_epoch) {
+          throw new ManagedRuntimeError('RUN_RECOVERY_REQUIRED', 'same staging recompile binding不足');
+        }
+        const recompileRequest = pending.recompile_request;
+        const treatment = recompileRequest.mode === 'seam_split'
+          ? recompileRequest.seam_split : recompileRequest.intentional_serial;
+        if (queue.entries.some((entry, index) => entry.sequence !== index + 1
+          || !['finding', 'conflict_found'].includes(entry.kind)
+          || entry.artifact_digest !== treatment.finding_digest)) {
+          throw new ManagedRuntimeError('QUEUED_CONFLICT_REMAINS', 'queue headをpending treatmentで解決できない');
+        }
+        pending.reprocess_request_id = controlRequest.request_id;
+        pending.reprocess_queue_digest = queue.queue_digest;
+        pending.pending_digest = selfDigest(pending, 'pending_digest');
+        await replaceCanonicalJsonAtomically(runDir, 'pending-recompile.json', pending);
+        const resumeRequest = createRuntimeControlRequest({
+          requestId: pending.control_request_id, runId: active.meta.run_id,
+          operation: 'recompile', sessionNonce, payload: controlOperationPayload({
+            operation: 'recompile', runRef: controlRequest.payload.run_ref,
+            artifact: recompileRequest, artifactDigest: digestArtifact(recompileRequest),
+            checkpointDigest: null, expectedEpoch: active.pointer.plan_epoch,
+            expectedQueueDigest: queue.queue_digest, shutdownReason: null,
+          }),
+        });
+        const resumed = await executeControl(resumeRequest);
+        if (resumed.outcome !== 'completed') {
+          throw new ManagedRuntimeError(resumed.result?.unmet?.[0] ?? 'RUN_RECOVERY_REQUIRED',
+            resumed.result?.unmet?.[1] ?? 'same staging recompile再開失敗');
+        }
+        const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+        const nowActive = await readCommittedEpochStore(runDir);
+        const resumedControlHead = (await eventStore.readEvents()).at(-1).event_digest;
+        const result = buildControlResult({ operation: 'reprocess', outcome: 'reprocessed',
+          eventHeadDigest: events.at(-1).event_digest,
+          controlHeadDigest: resumedControlHead,
+          activeEpoch: nowActive.pointer.plan_epoch, stagedEpoch: null });
+        return buildControlResponse(controlRequest, 'completed', result,
+          resumedControlHead);
+      }
       if (['close', 'abandon'].includes(controlRequest.operation)) {
         let events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+        const active = await readCommittedEpochStore(runDir);
         const state = projectRuntimeState({ events });
         const shutdownReason = controlRequest.payload.shutdown_reason;
         if (typeof shutdownReason !== 'string' || shutdownReason.length === 0) {
@@ -1273,7 +2113,7 @@ export async function runManagedSupervisorDaemon({
         }
         let proposed;
         if (controlRequest.operation === 'close') {
-          proposed = closeRunIfComplete({ runId: request.request_id, plan: compileArtifact.plan,
+          proposed = closeRunIfComplete({ runId: request.request_id, plan: active.bundle.plan,
             events, recordedAt: canonicalNow() });
           if (!proposed.closed) throw new ManagedRuntimeError('RUN_NOT_COMPLETE', '全TODO完了前はcloseできない');
         }
@@ -1283,7 +2123,8 @@ export async function runManagedSupervisorDaemon({
         if (controlRequest.operation === 'close') events = proposed.events;
         else {
           events = [...events, buildNextRunEvent({ events, runId: request.request_id, kind: 'run_closed',
-            planEpoch: 1, subject: { kind: 'runtime_plan', ref: compileArtifact.plan.plan_ref },
+            planEpoch: active.pointer.plan_epoch,
+            subject: { kind: 'runtime_plan', ref: active.bundle.plan.plan_ref },
             payload: { outcome: 'abandoned', reason: shutdownReason, accepted: state.accepted },
             recordedAt: canonicalNow() })];
         }
@@ -1294,7 +2135,8 @@ export async function runManagedSupervisorDaemon({
         const result = buildControlResult({ operation: controlRequest.operation,
           outcome: controlRequest.operation === 'close' ? 'closed' : 'abandoned',
           eventHeadDigest: events.at(-1).event_digest,
-          controlHeadDigest: controlEvents.at(-1).event_digest, activeEpoch: 1 });
+          controlHeadDigest: controlEvents.at(-1).event_digest,
+          activeEpoch: active.pointer.plan_epoch });
         setTimeout(() => {
           server?.close(() => {
             resolveActiveRuntimePaths({ runDir }).then((active) => Promise.all([
@@ -1305,10 +2147,10 @@ export async function runManagedSupervisorDaemon({
         }, 200);
         return buildControlResponse(controlRequest, 'completed', result, controlEvents.at(-1).event_digest);
       }
-      throw new ManagedRuntimeError('UNSUPPORTED_SUCCESSOR_SCHEMA', `${controlRequest.operation}はLPG028待ち`);
+      throw new ManagedRuntimeError('RUN_NOT_MANAGED', `未知のmanaged operation: ${controlRequest.operation}`);
     } catch (error) {
       const code = error?.code ?? 'ADAPTER_CONTROLLER_UNAVAILABLE';
-      const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events').catch(() => []);
+      let events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events').catch(() => []);
       const result = buildControlResult({ operation: controlRequest.operation, outcome: 'rejected',
         eventHeadDigest: events.at(-1)?.event_digest ?? null,
         controlHeadDigest: controlEvents.at(-1)?.event_digest ?? null, activeEpoch: 1,
@@ -1331,23 +2173,55 @@ export async function runManagedSupervisorDaemon({
     }
   };
   const handler = async (controlRequest) => {
-    const known = await requestStore.readRequest(controlRequest);
+    let known = await requestStore.readRequest(controlRequest);
+    let sessionRecoveryResponse = null;
+    if (known?.state === 'completed'
+      && ['recompile', 'reprocess'].includes(controlRequest.operation)) {
+      const recoveryEvents = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+      const recoveryCommitted = await readCommittedEpochStore(runDir);
+      const expectedSuccessor = controlRequest.payload.expected_epoch + 1;
+      if (recoveryCommitted?.pointer.plan_epoch === expectedSuccessor
+        && !(await isActiveSupervisorGateCommitted(runDir, recoveryEvents, expectedSuccessor))) {
+        sessionRecoveryResponse = known.response;
+        known = { ...known, state: 'in_progress', response: null };
+      }
+    }
     if (known?.state === 'completed') return known.response;
+    if (known?.state === 'in_progress' && controlRequest.operation === 'activate') {
+      const active = await resolveActiveRuntimePaths({ runDir }).catch(() => null);
+      if (active?.pointer?.activation_request_id === controlRequest.request_id
+        && active.pointer.activation_intent_digest === controlIntentDigest(controlRequest)) {
+        const response = await readBoundedJson(path.join(path.dirname(active.descriptorPath),
+          'activation-response.json'), 'activation response');
+        if (!validateRuntimeControlResponse(response, controlRequest.operation)
+          || response.response_digest !== active.pointer.activation_response_digest) {
+          throw new ManagedRuntimeError('RUN_RECOVERY_REQUIRED', 'committed activation response binding不正');
+        }
+        return requestStore.completeRequest(controlRequest, response);
+      }
+    }
+    if (known?.state === 'in_progress' && controlRequest.operation === 'reprocess'
+      && sessionRecoveryResponse === null) {
+      const recovered = await readBoundedJson(path.join(runDir,
+        `reprocess-operation-response-${controlRequest.request_id}.json`),
+      'reprocess operation response').catch(() => null);
+      if (validateRuntimeControlResponse(recovered, 'reprocess')
+        && recovered.request_id === controlRequest.request_id) {
+        return requestStore.completeRequest(controlRequest, recovered);
+      }
+    }
     const staleInProgress = known?.state === 'in_progress'
       && known.request_digest !== controlRequest.request_digest;
     if (controlRequest.run_id !== request.request_id
-      || controlRequest.session_nonce !== sessionNonce || staleInProgress) {
-      const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events').catch(() => []);
+      || controlRequest.session_nonce !== sessionNonce || staleInProgress
+      || sessionRecoveryResponse !== null) {
+      let events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events').catch(() => []);
       const active = await resolveActiveRuntimePaths({ runDir }).catch(() => null);
       const journal = active === null ? []
         : await readBoundedJson(active.controlEventsPath, 'runtime control events').catch(() => []);
       let outcome = 'rejected';
       let operationOutcome = 'rejected';
       let unmet = ['RUN_RECOVERY_REQUIRED', '旧session requestはdurable side effectを導出できない'];
-      if (['finding_record', 'recompile', 'reprocess'].includes(controlRequest.operation)) {
-        operationOutcome = 'rejected';
-        unmet = ['UNSUPPORTED_SUCCESSOR_SCHEMA', `${controlRequest.operation}はLPG028待ち`];
-      }
       if (known?.state === 'in_progress') {
         let holdReceipt = controlRequest.operation === 'hold'
           ? await readBoundedJson(path.join(runDir, 'hold-operation-receipt.json'),
@@ -1375,25 +2249,335 @@ export async function runManagedSupervisorDaemon({
           && holdReceipt.logical_intent_digest === controlIntentDigest(controlRequest)
           && holdReceipt.operation === 'hold' && holdReceipt.outcome === 'held'
           && holdReceipt.receipt_digest === selfDigest(holdReceipt, 'receipt_digest');
+        if (held && !events.some((event) => event.kind === 'hold_decided'
+          && event.payload?.finding?.finding_digest
+            === journal.find((event) => event.kind === 'hold_prepared'
+              && event.payload.request_id === controlRequest.request_id)?.payload.finding_digest)) {
+          const heldResult = await readBoundedJson(path.join(runDir, 'hold-result.json'),
+            'hold result');
+          const evidenceEvents = journal.filter((event) => event.kind === 'executor_quiesced'
+            && heldResult.quiescence_ack_digests.includes(event.payload?.ack?.ack_digest));
+          for (const evidence of evidenceEvents) {
+            if (events.some((event) => event.kind === 'checkpoint_observed'
+              && event.payload?.barrier_evidence_digest === evidence.payload.evidence_digest)) continue;
+            events.push(buildNextRunEvent({ events, runId: request.request_id,
+              kind: 'checkpoint_observed', planEpoch: controlRequest.payload.expected_epoch,
+              subject: { kind: 'todo', ref: evidence.payload.todo_id },
+              payload: { ...structuredClone(evidence.payload.direct_observation.checkpoint),
+                barrier_final: true, barrier_evidence_digest: evidence.payload.evidence_digest },
+              recordedAt: canonicalNow() }));
+          }
+          const activeEpoch = await readCommittedEpochStore(runDir);
+          const decided = decideHoldAndCarryOver({ runId: request.request_id,
+            request: activeEpoch.bundle.request, plan: activeEpoch.bundle.plan,
+            manifests: activeEpoch.bundle.manifests, packets: activeEpoch.bundle.executor_packets,
+            events, recordedAt: canonicalNow() });
+          events = decided.events;
+          await replaceEventsAtomically(runDir, events);
+        }
         const found = controlRequest.operation === 'conflict'
           && events.some((event) => event.kind === 'conflict_found'
             && event.payload?.finding_digest === controlRequest.payload.artifact_digest);
+        let recordedFinding = null;
+        if (controlRequest.operation === 'finding_record') {
+          const names = await readdir(path.join(runDir, 'findings')).catch(() => []);
+          for (const name of names.filter((entry) => /^[0-9a-f]{64}\.json$/u.test(entry))) {
+            const candidate = await readBoundedJson(path.join(runDir, 'findings', name),
+              'runtime finding').catch(() => null);
+            const input = controlRequest.payload.artifact;
+            if (validateRuntimeFindingRecord(candidate)
+              && candidate.source_checkpoint_digest === controlRequest.payload.checkpoint_digest
+              && candidate.finding.kind === input.proposed_kind
+              && canonicalizeArtifact(candidate.finding.todo_ids) === canonicalizeArtifact(input.todo_ids)
+              && candidate.finding.path === input.path
+              && candidate.finding.resource_id === input.resource_id
+              && input.evidence_digests.every((digest) => candidate.finding.evidence_digests.includes(digest))
+              && candidate.finding.evidence_digests.includes(controlRequest.payload.checkpoint_digest)) {
+              recordedFinding = candidate; break;
+            }
+          }
+        }
+        let committed = await readCommittedEpochStore(runDir).catch(() => null);
+        let prePointerRecovered = false;
+        if (controlRequest.operation === 'recompile'
+          && committed?.pointer.plan_epoch === controlRequest.payload.expected_epoch
+          && controlRequest.payload.artifact?.predecessor_epoch === committed.pointer.plan_epoch) {
+          const recoveredResponse = await executeControl(controlRequest);
+          if (recoveredResponse.outcome === 'completed') {
+            events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+            prePointerRecovered = true;
+          }
+        }
+        let recompiled = controlRequest.operation === 'recompile'
+          && (prePointerRecovered || (committed?.pointer.plan_epoch === controlRequest.payload.expected_epoch + 1
+          && committed.bundle.request.request_digest
+            === controlRequest.payload.artifact?.successor_request?.request_digest
+          && !staleInProgress && managedSupervisor.frozen === false
+          && !(await isManagedRunFrozen(runDir, events))));
+        if (controlRequest.operation === 'recompile' && committed !== null
+          && committed.pointer.plan_epoch === controlRequest.payload.expected_epoch + 1
+          && committed.bundle.request.request_digest
+            === controlRequest.payload.artifact?.successor_request?.request_digest
+          && (staleInProgress || managedSupervisor.frozen
+            || await isManagedRunFrozen(runDir, events))) {
+          const transaction = await readBoundedJson(path.join(runDir,
+            'epoch-activation-transaction.json'), 'epoch activation transaction').catch(() => null);
+          if (transaction?.schema !== 'lattice.runtime_epoch_activation_transaction.v1'
+            || transaction.request_id !== controlRequest.request_id
+            || transaction.logical_intent_digest !== controlIntentDigest(controlRequest)
+            || transaction.successor_bundle_digest !== committed.bundle.bundle_digest
+            || !([null, committed.pointer.pointer_digest].includes(transaction.committed_pointer_digest))
+            || (transaction.committed_pointer_digest === null
+              && (transaction.state !== 'prepared'
+                || transaction.predecessor_bundle_digest !== committed.bundle.predecessor_bundle_digest))
+            || transaction.transaction_digest !== selfDigest(transaction, 'transaction_digest')) {
+            throw new ManagedRuntimeError('RUN_RECOVERY_REQUIRED', 'activation transaction binding不正');
+          }
+          if (transaction.committed_pointer_digest === null) {
+            transaction.state = 'pointer_committed';
+            transaction.committed_pointer_digest = committed.pointer.pointer_digest;
+            transaction.transaction_digest = selfDigest(transaction, 'transaction_digest');
+            await replaceCanonicalJsonAtomically(runDir, 'epoch-activation-transaction.json', transaction);
+          }
+          const recoveryControllers = [activation, ...additionalActivations];
+          const recoveryTodoIds = committed.bundle.plan.nodes.map((node) => node.todo_id).sort();
+          const recoveryControllerForTodo = (todoId) => recoveryControllers[
+            Math.max(0, recoveryTodoIds.indexOf(todoId)) % recoveryControllers.length];
+          const nonceDigest = digestArtifact(sessionNonce);
+          const issuedControlDigest = journal.at(-1)?.event_digest;
+          transaction.state = 'recovery_preparing';
+          transaction.recovered_todo_ids = [];
+          transaction.transaction_digest = selfDigest(transaction, 'transaction_digest');
+          await replaceCanonicalJsonAtomically(runDir, 'epoch-activation-transaction.json', transaction);
+          const recoveryLease = (todoId, packetDigest, owner) => {
+            const lease = { schema: 'lattice.runtime_write_lease.v1',
+              lease_id: `lease-recovery-${controlRequest.request_id}-${todoId}`,
+              run_id: committed.meta.run_id, todo_id: todoId,
+              plan_epoch: committed.pointer.plan_epoch, packet_digest: packetDigest,
+              controller_registration_digest: owner.registration.registration_digest,
+              supervisor_session_nonce_digest: nonceDigest, state: 'staged',
+              ttl_ms: owner.controllerDescriptor.heartbeat.ttl_ms,
+              issued_control_digest: issuedControlDigest, lease_digest: '' };
+            lease.lease_digest = selfDigest(lease, 'lease_digest');
+            return lease;
+          };
+          const predecessorBundle = await readBoundedJson(path.join(runDir, 'epochs',
+            String(committed.pointer.plan_epoch - 1).padStart(8, '0'), 'epoch-bundle.json'),
+          'predecessor epoch bundle');
+          const recoveryRebindEvidence = new Map();
+          for (const [todoId, rebindPacket] of Object.entries(committed.bundle.rebind_packets)) {
+            const owner = recoveryControllerForTodo(todoId);
+            const dispatch = projectRuntimeState({ events }).dispatches[todoId];
+            if (dispatch === undefined) throw new ManagedRuntimeError('RUN_RECOVERY_REQUIRED',
+              `carry rebind predecessor dispatch不足: ${todoId}`);
+            const evidence = await managedSupervisor.rebindController({ controllerId: owner.controllerDescriptor.controller_id, rebindPacket,
+              stagedLease: recoveryLease(todoId, rebindPacket.packet_digest, owner), expected: {
+                todo_id: todoId, executor_handle: dispatch.payload.executor_handle,
+                worktree_id: dispatch.payload.worktree_id,
+                predecessor_packet_digest: predecessorBundle.executor_packets[todoId]?.packet_digest
+                  ?? rebindPacket.packet_digest,
+                rebind_packet_digest: rebindPacket.packet_digest,
+              } });
+            recoveryRebindEvidence.set(todoId, { ...evidence,
+              controller_registration_digest: owner.registration.registration_digest });
+            transaction.recovered_todo_ids.push(todoId);
+            transaction.transaction_digest = selfDigest(transaction, 'transaction_digest');
+            await replaceCanonicalJsonAtomically(runDir, 'epoch-activation-transaction.json', transaction);
+          }
+          for (const predecessorId of committed.bundle.plan_diff.redispatched) {
+            const successors = committed.bundle.task_migration.entries
+              .find((entry) => entry.predecessor_task_id === predecessorId)?.successor_task_ids ?? [];
+            for (const todoId of successors) {
+              if (Object.hasOwn(committed.bundle.rebind_packets, todoId)) continue;
+              const packet = committed.bundle.executor_packets[todoId];
+              if (packet === undefined) continue;
+              const owner = recoveryControllerForTodo(todoId);
+              try {
+                await managedSupervisor.prepareController({ controllerId: owner.controllerDescriptor.controller_id,
+                  executorPacket: packet, stagedLease: recoveryLease(todoId, packet.packet_digest, owner) });
+              } catch (error) {
+                transaction.recovery_error = `${error?.code ?? 'ERROR'}:${error?.message ?? error}`;
+                transaction.transaction_digest = selfDigest(transaction, 'transaction_digest');
+                await replaceCanonicalJsonAtomically(runDir, 'epoch-activation-transaction.json', transaction);
+                throw error;
+              }
+              transaction.recovered_todo_ids.push(todoId);
+              transaction.transaction_digest = selfDigest(transaction, 'transaction_digest');
+              await replaceCanonicalJsonAtomically(runDir, 'epoch-activation-transaction.json', transaction);
+            }
+          }
+          const recoveryReboundAt = canonicalNow();
+          const recoveryReboundBatch = [];
+          let recoveryReboundEvents = [...events];
+          for (const [todoId, rebindPacket] of Object.entries(committed.bundle.rebind_packets)
+            .sort(([left], [right]) => left.localeCompare(right))) {
+            const evidence = recoveryRebindEvidence.get(todoId);
+            const event = buildNextRunEvent({ events: recoveryReboundEvents,
+              runId: committed.meta.run_id, kind: 'epoch_rebound',
+              planEpoch: committed.pointer.plan_epoch,
+              subject: { kind: 'todo', ref: todoId }, payload: { ...rebindPacket,
+                rebind_ack_digest: evidence.ack.ack_digest,
+                control_event_digest: evidence.control_event_digest,
+                controller_registration_digest: evidence.controller_registration_digest },
+              recordedAt: recoveryReboundAt });
+            recoveryReboundEvents.push(event);
+            recoveryReboundBatch.push(event);
+          }
+          events = await publishRuntimeEventBatch({ runDir,
+            transactionId: transaction.request_id,
+            phase: `epoch_rebound_recovery_${nonceDigest}`,
+            planEpoch: committed.pointer.plan_epoch,
+            bindingDigest: digestArtifact({ successor_bundle_digest: committed.bundle.bundle_digest,
+              supervisor_session_nonce_digest: nonceDigest,
+              ordered_rebind_packet_digests: Object.entries(committed.bundle.rebind_packets)
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([, packet]) => packet.packet_digest) }),
+            currentEvents: events, proposedBatch: recoveryReboundBatch, crashInjector });
+          transaction.state = 'recovery_ready';
+          transaction.transaction_digest = selfDigest(transaction, 'transaction_digest');
+          await replaceCanonicalJsonAtomically(runDir, 'epoch-activation-transaction.json', transaction);
+          const activationDigest = digestArtifact({ pointer_digest: committed.pointer.pointer_digest,
+            staged_bundle_digest: committed.bundle.bundle_digest });
+          let activated;
+          try {
+            activated = await managedSupervisor.commitWriteGate({
+              planEpoch: committed.pointer.plan_epoch,
+              committedEpochDigest: committed.pointer.pointer_digest, activationDigest,
+              commitReleaseBarrier: (barrier) => commitReleaseEpochBarrier({ runDir, barrier }),
+              afterControllerRelease: async (released) => {
+                if (released.release_index === 1 && typeof crashInjector === 'function') {
+                  await crashInjector('after_first_controller_release', released);
+                }
+              },
+              committedAt: canonicalNow(),
+            });
+          } catch (error) {
+            transaction.recovery_error = `${error?.code ?? 'ERROR'}:${error?.message ?? error}`;
+            transaction.transaction_digest = selfDigest(transaction, 'transaction_digest');
+            await replaceCanonicalJsonAtomically(runDir, 'epoch-activation-transaction.json', transaction);
+            throw error;
+          }
+          if (transaction.queue_replay_commit !== null) {
+            await replaceCanonicalJsonAtomically(runDir, 'queued-events.json',
+              transaction.queue_replay_commit);
+          }
+          if (!events.some((event) => event.kind === 'intake_resumed'
+            && event.plan_epoch === committed.pointer.plan_epoch
+            && event.payload?.write_gate_digest === activated.gate.gate_digest)) {
+            events.push(buildNextRunEvent({ events, runId: committed.meta.run_id,
+              kind: 'intake_resumed', planEpoch: committed.pointer.plan_epoch,
+              subject: { kind: 'runtime_plan', ref: committed.bundle.plan.plan_ref },
+              payload: { plan_diff_digest: committed.bundle.plan_diff.diff_digest,
+                write_gate_digest: activated.gate.gate_digest }, recordedAt: canonicalNow() }));
+            await replaceEventsAtomically(runDir, events);
+          }
+          transaction.state = 'gate_committed';
+          transaction.gate_digest = activated.gate.gate_digest;
+          transaction.transaction_digest = selfDigest(transaction, 'transaction_digest');
+          await replaceCanonicalJsonAtomically(runDir, 'epoch-activation-transaction.json', transaction);
+          if (typeof crashInjector === 'function') await crashInjector('after_successor_intake_resume', {
+            request_id: controlRequest.request_id, gate_digest: activated.gate.gate_digest,
+            event_digest: events.at(-1).event_digest,
+          });
+          recompiled = true;
+        }
+        const queue = controlRequest.operation === 'reprocess'
+          ? await readBoundedJson(path.join(runDir, 'queued-events.json'), 'runtime queue').catch(() => null)
+          : null;
+        let resumedReprocess = false;
+        if (controlRequest.operation === 'reprocess' && committed !== null
+          && committed.pointer.plan_epoch >= controlRequest.payload.expected_epoch) {
+          const pending = await readBoundedJson(path.join(runDir, 'pending-recompile.json'),
+            'pending recompile').catch(() => null);
+          if (pending?.schema === 'lattice.runtime_pending_recompile.v1'
+            && pending.pending_digest === selfDigest(pending, 'pending_digest')) {
+            const resumeRequest = createRuntimeControlRequest({
+              requestId: pending.control_request_id, runId: committed.meta.run_id,
+              operation: 'recompile', sessionNonce, payload: controlOperationPayload({
+                operation: 'recompile', runRef: controlRequest.payload.run_ref,
+                artifact: pending.recompile_request,
+                artifactDigest: digestArtifact(pending.recompile_request), checkpointDigest: null,
+                expectedEpoch: pending.predecessor_epoch,
+                expectedQueueDigest: pending.reprocess_queue_digest, shutdownReason: null,
+              }),
+            });
+            let resumed;
+            if (committed.pointer.plan_epoch === pending.predecessor_epoch) {
+              resumed = await executeControl(resumeRequest);
+            } else {
+              try {
+                resumed = await handler(resumeRequest);
+              } catch (error) {
+                pending.recovery_response_outcome = `nested_error:${error?.code ?? 'ERROR'}:${error?.message ?? error}`;
+                pending.pending_digest = selfDigest(pending, 'pending_digest');
+                await replaceCanonicalJsonAtomically(runDir, 'pending-recompile.json', pending);
+                throw error;
+              }
+            }
+            pending.recovery_response_outcome = resumed.outcome;
+            pending.pending_digest = selfDigest(pending, 'pending_digest');
+            await replaceCanonicalJsonAtomically(runDir, 'pending-recompile.json', pending);
+            if (resumed.outcome === 'completed') {
+              events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+              committed = await readCommittedEpochStore(runDir);
+              resumedReprocess = true;
+              const currentJournal = await eventStore.readEvents();
+              const outerResult = buildControlResult({ operation: 'reprocess',
+                outcome: 'reprocessed', eventHeadDigest: events.at(-1)?.event_digest ?? null,
+                controlHeadDigest: currentJournal.at(-1)?.event_digest ?? null,
+                activeEpoch: committed.pointer.plan_epoch, stagedEpoch: null });
+              const outerResponse = buildControlResponse(controlRequest, 'completed', outerResult,
+                currentJournal.at(-1)?.event_digest ?? null);
+              await replaceCanonicalJsonAtomically(runDir,
+                `reprocess-operation-response-${controlRequest.request_id}.json`, outerResponse);
+              if (sessionRecoveryResponse?.outcome === 'completed') return sessionRecoveryResponse;
+              return sessionRecoveryResponse?.outcome === 'rejected'
+                ? requestStore.recoverCompletedRequest(controlRequest, outerResponse)
+                : requestStore.completeRequest(controlRequest, outerResponse);
+            }
+          }
+        }
+        const reprocessed = controlRequest.operation === 'reprocess'
+          && (resumedReprocess || (committed?.pointer.plan_epoch === controlRequest.payload.expected_epoch + 1
+            && managedSupervisor.frozen === false
+            && !(await isManagedRunFrozen(runDir, events))));
         const closed = events.findLast((event) => event.kind === 'run_closed');
-        const terminal = held || found
+        const terminal = held || found || recordedFinding !== null || recompiled || reprocessed
           || (controlRequest.operation === 'close' && closed?.payload?.outcome === 'completed')
           || (controlRequest.operation === 'abandon' && closed?.payload?.outcome === 'abandoned');
         if (terminal) {
           outcome = 'completed';
           operationOutcome = held ? 'held' : found ? 'frozen'
+            : recordedFinding !== null ? 'recorded'
+              : recompiled ? 'recompiled' : reprocessed ? 'reprocessed'
             : controlRequest.operation === 'close' ? 'closed' : 'abandoned';
           unmet = [];
         }
       }
       const result = buildControlResult({ operation: controlRequest.operation,
         outcome: operationOutcome, eventHeadDigest: events.at(-1)?.event_digest ?? null,
-        controlHeadDigest: journal.at(-1)?.event_digest ?? null, activeEpoch: 1, unmet });
+        controlHeadDigest: journal.at(-1)?.event_digest ?? null,
+        activeEpoch: (await readCommittedEpochStore(runDir).catch(() => null))?.pointer.plan_epoch ?? 1,
+        unmet });
+      if (operationOutcome === 'recorded') {
+        const names = await readdir(path.join(runDir, 'findings')).catch(() => []);
+        const recovered = await Promise.all(names.filter((entry) => /^[0-9a-f]{64}\.json$/u.test(entry))
+          .map((entry) => readBoundedJson(path.join(runDir, 'findings', entry), 'runtime finding').catch(() => null)));
+        const candidate = recovered.find((entry) => validateRuntimeFindingRecord(entry)
+          && entry.source_checkpoint_digest === controlRequest.payload.checkpoint_digest);
+        if (candidate !== undefined) {
+          result.finding_digest = candidate.finding_digest;
+          const body = { ...result }; delete body.result_digest;
+          result.result_digest = digestArtifact(body);
+        }
+      }
       const response = buildControlResponse(controlRequest, outcome, result,
         journal.at(-1)?.event_digest ?? null);
+      if (sessionRecoveryResponse !== null) {
+        if (outcome !== 'completed') return response;
+        return sessionRecoveryResponse.outcome === 'completed' ? sessionRecoveryResponse
+          : requestStore.recoverCompletedRequest(controlRequest, response);
+      }
       return known?.state === 'in_progress'
         ? requestStore.completeRequest(controlRequest, response)
         : response;
@@ -1454,6 +2638,7 @@ export async function runManagedSupervisorDaemon({
         session_nonce_digest: digestArtifact(sessionNonce), payload: { signal } });
     }
     await activation?.disposeController?.();
+    await Promise.all(additionalActivations.map((entry) => entry.disposeController?.()));
     if (server?.listening) await new Promise((resolve) => server.close(resolve));
     await rm(socketPath, { force: true });
     const active = await resolveActiveRuntimePaths({ runDir }).catch(() => null);
@@ -1522,7 +2707,8 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     }
     requestIdOverride = argv.at(-1);
     argv = argv.slice(0, -2);
-    if (argv[0] !== 'run' || !['activate', 'close', 'abandon', 'conflict', 'hold', 'reprocess'].includes(argv[1])) {
+    if (argv[0] !== 'run' || !['activate', 'close', 'abandon', 'conflict', 'hold', 'recompile', 'reprocess'].includes(argv[1])
+      && !(argv[0] === 'run' && argv[1] === 'finding' && argv[2] === 'record')) {
       return typedFailure(stderr, 'INVALID_REQUEST_ID', '--request-idはrun mutationだけで指定できる');
     }
   }
@@ -1587,6 +2773,41 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
         runDir, runRef, operation: 'conflict', artifactDigest: argv[5], stdout,
         requestId: requestIdOverride,
       });
+    };
+  } else if (argv.length === 8
+    && argv[0] === 'run' && argv[1] === 'finding' && argv[2] === 'record'
+    && argv[3] === '--run' && typeof argv[4] === 'string' && argv[4].length > 0
+    && argv[5] === '--checkpoint' && /^[0-9a-f]{64}$/u.test(argv[6])
+    && argv[7] === '--input') {
+    // exact argvにはinput valueが必要なため、この8要素形は必ずusage拒否される。
+    action = null;
+  } else if (argv.length === 9
+    && argv[0] === 'run' && argv[1] === 'finding' && argv[2] === 'record'
+    && argv[3] === '--run' && typeof argv[4] === 'string' && argv[4].length > 0
+    && argv[5] === '--checkpoint' && /^[0-9a-f]{64}$/u.test(argv[6])
+    && argv[7] === '--input' && typeof argv[8] === 'string' && argv[8].length > 0) {
+    action = async () => {
+      const { runDir, runRef } = await resolveRunStore(cwd, argv[4]);
+      if (await readCommittedEpochStore(runDir) === null) {
+        throw new CliContractError('RUN_NOT_MANAGED', 'runがmanaged storeへactivateされていない');
+      }
+      const artifact = await readBoundedJson(path.resolve(cwd, argv[8]), 'runtime finding candidate');
+      return runManagedControl({ runDir, runRef, operation: 'finding_record', artifact,
+        artifactDigest: digestArtifact(artifact), checkpointDigest: argv[6], stdout,
+        requestId: requestIdOverride });
+    };
+  } else if (argv.length === 6
+    && argv[0] === 'run' && argv[1] === 'recompile'
+    && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0
+    && argv[4] === '--input' && typeof argv[5] === 'string' && argv[5].length > 0) {
+    action = async () => {
+      const { runDir, runRef } = await resolveRunStore(cwd, argv[3]);
+      if (await readCommittedEpochStore(runDir) === null) {
+        throw new CliContractError('RUN_NOT_MANAGED', 'runがmanaged storeへactivateされていない');
+      }
+      const artifact = await readBoundedJson(path.resolve(cwd, argv[5]), 'runtime recompile request');
+      return runManagedControl({ runDir, runRef, operation: 'recompile', artifact,
+        artifactDigest: digestArtifact(artifact), stdout, requestId: requestIdOverride });
     };
   } else if (argv.length === 4
     && argv[0] === 'run' && ['hold', 'reprocess'].includes(argv[1])

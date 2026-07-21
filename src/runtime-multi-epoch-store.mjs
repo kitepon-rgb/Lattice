@@ -9,7 +9,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 
-import { digestArtifact } from './artifact-contracts.mjs';
+import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { buildExecutorPackets } from './runtime-engine.mjs';
 import {
   RUNTIME_CONFLICT_KINDS,
@@ -19,6 +19,11 @@ import {
   validateRuntimePlan,
   verifyRuntimePlanBinding,
 } from './runtime-contracts.mjs';
+import {
+  validateRunRequestV2,
+  validateRuntimeRecompileRequest,
+  validateRuntimeTaskMigration,
+} from './runtime-hold-recompile.mjs';
 
 const HEX_DIGEST = /^[0-9a-f]{64}$/u;
 const EPOCH_DIRECTORY = /^\d{8}$/u;
@@ -89,6 +94,78 @@ export function validateRuntimeFindingRecord(value) {
       || HEX_DIGEST.test(observer.controller_registration_digest))
     && (observer.executor_handle === null || TRANSACTION_ID.test(observer.executor_handle))
     && selfDigestValid(observer, 'identity_digest');
+}
+
+export function validateRuntimeFindingCandidate(value) {
+  if (!exactRecord(value, ['schema', 'proposed_kind', 'todo_ids', 'path', 'resource_id',
+    'evidence_digests', 'candidate_digest'])
+    || value.schema !== 'lattice.runtime_finding_candidate.v1'
+    || !RUNTIME_CONFLICT_KINDS.includes(value.proposed_kind)
+    || !Array.isArray(value.todo_ids) || value.todo_ids.length < 1 || value.todo_ids.length > 256
+    || value.todo_ids.some((id) => !TRANSACTION_ID.test(id))
+    || value.todo_ids.some((id, index) => index > 0 && value.todo_ids[index - 1] >= id)
+    || !Array.isArray(value.evidence_digests) || value.evidence_digests.length > 256
+    || value.evidence_digests.some((digest) => !HEX_DIGEST.test(digest))
+    || value.evidence_digests.some((digest, index) => index > 0
+      && value.evidence_digests[index - 1] >= digest)
+    || !selfDigestValid(value, 'candidate_digest')) return false;
+  const pathKind = ['observed_write_conflict', 'scope_violation', 'stale_context']
+    .includes(value.proposed_kind);
+  return pathKind
+    ? typeof value.path === 'string' && value.path.length > 0 && value.resource_id === null
+    : value.path === null && TRANSACTION_ID.test(value.resource_id ?? '');
+}
+
+/** candidate本文を信用せず保存checkpointとactive bundleへ再束縛してfindingを発行する。 */
+export async function recordRuntimeFinding({ runDir, candidate, checkpointDigest,
+  observedEventDigest, recordedBy, deriveFinding = null, verifyFinding = null }) {
+  if (!validateRuntimeFindingCandidate(candidate) || !HEX_DIGEST.test(checkpointDigest ?? '')
+    || !HEX_DIGEST.test(observedEventDigest ?? '')) fail('FINDING_UNRESOLVED', 'finding candidate入力不正');
+  const committed = await readCommittedEpochStore(runDir);
+  if (committed === null) fail('RUN_NOT_MANAGED', 'managed epochが存在しない');
+  const todoSet = new Set(committed.bundle.plan.nodes.map(({ todo_id: id }) => id));
+  if (!candidate.todo_ids.every((id) => todoSet.has(id))) {
+    fail('STALE_FINDING', 'candidateがactive epoch外TODOを参照する');
+  }
+  const events = await readRegularJson(path.join(runDir, 'events.json'), 'run events');
+  const observed = events.find((event) => event.event_digest === observedEventDigest
+    && event.plan_epoch === committed.pointer.plan_epoch
+    && event.payload?.checkpoint_digest === checkpointDigest);
+  if (observed === undefined) fail('FINDING_UNRESOLVED', 'checkpoint/event bindingを解決できない');
+  const proposed = typeof deriveFinding === 'function'
+    ? await deriveFinding(structuredClone(candidate), {
+      checkpoint: structuredClone(observed), bundle: structuredClone(committed.bundle),
+    })
+    : { schema: 'lattice.runtime_conflict_finding.v1', kind: candidate.proposed_kind,
+      todo_ids: [...candidate.todo_ids], path: candidate.path, resource_id: candidate.resource_id,
+      evidence_digests: [...candidate.evidence_digests], finding_digest: '' };
+  proposed.finding_digest = digestArtifact(Object.fromEntries(Object.entries(proposed)
+    .filter(([key]) => key !== 'finding_digest')));
+  if (typeof verifyFinding === 'function' && await verifyFinding(structuredClone(proposed), {
+    candidate: structuredClone(candidate), checkpoint: structuredClone(observed),
+    bundle: structuredClone(committed.bundle),
+  }) !== true) fail('FINDING_UNRESOLVED', 'independent finding verifierが不一致');
+  const record = { schema: 'lattice.runtime_finding_record.v1',
+    finding_id: `finding-${proposed.finding_digest.slice(0, 24)}`, run_id: committed.meta.run_id,
+    plan_epoch: committed.pointer.plan_epoch, source_checkpoint_digest: checkpointDigest,
+    observed_event_digest: observedEventDigest, finding: proposed,
+    recorded_by: structuredClone(recordedBy), finding_digest: '' };
+  const recordBody = { ...record }; delete recordBody.finding_digest;
+  record.finding_digest = digestArtifact(recordBody);
+  if (!validateRuntimeFindingRecord(record)) fail('FINDING_UNRESOLVED', 'derived finding recordが不正');
+  const findingsDir = path.join(runDir, 'findings');
+  await mkdir(findingsDir, { recursive: true });
+  const findingPath = path.join(findingsDir, `${record.finding_digest}.json`);
+  try {
+    await writeDurableJson(findingPath, record);
+    await fsyncDirectory(findingsDir);
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
+    const existing = await readRegularJson(findingPath, 'runtime finding');
+    if (!validateRuntimeFindingRecord(existing)
+      || existing.finding_digest !== record.finding_digest) fail('FINDING_CONFLICT', 'finding digest alias競合');
+  }
+  return record;
 }
 
 async function readRegularJson(filePath, label) {
@@ -220,9 +297,12 @@ export function validateRuntimeEpochBundle(bundle) {
     || !Number.isInteger(bundle.plan_epoch) || bundle.plan_epoch < 1
     || bundle.plan_epoch !== bundle.plan?.plan_epoch
     || bundle.run_id !== bundle.request?.request_id
-    || !validateRunRequest(bundle.request)
+    || !(bundle.plan_epoch === 1 ? validateRunRequest(bundle.request) : validateRunRequestV2(bundle.request))
     || !validateRuntimePlan(bundle.plan)
-    || !verifyRuntimePlanBinding({ plan: bundle.plan, request: bundle.request })
+    || !(bundle.plan_epoch === 1
+      ? verifyRuntimePlanBinding({ plan: bundle.plan, request: bundle.request })
+      : bundle.plan.request_digest === bundle.request.request_digest
+        && bundle.plan.base_sha === bundle.request.repo.base_sha)
     || !selfDigestValid(bundle, 'bundle_digest')) return false;
   const todoIds = bundle.plan.nodes.map(({ todo_id: todoId }) => todoId).sort();
   if (Object.keys(bundle.manifests ?? {}).sort().join('\0') !== todoIds.join('\0')
@@ -242,7 +322,30 @@ export function validateRuntimeEpochBundle(bundle) {
       'phase_revision_digest', 'phase_revision_commit_receipt', 'predecessor_bundle_digest']
       .every((key) => bundle[key] === null);
   }
-  return HEX_DIGEST.test(bundle.predecessor_bundle_digest ?? '');
+  if (!HEX_DIGEST.test(bundle.predecessor_bundle_digest ?? '')
+    || !validateRuntimeTaskMigration(bundle.task_migration)
+    || !plainRecord(bundle.rebind_packets) || !plainRecord(bundle.plan_diff)
+    || !plainRecord(bundle.treatment)) return false;
+  if (bundle.phase_revision_digest === null) {
+    return bundle.phase_revision_commit_receipt === null;
+  }
+  return HEX_DIGEST.test(bundle.phase_revision_digest)
+    && validatePhaseRevisionCommitReceipt(bundle.phase_revision_commit_receipt)
+    && bundle.phase_revision_commit_receipt.revision_digest === bundle.phase_revision_digest;
+}
+
+export function validatePhaseRevisionCommitReceipt(value) {
+  return exactRecord(value, ['schema', 'project_id', 'plan_key', 'plan_version',
+    'revision_digest', 'committed_member_digest', 'active_plan_digest', 'journal_genesis_digest',
+    'reconciliation_digest', 'source_cutover_receipt_digest', 'committed_at', 'receipt_digest'])
+    && value.schema === 'lattice.phase_revision_commit_receipt.v1'
+    && TRANSACTION_ID.test(value.project_id ?? '') && TRANSACTION_ID.test(value.plan_key ?? '')
+    && typeof value.plan_version === 'string' && value.plan_version.length > 0
+    && [value.revision_digest, value.committed_member_digest, value.active_plan_digest,
+      value.journal_genesis_digest, value.reconciliation_digest,
+      value.source_cutover_receipt_digest].every((digest) => HEX_DIGEST.test(digest ?? ''))
+    && typeof value.committed_at === 'string' && !Number.isNaN(Date.parse(value.committed_at))
+    && selfDigestValid(value, 'receipt_digest');
 }
 
 function validateRunMetaV2(meta, createdBundle) {
@@ -396,7 +499,8 @@ export async function readCommittedEpochStore(runDir) {
  * successorはLPG028のrun_request.v2／migration／treatment verifierを必須注入する。
  * v1 validatorやopaque objectへfallbackせず、verifier未導入中はstore無変更で拒否する。
  */
-export async function stageSuccessorEpoch({ runDir, transactionId, bundle, validateSuccessor }) {
+export async function stageSuccessorEpoch({ runDir, transactionId, bundle, recompileRequest = null,
+  validateSuccessor, validatePhaseRevision = null, commitPhaseRevision = null }) {
   if (!TRANSACTION_ID.test(transactionId ?? '')) {
     fail('INVALID_RUN_STORE', 'staging transaction idが不正');
   }
@@ -404,25 +508,81 @@ export async function stageSuccessorEpoch({ runDir, transactionId, bundle, valid
     fail('UNSUPPORTED_SUCCESSOR_SCHEMA', 'run_request.v2 successor verifierが未指定');
   }
   const committed = await readCommittedEpochStore(runDir);
-  if (committed === null || bundle?.schema !== 'lattice.runtime_epoch_bundle.v1'
-    || bundle.plan_epoch !== committed.pointer.plan_epoch + 1
-    || bundle.predecessor_bundle_digest !== committed.bundle.bundle_digest) {
+  if (recompileRequest !== null && !validateRuntimeRecompileRequest(recompileRequest, {
+    predecessorBundle: committed?.bundle ?? null,
+    validatePhaseRevision,
+  })) fail('INVALID_RECOMPILE_REQUEST', 'runtime recompile requestがcontractを満たさない');
+  let candidate = structuredClone(bundle);
+  if (committed === null || candidate?.schema !== 'lattice.runtime_epoch_bundle.v1'
+    || candidate.plan_epoch !== committed.pointer.plan_epoch + 1
+    || candidate.predecessor_bundle_digest !== committed.bundle.bundle_digest) {
     fail('EPOCH_BUNDLE_CONFLICT', 'successor bundleがcommitted predecessorへbindしない');
   }
-  const verdict = await validateSuccessor(structuredClone(bundle), {
+  if (recompileRequest !== null) {
+    if (candidate?.request?.request_digest !== recompileRequest.successor_request.request_digest
+      || candidate?.task_migration?.migration_digest !== recompileRequest.task_migration.migration_digest) {
+      fail('EPOCH_BUNDLE_CONFLICT', 'successor bundleがrecompile requestへbindしない');
+    }
+    if (recompileRequest.phase_revision === null) {
+      if (candidate.phase_revision_digest !== null
+        || candidate.phase_revision_commit_receipt !== null) {
+        fail('PHASE_REVISION_COMMIT_MISMATCH', 'null phase revisionへreceiptが存在する');
+      }
+    } else {
+      const preview = { ...candidate, phase_revision_digest: null,
+        phase_revision_commit_receipt: null };
+      const previewBody = { ...preview }; delete previewBody.bundle_digest;
+      preview.bundle_digest = digestArtifact(previewBody);
+      if (!validateRuntimeEpochBundle(preview)
+        || await validateSuccessor(structuredClone(preview), {
+          predecessor: structuredClone(committed.bundle),
+          pointer: structuredClone(committed.pointer), phase_revision_pending: true,
+        }) !== true) {
+        fail('UNSUPPORTED_SUCCESSOR_SCHEMA', 'phase commit前successor verifierがbundleを棄却した');
+      }
+      if (typeof commitPhaseRevision !== 'function') {
+        fail('PHASE_REVISION_UNAVAILABLE', 'phase_todo_revision.v3 committerが未指定');
+      }
+      // validate後、runtime storeへ一byteも書く前にTODO transactionをcommitする。
+      const receipt = await commitPhaseRevision(structuredClone(recompileRequest.phase_revision));
+      if (!validatePhaseRevisionCommitReceipt(receipt)
+        || receipt.revision_digest !== recompileRequest.phase_revision.revision_digest
+        || receipt.project_id !== recompileRequest.phase_revision.project_id
+        || receipt.plan_key !== recompileRequest.phase_revision.plan_key
+        || receipt.plan_version !== recompileRequest.phase_revision.desired_plan?.plan_version
+        || receipt.active_plan_digest !== recompileRequest.phase_revision.desired_plan?.plan_digest
+        || receipt.reconciliation_digest !== recompileRequest.phase_revision.reconciliation?.reconciliation_digest) {
+        fail('PHASE_REVISION_COMMIT_MISMATCH', 'phase revision commit receipt bindingが不正');
+      }
+      candidate.phase_revision_digest = recompileRequest.phase_revision.revision_digest;
+      candidate.phase_revision_commit_receipt = receipt;
+      const body = { ...candidate };
+      delete body.bundle_digest;
+      candidate.bundle_digest = digestArtifact(body);
+    }
+  }
+  const verdict = await validateSuccessor(structuredClone(candidate), {
     predecessor: structuredClone(committed.bundle),
     pointer: structuredClone(committed.pointer),
   });
   if (verdict !== true) {
     fail('UNSUPPORTED_SUCCESSOR_SCHEMA', 'run_request.v2 successor verifierがbundleを棄却した');
   }
+  if (!validateRuntimeEpochBundle(candidate)) {
+    fail('EPOCH_BUNDLE_CONFLICT', 'successor epoch bundle contractが不正');
+  }
   const stagingRoot = path.join(runDir, 'staging');
   const transactionDir = path.join(stagingRoot, transactionId);
+  const prepare = { schema: 'lattice.runtime_epoch_prepare.v1',
+    transaction_id: transactionId, bundle_digest: candidate.bundle_digest, prepare_digest: '' };
+  const prepareBody = { ...prepare }; delete prepareBody.prepare_digest;
+  prepare.prepare_digest = digestArtifact(prepareBody);
   await mkdir(stagingRoot, { recursive: true });
   await fsyncDirectory(runDir);
   try {
     await mkdir(transactionDir);
-    await writeDurableJson(path.join(transactionDir, 'epoch-bundle.json'), bundle);
+    await writeDurableJson(path.join(transactionDir, 'epoch-bundle.json'), candidate);
+    await writeDurableJson(path.join(transactionDir, 'prepare.json'), prepare);
     await fsyncDirectory(transactionDir);
     await fsyncDirectory(stagingRoot);
   } catch (error) {
@@ -430,12 +590,149 @@ export async function stageSuccessorEpoch({ runDir, transactionId, bundle, valid
       await rm(transactionDir, { recursive: true, force: true });
       throw error;
     }
-    const existing = await readRegularJson(path.join(transactionDir, 'epoch-bundle.json'), 'staged epoch bundle');
-    if (existing.bundle_digest !== bundle.bundle_digest) {
+    const bundlePath = path.join(transactionDir, 'epoch-bundle.json');
+    let existing;
+    try {
+      existing = await readRegularJson(bundlePath, 'staged epoch bundle');
+    } catch (readError) {
+      try { await lstat(bundlePath); throw readError; }
+      catch (statError) {
+        if (statError === readError || statError?.code !== 'ENOENT') throw readError;
+      }
+      await writeDurableJson(bundlePath, candidate);
+      existing = candidate;
+    }
+    if (!validateRuntimeEpochBundle(existing) || existing.bundle_digest !== candidate.bundle_digest) {
       fail('EPOCH_BUNDLE_CONFLICT', '同一transactionへ異なるsuccessor bundleが存在する');
     }
+    const preparePath = path.join(transactionDir, 'prepare.json');
+    try {
+      const existingPrepare = await readRegularJson(preparePath, 'staged epoch prepare');
+      if (canonicalizeArtifact(existingPrepare) !== canonicalizeArtifact(prepare)) {
+        fail('EPOCH_BUNDLE_CONFLICT', '同一transactionのprepare bindingが異なる');
+      }
+    } catch (readError) {
+      try { await lstat(preparePath); throw readError; }
+      catch (statError) {
+        if (statError === readError || statError?.code !== 'ENOENT') throw readError;
+      }
+      await writeDurableJson(preparePath, prepare);
+    }
+    await fsyncDirectory(transactionDir);
+    await fsyncDirectory(stagingRoot);
   }
-  return { transaction_id: transactionId, bundle_digest: bundle.bundle_digest };
+  return { transaction_id: transactionId, bundle_digest: candidate.bundle_digest,
+    bundle: structuredClone(candidate) };
+}
+
+/**
+ * staged successorをepoch historyへrenameし、durable event headsを確認してpointerを最後にcommitする。
+ * 同digest retryだけを許し、directory最大値や別transactionへfallbackしない。
+ */
+export async function commitStagedSuccessorEpoch({ runDir, transactionId,
+  activationRunEventDigest, activationControlEventDigest, readActivationControlEvents = null }) {
+  if (!TRANSACTION_ID.test(transactionId ?? '')
+    || !HEX_DIGEST.test(activationRunEventDigest ?? '')
+    || !HEX_DIGEST.test(activationControlEventDigest ?? '')) {
+    fail('INVALID_RUN_STORE', 'successor commit入力が不正');
+  }
+  const committed = await readCommittedEpochStore(runDir);
+  if (committed === null) fail('INVALID_RUN_STORE', 'managed predecessorが存在しない');
+  const transactionDir = path.join(runDir, 'staging', transactionId);
+  let bundle;
+  let alreadyRenamed = false;
+  try {
+    bundle = await readRegularJson(path.join(transactionDir, 'epoch-bundle.json'), 'staged epoch bundle');
+  } catch (error) {
+    if (!(error instanceof RuntimeEpochStoreError)) throw error;
+    const successorDir = path.join(runDir, 'epochs', String(committed.pointer.plan_epoch + 1).padStart(8, '0'));
+    let prepare;
+    try {
+      prepare = await readRegularJson(path.join(successorDir, 'prepare.json'), 'renamed epoch prepare');
+      bundle = await readRegularJson(path.join(successorDir, 'epoch-bundle.json'), 'renamed epoch bundle');
+      alreadyRenamed = true;
+    } catch {
+      const currentDir = path.join(runDir, 'epochs', String(committed.pointer.plan_epoch).padStart(8, '0'));
+      prepare = await readRegularJson(path.join(currentDir, 'prepare.json'), 'committed epoch prepare');
+      bundle = committed.bundle;
+    }
+    if (!exactRecord(prepare, ['schema', 'transaction_id', 'bundle_digest', 'prepare_digest'])
+      || prepare.schema !== 'lattice.runtime_epoch_prepare.v1'
+      || prepare.transaction_id !== transactionId || !selfDigestValid(prepare, 'prepare_digest')
+      || prepare.bundle_digest !== bundle.bundle_digest) throw error;
+    if (bundle.plan_epoch === committed.pointer.plan_epoch) {
+      if (committed.pointer.activation_run_event_digest !== activationRunEventDigest
+        || committed.pointer.activation_control_event_digest !== activationControlEventDigest) throw error;
+      return { bundle: committed.bundle, pointer: committed.pointer };
+    }
+  }
+  if (!validateRuntimeEpochBundle(bundle)
+    || bundle.plan_epoch !== committed.pointer.plan_epoch + 1
+    || bundle.predecessor_bundle_digest !== committed.bundle.bundle_digest) {
+    fail('EPOCH_BUNDLE_CONFLICT', 'staged successor bindingが不正');
+  }
+  const runEvents = await readRegularJson(path.join(runDir, 'events.json'), 'run events');
+  const controlEvents = typeof readActivationControlEvents === 'function'
+    ? await readActivationControlEvents()
+    : await readRegularJson(path.join(runDir, 'control-events.json'), 'runtime control events');
+  if (!Array.isArray(runEvents) || runEvents.at(-1)?.event_digest !== activationRunEventDigest
+    || !Array.isArray(controlEvents) || controlEvents.at(-1)?.event_digest !== activationControlEventDigest) {
+    fail('EPOCH_ACTIVATION_INCOMPLETE', 'successor activation event headが未耐久化');
+  }
+  const epochsDir = path.join(runDir, 'epochs');
+  const epochDir = path.join(epochsDir, String(bundle.plan_epoch).padStart(8, '0'));
+  try {
+    if (!alreadyRenamed) {
+      await rename(transactionDir, epochDir);
+      await fsyncDirectory(epochsDir);
+      await fsyncDirectory(path.join(runDir, 'staging'));
+    } else {
+      await fsyncDirectory(epochDir);
+      await fsyncDirectory(epochsDir);
+    }
+  } catch (error) {
+    if (error?.code !== 'EEXIST' && error?.code !== 'ENOTEMPTY') throw error;
+    const existing = await readRegularJson(path.join(epochDir, 'epoch-bundle.json'), 'committed successor bundle');
+    if (!validateRuntimeEpochBundle(existing) || existing.bundle_digest !== bundle.bundle_digest) {
+      fail('EPOCH_BUNDLE_CONFLICT', 'successor epoch concurrent commitが異なる');
+    }
+  }
+  const pointer = {
+    schema: 'lattice.committed_epoch_pointer.v1', run_id: bundle.run_id,
+    plan_epoch: bundle.plan_epoch, plan_ref: bundle.plan.plan_ref,
+    bundle_digest: bundle.bundle_digest, activation_run_event_digest: activationRunEventDigest,
+    activation_control_event_digest: activationControlEventDigest,
+  };
+  pointer.pointer_digest = digestArtifact(pointer);
+  await replaceDurableJson(runDir, 'committed-epoch.json', pointer);
+  return { bundle, pointer };
+}
+
+export async function commitReleaseEpochBarrier({ runDir, barrier }) {
+  if (!exactRecord(barrier, ['schema', 'run_id', 'committed_epoch_pointer_digest',
+    'plan_epoch', 'activation_digest', 'controller_ready_ack_digests',
+    'staged_lease_digests', 'gate_generation', 'release_digest'])
+    || barrier.schema !== 'lattice.release_epoch_barrier.v1'
+    || !HEX_DIGEST.test(barrier.committed_epoch_pointer_digest ?? '')
+    || !HEX_DIGEST.test(barrier.activation_digest ?? '')
+    || !Array.isArray(barrier.controller_ready_ack_digests)
+    || !Array.isArray(barrier.staged_lease_digests)
+    || !barrier.controller_ready_ack_digests.every((value, index) => HEX_DIGEST.test(value)
+      && (index === 0 || barrier.controller_ready_ack_digests[index - 1] < value))
+    || !barrier.staged_lease_digests.every((value, index) => HEX_DIGEST.test(value)
+      && (index === 0 || barrier.staged_lease_digests[index - 1] < value))
+    || !selfDigestValid(barrier, 'release_digest')) {
+    fail('EPOCH_ACTIVATION_INCOMPLETE', 'release epoch barrier contractが不正');
+  }
+  const committed = await readCommittedEpochStore(runDir);
+  if (committed === null || barrier.run_id !== committed.meta.run_id
+    || barrier.plan_epoch !== committed.pointer.plan_epoch
+    || barrier.committed_epoch_pointer_digest !== committed.pointer.pointer_digest
+    || !Number.isSafeInteger(barrier.gate_generation) || barrier.gate_generation < 1) {
+    fail('EPOCH_ACTIVATION_INCOMPLETE', 'release barrierがcommitted pointerへbindしない');
+  }
+  await replaceDurableJson(runDir, 'release-epoch.json', barrier);
+  return { release_digest: barrier.release_digest };
 }
 
 export async function isManagedRunFrozen(runDir, events) {

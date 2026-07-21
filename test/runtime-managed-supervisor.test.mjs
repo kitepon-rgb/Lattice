@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { selfDigest } from '../src/runtime-contracts.mjs';
 import { canonicalizeArtifact, digestArtifact } from '../src/artifact-contracts.mjs';
+import { buildNextRunEvent } from '../src/runtime-engine.mjs';
 import { RuntimeManagedSupervisor, observeManagedProcessStartIdentity, sendRuntimeControlRequest, serveRuntimeControlSocket } from '../src/runtime-managed-supervisor.mjs';
 import { CONTROLLER_OPERATIONS, armStagedWriteLease, createRuntimeControlRequest } from '../src/runtime-controller-protocol.mjs';
 
@@ -17,14 +18,24 @@ function fixture() {
   const descriptor = sign({ schema: 'lattice.runtime_adapter_controller_descriptor.v1', controller_id: 'controller-a', adapter_kind: 'fake', pid: 42, process_start_identity: identity, socket_ref: 'supervisor/controllers/controller-a.sock', controller_session_nonce_digest: D('a'), capabilities, heartbeat, descriptor_digest: '' }, 'descriptor_digest');
   const registration = sign({ schema: 'lattice.runtime_adapter_registration.v1', registration_id: 'registration-a', run_id: 'run-a', supervisor_session_nonce_digest: D('b'), controller_descriptor_digest: descriptor.descriptor_digest, registered_operations: [...CONTROLLER_OPERATIONS], registered_at: '2026-07-21T00:00:00.000Z', registration_digest: '' }, 'registration_digest');
   const binding = { todo_id: 'T1', executor_handle: 'exec-a', worktree_id: 'wt-a', plan_epoch: 1, packet_digest: D('c'), write_lease_id: 'old-lease', controller_registration_digest: registration.registration_digest };
-  const quiescenceAck = sign({ schema: 'lattice.executor_quiescence_ack.v1', ack_id: 'quiet-a', run_id: 'run-a', todo_id: 'T1', executor_handle: 'exec-a', worktree_id: 'wt-a', plan_epoch: 1, packet_digest: D('c'), write_lease_id: 'old-lease', barrier_control_digest: D('d'), final_checkpoint_digest: D('e'), process_observation_digest: D('f'), worktree_fingerprint_digest: D('1'), supervisor_session_nonce_digest: D('b'), ack_digest: '' }, 'ack_digest');
+  const observation = { schema: 'test.process_observation.v1', quiesced: true };
+  const worktreeFingerprint = { schema: 'test.worktree_fingerprint.v1', checkpoint_digest: D('e') };
+  const checkpoint = { schema: 'test.checkpoint.v1', checkpoint_digest: D('e') };
+  const directObservation = { quiesced: true,
+    process_observation_digest: digestArtifact(observation),
+    worktree_fingerprint_digest: digestArtifact(worktreeFingerprint),
+    final_checkpoint_digest: checkpoint.checkpoint_digest, observation, worktree_fingerprint: worktreeFingerprint,
+    checkpoint, write_enabled: false };
+  const quiescenceAck = sign({ schema: 'lattice.executor_quiescence_ack.v1', ack_id: 'quiet-a', run_id: 'run-a', todo_id: 'T1', executor_handle: 'exec-a', worktree_id: 'wt-a', plan_epoch: 1, packet_digest: D('c'), write_lease_id: 'old-lease', barrier_control_digest: D('d'), final_checkpoint_digest: directObservation.final_checkpoint_digest, process_observation_digest: directObservation.process_observation_digest, worktree_fingerprint_digest: directObservation.worktree_fingerprint_digest, supervisor_session_nonce_digest: D('b'), ack_digest: '' }, 'ack_digest');
   const staged = sign({ schema: 'lattice.runtime_write_lease.v1', lease_id: 'new-lease', run_id: 'run-a', todo_id: 'T1', plan_epoch: 2, packet_digest: D('2'), controller_registration_digest: registration.registration_digest, supervisor_session_nonce_digest: D('b'), state: 'staged', ttl_ms: 500, issued_control_digest: D('3'), lease_digest: '' }, 'lease_digest');
   const rebindPacket = sign({ schema: 'lattice.epoch_rebind_packet.v1', packet_id: 'rebind-packet-a', todo_id: 'T1', executor_handle: 'exec-a', worktree_id: 'wt-a', witness_digest: D('4'), context_content_digest: D('5'), authorized_checkpoint_digest: D('6'), old_plan_ref: 'plan-v1', new_plan_ref: 'plan-v2', new_plan_epoch: 2, packet_digest: '' }, 'packet_digest');
   const rebindAck = sign({ schema: 'lattice.executor_epoch_rebind_ack.v1', ack_id: 'rebind-a', run_id: 'run-a', todo_id: 'T1', executor_handle: 'exec-a', worktree_id: 'wt-a', predecessor_epoch: 1, successor_epoch: 2, predecessor_packet_digest: D('c'), rebind_packet_digest: rebindPacket.packet_digest, new_write_lease_id: 'new-lease', supervisor_session_nonce_digest: D('b'), ack_digest: '' }, 'ack_digest');
-  return { descriptor, registration, binding, quiescenceAck, staged, rebindPacket, rebindAck };
+  return { descriptor, registration, binding, quiescenceAck, directObservation,
+    staged, rebindPacket, rebindAck };
 }
 
 function response(operation, request, f) {
+  if (operation === 'inventory') return sign({ schema: 'lattice.adapter_running_inventory_response.v1', request_id: request.request_id, running_bindings: [], inventory_digest: digestArtifact([]), response_digest: '' }, 'response_digest');
   if (operation === 'barrier') return sign({ schema: 'lattice.adapter_barrier_response.v1', request_id: request.request_id, barrier_id: request.barrier_id, quiescence_acks: [f.quiescenceAck], response_digest: '' }, 'response_digest');
   if (operation === 'rebind') return sign({ schema: 'lattice.adapter_rebind_response.v1', request_id: request.request_id, rebind_ack: f.rebindAck, staged_lease_digest: f.staged.lease_digest, response_digest: '' }, 'response_digest');
   if (operation === 'activate') {
@@ -46,7 +57,7 @@ function makeSupervisor(f, nowRef) {
   const supervisor = new RuntimeManagedSupervisor({
     runId: 'run-a', sessionNonceDigest: D('b'), clock: () => nowRef.value,
     processObserver: async ({ kind, ack }) => kind === 'quiescence'
-      ? { quiesced: true, process_observation_digest: ack.process_observation_digest, worktree_fingerprint_digest: ack.worktree_fingerprint_digest, final_checkpoint_digest: ack.final_checkpoint_digest }
+      ? structuredClone(f.directObservation)
       : { rebind_ack_digest: ack.ack_digest, write_enabled: false },
     runningBindingResolver: async () => [f.binding],
     journal: { append: async (event) => { events.push(event); return event.kind === 'barrier_requested' ? D('d') : D('9'); } },
@@ -65,6 +76,99 @@ test('全running barrierはcontroller直接ackとOS再観測の一致を要求�
   assert.deepEqual(s.events.filter((event) => event.kind === 'executor_quiesced').map((event) => event.payload.todo_id), ['T1']);
 });
 
+test('restart barrierはdurable storeと複数controller inventoryのrunning和集合を全件停止する', async () => {
+  const f = fixture();
+  const second = fixture();
+  second.descriptor.controller_id = 'controller-b';
+  second.descriptor.pid = 43;
+  second.descriptor.process_start_identity.pid = 43;
+  sign(second.descriptor.process_start_identity, 'identity_digest');
+  second.descriptor.socket_ref = 'supervisor/controllers/controller-b.sock';
+  sign(second.descriptor, 'descriptor_digest');
+  second.registration.registration_id = 'registration-b';
+  second.registration.controller_descriptor_digest = second.descriptor.descriptor_digest;
+  sign(second.registration, 'registration_digest');
+  second.binding = { ...second.binding, todo_id: 'T2', executor_handle: 'exec-b',
+    worktree_id: 'wt-b', packet_digest: D('2'), write_lease_id: 'old-lease-b',
+    controller_registration_digest: second.registration.registration_digest };
+  Object.assign(second.quiescenceAck, { todo_id: 'T2', executor_handle: 'exec-b',
+    worktree_id: 'wt-b', packet_digest: D('2'), write_lease_id: 'old-lease-b' });
+  sign(second.quiescenceAck, 'ack_digest');
+  const events = [];
+  const barrierOwnership = new Map();
+  const supervisor = new RuntimeManagedSupervisor({ runId: 'run-a', sessionNonceDigest: D('b'), clock: () => 0,
+    processObserver: async ({ binding }) => structuredClone(binding.todo_id === 'T1' ? f.directObservation : second.directObservation),
+    runningBindingResolver: async () => [f.binding],
+    journal: { append: async (event) => { events.push(event); return event.kind === 'barrier_requested' ? D('d') : D('9'); } },
+    gateWriter: { commit: async () => {} } });
+  const transportFor = (ownedFixture, directInventory) => {
+    let inventoryCount = 0;
+    return { request: async (operation, request) => {
+      if (operation === 'inventory') {
+        inventoryCount += 1;
+        const bindings = inventoryCount === 1 ? directInventory : [];
+        return sign({ schema: 'lattice.adapter_running_inventory_response.v1', request_id: request.request_id,
+          running_bindings: bindings, inventory_digest: digestArtifact(bindings), response_digest: '' }, 'response_digest');
+      }
+      if (operation === 'barrier') barrierOwnership.set(ownedFixture.descriptor.controller_id,
+        request.running_bindings.map((binding) => ({ todo_id: binding.todo_id,
+          registration_digest: binding.controller_registration_digest })));
+      return response(operation, request, ownedFixture);
+    } };
+  };
+  await supervisor.registerController({ descriptor: f.descriptor, registration: f.registration,
+    transport: transportFor(f, []) });
+  await supervisor.registerController({ descriptor: second.descriptor, registration: second.registration,
+    transport: transportFor(second, [second.binding]) });
+  const acks = await supervisor.recoveryBarrier({ barrierId: 'barrier-restart', frozenEventDigest: D('8') });
+  assert.deepEqual(acks.map((ack) => ack.todo_id).sort(), ['T1', 'T2']);
+  const barrier = events.find((event) => event.kind === 'barrier_requested');
+  assert.deepEqual(barrier.payload.running_todo_ids, ['T1', 'T2']);
+  assert.deepEqual(barrierOwnership.get('controller-a'), [{ todo_id: 'T1',
+    registration_digest: f.registration.registration_digest }]);
+  assert.deepEqual(barrierOwnership.get('controller-b'), [{ todo_id: 'T2',
+    registration_digest: second.registration.registration_digest }]);
+});
+
+test('controller inventoryがdurable bindingと不一致又はbarrier後に残存すればfail closed', async () => {
+  const make = (inventorySequence) => {
+    const f = fixture(); let inventoryCount = 0;
+    const supervisor = new RuntimeManagedSupervisor({ runId: 'run-a', sessionNonceDigest: D('b'), clock: () => 0,
+      processObserver: async () => structuredClone(f.directObservation), runningBindingResolver: async () => [f.binding],
+      journal: { append: async (event) => event.kind === 'barrier_requested' ? D('d') : D('9') },
+      gateWriter: { commit: async () => {} } });
+    const transport = { request: async (operation, request) => {
+      if (operation !== 'inventory') return response(operation, request, f);
+      const bindings = inventorySequence[inventoryCount++] ?? [];
+      return sign({ schema: 'lattice.adapter_running_inventory_response.v1', request_id: request.request_id,
+        running_bindings: bindings, inventory_digest: digestArtifact(bindings), response_digest: '' }, 'response_digest');
+    } };
+    return { f, supervisor, transport };
+  };
+  const mismatchedFixture = fixture();
+  const mismatched = { ...mismatchedFixture.binding, packet_digest: D('0') };
+  const first = make([[mismatched]]);
+  await first.supervisor.registerController({ descriptor: first.f.descriptor, registration: first.f.registration, transport: first.transport });
+  await assert.rejects(first.supervisor.recoveryBarrier({ barrierId: 'barrier-mismatch', frozenEventDigest: D('8') }),
+    (error) => error.code === 'HOLD_ACKS_INCOMPLETE');
+
+  const residualFixture = fixture();
+  const extraResidual = { ...residualFixture.binding, todo_id: 'T2', executor_handle: 'exec-extra',
+    worktree_id: 'wt-extra', write_lease_id: 'lease-extra' };
+  const second = make([[], [extraResidual]]);
+  await second.supervisor.registerController({ descriptor: second.f.descriptor, registration: second.f.registration, transport: second.transport });
+  await assert.rejects(second.supervisor.recoveryBarrier({ barrierId: 'barrier-residual', frozenEventDigest: D('8') }),
+    (error) => error.code === 'HOLD_ACKS_INCOMPLETE');
+
+  const unknownFixture = fixture();
+  const unknown = { ...unknownFixture.binding, todo_id: 'T2', executor_handle: 'exec-unknown',
+    worktree_id: 'wt-unknown', write_lease_id: 'lease-unknown', controller_registration_digest: D('f') };
+  const third = make([[unknown]]);
+  await third.supervisor.registerController({ descriptor: third.f.descriptor, registration: third.f.registration, transport: third.transport });
+  await assert.rejects(third.supervisor.recoveryBarrier({ barrierId: 'barrier-unknown', frozenEventDigest: D('8') }),
+    (error) => error.code === 'HOLD_ACKS_INCOMPLETE');
+});
+
 test('ack本文が正しくても独立再観測が不一致ならholdを完了しない', async () => {
   const f = fixture(); const events = [];
   const supervisor = new RuntimeManagedSupervisor({ runId: 'run-a', sessionNonceDigest: D('b'), clock: () => 0,
@@ -79,9 +183,34 @@ test('direct rebind ack後もstaged leaseは中央gate commitまでwrite不能',
   const f = fixture(); const now = { value: 0 }; const s = makeSupervisor(f, now);
   await s.supervisor.registerController({ descriptor: f.descriptor, registration: f.registration, transport: s.transport });
   await s.supervisor.barrierAll({ barrierId: 'barrier-a', reason: 'conflict', frozenEventDigest: D('8') });
-  await s.supervisor.rebindController({ controllerId: 'controller-a', rebindPacket: f.rebindPacket, stagedLease: f.staged, expected: { todo_id: 'T1', executor_handle: 'exec-a', worktree_id: 'wt-a', predecessor_packet_digest: D('c'), rebind_packet_digest: f.rebindPacket.packet_digest } });
+  const rebindEvidence = await s.supervisor.rebindController({ controllerId: 'controller-a', rebindPacket: f.rebindPacket, stagedLease: f.staged, expected: { todo_id: 'T1', executor_handle: 'exec-a', worktree_id: 'wt-a', predecessor_packet_digest: D('c'), rebind_packet_digest: f.rebindPacket.packet_digest } });
+  const acknowledged = s.events.find((event) => event.kind === 'epoch_rebind_acknowledged');
+  assert.equal(rebindEvidence.ack.rebind_packet_digest, f.rebindPacket.packet_digest);
+  assert.equal(rebindEvidence.control_event_digest, D('9'));
+  assert.equal(acknowledged.payload.ack_digest, rebindEvidence.ack.ack_digest);
+  assert.equal(acknowledged.payload.staged_lease_digest, f.staged.lease_digest);
+  assert.equal(f.staged.controller_registration_digest, f.registration.registration_digest);
+  const runEvents = [buildNextRunEvent({ events: [], runId: 'run-a', kind: 'run_initialized',
+    planEpoch: 1, subject: { kind: 'run', ref: 'run-a' }, payload: {},
+    recordedAt: '2026-07-21T00:00:00.000Z' })];
+  const reboundEvent = buildNextRunEvent({ events: runEvents, runId: 'run-a', kind: 'epoch_rebound',
+    planEpoch: 2, subject: { kind: 'todo', ref: 'T1' }, payload: { ...f.rebindPacket,
+      rebind_ack_digest: rebindEvidence.ack.ack_digest,
+      control_event_digest: rebindEvidence.control_event_digest,
+      controller_registration_digest: f.registration.registration_digest },
+    recordedAt: '2026-07-21T00:00:00.000Z' });
+  assert.equal(reboundEvent.payload.rebind_ack_digest, acknowledged.payload.ack_digest);
+  assert.equal(reboundEvent.payload.control_event_digest, rebindEvidence.control_event_digest);
+  assert.equal(reboundEvent.payload.controller_registration_digest, f.registration.registration_digest);
   await assert.rejects(s.supervisor.authorizeWrite({ leaseDigest: f.staged.lease_digest }), (error) => error.code === 'RUN_FROZEN');
-  const committed = await s.supervisor.commitWriteGate({ planEpoch: 2, committedEpochDigest: D('4'), activationDigest: D('6'), releaseBarrierDigest: D('5'), committedAt: '2026-07-21T00:00:01.000Z' });
+  let releaseBarrier;
+  const committed = await s.supervisor.commitWriteGate({ planEpoch: 2,
+    committedEpochDigest: D('4'), activationDigest: D('6'),
+    commitReleaseBarrier: async (barrier) => { releaseBarrier = barrier;
+      return { release_digest: barrier.release_digest }; },
+    committedAt: '2026-07-21T00:00:01.000Z' });
+  assert.equal(releaseBarrier.schema, 'lattice.release_epoch_barrier.v1');
+  assert.deepEqual(releaseBarrier.controller_ready_ack_digests, [releaseBarrier.controller_ready_ack_digests[0]]);
   assert.equal(s.gates.length, 1);
   assert.equal(s.supervisor.frozen, false);
   now.value = 1;
@@ -140,7 +269,8 @@ test('deep run pathでもcwd anchorのrelative AF_UNIXでlisten/connectする', 
     const descriptor = sign({ schema: 'lattice.runtime_supervisor_descriptor.v1', run_id: 'run-a', pid: process.pid, process_start_identity: identity, socket_ref: 'supervisor/control.sock', session_nonce_digest: digestArtifact('n'.repeat(64)), protocol_version: 'v1', activated_at: '2026-07-21T00:00:00.000Z', descriptor_digest: '' }, 'descriptor_digest');
     await writeFile(path.join(supervisorDir, 'descriptor.json'), `${canonicalizeArtifact(descriptor)}\n`, { mode: 0o600 });
     const payload = sign({ schema: 'lattice.runtime_control_operation.v1', operation: 'hold',
-      run_ref: 'run-a', artifact_digest: null, expected_epoch: 1, expected_queue_digest: null,
+      run_ref: 'run-a', artifact: null, artifact_digest: null, checkpoint_digest: null,
+      expected_epoch: 1, expected_queue_digest: null,
       shutdown_reason: null, operation_digest: '' }, 'operation_digest');
     const request = createRuntimeControlRequest({ requestId: 'request-a', runId: 'run-a', operation: 'hold', payload, sessionNonce: 'n'.repeat(64) });
     const response = await sendRuntimeControlRequest({ socketPath: path.join(supervisorDir, 'control.sock'), request });
