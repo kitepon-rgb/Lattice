@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="Shift_JIS"?>
+<!DOCTYPE jp:notice-pat-exam-rn PUBLIC "-//JPO//DTD NOTICE DOCUMENT BY PATENT SUBSTANTIAL EXAMINATION RENEWAL 1.0//EN" "ntc-pt-e-rn.dtd" []>
+<jp:notice-pat-exam-rn lang="ja" dtd-version="1.0" xmlns:jp="http://www.jpo.go.jp">
+<jp:notice-of-rejection-a131-rn jp:kind-of-law="patent">
+<jp:document-name>拒絶理由通知書</jp:document-name>
+<jp:bibliog-in-ntc-pat-exam-rn>
+<jp:application-reference appl-type="application" jp:kind-of-law="patent">
+<jp:document-id>
+<jp:doc-number>2022119230</jp:doc-number>
+</jp:document-id>
+</jp:application-reference>
+<jp:drafting-date>
+<jp:date>20250825</jp:date>
+</jp:drafting-date>
+<jp:draft-person-group>
+<jp:name>円子　英紀</jp:name>
+<jp:staff-code>3979</jp:staff-code>
+<jp:office-code>5B00</jp:office-code>
+</jp:draft-person-group>
+<jp:addressed-to-person-group jp:kind-of-person="applicant" jp:kind-of-agent="sub-representative">
+<jp:addressbook>
+<jp:name>古部　次郎</jp:name>
+</jp:addressbook>
+<jp:number-of-other-persons>&#160;3</jp:number-of-other-persons>
+</jp:addressed-to-person-group>
+<jp:article-group>
+<jp:article>第３６条第６項第２号（明確性）</jp:article>
+</jp:article-group>
+</jp:bibliog-in-ntc-pat-exam-rn>
+<jp:reconsideration-before-appeal jp:true-or-false="false"/>
+<jp:conclusion-part-article>
+<p num="">　この出願は、次の理由によって拒絶をすべきものです。これについて意見が<br/>
+ありましたら、この通知書の発送の日から３か月以内に意見書を提出してくだ<br/>
+さい。<br/>
+<br/>
+　　　　　　　　　　　　　　　　理由<br/>
+</p>
+</jp:conclusion-part-article>
+<jp:drafting-body>
+<p num="">（明確性）この出願は、特許請求の範囲の記載が下記の点で、特許法第３６条第６項第２号に規定する要件を満たしていない。<br/><br/>　　　　　　　　　　　　　　　　　記<br/><br/>●理由（明確性）について<br/>（１）請求項１－２０<br/>　請求項１には、「前記ソースコードの前記解析に少なくとも部分的に基づいて、前記グラフ構造内の前記複数のノードに関連する１つまたは複数の制約を自動的に特定することと、前記１つまたは複数の特定された制約に少なくとも部分的に基づいて、畳み込みニューラルネットワークを使用して、前記複数のノードを１つまたは複数のクラスタにクラスタリングすること」と記載されているが、以下の点が、情報処理装置の技術分野の技術常識を考慮しても具体的に想定できず、不明であるから、当該請求項に記載された一連の処理を明確に把握することができない。<br/>（ａ）クラスタリングにおいて、畳み込みニューラルネットワークをどのように使用するのかが特定されておらず不明である。<br/>（ｂ）ノードのクラスタリングを「制約」に基づいて行うものとしているが、その「制約」について実質的な内容が特定されておらず、「制約」がノードのクラスタリングにおいてどのように用いられるのか不明である。<br/>　請求項２－２０においても同様である。<br/>　よって、請求項１－２０に係る発明は明確でない。<br/><br/><br/>（２）請求項４，１４<br/>　請求項４には、「前記ソフトウェアアプリケーション」との記載があるが、この記載よりも前に「ソフトウェアアプリケーション」の記載が無く、「前記ソフトウェアアプリケーション」が何を指し示しているのかが不明確である。<br/>　請求項１４においても同様である。<br/>　よって、請求項４に係る発明は明確でない。<br/><br/><br/>（３）請求項１１－１９<br/>　請求項１１の「プログラム命令を実装したコンピュータ可読記憶媒体を含むコンピュータプログラム製品であって、前記プログラム命令は、コンピューティングデバイスによって実行可能であり、前記コンピューティングデバイスに、・・・を実行させる、コンピュータプログラム製品。」との記載からは、明細書及び図面の記載並びに出願時の技術常識を考慮しても、「コンピュータプログラム製品」が、（ａ）「プログラム」自体、（ｂ）「プログラムが記録された記録媒体&#160;」、（ｃ）「プログラムが読み込まれたコンピュータシステム」などのプログラムが読み込まれたシステム、のいずれかを意味することが明確でないから、当該請求項に係る発明の範囲を明確に把握することができない。<br/>　請求項１２－１９においても同様である。<br/>　よって、請求項１１－１９に係る発明は明確でない。<br/><br/><br/>－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－<br/>　　　　　　　　　　＜先行技術文献調査結果の記録＞<br/><br/>・調査した分野　　ＩＰＣ　Ｇ０６Ｆ８／７２<br/>　　　　　　　　　　　　　Ｇ０６Ｆ１６／２８<br/>　　　　　　　　　　　　　Ｇ０６Ｆ１６／９０６<br/>　　　　　　　　　　　　　Ｇ０６Ｎ３／０８<br/><br/>・先行技術文献　　国際公開第２０２１／１４８９２７号<br/>　　　　　　　　　特開２０１６－２２４９１５号公報<br/>　　　　　　　　　特開２０２１－０８９７２２号公報<br/>　　　　　　　　　特開２００９－２５１７６９号公報<br/>　　　　　　　　　特表２０１７－５０４９１０号公報<br/>　　　　　　　　　特開２０１８－０１０４３８号公報<br/>　　　　　　　　　米国特許出願公開第２０２１／０１２４５７７号明細書<br/><br/>　この先行技術文献調査結果の記録は、拒絶理由を構成するものではありません。<br/><br/>　この拒絶理由通知の内容に関するお問合せ又は面接のご希望がありましたら、次の連絡先までご連絡ください。補正案等の送付を希望される際は、その旨を事前にご連絡ください。<br/>　電子メールにて連絡する際は、氏名、所属、出願番号、電話番号、下記審査官名を記載していただき、下記メールアドレス（※）までご連絡ください。電子メールの連絡内容について不明な点等がある場合、電話で確認させていただく場合があります。<br/><br/>審査第四部情報処理　円子　英紀（まるこ　ひでき）<br/>ＴＥＬ．０３－３５８１－１１０１　内線３５４４<br/>※●●●●@jpo.go.jp（上記「●●●●」に置き換えて、「PA5B」と入力ください。）<br/></p>
+</jp:drafting-body>
+<jp:footer-article>
+<jp:approval-column-article>
+<jp:staff2-group>
+<jp:official-title>審査長／代理</jp:official-title>
+<jp:name>太田　龍一　</jp:name>
+<jp:staff-code>3462</jp:staff-code>
+</jp:staff2-group>
+<jp:staff3-group>
+<jp:official-title>審査官　　　</jp:official-title>
+<jp:name>円子　英紀　</jp:name>
+<jp:staff-code>3979</jp:staff-code>
+</jp:staff3-group>
+<jp:staff4-group>
+<jp:official-title>審査官補　　</jp:official-title>
+<jp:name>　　　　　　</jp:name>
+<jp:staff-code></jp:staff-code>
+</jp:staff4-group>
+</jp:approval-column-article>
+</jp:footer-article>
+</jp:notice-of-rejection-a131-rn>
+</jp:notice-pat-exam-rn>
