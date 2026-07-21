@@ -61,3 +61,40 @@ describe('latticeSensor affected — input path normalization (#825)', () => {
     expect(affected(tempDir, path.join(tempDir, 'src/util.ts'))).toEqual(expected);
   });
 });
+
+describe('latticeSensor affected — Swift test classification', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-affected-swift-'));
+    fs.mkdirSync(path.join(tempDir, 'Sources', 'Feature'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'Tests', 'FeatureTests'), { recursive: true });
+    fs.writeFileSync(path.join(tempDir, 'Sources', 'Feature', 'Feature.swift'),
+      'public struct Feature { public init() {} }\n');
+    fs.writeFileSync(path.join(tempDir, 'Tests', 'FeatureTests', 'FeatureTests.swift'), [
+      'import XCTest',
+      '@testable import Feature',
+      'final class FeatureTests: XCTestCase {',
+      '  func testFeature() { _ = Feature() }',
+      '}',
+      '',
+    ].join('\n'));
+    const cg = LatticeSensor.initSync(tempDir);
+    await cg.indexAll();
+    cg.close();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('includes a changed Tests/.../*Tests.swift file itself', () => {
+    expect(affected(tempDir, 'Tests/FeatureTests/FeatureTests.swift'))
+      .toEqual(['Tests/FeatureTests/FeatureTests.swift']);
+  });
+
+  it('discovers a dependent Swift test from a Sources file', () => {
+    expect(affected(tempDir, 'Sources/Feature/Feature.swift'))
+      .toEqual(['Tests/FeatureTests/FeatureTests.swift']);
+  });
+});

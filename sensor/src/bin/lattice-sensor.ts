@@ -42,6 +42,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { getLatticeSensorDir, isInitialized, unsafeIndexRootReason, findNearestLatticeSensorRoot, planFrontload, hasStructuralKeyword, extractCodeTokens } from '../directory';
 import { extractProseCandidates } from '../search/identifier-segments';
+import { isRunnableTestFile } from '../search/query-utils';
 import { detectWorktreeIndexMismatch, worktreeMismatchWarning } from '../sync/worktree';
 import { createShimmerProgress } from '../ui/shimmer-progress';
 import { getGlyphs } from '../ui/glyphs';
@@ -2122,16 +2123,6 @@ program
       const cg = await LatticeSensor.open(projectPath);
       const maxDepth = parseInt(options.depth || '5', 10);
 
-      // Common test file patterns
-      const defaultTestPatterns = [
-        /\.spec\./,
-        /\.test\./,
-        /\/__tests__\//,
-        /\/tests?\//,
-        /\/e2e\//,
-        /\/spec\//,
-      ];
-
       // Custom filter pattern
       let customFilter: RegExp | null = null;
       if (options.filter) {
@@ -2144,9 +2135,9 @@ program
         customFilter = new RegExp(regex);
       }
 
-      function isTestFile(filePath: string): boolean {
+      function matchesTestFile(filePath: string): boolean {
         if (customFilter) return customFilter.test(filePath);
-        return defaultTestPatterns.some(p => p.test(filePath));
+        return isRunnableTestFile(filePath);
       }
 
       // BFS to find all transitive dependents of changed files, filtered to test files
@@ -2155,7 +2146,7 @@ program
 
       for (const file of changedFiles) {
         // If the changed file is itself a test file, include it
-        if (isTestFile(file)) {
+        if (matchesTestFile(file)) {
           affectedTests.add(file);
           continue;
         }
@@ -2175,7 +2166,7 @@ program
             visited.add(dep);
             allDependents.add(dep);
 
-            if (isTestFile(dep)) {
+            if (matchesTestFile(dep)) {
               affectedTests.add(dep);
             } else {
               queue.push({ file: dep, depth: current.depth + 1 });

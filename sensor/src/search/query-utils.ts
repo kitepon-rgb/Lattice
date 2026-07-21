@@ -277,7 +277,7 @@ export function scorePathRelevance(
 /**
  * Check if a file path looks like a test file
  */
-export function isTestFile(filePath: string): boolean {
+export function isRunnableTestFile(filePath: string): boolean {
   const lower = filePath.toLowerCase();
   const fileName = path.basename(filePath);   // original case — needed for camelCase boundaries
   const lowerName = fileName.toLowerCase();
@@ -311,6 +311,13 @@ export function isTestFile(filePath: string): boolean {
   ) {
     return true;
   }
+
+  return false;
+}
+
+export function isTestFile(filePath: string): boolean {
+  if (isRunnableTestFile(filePath)) return true;
+  const lower = filePath.toLowerCase();
 
   // Non-production directories: examples, samples, benchmarks, fixtures, demos.
   // Check both mid-path (/integration/) and start-of-path (integration/) since

@@ -10,7 +10,7 @@
  * `manifest.kt` / a `RealCall.kt` production file must NOT be flagged.
  */
 import { describe, it, expect } from 'vitest';
-import { isTestFile } from '../src/search/query-utils';
+import { isRunnableTestFile, isTestFile } from '../src/search/query-utils';
 
 describe('isTestFile', () => {
   it('flags Kotlin test files and source sets', () => {
@@ -23,6 +23,8 @@ describe('isTestFile', () => {
   it('flags Swift test files', () => {
     expect(isTestFile('Tests/SessionTests.swift')).toBe(true);
     expect(isTestFile('Sources/FooTest.swift')).toBe(true);
+    expect(isRunnableTestFile('Tests/SessionTests.swift')).toBe(true);
+    expect(isRunnableTestFile('Sources/FooTest.swift')).toBe(true);
   });
 
   it('still flags the previously-supported conventions', () => {
@@ -49,5 +51,10 @@ describe('isTestFile', () => {
     expect(isTestFile('src/flask/app.py')).toBe(false);
     expect(isTestFile('src/vs/workbench/api/common/extensionHostMain.ts')).toBe(false);
     expect(isTestFile('okhttp/src/commonJvmAndroid/kotlin/okhttp3/OkHttpClient.kt')).toBe(false);
+  });
+
+  it('keeps broad search demotion separate from runnable test selection', () => {
+    expect(isTestFile('fixtures/session.ts')).toBe(true);
+    expect(isRunnableTestFile('fixtures/session.ts')).toBe(false);
   });
 });
