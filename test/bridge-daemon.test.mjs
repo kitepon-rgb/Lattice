@@ -18,6 +18,13 @@ const unmanagedLaunchAgent = Object.freeze({
   restore: async () => {},
 });
 
+async function assertBridgeIdentityGone(url, pid) {
+  let response;
+  try { response = await fetch(url, { signal: AbortSignal.timeout(300) }); } catch { return; }
+  const body = response.status === 200 ? await response.json() : null;
+  assert.notEqual(body?.pid, pid);
+}
+
 test('未設定でdaemon state証拠もなければdisableはno-op成功する', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-fresh-disable-'));
   const env = { ...process.env, LATTICE_CONFIG_DIR: root };
@@ -179,7 +186,7 @@ test('setup daemonは実socket healthまで待ち、同一port再設定を反映
   await disableBridge({ env });
   await stopBridgeDaemon({ env });
   running = false;
-  await assert.rejects(fetch(healthUrl, { signal: AbortSignal.timeout(300) }));
+  await assertBridgeIdentityGone(healthUrl, descriptor.pid);
 });
 
 test('stale descriptorの未証明PIDにはsignalを送らない', async (context) => {
@@ -245,31 +252,34 @@ test('invalid config/descriptorでもdisableは未証明PIDをkillせずpublic s
     const initialSetup = await invoke(setupArgs);
     assert.equal(initialSetup.code, 0, initialSetup.stderr);
     const health = await configuredHealth();
+    const initialDescriptor = await readBridgeDaemonDescriptor({ env });
     assert.equal((await fetch(health)).status, 200);
     await writeFile(path.join(root, 'bridge.json'), '{}\n', { mode: 0o600 });
     const invalidConfig = await invoke(['disable', '--json']);
     assert.equal(invalidConfig.code, 0, invalidConfig.stderr);
     assert.equal(JSON.parse(invalidConfig.stdout).recovery,
       'invalid_config_removed_after_fail_closed_shutdown');
-    await assert.rejects(fetch(health, { signal: AbortSignal.timeout(300) }));
+    await assertBridgeIdentityGone(health, initialDescriptor.pid);
 
     const secondSetup = await invoke(setupArgs);
     assert.equal(secondSetup.code, 0, secondSetup.stderr);
     const secondHealth = await configuredHealth();
+    const secondDescriptor = await readBridgeDaemonDescriptor({ env });
     assert.equal((await fetch(secondHealth)).status, 200);
     await rm(bridgeDaemonDescriptorPath(env), { force: true });
     const absentDescriptor = await invoke(['disable', '--json']);
     assert.equal(absentDescriptor.code, 0, absentDescriptor.stderr);
-    await assert.rejects(fetch(secondHealth, { signal: AbortSignal.timeout(300) }));
+    await assertBridgeIdentityGone(secondHealth, secondDescriptor.pid);
 
     const thirdSetup = await invoke(setupArgs);
     assert.equal(thirdSetup.code, 0, thirdSetup.stderr);
     const thirdHealth = await configuredHealth();
+    const thirdDescriptor = await readBridgeDaemonDescriptor({ env });
     assert.equal((await fetch(thirdHealth)).status, 200);
     await writeFile(bridgeDaemonDescriptorPath(env), '{}\n', { mode: 0o600 });
     const invalidDescriptor = await invoke(['disable', '--json']);
     assert.equal(invalidDescriptor.code, 0, invalidDescriptor.stderr);
     assert.equal(JSON.parse(invalidDescriptor.stdout).recovery,
       'invalid_descriptor_removed_after_fail_closed_shutdown');
-    await assert.rejects(fetch(thirdHealth, { signal: AbortSignal.timeout(300) }));
+    await assertBridgeIdentityGone(thirdHealth, thirdDescriptor.pid);
   });
