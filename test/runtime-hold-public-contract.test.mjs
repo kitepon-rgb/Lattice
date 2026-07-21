@@ -177,15 +177,11 @@ test('valid run storeで既存observe・status・resume wireとread-only性を�
   assert.deepEqual(await snapshotRegularFiles(runStore), before);
 });
 
-test('managed公開verbは未実装でexternal ack形も公開されていない', () => {
+test('未実装managed公開verbとexternal ack形は公開されていない', () => {
   const futureSurface = [
-    ['run', 'activate', '--run', RUN_REF],
     ['run', 'finding', 'record', '--run', RUN_REF, '--checkpoint', DIGEST,
       '--input', 'finding-candidate.json'],
-    ['run', 'conflict', '--run', RUN_REF, '--finding', DIGEST],
-    ['run', 'hold', '--run', RUN_REF],
     ['run', 'recompile', '--run', RUN_REF, '--input', 'recompile-request.json'],
-    ['run', 'reprocess', '--run', RUN_REF],
     ['todo', 'runtime', 'bind', '--plan', 'main', '--task', 'T1', '--run', RUN_REF,
       '--runtime-task', 'T1', '--evidence', 'binding-evidence.json'],
     ['todo', 'runtime', 'unbind', '--plan', 'main', '--task', 'T1', '--reason', 'run-finished'],
@@ -196,6 +192,31 @@ test('managed公開verbは未実装でexternal ack形も公開されていない
     ['run', 'hold', 'ack', '--run', RUN_REF, '--input', 'hold-ack.json'],
     ['run', 'hold', '--run', RUN_REF, '--input', 'hold-ack.json'],
   ]) assertUsageRejected(forbiddenAckSurface);
+});
+
+test('公開済みmanaged mutationはunmanaged runをtyped拒否しstoreを変更しない', async () => {
+  const runStore = path.join(fixtureRoot, RUN_REF);
+  const before = await snapshotRegularFiles(runStore);
+  for (const args of [
+    ['run', 'conflict', '--run', RUN_REF, '--finding', DIGEST],
+    ['run', 'hold', '--run', RUN_REF],
+    ['run', 'reprocess', '--run', RUN_REF],
+  ]) {
+    const result = runCli(args);
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.stdout, '');
+    assert.equal(JSON.parse(result.stderr).code, 'RUN_NOT_MANAGED');
+  }
+  assert.deepEqual(await snapshotRegularFiles(runStore), before);
+});
+
+test('activateは未登録adapterをtyped拒否しrun store bytesを維持する', async () => {
+  const runStore = path.join(fixtureRoot, RUN_REF);
+  const before = await snapshotRegularFiles(runStore);
+  const result = runCli(['run', 'activate', '--run', RUN_REF]);
+  assert.equal(result.status, 1, result.stderr);
+  assert.equal(JSON.parse(result.stderr).code, 'ADAPTER_NOT_REGISTERED', result.stderr);
+  assert.deepEqual(await snapshotRegularFiles(runStore), before);
 });
 
 test('selective hold・carry-over・epoch recompileのproducer coreは既に存在する', () => {
@@ -288,7 +309,7 @@ const CONTROLLER_PROTOCOL = Object.freeze({
   },
   barrier: {
     requestSchema: 'lattice.adapter_barrier_request.v1',
-    requestKeys: ['schema', 'request_id', 'registration_digest', 'barrier_id', 'reason', 'running_bindings', 'frozen_event_digest', 'request_digest'],
+    requestKeys: ['schema', 'request_id', 'registration_digest', 'barrier_id', 'reason', 'running_bindings', 'frozen_event_digest', 'barrier_control_digest', 'request_digest'],
     responseSchema: 'lattice.adapter_barrier_response.v1',
     responseKeys: ['schema', 'request_id', 'barrier_id', 'quiescence_acks', 'response_digest'],
   },

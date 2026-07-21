@@ -1,0 +1,459 @@
+import { randomUUID } from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
+import { lstat, open, readFile, rename, unlink } from 'node:fs/promises';
+import path from 'node:path';
+
+import { canonicalizeArtifact } from './artifact-contracts.mjs';
+import { selfDigest } from './runtime-contracts.mjs';
+import {
+  validateRuntimeControlRequest,
+  validateRuntimeControlResponse,
+} from './runtime-controller-protocol.mjs';
+
+const SHA256 = /^[0-9a-f]{64}$/;
+const ID = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const EVENT_FIELDS = Object.freeze([
+  'schema', 'run_id', 'sequence', 'previous_digest', 'kind',
+  'session_nonce_digest', 'payload', 'recorded_at', 'event_digest',
+]);
+const TEMPLATE_FIELDS = Object.freeze(['run_id', 'kind', 'session_nonce_digest', 'payload']);
+const TIMED_TEMPLATE_FIELDS = Object.freeze([...TEMPLATE_FIELDS, 'recorded_at']);
+const MAX_EVENTS = 100_000;
+const MAX_REQUESTS = 100_000;
+
+// factoryを作り直しても同一process内の同じrunは必ず一列に並ぶ。
+const mutationQueues = new Map();
+
+export class RuntimeControlStoreError extends Error {
+  constructor(code, detail) {
+    super(`${code}: ${detail}`);
+    this.name = 'RuntimeControlStoreError';
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
+function fail(code, detail) { throw new RuntimeControlStoreError(code, detail); }
+function digest(value) { return typeof value === 'string' && SHA256.test(value); }
+function identifier(value) { return typeof value === 'string' && ID.test(value); }
+function plain(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype;
+}
+function exact(value, fields) {
+  if (!plain(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...fields].sort();
+  return actual.length === expected.length
+    && actual.every((field, index) => field === expected[index]);
+}
+function timestamp(value) {
+  return typeof value === 'string' && TIMESTAMP.test(value)
+    && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value;
+}
+function selfDigestValid(value, field) {
+  if (!digest(value?.[field])) return false;
+  try { return selfDigest(value, field) === value[field]; } catch { return false; }
+}
+function canonicalBytes(value) { return Buffer.from(`${canonicalizeArtifact(value)}\n`); }
+
+export function validateRuntimeControlEventPayload(kind, value) {
+  if (!plain(value)) return false;
+  if (kind === 'supervisor_activated') {
+    return exact(value, ['supervisor_descriptor_digest', 'controller_descriptor_digest', 'registration_digest'])
+      && [value.supervisor_descriptor_digest, value.controller_descriptor_digest,
+        value.registration_digest].every(digest);
+  }
+  if (kind === 'supervisor_stopped') {
+    return (exact(value, ['shutdown_result_digest']) && digest(value.shutdown_result_digest))
+      || (exact(value, ['signal']) && typeof value.signal === 'string' && value.signal.length > 0);
+  }
+  if (kind === 'controller_registered') {
+    return exact(value, ['controller_id', 'registration_digest'])
+      && identifier(value.controller_id) && digest(value.registration_digest);
+  }
+  if (kind === 'controller_heartbeat') {
+    return exact(value, ['controller_id', 'registration_digest', 'sequence', 'lease_set_digest'])
+      && identifier(value.controller_id) && digest(value.registration_digest)
+      && Number.isSafeInteger(value.sequence) && value.sequence > 0
+      && digest(value.lease_set_digest);
+  }
+  if (kind === 'controller_recovery_rebound') {
+    return exact(value, ['old_registration_digests', 'new_registration_digest', 'running_todo_ids'])
+      && Array.isArray(value.old_registration_digests)
+      && value.old_registration_digests.every(digest)
+      && new Set(value.old_registration_digests).size === value.old_registration_digests.length
+      && value.old_registration_digests.every((entry, index) => index === 0 || value.old_registration_digests[index - 1] < entry)
+      && digest(value.new_registration_digest)
+      && Array.isArray(value.running_todo_ids) && value.running_todo_ids.every(identifier)
+      && new Set(value.running_todo_ids).size === value.running_todo_ids.length
+      && value.running_todo_ids.every((entry, index) => index === 0 || value.running_todo_ids[index - 1] < entry);
+  }
+  if (kind === 'dispatch_routed' || kind === 'observation_routed') {
+    return exact(value, ['controller_id', 'request_digest', 'response_digest'])
+      && identifier(value.controller_id) && digest(value.request_digest)
+      && digest(value.response_digest);
+  }
+  if (kind === 'barrier_requested') {
+    return exact(value, ['barrier_id', 'reason', 'running_count', 'running_todo_ids', 'frozen_event_digest'])
+      && identifier(value.barrier_id) && typeof value.reason === 'string' && value.reason.length > 0
+      && Number.isSafeInteger(value.running_count) && value.running_count >= 0
+      && Array.isArray(value.running_todo_ids) && value.running_todo_ids.length === value.running_count
+      && value.running_todo_ids.every(identifier)
+      && new Set(value.running_todo_ids).size === value.running_todo_ids.length
+      && value.running_todo_ids.every((todo, index) => index === 0 || value.running_todo_ids[index - 1] < todo)
+      && digest(value.frozen_event_digest);
+  }
+  if (kind === 'hold_prepared') {
+    return exact(value, ['request_id', 'logical_intent_digest', 'finding_digest',
+      'barrier_id', 'recorded_at'])
+      && identifier(value.request_id) && digest(value.logical_intent_digest)
+      && digest(value.finding_digest) && identifier(value.barrier_id)
+      && timestamp(value.recorded_at);
+  }
+  if (kind === 'executor_quiesced') {
+    return exact(value, ['barrier_id', 'barrier_control_digest', 'todo_id', 'ack_digest'])
+      && identifier(value.barrier_id) && digest(value.barrier_control_digest)
+      && identifier(value.todo_id) && digest(value.ack_digest);
+  }
+  if (kind === 'lease_revoked') {
+    return (exact(value, ['controller_id', 'reason'])
+        || exact(value, ['controller_id', 'reason', 'response_digest']))
+      && identifier(value.controller_id) && typeof value.reason === 'string' && value.reason.length > 0
+      && (value.response_digest === undefined || digest(value.response_digest));
+  }
+  if (kind === 'epoch_rebind_acknowledged') {
+    return exact(value, ['todo_id', 'ack_digest', 'staged_lease_digest'])
+      && identifier(value.todo_id) && digest(value.ack_digest) && digest(value.staged_lease_digest);
+  }
+  if (kind === 'write_gate_committed') {
+    return exact(value, ['gate_digest', 'gate_generation']) && digest(value.gate_digest)
+      && Number.isSafeInteger(value.gate_generation) && value.gate_generation > 0;
+  }
+  if (kind === 'epoch_activated' || kind === 'intake_resumed') {
+    return exact(value, ['plan_epoch', 'gate_digest'])
+      && Number.isSafeInteger(value.plan_epoch) && value.plan_epoch > 0
+      && digest(value.gate_digest);
+  }
+  if (kind === 'supervisor_recovery_barrier') {
+    return exact(value, ['barrier_id']) && identifier(value.barrier_id);
+  }
+  return false;
+}
+
+export function validateRuntimeControlJournal(value, expectedRunId = null) {
+  if (!Array.isArray(value) || value.length > MAX_EVENTS) return false;
+  return value.every((event, index) => (
+    exact(event, EVENT_FIELDS)
+    && event.schema === 'lattice.runtime_control_event.v1'
+    && identifier(event.run_id)
+    && (expectedRunId === null || event.run_id === expectedRunId)
+    && Number.isSafeInteger(event.sequence) && event.sequence === index + 1
+    && event.previous_digest === (index === 0 ? null : value[index - 1].event_digest)
+    && identifier(event.kind)
+    && digest(event.session_nonce_digest)
+    && validateRuntimeControlEventPayload(event.kind, event.payload)
+    && timestamp(event.recorded_at)
+    && selfDigestValid(event, 'event_digest')
+  ));
+}
+
+function validLedgerEntry(entry, runId) {
+  if (!exact(entry, ['request_id', 'request_digest', 'intent_digest', 'state', 'response'])
+    || !identifier(entry.request_id) || !digest(entry.request_digest) || !digest(entry.intent_digest)
+    || !['in_progress', 'completed'].includes(entry.state)) return false;
+  if (entry.state === 'in_progress') return entry.response === null;
+  return validateRuntimeControlResponse(entry.response)
+    && entry.response.request_id === entry.request_id
+    && entry.response.run_id === runId;
+}
+
+export function validateRuntimeControlRequestLedger(value, expectedRunId = null) {
+  if (!exact(value, ['schema', 'run_id', 'entries', 'ledger_digest'])
+    || value.schema !== 'lattice.runtime_control_request_ledger.v1'
+    || !identifier(value.run_id)
+    || (expectedRunId !== null && value.run_id !== expectedRunId)
+    || !Array.isArray(value.entries) || value.entries.length > MAX_REQUESTS
+    || !value.entries.every((entry) => validLedgerEntry(entry, value.run_id))
+    || !value.entries.every((entry, index) => index === 0
+      || value.entries[index - 1].request_id < entry.request_id)
+    || new Set(value.entries.map((entry) => entry.request_id)).size !== value.entries.length) return false;
+  return selfDigestValid(value, 'ledger_digest');
+}
+
+async function ensureRunDirectory(runDir) {
+  let info;
+  try { info = await lstat(runDir); } catch { fail('INVALID_CONTROL_STORE', 'run directoryを読めない'); }
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    fail('INVALID_CONTROL_STORE', 'run directoryがreal directoryでない');
+  }
+}
+
+async function readCanonical(pathname, validator, label, { missing = false } = {}) {
+  let info;
+  let bytes;
+  try {
+    info = await lstat(pathname);
+    if (!info.isFile() || info.isSymbolicLink()) fail('INVALID_CONTROL_STORE', `${label}がregular fileでない`);
+    bytes = await readFile(pathname);
+  } catch (error) {
+    if (error?.code === 'ENOENT' && missing) return null;
+    if (error instanceof RuntimeControlStoreError) throw error;
+    fail('INVALID_CONTROL_STORE', `${label}を読めない`);
+  }
+  let value;
+  try { value = JSON.parse(bytes.toString('utf8')); } catch { fail('INVALID_CONTROL_STORE', `${label}がJSONでない`); }
+  if (!validator(value)) fail('INVALID_CONTROL_STORE', `${label}のexact schema又はdigest chainが不正`);
+  if (!bytes.equals(canonicalBytes(value))) fail('INVALID_CONTROL_STORE', `${label}がcanonical bytesでない`);
+  return { value, bytes };
+}
+
+async function fsyncDirectory(directory) {
+  const handle = await open(directory, fsConstants.O_RDONLY);
+  try { await handle.sync(); } finally { await handle.close(); }
+}
+
+async function inject(crashInjector, point, context) {
+  if (typeof crashInjector === 'function') await crashInjector(point, structuredClone(context));
+}
+
+async function replaceCanonical({ pathname, expectedBytes, value, validator, crashInjector,
+  label, directoryFsyncPoint }) {
+  const current = await readCanonical(pathname, validator, label, { missing: expectedBytes === null });
+  if ((current === null) !== (expectedBytes === null)
+    || (current !== null && !current.bytes.equals(expectedBytes))) {
+    fail('CONTROL_STORE_CONFLICT', `${label}のdisk prefixが変化した`);
+  }
+  const bytes = canonicalBytes(value);
+  const temporary = path.join(path.dirname(pathname), `.${path.basename(pathname)}.${randomUUID()}.tmp`);
+  let handle;
+  try {
+    handle = await open(temporary, fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY, 0o600);
+    await handle.writeFile(bytes);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await inject(crashInjector, `after_${label}_file_fsync`, { pathname });
+    await rename(temporary, pathname);
+    await inject(crashInjector, `after_${label}_rename`, { pathname });
+    await fsyncDirectory(path.dirname(pathname));
+    await inject(crashInjector, directoryFsyncPoint, { pathname });
+  } finally {
+    if (handle !== null && handle !== undefined) await handle.close().catch(() => {});
+    await unlink(temporary).catch((error) => { if (error.code !== 'ENOENT') throw error; });
+  }
+}
+
+function enqueue(runDir, mutation) {
+  const previous = mutationQueues.get(runDir) ?? Promise.resolve();
+  const result = previous.then(mutation);
+  const settled = result.catch(() => {});
+  mutationQueues.set(runDir, settled);
+  settled.finally(() => {
+    if (mutationQueues.get(runDir) === settled) mutationQueues.delete(runDir);
+  });
+  return result;
+}
+
+function templateRecordedAt(template, clock) {
+  if (exact(template, TIMED_TEMPLATE_FIELDS)) return template.recorded_at;
+  if (exact(template, TEMPLATE_FIELDS)) return clock();
+  fail('INVALID_CONTROL_EVENT', 'append templateのexact fieldが不正');
+}
+
+function sameEventIntent(event, template) {
+  return event.run_id === template.run_id
+    && event.kind === template.kind
+    && event.session_nonce_digest === template.session_nonce_digest
+    && canonicalizeArtifact(event.payload) === canonicalizeArtifact(template.payload);
+}
+
+function buildEvent(template, priorEvents, recordedAt, runId) {
+  if (template.run_id !== runId || !identifier(template.kind)
+    || !digest(template.session_nonce_digest)
+    || !validateRuntimeControlEventPayload(template.kind, template.payload)
+    || !timestamp(recordedAt)) fail('INVALID_CONTROL_EVENT', 'append template値が不正');
+  try { canonicalizeArtifact(template.payload); } catch {
+    fail('INVALID_CONTROL_EVENT', 'append payloadがcanonical JSON値でない');
+  }
+  const previous = priorEvents.at(-1) ?? null;
+  const event = {
+    schema: 'lattice.runtime_control_event.v1', run_id: runId,
+    sequence: (previous?.sequence ?? 0) + 1,
+    previous_digest: previous?.event_digest ?? null,
+    kind: template.kind, session_nonce_digest: template.session_nonce_digest,
+    payload: structuredClone(template.payload), recorded_at: recordedAt, event_digest: '',
+  };
+  event.event_digest = selfDigest(event, 'event_digest');
+  return event;
+}
+
+function emptyLedger(runId) {
+  const ledger = {
+    schema: 'lattice.runtime_control_request_ledger.v1', run_id: runId,
+    entries: [], ledger_digest: '',
+  };
+  ledger.ledger_digest = selfDigest(ledger, 'ledger_digest');
+  return ledger;
+}
+
+function withLedgerEntries(ledger, entries) {
+  const next = { ...ledger, entries: [...entries].sort((a, b) => (
+    a.request_id < b.request_id ? -1 : a.request_id > b.request_id ? 1 : 0
+  )), ledger_digest: '' };
+  next.ledger_digest = selfDigest(next, 'ledger_digest');
+  return next;
+}
+
+function assertRequest(request, runId) {
+  if (!validateRuntimeControlRequest(request) || request.run_id !== runId) {
+    fail('INVALID_CONTROL_REQUEST', 'request exact schema又はrun binding不正');
+  }
+}
+
+function logicalIntentDigest(request) {
+  return selfDigest({ request_id: request.request_id, run_id: request.run_id,
+    operation: request.operation, payload: request.payload, intent_digest: '' }, 'intent_digest');
+}
+
+function publicLedgerResult(entry, disposition = entry.state) {
+  return Object.freeze({
+    disposition,
+    state: entry.state,
+    request_digest: entry.request_digest,
+    intent_digest: entry.intent_digest,
+    response: entry.response === null ? null : structuredClone(entry.response),
+  });
+}
+
+/** run単位のcontrol journalとrequest idempotency ledgerを所有するdurable store。 */
+export function createRuntimeControlStore({ runDir, runId, clock = () => new Date().toISOString(),
+  crashInjector = null }) {
+  if (typeof runDir !== 'string' || !path.isAbsolute(runDir)
+    || !identifier(runId) || typeof clock !== 'function'
+    || (crashInjector !== null && typeof crashInjector !== 'function')) {
+    fail('INVALID_CONTROL_STORE', 'control store設定不正');
+  }
+  const normalizedRunDir = path.resolve(runDir);
+  const eventPath = path.join(normalizedRunDir, 'control-events.json');
+  const ledgerPath = path.join(normalizedRunDir, 'control-request-ledger.json');
+  const journalValidator = (value) => validateRuntimeControlJournal(value, runId);
+  const ledgerValidator = (value) => validateRuntimeControlRequestLedger(value, runId);
+
+  async function append(template) {
+    return enqueue(normalizedRunDir, async () => {
+      await ensureRunDirectory(normalizedRunDir);
+      const prior = await readCanonical(eventPath, journalValidator, 'control_events', { missing: true });
+      const events = prior?.value ?? [];
+      const recordedAt = templateRecordedAt(template, clock);
+      // tail比較のcanonicalizeより前に入力全体を検査する。
+      buildEvent(template, events, recordedAt, runId);
+      const tail = events.at(-1);
+      // rename後に応答前crashした呼出しは、同じintentから同じevent digestを再発見する。
+      if (tail !== undefined && sameEventIntent(tail, template)) {
+        await fsyncDirectory(normalizedRunDir);
+        return tail.event_digest;
+      }
+      if (events.length >= MAX_EVENTS) fail('CONTROL_STORE_LIMIT', 'control event上限超過');
+      const event = buildEvent(template, events, recordedAt, runId);
+      const next = [...events, event];
+      await replaceCanonical({
+        pathname: eventPath, expectedBytes: prior?.bytes ?? null, value: next,
+        validator: journalValidator, crashInjector, label: 'control_events',
+        directoryFsyncPoint: 'after_run_directory_fsync',
+      });
+      return event.event_digest;
+    });
+  }
+
+  async function beginRequest(request) {
+    return enqueue(normalizedRunDir, async () => {
+      await ensureRunDirectory(normalizedRunDir);
+      assertRequest(request, runId);
+      const prior = await readCanonical(ledgerPath, ledgerValidator, 'request_ledger', { missing: true });
+      const ledger = prior?.value ?? emptyLedger(runId);
+      const existing = ledger.entries.find((entry) => entry.request_id === request.request_id);
+      if (existing !== undefined) {
+        if (existing.intent_digest !== logicalIntentDigest(request)) {
+          fail('REQUEST_ID_CONFLICT', '同一request_idへ異なるlogical intent');
+        }
+        await fsyncDirectory(normalizedRunDir);
+        return publicLedgerResult(existing);
+      }
+      if (ledger.entries.length >= MAX_REQUESTS) fail('CONTROL_STORE_LIMIT', 'request ledger上限超過');
+      const entry = { request_id: request.request_id, request_digest: request.request_digest,
+        intent_digest: logicalIntentDigest(request),
+        state: 'in_progress', response: null };
+      const next = withLedgerEntries(ledger, [...ledger.entries, entry]);
+      await replaceCanonical({
+        pathname: ledgerPath, expectedBytes: prior?.bytes ?? null, value: next,
+        validator: ledgerValidator, crashInjector, label: 'request_ledger',
+        directoryFsyncPoint: 'after_request_ledger_directory_fsync',
+      });
+      return publicLedgerResult(entry, 'started');
+    });
+  }
+
+  async function completeRequest(request, response) {
+    return enqueue(normalizedRunDir, async () => {
+      await ensureRunDirectory(normalizedRunDir);
+      assertRequest(request, runId);
+      if (!validateRuntimeControlResponse(response)
+        || response.request_id !== request.request_id || response.run_id !== runId
+        || response.result.operation !== request.operation) {
+        fail('INVALID_CONTROL_RESPONSE', 'response exact schema又はrequest binding不正');
+      }
+      const prior = await readCanonical(ledgerPath, ledgerValidator, 'request_ledger');
+      const ledger = prior.value;
+      const index = ledger.entries.findIndex((entry) => entry.request_id === request.request_id);
+      if (index < 0) fail('REQUEST_NOT_STARTED', 'request ledgerにin_progressがない');
+      const existing = ledger.entries[index];
+      if (existing.intent_digest !== logicalIntentDigest(request)) {
+        fail('REQUEST_ID_CONFLICT', '同一request_idへ異なるlogical intent');
+      }
+      if (existing.state === 'completed') {
+        if (existing.response.response_digest !== response.response_digest) {
+          fail('REQUEST_RESPONSE_CONFLICT', 'completed response digest衝突');
+        }
+        await fsyncDirectory(normalizedRunDir);
+        return structuredClone(existing.response);
+      }
+      const completed = { ...existing, state: 'completed', response: structuredClone(response) };
+      const entries = [...ledger.entries];
+      entries[index] = completed;
+      const next = withLedgerEntries(ledger, entries);
+      await replaceCanonical({
+        pathname: ledgerPath, expectedBytes: prior.bytes, value: next,
+        validator: ledgerValidator, crashInjector, label: 'request_ledger',
+        directoryFsyncPoint: 'after_request_ledger_directory_fsync',
+      });
+      return structuredClone(response);
+    });
+  }
+
+  async function readRequest(request) {
+    return enqueue(normalizedRunDir, async () => {
+      await ensureRunDirectory(normalizedRunDir);
+      assertRequest(request, runId);
+      const stored = await readCanonical(ledgerPath, ledgerValidator, 'request_ledger', { missing: true });
+      if (stored === null) return null;
+      const entry = stored.value.entries.find((candidate) => candidate.request_id === request.request_id);
+      if (entry === undefined) return null;
+      if (entry.intent_digest !== logicalIntentDigest(request)) {
+        fail('REQUEST_ID_CONFLICT', '同一request_idへ異なるlogical intent');
+      }
+      return publicLedgerResult(entry);
+    });
+  }
+
+  async function readEvents() {
+    return enqueue(normalizedRunDir, async () => {
+      await ensureRunDirectory(normalizedRunDir);
+      const stored = await readCanonical(eventPath, journalValidator, 'control_events', { missing: true });
+      return structuredClone(stored?.value ?? []);
+    });
+  }
+
+  return Object.freeze({ append, beginRequest, completeRequest, readRequest, readEvents });
+}

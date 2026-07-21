@@ -158,7 +158,7 @@ supervisor→controller protocolのoperation closed setは
 |---|---|---|
 | dispatch | `lattice.adapter_dispatch_request.v1`: `schema, request_id, registration_digest, packet, write_lease, request_digest` | `lattice.adapter_dispatch_response.v1`: `schema, request_id, executor_handle, worktree_id, packet_digest, lease_digest, response_digest` |
 | observe | `lattice.adapter_observe_request.v1`: `schema, request_id, registration_digest, executor_handle, expected_epoch, expected_lease_digest, request_digest` | `lattice.adapter_observe_response.v1`: `schema, request_id, observation, observation_digest, response_digest` |
-| barrier | `lattice.adapter_barrier_request.v1`: `schema, request_id, registration_digest, barrier_id, reason, running_bindings, frozen_event_digest, request_digest` | `lattice.adapter_barrier_response.v1`: `schema, request_id, barrier_id, quiescence_acks, response_digest` |
+| barrier | `lattice.adapter_barrier_request.v1`: `schema, request_id, registration_digest, barrier_id, reason, running_bindings, frozen_event_digest, barrier_control_digest, request_digest` | `lattice.adapter_barrier_response.v1`: `schema, request_id, barrier_id, quiescence_acks, response_digest` |
 | rebind | `lattice.adapter_rebind_request.v1`: `schema, request_id, registration_digest, rebind_packet, staged_lease, request_digest` | `lattice.adapter_rebind_response.v1`: `schema, request_id, rebind_ack, staged_lease_digest, response_digest` |
 | prepare | `lattice.adapter_prepare_request.v1`: `schema, request_id, registration_digest, executor_packet, staged_lease, request_digest` | `lattice.adapter_prepare_response.v1`: `schema, request_id, prepare_ack, staged_lease_digest, response_digest` |
 | activate | `lattice.adapter_activate_request.v1`: `schema, request_id, registration_digest, committed_epoch_digest, activation_digest, staged_lease_digests, request_digest` | `lattice.adapter_activate_response.v1`: `schema, request_id, ready_ack, observed_pointer_digest, response_digest` |
@@ -181,14 +181,10 @@ supervisorのcontrol journalは`lattice.runtime_control_event.v1`のappend-only 
 kind closed setは次とする。
 
 ```text
-supervisor_activated, controller_registered, controller_heartbeat,
-dispatch_routed, observation_routed, barrier_requested, executor_quiesced,
-epoch_rebind_requested, epoch_rebind_acknowledged,
-epoch_prepare_started, staged_lease_acknowledged, epoch_commit_decided,
-global_activation_requested, global_activation_acknowledged,
-release_barrier_committed, release_acknowledged, write_gate_committed, lease_revoked,
-supervisor_recovery_barrier, staging_superseded,
-epoch_activated, supervisor_stopped
+supervisor_activated, controller_registered, controller_heartbeat, controller_recovery_rebound,
+dispatch_routed, observation_routed, hold_prepared, barrier_requested, executor_quiesced,
+epoch_rebind_acknowledged, write_gate_committed, lease_revoked,
+supervisor_recovery_barrier, epoch_activated, intake_resumed, supervisor_stopped
 ```
 
 既存`lattice.run_event.v1`のclosed setと意味は変更しない。runtime control eventは停止／再認可の一次証拠を所有し、
@@ -621,9 +617,33 @@ lock競合は`RUN_BUSY`、control timeoutは`unknown`であり、同じrequest I
 | queue entry | `sequence, kind, subject_digest, artifact_digest` |
 | `lattice.runtime_observer_identity.v1` | `schema, kind, controller_registration_digest, executor_handle, identity_digest`（非executorはnullable fieldを`null`） |
 | `lattice.runtime_binding_target.v1` | `schema, project_id, plan_key, task_id, run_id, runtime_todo_id, target_digest` |
-| `lattice.runtime_control_operation.v1` | `schema, operation, run_ref, artifact_digest, expected_epoch, expected_queue_digest, operation_digest`（非該当fieldは`null`） |
+| `lattice.runtime_control_operation.v1` | `schema, operation, run_ref, artifact_digest, expected_epoch, expected_queue_digest, shutdown_reason, operation_digest`。`artifact_digest`は`finding_record | conflict | recompile`だけSHA-256、他は`null`。`shutdown_reason`は`close | abandon`だけ非空文字列、他は`null` |
 | `lattice.runtime_control_result.v1` | `schema, operation, outcome, event_head_digest, control_head_digest, active_epoch, staged_epoch, unmet, result_digest` |
-| `lattice.runtime_control_event_payload.v1` | `schema, operation, controller_registration_digest, todo_id, epoch, packet_digest, lease_digest, artifact_digest, payload_digest`（非該当fieldは`null`） |
+| `lattice.runtime_control_event.v1` payload | event `kind`をdiscriminatorにした下記exact field。payload自体に別schema wrapperは置かない |
+
+control resultの成功outcomeはoperationへexact bindする。対応は`activate→activated`、
+`finding_record→recorded`、`conflict→frozen`、`hold→held`、`recompile→recompiled`、
+`reprocess→reprocessed`、`close→closed`、`abandon→abandoned`である。failureは`rejected`、
+応答状態不明は`unknown`だけを許可し、response envelopeのoutcomeともbindする。
+
+control event payloadのkind別exact fieldは次のとおり。
+
+| kind | exact payload field |
+|---|---|
+| `supervisor_activated` | `supervisor_descriptor_digest, controller_descriptor_digest, registration_digest` |
+| `supervisor_stopped` | `shutdown_result_digest`又は`signal`のどちらか一方 |
+| `controller_registered` | `controller_id, registration_digest` |
+| `controller_heartbeat` | `controller_id, registration_digest, sequence, lease_set_digest` |
+| `controller_recovery_rebound` | `old_registration_digests, new_registration_digest, running_todo_ids` |
+| `dispatch_routed`, `observation_routed` | `controller_id, request_digest, response_digest` |
+| `hold_prepared` | `request_id, logical_intent_digest, finding_digest, barrier_id, recorded_at` |
+| `barrier_requested` | `barrier_id, reason, running_count, running_todo_ids, frozen_event_digest` |
+| `executor_quiesced` | `barrier_id, barrier_control_digest, todo_id, ack_digest` |
+| `lease_revoked` | `controller_id, reason`。controller responseを取得した経路だけ`response_digest`を加える |
+| `epoch_rebind_acknowledged` | `todo_id, ack_digest, staged_lease_digest` |
+| `write_gate_committed` | `gate_digest, gate_generation` |
+| `epoch_activated`, `intake_resumed` | `plan_epoch, gate_digest` |
+| `supervisor_recovery_barrier` | `barrier_id` |
 
 全collectionは上限、重複禁止、決定的順序をschema validatorで検査する。nested objectの未知field、欠落、null代用、
 異version混在はtyped rejectし、後方互換のためのsilent field dropを行わない。
