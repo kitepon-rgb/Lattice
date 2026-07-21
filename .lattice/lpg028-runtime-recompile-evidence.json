@@ -1,0 +1,9 @@
+{
+  "evidence_id": "lpg-028-runtime-recompile-20260721",
+  "repo_id": "self",
+  "path": "test/runtime-conflict-cli.test.mjs",
+  "git_blob_oid": "64d476d681dd0331f61a6785c8a34aef4e6e45cf",
+  "content_digest": "adba08b47913ca4c041e0a4c1a5c6cd4a3b9bf9f5bf7c371d763222985a0ee64",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
