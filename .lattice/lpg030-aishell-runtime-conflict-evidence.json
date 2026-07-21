@@ -1,0 +1,9 @@
+{
+  "evidence_id": "lpg-030-aishell-runtime-conflict-20260722",
+  "repo_id": "self",
+  "path": "docs/evidence/2026-07-22-aishell-runtime-conflict-dogfood.md",
+  "git_blob_oid": "37f0efbf3e4360bbc66f720bcb8f80b76c707055",
+  "content_digest": "8bc6d28e51b7063ba74aa209e395831a8c379b5b296d274289c9bf34b59dbfaa",
+  "media_type": "text/markdown",
+  "anchor_digest": null
+}
