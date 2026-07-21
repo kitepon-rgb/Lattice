@@ -1,0 +1,9 @@
+{
+  "evidence_id": "lpg-032-gantt-routing-20260721",
+  "repo_id": "self",
+  "path": "test/todo-gantt-layout.test.mjs",
+  "git_blob_oid": "d669902495b09fe741cfe27798c6639acc9b6c2c",
+  "content_digest": "de904f341b697aac4db7f4c1d61d080518dba6c32da6fe5d6ead9ea5294bf474",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}

@@ -1,0 +1,9 @@
+{
+  "evidence_id": "lpg-033-project-dashboard-20260721",
+  "repo_id": "self",
+  "path": "test/todo-dashboard-registry.test.mjs",
+  "git_blob_oid": "c82abaa1037c1456eea661e0435ae6495334da30",
+  "content_digest": "58204236b5e07128341c520c0d972ff20f518f61ca083b315013d9627fcc9c57",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
