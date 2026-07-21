@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.1 — 2026-07-21
+
+- 公開subcommandの`--help`／`help`入口を追加し、`todo reopen`等の正規optionをstore非依存で確認可能にした。
+- namespace helpと同じclosed surfaceからusageを返し、未知subcommandは従来どおりusage違反で拒否する。
+
 ## 0.10.0 — 2026-07-21
 
 - `todo status` v4へ全readyを同時dispatchする`dispatch_frontier`契約を追加した。

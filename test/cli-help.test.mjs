@@ -54,3 +54,19 @@ test('未知namespace helpは従来どおりusage違反として拒否する', (
   assert.equal(result.stdout, '');
   assert.equal(result.stderr, 'lattice: unsupported command or arguments: help unknown\n');
 });
+
+test('公開subcommand helpは正規構文をstore非依存で表示する', () => {
+  const cases = [
+    [['todo', 'reopen', '--help'], /--override-reason <text>/u],
+    [['todo', 'phase', 'accept', '-h'], /--input <file>/u],
+    [['help', 'todo', 'done'], /--evidence <file>/u],
+    [['help', 'run', 'abandon'], /--reason <reason>/u],
+  ];
+  for (const [args, pattern] of cases) {
+    const result = runCli(args);
+    assert.equal(result.status, 0, args.join(' '));
+    assert.equal(result.stderr, '', args.join(' '));
+    assert.match(result.stdout, /^Usage: lattice /u);
+    assert.match(result.stdout, pattern, args.join(' '));
+  }
+});

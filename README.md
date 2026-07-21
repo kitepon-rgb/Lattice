@@ -9,6 +9,8 @@ schedulability compilerです。
 
 CLIの全体像は`lattice --help`、各公開namespaceの正規構文は
 `lattice <plan|run|event|todo|sensor|factory-diagnostics|runtime-errors> --help`で確認できます。
+個別操作は`lattice <namespace> <subcommand> --help`または`lattice help <namespace> <subcommand>`で
+正規optionをstore非依存に確認できます。
 
 ## 開発
 
