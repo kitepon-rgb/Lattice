@@ -260,6 +260,17 @@ export async function ensureBridgeDaemon({ env = process.env } = {}) {
   if (config === null || !config.enabled) throw new BridgeConfigError('BRIDGE_DISABLED', 'bridge is disabled');
   const previous = await readBridgeDaemonDescriptor({ env });
   if (await healthy(previous, config)) return previous;
+  if (previous !== null && previous.address === config.listen.address
+    && previous.port === config.listen.port && await attest(previous) !== null) {
+    const deadline = Date.now() + START_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const reconciled = await readBridgeDaemonDescriptor({ env });
+      if (reconciled?.pid === previous.pid && await healthy(reconciled, config)) return reconciled;
+    }
+    throw new BridgeConfigError('BRIDGE_DAEMON_UNAVAILABLE',
+      'existing bridge daemon did not reconcile the updated config');
+  }
   const instanceToken = randomBytes(32).toString('hex');
   const child = spawn(process.execPath, [path.resolve(import.meta.dirname, '../bin/lattice-bridge.mjs')], {
     detached: true, stdio: 'ignore', env: { ...env, LATTICE_BRIDGE_INSTANCE_TOKEN: instanceToken },
