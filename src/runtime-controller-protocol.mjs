@@ -1,5 +1,10 @@
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
-import { selfDigest, validateEpochRebindPacket, validateExecutorPacket } from './runtime-contracts.mjs';
+import {
+  selfDigest,
+  validRuntimeAbandonReason,
+  validateEpochRebindPacket,
+  validateExecutorPacket,
+} from './runtime-contracts.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const ID = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
@@ -247,9 +252,11 @@ function validateRuntimeControlOperation(value) {
       ? digest(value.checkpoint_digest) : value.checkpoint_digest === null)
     && Number.isSafeInteger(value.expected_epoch) && value.expected_epoch > 0
     && nullableDigest(value.expected_queue_digest)
-    && (['close', 'abandon'].includes(value.operation)
-      ? typeof value.shutdown_reason === 'string' && value.shutdown_reason.length > 0
-      : value.shutdown_reason === null)
+    && (value.operation === 'abandon'
+      ? validRuntimeAbandonReason(value.shutdown_reason)
+      : value.operation === 'close'
+        ? typeof value.shutdown_reason === 'string' && value.shutdown_reason.length > 0
+        : value.shutdown_reason === null)
     && selfValid(value, 'operation_digest');
 }
 

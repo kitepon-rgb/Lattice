@@ -127,6 +127,13 @@ test('runtime control requestはnested operationをexact・digest・operation bi
   assert.throws(() => createRuntimeControlRequest({ requestId: 'request-close', runId: 'run-a',
     operation: 'close', payload: closeWithoutReason, sessionNonce: 'n'.repeat(64) }),
   /INVALID_RUNTIME_CONTROL_REQUEST/);
+  for (const reason of ['', ' padded ', 'C1\u0085', 'line\u2028break', 'bidi\u202efake', 'あ'.repeat(257)]) {
+    const invalidAbandon = { ...controlPayload('abandon'), shutdown_reason: reason };
+    sign(invalidAbandon, 'operation_digest');
+    assert.throws(() => createRuntimeControlRequest({ requestId: 'request-abandon', runId: 'run-a',
+      operation: 'abandon', payload: invalidAbandon, sessionNonce: 'n'.repeat(64) }),
+    /INVALID_RUNTIME_CONTROL_REQUEST/);
+  }
   const holdWithArtifact = { ...controlPayload('hold'), artifact_digest: D('5') };
   sign(holdWithArtifact, 'operation_digest');
   assert.throws(() => createRuntimeControlRequest({ requestId: 'request-hold', runId: 'run-a',

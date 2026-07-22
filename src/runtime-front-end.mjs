@@ -676,7 +676,30 @@ export function compileRuntimePlanV1(options = {}) {
     return nonDispatchable('NODE_LIMIT_EXCEEDED', { todo_count: todoIds.length });
   }
   if (compiled.outcome === 'unknown') {
-    return nonDispatchable('BOUNDARY_UNKNOWN', { unknowns: compiled.unknowns });
+    const hasFreshAbsentPath = todoIds.some((todoId) => (
+      bindingsByTodo.get(todoId).some((binding) => {
+        if (binding.expect.kind !== 'path') return false;
+        const query = queryById.get(binding.query_id);
+        const outcome = outcomeByQueryId.get(binding.query_id);
+        return query.operation === 'query'
+          && outcome.status === 'ready'
+          && Array.isArray(rawEntries(outcome.raw))
+          && rawEntries(outcome.raw).length === 0;
+      })
+    ));
+    return nonDispatchable('BOUNDARY_UNKNOWN', {
+      unknowns: compiled.unknowns,
+      unresolved_witnesses: unknowns,
+      guidance: hasFreshAbsentPath
+        ? {
+          code: 'BOOTSTRAP_OWNERSHIP_SEAM',
+          message: 'fresh path観測で不存在の新規pathは親が空の専用seamをbase commitへ先行追加し、sensor sync後に同じrequestを再compileする',
+        }
+        : {
+          code: 'ACQUIRE_OWNERSHIP_EVIDENCE',
+          message: '既存path・symbol・未束縛ownershipはfresh Sensor queryを追加して同じrequestを再compileする',
+        },
+    });
   }
   if (compiled.outcome === 'unsupported' && compiled.code === 'SEARCH_BUDGET_EXHAUSTED') {
     return nonDispatchable('SEARCH_BUDGET_EXHAUSTED', {});

@@ -296,6 +296,38 @@ test('stale index・fuzzy解決・未束縛owns・write交差はunknownとして
   assert.equal(overlap.code, 'BOUNDARY_UNKNOWN');
 });
 
+test('fresh path不存在だけがseam bootstrapを返し、未束縛ownershipは証拠取得を返す', () => {
+  const built = buildCase({ requestId: 'req-new-path', todos: TOPOLOGY_A });
+  built.request.manual_witness.TA1.owns = [{ kind: 'path', target: 'src/future-service.mjs' }];
+  built.request.manual_witness.TA1.writes = ['src/future-service.mjs'];
+  built.request.sensor_query_set.queries.push({ id: 'q-path-future', operation: 'query', target: 'src/future-service.mjs' });
+  built.sensorEvidence.outcomes.push({
+    query_id: 'q-path-future', operation: 'query', status: 'ready', raw: symbolQueryRaw([]),
+  });
+  built.request.manual_witness.TA1.sensor_provenance.queries = [
+    { query_id: 'q-path-future', expect: { kind: 'path', path: 'src/future-service.mjs' } },
+  ];
+  built.request.request_digest = selfDigest(built.request, 'request_digest');
+
+  const result = compile(built);
+
+  assert.equal(result.outcome, 'non_dispatchable');
+  assert.equal(result.code, 'BOUNDARY_UNKNOWN');
+  assert.ok(result.detail.unresolved_witnesses.some((entry) => (
+    entry.todo_id === 'TA1'
+      && entry.kind === 'sensor_empty'
+      && entry.ref === 'q-path-future'
+  )));
+  assert.equal(result.detail.guidance.code, 'BOOTSTRAP_OWNERSHIP_SEAM');
+
+  const unbound = buildCase({ requestId: 'req-unbound-path', todos: TOPOLOGY_A });
+  unbound.request.manual_witness.TA1.sensor_provenance.queries = [];
+  unbound.request.request_digest = selfDigest(unbound.request, 'request_digest');
+  const unboundResult = compile(unbound);
+  assert.equal(unboundResult.code, 'BOUNDARY_UNKNOWN');
+  assert.equal(unboundResult.detail.guidance.code, 'ACQUIRE_OWNERSHIP_EVIDENCE');
+});
+
 test('非readyなaffected evidenceはdispatchableへ丸められずBOUNDARY_UNKNOWNになる', () => {
   const built = buildCase({ requestId: 'req-aff-empty', todos: TOPOLOGY_A });
   // TA1のaffected観測をempty（affected testsゼロ・changedFiles不一致）へ差し替える。

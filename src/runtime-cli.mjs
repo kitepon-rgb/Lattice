@@ -27,6 +27,7 @@ import {
   validateRunRequest,
   validateRuntimeBoundaryManifest,
   validateRuntimePlan,
+  validRuntimeAbandonReason,
   verifyRuntimePlanBinding,
   selfDigest,
 } from './runtime-contracts.mjs';
@@ -107,7 +108,6 @@ const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 // 現役run storeは対象Git repo内のLattice-owned・ignored rootへ限定する。
 const RUN_STORE_ROOT = ['.lattice', 'runs'];
 const RUN_REF = /^\.lattice\/runs\/([0-9A-Za-z](?:[0-9A-Za-z._-]{0,127}))$/u;
-const ABANDON_REASON = /^[0-9A-Za-z](?:[0-9A-Za-z._:-]{0,127})$/u;
 const KNOWN_ADAPTERS = Object.freeze(['scripted', 'isolated-worktree', 'actual-agent']);
 
 class CliContractError extends Error {
@@ -866,8 +866,11 @@ async function runClose({ runDir, repoRoot, stdout, requestId = null }) {
 }
 
 async function runAbandon({ runDir, runRef, reason, stdout, requestId = null }) {
-  if (!ABANDON_REASON.test(reason)) {
-    throw new CliContractError('INVALID_ABANDON_REASON', 'reasonは128文字以下の識別子でなければならない');
+  if (!validRuntimeAbandonReason(reason)) {
+    throw new CliContractError(
+      'INVALID_ABANDON_REASON',
+      'reasonは前後空白・制御文字を含まない1〜256文字の説明でなければならない',
+    );
   }
   return withLifecycleLock(runDir, async () => {
     const current = await readRunStore(runDir);
@@ -2126,7 +2129,11 @@ export async function runManagedSupervisorDaemon({
         const active = await readCommittedEpochStore(runDir);
         const state = projectRuntimeState({ events });
         const shutdownReason = controlRequest.payload.shutdown_reason;
-        if (typeof shutdownReason !== 'string' || shutdownReason.length === 0) {
+        if (controlRequest.operation === 'abandon' && !validRuntimeAbandonReason(shutdownReason)) {
+          throw new ManagedRuntimeError('INVALID_ABANDON_REASON', 'abandon reasonが監査文字列規律を満たさない');
+        }
+        if (controlRequest.operation === 'close'
+          && (typeof shutdownReason !== 'string' || shutdownReason.length === 0)) {
           throw new ManagedRuntimeError('MANAGED_SHUTDOWN_INCOMPLETE', 'shutdown reason不足');
         }
         let proposed;
@@ -2789,7 +2796,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
   } else if (argv.length === 6
     && argv[0] === 'run' && argv[1] === 'abandon'
     && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0
-    && argv[4] === '--reason' && typeof argv[5] === 'string' && argv[5].length > 0) {
+    && argv[4] === '--reason' && typeof argv[5] === 'string') {
     action = async () => {
       const { runDir } = await resolveRunStore(cwd, argv[3]);
       return runAbandon({ runDir, runRef: argv[3], reason: argv[5], stdout,

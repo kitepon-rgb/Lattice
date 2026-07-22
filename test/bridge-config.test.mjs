@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -121,6 +121,7 @@ test('invalid listen/upstream/config modeはtyped failでsilent defaultしない
     upstream: { mode: 'url', url: 'file:///tmp/no' } }),
   (error) => error.code === 'BRIDGE_UPSTREAM_INVALID');
   await writeFile(path.join(root, 'bridge.json'), '{}\n', { mode: 0o644 });
+  await chmod(path.join(root, 'bridge.json'), 0o644);
   await assert.rejects(readBridgeConfig({ env }), (error) => error.code === 'BRIDGE_CONFIG_MODE_INVALID');
   assert.equal(JSON.parse(await readFile(path.join(root, 'bridge.json'), 'utf8')).schema, undefined);
 });

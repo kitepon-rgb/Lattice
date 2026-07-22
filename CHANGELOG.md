@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.4 — 2026-07-22
+
+- `run abandon --reason`で日本語・空白・句読点を含む監査可能な説明を受理し、表示を偽装するUnicode制御文字・前後空白・256文字超過をCLIとmanaged control wireの共通validatorでmutation前に拒否するようにした。
+- `BOUNDARY_UNKNOWN`へ元witnessを残し、fresh path不存在だけを`BOOTSTRAP_OWNERSHIP_SEAM`、既存path・symbol・未束縛ownershipを`ACQUIRE_OWNERSHIP_EVIDENCE`へ分けて安全な次手を機械可読化した。
+
 ## 0.12.3 — 2026-07-22
 
 - activeな`phase_todo_revision.v1/v2`でも履歴上の有効source inventoryを解決し、`todo verify`がsource driftを検出して実件数を返すようにした。

@@ -12,6 +12,19 @@ const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
 const MAX_COLLECTION = 256;
 const MAX_NODES_PER_PLAN = 8;
 
+// 人間向けaudit reasonは表示を偽装できる制御文字を拒否しつつ、通常のUnicode説明を保持する。
+const AUDIT_BIDI_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+
+export function validRuntimeAbandonReason(value) {
+  return typeof value === 'string'
+    && value === value.trim()
+    && [...value].length >= 1
+    && [...value].length <= 256
+    && !/\p{Cc}/u.test(value)
+    && !/[\u2028\u2029]/u.test(value)
+    && !AUDIT_BIDI_CONTROLS.test(value);
+}
+
 // ADR 0044 Decision 3.2のclosed event kind set。拡張はrun_event.v2＋新ADRでだけ行う。
 export const RUN_EVENT_KINDS = Object.freeze([
   'run_initialized',

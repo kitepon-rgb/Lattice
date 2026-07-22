@@ -178,9 +178,29 @@ test('stale baseはresumeを止めるが明示abandonでrunを閉じられる', 
   assert.equal(resume.status, 1);
   assert.equal(JSON.parse(resume.stderr).code, 'STALE_BASE');
 
-  const abandoned = runCli(['run', 'abandon', '--run', runRef, '--reason', 'stale_base'], repoRoot);
+  const empty = runCli(['run', 'abandon', '--run', runRef, '--reason', ''], repoRoot);
+  assert.equal(empty.status, 1);
+  assert.equal(JSON.parse(empty.stderr).code, 'INVALID_ABANDON_REASON');
+  const invalid = runCli(['run', 'abandon', '--run', runRef, '--reason', '改行\nは禁止'], repoRoot);
+  assert.equal(invalid.status, 1);
+  assert.equal(JSON.parse(invalid.stderr).code, 'INVALID_ABANDON_REASON');
+  for (const reason of ['C1\u0085は禁止', '行区切り\u2028は禁止', '方向\u202e偽装は禁止']) {
+    const rejected = runCli(['run', 'abandon', '--run', runRef, '--reason', reason], repoRoot);
+    assert.equal(rejected.status, 1);
+    assert.equal(JSON.parse(rejected.stderr).code, 'INVALID_ABANDON_REASON');
+  }
+  const padded = runCli(['run', 'abandon', '--run', runRef, '--reason', ' 前後空白は禁止 '], repoRoot);
+  assert.equal(padded.status, 1);
+  assert.equal(JSON.parse(padded.stderr).code, 'INVALID_ABANDON_REASON');
+  const oversized = runCli(['run', 'abandon', '--run', runRef, '--reason', 'あ'.repeat(257)], repoRoot);
+  assert.equal(oversized.status, 1);
+  assert.equal(JSON.parse(oversized.stderr).code, 'INVALID_ABANDON_REASON');
+
+  const reason = 'ChangeSet検証waveは完了し、新しい実装waveへ移行するため';
+  const abandoned = runCli(['run', 'abandon', '--run', runRef, '--reason', reason], repoRoot);
   assert.equal(abandoned.status, 0, abandoned.stderr);
   assert.equal(JSON.parse(abandoned.stdout).outcome, 'abandoned');
+  assert.equal(JSON.parse(abandoned.stdout).reason, reason);
   const status = JSON.parse(runCli(['run', 'status', '--run', runRef], repoRoot).stdout);
   assert.equal(status.closed, true);
   assert.deepEqual(JSON.parse(runCli(['run', 'list', '--json'], repoRoot).stdout).active_runs, []);
