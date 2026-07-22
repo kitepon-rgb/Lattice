@@ -136,9 +136,12 @@ describe('No-root-index session policy', () => {
     await request(child, { id: 0, method: 'initialize', params: initializeParams(tempDir) });
 
     const res = await request(child, { id: 1, method: 'tools/list' });
-    const tools = (res.result as { tools: Array<{ name: string }> }).tools;
+    const tools = (res.result as { tools: Array<{ name: string; description?: string }> }).tools;
     expect(tools.length).toBeGreaterThanOrEqual(1);
     expect(tools.map((t) => t.name)).toContain('lattice_sensor_explore');
+    const descriptions = tools.map((tool) => tool.description ?? '').join('\n');
+    expect(descriptions).not.toMatch(/indexing is the user's decision/i);
+    expect(descriptions).not.toMatch(/don't run it yourself/i);
   });
 
   it('a query by projectPath reaches an INDEXED sub-project of an unindexed root (monorepo) (#964)', async () => {

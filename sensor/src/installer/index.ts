@@ -271,10 +271,10 @@ export async function runInstallerWithOptions(opts: RunInstallerOptions): Promis
   // solicit signups for, or send data to, the upstream project's endpoints.
 
   // Step 6: install wires up agents only — it deliberately does NOT index.
-  // Building the per-project graph is the user's explicit `lattice sensor init`
-  // (or `index`), so they choose what gets indexed and when, and we never
-  // index a surprise directory (e.g. a shell sitting in $HOME). Same next step
-  // regardless of global/local scope.
+  // Building the per-project graph requires a later explicit `lattice sensor init`
+  // (or `index`) from the user or an authorized AI agent, so the intended project
+  // is chosen deliberately and install never indexes a surprise directory (e.g. a
+  // shell sitting in $HOME). Same next step regardless of global/local scope.
   clack.note(
     location === 'local'
       ? 'lattice sensor init        # build this project’s graph (one time; auto-syncs after)'
