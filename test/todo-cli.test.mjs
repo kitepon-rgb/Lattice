@@ -400,6 +400,31 @@ test('authoring CLIはclosed遷移をappendしmutation resultをdigest束縛す�
   assert.equal(journal.at(-1).payload.target_done_digest, journal.at(-2).event_digest);
 });
 
+test('authoring CLIはtask IDのcase差をlock内でcanonical IDへ解決する', async (context) => {
+  const root = await workspace(context);
+  const { descriptorRef } = await evidenceFixture(root, 'case-normalization');
+  const started = successJson(runCli(root, [
+    'todo', 'start', '--plan', 'main', '--task', 't1',
+  ]));
+  assert.equal(started.task_id, 'T1');
+  assert.equal(started.status, 'in-progress');
+  const done = successJson(runCli(root, [
+    'todo', 'done', '--plan', 'main', '--task', 't1', '--evidence', descriptorRef,
+  ]));
+  assert.equal(done.task_id, 'T1');
+  assert.equal(done.status, 'done');
+  const journal = (await readFile(path.join(root, journalRef), 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.deepEqual(journal.slice(1).map(({ task_id: taskId }) => taskId), ['T1', 'T1']);
+  const before = await storeDigest(root);
+  const missing = runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'missing']);
+  assert.equal(missing.status, 1);
+  const error = JSON.parse(missing.stderr);
+  assert.equal(error.code, 'TASK_NOT_FOUND');
+  assert.equal(error.detail.reason, 'task_not_found');
+  assert.equal(error.detail.requested_task_id, 'missing');
+  assert.equal(await storeDigest(root), before);
+});
+
 test('authoring CLIはactor欠落・順序違反・blocked中doneを無変更拒否する', async (context) => {
   const root = await workspace(context);
   const { descriptorRef } = await evidenceFixture(root);

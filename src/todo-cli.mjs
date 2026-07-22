@@ -307,7 +307,7 @@ async function mutate({ repoRoot, env, planKey, taskId, kind, payload, evidenceR
     planKey,
     event: { kind, task_id: taskId, actor, payload: eventPayload },
   });
-  const task = snapshot.tasks.find(({ task_id: current }) => current === taskId);
+  const task = snapshot.tasks.find(({ task_id: current }) => current === event.task_id);
   const result = {
     schema: 'lattice.todo_mutation_result.v1',
     project_id: event.project_id,
@@ -328,9 +328,10 @@ async function mutate({ repoRoot, env, planKey, taskId, kind, payload, evidenceR
 
 async function startTask({ repoRoot, env, planKey, taskId, overrideReason, parallelFrontier }) {
   const projection = projectTodoStatus(await readTodoStore({ repoRoot }));
-  const targetReady = projection.next_ready.some((task) => (
-    task.plan_key === planKey && task.task_id === taskId
+  const readyTask = projection.next_ready.find((task) => (
+    task.plan_key === planKey && task.task_id.toLowerCase() === taskId.toLowerCase()
   ));
+  const targetReady = readyTask !== undefined;
   if (parallelFrontier && !targetReady) {
     throw new TodoStoreError('PARALLEL_DISPATCH_INVALID', 'parallel_frontier_not_applicable');
   }
@@ -344,7 +345,7 @@ async function startTask({ repoRoot, env, planKey, taskId, overrideReason, paral
         serial_reason_flag: '--override-reason',
       });
   }
-  return mutate({ repoRoot, env, planKey, taskId, kind: 'start',
+  return mutate({ repoRoot, env, planKey, taskId: readyTask?.task_id ?? taskId, kind: 'start',
     payload: { override_reason: overrideReason }, evidenceRef: null });
 }
 

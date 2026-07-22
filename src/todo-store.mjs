@@ -1117,6 +1117,22 @@ function resolveTargetedEvent(input, storeMember) {
   return input;
 }
 
+function resolveCanonicalTaskId(plan, requestedTaskId) {
+  if (requestedTaskId === null || requestedTaskId === undefined) return requestedTaskId;
+  const exact = plan.tasks.find(({ task_id: taskId }) => taskId === requestedTaskId);
+  if (exact) return exact.task_id;
+  const folded = requestedTaskId.toLowerCase();
+  const matches = plan.tasks.filter(({ task_id: taskId }) => taskId.toLowerCase() === folded);
+  if (matches.length === 0) fail('TASK_NOT_FOUND', 'task_not_found', {
+    requested_task_id: requestedTaskId,
+  });
+  if (matches.length > 1) fail('TASK_ID_AMBIGUOUS', 'task_id_case_ambiguous', {
+    requested_task_id: requestedTaskId,
+    matching_task_ids: matches.map(({ task_id: taskId }) => taskId).sort(),
+  });
+  return matches[0].task_id;
+}
+
 export async function appendTodoEvent(options = {}) {
   requireWriter(options.writer, 'g5-authoring');
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
@@ -1126,6 +1142,7 @@ export async function appendTodoEvent(options = {}) {
     if (!member) fail('STORE_INCONSISTENT', 'plan_not_active');
     const input = resolveTargetedEvent({
       ...options.event,
+      task_id: resolveCanonicalTaskId(member.plan, options.event.task_id),
       recorded_at: options.event.recorded_at ?? new Date().toISOString(),
     }, member);
     const event = nextEvent(input, member);
