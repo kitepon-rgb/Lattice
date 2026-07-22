@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.2 — 2026-07-22
+
+- unpublish済みの0.12.1と同一機能を、再利用可能な新versionとしてprivate registryへ再公開した。
+- `publishConfig.access`を`restricted`へ固定し、以後のnpm publishが意図せずpublicへ戻らないようにした。
+
 ## 0.12.1 — 2026-07-22
 
 - crash後にstale daemon descriptorだけが残ったbridge再構成を`not_running`へ収束させ、停止receipt timeoutで公開経路を復旧できない問題を修正した。
