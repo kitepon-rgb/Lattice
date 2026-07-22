@@ -77,6 +77,14 @@ function sortedUnique(values, predicate) {
       || canonicalizeArtifact(values[index - 1]) < canonicalizeArtifact(value));
 }
 
+function primaryFirstUnique(values, predicate) {
+  if (!Array.isArray(values) || !values.every(predicate)
+    || new Set(values).size !== values.length) return false;
+  const tail = values.slice(1);
+  return tail.every((value, index) => index === 0
+    || canonicalizeArtifact(tail[index - 1]) < canonicalizeArtifact(value));
+}
+
 /** ADR 0064 Decision 5のfull predecessor→successor mapping。 */
 export function validateRuntimeTaskMigration(value, { predecessorTaskIds = null,
   successorTaskIds = null } = {}) {
@@ -92,7 +100,7 @@ export function validateRuntimeTaskMigration(value, { predecessorTaskIds = null,
       || !IDENTIFIER.test(entry.predecessor_task_id ?? '')
       || !['carry', 'replace', 'split', 'retire', 'stay'].includes(entry.disposition)
       || typeof entry.reason !== 'string' || entry.reason.length === 0
-      || !sortedUnique(entry.successor_task_ids, (id) => IDENTIFIER.test(id))
+      || !primaryFirstUnique(entry.successor_task_ids, (id) => IDENTIFIER.test(id))
       || !sortedUnique(entry.evidence_digests, (digest) => HEX_DIGEST.test(digest))) return false;
     if (['carry', 'stay'].includes(entry.disposition)
       && canonicalizeArtifact(entry.successor_task_ids) !== canonicalizeArtifact([entry.predecessor_task_id])) return false;

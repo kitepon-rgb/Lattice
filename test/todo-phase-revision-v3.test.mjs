@@ -226,6 +226,62 @@ test('phase_todo_revision.v3 validatorはruntime migrationとreconciliationをex
   assert.equal(validatePhaseTodoRevision(reconciled), true);
 });
 
+test('phase v3 splitはlexicographic最小ではなく先頭successorへ旧stateを投影する', async (t) => {
+  const { revision } = await fixture(t);
+  const value = structuredClone(revision);
+  const desiredInput = structuredClone(value.desired_plan);
+  delete desiredInput.topology_digest;
+  delete desiredInput.plan_digest;
+  desiredInput.tasks.push({
+    ...structuredClone(desiredInput.tasks.find(({ task_id: taskId }) => taskId === 'T2')),
+    task_id: 'T0', title: 'T0', narrative_ref: '.lattice/todo/source-ledger/cutover.md#L8',
+  });
+  desiredInput.tasks.sort((left, right) => left.task_id.localeCompare(right.task_id));
+  value.runtime_task_migration.entries[1] = {
+    predecessor_task_id: 'T2', disposition: 'split', successor_task_ids: ['T2', 'T0'],
+    reason: 'T2 remains the primary identity and T0 is the new split task',
+    evidence_digests: ['2'.repeat(64), '3'.repeat(64)],
+  };
+  value.runtime_task_migration.migration_digest = migrationDigest(value.runtime_task_migration);
+  value.phase_migration[0].state_policy = 'reset';
+  desiredInput.plan_version = phaseTodoRevisionPlanVersion({
+    projectId: value.project_id, planKey: value.plan_key, predecessor: value.predecessor,
+    desiredPlan: desiredInput, taskMigration: value.task_migration,
+    phaseMigration: value.phase_migration,
+  });
+  value.desired_plan = buildTodoPlan(desiredInput);
+  const newSourceDigest = createHash('sha256').update('- [ ] T0 source').digest('hex');
+  value.source_cutover_batch.operations.push({
+    task_id: 'T0', disposition: 'active', source_ref: 'docs/plan.md#L3',
+    source_digest: newSourceDigest, live_replacement: '- T0 state is managed by Lattice',
+  });
+  value.source_cutover_batch.batch_digest = todoSelfDigest(value.source_cutover_batch, 'batch_digest');
+  value.source_inventory.active.push({
+    task_id: 'T0', source_ref: '.lattice/todo/source-ledger/cutover.md#L8',
+    source_digest: newSourceDigest,
+  });
+  value.source_inventory.active.sort((left, right) => left.task_id.localeCompare(right.task_id));
+  value.reconciliation.source_inventory_digest = digestTodoArtifact(value.source_inventory);
+  value.reconciliation.desired_plan_digest = value.desired_plan.plan_digest;
+  value.reconciliation.runtime_task_migration_digest = value.runtime_task_migration.migration_digest;
+  value.reconciliation.phase_migration_digest = digestTodoArtifact(value.phase_migration);
+  value.reconciliation.source_cutover_batch_digest = value.source_cutover_batch.batch_digest;
+  value.reconciliation.reconciliation_digest = todoSelfDigest(value.reconciliation,
+    'reconciliation_digest');
+  value.revision_digest = todoSelfDigest(value, 'revision_digest');
+  assert.equal(validatePhaseTodoRevision(value), true);
+
+  const lexical = structuredClone(value);
+  lexical.runtime_task_migration.entries[1].successor_task_ids = ['T0', 'T2'];
+  lexical.runtime_task_migration.migration_digest = migrationDigest(lexical.runtime_task_migration);
+  lexical.reconciliation.runtime_task_migration_digest
+    = lexical.runtime_task_migration.migration_digest;
+  lexical.reconciliation.reconciliation_digest = todoSelfDigest(lexical.reconciliation,
+    'reconciliation_digest');
+  lexical.revision_digest = todoSelfDigest(lexical, 'revision_digest');
+  assert.equal(validatePhaseTodoRevision(lexical), false);
+});
+
 test('phase v3 applyはpredecessor inventory差分にないbatch欠落を拒否する', async (t) => {
   const { root, revision, writer } = await fixture(t);
   const missing = structuredClone(revision);

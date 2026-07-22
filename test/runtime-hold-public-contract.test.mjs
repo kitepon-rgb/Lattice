@@ -13,6 +13,7 @@ import {
   decideHoldAndCarryOver,
   recompileNextEpochPlan,
   routeConflictTreatment,
+  validateRuntimeTaskMigration,
 } from '../src/runtime-hold-recompile.mjs';
 import { projectRuntimeState } from '../src/runtime-projection.mjs';
 import { invokeSensorCli } from '../src/sensor-runtime.mjs';
@@ -1199,7 +1200,7 @@ function runtimeToTodoMigration(runtimeMigration) {
     assert.ok(['replace', 'split'].includes(entry.disposition));
     assert.ok(entry.successor_task_ids.length > 0);
     return { from_task_id: entry.predecessor_task_id,
-      to_task_id: [...entry.successor_task_ids].sort()[0], state_policy: 'reset_pending' };
+      to_task_id: entry.successor_task_ids[0], state_policy: 'reset_pending' };
   }).sort((a, b) => a.from_task_id.localeCompare(b.from_task_id));
 }
 
@@ -1207,6 +1208,24 @@ function todoMigrationDigest(taskMigration) {
   return todoSelfDigest({ task_migration: taskMigration, task_migration_digest: '' },
     'task_migration_digest');
 }
+
+test('runtime splitは先頭successorを明示primaryとして保持し、残りだけを決定的順序にする', () => {
+  const migration = { schema: 'lattice.runtime_task_migration.v1', entries: [{
+    predecessor_task_id: 'T2', disposition: 'split',
+    successor_task_ids: ['T2', 'T0', 'T3'],
+    reason: 'T2 identity remains primary while the seam creates T0 and T3',
+    evidence_digests: ['1'.repeat(64), '2'.repeat(64), '3'.repeat(64)],
+  }], migration_digest: '' };
+  migration.migration_digest = selfDigest(migration, 'migration_digest');
+  assert.equal(validateRuntimeTaskMigration(migration, {
+    predecessorTaskIds: ['T2'], successorTaskIds: ['T0', 'T2', 'T3'],
+  }), true);
+
+  const unsortedTail = structuredClone(migration);
+  unsortedTail.entries[0].successor_task_ids = ['T2', 'T3', 'T0'];
+  unsortedTail.migration_digest = selfDigest(unsortedTail, 'migration_digest');
+  assert.equal(validateRuntimeTaskMigration(unsortedTail), false);
+});
 
 function validatePhaseRevisionV3Contract(revision) {
   if (revision?.schema !== 'lattice.phase_todo_revision.v3') return false;

@@ -228,6 +228,8 @@ function validRuntimeTaskMigration(value) {
     || value.migration_digest !== todoSelfDigest(value, 'migration_digest')) return false;
   const targets = [];
   for (const [index, entry] of value.entries.entries()) {
+    const successorTail = Array.isArray(entry.successor_task_ids)
+      ? entry.successor_task_ids.slice(1) : [];
     if (!exactRecord(entry, [
       'predecessor_task_id', 'disposition', 'successor_task_ids', 'reason', 'evidence_digests',
     ]) || !isTodoIdentifier(entry.predecessor_task_id)
@@ -235,8 +237,8 @@ function validRuntimeTaskMigration(value) {
       || !Array.isArray(entry.successor_task_ids) || entry.successor_task_ids.length > 512
       || !entry.successor_task_ids.every(isTodoIdentifier)
       || new Set(entry.successor_task_ids).size !== entry.successor_task_ids.length
-      || entry.successor_task_ids.some((id, targetIndex) => targetIndex > 0
-        && compareText(entry.successor_task_ids[targetIndex - 1], id) >= 0)
+      || successorTail.some((id, targetIndex) => targetIndex > 0
+        && compareText(successorTail[targetIndex - 1], id) >= 0)
       || !boundedText(entry.reason) || !Array.isArray(entry.evidence_digests)
       || entry.evidence_digests.length < 1 || entry.evidence_digests.length > 512
       || !entry.evidence_digests.every(isTodoDigest)

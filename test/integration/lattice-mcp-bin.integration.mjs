@@ -100,6 +100,43 @@ async function waitForFile(filePath, timeoutMs) {
   return false;
 }
 
+async function waitForPidExit(pid, timeoutMs = 5000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error?.code === 'ESRCH') return true;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return false;
+}
+
+async function stopChild(child, timeoutMs = 5000) {
+  if (child === null || child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise((resolve) => child.once('exit', resolve));
+  child.kill('SIGTERM');
+  const outcome = await Promise.race([
+    exited.then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), timeoutMs)),
+  ]);
+  assert.equal(outcome, true, `MCP proxy pid ${child.pid} did not exit after SIGTERM`);
+}
+
+async function stopPid(pid, timeoutMs = 5000) {
+  if (pid === null) return;
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (error) {
+    if (error?.code === 'ESRCH') return;
+    throw error;
+  }
+  assert.equal(await waitForPidExit(pid, timeoutMs), true,
+    `MCP daemon pid ${pid} did not exit after SIGTERM`);
+}
+
 // Node version guard(④, lattice-mcp.mjs)は起動時にargv解析より前に走るため、
 // このusage違反テストはLATTICE_SENSOR_ALLOW_UNSAFE_NODEでガードを迂回する — でない
 // とテスト実行ホストのNodeがサポート対象外の場合、usage違反(exit 2)に届く前に
@@ -212,7 +249,13 @@ test(
   'lattice-mcp: daemon経由起動でspawnDetachedDaemonのprocess.argv[1]再invokeがlattice-mcp自身を指し、正しくdaemon化する',
   async (t) => {
     const root = await mkdtemp(path.join(tmpdir(), 'lattice-mcp-daemon-'));
-    t.after(async () => { await rm(root, { recursive: true, force: true }); });
+    let child = null;
+    let daemonPid = null;
+    t.after(async () => {
+      await stopChild(child);
+      await stopPid(daemonPid);
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    });
     await scaffoldIndexedRepo(root);
 
     // No LATTICE_SENSOR_NO_DAEMON here — the normal proxy path, which spawns the
@@ -225,11 +268,10 @@ test(
     // daemon re-invoke (spawnDetachedDaemon) inherits `process.env` when it
     // re-execs this same bin (sensor/src/mcp/index.ts), so this override
     // propagates to both the launcher AND the detached daemon it spawns.
-    const child = spawn(process.execPath, [MCP_BIN, '--path', root], {
+    child = spawn(process.execPath, [MCP_BIN, '--path', root], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, LATTICE_SENSOR_ALLOW_UNSAFE_NODE: '1' },
     });
-    t.after(() => { try { child.kill(); } catch { /* already gone */ } });
     const client = jsonRpcClient(child);
 
     client.send({
@@ -250,7 +292,7 @@ test(
 
     const lock = JSON.parse(readFileSync(pidPath, 'utf8'));
     assert.equal(lock.version, '0.7.3-lattice.1');
-    t.after(() => { try { process.kill(lock.pid, 'SIGTERM'); } catch { /* already gone */ } });
+    daemonPid = lock.pid;
   },
 );
 

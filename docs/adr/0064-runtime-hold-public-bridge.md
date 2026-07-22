@@ -258,7 +258,8 @@ ownership_diff, edge_diff, verifier_refs, split_digest`とする。
   executor_capability, claim_mode, predecessor_request_digest, task_migration_digest,
   request_digest`とする。
 - `task_migration.entries`は旧task全件を`carry | replace | split | retire | stay`の一つへexact mappingし、
-  successor task、理由、evidence digestを持つ。欠落task、孤立successor、重複mappingを拒否する。
+  successor task、理由、evidence digestを持つ。`successor_task_ids[0]`は旧stateを投影する明示primaryであり、
+  `split`の残りのsuccessorだけをlexicographic順へ固定する。欠落task、孤立successor、重複mappingを拒否する。
 - `ownership_diff`と`edge_diff`はadded／removedのexact集合を持つ。seam対象の競合資源が分割後も交差する、
   又はshared state／external effectをpath分割だけで解消扱いする場合は`SEAM_SPLIT_UNPROVEN`。
 - producerとは独立したverifierがsuccessor request、plan、manifest全件、migration、ownership、edge、finding解消を
@@ -285,7 +286,7 @@ source_inventory, reconciliation, source_cutover_batch, revision_digest`とす�
 - `runtime_task_migration`はrecompile requestのfull `lattice.runtime_task_migration.v1`とcanonical bytesがexact一致する。
   `task_migration`はTODO store用arrayで、各entry exact fieldは`from_task_id, to_task_id, state_policy`。
   runtime entryからpredecessor順に決定的変換し、`carry | stay`は同一IDへ`carry`、`replace`は唯一のsuccessorへ
-  `reset_pending`、`retire`は`removed / removed`、`split`はlexicographic先頭successorへ`reset_pending`とし、
+  `reset_pending`、`retire`は`removed / removed`、`split`は配列先頭に明示したprimary successorへ`reset_pending`とし、
   残りのsplit successorは新規taskとしてmigration rowを持たない。carryでmetadata reconciliationが必要な場合だけ
   `carry_reconciled_metadata`を使い、根拠なしのstate policy選択を拒否する。
 - `task_migration_digest`はcanonical TODO arrayのdigest、`runtime_task_migration_digest`はfull runtime documentのdigest。
