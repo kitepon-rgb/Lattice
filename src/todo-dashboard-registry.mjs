@@ -124,6 +124,21 @@ export async function readActiveTodoDashboardProjects({ env = process.env, now =
       || left.project_id.localeCompare(right.project_id, 'en'));
 }
 
+export async function readVisibleTodoDashboardProjects({
+  env = process.env, now = Date.now(), projectHasActiveRun,
+} = {}) {
+  if (typeof projectHasActiveRun !== 'function') throw new TypeError('projectHasActiveRun required');
+  const ref = paths(env).registry;
+  const document = validateRegistry(await readJson(ref, { schema: REGISTRY_SCHEMA, projects: [] }));
+  const visible = [];
+  for (const entry of document.projects) {
+    if (now - Date.parse(entry.last_seen_at) <= TODO_DASHBOARD_STALE_MS
+      || await projectHasActiveRun(entry)) visible.push(entry);
+  }
+  return visible.sort((left, right) => left.display_name.localeCompare(right.display_name, 'ja')
+    || left.project_id.localeCompare(right.project_id, 'en'));
+}
+
 export async function registerTodoDashboardActivity({
   repoRoot, projectId, displayName = projectId, sessionId, env = process.env,
   now = new Date(),
@@ -138,9 +153,7 @@ export async function registerTodoDashboardActivity({
   await mkdir(refs.root, { recursive: true, mode: 0o700 });
   await withLock(refs.lock, async () => {
     const current = validateRegistry(await readJson(refs.registry, { schema: REGISTRY_SCHEMA, projects: [] }));
-    const cutoff = now.getTime() - TODO_DASHBOARD_STALE_MS;
-    const projects = current.projects.filter((entry) => Date.parse(entry.last_seen_at) >= cutoff
-      && entry.project_id !== projectId);
+    const projects = current.projects.filter((entry) => entry.project_id !== projectId);
     projects.push({ project_id: projectId, display_name: displayName, repo_root: canonicalRoot,
       session_id: sessionId, last_seen_at: now.toISOString() });
     projects.sort((left, right) => left.project_id.localeCompare(right.project_id, 'en'));

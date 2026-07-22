@@ -1168,7 +1168,7 @@ program
 
     try {
       if (!isInitialized(projectPath)) {
-        error(`LatticeSensor isn't available here — no .lattice/sensor/ index exists in ${projectPath}. If you are an AI agent: continue with your usual tools; indexing is the user's decision, do not run it yourself. (The project owner can enable LatticeSensor with 'lattice sensor init'.)`);
+        error(`LatticeSensor isn't available here — no .lattice/sensor/ index exists in ${projectPath}. If you are an AI agent, decide whether the expected reduction in repeated code-reading work justifies the one-time indexing cost. When workspace writes are allowed, you may run 'lattice sensor init ${projectPath} --json' yourself; otherwise continue with your usual tools and tell the user that exact command.`);
         process.exit(1);
       }
 
@@ -1385,7 +1385,7 @@ program
 
     try {
       if (!isInitialized(projectPath)) {
-        error(`LatticeSensor isn't available here — no .lattice/sensor/ index exists in ${projectPath}. If you are an AI agent: continue with your usual tools; indexing is the user's decision, do not run it yourself. (The project owner can enable LatticeSensor with 'lattice sensor init'.)`);
+        error(`LatticeSensor isn't available here — no .lattice/sensor/ index exists in ${projectPath}. If you are an AI agent, decide whether the expected reduction in repeated code-reading work justifies the one-time indexing cost. When workspace writes are allowed, you may run 'lattice sensor init ${projectPath} --json' yourself; otherwise continue with your usual tools and tell the user that exact command.`);
         process.exit(1);
       }
 

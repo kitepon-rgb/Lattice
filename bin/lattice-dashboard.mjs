@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { readTodoStoreStable } from '../src/todo-store.mjs';
+import { projectTodoStatus } from '../src/todo-status.mjs';
 import { renderTodoGanttForProject } from '../src/todo-cli.mjs';
 import {
-  readActiveTodoDashboardProjects,
+  readVisibleTodoDashboardProjects,
   writeTodoDashboardDaemonDescriptor,
 } from '../src/todo-dashboard-registry.mjs';
 import {
@@ -27,9 +28,25 @@ const port = typeof configured === 'string' && /^(?:0|[1-9][0-9]{0,4})$/u.test(c
   && Number(configured) <= 65_535 ? Number(configured) : 0;
 const registry = createTodoGanttProjectRegistry();
 const roots = new Map();
+const reportedStoreReadFailures = new Set();
 
 async function synchronize() {
-  const active = await readActiveTodoDashboardProjects({ env });
+  const active = await readVisibleTodoDashboardProjects({ env,
+    projectHasActiveRun: async (entry) => {
+      try {
+        const active = projectTodoStatus(await readTodoStoreStable({ repoRoot: entry.repo_root })).active_set.length > 0;
+        reportedStoreReadFailures.delete(entry.project_id);
+        return active;
+      } catch (error) {
+        if (!reportedStoreReadFailures.has(entry.project_id)) {
+          reportedStoreReadFailures.add(entry.project_id);
+          console.error(JSON.stringify({ schema: 'lattice.dashboard_project_store_error.v1',
+            project_id: entry.project_id, message: error instanceof Error ? error.message : String(error) }));
+        }
+        return false;
+      }
+    },
+  });
   const activeIds = new Set(active.map(({ project_id: projectId }) => projectId));
   for (const projectId of roots.keys()) {
     if (!activeIds.has(projectId)) {

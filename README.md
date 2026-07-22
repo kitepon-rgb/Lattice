@@ -82,6 +82,8 @@ required evidenceを束縛した`todo phase accept`で重監査の判断を記�
 session開始時のtyped discoveryで使う`lattice status --json`と、actor環境変数を持つ通常のTODO操作は
 active projectを自動登録し、一つのloopback dashboard daemonを再利用します。
 `/projects/`の一覧からproject固有の工程図を開け、各projectのSSE更新は互いに分離されます。
+最近のsession activityが期限切れでも、Lattice storeの`active_set`が非空なprojectは一覧へ残ります。
+長時間の外部処理中にCLI呼出しが途切れても進行中projectを休眠扱いしません。
 LANや外部reverse proxyから閲覧するoptional bridgeは既定で無効です。明示したIPにだけbindする初回設定、
 再設定、停止方法は[bridge setup](docs/bridge-setup.md)を参照してください。
 静的工程表は`lattice todo gantt status`で`current / stale / missing`を確認でき、HTMLまたは

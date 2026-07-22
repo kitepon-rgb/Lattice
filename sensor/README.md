@@ -11,6 +11,12 @@ lattice sensor status /path/to/project --json
 lattice-mcp
 ```
 
+When an AI agent encounters an unindexed project, it may decide that the
+one-time indexing cost is justified by fewer repeated reads and searches. If
+its host grants workspace writes and shell execution, it may run
+`lattice sensor init <projectPath> --json` itself; otherwise it should continue
+with built-in tools and give the user the exact command.
+
 Project state is owned by Lattice at `.lattice/sensor/`. The runtime never reads
 or migrates a retired external cache, executable, package, environment variable,
 daemon registry, or MCP tool name.

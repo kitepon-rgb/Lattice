@@ -70,6 +70,10 @@ rendezvous nodeに限る）。廃止済みcache/dataは入力またはfallback�
 MCP server提供と矛盾しない。MCP面は外部networkへ一切通信しない（v1受入条件）。
 runtimeは配布物内の`./sensor/dist`だけを起動し、PATH上の独立CLI、npx、外部SDKを解決しない。
 MCP toolは`lattice_sensor_*`だけを公開し、提供者と所有者を`lattice`として機械表示する。
+未索引projectでは、AI hostが現在または予定作業の反復Read／Grep削減効果と一回限りの索引費用を比較し、
+workspace書込とshell実行が許可されていれば対象projectを明示して`lattice sensor init <path> --json`を
+自律実行してよい。権限またはshell面がなければbuilt-in toolで継続し、正規init commandをユーザーへ示す。
+「索引はユーザーだけが判断・実行する」というMCP guidanceは禁止する。
 CLIの`lattice sensor sync`を未初期化projectで実行した場合は`LATTICE_SENSOR_NOT_INITIALIZED`を返し、
 `detail.next_action`へ同じpathの正規`lattice sensor init ... --json`を示す。その他のsensor失敗も
 exit code、signal、最大16 KiBのstderrをtyped detailへ保持し、原因を汎用messageへ隠さない。
@@ -134,6 +138,8 @@ reject/reopenはDecisionへ束縛し、開始済み後続を持つreopenは明�
 foreground read-only viewerで、stable store readとSSEにより更新を反映し、mixed viewを最新として表示しない。
 live result v2は`project_id`、`/projects/<project_id>/`のproject固有URL、同じnamespace配下の`events_url`を返す。
 各projectのforeground sessionは独立portで同時起動でき、project間でHTML、SSE、store stateを共有しない。
+共有dashboardのactive project判定はrecent session activityまたはstoreの非空`active_set`だけを根拠にする。
+activity TTLを越えてもactive runがあるprojectを一覧から除外せず、active run終了かつTTL期限切れで除外する。
 静的生成時はHTMLと`<output_ref>.status.json` descriptorを発行する。`todo gantt status [--out <ref>]`は
 現在の決定的renderとdescriptor／HTML digestを照合し、`current / stale / missing`を返す。
 片側欠落、non-canonical descriptor、digest不一致、project不一致は`GANTT_ARTIFACT_INVALID`として失敗し、

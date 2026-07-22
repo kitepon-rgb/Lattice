@@ -63,7 +63,7 @@ calls; a grep/read exploration is dozens.
 
 ## Limitations
 
-- If a tool reports a project isn't indexed (no \`.lattice/sensor/\`), stop calling sensor tools for that project for the rest of the session and use your built-in tools there instead. Indexing is the user's decision — mention they can run \`lattice sensor init . --json\` if it comes up, but don't run it yourself.
+- If a project isn't indexed (no \`.lattice/sensor/\`), decide whether building the index will reduce total investigation time and model tokens for the current or expected work. When workspace writes and shell execution are allowed, you may run \`lattice sensor init <projectPath> --json\` yourself, then retry the sensor call; scope it to the intended project and account for the one-time indexing cost. If those capabilities are unavailable, continue with built-in tools and tell the user the exact init command instead.
 - Index lags file writes by ~1 second.
 - Cross-file resolution is best-effort name matching; ambiguous calls may return multiple candidates.
 - No live correctness validation — that's still the TypeScript compiler / test suite / linter's job. Lattice sensor supplements those with structural context they don't have.
@@ -98,8 +98,9 @@ default project — but the tools are available and work **per project**:
   \`lattice_sensor_explore\` (and any other lattice sensor tool). Lattice sensor resolves the
   nearest \`.lattice/sensor/\` at or above that path and answers from it — for as many
   projects as you like in one session.
-- For a project with no \`.lattice/sensor/\`, use your built-in tools (Read/Grep/Glob)
-  for that project. Indexing is the user's decision — don't run it yourself, but
-  if it comes up they can run \`lattice sensor init . --json\` in a project to enable Lattice sensor
-  there (a new index is picked up live, no restart).
+- For a project with no \`.lattice/sensor/\`, decide whether the expected reduction in
+  repeated Read/Grep work justifies the one-time indexing cost. When workspace writes
+  and shell execution are allowed, you may run \`lattice sensor init <projectPath> --json\`
+  yourself and then retry with that \`projectPath\`; otherwise use built-in tools and
+  tell the user the exact init command. A new index is picked up live, with no restart.
 `;

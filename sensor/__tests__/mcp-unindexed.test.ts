@@ -123,6 +123,9 @@ describe('No-root-index session policy', () => {
     expect(instructions).toMatch(/projectPath/);
     expect(instructions).toMatch(/lattice_sensor_explore/);
     expect(instructions).toMatch(/lattice sensor init/);
+    expect(instructions).toMatch(/you may run/i);
+    expect(instructions).not.toMatch(/indexing is the user's decision/i);
+    expect(instructions).not.toMatch(/don't run it yourself/i);
     // ...but it is NOT the full single-project playbook (that's sent only when
     // the root itself is indexed — keeps the common case tight).
     expect(instructions).not.toMatch(/## How to query/);
@@ -177,6 +180,9 @@ describe('No-root-index session policy', () => {
     const instructions = (init.result as { instructions: string }).instructions;
     expect(instructions).toMatch(/How to query/);
     expect(instructions).not.toMatch(/inactive/i);
+    expect(instructions).toMatch(/you may run/i);
+    expect(instructions).not.toMatch(/indexing is the user's decision/i);
+    expect(instructions).not.toMatch(/don't run it yourself/i);
 
     const list = await request(child, { id: 1, method: 'tools/list' });
     const tools = (list.result as { tools: Array<{ name: string }> }).tools;
@@ -208,7 +214,11 @@ describe('No-error policy on expected conditions', () => {
     expect(res.isError).toBeUndefined();
     expect(res.content[0]!.text).toMatch(/isn't indexed/);
     expect(res.content[0]!.text).toMatch(/lattice sensor init/);
+    expect(res.content[0]!.text).toContain(tempDir);
     expect(res.content[0]!.text).toMatch(/built-in tools/);
+    expect(res.content[0]!.text).toMatch(/you may run/i);
+    expect(res.content[0]!.text).not.toMatch(/user's decision/i);
+    expect(res.content[0]!.text).not.toMatch(/don't call lattice sensor/i);
   });
 
   it('no-default-project (working-directory detection miss) is SUCCESS-shaped guidance', async () => {

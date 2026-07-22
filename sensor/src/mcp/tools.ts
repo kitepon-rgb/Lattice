@@ -85,6 +85,8 @@ const MAX_INPUT_LENGTH = 10_000;
  */
 const MAX_PATH_LENGTH = 4_096;
 
+const quoteShellArg = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+
 /**
  * Rust path roots that have no file-system equivalent — `crate` is the
  * current crate, `super` is the parent module, `self` is the current
@@ -521,9 +523,10 @@ const projectPathProperty: PropertySchema = {
 };
 
 /**
- * EVERY lattice sensor tool is query-only: it reads the pre-built index and never
- * mutates the workspace (indexing is the user's explicit CLI call, never the
- * agent's). Advertising this read-only contract lets clients that gate on it run
+ * EVERY lattice sensor MCP tool is query-only: it reads the pre-built index and never
+ * mutates the workspace. An agent may separately choose to invoke the explicit
+ * `lattice sensor init` CLI when its host grants workspace writes and shell execution.
+ * Advertising this MCP-tool read-only contract lets clients that gate on it run
  * the tools where a possibly-mutating tool would be blocked — most concretely,
  * Cursor's Ask mode, which rejects any MCP tool lacking `readOnlyHint: true`
  * (issue #1018). `idempotentHint`: a repeated query has no additional effect.
@@ -1110,9 +1113,11 @@ export class ToolHandler {
     if (!resolvedRoot) {
       throw new NotIndexedError(
         `The project at ${projectPath} isn't indexed with lattice sensor (no .lattice/sensor/ directory found ` +
-        'walking up from it), so lattice sensor cannot query it. Use your built-in tools (Read/Grep/Glob) ' +
-        "for that codebase instead, and don't call lattice sensor for it again this session. " +
-        "Indexing is the user's decision — they can run 'lattice sensor init . --json' in that project to enable it."
+        'walking up from it), so lattice sensor cannot query it yet. Decide whether the expected reduction ' +
+        'in repeated Read/Grep work justifies the one-time indexing cost. If workspace writes and shell ' +
+        `execution are allowed, you may run \`lattice sensor init ${quoteShellArg(projectPath)} --json\` ` +
+        'for this project ' +
+        'and then retry the sensor call; otherwise use built-in tools and tell the user the exact init command.'
       );
     }
 

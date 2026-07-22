@@ -11,6 +11,7 @@ import {
   ensureTodoDashboardDaemon,
   ensureTodoDashboardActivity,
   readActiveTodoDashboardProjects,
+  readVisibleTodoDashboardProjects,
   registerTodoDashboardActivity,
   TODO_DASHBOARD_STALE_MS,
 } from '../src/todo-dashboard-registry.mjs';
@@ -61,6 +62,29 @@ test('session activity registryはprojectをupsertし期限切れentryを一覧�
   assert.equal(active.length, 1);
   assert.equal(active[0].display_name, 'Lattice');
   assert.equal(active[0].session_id, 'session-b');
+});
+
+test('期限切れactivityでもstoreにactive runがあれば一覧へ残す', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-active-run-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_DASHBOARD_RUNTIME_DIR: path.join(root, 'runtime') };
+  const current = new Date('2026-07-21T10:00:00.000Z');
+  await registerTodoDashboardActivity({ repoRoot: process.cwd(), projectId: 'aishell',
+    displayName: 'AIShell', sessionId: 'session-old', env,
+    now: new Date(current.getTime() - TODO_DASHBOARD_STALE_MS - 1) });
+  await registerTodoDashboardActivity({ repoRoot: process.cwd(), projectId: 'lattice',
+    displayName: 'Lattice', sessionId: 'session-current', env, now: current });
+  assert.deepEqual((await readActiveTodoDashboardProjects({ env, now: current.getTime() }))
+    .map(({ project_id: projectId }) => projectId), ['lattice']);
+  const checked = [];
+  const visible = await readVisibleTodoDashboardProjects({ env, now: current.getTime(),
+    projectHasActiveRun: async ({ project_id: projectId }) => {
+      checked.push(projectId);
+      return projectId === 'aishell';
+    },
+  });
+  assert.deepEqual(visible.map(({ project_id: projectId }) => projectId), ['aishell', 'lattice']);
+  assert.deepEqual(checked, ['aishell']);
 });
 
 test('通常session activityだけでdashboard daemonを起動し同じdaemonを再利用する', async (context) => {

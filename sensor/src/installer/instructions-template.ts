@@ -47,5 +47,5 @@ In repositories indexed by LatticeSensor (a \`.lattice/sensor/\` directory exist
 - **MCP tool** (when available): \`lattice_sensor_explore\` answers most code questions in one call — the relevant symbols' verbatim source plus the call paths between them, including dynamic-dispatch hops grep can't follow. Name a file or symbol in the query to read its current line-numbered source. If it's listed but deferred, load it by name via tool search.
 - **Shell** (always works): \`latticeSensor explore "<symbol names or question>"\` prints the same output.
 
-If there is no \`.lattice/sensor/\` directory, skip LatticeSensor entirely — indexing is the user's decision.
+If there is no \`.lattice/sensor/\` directory, decide whether the expected reduction in repeated code-reading work justifies the one-time indexing cost. When workspace writes and shell execution are allowed, you may run \`lattice sensor init <projectPath> --json\` yourself; otherwise continue with built-in tools and tell the user the exact command.
 ${LATTICE_SENSOR_SECTION_END}`;
