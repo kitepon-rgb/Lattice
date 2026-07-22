@@ -252,10 +252,13 @@ export async function startBridgeServer({
     throw new BridgeConfigError(error?.code === 'EADDRINUSE' ? 'BRIDGE_PORT_UNAVAILABLE' : 'BRIDGE_BIND_FAILED',
       'bridge listen failed', { ...config.listen }, error);
   });
+  const boundAddress = server.address();
+  const actualPort = typeof boundAddress === 'object' && boundAddress !== null
+    ? boundAddress.port : config.listen.port;
   let closed = false;
   return Object.freeze({
     address: config.listen.address,
-    port: config.listen.port,
+    port: actualPort,
     updateConfig(next) {
       if (next?.enabled !== true || next.listen.address !== config.listen.address
         || next.listen.port !== config.listen.port) {

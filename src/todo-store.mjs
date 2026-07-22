@@ -2552,6 +2552,21 @@ async function predecessorSourceInventory(repoRoot, previous) {
   return { active: [], excluded_tombstones: [] };
 }
 
+export async function verifyEffectivePhaseTodoRevisionSources(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const member = options.member;
+  const revision = member?.revision;
+  if (!validatePhaseTodoRevision(revision)
+    || canonicalizeTodoArtifact(revision.desired_plan)
+      !== canonicalizeTodoArtifact(member?.plan)) {
+    fail('REVISION_INVALID', 'phase_revision_schema_or_digest_invalid');
+  }
+  const inventory = revision.schema === 'lattice.phase_todo_revision.v3'
+    ? revision.source_inventory : await predecessorSourceInventory(repoRoot, member);
+  await verifyRevisionSources(repoRoot, inventory);
+  return inventory;
+}
+
 function validatePhaseV3SourceInventoryDiff(previousInventory, revision) {
   const desired = revision.source_inventory;
   const previousActive = new Map(previousInventory.active.map((entry) => [entry.task_id, entry]));
@@ -2655,7 +2670,9 @@ async function applyPhaseTodoRevisionV3(options, revision, repoRoot) {
           journalHeadDigest: previous.journal.events.at(-1).event_digest });
     if (revision.reconciliation.predecessor_reconciliation_digest
       !== predecessorReconciliationDigest) fail('STORE_WRITE_CONFLICT', 'stale_predecessor');
-    validatePhaseV3SourceInventoryDiff(await predecessorSourceInventory(repoRoot, previous), revision);
+    const previousInventory = await predecessorSourceInventory(repoRoot, previous);
+    await verifyRevisionSources(repoRoot, previousInventory);
+    validatePhaseV3SourceInventoryDiff(previousInventory, revision);
     await rejectCompetingPhaseV3Transaction(repoRoot, revision);
     verifyPlanNarrativeAnchors(repoRoot, revision.desired_plan, previous.plan);
     const stateMigration = stateMigrationFor(previous, revision);

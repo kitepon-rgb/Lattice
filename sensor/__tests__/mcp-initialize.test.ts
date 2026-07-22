@@ -112,7 +112,7 @@ describe('MCP initialize handshake (issue #172)', () => {
       child.kill('SIGKILL');
       child = null;
     }
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   it('responds to initialize quickly when no .lattice/sensor exists in cwd', async () => {

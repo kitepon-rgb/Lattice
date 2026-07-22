@@ -74,7 +74,8 @@ async function runProductTests() {
 
   const result = spawnSync(
     process.execPath,
-    ['--test', ...productTests.map((relative) => path.join('test', relative))],
+    ['--test', '--test-concurrency=4',
+      ...productTests.map((relative) => path.join('test', relative))],
     { cwd: repoRoot, encoding: 'utf8', stdio: 'inherit',
       env: productTestEnvironment() },
   );

@@ -38,7 +38,7 @@ import {
   readTodoStore,
   readTodoStoreStable,
   rebuildTodoSnapshot,
-  verifyPhaseTodoRevisionSources,
+  verifyEffectivePhaseTodoRevisionSources,
   verifyTodoRevisionSources,
 } from './todo-store.mjs';
 import {
@@ -803,6 +803,7 @@ async function ensureActiveProjectDashboard({ repoRoot, env }) {
 async function verify({ repoRoot, requestedPlanKey }) {
   const store = await readTodoStore({ repoRoot });
   const members = selectMembers(store, requestedPlanKey);
+  const verifiedSourceInventories = new Map();
   for (const member of members) {
     const unverified = member.tasks.find((task) => task.evidence_unverified);
     if (unverified !== undefined) {
@@ -816,12 +817,14 @@ async function verify({ repoRoot, requestedPlanKey }) {
         case 'lattice.todo_revision.v1':
         case 'lattice.todo_revision.v2':
           await verifyTodoRevisionSources({ repoRoot, revision: member.revision });
+          verifiedSourceInventories.set(member.descriptor.plan_key,
+            member.revision.source_inventory);
           break;
         case 'lattice.phase_todo_revision.v1':
         case 'lattice.phase_todo_revision.v2':
-          break;
         case 'lattice.phase_todo_revision.v3':
-          await verifyPhaseTodoRevisionSources({ repoRoot, revision: member.revision });
+          verifiedSourceInventories.set(member.descriptor.plan_key,
+            await verifyEffectivePhaseTodoRevisionSources({ repoRoot, member }));
           break;
         default:
           throw new TodoStoreError('REVISION_INVALID', 'revision_schema_or_digest_invalid');
@@ -830,6 +833,7 @@ async function verify({ repoRoot, requestedPlanKey }) {
   }
   const verifiedMembers = members.map((member) => {
     const reconciled = member.revision !== null;
+    const sourceInventory = verifiedSourceInventories.get(member.descriptor.plan_key) ?? null;
     const phaseRevision = ['lattice.phase_todo_revision.v1', 'lattice.phase_todo_revision.v2',
       'lattice.phase_todo_revision.v3']
       .includes(member.revision?.schema);
@@ -848,15 +852,11 @@ async function verify({ repoRoot, requestedPlanKey }) {
         : todoLegacyReconciliationDigest({ planDigest: member.plan.plan_digest,
           journalHeadDigest: member.journal.events.at(-1).event_digest }),
       source_inventory_count: reconciled
-        ? phaseRevision && member.revision.schema !== 'lattice.phase_todo_revision.v3' ? 0
-          : member.revision.source_inventory.active.length
-          + member.revision.source_inventory.excluded_tombstones.length : null,
+        ? sourceInventory.active.length + sourceInventory.excluded_tombstones.length : null,
       active_task_count: reconciled
-        ? phaseRevision && member.revision.schema !== 'lattice.phase_todo_revision.v3'
-          ? 0 : member.revision.source_inventory.active.length : null,
+        ? sourceInventory.active.length : null,
       excluded_tombstone_count: reconciled
-        ? phaseRevision && member.revision.schema !== 'lattice.phase_todo_revision.v3'
-          ? 0 : member.revision.source_inventory.excluded_tombstones.length : null,
+        ? sourceInventory.excluded_tombstones.length : null,
     };
   });
   const result = {

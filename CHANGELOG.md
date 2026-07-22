@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.3 — 2026-07-22
+
+- activeな`phase_todo_revision.v1/v2`でも履歴上の有効source inventoryを解決し、`todo verify`がsource driftを検出して実件数を返すようにした。
+- `phase_todo_revision.v3`適用時はinventory差分より先にpredecessor source実体を検証し、物理driftを`predecessor_source_silently_dropped`へ誤分類しないようにした。
+- product suiteの並列数を4へ固定し、sensorのMCP初期化test cleanupへbounded retryを追加して、full gateの資源競合を安定化した。
+
 ## 0.12.2 — 2026-07-22
 
 - unpublish済みの0.12.1と同一機能を、再利用可能な新versionとしてprivate registryへ再公開した。

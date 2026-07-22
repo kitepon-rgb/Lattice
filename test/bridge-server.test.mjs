@@ -256,16 +256,16 @@ test('bridge経由のdashboard内部healthはdenyしmetadataを公開しない',
   let requests = 0;
   const upstream = await upstreamServer((_request, response) => { requests += 1; response.end('secret metadata'); });
   context.after(() => close(upstream));
-  const config = { enabled: true, listen: { address: '127.0.0.1', port: 58_755 }, allowed_hosts: ['127.0.0.1'],
+  const config = { enabled: true, listen: { address: '127.0.0.1', port: 0 }, allowed_hosts: ['127.0.0.1'],
     upstream: { mode: 'url', url: `http://127.0.0.1:${portOf(upstream)}/` } };
   const bridge = await startBridgeServer({ config });
   context.after(() => bridge.close());
-  const response = await fetch('http://127.0.0.1:58755/__lattice/health');
+  const response = await fetch(`http://127.0.0.1:${bridge.port}/__lattice/health`);
   assert.equal(response.status, 404);
   const body = await response.json();
   assert.equal(body.code, 'BRIDGE_INTERNAL_PATH_DENIED');
   assert.equal(requests, 0);
-  const encoded = await fetch('http://127.0.0.1:58755/__lattice/%68ealth');
+  const encoded = await fetch(`http://127.0.0.1:${bridge.port}/__lattice/%68ealth`);
   assert.equal(encoded.status, 404);
   assert.equal((await encoded.json()).code, 'BRIDGE_INTERNAL_PATH_DENIED');
   assert.equal(requests, 0);
@@ -275,13 +275,13 @@ test('inbound Forwarded系を全削除して検証済Hostとremote addressから
   let observed;
   const upstream = await upstreamServer((request, response) => { observed = request.headers; response.end('ok'); });
   context.after(() => close(upstream));
-  const config = { enabled: true, listen: { address: '127.0.0.1', port: 58_756 },
+  const config = { enabled: true, listen: { address: '127.0.0.1', port: 0 },
     allowed_hosts: ['127.0.0.1', 'lattice.kitepon.dev'],
     upstream: { mode: 'url', url: `http://127.0.0.1:${portOf(upstream)}/` } };
   const bridge = await startBridgeServer({ config });
   context.after(() => bridge.close());
   const response = await new Promise((resolve, reject) => {
-    const request = httpRequest('http://127.0.0.1:58756/', { headers: {
+    const request = httpRequest(`http://127.0.0.1:${bridge.port}/`, { headers: {
       host: 'lattice.kitepon.dev', forwarded: 'for=evil;host=evil.example;proto=https',
       'x-forwarded-for': '203.0.113.9', 'x-forwarded-host': 'evil.example',
       'x-forwarded-proto': 'https', 'x-forwarded-port': '443', 'x-real-ip': '203.0.113.9',
@@ -305,13 +305,13 @@ test('Host allowlist不一致を421で拒否しDNS rebinding originへ工程情�
   let requests = 0;
   const upstream = await upstreamServer((_request, response) => { requests += 1; response.end('private graph'); });
   context.after(() => close(upstream));
-  const config = { enabled: true, listen: { address: '127.0.0.1', port: 58_757 },
+  const config = { enabled: true, listen: { address: '127.0.0.1', port: 0 },
     allowed_hosts: ['127.0.0.1', 'lattice.kitepon.dev'],
     upstream: { mode: 'url', url: `http://127.0.0.1:${portOf(upstream)}/` } };
   const bridge = await startBridgeServer({ config });
   context.after(() => bridge.close());
   const result = await new Promise((resolve, reject) => {
-    const request = httpRequest('http://127.0.0.1:58757/', { headers: { host: 'attacker.example' } },
+    const request = httpRequest(`http://127.0.0.1:${bridge.port}/`, { headers: { host: 'attacker.example' } },
       (incoming) => { let body = ''; incoming.on('data', (chunk) => { body += chunk; });
         incoming.on('end', () => resolve({ status: incoming.statusCode, body })); });
     request.once('error', reject); request.end();

@@ -22,7 +22,7 @@ import {
   readTodoStore,
 } from '../src/todo-store.mjs';
 import {
-  todoLegacyReconciliationDigest,
+  phaseTodoRevisionPlanVersion, todoLegacyReconciliationDigest,
   todoReconciliationDigest,
   todoRevisionPlanVersion,
   todoSourceInventoryDigest,
@@ -312,6 +312,50 @@ test('todo reviseはcanonical revisionだけを発行しstatus/verifyへreconcil
   assert.equal(drifted.status, 1);
   assert.equal(drifted.stdout, '');
   assert.equal(JSON.parse(drifted.stderr).code, 'RECONCILIATION_INCOMPLETE');
+});
+
+test('todo verifyはactive phase v1/v2でも履歴上のsource inventoryを検証する', async (context) => {
+  const root = await workspace(context);
+  const revision = await revisionInput(root);
+  await writeCanonical(root, 'revision.json', revision);
+  successJson(runCli(root, ['todo', 'revise', '--plan', 'main', '--input', 'revision.json']));
+
+  const member = (await readTodoStore({ repoRoot: root })).members[0];
+  const predecessor = { plan_digest: member.plan.plan_digest,
+    journal_head_digest: member.journal.events.at(-1).event_digest,
+    plan_version: member.plan.plan_version };
+  const taskMigration = member.plan.tasks.map(({ task_id }) => ({
+    from_task_id: task_id, to_task_id: task_id, state_policy: 'reset_pending',
+  }));
+  const phaseMigration = [{ from_phase_id: null, to_phase_id: 'phase-1', state_policy: 'reset' }];
+  const desiredInput = structuredClone(member.plan);
+  delete desiredInput.topology_digest; delete desiredInput.plan_digest;
+  desiredInput.schema = 'lattice.todo_plan.v5';
+  desiredInput.plan_version = 'pending';
+  desiredInput.predecessor_plan_digest = predecessor.plan_digest;
+  desiredInput.tasks = desiredInput.tasks.map((entry) => ({ ...entry, phase_id: 'phase-1' }));
+  desiredInput.phases = [{ phase_id: 'phase-1', title: 'Phase 1', gate_policy: 'heavy',
+    predecessor_phase_ids: [], required_evidence_slots: ['heavy'] }];
+  desiredInput.phase_accept_dependencies = [];
+  desiredInput.plan_version = phaseTodoRevisionPlanVersion({ projectId: 'project-1',
+    planKey: 'main', predecessor, desiredPlan: desiredInput, taskMigration, phaseMigration });
+  const desiredPlan = buildTodoPlan(desiredInput);
+  const phaseRevision = { schema: 'lattice.phase_todo_revision.v2', project_id: 'project-1',
+    plan_key: 'main', predecessor, desired_plan: desiredPlan,
+    task_migration: taskMigration, phase_migration: phaseMigration, revision_digest: '' };
+  phaseRevision.revision_digest = todoSelfDigest(phaseRevision, 'revision_digest');
+  await writeCanonical(root, 'phase-revision.json', phaseRevision);
+  successJson(runCli(root, ['todo', 'revise-phase', '--plan', 'main', '--input',
+    'phase-revision.json']));
+
+  const verified = successJson(runCli(root, ['todo', 'verify', '--plan', 'main']));
+  assert.equal(verified.verified_members[0].source_inventory_count, 2);
+  assert.equal(verified.verified_members[0].active_task_count, 2);
+  await writeFile(path.join(root, 'plan.md'), '- [ ] T1 drifted\n- [ ] T2\n');
+  const drifted = runCli(root, ['todo', 'verify', '--plan', 'main']);
+  assert.equal(drifted.status, 1);
+  assert.equal(JSON.parse(drifted.stderr).code, 'RECONCILIATION_INCOMPLETE');
+  assert.equal(JSON.parse(drifted.stderr).detail.reason, 'source_digest_mismatch');
 });
 
 test('todo reviseはnon-canonical input bytesをstore無変更で拒否する', async (context) => {
