@@ -6,7 +6,9 @@ import { digestArtifact } from '../src/artifact-contracts.mjs';
 import {
   RUNTIME_NON_DISPATCHABLE_CODES,
   compileRuntimePlanV1,
+  evidenceFromCollectedOutcomes,
 } from '../src/runtime-front-end.mjs';
+import { collectSensorEvidence } from '../src/sensor-adapter.mjs';
 import {
   selfDigest,
   validateRuntimeBoundaryManifest,
@@ -296,18 +298,25 @@ test('stale index・fuzzy解決・未束縛owns・write交差はunknownとして
   assert.equal(overlap.code, 'BOUNDARY_UNKNOWN');
 });
 
-test('fresh path不存在だけがseam bootstrapを返し、未束縛ownershipは証拠取得を返す', () => {
-  const built = buildCase({ requestId: 'req-new-path', todos: TOPOLOGY_A });
-  built.request.manual_witness.TA1.owns = [{ kind: 'path', target: 'src/future-service.mjs' }];
-  built.request.manual_witness.TA1.writes = ['src/future-service.mjs'];
-  built.request.sensor_query_set.queries.push({ id: 'q-path-future', operation: 'query', target: 'src/future-service.mjs' });
-  built.sensorEvidence.outcomes.push({
-    query_id: 'q-path-future', operation: 'query', status: 'ready', raw: symbolQueryRaw([]),
+test('実Sensorのfresh path不存在だけがseam bootstrapを返し、未束縛ownershipは証拠取得を返す', async () => {
+  const built = buildCase({
+    requestId: 'req-new-path',
+    todos: [{ id: 'TA1', symbol: 'futureService', path: 'src/future-service.mjs', tests: [] }],
   });
-  built.request.manual_witness.TA1.sensor_provenance.queries = [
-    { query_id: 'q-path-future', expect: { kind: 'path', path: 'src/future-service.mjs' } },
-  ];
-  built.request.request_digest = selfDigest(built.request, 'request_digest');
+  const collected = await collectSensorEvidence({
+    cwd: '/repo',
+    querySet: built.request.sensor_query_set,
+    execute: async ({ operation }) => {
+      if (operation === 'status') return { code: 0, stdout: JSON.stringify(statusRaw().data), stderr: '' };
+      if (operation === 'query') return { code: 0, stdout: '[]', stderr: '' };
+      throw new Error(`不存在pathのaffected commandは起動してはならない: ${operation}`);
+    },
+    inspectAffectedPath: async () => 'absent',
+  });
+  built.sensorEvidence = evidenceFromCollectedOutcomes({
+    querySet: built.request.sensor_query_set,
+    collected,
+  });
 
   const result = compile(built);
 
@@ -316,7 +325,7 @@ test('fresh path不存在だけがseam bootstrapを返し、未束縛ownership�
   assert.ok(result.detail.unresolved_witnesses.some((entry) => (
     entry.todo_id === 'TA1'
       && entry.kind === 'sensor_empty'
-      && entry.ref === 'q-path-future'
+      && entry.ref === 'q-aff-TA1'
   )));
   assert.equal(result.detail.guidance.code, 'BOOTSTRAP_OWNERSHIP_SEAM');
 

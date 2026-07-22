@@ -19,8 +19,9 @@ AIShellの実並行waveをLatticeでcompileした際、完了済みの旧runを�
 2. 空文字、前後空白、改行その他の制御文字、256文字超過は`INVALID_ABANDON_REASON`でrun mutation前に拒否する。
 3. Sensorで裏付けられないownershipは従来どおりdispatchableへ昇格しない。安全性のためmanual witnessだけで
    future pathの不存在や独立性を証明したことにしない。
-4. `BOUNDARY_UNKNOWN`はcompiler由来unknownに加えて元の`unresolved_witnesses`を保持する。freshなpath queryが
-   対象不存在を示した場合だけ`BOOTSTRAP_OWNERSHIP_SEAM`を返す。既存path、symbol、query未束縛では
+4. `BOUNDARY_UNKNOWN`はcompiler由来unknownに加えて元の`unresolved_witnesses`を保持する。Sensor adapterの
+   filesystem inspectionを経たaffected targetが`path_state: absent`を示した場合だけ`BOOTSTRAP_OWNERSHIP_SEAM`を返す。
+   既存path、symbol、query未束縛では
    `ACQUIRE_OWNERSHIP_EVIDENCE`を返し、不要なbase commitを促さない。
 
 ## Consequences

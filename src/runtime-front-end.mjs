@@ -250,6 +250,14 @@ function affectedPayload(raw, expectPath) {
   return plainRecord(payload) ? payload : null;
 }
 
+function affectedTarget(raw, expectPath) {
+  if (!plainRecord(raw) || !Array.isArray(raw.targets)) return null;
+  const entry = raw.targets.find((candidate) => (
+    plainRecord(candidate) && candidate.target === expectPath
+  ));
+  return plainRecord(entry) ? entry : null;
+}
+
 function rawEntries(raw) {
   const payload = rawPayload(raw);
   return Array.isArray(payload) ? payload : null;
@@ -269,6 +277,7 @@ function resolveBindingStatus(binding, outcome) {
   if (outcome.status !== 'ready') return outcome.status;
   const { expect } = binding;
   if (expect.kind === 'affected') {
+    if (affectedTarget(outcome.raw, expect.path)?.path_state === 'absent') return 'path_absent';
     const payload = affectedPayload(outcome.raw, expect.path);
     if (payload === null
       || !Array.isArray(payload.changedFiles)
@@ -678,13 +687,12 @@ export function compileRuntimePlanV1(options = {}) {
   if (compiled.outcome === 'unknown') {
     const hasFreshAbsentPath = todoIds.some((todoId) => (
       bindingsByTodo.get(todoId).some((binding) => {
-        if (binding.expect.kind !== 'path') return false;
+        if (!['path', 'affected'].includes(binding.expect.kind)) return false;
         const query = queryById.get(binding.query_id);
         const outcome = outcomeByQueryId.get(binding.query_id);
-        return query.operation === 'query'
-          && outcome.status === 'ready'
-          && Array.isArray(rawEntries(outcome.raw))
-          && rawEntries(outcome.raw).length === 0;
+        return query.operation === 'affected'
+          && outcome.status === 'empty'
+          && affectedTarget(outcome.raw, binding.expect.path)?.path_state === 'absent';
       })
     ));
     return nonDispatchable('BOUNDARY_UNKNOWN', {

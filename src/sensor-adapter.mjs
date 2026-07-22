@@ -291,6 +291,7 @@ async function collectOne({ cwd, query, execute, inspectAffectedPath }) {
         results.push({
           target: targetPath,
           outcome: 'empty',
+          path_state: 'absent',
           data: emptyAffectedData(targetPath),
         });
         continue;

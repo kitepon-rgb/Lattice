@@ -147,6 +147,7 @@ test('keeps query and affected empty results typed rather than independent', asy
   assert.equal(evidence.outcomes[0].outcome, 'symbol_absent');
   assert.equal(evidence.outcomes[1].outcome, 'empty');
   assert.equal(evidence.outcomes[1].targets[0].outcome, 'empty');
+  assert.equal(evidence.outcomes[1].targets[0].path_state, 'absent');
 });
 
 test('does not promote fuzzy query and traversal matches to exact symbol presence', async () => {
@@ -245,6 +246,7 @@ test('binds affected targets to regular files inside the observed workspace', as
     {
       target: 'test/missing.test.mjs',
       outcome: 'empty',
+      path_state: 'absent',
       data: {
         changedFiles: ['test/missing.test.mjs'],
         affectedTests: [],
@@ -254,6 +256,7 @@ test('binds affected targets to regular files inside the observed workspace', as
     {
       target: 'missing-root.mjs',
       outcome: 'empty',
+      path_state: 'absent',
       data: {
         changedFiles: ['missing-root.mjs'],
         affectedTests: [],
