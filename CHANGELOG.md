@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.7 — 2026-07-23
+
+- 巨大工程図のrender中にhealth応答が500msを超えても、生存中dashboardを死亡扱いして新daemonを孤児化しないようにした。
+- dashboardはmanifest file identityが変わらない間のstable store readを再利用し、active projectの毎秒再読みと重複renderによるCPU・メモリの自己増幅を防いだ。
+- public bridgeのloopback attestationはPID・port一致を維持したまま、正常なbusy health応答を待てる上限へ更新した。
+
 ## 0.12.4 — 2026-07-22
 
 - `run abandon --reason`で日本語・空白・句読点を含む監査可能な説明を受理し、表示を偽装するUnicode制御文字・前後空白・256文字超過をCLIとmanaged control wireの共通validatorでmutation前に拒否するようにした。

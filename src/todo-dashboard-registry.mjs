@@ -171,11 +171,11 @@ function validDaemonDescriptor(descriptor) {
     && typeof descriptor.started_at === 'string' && Number.isFinite(Date.parse(descriptor.started_at));
 }
 
-async function daemonAttestation(descriptor) {
+async function daemonAttestation(descriptor, { timeoutMs = 2_000 } = {}) {
   if (!validDaemonDescriptor(descriptor)) return null;
   try {
     const response = await fetch(`http://127.0.0.1:${descriptor.port}/__lattice/health`, {
-      signal: AbortSignal.timeout(500),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.status !== 200) return null;
     const body = await response.json();
@@ -257,13 +257,20 @@ export async function writeTodoDashboardDaemonDescriptor({ port, env = process.e
 
 export async function ensureTodoDashboardDaemon({ env = process.env, spawnDaemon = spawn,
   signalProcess = process.kill, isProcessAlive = processIsAlive, startupTimeoutMs = 4_000,
-  legacyStopTimeoutMs = 3_000, replacementIsProcessAlive = processIsAlive } = {}) {
+  legacyStopTimeoutMs = 3_000, replacementIsProcessAlive = processIsAlive,
+  attestationTimeoutMs = 2_000 } = {}) {
   const refs = paths(env);
   await mkdir(refs.root, { recursive: true, mode: 0o700 });
   return withLock(refs.startupLock, async () => {
     const existing = await readJson(refs.descriptor, null);
-    const existingAttestation = await daemonAttestation(existing);
+    const existingAttestation = await daemonAttestation(existing, { timeoutMs: attestationTimeoutMs });
     if (existingAttestation === 'current') return existing;
+    if (validDaemonDescriptor(existing) && existingAttestation === null
+      && await isProcessAlive(existing.pid)) {
+      const error = new Error('dashboard daemon is alive but temporarily unresponsive');
+      error.code = 'DASHBOARD_DAEMON_UNRESPONSIVE';
+      throw error;
+    }
     const legacy = existingAttestation === 'legacy' ? existing : null;
     const portText = env.LATTICE_DASHBOARD_PORT;
     const configuredPort = typeof portText === 'string' && /^(?:0|[1-9][0-9]{0,4})$/u.test(portText)

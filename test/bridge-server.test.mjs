@@ -230,6 +230,35 @@ test('dashboard descriptor modeは実loopback dashboardのdescriptor/health一�
   assert.equal(resolved.href, `http://127.0.0.1:${dashboard.port}/`);
 });
 
+test('dashboard descriptor modeは500msを超えるbusy healthを死亡扱いしない', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-busy-dashboard-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  let port = null;
+  const dashboard = createServer((request, response) => {
+    if (request.url !== '/__lattice/health') { response.writeHead(404).end(); return; }
+    setTimeout(() => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ schema: 'lattice.todo_dashboard_health.v1',
+        pid: process.pid, port }));
+    }, 650);
+  });
+  await new Promise((resolve, reject) => {
+    dashboard.once('error', reject);
+    dashboard.listen(0, '127.0.0.1', resolve);
+  });
+  port = portOf(dashboard);
+  context.after(() => close(dashboard));
+  const runtime = path.join(root, 'dashboard'); await mkdir(runtime);
+  await writeFile(path.join(runtime, 'daemon.json'), `${JSON.stringify({
+    schema: 'lattice.todo_dashboard_daemon.v1', pid: process.pid, port,
+    started_at: '2026-07-23T00:00:00.000Z',
+  })}\n`, { mode: 0o600 });
+  const resolved = await resolveBridgeUpstream({ mode: 'dashboard_descriptor' }, {
+    env: { LATTICE_CONFIG_DIR: root, LATTICE_DASHBOARD_RUNTIME_DIR: runtime },
+  });
+  assert.equal(resolved.href, `http://127.0.0.1:${port}/`);
+});
+
 test('dashboard descriptorはregular 0600・symlinkなし・duplicate keyなしを必須にする', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-dashboard-descriptor-'));
   context.after(() => rm(root, { recursive: true, force: true }));

@@ -67,7 +67,9 @@ async function readDashboardDescriptor(ref) {
   } finally { await handle?.close(); }
 }
 
-export async function resolveBridgeUpstream(upstream, { env = process.env } = {}) {
+export async function resolveBridgeUpstream(upstream, {
+  env = process.env, healthTimeoutMs = 2_000,
+} = {}) {
   if (upstream.mode === 'url') return new URL(upstream.url);
   let descriptor;
   try {
@@ -84,7 +86,7 @@ export async function resolveBridgeUpstream(upstream, { env = process.env } = {}
   }
   try {
     const response = await fetch(`http://127.0.0.1:${descriptor.port}/__lattice/health`, {
-      signal: AbortSignal.timeout(500),
+      signal: AbortSignal.timeout(healthTimeoutMs),
     });
     const health = response.status === 200 ? await response.json() : null;
     if (health?.schema !== 'lattice.todo_dashboard_health.v1' || health.pid !== descriptor.pid

@@ -634,9 +634,10 @@ function parseGanttDescriptor(bytes, descriptorRef) {
 }
 
 export async function renderTodoGanttForProject({
-  repoRoot, stable = false, displayName = null, env = process.env,
+  repoRoot, stable = false, displayName = null, env = process.env, readModel = null,
 }) {
-  const store = stable ? await readTodoStoreStable({ repoRoot }) : await readTodoStore({ repoRoot });
+  const store = readModel
+    ?? (stable ? await readTodoStoreStable({ repoRoot }) : await readTodoStore({ repoRoot }));
   const identity = displayName === null
     ? await resolveProjectIdentity({ repoRoot, projectId: store.project_id, env })
     : { displayName };

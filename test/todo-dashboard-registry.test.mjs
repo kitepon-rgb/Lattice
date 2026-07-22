@@ -179,6 +179,39 @@ test('PID不一致healthの無関係serviceにはsignalせず新daemonへ置換�
   assert.equal((await fetch(`http://127.0.0.1:${unrelated.port}/__lattice/health`)).status, 200);
 });
 
+test('生存中dashboardの一時的health timeoutは新daemonで孤児化せずtyped拒否する', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-busy-'));
+  const runtime = path.join(root, 'runtime');
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const daemonPid = 777_777;
+  let busyPort = null;
+  const busy = createServer((_request, response) => {
+    setTimeout(() => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(`${JSON.stringify({ schema: 'lattice.todo_dashboard_health.v1',
+        pid: daemonPid, port: busyPort, project_ids: ['lattice'] })}\n`);
+    }, 100);
+  });
+  await new Promise((resolve, reject) => {
+    busy.once('error', reject);
+    busy.listen(0, '127.0.0.1', resolve);
+  });
+  busyPort = busy.address().port;
+  await writeDaemonDescriptor(runtime, { schema: 'lattice.todo_dashboard_daemon.v1',
+    pid: daemonPid, port: busyPort, started_at: new Date().toISOString() });
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime };
+  let spawnCount = 0;
+  context.after(async () => {
+    await new Promise((resolve) => busy.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  await assert.rejects(ensureTodoDashboardDaemon({ env, attestationTimeoutMs: 20,
+    isProcessAlive: () => true,
+    spawnDaemon() { spawnCount += 1; throw new Error('must not spawn'); },
+  }), (error) => error.code === 'DASHBOARD_DAEMON_UNRESPONSIVE');
+  assert.equal(spawnCount, 0);
+});
+
 test('新daemon起動中にlegacy再attestationを失ったPIDへはsignalしない', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-attestation-race-'));
   const runtime = path.join(root, 'runtime');

@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+import { stat } from 'node:fs/promises';
+import path from 'node:path';
+
 import { readTodoStoreStable } from '../src/todo-store.mjs';
 import { projectTodoStatus } from '../src/todo-status.mjs';
 import { renderTodoGanttForProject } from '../src/todo-cli.mjs';
@@ -29,12 +32,33 @@ const port = typeof configured === 'string' && /^(?:0|[1-9][0-9]{0,4})$/u.test(c
 const registry = createTodoGanttProjectRegistry();
 const roots = new Map();
 const reportedStoreReadFailures = new Set();
+const storeCache = new Map();
+
+function manifestFingerprint(value) {
+  return `${value.dev}:${value.ino}:${value.size}:${value.mtimeMs}:${value.ctimeMs}`;
+}
+
+async function readCachedStore(repoRoot) {
+  const manifestRef = path.join(repoRoot, '.lattice', 'todo', 'manifest.json');
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const beforeFingerprint = manifestFingerprint(await stat(manifestRef));
+    const cached = storeCache.get(repoRoot);
+    if (cached?.fingerprint === beforeFingerprint) return cached.store;
+    const store = await readTodoStoreStable({ repoRoot });
+    const afterFingerprint = manifestFingerprint(await stat(manifestRef));
+    if (beforeFingerprint === afterFingerprint) {
+      storeCache.set(repoRoot, { fingerprint: afterFingerprint, store });
+      return store;
+    }
+  }
+  return readTodoStoreStable({ repoRoot });
+}
 
 async function synchronize() {
   const active = await readVisibleTodoDashboardProjects({ env,
     projectHasActiveRun: async (entry) => {
       try {
-        const active = projectTodoStatus(await readTodoStoreStable({ repoRoot: entry.repo_root })).active_set.length > 0;
+        const active = projectTodoStatus(await readCachedStore(entry.repo_root)).active_set.length > 0;
         reportedStoreReadFailures.delete(entry.project_id);
         return active;
       } catch (error) {
@@ -62,11 +86,12 @@ async function synchronize() {
       projectId: entry.project_id,
       displayName: entry.display_name,
       render: async ({ displayName }) => {
+        const store = await readCachedStore(entry.repo_root);
         const result = await renderTodoGanttForProject({ repoRoot: entry.repo_root,
-          stable: true, displayName });
+          stable: true, displayName, readModel: store });
         return { html: result.rendered.html, head_digest: result.metadata.manifest_digest };
       },
-      readHead: async () => (await readTodoStoreStable({ repoRoot: entry.repo_root })).manifest.manifest_digest,
+      readHead: async () => (await readCachedStore(entry.repo_root)).manifest.manifest_digest,
     });
     roots.set(entry.project_id, binding);
   }
