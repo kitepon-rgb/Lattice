@@ -352,6 +352,76 @@ test('phase v3 transactionはsourceとreceiptをmanifest v2 CASでactivateしret
   assert.deepEqual(retry, receipt);
 });
 
+test('phase v3はactive sourceを明示cutoverで次のarchiveへ移転できる', async (t) => {
+  const { root, revision, writer } = await fixture(t);
+  await applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,
+    recordedAt: COMMIT_AT, now: COMMIT_AT });
+  const member = (await readTodoStore({ repoRoot: root, now: COMMIT_AT })).members[0];
+  const predecessor = { plan_digest: member.plan.plan_digest,
+    journal_head_digest: member.journal.events.at(-1).event_digest,
+    plan_version: member.plan.plan_version };
+  const currentSource = member.revision.source_inventory.active
+    .find(({ task_id: taskId }) => taskId === 'T2');
+  const nextArchiveRef = '.lattice/todo/source-ledger/cutover-next.md';
+  const sourceCutoverBatch = { batch_id: 'phase-v3-next-cutover', archive_ref: nextArchiveRef,
+    operations: [{ task_id: 'T2', disposition: 'active', source_ref: currentSource.source_ref,
+      source_digest: currentSource.source_digest, live_replacement: '- T2 moved to next Lattice source' }],
+    batch_digest: '' };
+  sourceCutoverBatch.batch_digest = todoSelfDigest(sourceCutoverBatch, 'batch_digest');
+  const runtimeTaskMigration = { schema: 'lattice.runtime_task_migration.v1', entries: [
+    { predecessor_task_id: 'T1', disposition: 'stay', successor_task_ids: ['T1'],
+      reason: 'T1 remains unchanged', evidence_digests: ['1'.repeat(64)] },
+    { predecessor_task_id: 'T2', disposition: 'replace', successor_task_ids: ['T2'],
+      reason: 'T2 source and ordering changed', evidence_digests: ['2'.repeat(64)] },
+  ], migration_digest: '' };
+  runtimeTaskMigration.migration_digest = migrationDigest(runtimeTaskMigration);
+  const taskMigration = [
+    { from_task_id: 'T1', to_task_id: 'T1', state_policy: 'carry' },
+    { from_task_id: 'T2', to_task_id: 'T2', state_policy: 'reset_pending' },
+  ];
+  const phaseMigration = [{ from_phase_id: 'phase-1', to_phase_id: 'phase-1',
+    state_policy: 'carry' }];
+  const desiredSeed = structuredClone(member.plan);
+  delete desiredSeed.topology_digest;
+  delete desiredSeed.plan_digest;
+  desiredSeed.predecessor_plan_digest = predecessor.plan_digest;
+  desiredSeed.tasks.find(({ task_id: taskId }) => taskId === 'T2').title = 'T2 moved last';
+  desiredSeed.tasks.find(({ task_id: taskId }) => taskId === 'T2').narrative_ref
+    = `${nextArchiveRef}#L6`;
+  desiredSeed.plan_version = phaseTodoRevisionPlanVersion({
+    projectId: member.plan.project_id, planKey: member.plan.plan_key, predecessor,
+    desiredPlan: desiredSeed, taskMigration, phaseMigration,
+  });
+  const desiredPlan = buildTodoPlan(desiredSeed);
+  const sourceInventory = {
+    active: member.revision.source_inventory.active.map((entry) => entry.task_id === 'T2'
+      ? { ...entry, source_ref: `${nextArchiveRef}#L6` } : entry),
+    excluded_tombstones: member.revision.source_inventory.excluded_tombstones,
+  };
+  const reconciliation = {
+    predecessor_reconciliation_digest: member.revision.reconciliation.reconciliation_digest,
+    source_inventory_digest: digestTodoArtifact(sourceInventory),
+    desired_plan_digest: desiredPlan.plan_digest,
+    runtime_task_migration_digest: runtimeTaskMigration.migration_digest,
+    task_migration_digest: todoMigrationDigest(taskMigration),
+    phase_migration_digest: digestTodoArtifact(phaseMigration),
+    source_cutover_batch_digest: sourceCutoverBatch.batch_digest,
+    reconciliation_digest: '',
+  };
+  reconciliation.reconciliation_digest = todoSelfDigest(reconciliation, 'reconciliation_digest');
+  const successor = { schema: 'lattice.phase_todo_revision.v3', project_id: member.plan.project_id,
+    plan_key: member.plan.plan_key, predecessor, desired_plan: desiredPlan,
+    runtime_task_migration: runtimeTaskMigration, task_migration: taskMigration,
+    phase_migration: phaseMigration, source_inventory: sourceInventory, reconciliation,
+    source_cutover_batch: sourceCutoverBatch, revision_digest: '' };
+  successor.revision_digest = todoSelfDigest(successor, 'revision_digest');
+  assert.equal(validatePhaseTodoRevision(successor), true);
+  const receipt = await applyPhaseTodoRevision({ repoRoot: root, writer, revision: successor,
+    actor: ACTOR, recordedAt: '2026-07-21T00:00:02.000Z', now: '2026-07-21T00:00:02.000Z' });
+  assert.equal(receipt.revision_digest, successor.revision_digest);
+  assert.equal(await verifyPhaseTodoRevisionSources({ repoRoot: root, revision: successor }), true);
+});
+
 test('todo verifyはactive phase v3を正規verifierへrouteしsource digest driftを拒否する', async (t) => {
   const { root, revision, writer } = await fixture(t);
   await applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.8 — 2026-07-23
+
+- Phase v3の後続revisionで、既存active sourceを同じ`source_cutover_batch`の明示操作により新しいarchiveへ移転できるようにした。
+- cutover操作・旧ref/digest・移転先inventoryが一致しないsource消失は、従来どおり`predecessor_source_silently_dropped`で拒否する。
+
 ## 0.12.7 — 2026-07-23
 
 - 巨大工程図のrender中にhealth応答が500msを超えても、生存中dashboardを死亡扱いして新daemonを孤児化しないようにした。

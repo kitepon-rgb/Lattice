@@ -104,6 +104,9 @@ v2/v4は既存planの互換契約として維持する。
 `lattice.phase_todo_revision.v1/v2`とする。v2はdesired plan v5を所有する。cross-plan successorは`todo revise-set`で一括公開し、
 `lattice.todo_revision_set.v3`はPhase revisionを必須として通常revisionとの混在を許す。全desired graphと
 predecessorを検査し、artifactをdurable化した後、一つのmanifest activationで全planを同時に切り替える。
+Phase v3のactive source移転は、同じrevisionの`source_cutover_batch`が旧refとdigestを明示し、その操作から
+決定されるarchive refとdigestをdesired source inventoryが所有する場合だけ受理する。対応するcutover証拠のない
+predecessor source消失は`predecessor_source_silently_dropped`として拒否する。
 成功は単体通常revisionが`lattice.todo_revise_result.v1`、revision setが
 `lattice.todo_revision_set_result.v1`、statusはreconciliation identityを含む
 `lattice.todo_status_result.v4`、verifyはsource inventoryを再検査する`lattice.todo_verify_result.v2`を返す。

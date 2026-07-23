@@ -2592,7 +2592,19 @@ function validatePhaseV3SourceInventoryDiff(previousInventory, revision) {
   for (const entry of previousInventory.active) {
     const active = desired.active.find(({ task_id }) => task_id === entry.task_id);
     const continued = active?.source_ref === entry.source_ref && active.source_digest === entry.source_digest;
-    if (!continued && !desiredTombstoneKeys.has(`${entry.source_ref}\0${entry.source_digest}`)) {
+    const relocated = revision.source_cutover_batch.operations.some((operation, index) => {
+      if (operation.source_ref !== entry.source_ref || operation.source_digest !== entry.source_digest) {
+        return false;
+      }
+      const archiveRef = todoCutoverArchiveSourceRef(revision.source_cutover_batch, index);
+      return operation.disposition === 'active'
+        ? desired.active.some((candidate) => candidate.task_id === operation.task_id
+          && candidate.source_ref === archiveRef && candidate.source_digest === operation.source_digest)
+        : desired.excluded_tombstones.some((candidate) => candidate.source_ref === archiveRef
+          && candidate.source_digest === operation.source_digest);
+    });
+    if (!continued && !relocated
+      && !desiredTombstoneKeys.has(`${entry.source_ref}\0${entry.source_digest}`)) {
       fail('REVISION_INVALID', 'predecessor_source_silently_dropped', { task_id: entry.task_id });
     }
   }
