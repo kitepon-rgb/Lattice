@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.10 — 2026-07-25
+
+- revisionでcarryされた完了ToDoを`todo reopen`できるようにした。後継journalにdoneイベントが無い場合でも、完了を運んだ`plan_genesis`のstate migrationへ束縛する。doneでないtaskのreopenは従来どおり拒否する。
+- `todo status --json | head`のように結果を部分的に読んでも、未処理EPIPEでstack traceを出してexit 1になることをやめ、静かにexit 0で終えるようにした。EPIPE以外のstream errorは従来どおり失敗として落とす。
+
 ## 0.12.8 — 2026-07-23
 
 - Phase v3の後続revisionで、既存active sourceを同じ`source_cutover_batch`の明示操作により新しいarchiveへ移転できるようにした。
