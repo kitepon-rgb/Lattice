@@ -1082,17 +1082,41 @@ function nextEvent(input, storeMember) {
   return event;
 }
 
+/**
+ * The digest replay binds a task's completion to.
+ *
+ * A ToDo completed inside this plan version binds to its own `done` event. A
+ * ToDo carried across a revision has no `done` event in the successor journal —
+ * its completion arrives with the `plan_genesis` state migration, and replay
+ * binds it to the genesis digest (see the carry branch in `replay`). Resolving
+ * only the first case is what made `reopen` unusable on carried work.
+ *
+ * Returns null when the task has no completion to bind to at all.
+ */
+function resolveDoneBindingDigest(storeMember, taskId) {
+  const events = storeMember.journal.events;
+  const authored = [...events].reverse().find((event) => (
+    event.kind === 'done' && event.task_id === taskId
+  ));
+  if (authored !== undefined) return authored.event_digest;
+  const genesis = events[0];
+  if (genesis?.kind !== 'plan_genesis' || !Array.isArray(genesis.state_migration)) return null;
+  const carried = genesis.state_migration.some((migration) => (
+    ['carry', 'carry_reconciled_metadata'].includes(migration.state_policy)
+    && migration.to_task_id === taskId && migration.state?.status === 'done'
+  ));
+  return carried ? genesis.event_digest : null;
+}
+
 function resolveTargetedEvent(input, storeMember) {
   if (input.kind === 'reopen' && exactRecord(input.payload, [
     'reason', 'override_reason',
   ])) {
-    const target = [...storeMember.journal.events].reverse().find((event) => (
-      event.kind === 'done' && event.task_id === input.task_id
-    ));
-    if (target === undefined) fail('STORE_INCONSISTENT', 'invalid_reopen_binding');
+    const targetDigest = resolveDoneBindingDigest(storeMember, input.task_id);
+    if (targetDigest === null) fail('STORE_INCONSISTENT', 'invalid_reopen_binding');
     return {
       ...input,
-      payload: { ...input.payload, target_done_digest: target.event_digest },
+      payload: { ...input.payload, target_done_digest: targetDigest },
     };
   }
   if (input.kind === 'done' && exactRecord(input.payload, [
