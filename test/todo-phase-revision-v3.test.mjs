@@ -757,3 +757,104 @@ for (const status of ['in-progress', 'blocked']) {
     assert.equal(store.members[0].tasks.find(({ task_id }) => task_id === 'T2').status, status);
   });
 }
+
+// 先行planがPhaseを持たない世代（todo_plan.v3）からのcarryは、素のTypeErrorではなく
+// typedなREVISION_INVALIDで拒否されなければならない。Phase割当ての獲得は意味変化である。
+async function phaselessFixture(t, { statePolicy = 'carry' } = {}) {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-phase-v3-phaseless-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  execFileSync('git', ['init', '--quiet'], { cwd: root });
+  const legacyTask = (taskId, line) => ({ task_id: taskId, title: taskId, lane: 'main',
+    narrative_ref: `.lattice/todo/source-ledger/cutover.md#L${line}`,
+    narrative_anchor: null, compile_binding: null, parent_task_id: null });
+  const initial = buildTodoPlan({ schema: 'lattice.todo_plan.v3', project_id: 'project-1',
+    plan_key: 'main', plan_version: 'v1', predecessor_plan_digest: null,
+    tasks: [legacyTask('T1', 6), legacyTask('T2', 7)], hard_dependencies: [], joins: [] });
+  await initializeTodoStore({ repoRoot: root,
+    writer: createTodoStoreWriter({ caller: 'g4-migration' }), projectId: 'project-1',
+    repositories: [{ repo_id: 'self', path: '.' }],
+    plans: [{ plan: initial, genesis: { actor: ACTOR, recorded_at: INITIAL_AT } }], now: INITIAL_AT });
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: INITIAL_AT,
+    event: { kind: 'start', task_id: 'T1', actor: ACTOR, recorded_at: INITIAL_AT,
+      payload: { override_reason: null } } });
+  const member = (await readTodoStore({ repoRoot: root, now: INITIAL_AT })).members[0];
+  const predecessor = { plan_digest: member.plan.plan_digest,
+    journal_head_digest: member.journal.events.at(-1).event_digest,
+    plan_version: member.plan.plan_version };
+  const phase = { phase_id: 'phase-1', title: 'Phase 1', gate_policy: 'heavy',
+    predecessor_phase_ids: [], required_evidence_slots: ['heavy'] };
+  const sourceLines = ['- [ ] T1 source', '- [ ] T2 source'];
+  const sourceCutoverBatch = { batch_id: 'phaseless-cutover',
+    archive_ref: '.lattice/todo/source-ledger/cutover.md',
+    operations: sourceLines.map((line, index) => ({
+      task_id: `T${index + 1}`, disposition: 'active', source_ref: `docs/plan.md#L${index + 1}`,
+      source_digest: createHash('sha256').update(line).digest('hex'),
+      live_replacement: `- T${index + 1} state is managed by Lattice`,
+    })), batch_digest: '' };
+  sourceCutoverBatch.batch_digest = todoSelfDigest(sourceCutoverBatch, 'batch_digest');
+  const desiredTask = (taskId, index) => ({ task_id: taskId, title: taskId, lane: 'main',
+    narrative_ref: `${sourceCutoverBatch.archive_ref}#L${index + 6}`,
+    narrative_anchor: null, compile_binding: null, parent_task_id: null, phase_id: 'phase-1' });
+  const taskMigration = [
+    { from_task_id: 'T1', to_task_id: 'T1', state_policy: statePolicy },
+    { from_task_id: 'T2', to_task_id: 'T2', state_policy: 'reset_pending' },
+  ];
+  const runtimeTaskMigration = { schema: 'lattice.runtime_task_migration.v1', entries: [
+    { predecessor_task_id: 'T1', disposition: statePolicy === 'carry' ? 'carry' : 'replace',
+      successor_task_ids: ['T1'], reason: 'phase世代の昇格', evidence_digests: ['1'.repeat(64)] },
+    { predecessor_task_id: 'T2', disposition: 'replace', successor_task_ids: ['T2'],
+      reason: 'phase世代の昇格', evidence_digests: ['2'.repeat(64)] },
+  ], migration_digest: '' };
+  runtimeTaskMigration.migration_digest = migrationDigest(runtimeTaskMigration);
+  const phaseMigration = [{ from_phase_id: null, to_phase_id: 'phase-1', state_policy: 'reset' }];
+  const desiredSeed = { schema: 'lattice.todo_plan.v5', project_id: 'project-1', plan_key: 'main',
+    plan_version: 'pending', predecessor_plan_digest: predecessor.plan_digest,
+    tasks: [desiredTask('T1', 0), desiredTask('T2', 1)], phases: [phase],
+    hard_dependencies: [], joins: [], phase_accept_dependencies: [] };
+  desiredSeed.plan_version = phaseTodoRevisionPlanVersion({ projectId: 'project-1', planKey: 'main',
+    predecessor, desiredPlan: desiredSeed, taskMigration, phaseMigration });
+  const desiredPlan = buildTodoPlan(desiredSeed);
+  const sourceInventory = { active: sourceCutoverBatch.operations.map((operation, index) => ({
+    task_id: operation.task_id, source_ref: `${sourceCutoverBatch.archive_ref}#L${index + 6}`,
+    source_digest: operation.source_digest,
+  })), excluded_tombstones: [] };
+  const reconciliation = { predecessor_reconciliation_digest: todoLegacyReconciliationDigest({
+    planDigest: predecessor.plan_digest, journalHeadDigest: predecessor.journal_head_digest }),
+  source_inventory_digest: digestTodoArtifact(sourceInventory),
+  desired_plan_digest: desiredPlan.plan_digest,
+  runtime_task_migration_digest: runtimeTaskMigration.migration_digest,
+  task_migration_digest: todoMigrationDigest(taskMigration),
+  phase_migration_digest: digestTodoArtifact(phaseMigration),
+  source_cutover_batch_digest: sourceCutoverBatch.batch_digest, reconciliation_digest: '' };
+  reconciliation.reconciliation_digest = todoSelfDigest(reconciliation, 'reconciliation_digest');
+  const revision = { schema: 'lattice.phase_todo_revision.v3', project_id: 'project-1',
+    plan_key: 'main', predecessor, desired_plan: desiredPlan,
+    runtime_task_migration: runtimeTaskMigration, task_migration: taskMigration,
+    phase_migration: phaseMigration, source_inventory: sourceInventory, reconciliation,
+    source_cutover_batch: sourceCutoverBatch, revision_digest: '' };
+  revision.revision_digest = todoSelfDigest(revision, 'revision_digest');
+  await mkdir(path.join(root, 'docs'), { recursive: true });
+  await writeFile(path.join(root, 'docs', 'plan.md'), `${sourceLines.join('\n')}\n`);
+  return { root, revision, writer };
+}
+
+test('phase v3 carryはPhase無し先行planをtyped REVISION_INVALIDで拒否する', async (t) => {
+  const value = await phaselessFixture(t);
+  assert.equal(validatePhaseTodoRevision(value.revision), true);
+  await assert.rejects(applyPhaseTodoRevision({ repoRoot: value.root, writer: value.writer,
+    revision: value.revision, actor: ACTOR, recordedAt: COMMIT_AT, now: COMMIT_AT }),
+  (error) => error.code === 'REVISION_INVALID'
+    && error.detail.reason === 'carry_semantics_changed'
+    && error.detail.from_task_id === 'T1');
+});
+
+test('phase v3 reset_pendingはPhase無し先行planからPhaseを獲得できる', async (t) => {
+  const value = await phaselessFixture(t, { statePolicy: 'reset_pending' });
+  const receipt = await applyPhaseTodoRevision({ repoRoot: value.root, writer: value.writer,
+    revision: value.revision, actor: ACTOR, recordedAt: COMMIT_AT, now: COMMIT_AT });
+  assert.equal(receipt.revision_digest, value.revision.revision_digest);
+  const store = await readTodoStore({ repoRoot: value.root, now: COMMIT_AT });
+  assert.equal(store.members[0].plan.schema, 'lattice.todo_plan.v5');
+  assert.equal(store.members[0].tasks.find(({ task_id }) => task_id === 'T1').status, 'pending');
+});

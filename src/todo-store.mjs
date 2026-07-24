@@ -1764,13 +1764,17 @@ function phaseV3CarrySemantics(plan, taskId, taskIdMap, phaseIdMap,
     ? { ...ref, task_id: taskIdMap.get(ref.task_id) ?? ref.task_id } : ref;
   const mapPhaseRef = (ref) => ref.project_id === plan.project_id && ref.plan_key === plan.plan_key
     ? { ...ref, phase_id: phaseIdMap.get(ref.phase_id) ?? ref.phase_id } : ref;
+  // Phaseを持たない世代(todo_plan.v3)のtaskはphase_idを持たない。undefinedのまま
+  // canonicalizeするとJSON treeでないとしてTypeErrorになり、typedな拒否理由が失われる。
+  // nullへ正規化してcarry比較へ渡し、Phase割当ての獲得をcarry_semantics_changedとして拒否する。
+  const mappedPhaseId = phaseIdMap.get(task.phase_id) ?? task.phase_id ?? null;
   const mappedTask = reconciliationMetadata ? {
     task_id: taskIdMap.get(task.task_id) ?? task.task_id, title: task.title, lane: task.lane,
     compile_binding: task.compile_binding,
-    phase_id: phaseIdMap.get(task.phase_id) ?? task.phase_id,
+    phase_id: mappedPhaseId,
   } : { ...task,
     task_id: taskIdMap.get(task.task_id) ?? task.task_id,
-    phase_id: phaseIdMap.get(task.phase_id) ?? task.phase_id,
+    phase_id: mappedPhaseId,
     parent_task_id: task.parent_task_id === null ? null
       : taskIdMap.get(task.parent_task_id) ?? task.parent_task_id,
   };
