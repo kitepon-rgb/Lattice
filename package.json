@@ -49,6 +49,8 @@
   },
   "scripts": {
     "prepack": "npm --prefix sensor run build",
+    "verify:release-commit": "node scripts/verify-release-commit.mjs",
+    "prepublishOnly": "npm run verify:release-commit",
     "test": "node scripts/run-product-tests.mjs",
     "test:sensor": "npm --prefix sensor test",
     "precheck": "node --check src/bridge-launch-agent.mjs",
