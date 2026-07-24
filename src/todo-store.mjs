@@ -2937,7 +2937,12 @@ export async function applyPhaseTodoRevision(options = {}) {
     const descriptor = currentManifest.members.find(({ plan_key }) => plan_key === revision.plan_key);
     Object.assign(descriptor, { active_plan_version: revision.desired_plan.plan_version,
       plan_ref: planRef, journal_ref: journalRef, snapshot_ref: snapshotRef,
-      topology_digest: revision.desired_plan.topology_digest, journal_head_digest: genesis.event_digest });
+      topology_digest: revision.desired_plan.topology_digest, journal_head_digest: genesis.event_digest,
+      // manifest v2はactive_revision_digestがgenesisのrevision_digestと一致することを読み取り時に
+      // 要求する。v3昇格後のstoreでここを据え置くと、書込みは成功したように見えるのに以後の
+      // readがmanifest_revision_binding_mismatchで落ちる。v1 memberはこのkeyを持てない。
+      ...(currentManifest.schema === 'lattice.todo_manifest.v2'
+        ? { active_revision_digest: revision.revision_digest } : {}) });
     currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');
     await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(currentManifest));
     await protocolStage(options, 'phase_revision_manifest_activated');

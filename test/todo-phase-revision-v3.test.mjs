@@ -858,3 +858,39 @@ test('phase v3 reset_pendingはPhase無し先行planからPhaseを獲得でき�
   assert.equal(store.members[0].plan.schema, 'lattice.todo_plan.v5');
   assert.equal(store.members[0].tasks.find(({ task_id }) => task_id === 'T1').status, 'pending');
 });
+
+// v3 revisionはmanifestをv2へ昇格させる。以後のv1/v2 phase revisionがactive_revision_digestを
+// 更新しないと、書込みは成功したように見えるのにstoreが二度と読めなくなる。
+test('v3昇格後のv2 phase revisionはmanifestのactive_revision_digestを追従させる', async (t) => {
+  const value = await fixture(t, { desiredEdge: false });
+  await applyPhaseTodoRevision({ repoRoot: value.root, writer: value.writer,
+    revision: value.revision, actor: ACTOR, recordedAt: COMMIT_AT, now: COMMIT_AT });
+  const afterV3 = await readTodoStore({ repoRoot: value.root, now: COMMIT_AT });
+  assert.equal(afterV3.manifest.schema, 'lattice.todo_manifest.v2');
+  const member = afterV3.members[0];
+  const predecessor = { plan_digest: member.plan.plan_digest,
+    journal_head_digest: member.journal.events.at(-1).event_digest,
+    plan_version: member.plan.plan_version };
+  const taskMigration = member.plan.tasks.map(({ task_id }) => ({
+    from_task_id: task_id, to_task_id: task_id, state_policy: 'reset_pending' }));
+  const phaseMigration = member.plan.phases.map(({ phase_id }) => ({
+    from_phase_id: phase_id, to_phase_id: phase_id, state_policy: 'reset' }));
+  const desiredSeed = { ...member.plan, plan_version: 'pending',
+    predecessor_plan_digest: predecessor.plan_digest,
+    tasks: member.plan.tasks.map((task) => (task.task_id === 'T2'
+      ? { ...task, title: 'T2 retitled by v2 revision' } : { ...task })) };
+  delete desiredSeed.topology_digest; delete desiredSeed.plan_digest;
+  desiredSeed.plan_version = phaseTodoRevisionPlanVersion({ projectId: 'project-1', planKey: 'main',
+    predecessor, desiredPlan: desiredSeed, taskMigration, phaseMigration });
+  const revision = { schema: 'lattice.phase_todo_revision.v2', project_id: 'project-1',
+    plan_key: 'main', predecessor, desired_plan: buildTodoPlan(desiredSeed),
+    task_migration: taskMigration, phase_migration: phaseMigration, revision_digest: '' };
+  revision.revision_digest = todoSelfDigest(revision, 'revision_digest');
+  assert.equal(validatePhaseTodoRevision(revision), true);
+  await applyPhaseTodoRevision({ repoRoot: value.root, writer: value.writer,
+    revision, actor: ACTOR, recordedAt: COMMIT_AT, now: COMMIT_AT });
+  const after = await readTodoStore({ repoRoot: value.root, now: COMMIT_AT });
+  assert.equal(after.manifest.members[0].active_revision_digest, revision.revision_digest);
+  assert.equal(after.members[0].plan.plan_version, revision.desired_plan.plan_version);
+  assert.equal(projectTodoStatus(after).schema, 'lattice.todo_status_result.v4');
+});
