@@ -1,7 +1,11 @@
 # `lattice.todo_extraction.v1`
 
-> 状態: 完了済みの一回限り移行契約。新規planのauthoringには使わず、
-> `lattice plan create --input <lattice.plan_create_input.v3>`を使用する。
+> 状態: 移行由来の契約だが、既存 store へ plan を足す入口としては現役である。
+> **空 store の初回 authoring だけが `lattice plan create --input <lattice.plan_create_input.v3>`**。
+> `plan create` は store 初期化専用で、既に `.lattice/todo` がある project では
+> `STORE_WRITE_CONFLICT: store_already_exists` を返す。**既に plan を持つ store へ新しい plan を
+> 足すのは `lattice todo migrate --input <extraction JSON>` だけ**。Phase gate を伴う plan は
+> migrate で登録した後に `lattice todo revise-phase` で Phase を与える。
 
 `lattice.todo_extraction.v1` は G4 の一回きり移行 wave で AI が作る中間抽出 JSON である。
 規範 shape は [JSON Schema](schemas/lattice.todo_extraction.v1.schema.json)、実行時の exact-key・
@@ -42,5 +46,6 @@ lattice todo migrate --input <repo-relative-extraction.json>
 ```
 
 成功時は stdout に `lattice.todo_migrate_result.v1` JSON 一行を返す。typed failure は stdout を空にして
-stderr に `lattice.cli_error.v2` 一行、usage 違反は stderr の人間向け一行となる。この入口は G4 wave 限定であり、
+stderr に `lattice.cli_error.v2` 一行、usage 違反は stderr の人間向け一行となる。入力 JSON は repo 内に
+置く（repo 外 path は `INPUT_INVALID` で拒否する）。この入口が担うのは**明示的な一回の登録だけ**であり、
 Markdown 同期、watch、再取込 pipeline として常設しない。
