@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
+import { installPipeCloseGuard } from '../src/cli-stdio.mjs';
 import { runRuntimeCli } from '../src/runtime-cli.mjs';
 import { renderCliHelp } from '../src/cli-help.mjs';
 import packageJson from '../package.json' with { type: 'json' };
+
+installPipeCloseGuard();
 
 const args = process.argv.slice(2);
 const help = renderCliHelp(args);
