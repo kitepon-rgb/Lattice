@@ -1230,6 +1230,20 @@ export function reconstructHoldResultFromJournal({ journal, runId, requestId, in
   return result;
 }
 
+/** 現在registryが持つadapter kindを返す。registryが無ければ空配列（推測で埋めない）。 */
+async function registeredAdapterKinds(repoRoot) {
+  try {
+    const registry = JSON.parse(await readFile(
+      path.join(repoRoot, '.lattice/runtime/adapter-registry/registry.json'), 'utf8',
+    ));
+    if (!Array.isArray(registry?.entries)) return [];
+    return registry.entries
+      .map((entry) => entry?.adapter_kind)
+      .filter((kind) => typeof kind === 'string')
+      .sort();
+  } catch { return []; }
+}
+
 async function runActivate({ runDir, runRef, repoRoot, stdout, requestId = null }) {
   return withLifecycleLock(runDir, async () => {
   const { events, meta, managed } = await readRunStore(runDir);
@@ -1279,6 +1293,17 @@ async function runActivate({ runDir, runRef, repoRoot, stdout, requestId = null 
         if (error?.code === 'ENOENT') break;
       }
       await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    // ADAPTER_NOT_REGISTEREDは「registryが無い／そのadapterのentryが無い」だけを意味し、
+    // 何をどこへ置けば解決するかをそれ自体は伝えない。行き止まりにしないため、
+    // 必要な成果物と現在registryが持つadapterを返す（ADR 0123と同じdiagnosability規律）。
+    if (code === 'ADAPTER_NOT_REGISTERED') {
+      throw new CliContractError(code, `managed activateが${response.outcome}で終了した: ${response.result?.unmet?.[1] ?? code}`, {
+        adapter_kind: meta?.executor_adapter ?? null,
+        required_artifact: '.lattice/runtime/adapter-registry/registry.json',
+        registered_adapters: await registeredAdapterKinds(repoRoot),
+        reason: 'run activateは登録済みexecutor adapterを要求する。adapter登録は現時点で公開CLI面ではない',
+      });
     }
     throw new CliContractError(code, `managed activateが${response.outcome}で終了した: ${response.result?.unmet?.[1] ?? code}`);
   }
