@@ -338,3 +338,63 @@ export function projectTodoStatus(readModel) {
   }
   return result;
 }
+
+export const TODO_BINDING_PROJECTION_SCHEMA = 'lattice.todo_binding_projection.v1';
+
+/**
+ * `compile_binding`が設定されたTaskだけを、TODO正本のidentityつきで投影する（ADR 0124）。
+ *
+ * これはTODO工程storeとruntime実行を結ぶ唯一の公開読み取り面である。host は
+ * `compiled_plan_digest`で`runtime_plan.v1`を、`base_sha`でrun requestのbaseを照合し、
+ * plan→`executor_packet.v1`→`executor_receipt.v1`（`packet_digest`帰属）まで辿れる。
+ *
+ * `todo_status_result.v4`は変更しない。binding投影は加算の別面とし、v4を受理する
+ * 既存hostを壊さない。
+ */
+export function projectTodoBindings(readModel, { requestedPlanKey = null } = {}) {
+  if (!plain(readModel) || readModel.schema !== 'lattice.todo_store_read.v1'
+    || !isTodoIdentifier(readModel.project_id) || !Array.isArray(readModel.members)) {
+    fail('TODO_STATUS_INVALID_INPUT', 'todo_status_read_model_invalid');
+  }
+  if (requestedPlanKey !== null && !isTodoIdentifier(requestedPlanKey)) {
+    fail('TODO_STATUS_INVALID_INPUT', 'todo_binding_plan_key_invalid');
+  }
+  const members = [...readModel.members].sort((left, right) => {
+    const leftKey = left?.plan?.plan_key ?? '';
+    const rightKey = right?.plan?.plan_key ?? '';
+    return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  });
+  const bindings = [];
+  let matchedPlan = requestedPlanKey === null;
+  for (const member of members) {
+    const plan = member?.plan;
+    if (!plain(plan) || !Array.isArray(plan.tasks)) continue;
+    if (requestedPlanKey !== null && plan.plan_key !== requestedPlanKey) continue;
+    if (requestedPlanKey !== null) matchedPlan = true;
+    for (const task of plan.tasks) {
+      if (!plain(task) || task.compile_binding === null || task.compile_binding === undefined) continue;
+      bindings.push({
+        project_id: plan.project_id,
+        plan_key: plan.plan_key,
+        plan_version: plan.plan_version,
+        task_id: task.task_id,
+        compile_binding: task.compile_binding,
+      });
+      if (bindings.length > TODO_STATUS_LIST_LIMIT) {
+        fail('TODO_SCALE_EXCEEDED', 'todo_binding_projection_limit_exceeded', {
+          binding_limit: TODO_STATUS_LIST_LIMIT,
+        });
+      }
+    }
+  }
+  if (!matchedPlan) fail('TODO_STATUS_INVALID_INPUT', 'todo_binding_plan_not_found');
+  const result = {
+    schema: TODO_BINDING_PROJECTION_SCHEMA,
+    project_id: readModel.project_id,
+    plan_key: requestedPlanKey,
+    bindings,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}

@@ -46,7 +46,7 @@ import {
   appendTodoExtraction,
   validateTodoExtraction,
 } from './todo-migration.mjs';
-import { projectTodoStatus } from './todo-status.mjs';
+import { projectTodoBindings, projectTodoStatus } from './todo-status.mjs';
 import {
   parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
   validateTodoRevision, validateTodoRevisionSet,
@@ -472,6 +472,10 @@ async function revisePhase({ repoRoot, env, planKey, inputRef }) {
 
 async function status({ repoRoot }) {
   return projectTodoStatus(await readTodoStore({ repoRoot }));
+}
+
+async function bindings({ repoRoot, requestedPlanKey }) {
+  return projectTodoBindings(await readTodoStore({ repoRoot }), { requestedPlanKey });
 }
 
 async function readNarrative(repoRoot, ref) {
@@ -926,6 +930,13 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   if ((argv.length === 1 && argv[0] === 'status')
     || (argv.length === 2 && argv[0] === 'status' && argv[1] === '--json')) {
     action = (repoRoot) => status({ repoRoot });
+  } else if ((argv.length === 1 && argv[0] === 'bindings')
+    || (argv.length === 2 && argv[0] === 'bindings' && argv[1] === '--json')) {
+    action = (repoRoot) => bindings({ repoRoot, requestedPlanKey: null });
+  } else if ((argv.length === 3 || argv.length === 4) && argv[0] === 'bindings'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && (argv.length === 3 || argv[3] === '--json')) {
+    action = (repoRoot) => bindings({ repoRoot, requestedPlanKey: argv[2] });
   } else if ((argv.length === 1 && argv[0] === 'verify')
     || (argv.length === 2 && argv[0] === 'verify' && argv[1] === '--json')) {
     action = (repoRoot) => verify({ repoRoot, requestedPlanKey: null });

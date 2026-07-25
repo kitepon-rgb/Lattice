@@ -45,6 +45,7 @@ Commands:
 
 Read commands:
   status [--json]
+  bindings [--plan <key>] [--json]   # compile_binding付きTaskをTODO identityつきで投影する
   verify [--plan <key>] [--json]
   snapshot --rebuild --plan <key>
   gantt [--out <file>] [--scope live|all]  # 既定live: 完走した工程を図から除く（一覧には残る）
@@ -110,6 +111,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'run list': 'run list --json',
   'event verify': 'event verify --run .lattice/runs/<id>',
   'todo status': 'todo status [--json]',
+  'todo bindings': 'todo bindings [--plan <key>] [--json]',
   'todo verify': 'todo verify [--plan <key>] [--json]',
   'todo snapshot': 'todo snapshot --rebuild --plan <key>',
   'todo gantt': 'todo gantt [--out <file>] [--scope live|all] | status [--out <file>] | serve --port <port> [--scope live|all]',
