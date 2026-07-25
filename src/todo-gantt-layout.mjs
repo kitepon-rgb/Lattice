@@ -4,6 +4,9 @@ const TASK_LIMIT = 2_000;
 const EDGE_LIMIT = 8_000;
 const SWEEP_ROUNDS = 4;
 
+/** Columns for a stage made only of ToDos with no registered dependency. */
+const LOOSE_COLUMNS_MINIMUM = 8;
+
 const GEOMETRY = Object.freeze({
   left: 16,
   top: 16,
@@ -11,6 +14,7 @@ const GEOMETRY = Object.freeze({
   lane_gap: 296,
   node_width: 272,
   node_height: 68,
+  stage_row_gap: 12,
   route_inset: 8,
   route_spacing: 12,
 });
@@ -410,9 +414,27 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   const nodesByKey = new Map(nodes.map((node) => [node.key, node]));
   const { incoming, outgoing, wave } = assignWaves(nodes, nodesByKey, edges);
   const layers = orderLayers(nodes, wave, incoming, outgoing);
+  // A ToDo with no registered dependency has nothing to line up with. Laying
+  // every one of them out in a single row makes the canvas as wide as the plan
+  // is old — real stores have hundreds — so they wrap into a block underneath
+  // the wired ToDos of their stage. Nodes that carry edges keep the top row:
+  // edge routing assumes both endpoints of a stage share one baseline.
+  const wired = new Set();
+  for (const edge of edges) { wired.add(edge.from); wired.add(edge.to); }
   const transversePosition = new Map();
+  const stageRow = new Map();
+  const stageRowCount = [];
   for (const layer of layers) {
-    for (let index = 0; index < layer.length; index += 1) transversePosition.set(layer[index], index);
+    const connected = layer.filter((key) => wired.has(key));
+    const loose = layer.filter((key) => !wired.has(key));
+    connected.forEach((key, index) => { transversePosition.set(key, index); stageRow.set(key, 0); });
+    const columns = Math.max(LOOSE_COLUMNS_MINIMUM, connected.length);
+    const firstLooseRow = connected.length === 0 ? 0 : 1;
+    loose.forEach((key, index) => {
+      transversePosition.set(key, index % columns);
+      stageRow.set(key, firstLooseRow + Math.floor(index / columns));
+    });
+    stageRowCount.push(Math.max(0, ...layer.map((key) => stageRow.get(key))) + 1);
   }
   const visibleKeys = new Set(nodes.map(({ key }) => key));
   const displayBranches = edges.flatMap((edge, semanticIndex) => {
@@ -458,15 +480,25 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   const nodeWidth = Math.max(GEOMETRY.node_width,
     GEOMETRY.route_inset * 2 + (maximumPortTraffic + 1) * GEOMETRY.route_spacing);
   const laneGap = nodeWidth + 24;
-  const waveGap = GEOMETRY.node_height + Math.max(36,
-    (maximumGapOccupancy + 1) * GEOMETRY.route_spacing);
+  // Each routing band is sized for the edges that actually cross it. One
+  // crowded band used to set the spacing for every stage in the diagram, so a
+  // long plan paid the width of its busiest junction on all of its stages.
+  const gapBand = (gap) => Math.max(36, ((gapGroups.get(gap)?.length ?? 0)
+    + (connectorGroupKeysByGap.get(gap)?.size ?? 0) + 1) * GEOMETRY.route_spacing);
+  const stageHeight = (index) => stageRowCount[index] * GEOMETRY.node_height
+    + (stageRowCount[index] - 1) * GEOMETRY.stage_row_gap;
+  const stageTop = [GEOMETRY.top];
+  for (let index = 0; index + 1 < layers.length; index += 1) {
+    stageTop.push(stageTop[index] + stageHeight(index) + gapBand(index));
+  }
 
   const coordinates = new Map();
   const projectedNodes = nodes.map((node) => {
     const visible = visibleKeys.has(node.key);
     const geometry = visible ? {
       x: GEOMETRY.left + transversePosition.get(node.key) * laneGap,
-      y: GEOMETRY.top + wave.get(node.key) * waveGap,
+      y: stageTop[wave.get(node.key)]
+        + stageRow.get(node.key) * (GEOMETRY.node_height + GEOMETRY.stage_row_gap),
       width: nodeWidth,
       height: GEOMETRY.node_height,
     } : null;
@@ -486,10 +518,11 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   const gapPosition = (edgeKey, waveIndex) => {
     const keys = gapGroups.get(waveIndex);
     const index = keys.indexOf(edgeKey);
-    return GEOMETRY.top + waveIndex * waveGap + GEOMETRY.node_height
+    return stageTop[waveIndex] + stageHeight(waveIndex)
       + GEOMETRY.route_spacing * (index + 1);
   };
-  const maximumLayerWidth = Math.max(...layers.map((layer) => layer.length));
+  const maximumLayerWidth = Math.max(1,
+    ...[...transversePosition.values()].map((position) => position + 1));
   const routeRight = GEOMETRY.left + (maximumLayerWidth - 1) * laneGap + nodeWidth + 12;
   const branchCounts = new Map();
   for (const branch of displayBranches) {
@@ -551,7 +584,7 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     connectorGapRanks.set(targetGap, groupRank + 1);
     const primaryTargetPortX = group[0].route.at(-1)[0];
     const junction = [primaryTargetPortX,
-      GEOMETRY.top + targetGap * waveGap + GEOMETRY.node_height
+      stageTop[targetGap] + stageHeight(targetGap)
         + GEOMETRY.route_spacing * ((gapGroups.get(targetGap)?.length ?? 0) + groupRank + 1)];
     const contacts = [];
     for (const [index, edge] of group.entries()) {
@@ -602,8 +635,8 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     sweep: { method: 'stable_median', rounds: SWEEP_ROUNDS, tie_break: 'previous_position_then_task_ref' },
     bounds: {
       width: nodes.length === 0 ? 0 : routeMaximumX + GEOMETRY.left,
-      height: nodes.length === 0 ? 0 : GEOMETRY.top * 2
-        + (layers.length - 1) * waveGap + GEOMETRY.node_height,
+      height: nodes.length === 0 ? 0
+        : GEOMETRY.top + stageTop.at(-1) + stageHeight(layers.length - 1),
       wave_count: layers.length,
     },
     nodes: projectedNodes,

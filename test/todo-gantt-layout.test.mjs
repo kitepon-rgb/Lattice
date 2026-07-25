@@ -69,16 +69,17 @@ test('small branch/join/multi-lane DAG has a deterministic coordinate snapshot',
   assert.deepEqual(result.nodes.map(({ ref: nodeRef, wave, row, visible, geometry }) => ({
     id: `${nodeRef.plan_key}/${nodeRef.task_id}`, wave, row, visible, geometry,
   })), [
+    // 段間隔は段ごとに、その帯を通るedge数で決まる。第0段の下は2本、第1段の下は3本。
     { id: 'alpha/A', wave: 0, row: 0, visible: true, geometry: { x: 16, y: 16, width: 272, height: 68 } },
-    { id: 'alpha/B', wave: 1, row: 1, visible: true, geometry: { x: 312, y: 132, width: 272, height: 68 } },
-    { id: 'alpha/C', wave: 1, row: 0, visible: true, geometry: { x: 16, y: 132, width: 272, height: 68 } },
-    { id: 'beta/D', wave: 2, row: 0, visible: true, geometry: { x: 16, y: 248, width: 272, height: 68 } },
+    { id: 'alpha/B', wave: 1, row: 1, visible: true, geometry: { x: 312, y: 120, width: 272, height: 68 } },
+    { id: 'alpha/C', wave: 1, row: 0, visible: true, geometry: { x: 16, y: 120, width: 272, height: 68 } },
+    { id: 'beta/D', wave: 2, row: 0, visible: true, geometry: { x: 16, y: 236, width: 272, height: 68 } },
   ]);
   assert.deepEqual(result.edges.map(({ kinds, join_ids, visible, route }) => ({ kinds, join_ids, visible, route })), [
-    { kinds: ['hard'], join_ids: [], visible: true, route: [[36, 84], [36, 96], [332, 96], [332, 132]] },
-    { kinds: ['hard'], join_ids: [], visible: true, route: [[60, 84], [60, 108], [48, 108], [48, 132]] },
-    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[332, 200], [332, 212], [36, 212], [36, 236], [36, 248]] },
-    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[60, 200], [60, 224], [48, 224], [48, 236]] },
+    { kinds: ['hard'], join_ids: [], visible: true, route: [[36, 84], [36, 96], [332, 96], [332, 120]] },
+    { kinds: ['hard'], join_ids: [], visible: true, route: [[60, 84], [60, 108], [48, 108], [48, 120]] },
+    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[332, 188], [332, 200], [36, 200], [36, 224], [36, 236]] },
+    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[60, 188], [60, 212], [48, 212], [48, 224]] },
   ]);
   const logicalJoinEdges = result.edges.filter(({ join_ids }) => join_ids.includes('join-1'));
   assert.equal(logicalJoinEdges.filter(({ junction }) => junction !== null).length, 1);
