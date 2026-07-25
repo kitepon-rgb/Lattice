@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.12 — 2026-07-25
+
+- `bridge status`が到達性を報告するようにした。設定したlisten addressがホストに存在するか（`listen_state`）、実際に接続を受け付けるか（`reachable`）を別々に返す。従来は`enabled: true`とだけ答え、公開surfaceが落ちていても健全に見えていた。
+- bridgeが同一subnet内の現アドレスへ自動で再bindするようにした。別network・loopbackは自動採用せず、代替が無ければ`BRIDGE_LISTEN_ADDRESS_ABSENT`でtypedに失敗する。
+- 新しいbindingを張るたびにreverse proxy hostへupstreamを自己登録するようにした（`lattice bridge register`で手動実行も可能）。`ssh <host> <script> <port>`の固定形だけを実行し、アドレスは送らずremote側がssh送信元から決めるため、呼び出し側は自分自身しか登録できない。`LATTICE_BRIDGE_REGISTRAR_SSH_HOST`と`LATTICE_BRIDGE_REGISTRAR_SCRIPT`の両方が設定された時だけ動く。
+- registrar設定をLaunchAgent plistへ引き継ぐようにした。launchdはshell環境を継承しないため、これが無いとdaemonの自己登録が永久に発火しない。
+
 ## 0.12.11 — 2026-07-25
 
 - 依存工程図が既定で完走した枝を畳むようにした。生きた工程とその直接の前提工程は必ず展開したまま残し、全件を描くには `todo gantt --scope all` を使う。総数・lane集計・最長依存鎖・ready frontierは畳み込み前の全工程で数える。
