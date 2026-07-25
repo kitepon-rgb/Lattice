@@ -5,6 +5,13 @@
 - revisionでcarryされた完了ToDoを`todo reopen`できるようにした。後継journalにdoneイベントが無い場合でも、完了を運んだ`plan_genesis`のstate migrationへ束縛する。doneでないtaskのreopenは従来どおり拒否する。
 - `todo status --json | head`のように結果を部分的に読んでも、未処理EPIPEでstack traceを出してexit 1になることをやめ、静かにexit 0で終えるようにした。EPIPE以外のstream errorは従来どおり失敗として落とす。
 
+## 0.12.9 — 2026-07-25
+
+- Phaseを持たない先行planからのcarryを、typed `REVISION_INVALID`で拒否するようにした。
+- `phase_todo_revision.v1`/`v2`の適用でmanifestの`active_revision_digest`を追従させ、revision後にstoreを読めなくなる欠陥を直した。
+- 新規plan authoringの入口の記述を実装どおりに書き直した。
+- publish対象commitが既定ブランチの祖先であることを`prepublishOnly`の機械gateで強制するようにした。
+
 ## 0.12.8 — 2026-07-23
 
 - Phase v3の後続revisionで、既存active sourceを同じ`source_cutover_batch`の明示操作により新しいarchiveへ移転できるようにした。
