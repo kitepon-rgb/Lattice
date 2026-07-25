@@ -8,6 +8,7 @@ import { parseTree } from 'jsonc-parser';
 import { networkInterfaces } from 'node:os';
 
 import { resolveBridgeListenAddress } from './bridge-address.mjs';
+import { registerBridgeUpstream } from './bridge-registrar.mjs';
 import {
   BridgeConfigError, bridgeConfigPaths, normalizeBridgeAllowedHost, readBridgeConfig,
 } from './bridge-config.mjs';
@@ -303,9 +304,27 @@ export async function startBridgeServer({
   });
 }
 
-export function bridgeRuntimeController({ env = process.env, instanceToken = null } = {}) {
+export function bridgeRuntimeController({
+  env = process.env, instanceToken = null,
+  register = registerBridgeUpstream,
+  report = (line) => process.stderr.write(`${line}\n`),
+} = {}) {
   let active = null;
   let fingerprint = null;
+  // A fresh binding is exactly when the reverse proxy's literal may have gone
+  // stale, so that is when the bridge tells it where it now is. A registration
+  // failure is reported, never swallowed, and never takes the local bridge down:
+  // the bridge is still serving, only the published route is behind.
+  const announce = async (binding) => {
+    try {
+      const outcome = await register({ port: binding.port, env });
+      if (outcome.state !== 'not_configured') report(JSON.stringify(outcome));
+    } catch (error) {
+      report(JSON.stringify({ schema: 'lattice.bridge_registrar_result.v1', state: 'failed',
+        port: binding.port, host: null, remote: null,
+        detail: error?.message ?? 'registration failed' }));
+    }
+  };
   return Object.freeze({
     async reconcile() {
       const config = await readBridgeConfig({ env });
@@ -331,6 +350,7 @@ export function bridgeRuntimeController({ env = process.env, instanceToken = nul
       active = replacement;
       fingerprint = next;
       await previous?.close();
+      await announce(active);
       return active;
     },
     async close() {

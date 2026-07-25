@@ -88,6 +88,10 @@ Commands:
   reconfigure [--listen <IP>] [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--allow-host <host>...]
   status
   disable
+  register    # 現在のlisten portをreverse proxy hostへ自己登録する
+
+registerはLATTICE_BRIDGE_REGISTRAR_SSH_HOSTとLATTICE_BRIDGE_REGISTRAR_SCRIPTが
+両方設定されている時だけ動く。アドレスは送らず、remote側がssh送信元から決める。
 `,
 });
 
@@ -135,6 +139,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'bridge reconfigure': 'bridge reconfigure [--listen <IP>] [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--allow-host <host>...] --json',
   'bridge status': 'bridge status --json',
   'bridge disable': 'bridge disable --json',
+  'bridge register': 'bridge register --json',
 });
 
 function requestedNamespace(argv) {

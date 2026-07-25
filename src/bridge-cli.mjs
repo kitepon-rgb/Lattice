@@ -3,6 +3,7 @@ import { networkInterfaces } from 'node:os';
 import * as clack from '@clack/prompts';
 
 import { resolveBridgeListenAddress } from './bridge-address.mjs';
+import { registerBridgeUpstream } from './bridge-registrar.mjs';
 import {
   BridgeConfigError, configureBridge, disableBridge, readBridgeConfig, restoreBridgeConfig,
   normalizeBridgeAllowedHost, withBridgeOperationLock,
@@ -158,11 +159,11 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
     disable: disableBridgeLaunchAgent, restore: restoreBridgeLaunchAgent },
   prompts = clack, probe = probeBridgeListener, interfaces = networkInterfaces() } = {}) {
   if (!Array.isArray(argv)) {
-    return fail(stderr, 'USAGE', 'usage: lattice bridge <setup|reconfigure|status|disable> [options] --json');
+    return fail(stderr, 'USAGE', 'usage: lattice bridge <setup|reconfigure|status|disable|register> [options] --json');
   }
   const wizard = argv.length === 1 && argv[0] === 'setup';
   if (!wizard && argv.at(-1) !== '--json') {
-    return fail(stderr, 'USAGE', 'usage: lattice bridge <setup|reconfigure|status|disable> [options] --json');
+    return fail(stderr, 'USAGE', 'usage: lattice bridge <setup|reconfigure|status|disable|register> [options] --json');
   }
   if (wizard && (!stdin?.isTTY || !stdout?.isTTY)) {
     return fail(stderr, 'BRIDGE_SETUP_REQUIRES_TTY',
@@ -170,6 +171,20 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
   }
   const [command, ...words] = wizard ? argv : argv.slice(0, -1);
   try {
+    if (command === 'register' && words.length === 0) {
+      const current = await readBridgeConfig({ env });
+      if (current === null || current.enabled !== true) {
+        return fail(stderr, 'BRIDGE_DISABLED', 'bridge is not enabled; nothing to register');
+      }
+      const resolved = resolveBridgeListenAddress({ configured: current.listen.address, interfaces });
+      if (resolved.effective === null) {
+        return fail(stderr, 'BRIDGE_LISTEN_ADDRESS_ABSENT',
+          'configured bridge listen address is not present on this host');
+      }
+      const registration = await registerBridgeUpstream({ port: current.listen.port, env });
+      stdout.write(`${JSON.stringify(registration)}\n`);
+      return registration.state === 'failed' ? 1 : 0;
+    }
     let config;
     let recovery = null;
     if (command === 'status' && words.length === 0) config = await readBridgeConfig({ env });

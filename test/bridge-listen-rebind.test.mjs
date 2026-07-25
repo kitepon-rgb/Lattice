@@ -166,6 +166,72 @@ test('設定アドレスが完全に消えたserver起動はtypedに失敗しfal
   );
 });
 
+test('新しいbindingを張った時にupstreamを自己登録する', async (context) => {
+  const env = await envFixture(context);
+  const upstream = await upstreamServer((request, response) => { response.end('ok'); });
+  context.after(() => close(upstream));
+  const config = await configureBridge({ env, address: LIVE,
+    upstream: { mode: 'url', url: `http://${LIVE}:${upstream.address().port}/` }, allowedHosts: [] });
+
+  const registered = [];
+  const reported = [];
+  const controller = bridgeRuntimeController({ env,
+    register: async ({ port }) => {
+      registered.push(port);
+      return { schema: 'lattice.bridge_registrar_result.v1', state: 'updated', port,
+        host: 'main-server', remote: { changed: true }, detail: null };
+    },
+    report: (line) => reported.push(line) });
+  context.after(() => controller.close());
+
+  await controller.reconcile();
+  assert.deepEqual(registered, [config.listen.port]);
+  assert.equal(reported.length, 1);
+  assert.match(reported[0], /"state":"updated"/u);
+
+  // 同じ設定の再reconcileはbindingを作り直さないので、登録も繰り返さない。
+  await controller.reconcile();
+  assert.deepEqual(registered, [config.listen.port]);
+});
+
+test('登録が失敗してもbridgeは動き続け、失敗は握り潰さない', async (context) => {
+  const env = await envFixture(context);
+  const upstream = await upstreamServer((request, response) => { response.end('ok'); });
+  context.after(() => close(upstream));
+  await configureBridge({ env, address: LIVE,
+    upstream: { mode: 'url', url: `http://${LIVE}:${upstream.address().port}/` }, allowedHosts: [] });
+
+  const reported = [];
+  const controller = bridgeRuntimeController({ env,
+    register: async () => { throw new Error('ssh: no route to host'); },
+    report: (line) => reported.push(line) });
+  context.after(() => controller.close());
+
+  const binding = await controller.reconcile();
+  assert.notEqual(binding, null, '登録失敗でbridgeを落とさない');
+  assert.equal(reported.length, 1);
+  assert.match(reported[0], /"state":"failed"/u);
+  assert.match(reported[0], /no route to host/u);
+});
+
+test('registrar未設定なら何も報告しない', async (context) => {
+  const env = await envFixture(context);
+  const upstream = await upstreamServer((request, response) => { response.end('ok'); });
+  context.after(() => close(upstream));
+  await configureBridge({ env, address: LIVE,
+    upstream: { mode: 'url', url: `http://${LIVE}:${upstream.address().port}/` }, allowedHosts: [] });
+
+  const reported = [];
+  const controller = bridgeRuntimeController({ env,
+    register: async ({ port }) => ({ schema: 'lattice.bridge_registrar_result.v1',
+      state: 'not_configured', port, host: null, remote: null, detail: null }),
+    report: (line) => reported.push(line) });
+  context.after(() => controller.close());
+
+  await controller.reconcile();
+  assert.deepEqual(reported, []);
+});
+
 test('reconcileは同じ設定のbindingを作り直さない', async (context) => {
   const env = await envFixture(context);
   const upstream = await upstreamServer((request, response) => { response.end('ok'); });
