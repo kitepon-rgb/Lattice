@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { todoSelfDigest } from '../src/todo-contracts.mjs';
+import { canonicalizeTodoArtifact, todoSelfDigest } from '../src/todo-contracts.mjs';
 import {
   TodoStoreError,
   appendImportedPlan,
@@ -55,6 +55,18 @@ async function fixture(context, { hardDependencies = [] } = {}) {
     }],
   });
   return root;
+}
+
+async function promoteManifestV2(root) {
+  const manifestRef = path.join(root, '.lattice', 'todo', 'manifest.json');
+  const manifest = JSON.parse(await readFile(manifestRef, 'utf8'));
+  manifest.schema = 'lattice.todo_manifest.v2';
+  for (const member of manifest.members) {
+    const plan = JSON.parse(await readFile(path.join(root, member.plan_ref), 'utf8'));
+    member.active_revision_digest = plan.plan_digest;
+  }
+  manifest.manifest_digest = todoSelfDigest(manifest, 'manifest_digest');
+  await writeFile(manifestRef, `${canonicalizeTodoArtifact(manifest)}\n`);
 }
 
 async function revisionFor(root, {
@@ -603,6 +615,15 @@ test('successor revisionはpredecessorの依存edgeを削除し新topologyだけ
   const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
   assert.deepEqual(member.plan.hard_dependencies, []);
   assert.equal(member.plan.predecessor_plan_digest, revision.predecessor.plan_digest);
+});
+
+test('manifest v2へのsuccessor revisionはactive_revision_digestを新revisionへ追従させる', async (context) => {
+  const root = await fixture(context);
+  await promoteManifestV2(root);
+  const revision = await revisionFor(root);
+  await apply(root, revision);
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  assert.equal(member.descriptor.active_revision_digest, revision.revision_digest);
 });
 
 for (const stage of [

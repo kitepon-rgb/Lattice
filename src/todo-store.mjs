@@ -3143,6 +3143,8 @@ export async function applyTodoRevision(options = {}) {
         journal_ref: journalRef, snapshot_ref: snapshotRef,
         topology_digest: revision.desired_plan.topology_digest,
         journal_head_digest: genesis.event_digest,
+        ...(currentManifest.schema === 'lattice.todo_manifest.v2'
+          ? { active_revision_digest: revision.revision_digest } : {}),
       });
       currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');
       await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(currentManifest));
