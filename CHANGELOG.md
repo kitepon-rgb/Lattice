@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.19 — 2026-07-25
+
+- 右ペインtoolbarのラベルを「元Markdown全文」から「全工程一覧」へ直した。2026-07-19のUI意味訂正で中身はstore由来の全工程一覧と裁定されているのに、ラベルだけが旧意味を指し、元Markdown本文の再表示を期待させていた。
+- 未使用のMarkdown描画を削除した。renderer v7で右ペインからnarrative documentが外れた際に描画処理だけが残り、以後どこからも読まれないまま、dashboardがstore変更のたびに実行して捨てていた。narrative自体はanchor検証に必要なので読み込みと集約prose上限は維持する。
+- 到達不能になったsection単位の上限変換経路も削除した。集約上限`TODO_GANTT_PROSE_MAX_BYTES`は従来どおりfail closedで効く。
+- gantt renderer versionを`v15`にした。
+
 ## 0.12.18 — 2026-07-25
 
 - 工程図の表示規約を[ADR 0066](docs/adr/0066-gantt-live-scope-drops-finished-work.md)として正典化した。ADR 0053の折畳み前提を採らず、既定表示は完走した工程を図から除き代わりの箱も置かない、という現行実装の決定を根拠つきで記録する。
