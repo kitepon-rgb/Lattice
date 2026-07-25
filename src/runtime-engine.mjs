@@ -292,18 +292,34 @@ export async function dispatchReadyFrontier(options = {}) {
       || dispatchResult.worktree_id.length === 0) {
       fail(`adapter dispatchがopaque handle／worktreeを返さない: ${todoId}`);
     }
+    const dispatchPayload = {
+      executor_handle: dispatchResult.executor_handle,
+      worktree_id: dispatchResult.worktree_id,
+      packet_digest: packet.packet_digest,
+      context_content_digest: packet.context_content_digest,
+    };
+    const managedFields = [
+      'write_lease_id',
+      'write_lease_digest',
+      'controller_registration_digest',
+      'controller_session_nonce_digest',
+      'direct_os_observation_binding',
+    ];
+    if (managedFields.some((field) => Object.hasOwn(dispatchResult, field))) {
+      if (!managedFields.every((field) => Object.hasOwn(dispatchResult, field))) {
+        fail(`managed adapter dispatch bindingが不足する: ${todoId}`);
+      }
+      Object.assign(dispatchPayload, Object.fromEntries(
+        managedFields.map((field) => [field, structuredClone(dispatchResult[field])]),
+      ));
+    }
     next.push(buildNextRunEvent({
       events: next,
       runId,
       kind: 'executor_dispatched',
       planEpoch: plan.plan_epoch,
       subject: { kind: 'todo', ref: todoId },
-      payload: {
-        executor_handle: dispatchResult.executor_handle,
-        worktree_id: dispatchResult.worktree_id,
-        packet_digest: packet.packet_digest,
-        context_content_digest: packet.context_content_digest,
-      },
+      payload: dispatchPayload,
       recordedAt,
     }));
     dispatchedNow.push(todoId);

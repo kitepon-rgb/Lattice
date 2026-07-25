@@ -699,6 +699,13 @@ function createControllerSocketTransport(socketPath, timeoutMs) {
       const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
       let document;
       try { document = JSON.parse(line); } catch { failPending('controller document JSON不正'); socket.destroy(); return; }
+      if (document?.schema === 'lattice.scripted_adapter_error.v1'
+        && typeof document.code === 'string'
+        && typeof document.message === 'string') {
+        failPending(`${document.code}: ${document.message}`);
+        socket.destroy();
+        return;
+      }
       if (validateControllerHeartbeat(document)) {
         Promise.resolve(heartbeatHandler?.(structuredClone(document))).catch(() => socket.destroy());
         continue;
@@ -755,6 +762,7 @@ async function activateManagedSupervisorController({ repoRoot, runDir, runId, ad
   const controllerSocketPath = path.join(runDir, controllerSocketRef);
   const supervisorSocketRef = 'supervisor/control.sock';
   let child = null;
+  let childStderr = '';
   try {
     await mkdir(controllerDir, { recursive: true, mode: 0o700 });
     let handshakeSocket = launch.endpoint;
@@ -775,7 +783,15 @@ async function activateManagedSupervisorController({ repoRoot, runDir, runId, ad
       if (!config.isFile() || config.isSymbolicLink() || sha256Bytes(await readFile(configPath)) !== launch.config_digest) fail('ADAPTER_LAUNCH_INVALID', 'config digest不一致');
       const bootstrap = createControllerBootstrap({ requestId: randomUUID(), runId, controllerSocketRef, supervisorSocketRef, supervisorSessionNonce });
       // controller hostのcwdはrun store。bootstrapの固定relative socket refを任意absolute pathへ拡張しない。
-      child = spawn(binaryReal, launch.argv, { cwd: runDir, detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe'] });
+      child = spawn(binaryReal, launch.argv, {
+        cwd: runDir,
+        detached: true,
+        stdio: ['ignore', 'ignore', 'pipe', 'pipe'],
+      });
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', (chunk) => {
+        childStderr = `${childStderr}${chunk}`.slice(-8_192);
+      });
       child.stdio[3].write(`${canonicalizeArtifact(bootstrap)}\n`);
       child.stdio[3].end();
       handshakeSocket = controllerSocketPath;
@@ -783,11 +799,23 @@ async function activateManagedSupervisorController({ repoRoot, runDir, runId, ad
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         try { if ((await lstat(handshakeSocket)).isSocket()) break; } catch (error) { if (error?.code !== 'ENOENT') throw error; }
-        if (child.exitCode !== null) fail('ADAPTER_CONTROLLER_UNAVAILABLE', `controller exited: ${child.exitCode}`);
+        if (child.exitCode !== null) {
+          fail(
+            'ADAPTER_CONTROLLER_UNAVAILABLE',
+            `controller exited: ${child.exitCode}${childStderr ? `: ${childStderr.trim()}` : ''}`,
+          );
+        }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
       let socketInfo;
-      try { socketInfo = await lstat(handshakeSocket); } catch { fail('ADAPTER_CONTROLLER_UNAVAILABLE', 'controller socket未生成'); }
+      try {
+        socketInfo = await lstat(handshakeSocket);
+      } catch {
+        fail(
+          'ADAPTER_CONTROLLER_UNAVAILABLE',
+          `controller socket未生成${childStderr ? `: ${childStderr.trim()}` : ''}`,
+        );
+      }
       if (!socketInfo.isSocket()) fail('ADAPTER_CONTROLLER_UNAVAILABLE', 'controller endpointがsocketでない');
       // exec後にも同じ実行image bytesを再検証する。PID生存も同時に要求する。
       try { process.kill(child.pid, 0); } catch { fail('ADAPTER_CONTROLLER_UNAVAILABLE', 'controller process不達'); }
@@ -902,7 +930,18 @@ async function activateManagedSupervisorController({ repoRoot, runDir, runId, ad
       await registerWithManagedSupervisor(managedSupervisor);
       return managedSupervisor;
     };
-    return { supervisorDescriptor, activationControlEvent, controllerDescriptor, registration, sessionNonce: supervisorSessionNonce, childPid: child?.pid ?? controllerDescriptor.pid, createManagedSupervisor, registerWithManagedSupervisor, disposeController };
+    return {
+      supervisorDescriptor,
+      activationControlEvent,
+      controllerDescriptor,
+      registration,
+      launchDescriptor: structuredClone(launch),
+      sessionNonce: supervisorSessionNonce,
+      childPid: child?.pid ?? controllerDescriptor.pid,
+      createManagedSupervisor,
+      registerWithManagedSupervisor,
+      disposeController,
+    };
   } catch (error) {
     if (child?.pid) { try { process.kill(child.pid, 'SIGTERM'); } catch { /* already exited */ } }
     await rm(controllerSocketPath, { force: true }).catch(() => {});
