@@ -89,8 +89,16 @@ dashboardはmanifestのfile identityが変わらない間のstable store readを
 長時間の外部処理中にCLI呼出しが途切れても進行中projectを休眠扱いしません。
 LANや外部reverse proxyから閲覧するoptional bridgeは既定で無効です。明示したIPにだけbindする初回設定、
 再設定、停止方法は[bridge setup](docs/bridge-setup.md)を参照してください。
+工程図の既定表示は、後続に作業中・未着手が残っていない完了工程を図から除きます。まとめnodeも置かないため、
+完走したplanは図の場所を取りません。除いた工程は凡例の件数、右ペインの「全工程」一覧、各工程の詳細から
+辿れ、詳細の前提・後続は除外前の依存関係を示します。総数・進捗・最長依存鎖は除外前の全工程で数えます。
+凡例の件数バッジを押すと全工程を描いた図へ切り替わり、`lattice todo gantt --scope all`は最初から全件を
+描きます。表示規約は[ADR 0066](docs/adr/0066-gantt-live-scope-drops-finished-work.md)が正です。
+
 静的工程表は`lattice todo gantt status`で`current / stale / missing`を確認でき、HTMLまたは
 digest付きsidecarの欠落・改ざんはtyped failureになります。
+dashboard daemonは起動時に読み込んだ版数をhealthで名乗り、installされた版と食い違えば`lattice status`の
+たびに新版daemonへ置き換わります。publishしただけで配信面が古いまま残ることはありません。
 状態を書き込む`start / block / unblock / done / evidence promote / reopen / revise / revise-phase / revise-set`
 では、監査actorとして次の3環境変数をすべて設定してください。
 

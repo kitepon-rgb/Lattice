@@ -137,6 +137,12 @@ cross-plan topology bindingを検査する。所属ToDoが全てdoneでも`gate_
 意味が変わればresetを必須にする。Phase revisionと通常revisionはrevision set v3で同時公開できる。
 reject/reopenはDecisionへ束縛し、開始済み後続を持つreopenは明示overrideなしに拒否する。
 
+工程図の既定scope`live`は、後続に作業中・未着手が残っていない完了ToDoを図から除く。まとめnodeや
+placeholderを代わりに置かず、生きたToDoとその直接の前提ToDoは必ず描く。除いたToDoは凡例の件数、
+右ペインの全工程一覧、各ToDoの詳細から辿れ、詳細の前提・後続は除外前のグラフから表示する。総数・進捗・
+最長依存鎖・ready frontierは除外前の全工程で数える。件数バッジは展開の入口を兼ね、押すと同梱した全工程の
+図へ切り替わる。`--scope all`は何も除かない。表示規約は[ADR 0066](adr/0066-gantt-live-scope-drops-finished-work.md)が正。
+
 静的`todo gantt`はoffline証拠として維持する。`todo gantt serve --port <0..65535>`はloopback-onlyの
 foreground read-only viewerで、stable store readとSSEにより更新を反映し、mixed viewを最新として表示しない。
 live result v2は`project_id`、`/projects/<project_id>/`のproject固有URL、同じnamespace配下の`events_url`を返す。

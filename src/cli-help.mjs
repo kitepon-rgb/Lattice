@@ -45,7 +45,7 @@ Read commands:
   status [--json]
   verify [--plan <key>] [--json]
   snapshot --rebuild --plan <key>
-  gantt [--out <file>] [--scope live|all]  # 既定live: 完走した枝を畳む
+  gantt [--out <file>] [--scope live|all]  # 既定live: 完走した工程を図から除く（一覧には残る）
   gantt status [--out <file>]
   gantt serve --port <port> [--scope live|all]  # /projects/<project_id>/ をforeground配信
   phase status --plan <key>
