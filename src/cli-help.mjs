@@ -24,12 +24,14 @@ Commands:
   create --schema --json
   create --schema-version <2|3> --json
   compile --request <request.json>
+  compile --schema --json            # lattice.run_request.v1 の JSON Schema を出す
   verify --request <request.json> --plan <plan.json>
 `,
   run: `Usage: lattice run <command> [options]
 
 Commands:
   start --request <request.json> --executor <adapter>
+  start --schema --json              # lattice.run_request.v1 の JSON Schema を出す
   observe --run .lattice/runs/<id>
   status --run .lattice/runs/<id>
   resume --run .lattice/runs/<id>
@@ -97,9 +99,9 @@ registerはLATTICE_BRIDGE_REGISTRAR_SSH_HOSTとLATTICE_BRIDGE_REGISTRAR_SCRIPT�
 
 const SUBCOMMAND_USAGE = Object.freeze({
   'plan create': 'plan create --input <file> | --schema --json | --schema-version <2|3> --json',
-  'plan compile': 'plan compile --request <request.json>',
+  'plan compile': 'plan compile --request <request.json> | --schema --json',
   'plan verify': 'plan verify --request <request.json> --plan <plan.json>',
-  'run start': 'run start --request <request.json> --executor <adapter>',
+  'run start': 'run start --request <request.json> --executor <adapter> | --schema --json',
   'run observe': 'run observe --run .lattice/runs/<id>',
   'run status': 'run status --run .lattice/runs/<id>',
   'run resume': 'run resume --run .lattice/runs/<id>',

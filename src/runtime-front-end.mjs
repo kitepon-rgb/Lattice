@@ -6,6 +6,8 @@ import { portableSensorOutcome } from './sensor-adapter.mjs';
 import { compileSchedulabilityGraphV2 } from './schedulability-compiler-v2.mjs';
 import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
 import {
+  SENSOR_EXPECT_KINDS,
+  SENSOR_QUERY_OPERATIONS,
   selfDigest,
   validateRunRequest,
   validateRuntimeBoundaryManifest,
@@ -36,16 +38,10 @@ import {
  * portable outcome projectionのcanonical digestだけを入れる（Decision 10.4）。
  */
 
-const QUERY_OPERATIONS = Object.freeze([
-  'status',
-  'query',
-  'callers',
-  'callees',
-  'impact',
-  'affected',
-]);
+// 閉集合の正本はruntime-contracts。ここでは輸入して使う。
+const QUERY_OPERATIONS = SENSOR_QUERY_OPERATIONS;
 const STRUCTURE_OPERATIONS = new Set(['query', 'callers', 'callees', 'impact']);
-const EXPECT_KINDS = new Set(['symbol', 'path', 'affected']);
+const EXPECT_KINDS = new Set(SENSOR_EXPECT_KINDS);
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
 const STATE_KIND_MAP = Object.freeze({
   state: 'state',

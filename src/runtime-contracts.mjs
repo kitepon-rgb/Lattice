@@ -164,7 +164,7 @@ function unknownEntry(value) {
     && value.ref.length > 0;
 }
 
-const MANUAL_WITNESS_FIELDS = Object.freeze([
+export const MANUAL_WITNESS_FIELDS = Object.freeze([
   'owns',
   'reads',
   'writes',
@@ -175,18 +175,8 @@ const MANUAL_WITNESS_FIELDS = Object.freeze([
   'unknowns',
 ]);
 
-function manualWitnessEntry(value) {
-  return plainObject(value)
-    && exactRecord(value, MANUAL_WITNESS_FIELDS)
-    && boundedArray(value.owns, ownEntry)
-    && repoPathArray(value.reads)
-    && repoPathArray(value.writes, { allowPrefix: true })
-    && boundedArray(value.resources, identifier)
-    && boundedArray(value.state_effects, stateEffectEntry)
-    && plainObject(value.sensor_provenance)
-    && repoPathArray(value.affected_tests)
-    && boundedArray(value.unknowns, unknownEntry);
-}
+// manual witness entryの判定は`explainRunRequest`だけが所有する。
+// 同じ規則をbooleanと診断の二箇所へ持たないための単一正本化（ADR 0123）。
 
 function boundedArray(value, predicate, { min = 0, max = MAX_COLLECTION } = {}) {
   return Array.isArray(value)
@@ -231,43 +221,139 @@ const WITNESS_PROVENANCE = Object.freeze([
   'manual_state_effect',
 ]);
 
+export const RUN_REQUEST_FIELDS = Object.freeze([
+  'schema',
+  'request_id',
+  'repo',
+  'capacity',
+  'todos',
+  'manual_witness',
+  'sensor_query_set',
+  'executor_capability',
+  'claim_mode',
+  'request_digest',
+]);
+
+export const RUN_REQUEST_CLAIM_MODE = 'exact_minimum';
+
+/**
+ * `sensor_query_set.queries[].operation`のclosed set。
+ * runtime front-endはこの定数を輸入して使う（同じ閉集合を二箇所へ持たない）。
+ */
+export const SENSOR_QUERY_OPERATIONS = Object.freeze([
+  'status',
+  'query',
+  'callers',
+  'callees',
+  'impact',
+  'affected',
+]);
+
+/** `manual_witness[].sensor_provenance.queries[].expect.kind`のclosed set。 */
+export const SENSOR_EXPECT_KINDS = Object.freeze(['symbol', 'path', 'affected']);
+
+/** `sensor_provenance` entryのexpectを検査する（front-end adapter契約と同一規則）。 */
+function sensorExpect(value) {
+  if (!plainObject(value) || !SENSOR_EXPECT_KINDS.includes(value.kind)) return false;
+  if (value.kind === 'symbol') {
+    return exactRecord(value, ['kind', 'name', 'path'])
+      && typeof value.name === 'string' && value.name.length > 0
+      && repoRelativePath(value.path);
+  }
+  return exactRecord(value, ['kind', 'path']) && repoRelativePath(value.path);
+}
+
+/**
+ * `lattice.run_request.v1`の唯一の判定正本（ADR 0123）。
+ * 受理は`{ valid: true }`、拒否は最初の違反の`reason`と`path`を返す。
+ * `validateRunRequest`は本関数へ委譲するため、boolean判定と診断が乖離しない。
+ */
+export function explainRunRequest(value) {
+  const reject = (reason, at) => ({ valid: false, reason, path: at });
+  try {
+    canonicalizeArtifact(value);
+  } catch {
+    return reject('non_canonical_request_bytes', '');
+  }
+  if (!exactRecord(value, RUN_REQUEST_FIELDS)) return reject('unexpected_or_missing_top_level_keys', '');
+  if (value.schema !== 'lattice.run_request.v1') return reject('schema_mismatch', '/schema');
+  if (!identifier(value.request_id)) return reject('invalid_identifier', '/request_id');
+  if (!exactRecord(value.repo, ['base_sha', 'root_kind'])) return reject('unexpected_or_missing_keys', '/repo');
+  if (!gitSha(value.repo.base_sha)) return reject('invalid_git_sha', '/repo/base_sha');
+  if (!identifier(value.repo.root_kind)) return reject('invalid_identifier', '/repo/root_kind');
+  if (!exactRecord(value.capacity, ['executors'])) return reject('unexpected_or_missing_keys', '/capacity');
+  if (!positiveInteger(value.capacity.executors)) return reject('not_a_positive_integer', '/capacity/executors');
+  if (!Array.isArray(value.todos) || value.todos.length < 1 || value.todos.length > MAX_COLLECTION) {
+    return reject('bounded_collection_violation', '/todos');
+  }
+  for (const [index, todo] of value.todos.entries()) {
+    if (!exactRecord(todo, ['todo_id'])) return reject('unexpected_or_missing_keys', `/todos/${index}`);
+    if (!identifier(todo.todo_id)) return reject('invalid_identifier', `/todos/${index}/todo_id`);
+  }
+  const todoIds = value.todos.map((todo) => todo.todo_id);
+  if (new Set(todoIds).size !== todoIds.length) return reject('duplicate_todo_id', '/todos');
+  if (!plainObject(value.manual_witness)) return reject('not_an_object', '/manual_witness');
+  if (!exactRecord(value.manual_witness, todoIds)) {
+    return reject('manual_witness_keys_must_equal_todo_ids', '/manual_witness');
+  }
+  for (const todoId of todoIds) {
+    const witness = value.manual_witness[todoId];
+    const at = `/manual_witness/${todoId}`;
+    if (!plainObject(witness)) return reject('not_an_object', at);
+    if (!exactRecord(witness, MANUAL_WITNESS_FIELDS)) return reject('unexpected_or_missing_keys', at);
+    if (!boundedArray(witness.owns, ownEntry)) return reject('invalid_own_entries', `${at}/owns`);
+    if (!repoPathArray(witness.reads)) return reject('invalid_repo_relative_paths', `${at}/reads`);
+    if (!repoPathArray(witness.writes, { allowPrefix: true })) return reject('invalid_repo_relative_paths', `${at}/writes`);
+    if (!boundedArray(witness.resources, identifier)) return reject('invalid_identifier', `${at}/resources`);
+    if (!boundedArray(witness.state_effects, stateEffectEntry)) return reject('invalid_state_effect_entries', `${at}/state_effects`);
+    // sensor_provenanceもfront-end adapter契約のshapeまで検査する（ADR 0123）。
+    const provenanceAt = `${at}/sensor_provenance`;
+    if (!exactRecord(witness.sensor_provenance, ['queries'])) return reject('unexpected_or_missing_keys', provenanceAt);
+    if (!Array.isArray(witness.sensor_provenance.queries)
+      || witness.sensor_provenance.queries.length > MAX_COLLECTION) {
+      return reject('bounded_collection_violation', `${provenanceAt}/queries`);
+    }
+    for (const [index, entry] of witness.sensor_provenance.queries.entries()) {
+      const entryAt = `${provenanceAt}/queries/${index}`;
+      if (!exactRecord(entry, ['query_id', 'expect'])) return reject('unexpected_or_missing_keys', entryAt);
+      if (!identifier(entry.query_id)) return reject('invalid_identifier', `${entryAt}/query_id`);
+      if (!sensorExpect(entry.expect)) return reject('invalid_sensor_expect', `${entryAt}/expect`);
+    }
+    if (!repoPathArray(witness.affected_tests)) return reject('invalid_repo_relative_paths', `${at}/affected_tests`);
+    if (!boundedArray(witness.unknowns, unknownEntry)) return reject('invalid_unknown_entries', `${at}/unknowns`);
+  }
+  // sensor_query_set／executor_capabilityは、runtime front-endとrun startが実際に要求する
+  // shapeまで検査する。schemaで通ってから後段で落ちる契約分裂を残さない（ADR 0123）。
+  if (!exactRecord(value.sensor_query_set, ['queries'])) return reject('unexpected_or_missing_keys', '/sensor_query_set');
+  if (!Array.isArray(value.sensor_query_set.queries) || value.sensor_query_set.queries.length > MAX_COLLECTION) {
+    return reject('bounded_collection_violation', '/sensor_query_set/queries');
+  }
+  const queryIds = new Set();
+  for (const [index, query] of value.sensor_query_set.queries.entries()) {
+    const at = `/sensor_query_set/queries/${index}`;
+    const keys = plainObject(query) && Object.hasOwn(query, 'target')
+      ? ['id', 'operation', 'target'] : ['id', 'operation'];
+    if (!exactRecord(query, keys)) return reject('unexpected_or_missing_keys', at);
+    if (!identifier(query.id)) return reject('invalid_identifier', `${at}/id`);
+    if (!SENSOR_QUERY_OPERATIONS.includes(query.operation)) return reject('unknown_sensor_query_operation', `${at}/operation`);
+    if (keys.includes('target') && (typeof query.target !== 'string' || query.target.length === 0)) {
+      return reject('empty_query_target', `${at}/target`);
+    }
+    if (queryIds.has(query.id)) return reject('duplicate_query_id', `${at}/id`);
+    queryIds.add(query.id);
+  }
+  if (!exactRecord(value.executor_capability, ['adapters'])) return reject('unexpected_or_missing_keys', '/executor_capability');
+  if (!uniqueIdentifierArray(value.executor_capability.adapters, { min: 1 })) {
+    return reject('invalid_adapter_identifiers', '/executor_capability/adapters');
+  }
+  if (value.claim_mode !== RUN_REQUEST_CLAIM_MODE) return reject('claim_mode_must_be_exact_minimum', '/claim_mode');
+  if (!selfDigestValid(value, 'request_digest')) return reject('request_digest_mismatch', '/request_digest');
+  return { valid: true };
+}
+
 /** `lattice.run_request.v1`。manual witnessはTODOごとに完備でなければならない。 */
 export function validateRunRequest(value) {
-  return validateSafely(value, (request) => {
-    if (!exactRecord(request, [
-      'schema',
-      'request_id',
-      'repo',
-      'capacity',
-      'todos',
-      'manual_witness',
-      'sensor_query_set',
-      'executor_capability',
-      'claim_mode',
-      'request_digest',
-    ])
-      || request.schema !== 'lattice.run_request.v1'
-      || !identifier(request.request_id)
-      || !exactRecord(request.repo, ['base_sha', 'root_kind'])
-      || !gitSha(request.repo.base_sha)
-      || !identifier(request.repo.root_kind)
-      || !exactRecord(request.capacity, ['executors'])
-      || !positiveInteger(request.capacity.executors)
-      || !boundedArray(request.todos, (todo) => (
-        exactRecord(todo, ['todo_id']) && identifier(todo.todo_id)
-      ), { min: 1 })) {
-      return false;
-    }
-    const todoIds = request.todos.map((todo) => todo.todo_id);
-    if (new Set(todoIds).size !== todoIds.length) return false;
-    return plainObject(request.manual_witness)
-      && exactRecord(request.manual_witness, todoIds)
-      && Object.values(request.manual_witness).every(manualWitnessEntry)
-      && plainObject(request.sensor_query_set)
-      && plainObject(request.executor_capability)
-      && request.claim_mode === 'exact_minimum'
-      && selfDigestValid(request, 'request_digest');
-  });
+  return explainRunRequest(value).valid;
 }
 
 /**

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.executor_receipt.v1.schema.json",
+  "title": "lattice.executor_receipt.v1",
+  "description": "The receipt an executor returns for one dispatched packet. `packet_digest` is what attributes it to the packet it received.",
+  "$comment": "Runtime validation additionally enforces canonical JSON bytes and the self-digest rule for `receipt_digest`. Acceptance is decided by event order, not by the receipt's own claims: the binding is checked against the `executor_dispatched` / `epoch_rebound` event that recorded the handle, worktree and packet digest for that TODO.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "receipt_id",
+    "executor_handle",
+    "worktree_id",
+    "base_sha",
+    "plan_epoch",
+    "packet_digest",
+    "todo_id",
+    "checkpoint_digest",
+    "observed_diff",
+    "receipt_digest"
+  ],
+  "properties": {
+    "schema": { "const": "lattice.executor_receipt.v1" },
+    "receipt_id": { "$ref": "#/$defs/identifier" },
+    "executor_handle": { "$ref": "#/$defs/identifier" },
+    "worktree_id": { "$ref": "#/$defs/identifier" },
+    "base_sha": { "$ref": "#/$defs/gitSha" },
+    "plan_epoch": { "type": "integer", "minimum": 0 },
+    "packet_digest": {
+      "$ref": "#/$defs/digest",
+      "$comment": "Attribution to the received `executor_packet.v1`. This is the only link back to the dispatch."
+    },
+    "todo_id": {
+      "$ref": "#/$defs/identifier",
+      "$comment": "Carried through from `run_request.v1`. It is not qualified by any TODO store project/plan/revision identity, so a receipt alone does not prove which TODO store task it belongs to."
+    },
+    "checkpoint_digest": { "$ref": "#/$defs/digest" },
+    "observed_diff": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "change"],
+        "properties": {
+          "path": { "$ref": "#/$defs/repoRelativePath" },
+          "change": { "enum": ["added", "modified", "deleted"] }
+        }
+      }
+    },
+    "receipt_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$"
+    },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "repoRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))[^\\u0000-\\u001f\\u007f\\\\]+$"
+    }
+  }
+}

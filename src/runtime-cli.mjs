@@ -24,6 +24,7 @@ import {
   evidenceFromCollectedOutcomes,
 } from './runtime-front-end.mjs';
 import {
+  explainRunRequest,
   validateRunRequest,
   validateRuntimeBoundaryManifest,
   validateRuntimePlan,
@@ -247,10 +248,31 @@ function canonicalNow() {
   return new Date().toISOString();
 }
 
+/**
+ * 同梱の`lattice.run_request.v1` JSON Schemaをstdoutへ出す（ADR 0123）。
+ * hostがrequestを推測で組まずに済むよう、契約を配布物から直接取れるようにする。
+ */
+async function runRequestSchema({ stdout }) {
+  const schemaUrl = new URL('../docs/schemas/lattice.run_request.v1.schema.json', import.meta.url);
+  const schema = JSON.parse(await readFile(schemaUrl, 'utf8'));
+  if (schema?.title !== 'lattice.run_request.v1') {
+    throw new CliContractError('CONTRACT_VIOLATION', '同梱run_request schemaが不正');
+  }
+  stdout.write(`${JSON.stringify(schema)}\n`);
+  return 0;
+}
+
 async function loadRequest(requestPath) {
   const request = await readBoundedJson(requestPath, 'run request');
-  if (!validateRunRequest(request)) {
-    throw new CliContractError('INVALID_RUN_REQUEST', 'run_request.v1 contractを満たさない');
+  const verdict = explainRunRequest(request);
+  if (!verdict.valid) {
+    // 拒否理由と違反箇所を返す（ADR 0123）。TODO面と同じdiagnosabilityへ揃え、
+    // hostがschemaを推測せずにrequestを直せるようにする。
+    throw new CliContractError(
+      'INVALID_RUN_REQUEST',
+      'run_request.v1 contractを満たさない',
+      { reason: verdict.reason, path: verdict.path },
+    );
   }
   return request;
 }
@@ -2753,6 +2775,14 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
   }
   let action = null;
   if (argv.length === 4
+    && argv[0] === 'plan' && argv[1] === 'compile'
+    && argv[2] === '--schema' && argv[3] === '--json') {
+    action = () => runRequestSchema({ stdout });
+  } else if (argv.length === 4
+    && argv[0] === 'run' && argv[1] === 'start'
+    && argv[2] === '--schema' && argv[3] === '--json') {
+    action = () => runRequestSchema({ stdout });
+  } else if (argv.length === 4
     && argv[0] === 'plan' && argv[1] === 'compile' && argv[2] === '--request'
     && typeof argv[3] === 'string' && argv[3].length > 0) {
     action = () => planCompile({ requestPath: path.resolve(cwd, argv[3]), cwd, stdout });

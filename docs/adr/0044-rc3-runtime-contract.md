@@ -35,9 +35,15 @@ RC3は次の10 schemaを新規に所有する。RC2公開済みschema（`lattice
 RC2 artifact manifest系）は同名変更しない。全schemaはexact key、bounded collection、canonical serialization
 （sorted key・LF・UTF-8のJSON）、SHA-256 digestを持ち、未知field、欠落field、不正path、過大入力をfail closedにする。
 
+> **訂正（[ADR 0123](0123-runtime-contract-distribution-and-diagnosability.md)）**:
+> `run_request.v1`の`codegraph_query_set`は[ADR 0047](0047-codegraph-absorption-and-sensor-ownership.md)の
+> Codegraph吸収以後`sensor_query_set`である。`todos` entryは`todo_id`だけを受理し、`task_ref`と`scope`は
+> `executor_packet.v1`だけが持つ。`run_request.v1`・`executor_packet.v1`・`executor_receipt.v1`の正本は
+> 配布される`docs/schemas/*.schema.json`であり、以下の表ではない。
+
 | schema | 必須field（top-level） |
 |---|---|
-| `lattice.run_request.v1` | `schema` `request_id` `repo`（`base_sha`・`root_kind`） `capacity` `todos` `manual_witness` `codegraph_query_set` `executor_capability` `claim_mode` `request_digest` |
+| `lattice.run_request.v1` | `schema` `request_id` `repo`（`base_sha`・`root_kind`） `capacity` `todos` `manual_witness` `sensor_query_set` `executor_capability` `claim_mode` `request_digest` |
 | `lattice.boundary_manifest.v2` | `schema` `todo_id` `owns` `reads` `writes` `resources` `state_effects` `unknowns` `affected_tests` `graph_evidence` `witness_provenance` `manifest_digest` |
 | `lattice.runtime_plan.v1` | `schema` `plan_ref` `plan_epoch` `request_digest` `base_sha` `nodes` `precedence` `conflicts` `capacity` `manifest_digests` `claim` `predecessor_refs` `plan_digest` |
 | `lattice.run_event.v1` | `schema` `run_id` `sequence` `previous_digest` `kind` `actor` `plan_epoch` `subject` `payload` `recorded_at` `event_digest` |

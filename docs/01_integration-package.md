@@ -15,6 +15,9 @@
 - stdout=versioned JSONのみ・診断はstderr・exit 0/1/2契約・fail closed・暗黙provider fallbackなし
 - envelope schema（`plan_compile_result.v1`等8種）の所有は[ADR 0045 Decision 4](adr/0045-rc3-phase-gate-support.md)
 - failure envelopeは`lattice.cli_error.v2`へ統一済みで、optional `detail`を保持する。
+- request契約の取得は`plan compile --schema --json`か`run start --schema --json`
+  （[ADR 0123](adr/0123-runtime-contract-distribution-and-diagnosability.md)）。
+  `INVALID_RUN_REQUEST`は`detail`へ`{ reason, path }`を返す。
 
 ## 2. schema一覧
 
@@ -24,6 +27,9 @@
 - RC2公開済み継承: `lattice.boundary_verdict.v2`・`lattice.plan_graph.v2`・RC2 artifact manifest系（同名変更禁止）
 - 共通規律: exact key・bounded collection・canonical serialization・SHA-256 digest・fail closed。
   field追加・意味変更はversionを上げ新ADRで裁定（in-place拡張禁止）
+- 配布されるJSON Schema: `plan_create_input` v1〜v3に加え、`run_request.v1`・`executor_packet.v1`・
+  `executor_receipt.v1`を`docs/schemas/`で同梱する。この3 schemaの正本は配布ファイルであり、
+  ADR 0044 Decision 2の表ではない（ADR 0123）。
 - TODO工程: 現行authoringは`lattice.plan_create_input.v3`、planは`lattice.todo_plan.v5`、
   eventは`lattice.todo_event.v4`、snapshotは`lattice.todo_snapshot.v2`、Phase revisionは
   `lattice.phase_todo_revision.v2`、cross-plan revisionは`lattice.todo_revision_set.v3`、

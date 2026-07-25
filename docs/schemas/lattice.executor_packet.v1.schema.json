@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.executor_packet.v1.schema.json",
+  "title": "lattice.executor_packet.v1",
+  "description": "The single context packet issued at dispatch. It is the machine record of the context an executor received.",
+  "$comment": "Runtime validation additionally enforces canonical JSON bytes, the self-digest rule for `packet_digest`, and that `context_content_digest` equals the SHA-256 of the canonical JSON projection of exactly {todo_id, task_ref, scope, base_sha, verifier_refs, forbidden_operations} — plan attribution fields are excluded so that an epoch rebind is provably content-preserving.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "packet_id",
+    "todo_id",
+    "task_ref",
+    "scope",
+    "base_sha",
+    "plan_ref",
+    "plan_epoch",
+    "verifier_refs",
+    "forbidden_operations",
+    "context_content_digest",
+    "packet_digest"
+  ],
+  "properties": {
+    "schema": { "const": "lattice.executor_packet.v1" },
+    "packet_id": { "$ref": "#/$defs/identifier" },
+    "todo_id": {
+      "$ref": "#/$defs/identifier",
+      "$comment": "Carried through from `run_request.v1`. It is not qualified by any TODO store project/plan/revision identity."
+    },
+    "task_ref": { "$ref": "#/$defs/identifier" },
+    "scope": { "type": "object" },
+    "base_sha": { "$ref": "#/$defs/gitSha" },
+    "plan_ref": { "$ref": "#/$defs/identifier" },
+    "plan_epoch": { "type": "integer", "minimum": 0 },
+    "verifier_refs": {
+      "type": "array",
+      "maxItems": 256,
+      "items": { "type": "string" }
+    },
+    "forbidden_operations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": { "type": "string" }
+    },
+    "context_content_digest": { "$ref": "#/$defs/digest" },
+    "packet_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$"
+    },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+  }
+}
