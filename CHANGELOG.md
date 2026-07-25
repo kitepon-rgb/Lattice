@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.27 — 2026-07-25
+
+- manifest v2へhistorical importで新規planを追加する際、memberの`active_revision_digest`を
+  plan digestへ結合するようにした。従来はdescriptorから必須fieldが欠落し、
+  `lattice todo migrate`が`import activation manifest invalid`で停止していた。
+- manifest v2 storeへの追加と再読込を回帰testで固定した。
+
 ## 0.12.20 — 2026-07-25
 
 - 右ペイン「全工程」のplan並びを、動いているplanが上、完走したplanが下になるようにした。従来はstoreのmember順で並べていたため両者が混ざり、実storeでは9plan中ただ1つの稼働中planが4番目に埋もれていた。動いているplanは最終活動の新しい順、完走planは古い順で並べ、plan内のToDo順は登録順のまま保つ。
