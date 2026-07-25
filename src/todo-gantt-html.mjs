@@ -6,7 +6,7 @@ import {
 } from './todo-markdown-renderer.mjs';
 import { renderTodoGanttSvg, TODO_GANTT_STATUS_PRESENTATION } from './todo-gantt-svg.mjs';
 
-export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v8';
+export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v9';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
 export const TODO_GANTT_HTML_MAX_BYTES = 24 * 1024 * 1024;
 
@@ -126,7 +126,23 @@ function normalizeSections(readModel, narratives, anchorOutcomes) {
   return { sections: result, proseBytes };
 }
 
-function renderTaskIndex(sections, lookup) {
+/** task node key -> the fold node standing in for it, empty when nothing folded. */
+function foldIndex(layout) {
+  return new Map((layout?.folded ?? []).map((entry) => [refKey(entry.task), refKey(entry.fold)]));
+}
+
+function renderTaskIndexEntry(section, lookup, folds) {
+  const key = refKey(section.ref);
+  const status = DOCUMENT_STATUS[section.state.status] ?? { mark: '?', label: '状態不明' };
+  const blockedReason = section.state.status === 'blocked'
+    ? `<span class="task-index-blocked-reason">— ${escapeHtmlText(section.state.blocked_reason ?? '理由未記録')}</span>` : '';
+  // A folded ToDo keeps its row here — the index is the complete list — but
+  // selecting it points at the fold node that actually stands on the diagram.
+  const selectKey = folds.get(key) ?? key;
+  return `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(selectKey)}"><span class="task-index-status status-${escapeHtmlAttribute(section.state.status)}" role="img" aria-label="${escapeHtmlAttribute(status.label)}">${escapeHtmlText(status.mark)}</span><span class="task-index-reference">${escapeHtmlText(taskReference(section, lookup))}</span><strong>${escapeHtmlText(section.task.title)}</strong>${blockedReason}</button></li>`;
+}
+
+function renderTaskIndex(sections, lookup, folds = new Map()) {
   const plans = [];
   for (const section of sections) {
     let plan = plans.at(-1);
@@ -136,13 +152,15 @@ function renderTaskIndex(sections, lookup) {
     }
     plan.tasks.push(section);
   }
-  return plans.map((plan) => `<section class="task-index-plan"><h2><code>${escapeHtmlText(plan.planKey)}</code></h2><ol class="task-index-list">${plan.tasks.map((section) => {
-    const key = refKey(section.ref);
-    const status = DOCUMENT_STATUS[section.state.status] ?? { mark: '?', label: '状態不明' };
-    const blockedReason = section.state.status === 'blocked'
-      ? `<span class="task-index-blocked-reason">— ${escapeHtmlText(section.state.blocked_reason ?? '理由未記録')}</span>` : '';
-    return `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(key)}"><span class="task-index-status status-${escapeHtmlAttribute(section.state.status)}" role="img" aria-label="${escapeHtmlAttribute(status.label)}">${escapeHtmlText(status.mark)}</span><span class="task-index-reference">${escapeHtmlText(taskReference(section, lookup))}</span><strong>${escapeHtmlText(section.task.title)}</strong>${blockedReason}</button></li>`;
-  }).join('')}</ol></section>`).join('');
+  return plans.map((plan) => {
+    const drawn = plan.tasks.filter((section) => !folds.has(refKey(section.ref)));
+    const folded = plan.tasks.filter((section) => folds.has(refKey(section.ref)));
+    const drawnList = drawn.length === 0 ? ''
+      : `<ol class="task-index-list">${drawn.map((section) => renderTaskIndexEntry(section, lookup, folds)).join('')}</ol>`;
+    const foldedList = folded.length === 0 ? ''
+      : `<details class="task-index-folded"><summary>完走済みとして畳んだ工程 ${folded.length}件</summary><ol class="task-index-list">${folded.map((section) => renderTaskIndexEntry(section, lookup, folds)).join('')}</ol></details>`;
+    return `<section class="task-index-plan"><h2><code>${escapeHtmlText(plan.planKey)}</code></h2>${drawnList}${foldedList}</section>`;
+  }).join('');
 }
 
 function presentationLookup(presentation) {
@@ -240,14 +258,19 @@ function renderRightPane(sections, layout, presentation, readModel) {
       : incoming.get(key).length === 0 ? '<p class="readiness-note">登録済みの前提工程はありません。図だけではdispatch可否を判定しません。</p>' : '';
     return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。')}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。')}</section><p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;
   }).join('');
-  const taskIndex = renderTaskIndex(sections, lookup);
+  const taskIndex = renderTaskIndex(sections, lookup, foldIndex(layout));
   return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>元Markdown全文</button></div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を、現在の状態とともに登録順で表示しています。</p>${taskIndex}</section></div>`;
 }
 
-function renderDiagramLegend(presentation) {
+function renderDiagramLegend(presentation, layout = null) {
   const categories = (presentation?.lanes ?? []).map((lane) => `<div class="category-entry"><dt><code>${escapeHtmlText(lane.lane)}</code> — ${escapeHtmlText(lane.name)}</dt><dd>${escapeHtmlText(lane.description)}</dd></div>`).join('');
   const categoryDetails = categories === '' ? '' : `<details class="category-legend"><summary>カテゴリ説明</summary><dl>${categories}</dl></details>`;
-  return `<div class="diagram-legend" aria-label="工程図の凡例"><span>${statusMarkup('pending', ' 未着手')}</span><span>${statusMarkup('in-progress', ' 作業中')}</span><span>${statusMarkup('done', ' 完了')}</span><span>${statusMarkup('blocked', ' ブロック中')}</span><span>破線枠: ready frontier（同時dispatch推奨）</span><span>太線: 構造上の最長依存鎖</span><span>半円: 非接触の線交差</span><span>黒丸: 論理上の合流</span>${categoryDetails}<p>縦方向は時間ではなく、登録済み依存関係による工程段階です。ready frontierは全件同時dispatchが既定です。未登録の資源・host制約によりsubsetだけを選ぶ場合は理由を記録します。構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・納期を表しません。</p></div>`;
+  const foldedCount = layout?.scope?.folded_task_count ?? 0;
+  const foldChip = foldedCount === 0 ? ''
+    : `<span class="fold-chip">▣ 完走済み ${foldedCount}件を畳んで表示中</span>`;
+  const foldNote = foldedCount === 0 ? ''
+    : `<p class="fold-note">後続に作業中・未着手が残っていない完了工程を、${layout.scope.fold_node_count}個の畳み込みノードへまとめています。生きた工程とその直接の前提工程は必ず展開したままです。全件を描くには <code>lattice todo gantt --scope all</code> を実行してください。総数・進捗・最長依存鎖は畳み込み前の全工程で数えています。</p>`;
+  return `<div class="diagram-legend" aria-label="工程図の凡例"><span>${statusMarkup('pending', ' 未着手')}</span><span>${statusMarkup('in-progress', ' 作業中')}</span><span>${statusMarkup('done', ' 完了')}</span><span>${statusMarkup('blocked', ' ブロック中')}</span><span>破線枠: ready frontier（同時dispatch推奨）</span><span>太線: 構造上の最長依存鎖</span><span>半円: 非接触の線交差</span><span>黒丸: 論理上の合流</span>${foldChip}${categoryDetails}${foldNote}<p>縦方向は時間ではなく、登録済み依存関係による工程段階です。ready frontierは全件同時dispatchが既定です。未登録の資源・host制約によりsubsetだけを選ぶ場合は理由を記録します。構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・納期を表しません。</p></div>`;
 }
 
 const CSS = `
@@ -310,6 +333,12 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .todo-node .node-title{fill:var(--text-primary);font-size:13.5px;font-weight:400}
 .todo-node .node-title-line{font-size:13.5px;font-weight:400}
 .todo-node .status-mark{fill:var(--text-secondary);font-size:13.5px;font-weight:400}
+.folded-node .node-surface{fill:var(--surface-2);stroke:var(--border);stroke-width:2;stroke-dasharray:none}
+.folded-node .node-title,.folded-node .node-meta{fill:var(--text-secondary)}
+.fold-chip{padding:2px 8px;border:1px solid var(--border);border-radius:9999px;background:var(--surface-2);color:var(--text-primary);font-weight:650}
+.fold-note{flex:1 0 100%;margin:4px 0 0;color:var(--text-secondary);font-weight:400}
+.task-index-folded{margin-top:8px}
+.task-index-folded>summary{cursor:pointer;padding:6px 0;color:var(--text-secondary);font-weight:600}
 .status-in-progress .node-surface{fill:var(--surface-1);stroke:var(--accent);stroke-width:2}
 .status-in-progress .status-mark{fill:var(--accent)}
 .status-in-progress .status-bar{stroke:var(--accent);stroke-width:2;stroke-linecap:round}
@@ -405,7 +434,7 @@ export function renderTodoGanttHtml({
     metadata,
     presentation,
   });
-  const html = `<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lattice — ${escapeHtmlText(displayName)} 依存工程図</title><style>${CSS}</style></head><body data-gantt-root data-view-state="overview"><main class="shell"><section class="gantt-pane" aria-label="${escapeHtmlAttribute(displayName)} 依存工程図"><div class="diagram-toolbar" role="group" aria-label="図のズーム"><strong class="project-heading">${escapeHtmlText(displayName)} 依存工程図</strong><button type="button" data-zoom-action="out" aria-label="縮小">−</button><button type="button" data-zoom-action="reset">等倍</button><button type="button" data-zoom-action="in" aria-label="拡大">＋</button><button type="button" data-zoom-action="fit">全体表示</button><output class="zoom-readout" data-zoom-output aria-live="polite">100%</output><span class="diagram-note">縦=依存段階（時間ではない）</span></div>${renderDiagramLegend(presentation)}<div class="diagram-scroll" data-diagram-scroll tabindex="0" aria-label="縦方向を主にスクロール可能な依存工程図">${svg}</div></section><div class="pane-divider" data-pane-divider aria-hidden="true"></div><aside class="narrative-pane" aria-label="選択工程の詳細と全工程一覧">${rightPane}</aside></main><script type="application/json" id="todo-gantt-data">${staticData}</script><script>${CONTROLLER}</script></body></html>`;
+  const html = `<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lattice — ${escapeHtmlText(displayName)} 依存工程図</title><style>${CSS}</style></head><body data-gantt-root data-view-state="overview"><main class="shell"><section class="gantt-pane" aria-label="${escapeHtmlAttribute(displayName)} 依存工程図"><div class="diagram-toolbar" role="group" aria-label="図のズーム"><strong class="project-heading">${escapeHtmlText(displayName)} 依存工程図</strong><button type="button" data-zoom-action="out" aria-label="縮小">−</button><button type="button" data-zoom-action="reset">等倍</button><button type="button" data-zoom-action="in" aria-label="拡大">＋</button><button type="button" data-zoom-action="fit">全体表示</button><output class="zoom-readout" data-zoom-output aria-live="polite">100%</output><span class="diagram-note">縦=依存段階（時間ではない）</span></div>${renderDiagramLegend(presentation, layout)}<div class="diagram-scroll" data-diagram-scroll tabindex="0" aria-label="縦方向を主にスクロール可能な依存工程図">${svg}</div></section><div class="pane-divider" data-pane-divider aria-hidden="true"></div><aside class="narrative-pane" aria-label="選択工程の詳細と全工程一覧">${rightPane}</aside></main><script type="application/json" id="todo-gantt-data">${staticData}</script><script>${CONTROLLER}</script></body></html>`;
   const htmlBytes = Buffer.byteLength(html, 'utf8');
   if (htmlBytes > TODO_GANTT_HTML_MAX_BYTES) {
     throw new TodoGanttRenderError('TODO_SCALE_EXCEEDED', 'todo gantt HTML limit exceeded', {

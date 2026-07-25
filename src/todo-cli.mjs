@@ -20,6 +20,7 @@ import { projectTodoChainV1 } from './todo-chain.mjs';
 import { ensureTodoDashboardActivity } from './todo-dashboard-registry.mjs';
 import { resolveProjectIdentity } from './project-identity.mjs';
 import { layoutTodoGantt } from './todo-gantt-layout.mjs';
+import { TODO_GANTT_SCOPES } from './todo-gantt-scope.mjs';
 import { loadTodoGanttPresentation } from './todo-gantt-presentation.mjs';
 import { startTodoGanttLiveServer } from './todo-gantt-live.mjs';
 import {
@@ -55,6 +56,7 @@ const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_REF = '.lattice/generated/gantt.html';
 const GANTT_DESCRIPTOR_SUFFIX = '.status.json';
 const MAX_GANTT_DESCRIPTOR_BYTES = 65_536;
+const DEFAULT_GANTT_SCOPE = 'live';
 const MAX_MIGRATION_INPUT_BYTES = 8_388_608;
 const ACTOR_ENV_KEYS = Object.freeze([
   'LATTICE_TODO_ACTOR_HOST',
@@ -596,15 +598,19 @@ function ganttDescriptorRef(outputRef) {
   return `${outputRef}${GANTT_DESCRIPTOR_SUFFIX}`;
 }
 
+// v2 records the scope the artifact was drawn at. Without it `gantt status`
+// would re-render at the default scope and report a `--scope all` artifact as
+// stale even though nothing in the store had moved.
 function validateGanttArtifactDescriptor(value) {
   return exactRecord(value, [
     'schema', 'project_id', 'output_ref', 'manifest_digest', 'renderer_version',
-    'html_digest', 'artifact_digest',
-  ]) && value.schema === 'lattice.todo_gantt_artifact.v1'
+    'scope', 'html_digest', 'artifact_digest',
+  ]) && value.schema === 'lattice.todo_gantt_artifact.v2'
     && isTodoIdentifier(value.project_id) && isTodoRef(value.output_ref)
     && isTodoDigest(value.manifest_digest)
     && typeof value.renderer_version === 'string'
     && /^lattice\.todo_gantt_renderer\.v[1-9][0-9]*$/u.test(value.renderer_version)
+    && TODO_GANTT_SCOPES.includes(value.scope)
     && isTodoDigest(value.html_digest) && isTodoDigest(value.artifact_digest)
     && value.artifact_digest === todoSelfDigest(value, 'artifact_digest');
 }
@@ -636,6 +642,7 @@ function parseGanttDescriptor(bytes, descriptorRef) {
 
 export async function renderTodoGanttForProject({
   repoRoot, stable = false, displayName = null, env = process.env, readModel = null,
+  scope = DEFAULT_GANTT_SCOPE,
 }) {
   const store = readModel
     ?? (stable ? await readTodoStoreStable({ repoRoot }) : await readTodoStore({ repoRoot }));
@@ -645,7 +652,7 @@ export async function renderTodoGanttForProject({
   const presentation = await loadTodoGanttPresentation({ repoRoot, readModel: store });
   const topology = mergedTopology(store);
   const chain = projectTodoChainV1(topology);
-  const layout = layoutTodoGantt(store, chain);
+  const layout = layoutTodoGantt(store, chain, { scope });
   const narrative = await loadNarratives(store, repoRoot);
   const anchorOutcomes = verifyNarrativeAnchors({
     readModel: store,
@@ -673,6 +680,7 @@ export async function renderTodoGanttForProject({
     layout_digest: digestTodoArtifact(layout),
     renderer_version: TODO_GANTT_RENDERER_VERSION,
     project_display_name: identity.displayName,
+    folded_task_count: layout.scope.folded_task_count,
   };
   const rendered = renderTodoGanttHtml({
     readModel: store,
@@ -685,12 +693,14 @@ export async function renderTodoGanttForProject({
   return { store, metadata, memberBindings, rendered };
 }
 
-async function gantt({ repoRoot, outputRef, env }) {
-  const { store, metadata, memberBindings, rendered } = await renderTodoGanttForProject({ repoRoot, env });
+async function gantt({ repoRoot, outputRef, env, scope = DEFAULT_GANTT_SCOPE }) {
+  const { store, metadata, memberBindings, rendered } = await renderTodoGanttForProject({
+    repoRoot, env, scope,
+  });
   await atomicWriteOutput(repoRoot, outputRef, rendered.html);
-  const descriptor = { schema: 'lattice.todo_gantt_artifact.v1', project_id: store.project_id,
+  const descriptor = { schema: 'lattice.todo_gantt_artifact.v2', project_id: store.project_id,
     output_ref: outputRef, manifest_digest: metadata.manifest_digest,
-    renderer_version: TODO_GANTT_RENDERER_VERSION, html_digest: rendered.html_digest,
+    renderer_version: TODO_GANTT_RENDERER_VERSION, scope, html_digest: rendered.html_digest,
     artifact_digest: '' };
   descriptor.artifact_digest = todoSelfDigest(descriptor, 'artifact_digest');
   await atomicWriteOutput(repoRoot, ganttDescriptorRef(outputRef),
@@ -699,6 +709,8 @@ async function gantt({ repoRoot, outputRef, env }) {
     schema: 'lattice.todo_gantt_result.v1',
     project_id: store.project_id,
     output_ref: outputRef,
+    scope,
+    folded_task_count: metadata.folded_task_count,
     manifest_digest: metadata.manifest_digest,
     member_bindings: memberBindings,
     narrative_bindings_digest: metadata.narrative_bindings_digest,
@@ -727,7 +739,7 @@ async function ganttStatus({ repoRoot, outputRef, env }) {
     const result = { schema: 'lattice.todo_gantt_status_result.v1', project_id: store.project_id,
       output_ref: outputRef, descriptor_ref: descriptorRef, artifact_status: 'missing',
       current_manifest_digest: store.manifest.manifest_digest, artifact_manifest_digest: null,
-      html_digest: null, renderer_version: null, result_digest: '' };
+      html_digest: null, renderer_version: null, scope: null, result_digest: '' };
     result.result_digest = todoSelfDigest(result, 'result_digest');
     return result;
   }
@@ -737,7 +749,9 @@ async function ganttStatus({ repoRoot, outputRef, env }) {
     throw new TodoStoreError('GANTT_ARTIFACT_INVALID', 'artifact_digest_mismatch', undefined,
       { output_ref: outputRef, descriptor_ref: descriptorRef });
   }
-  const current = await renderTodoGanttForProject({ repoRoot, env });
+  // Re-render at the artifact's own scope: comparing a `--scope all` artifact
+  // against a default-scope render would report a false `stale`.
+  const current = await renderTodoGanttForProject({ repoRoot, env, scope: descriptor.scope });
   if (descriptor.project_id !== current.store.project_id) {
     throw new TodoStoreError('GANTT_ARTIFACT_INVALID', 'artifact_project_mismatch', undefined,
       { output_ref: outputRef });
@@ -749,12 +763,12 @@ async function ganttStatus({ repoRoot, outputRef, env }) {
     project_id: current.store.project_id, output_ref: outputRef, descriptor_ref: descriptorRef,
     artifact_status: artifactStatus, current_manifest_digest: current.metadata.manifest_digest,
     artifact_manifest_digest: descriptor.manifest_digest, html_digest: descriptor.html_digest,
-    renderer_version: descriptor.renderer_version, result_digest: '' };
+    renderer_version: descriptor.renderer_version, scope: descriptor.scope, result_digest: '' };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
 }
 
-async function serveGantt({ repoRoot, port, stdout, env }) {
+async function serveGantt({ repoRoot, port, stdout, env, scope = DEFAULT_GANTT_SCOPE }) {
   const initialStore = await readTodoStoreStable({ repoRoot });
   const identity = await resolveProjectIdentity({ repoRoot, projectId: initialStore.project_id, env });
   const live = await startTodoGanttLiveServer({
@@ -763,7 +777,7 @@ async function serveGantt({ repoRoot, port, stdout, env }) {
     port,
     render: async () => {
       const { rendered, metadata } = await renderTodoGanttForProject({
-        repoRoot, stable: true, displayName: identity.displayName,
+        repoRoot, stable: true, displayName: identity.displayName, scope,
       });
       return { html: rendered.html, head_digest: metadata.manifest_digest };
     },
@@ -919,9 +933,15 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     action = (repoRoot) => rebuildSnapshot({ repoRoot, planKey: argv[3] });
   } else if (argv.length === 1 && argv[0] === 'gantt') {
     action = (repoRoot) => gantt({ repoRoot, outputRef: DEFAULT_GANTT_REF, env });
+  } else if (argv.length === 3 && argv[0] === 'gantt' && argv[1] === '--scope'
+    && TODO_GANTT_SCOPES.includes(argv[2])) {
+    action = (repoRoot) => gantt({ repoRoot, outputRef: DEFAULT_GANTT_REF, env, scope: argv[2] });
   } else if (argv.length === 3 && argv[0] === 'gantt' && argv[1] === '--out'
     && isTodoRef(argv[2])) {
     action = (repoRoot) => gantt({ repoRoot, outputRef: argv[2], env });
+  } else if (argv.length === 5 && argv[0] === 'gantt' && argv[1] === '--out'
+    && isTodoRef(argv[2]) && argv[3] === '--scope' && TODO_GANTT_SCOPES.includes(argv[4])) {
+    action = (repoRoot) => gantt({ repoRoot, outputRef: argv[2], env, scope: argv[4] });
   } else if (argv.length === 2 && argv[0] === 'gantt' && argv[1] === 'status') {
     action = (repoRoot) => ganttStatus({ repoRoot, outputRef: DEFAULT_GANTT_REF, env });
   } else if (argv.length === 4 && argv[0] === 'gantt' && argv[1] === 'status'
@@ -931,6 +951,13 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[2] === '--port' && /^(?:0|[1-9][0-9]{0,4})$/u.test(argv[3])
     && Number(argv[3]) <= 65_535) {
     action = (repoRoot) => serveGantt({ repoRoot, port: Number(argv[3]), stdout, env });
+  } else if (argv.length === 6 && argv[0] === 'gantt' && argv[1] === 'serve'
+    && argv[2] === '--port' && /^(?:0|[1-9][0-9]{0,4})$/u.test(argv[3])
+    && Number(argv[3]) <= 65_535 && argv[4] === '--scope'
+    && TODO_GANTT_SCOPES.includes(argv[5])) {
+    action = (repoRoot) => serveGantt({
+      repoRoot, port: Number(argv[3]), stdout, env, scope: argv[5],
+    });
   } else if (argv.length === 3 && argv[0] === 'migrate' && argv[1] === '--input'
     && isTodoRef(argv[2])) {
     action = (repoRoot) => migrate({ repoRoot, inputRef: argv[2] });

@@ -214,13 +214,14 @@ test('small real store E2E generates the default self-contained gantt and exact 
   assert.equal(execution.stderr, '');
   const result = JSON.parse(execution.stdout);
   assert.deepEqual(Object.keys(result), [
-    'schema', 'project_id', 'output_ref', 'manifest_digest', 'member_bindings',
+    'schema', 'project_id', 'output_ref', 'scope', 'folded_task_count', 'manifest_digest',
+    'member_bindings',
     'narrative_bindings_digest', 'chain_digest', 'layout_digest', 'renderer_version',
     'html_digest', 'result_digest',
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v8');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v9');
   const generatedHtml = await readFile(path.join(root, '.lattice', 'generated', 'gantt.html'), 'utf8');
   assert.match(generatedHtml, /<title>Lattice — Fixture Project 依存工程図<\/title>/u);
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
@@ -293,7 +294,8 @@ test('gantt statusはmissing/current/staleを区別しartifact改竄をtyped拒�
   assert.equal(current.current_manifest_digest, current.artifact_manifest_digest);
   assert.equal(current.result_digest, todoSelfDigest(current, 'result_digest'));
   const descriptor = JSON.parse(await readFile(path.join(root, current.descriptor_ref), 'utf8'));
-  assert.equal(descriptor.schema, 'lattice.todo_gantt_artifact.v1');
+  assert.equal(descriptor.schema, 'lattice.todo_gantt_artifact.v2');
+  assert.equal(descriptor.scope, 'live');
   assert.equal(descriptor.html_digest, current.html_digest);
   assert.equal(descriptor.artifact_digest, todoSelfDigest(descriptor, 'artifact_digest'));
 
@@ -333,7 +335,8 @@ test('v2 anchor成立のCLI ganttはoutcomeをbinding digestと行内markの両�
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
   assert.deepEqual(Object.keys(result), [
-    'schema', 'project_id', 'output_ref', 'manifest_digest', 'member_bindings',
+    'schema', 'project_id', 'output_ref', 'scope', 'folded_task_count', 'manifest_digest',
+    'member_bindings',
     'narrative_bindings_digest', 'chain_digest', 'layout_digest', 'renderer_version',
     'html_digest', 'result_digest',
   ]);
@@ -363,7 +366,7 @@ test('real store smoke draws every edge and emits readable nodes plus named cate
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v8');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v9');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);

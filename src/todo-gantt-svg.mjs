@@ -140,28 +140,39 @@ function presentationMaps(presentation) {
 function renderNode(node, maps) {
   if (!node.visible || node.geometry === null) return '';
   const { x, y, width, height } = node.geometry;
+  const fold = node.fold ?? null;
   const classes = ['todo-node', STATUS_CLASSES[node.status] ?? 'status-unknown'];
+  if (fold !== null) classes.push('folded-node');
   if (node.visibility.longest_dependency_chain) classes.push('longest-chain-node');
   if (node.visibility.active) classes.push('active-node');
   if (node.visibility.next_ready) classes.push('next-ready-node');
   if (node.visibility.selected) classes.push('selected-node');
   const key = nodeKey(node.ref);
   const nodeLaneKey = laneKey(node.ref.plan_key, node.lane);
-  const status = TODO_GANTT_STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' };
+  const status = fold === null
+    ? TODO_GANTT_STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' }
+    : { mark: '▣', label: '完走済み（畳み込み）' };
   const lane = maps.lanes.get(nodeLaneKey);
-  const laneLabel = lane === undefined ? node.lane : `${node.lane}、${lane.name}`;
+  const laneLabel = fold === null
+    ? (lane === undefined ? node.lane : `${node.lane}、${lane.name}`)
+    : fold.lanes.join('、');
   const taskNumber = maps.taskNumbers.get(key);
-  const visibleReference = taskNumber === undefined ? `ID ${node.ref.task_id}` : `工程 ${taskNumber.display_number}`;
-  const spokenReference = taskNumber === undefined ? `ID ${node.ref.task_id}` : `工程${taskNumber.display_number}`;
+  const visibleReference = fold !== null ? `${fold.task_count}工程`
+    : taskNumber === undefined ? `ID ${node.ref.task_id}` : `工程 ${taskNumber.display_number}`;
+  const spokenReference = fold !== null ? `${fold.task_count}工程の畳み込み`
+    : taskNumber === undefined ? `ID ${node.ref.task_id}` : `工程${taskNumber.display_number}`;
   const readyLabel = node.visibility.next_ready ? '。ready frontierの同時dispatch候補' : '';
-  const ariaLabel = `${spokenReference}。${status.label}。${laneLabel}。${node.title}。正規ID ${node.ref.plan_key}/${node.ref.task_id}${readyLabel}`;
+  const identity = fold === null
+    ? `正規ID ${node.ref.plan_key}/${node.ref.task_id}`
+    : `${node.ref.plan_key}の完走済み${fold.task_count}工程をまとめたノード。全件を描くには --scope all`;
+  const ariaLabel = `${spokenReference}。${status.label}。${laneLabel}。${node.title}。${identity}${readyLabel}`;
   const statusBar = node.status === 'in-progress'
     ? `<line class="status-bar" x1="${x + 5}" y1="${y + 6}" x2="${x + 5}" y2="${y + height - 6}"></line>` : '';
   const titleLines = wrapLabel(node.title);
   const titleMarkup = titleLines.map((line, index) => `<tspan x="${x + 10}" dy="${index === 0 ? 0 : 17}" class="node-title-line">${escapeSvgText(line)}</tspan>`).join('');
   const taskNumberAttributes = taskNumber === undefined ? ''
     : ` data-task-number="${escapeSvgAttribute(taskNumber.display_number)}" data-task-number-normalized="${escapeSvgAttribute(taskNumber.normalized_number)}" data-task-number-globally-unique="${taskNumber.globally_unique ? 'true' : 'false'}"`;
-  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" data-lane-key="${escapeSvgAttribute(nodeLaneKey)}" data-project-id="${escapeSvgAttribute(node.ref.project_id)}" data-plan-key="${escapeSvgAttribute(node.ref.plan_key)}" data-task-id="${escapeSvgAttribute(node.ref.task_id)}"${taskNumberAttributes} tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(ariaLabel)}"><rect class="node-surface" x="${x}" y="${y}" width="${width}" height="${height}" rx="4"></rect>${statusBar}<text class="status-mark" x="${x + 10}" y="${y + 21}">${escapeSvgText(status.mark)}</text><text class="node-meta" x="${x + 34}" y="${y + 20}">${escapeSvgText(`${status.label} · ${visibleReference}`)}</text><text class="node-title" x="${x + 10}" y="${y + 42}">${titleMarkup}</text><title>${escapeSvgText(`${spokenReference}: ${node.title} — ${status.label} — ${laneLabel} — 正規ID ${node.ref.plan_key}/${node.ref.task_id}`)}</title></g>`;
+  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" data-lane-key="${escapeSvgAttribute(nodeLaneKey)}" data-project-id="${escapeSvgAttribute(node.ref.project_id)}" data-plan-key="${escapeSvgAttribute(node.ref.plan_key)}" data-task-id="${escapeSvgAttribute(node.ref.task_id)}"${taskNumberAttributes} tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(ariaLabel)}"><rect class="node-surface" x="${x}" y="${y}" width="${width}" height="${height}" rx="4"></rect>${statusBar}<text class="status-mark" x="${x + 10}" y="${y + 21}">${escapeSvgText(status.mark)}</text><text class="node-meta" x="${x + 34}" y="${y + 20}">${escapeSvgText(`${status.label} · ${visibleReference}`)}</text><text class="node-title" x="${x + 10}" y="${y + 42}">${titleMarkup}</text><title>${escapeSvgText(`${spokenReference}: ${node.title} — ${status.label} — ${laneLabel} — ${identity}`)}</title></g>`;
 }
 
 function summaryLabel(value, maximum = 34) {

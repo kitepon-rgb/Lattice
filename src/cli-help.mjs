@@ -45,9 +45,9 @@ Read commands:
   status [--json]
   verify [--plan <key>] [--json]
   snapshot --rebuild --plan <key>
-  gantt [--out <file>]
+  gantt [--out <file>] [--scope live|all]  # 既定live: 完走した枝を畳む
   gantt status [--out <file>]
-  gantt serve --port <port>  # /projects/<project_id>/ をforeground配信
+  gantt serve --port <port> [--scope live|all]  # /projects/<project_id>/ をforeground配信
   phase status --plan <key>
 
 Write commands:
@@ -106,7 +106,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo status': 'todo status [--json]',
   'todo verify': 'todo verify [--plan <key>] [--json]',
   'todo snapshot': 'todo snapshot --rebuild --plan <key>',
-  'todo gantt': 'todo gantt [--out <file>] | status [--out <file>] | serve --port <port>',
+  'todo gantt': 'todo gantt [--out <file>] [--scope live|all] | status [--out <file>] | serve --port <port> [--scope live|all]',
   'todo phase': 'todo phase <status|review|accept|reject|reopen> --plan <key> [options]',
   'todo phase status': 'todo phase status --plan <key>',
   'todo phase review': 'todo phase review --plan <key> --phase <id> --reason <text>',
