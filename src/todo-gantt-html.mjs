@@ -6,7 +6,7 @@ import {
 } from './todo-markdown-renderer.mjs';
 import { renderTodoGanttSvg, TODO_GANTT_STATUS_PRESENTATION } from './todo-gantt-svg.mjs';
 
-export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v12';
+export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v13';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
 export const TODO_GANTT_HTML_MAX_BYTES = 24 * 1024 * 1024;
 
@@ -285,14 +285,21 @@ function renderRightPane(sections, layout, presentation, readModel) {
   return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>元Markdown全文</button></div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を、現在の状態とともに登録順で表示しています。</p>${taskIndex}</section></div>`;
 }
 
-function renderDiagramLegend(presentation, layout = null) {
+function renderDiagramLegend(presentation, layout = null, expandable = false) {
   const categories = (presentation?.lanes ?? []).map((lane) => `<div class="category-entry"><dt><code>${escapeHtmlText(lane.lane)}</code> — ${escapeHtmlText(lane.name)}</dt><dd>${escapeHtmlText(lane.description)}</dd></div>`).join('');
   const categoryDetails = categories === '' ? '' : `<details class="category-legend"><summary>カテゴリ説明</summary><dl>${categories}</dl></details>`;
   const foldedCount = layout?.scope?.folded_task_count ?? 0;
+  // The badge says what is missing from the diagram, so it is also the control
+  // that brings it back — a reader who notices the count is exactly the reader
+  // who wants to see it.
   const foldChip = foldedCount === 0 ? ''
-    : `<span class="fold-chip">完走済み ${foldedCount}件を非表示</span>`;
+    : expandable
+      ? `<button type="button" class="fold-chip" data-toggle-expanded aria-expanded="false"><span data-toggle-label data-collapsed-label="完走済み ${foldedCount}件を非表示（押すと表示）" data-expanded-label="完走済み ${foldedCount}件を表示中（押すと非表示）">完走済み ${foldedCount}件を非表示（押すと表示）</span></button>`
+      : `<span class="fold-chip">完走済み ${foldedCount}件を非表示</span>`;
   const foldNote = foldedCount === 0 ? ''
-    : '<p class="fold-note">後続に作業中・未着手が残っていない完了工程は図から外しています。生きた工程とその直接の前提工程は必ず描きます。外した工程は右の「全工程」から辿れ、図に出すには <code>lattice todo gantt --scope all</code> を実行してください。総数・進捗・最長依存鎖は外す前の全工程で数えています。</p>';
+    : expandable
+      ? '<p class="fold-note">後続に作業中・未着手が残っていない完了工程は図から外しています。生きた工程とその直接の前提工程は必ず描きます。上のバッジを押すと外した工程も含めて描きます。総数・進捗・最長依存鎖は外す前の全工程で数えています。</p>'
+      : '<p class="fold-note">後続に作業中・未着手が残っていない完了工程は図から外しています。生きた工程とその直接の前提工程は必ず描きます。外した工程は右の「全工程」から辿れ、図に出すには <code>lattice todo gantt --scope all</code> を実行してください。総数・進捗・最長依存鎖は外す前の全工程で数えています。</p>';
   return `<div class="diagram-legend" aria-label="工程図の凡例"><span>${statusMarkup('pending', ' 未着手')}</span><span>${statusMarkup('in-progress', ' 作業中')}</span><span>${statusMarkup('done', ' 完了')}</span><span>${statusMarkup('blocked', ' ブロック中')}</span><span>破線枠: ready frontier（同時dispatch推奨）</span><span>太線: 構造上の最長依存鎖</span><span>半円: 非接触の線交差</span><span>黒丸: 論理上の合流</span>${foldChip}${categoryDetails}${foldNote}<p>縦方向は時間ではなく、登録済み依存関係による工程段階です。ready frontierは全件同時dispatchが既定です。未登録の資源・host制約によりsubsetだけを選ぶ場合は理由を記録します。構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・納期を表しません。</p></div>`;
 }
 
@@ -356,7 +363,10 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .todo-node .node-title{fill:var(--text-primary);font-size:13.5px;font-weight:400}
 .todo-node .node-title-line{font-size:13.5px;font-weight:400}
 .todo-node .status-mark{fill:var(--text-secondary);font-size:13.5px;font-weight:400}
-.fold-chip{padding:2px 8px;border:1px solid var(--border);border-radius:9999px;background:var(--surface-2);color:var(--text-primary);font-weight:650}
+.fold-chip{padding:2px 8px;border:1px solid var(--border);border-radius:9999px;background:var(--surface-2);color:var(--text-primary);font:650 13.5px/1.6 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif}
+button.fold-chip{cursor:pointer}button.fold-chip:focus-visible{outline:2px solid var(--text-primary);outline-offset:2px}
+button.fold-chip[aria-expanded="true"]{border-color:var(--text-primary)}
+[data-diagram][hidden]{display:none}
 .fold-note{flex:1 0 100%;margin:4px 0 0;color:var(--text-secondary);font-weight:400}
 .task-index-folded{margin-top:8px}
 .task-index-folded>summary,.phase-settled>summary{cursor:pointer;padding:6px 0;color:var(--text-secondary);font-weight:600}
@@ -398,18 +408,23 @@ const CONTROLLER = `
   const nodes=[...root.querySelectorAll('[data-node-key]')];
   const edges=[...root.querySelectorAll('[data-edge-id]')];
   const laneChips=[...root.querySelectorAll('.summary-lane[data-lane-key]')];
-  const svg=root.querySelector('[data-gantt-svg]');
+  const diagrams=[...root.querySelectorAll('[data-diagram]')];
+  const expandToggle=root.querySelector('[data-toggle-expanded]');
+  const toggleLabel=root.querySelector('[data-toggle-label]');
   const scroller=root.querySelector('[data-diagram-scroll]');
   const zoomOutput=root.querySelector('[data-zoom-output]');
-  const baseWidth=Number(svg?.dataset.svgWidth??0);
-  const baseHeight=Number(svg?.dataset.svgHeight??0);
-  let zoom=1;let activeLaneKey=null;let selectedKey=null;let resizePointerId=null;
+  let svg=root.querySelector('[data-diagram]:not([hidden]) [data-gantt-svg]')??root.querySelector('[data-gantt-svg]');
+  let baseWidth=Number(svg?.dataset.svgWidth??0);
+  let baseHeight=Number(svg?.dataset.svgHeight??0);
+  let zoom=1;let activeLaneKey=null;let selectedKey=null;let resizePointerId=null;let expanded=false;
   const stacked=()=>window.matchMedia('(max-width:900px)').matches;
   const setSplit=(clientX)=>{if(!shell||stacked())return;const bounds=shell.getBoundingClientRect();if(bounds.width<=0)return;const percent=Math.max(30,Math.min(75,(clientX-bounds.left)/bounds.width*100));shell.style.setProperty('--split',percent+'%');};
   const finishResize=(event)=>{if(event.pointerId!==resizePointerId)return;if(divider?.hasPointerCapture(event.pointerId))divider.releasePointerCapture(event.pointerId);resizePointerId=null;};
   const setZoom=(value,minimum=.2)=>{if(!svg||!Number.isFinite(value)||value<=0)return;zoom=Math.max(minimum,Math.min(2,value));svg.setAttribute('width',String(Math.max(1,Math.round(baseWidth*zoom))));svg.setAttribute('height',String(Math.max(1,Math.round(baseHeight*zoom))));if(zoomOutput){const percent=zoom>=.1?String(Math.round(zoom*100)):String(Number((zoom*100).toFixed(1)));zoomOutput.textContent=percent+'%';}};
   const applyLane=(key)=>{activeLaneKey=key;for(const chip of laneChips)chip.setAttribute('aria-pressed',String(chip.dataset.laneKey===key));for(const node of nodes)node.classList.toggle('lane-dimmed',key!==null&&node.dataset.laneKey!==key);for(const edge of edges)edge.classList.toggle('lane-dimmed',key!==null&&edge.dataset.fromLaneKey!==key&&edge.dataset.toLaneKey!==key);};
   const toggleLane=(key)=>applyLane(activeLaneKey===key?null:key);
+  // Both diagrams ship in the page; the badge picks which one is on screen.
+  const setExpanded=(next)=>{if(diagrams.length<2)return;expanded=next;for(const diagram of diagrams)diagram.hidden=(diagram.dataset.diagram==='expanded')!==expanded;svg=diagrams.find(diagram=>!diagram.hidden)?.querySelector('[data-gantt-svg]')??svg;baseWidth=Number(svg?.dataset.svgWidth??0);baseHeight=Number(svg?.dataset.svgHeight??0);if(expandToggle){expandToggle.setAttribute('aria-expanded',String(expanded));}if(toggleLabel){toggleLabel.textContent=expanded?toggleLabel.dataset.expandedLabel:toggleLabel.dataset.collapsedLabel;}setZoom(zoom);applyLane(activeLaneKey);syncSelection();scroller?.scrollTo(0,0);};
   const showPanel=(name)=>{if(overviewPanel)overviewPanel.hidden=name!=='overview';if(detailsPanel)detailsPanel.hidden=name!=='details';if(taskIndexPanel)taskIndexPanel.hidden=name!=='task-index';if(selectedReturnButton)selectedReturnButton.hidden=name!=='task-index'||selectedKey===null;root.dataset.viewState=name;};
   const syncSelection=()=>{for(const detail of detailPanels)detail.hidden=detail.dataset.detailKey!==selectedKey;for(const node of nodes){const selected=node.dataset.nodeKey===selectedKey;node.setAttribute('aria-selected',String(selected));node.classList.toggle('selected-node',selected);}for(const edge of edges){const selected=selectedKey!==null;edge.classList.toggle('selected-incident-edge',selected&&(edge.dataset.fromNodeKey===selectedKey||edge.dataset.toNodeKey===selectedKey));}};
   const showOverview=()=>{selectedKey=null;syncSelection();showPanel('overview');};
@@ -420,6 +435,7 @@ const CONTROLLER = `
     const overviewButton=event.target.closest('[data-show-overview]');if(overviewButton&&root.contains(overviewButton)){showOverview();return;}
     const selectedButton=event.target.closest('[data-show-selected]');if(selectedButton&&root.contains(selectedButton)){showSelected();return;}
     const taskIndexButton=event.target.closest('[data-show-task-index]');if(taskIndexButton&&root.contains(taskIndexButton)){showTaskIndex();return;}
+    const expandButton=event.target.closest('[data-toggle-expanded]');if(expandButton&&root.contains(expandButton)){setExpanded(!expanded);return;}
     const selectButton=event.target.closest('[data-select-node-key]');if(selectButton&&root.contains(selectButton)){select(selectButton.dataset.selectNodeKey);return;}
     const zoomButton=event.target.closest('[data-zoom-action]');if(zoomButton&&root.contains(zoomButton)){const action=zoomButton.dataset.zoomAction;if(action==='in')setZoom(zoom<1&&zoom*1.25>=1?1:zoom*1.25,.001);else if(action==='out')setZoom(zoom>1&&zoom/1.25<=1?1:zoom/1.25,.001);else if(action==='reset')setZoom(1);else if(action==='fit'&&scroller){setZoom(Math.min(1,(scroller.clientWidth-16)/baseWidth),.001);scroller.scrollTo(0,0);}return;}
     const laneChip=event.target.closest('.summary-lane[data-lane-key]');if(laneChip&&root.contains(laneChip)){toggleLane(laneChip.dataset.laneKey);return;}
@@ -436,6 +452,7 @@ const CONTROLLER = `
 
 export function renderTodoGanttHtml({
   readModel, layout, narratives = [], anchorOutcomes = [], presentation = null, metadata = {},
+  expandedLayout = null,
 }) {
   if (readModel?.schema !== 'lattice.todo_store_read.v1' || !Array.isArray(readModel.members)) {
     throw new TypeError('readModel must be lattice.todo_store_read.v1');
@@ -450,13 +467,19 @@ export function renderTodoGanttHtml({
   const normalized = normalizeSections(readModel, narratives, anchorOutcomes);
   const displayName = projectDisplayName(readModel, metadata);
   const svg = renderTodoGanttSvg(layout, { presentation });
+  // The expanded diagram travels with the page so the badge can bring the
+  // history back without a round trip. A file:// artifact has nowhere to ask.
+  const expandedSvg = expandedLayout === null ? '' : renderTodoGanttSvg(expandedLayout, { presentation });
+  const diagrams = expandedSvg === ''
+    ? `<div data-diagram="live">${svg}</div>`
+    : `<div data-diagram="live">${svg}</div><div data-diagram="expanded" hidden>${expandedSvg}</div>`;
   const rightPane = renderRightPane(normalized.sections, layout, presentation, readModel);
   const staticData = serializeJsonForScript({
     renderer_version: TODO_GANTT_RENDERER_VERSION,
     metadata,
     presentation,
   });
-  const html = `<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lattice — ${escapeHtmlText(displayName)} 依存工程図</title><style>${CSS}</style></head><body data-gantt-root data-view-state="overview"><main class="shell"><section class="gantt-pane" aria-label="${escapeHtmlAttribute(displayName)} 依存工程図"><div class="diagram-toolbar" role="group" aria-label="図のズーム"><strong class="project-heading">${escapeHtmlText(displayName)} 依存工程図</strong><button type="button" data-zoom-action="out" aria-label="縮小">−</button><button type="button" data-zoom-action="reset">等倍</button><button type="button" data-zoom-action="in" aria-label="拡大">＋</button><button type="button" data-zoom-action="fit">全体表示</button><output class="zoom-readout" data-zoom-output aria-live="polite">100%</output><span class="diagram-note">縦=依存段階（時間ではない）</span></div>${renderDiagramLegend(presentation, layout)}<div class="diagram-scroll" data-diagram-scroll tabindex="0" aria-label="縦方向を主にスクロール可能な依存工程図">${svg}</div></section><div class="pane-divider" data-pane-divider aria-hidden="true"></div><aside class="narrative-pane" aria-label="選択工程の詳細と全工程一覧">${rightPane}</aside></main><script type="application/json" id="todo-gantt-data">${staticData}</script><script>${CONTROLLER}</script></body></html>`;
+  const html = `<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lattice — ${escapeHtmlText(displayName)} 依存工程図</title><style>${CSS}</style></head><body data-gantt-root data-view-state="overview"><main class="shell"><section class="gantt-pane" aria-label="${escapeHtmlAttribute(displayName)} 依存工程図"><div class="diagram-toolbar" role="group" aria-label="図のズーム"><strong class="project-heading">${escapeHtmlText(displayName)} 依存工程図</strong><button type="button" data-zoom-action="out" aria-label="縮小">−</button><button type="button" data-zoom-action="reset">等倍</button><button type="button" data-zoom-action="in" aria-label="拡大">＋</button><button type="button" data-zoom-action="fit">全体表示</button><output class="zoom-readout" data-zoom-output aria-live="polite">100%</output><span class="diagram-note">縦=依存段階（時間ではない）</span></div>${renderDiagramLegend(presentation, layout, expandedSvg !== '')}<div class="diagram-scroll" data-diagram-scroll tabindex="0" aria-label="縦方向を主にスクロール可能な依存工程図">${diagrams}</div></section><div class="pane-divider" data-pane-divider aria-hidden="true"></div><aside class="narrative-pane" aria-label="選択工程の詳細と全工程一覧">${rightPane}</aside></main><script type="application/json" id="todo-gantt-data">${staticData}</script><script>${CONTROLLER}</script></body></html>`;
   const htmlBytes = Buffer.byteLength(html, 'utf8');
   if (htmlBytes > TODO_GANTT_HTML_MAX_BYTES) {
     throw new TodoGanttRenderError('TODO_SCALE_EXCEEDED', 'todo gantt HTML limit exceeded', {

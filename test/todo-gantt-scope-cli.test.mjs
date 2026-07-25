@@ -74,13 +74,19 @@ test('既定scopeは完走した枝を畳み、--scope allは全件描く', asyn
 
   const liveHtml = await readFile(path.join(root, liveResult.output_ref), 'utf8');
   const allHtml = await readFile(path.join(root, allResult.output_ref), 'utf8');
-  // 畳んだ図はFを描かず、全件の図は描く。生きた工程はどちらにも出る。
-  assert.doesNotMatch(liveHtml, /data-task-id="F"/u);
-  assert.match(allHtml, /data-task-id="F"/u);
+  // 既定で見えている図はFを描かず、全件の図は描く。生きた工程はどちらにも出る。
+  const shownDiagram = (html) => html.slice(html.indexOf('<div data-diagram="live">'),
+    html.indexOf('<div data-diagram="expanded"') === -1
+      ? html.indexOf('</div></section>') : html.indexOf('<div data-diagram="expanded"'));
+  assert.doesNotMatch(shownDiagram(liveHtml), /data-task-id="F"/u);
+  assert.match(shownDiagram(allHtml), /data-task-id="F"/u);
   for (const html of [liveHtml, allHtml]) {
-    assert.match(html, /data-task-id="T1"/u);
-    assert.match(html, /data-task-id="T2"/u);
+    assert.match(shownDiagram(html), /data-task-id="T1"/u);
+    assert.match(shownDiagram(html), /data-task-id="T2"/u);
   }
+  // 畳んだ図は展開図を同梱し、そこにはFが描かれている。
+  assert.match(liveHtml, /<div data-diagram="expanded" hidden>/u);
+  assert.doesNotMatch(allHtml, /<div data-diagram="expanded"/u);
   // 外していることと戻し方が図の上で読める。
   assert.match(liveHtml, /完走済み 1件を非表示/u);
   assert.match(liveHtml, /--scope all/u);

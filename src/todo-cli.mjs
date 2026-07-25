@@ -653,6 +653,10 @@ export async function renderTodoGanttForProject({
   const topology = mergedTopology(store);
   const chain = projectTodoChainV1(topology);
   const layout = layoutTodoGantt(store, chain, { scope });
+  // When the diagram hides history, the page also carries the full diagram so
+  // the reader can bring it back in place. Nothing is hidden under `all`.
+  const expandedLayout = layout.scope.folded_task_count === 0
+    ? null : layoutTodoGantt(store, chain, { scope: 'all' });
   const narrative = await loadNarratives(store, repoRoot);
   const anchorOutcomes = verifyNarrativeAnchors({
     readModel: store,
@@ -685,6 +689,7 @@ export async function renderTodoGanttForProject({
   const rendered = renderTodoGanttHtml({
     readModel: store,
     layout,
+    expandedLayout,
     narratives: narrative.narratives,
     anchorOutcomes,
     presentation,

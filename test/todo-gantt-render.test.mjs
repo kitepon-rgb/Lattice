@@ -115,6 +115,39 @@ test('選択ボタンは必ず開ける詳細を指す', () => {
     '図のnodeはすべてクリックで開ける');
 });
 
+test('非表示バッジを押すと外した工程も含む図へ切り替わる', () => {
+  const read = foldedFixture();
+  const chain = projectTodoChainV1(topology(read));
+  const { html } = renderTodoGanttHtml({
+    readModel: read,
+    layout: layoutTodoGantt(read, chain),
+    expandedLayout: layoutTodoGantt(read, chain, { scope: 'all' }),
+    presentation: projectTodoGanttPresentation(read, null),
+  });
+  // 図は2枚同梱し、既定はliveだけを見せる。file://でも問い合わせ先が無いので同梱する。
+  assert.match(html, /<div data-diagram="live">/u);
+  assert.match(html, /<div data-diagram="expanded" hidden>/u);
+  assert.match(html, /data-toggle-expanded aria-expanded="false"/u);
+  assert.match(html, /完走済み 2件を非表示（押すと表示）/u);
+  assert.match(html, /data-expanded-label="完走済み 2件を表示中（押すと非表示）"/u);
+
+  const live = html.slice(html.indexOf('data-diagram="live"'), html.indexOf('data-diagram="expanded"'));
+  const expanded = html.slice(html.indexOf('data-diagram="expanded"'), html.indexOf('</div></section>'));
+  assert.equal((live.match(/data-node-key=/gu) ?? []).length, 2);
+  assert.equal((expanded.match(/data-node-key=/gu) ?? []).length, 4, '展開図は全工程を描く');
+  assert.doesNotMatch(live, /data-task-id="T0000"/u);
+  assert.match(expanded, /data-task-id="T0000"/u);
+});
+
+test('外した工程が無ければ切り替えboxもbuttonも出さない', () => {
+  const read = readFixture(2);
+  const { html } = renderFixture(read);
+  // CONTROLLER本体は属性名を含むので、凡例側のbuttonと図の枠だけを見る。
+  assert.doesNotMatch(html, /class="fold-chip" data-toggle-expanded/u);
+  assert.doesNotMatch(html, /<div data-diagram="expanded"/u);
+  assert.match(html, /<div data-diagram="live">/u, '図の枠は常に1枚は出す');
+});
+
 test('決着済みPhaseは概要の先頭を占領しない', () => {
   const read = readFixture(2);
   const member = read.members[0];
@@ -304,7 +337,7 @@ test('small real store E2E generates the default self-contained gantt and exact 
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v12');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v13');
   const generatedHtml = await readFile(path.join(root, '.lattice', 'generated', 'gantt.html'), 'utf8');
   assert.match(generatedHtml, /<title>Lattice — Fixture Project 依存工程図<\/title>/u);
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
@@ -449,7 +482,7 @@ test('real store smoke draws every edge and emits readable nodes plus named cate
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v12');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v13');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
