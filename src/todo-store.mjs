@@ -1122,13 +1122,14 @@ function resolveTargetedEvent(input, storeMember) {
   if (input.kind === 'done' && exactRecord(input.payload, [
     'done_mode', 'imported', 'evidence',
   ]) && input.payload.done_mode === 'evidence_promotion' && input.payload.imported === true) {
-    const target = [...storeMember.journal.events].reverse().find((event) => (
-      event.kind === 'done' && event.task_id === input.task_id
-    ));
-    if (target === undefined) fail('STORE_INCONSISTENT', 'invalid_evidence_promotion');
+    // Same binding as `reopen`: an imported completion carried across a revision
+    // is bound to the carrying `plan_genesis`, not to a `done` event. Whether the
+    // completion is actually eligible for promotion stays replay's decision.
+    const targetDigest = resolveDoneBindingDigest(storeMember, input.task_id);
+    if (targetDigest === null) fail('STORE_INCONSISTENT', 'invalid_evidence_promotion');
     return {
       ...input,
-      payload: { ...input.payload, target_done_digest: target.event_digest },
+      payload: { ...input.payload, target_done_digest: targetDigest },
     };
   }
   if (input.kind === 'phase_reopen' && exactRecord(input.payload, ['reason', 'override_reason'])) {
