@@ -115,6 +115,35 @@ test('選択ボタンは必ず開ける詳細を指す', () => {
     '図のnodeはすべてクリックで開ける');
 });
 
+test('決着済みPhaseは概要の先頭を占領しない', () => {
+  const read = readFixture(2);
+  const member = read.members[0];
+  member.plan.schema = 'lattice.todo_plan.v5';
+  member.plan.tasks = member.plan.tasks.map((task, index) => ({
+    ...task, narrative_anchor: null, parent_task_id: null, phase_id: `phase-${index + 1}`,
+  }));
+  member.plan.phases = [
+    { phase_id: 'phase-1', title: '受理済みの重監査', gate_policy: 'heavy', predecessor_phase_ids: [],
+      required_evidence_slots: ['heavy'] },
+    { phase_id: 'phase-2', title: '進行中の実装', gate_policy: 'heavy', predecessor_phase_ids: ['phase-1'],
+      required_evidence_slots: ['heavy'] },
+  ];
+  member.plan.phase_accept_dependencies = [];
+  member.snapshot = { phases: [
+    { phase_id: 'phase-1', status: 'accepted' },
+    { phase_id: 'phase-2', status: 'active' },
+  ] };
+  const { html } = renderFixture(read);
+  const overview = html.slice(html.indexOf('data-right-panel="overview"'), html.indexOf('data-right-panel="details"'));
+  assert.match(overview, /決着済みPhase 1件/u, '受理済みは畳んだ群にまとめる');
+  const settledStart = overview.indexOf('<details class="phase-settled"');
+  assert.ok(settledStart > 0);
+  assert.doesNotMatch(overview, /<details class="phase-settled" open/u, '既定で閉じる');
+  // 進行中のPhaseは畳まず、畳んだ群より前に置く。
+  assert.ok(overview.indexOf('進行中の実装') < settledStart);
+  assert.ok(overview.indexOf('受理済みの重監査') > settledStart);
+});
+
 test('v5 GanttはPhaseを通常ToDoのschedule gateとして説明しない', () => {
   const read = readFixture(2);
   const member = read.members[0];
@@ -275,7 +304,7 @@ test('small real store E2E generates the default self-contained gantt and exact 
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v11');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v12');
   const generatedHtml = await readFile(path.join(root, '.lattice', 'generated', 'gantt.html'), 'utf8');
   assert.match(generatedHtml, /<title>Lattice — Fixture Project 依存工程図<\/title>/u);
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
@@ -420,7 +449,7 @@ test('real store smoke draws every edge and emits readable nodes plus named cate
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v11');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v12');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);

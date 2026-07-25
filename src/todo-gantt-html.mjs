@@ -6,7 +6,7 @@ import {
 } from './todo-markdown-renderer.mjs';
 import { renderTodoGanttSvg, TODO_GANTT_STATUS_PRESENTATION } from './todo-gantt-svg.mjs';
 
-export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v11';
+export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v12';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
 export const TODO_GANTT_HTML_MAX_BYTES = 24 * 1024 * 1024;
 
@@ -190,8 +190,12 @@ function renderRelationList(relations, sectionByKey, lookup, emptyText, folds = 
   }).join('')}</ul>`;
 }
 
+/** Phase states that are over: nothing is dispatched or judged under them again. */
+const SETTLED_PHASE_STATUS = Object.freeze(['accepted', 'rejected']);
+
 function renderPhaseProgress(readModel) {
   const rows = [];
+  const settledRows = [];
   for (const member of readModel.members) {
     if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)) continue;
     const phases = new Map(member.snapshot.phases.map((phase) => [phase.phase_id, phase]));
@@ -200,15 +204,23 @@ function renderPhaseProgress(readModel) {
       const states = new Map(member.tasks.map((task) => [task.task_id, task.status]));
       const done = tasks.filter((task) => states.get(task.task_id) === 'done').length;
       const state = phases.get(phase.phase_id);
-      rows.push(`<li class="phase-progress status-${escapeHtmlAttribute(state.status)}"><header><strong>${escapeHtmlText(phase.title ?? phase.phase_id)}</strong><span>${escapeHtmlText(state.status)}</span></header><p><code>${escapeHtmlText(`${member.plan.plan_key}/${phase.phase_id}`)}</code> — policy <code>${escapeHtmlText(phase.gate_policy)}</code> — ToDo ${done}/${tasks.length}</p><progress max="${tasks.length}" value="${done}">${done}/${tasks.length}</progress></li>`);
+      const row = `<li class="phase-progress status-${escapeHtmlAttribute(state.status)}"><header><strong>${escapeHtmlText(phase.title ?? phase.phase_id)}</strong><span>${escapeHtmlText(state.status)}</span></header><p><code>${escapeHtmlText(`${member.plan.plan_key}/${phase.phase_id}`)}</code> — policy <code>${escapeHtmlText(phase.gate_policy)}</code> — ToDo ${done}/${tasks.length}</p><progress max="${tasks.length}" value="${done}">${done}/${tasks.length}</progress></li>`;
+      // A settled Phase is history. It stays reachable, but it does not push the
+      // live ones off the first screen.
+      (SETTLED_PHASE_STATUS.includes(state.status) ? settledRows : rows).push(row);
     }
   }
   const decoupled = readModel.members.some(({ plan }) => plan.schema === 'lattice.todo_plan.v5');
   const guidance = decoupled
     ? 'ToDo完了とPhase受理は別です。Phaseは重監査の順序を表し、通常ToDoの開始順はToDo依存だけで決まります。'
     : 'ToDo完了とPhase受理は別です。<code>gate_ready</code>では後続Phaseはまだ解放されません。';
-  return rows.length === 0 ? ''
-    : `<section class="phase-overview"><h2>Phase進捗</h2><p>${guidance}</p><ol>${rows.join('')}</ol></section>`;
+  if (rows.length === 0 && settledRows.length === 0) return '';
+  const liveList = rows.length === 0
+    ? '<p class="readiness-note">進行中のPhaseはありません。</p>'
+    : `<ol>${rows.join('')}</ol>`;
+  const settledList = settledRows.length === 0 ? ''
+    : `<details class="phase-settled"><summary>決着済みPhase ${settledRows.length}件</summary><ol>${settledRows.join('')}</ol></details>`;
+  return `<section class="phase-overview"><h2>Phase進捗</h2><p>${guidance}</p>${liveList}${settledList}</section>`;
 }
 
 function renderRightPane(sections, layout, presentation, readModel) {
@@ -347,7 +359,8 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .fold-chip{padding:2px 8px;border:1px solid var(--border);border-radius:9999px;background:var(--surface-2);color:var(--text-primary);font-weight:650}
 .fold-note{flex:1 0 100%;margin:4px 0 0;color:var(--text-secondary);font-weight:400}
 .task-index-folded{margin-top:8px}
-.task-index-folded>summary{cursor:pointer;padding:6px 0;color:var(--text-secondary);font-weight:600}
+.task-index-folded>summary,.phase-settled>summary{cursor:pointer;padding:6px 0;color:var(--text-secondary);font-weight:600}
+.phase-settled>summary:focus-visible{outline:2px solid var(--text-primary);outline-offset:2px}
 .status-in-progress .node-surface{fill:var(--surface-1);stroke:var(--accent);stroke-width:2}
 .status-in-progress .status-mark{fill:var(--accent)}
 .status-in-progress .status-bar{stroke:var(--accent);stroke-width:2;stroke-linecap:round}
