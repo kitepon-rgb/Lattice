@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.28 — 2026-07-26
+
+- manifest v2 storeへsuccessor revisionを適用した時、memberの
+  `active_revision_digest`がpredecessorを指したまま残り、直後のreadが
+  `manifest_revision_binding_mismatch`で停止する欠陥を修理した。
+- manifest v2への通常revision適用後に新revision digestへ追従することを回帰testで固定した。
+
 ## 0.12.27 — 2026-07-25
 
 - manifest v2へhistorical importで新規planを追加する際、memberの`active_revision_digest`を
