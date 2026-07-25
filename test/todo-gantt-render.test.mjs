@@ -337,7 +337,7 @@ test('small real store E2E generates the default self-contained gantt and exact 
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v14');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v15');
   const generatedHtml = await readFile(path.join(root, '.lattice', 'generated', 'gantt.html'), 'utf8');
   assert.match(generatedHtml, /<title>Lattice — Fixture Project 依存工程図<\/title>/u);
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
@@ -482,7 +482,7 @@ test('real store smoke draws every edge and emits readable nodes plus named cate
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v14');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v15');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
@@ -545,7 +545,9 @@ test('right pane exposes overview/detail/current task index states while retaini
   assert.match(output.html, /data-view-state="overview"/u);
   assert.match(output.html, /<button type="button" data-show-overview>概要<\/button>/u);
   assert.match(output.html, /<button type="button" data-show-selected hidden>選択工程へ戻る<\/button>/u);
-  assert.match(output.html, /<button type="button" data-show-task-index>元Markdown全文<\/button>/u);
+  // boxの中身はstore由来の全工程一覧であって、元Markdown本文の再表示ではない（2026-07-19裁定）。
+  assert.match(output.html, /<button type="button" data-show-task-index>全工程一覧<\/button>/u);
+  assert.doesNotMatch(output.html, /元Markdown全文/u);
   assert.match(output.html, /data-right-panel="overview"/u);
   assert.match(output.html, /data-right-panel="details" hidden/u);
   assert.match(output.html, /data-right-panel="task-index" hidden/u);

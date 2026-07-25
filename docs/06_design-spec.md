@@ -83,9 +83,11 @@
 - 各task行の状態マーク（☐/▶/✅/⛔）だけが「生きた」要素。**Status/Lane/時刻/wave表/Evidence等の
   メタデータブロックは置かない**（左の図と重複するため）。
 
-> 未整理: 元plan Markdown全文を右ペインへ描画する当初裁定（2026-07-18）は現行実装に無い。
-> `renderTodoGanttHtml`はMarkdownを描画するが結果を出力へ載せず、toolbarの「元Markdown全文」boxは
-> 全工程一覧を開く。ラベルと実体の不一致、および未使用のMarkdown描画は未裁定のまま残っている。
+- **全工程はstore由来**。元plan Markdown本文の再表示ではない（2026-07-19 UI意味訂正）。Latticeの
+  TODO storeを正本として、全工程を登録順に現在状態・工程番号・全文題名付きで列挙する。元文書へは
+  各工程の詳細が持つsource参照（`元plan: <ref>:<line>`）から辿る。
+- narrative Markdownはanchor検証のために読むが、ページへは描画しない。読み込んだ量は
+  `prose_bytes`として計上し、上限超過は`TODO_SCALE_EXCEEDED`でfail closedにする。
 
 ## 7. 検証
 

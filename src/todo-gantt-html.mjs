@@ -1,12 +1,9 @@
 import { createHash } from 'node:crypto';
 
-import {
-  renderTodoMarkdownDocument,
-  serializeJsonForScript,
-} from './todo-markdown-renderer.mjs';
+import { serializeJsonForScript } from './todo-markdown-renderer.mjs';
 import { renderTodoGanttSvg, TODO_GANTT_STATUS_PRESENTATION } from './todo-gantt-svg.mjs';
 
-export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v14';
+export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v15';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
 export const TODO_GANTT_HTML_MAX_BYTES = 24 * 1024 * 1024;
 
@@ -50,18 +47,21 @@ function digest(value) {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-// The Markdown renderer deliberately permits safe web links for its standalone API.
-// A self-contained gantt permits fragments only, so its known allow-list output is de-linked here.
-function removeNavigation(markup) {
-  return markup.replace(/<a href="[^"]*"(?: title="[^"]*")?>/gu, '<span class="deactivated-link">')
-    .replaceAll('</a>', '</span>');
-}
-
+/**
+ * Sections carry one row per ToDo, plus the prose accounting for the narratives
+ * behind them.
+ *
+ * The right pane shows the store, not the Markdown: per the 2026-07-19 ruling
+ * the "全工程" list is the plan rendered from the ToDo store, and the original
+ * documents are reached through each ToDo's source reference. The narratives are
+ * still read, because anchor verification needs them, and their size is still
+ * bounded — but they are not rendered into the page.
+ */
 function normalizeSections(readModel, narratives, anchorOutcomes) {
   const supplied = new Map(narratives.map((entry) => [refKey(entry.ref), entry]));
   const outcomes = new Map(anchorOutcomes.map((entry) => [refKey(entry.ref), entry]));
   const result = [];
-  const documents = new Map();
+  const counted = new Set();
   let proseBytes = 0;
   for (const member of readModel.members) {
     const states = new Map(member.tasks.map((state) => [state.task_id, state]));
@@ -70,57 +70,23 @@ function normalizeSections(readModel, narratives, anchorOutcomes) {
       const narrative = supplied.get(refKey(ref));
       const markdown = narrative?.markdown ?? '';
       const narrativeRef = narrative?.narrative_ref ?? task.narrative_ref;
+      // ToDos that share one narrative document count its bytes once.
       const documentKey = narrativeRef === null
         ? refKey(ref) : JSON.stringify([member.plan.plan_key, narrativeRef, digest(markdown)]);
-      let document = documents.get(documentKey);
-      if (document === undefined) {
+      if (!counted.has(documentKey)) {
+        counted.add(documentKey);
         proseBytes += Buffer.byteLength(markdown, 'utf8');
         if (proseBytes > TODO_GANTT_PROSE_MAX_BYTES) {
           throw new TodoGanttRenderError('TODO_SCALE_EXCEEDED', 'todo gantt embedded prose limit exceeded', {
             prose_bytes: proseBytes, prose_limit: TODO_GANTT_PROSE_MAX_BYTES,
           });
         }
-        document = { markdown, narrativeRef, tasks: [], rendered: '' };
-        documents.set(documentKey, document);
       }
       const anchorOutcome = outcomes.get(refKey(ref)) ?? {
         ref, narrative_ref: narrativeRef, anchored: false, reason: 'anchor_missing',
         origin_line: task.narrative_anchor?.origin_line ?? null,
       };
-      const section = {
-        ref, task, state: states.get(task.task_id), documentKey, narrativeRef, anchorOutcome, document,
-      };
-      document.tasks.push(section);
-      result.push(section);
-    }
-  }
-  for (const document of documents.values()) {
-    const taskStatesByLine = new Map();
-    for (const section of document.tasks) {
-      if (!section.anchorOutcome.anchored) continue;
-      const status = DOCUMENT_STATUS[section.state.status] ?? { mark: '?', label: '状態不明' };
-      taskStatesByLine.set(section.anchorOutcome.origin_line, {
-        status: section.state.status,
-        mark: status.mark,
-        label: status.label,
-        narrativeKey: refKey(section.ref),
-        blockedReason: section.state.blocked_reason,
-      });
-    }
-    try {
-      document.rendered = removeNavigation(renderTodoMarkdownDocument(
-        document.markdown,
-        { taskStatesByLine },
-      ).html);
-    } catch (error) {
-      if (error?.code === 'TODO_MARKDOWN_SECTION_TOO_LARGE') {
-        throw new TodoGanttRenderError('TODO_SCALE_EXCEEDED', 'todo gantt narrative section limit exceeded', {
-          narrative_ref: document.narrativeRef,
-          prose_section_bytes: error.detail.actual_bytes,
-          prose_section_limit: error.detail.maximum_bytes,
-        });
-      }
-      throw error;
+      result.push({ ref, task, state: states.get(task.task_id), narrativeRef, anchorOutcome });
     }
   }
   return { sections: result, proseBytes };
@@ -282,7 +248,7 @@ function renderRightPane(sections, layout, presentation, readModel) {
     return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}${foldedNote}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。', folds)}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。', folds)}</section><p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;
   }).join('');
   const taskIndex = renderTaskIndex(sections, lookup, folds);
-  return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>元Markdown全文</button></div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を、現在の状態とともに登録順で表示しています。</p>${taskIndex}</section></div>`;
+  return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>全工程一覧</button></div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を、現在の状態とともに登録順で表示しています。</p>${taskIndex}</section></div>`;
 }
 
 function renderDiagramLegend(presentation, layout = null, expandable = false) {
