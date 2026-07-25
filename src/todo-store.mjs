@@ -1494,7 +1494,9 @@ export async function appendImportedPlan(options = {}) {
 
     const descriptor = { plan_key: plan.plan_key, active_plan_version: plan.plan_version,
       plan_ref: planRef, journal_ref: journalRef, snapshot_ref: snapshotRef,
-      topology_digest: plan.topology_digest, journal_head_digest: events.at(-1).event_digest };
+      topology_digest: plan.topology_digest, journal_head_digest: events.at(-1).event_digest,
+      ...(currentManifest.schema === 'lattice.todo_manifest.v2'
+        ? { active_revision_digest: plan.plan_digest } : {}) };
     currentManifest.members.push(descriptor);
     currentManifest.members.sort((left, right) => left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1 : 0);
     currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');

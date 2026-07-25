@@ -904,6 +904,26 @@ test('historical importはimport済みとauthored既存plan_keyを区別して�
     'STORE_WRITE_CONFLICT', 'plan_key_already_exists');
 });
 
+test('manifest v2 storeへのhistorical importはactive revisionをplan digestへ結合する', async (context) => {
+  const root = await workspace(context);
+  const current = await readTodoStore({ repoRoot: root, now: NOW });
+  const manifest = JSON.parse((await bytes(root, manifestRef)).toString('utf8'));
+  manifest.schema = 'lattice.todo_manifest.v2';
+  manifest.members = manifest.members.map((descriptor) => ({
+    ...descriptor,
+    active_revision_digest: current.members
+      .find(({ descriptor: member }) => member.plan_key === descriptor.plan_key).plan.plan_digest,
+  }));
+  manifest.manifest_digest = todoSelfDigest(manifest, 'manifest_digest');
+  await writeFile(path.join(root, manifestRef), `${canonicalizeTodoArtifact(manifest)}\n`);
+
+  const imported = await appendImportedPlan(importedPlanRequest(root));
+  assert.equal(imported.descriptor.active_revision_digest, imported.plan.plan_digest);
+  const archive = (await readTodoStore({ repoRoot: root, now: NOW })).members
+    .find(({ descriptor }) => descriptor.plan_key === 'archive');
+  assert.equal(archive.descriptor.active_revision_digest, archive.plan.plan_digest);
+});
+
 test('todo_plan.v2のanchor hash不一致はactivation前にfail closedする', async (context) => {
   const root = await workspace(context);
   const sourceCommit = pinnedMarkdownCommit(root);
