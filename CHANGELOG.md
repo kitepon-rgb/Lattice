@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.11 — 2026-07-25
+
+- 依存工程図が既定で完走した枝を畳むようにした。生きた工程とその直接の前提工程は必ず展開したまま残し、全件を描くには `todo gantt --scope all` を使う。総数・lane集計・最長依存鎖・ready frontierは畳み込み前の全工程で数える。
+- `todo gantt` artifact descriptorを`v2`にしてscopeを記録し、`todo gantt status`がscope違いの生成物を陳腐化と誤判定しないようにした。
+- revisionでcarryされた完了時刻不明のimported ToDoへ`evidence promote`できるようにした。reopenと同じくplan_genesisのstate migrationへ束縛する。
+- publish前検査がuntrackedファイルも拒否するようにした。従来はtrackedのdirtyしか見ておらず、未commitのファイルが公開tarballへ混入しうる状態だった。ignore済みは従来どおり対象外。
+
 ## 0.12.10 — 2026-07-25
 
 - revisionでcarryされた完了ToDoを`todo reopen`できるようにした。後継journalにdoneイベントが無い場合でも、完了を運んだ`plan_genesis`のstate migrationへ束縛する。doneでないtaskのreopenは従来どおり拒否する。
