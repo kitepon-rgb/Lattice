@@ -2,7 +2,7 @@
 
 - 対象HEAD: `4c208a4b1b9708c7188d21265fbb112bb28d3c87`
 - 取得日: 2026-07-20
-- 計画: `docs/plan_phase-control-live-gantt.md`
+- 計画: `docs/archive/plan_phase-control-live-gantt.md`（取得当時は`docs/plan_phase-control-live-gantt.md`。phase受理に伴い2026-07-25にarchiveへ退避）
 - Lattice plan: `phase-control-live-gantt` v1
 
 ## Baseline
