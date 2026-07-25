@@ -1,6 +1,6 @@
 # Lattice integration package（現行公開面）
 
-- Updated: 2026-07-21
+- Updated: 2026-07-25
 - 位置づけ: hostや工場へ組み込む公開面の索引。**各契約の正典は参照先ADR**であり、
   本書は所在と編入条件だけを固定する（複製しない）。
 - 根拠裁定: [ADR 0051](adr/0051-rc4-phase-gate-support.md)（RC4条件付きsupport・Decision 6のcarry-over）
@@ -28,8 +28,11 @@
 - 共通規律: exact key・bounded collection・canonical serialization・SHA-256 digest・fail closed。
   field追加・意味変更はversionを上げ新ADRで裁定（in-place拡張禁止）
 - 配布されるJSON Schema: `plan_create_input` v1〜v3に加え、`run_request.v1`・`executor_packet.v1`・
-  `executor_receipt.v1`を`docs/schemas/`で同梱する。この3 schemaの正本は配布ファイルであり、
-  ADR 0044 Decision 2の表ではない（ADR 0123）。
+  `executor_receipt.v1`・`runtime_adapter_registration_input.v1`を`docs/schemas/`で同梱する。
+  この4 schemaの正本は配布ファイルであり、ADR 0044 Decision 2の表ではない（ADR 0123・0125）。
+- TODO工程とruntime実行の相関: `todo bindings [--plan <key>] --json`が
+  `lattice.todo_binding_projection.v1`を返す（[ADR 0124](adr/0124-todo-binding-projection.md)）。
+  `todo_status_result.v4`は変更していないため、v4を受理する既存hostはそのまま動く。
 - TODO工程: 現行authoringは`lattice.plan_create_input.v3`、planは`lattice.todo_plan.v5`、
   eventは`lattice.todo_event.v4`、snapshotは`lattice.todo_snapshot.v2`、Phase revisionは
   `lattice.phase_todo_revision.v2`、cross-plan revisionは`lattice.todo_revision_set.v3`、
@@ -67,6 +70,13 @@ subagent executor・packet `isolation_contract`・fingerprint境界検証・diff
 - dispatchは`executor_packet.v1`必須・receiptは`packet_digest`帰属・CLIはprovider sessionを所有しない
 - 実証済みadapterは`claude-implementer-subagent`のみ（単一provider＝
   [ADR 0051 Decision 2](adr/0051-rc4-phase-gate-support.md)のclaim境界。クロスprovider executorは未実証）
+- adapter登録は公開面である（[ADR 0125](adr/0125-public-runtime-adapter-registry-cli.md)）。
+  `run adapter register --input <file>`／`run adapter list --json`／`run adapter register --schema --json`。
+  digestは利用者に手計算させず、binary・config・capabilities・自己digestをCLIが導出する。
+- 決定論的な参照controllerを`lattice-scripted-adapter`として配布する
+  （[ADR 0126](adr/0126-distribute-scripted-adapter-controller.md)）。公開CLIと配布binだけで
+  `run activate`→実write→receipt受理→`resume`／`close`まで到達する。初回駆動は配布binを
+  launch argvへ明示したmanaged runだけに効き、実dispatchの所有者はhostのままである。
 
 ## 5. Lattice Sensor同梱契約（完了）
 

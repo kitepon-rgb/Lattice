@@ -1,4 +1,4 @@
-# Lattice 製品契約（0.11.2）
+# Lattice 製品契約（0.12.25）
 
 ## Product outcome
 
@@ -35,6 +35,14 @@ node更新時刻をplan identityへ混ぜない。除外fieldはprojection versi
 git ignoreしていることを作成前に検証する。run refはrepo相対の同形式だけを受理し、旧実験rootや任意pathへfallbackしない。
 
 公開CLIは`run start`、`list --json`、`observe`、`status`、`resume`、`close`、`abandon`と`event verify`を持つ。
+
+実dispatchへ到達する経路も公開面で閉じている（ADR 0125・0126）。executor adapterの登録は
+`run adapter register --input <file>`／`run adapter list --json`であり、入力schemaは
+`run adapter register --schema --json`で取得する。digestは利用者に手計算させず、
+binary／config／capabilities／自己digestはCLIが導出する。
+決定論的な参照controllerを`lattice-scripted-adapter`として配布し、公開CLIと配布binだけで
+`run activate`から実write・receipt受理・`resume`／`close`まで到達できる。
+初回駆動は配布binをlaunch argvへ明示したmanaged runだけに効く。実dispatchの所有者はhostである。
 `resume`と正常`close`は保存requestのbase SHAへbindし、stale baseを拒否する。`abandon`だけがstale runを
 明示退役でき、理由を`run_closed` eventへ記録する。lifecycle writeは排他・atomicである。
 runtimeのtimestampは実在する暦日のcanonical UTC millisecondsだけを受理する。
@@ -97,8 +105,12 @@ JSON+LFに限定し、`lattice.todo_plan.v5`と同じPhase／task／topology制�
 v2/v4は既存planの互換契約として維持する。
 
 `.lattice/todo/`のcanonical journalを工程状態の唯一正本とし、snapshotとガントHTMLは再生成可能な
-投影として扱う。読取CLIは`lattice todo status / verify / snapshot --rebuild / gantt`、一回きりの
-移行入口は`todo migrate`である。topologyとsource reconciliationの変更はfull desired-state successorを
+投影として扱う。読取CLIは`lattice todo status / bindings / verify / snapshot --rebuild / gantt`、一回きりの
+移行入口は`todo migrate`である。`todo bindings [--plan <key>] --json`は`compile_binding`が設定された
+Taskだけを`project_id`／`plan_key`／`plan_version`／`task_id`つきで投影し
+（`lattice.todo_binding_projection.v1`・ADR 0124）、TODO工程とruntime実行を結ぶ唯一の公開読み取り面とする。
+`compiled_plan_digest`から`runtime_plan.v1`→`executor_packet.v1`→`executor_receipt.v1`まで辿れる。
+`todo_status_result.v4`は変更せず、加算の別面とする。topologyとsource reconciliationの変更はfull desired-state successorを
 発行する`todo revise`／`todo revise-phase`だけが所有し、Markdown fallback、部分CRUD、独立`todo reconcile`を持たない。
 通常revision inputはcanonical JSON+LFの`lattice.todo_revision.v1/v2`、Phase revisionは
 `lattice.phase_todo_revision.v1/v2`とする。v2はdesired plan v5を所有する。cross-plan successorは`todo revise-set`で一括公開し、

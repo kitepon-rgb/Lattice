@@ -52,7 +52,30 @@ lattice plan create --input .lattice/plan-create.json
 discoveryと初期transactionの不変条件は
 [ADR 0058](docs/adr/0058-project-discovery-and-initial-authoring.md)が正です。
 
-TODO工程storeの読取は`lattice todo status`、検証は`lattice todo verify`、表示生成は
+## 実行runを端から端まで動かす
+
+compileしたrunを実際にdispatchするには、executor adapterを登録してからactivateします。
+参照実装の`lattice-scripted-adapter`を配布しているため、公開CLIと配布binだけで
+実write・receipt受理・closeまで到達できます。
+
+```bash
+lattice run adapter register --schema --json     # 登録入力のJSON Schema
+lattice run adapter register --input adapter.json
+lattice run adapter list --json
+lattice run activate --run .lattice/runs/<id>
+lattice run status --run .lattice/runs/<id>      # accepted に子が入る
+lattice event verify --run .lattice/runs/<id>
+lattice run close --run .lattice/runs/<id>
+```
+
+digestは手で計算しません。binary・config・capabilities・自己digestは登録時にCLIが導出します。
+
+`plan compile`が`BOUNDARY_UNKNOWN`を返す場合は、まず`git status --short`が空かを確認してください。
+未追跡ファイルがあるとsensor statusが`stale`になり、witnessが未解決unknownへ落ちます。
+作業ツリーをcleanにすると同じrequestがそのまま通ります。
+
+TODO工程storeの読取は`lattice todo status`、`compile_binding`付きTaskの投影は
+`lattice todo bindings`、検証は`lattice todo verify`、表示生成は
 `lattice todo gantt`を使います。topology/source reconciliationは
 `lattice todo revise --plan <key> --input <canonical-revision.json>`、Phase付きplanは
 `lattice todo revise-phase --plan <key> --input <canonical-phase-revision.json>`でsuccessor発行します。
