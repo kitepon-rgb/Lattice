@@ -69,6 +69,11 @@ import { createRuntimeControlStore } from './runtime-control-store.mjs';
 import { createRuntimeGateStore } from './runtime-gate-store.mjs';
 import { acquireRuntimeLifecycleLock } from './runtime-lifecycle-lock.mjs';
 import {
+  AdapterRegistryError,
+  listRuntimeAdapters,
+  registerRuntimeAdapter,
+} from './runtime-adapter-registry.mjs';
+import {
   ManagedRuntimeError,
   launchDurableSupervisor,
   observeManagedProcessStartIdentity,
@@ -84,6 +89,8 @@ import {
  *   lattice plan compile --request <run-request.json>
  *   lattice plan verify  --request <run-request.json> --plan <plan.json>
  *   lattice run start    --request <run-request.json> --executor <adapter>
+ *   lattice run adapter register --input <descriptor.json>
+ *   lattice run adapter list --json
  *   lattice run observe  --run .lattice/runs/<run-id>
  *   lattice run status   --run .lattice/runs/<run-id>
  *   lattice run resume   --run .lattice/runs/<run-id>
@@ -260,6 +267,58 @@ async function runRequestSchema({ stdout }) {
   }
   stdout.write(`${JSON.stringify(schema)}\n`);
   return 0;
+}
+
+/** 公開登録入力を推測させないため、配布物に同梱したJSON Schemaをそのまま返す（ADR 0125）。 */
+async function runAdapterRegisterSchema({ stdout }) {
+  const schemaUrl = new URL(
+    '../docs/schemas/lattice.runtime_adapter_registration_input.v1.schema.json',
+    import.meta.url,
+  );
+  const schema = JSON.parse(await readFile(schemaUrl, 'utf8'));
+  if (schema?.title !== 'lattice.runtime_adapter_registration_input.v1') {
+    throw new CliContractError('CONTRACT_VIOLATION', '同梱adapter registration input schemaが不正');
+  }
+  stdout.write(`${JSON.stringify(schema)}\n`);
+  return 0;
+}
+
+async function runAdapterRegister({ cwd, inputPath, stdout }) {
+  try {
+    const repoRoot = await resolveRepoRoot(cwd);
+    const input = await readBoundedJson(inputPath, 'adapter registration input');
+    const result = await registerRuntimeAdapter({ repoRoot, input });
+    stdout.write(`${JSON.stringify(result)}\n`);
+    return 0;
+  } catch (error) {
+    if (error instanceof AdapterRegistryError) throw error;
+    if (error instanceof CliContractError) {
+      if (error.detail !== undefined) throw error;
+      throw new CliContractError(error.code, error.message, {
+        path: inputPath,
+        reason: error.code.toLowerCase(),
+      });
+    }
+    throw new CliContractError('ADAPTER_REGISTRY_WRITE_FAILED', 'adapter registryを書けない', {
+      path: '.lattice/runtime/adapter-registry/registry.json',
+      reason: typeof error?.code === 'string' ? error.code : 'unexpected_write_failure',
+    });
+  }
+}
+
+async function runAdapterList({ cwd, stdout }) {
+  try {
+    const repoRoot = await resolveRepoRoot(cwd);
+    const result = await listRuntimeAdapters({ repoRoot });
+    stdout.write(`${JSON.stringify(result)}\n`);
+    return 0;
+  } catch (error) {
+    if (error instanceof AdapterRegistryError || error instanceof CliContractError) throw error;
+    throw new CliContractError('ADAPTER_REGISTRY_READ_FAILED', 'adapter registryを読めない', {
+      path: '.lattice/runtime/adapter-registry/registry.json',
+      reason: typeof error?.code === 'string' ? error.code : 'unexpected_read_failure',
+    });
+  }
 }
 
 async function loadRequest(requestPath) {
@@ -1302,7 +1361,7 @@ async function runActivate({ runDir, runRef, repoRoot, stdout, requestId = null 
         adapter_kind: meta?.executor_adapter ?? null,
         required_artifact: '.lattice/runtime/adapter-registry/registry.json',
         registered_adapters: await registeredAdapterKinds(repoRoot),
-        reason: 'run activateは登録済みexecutor adapterを要求する。adapter登録は現時点で公開CLI面ではない',
+        reason: 'run activateは登録済みexecutor adapterを要求する。run adapter registerで登録する',
       });
     }
     throw new CliContractError(code, `managed activateが${response.outcome}で終了した: ${response.result?.unmet?.[1] ?? code}`);
@@ -2803,6 +2862,22 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[0] === 'plan' && argv[1] === 'compile'
     && argv[2] === '--schema' && argv[3] === '--json') {
     action = () => runRequestSchema({ stdout });
+  } else if (argv.length === 5
+    && argv[0] === 'run' && argv[1] === 'adapter' && argv[2] === 'register'
+    && argv[3] === '--schema' && argv[4] === '--json') {
+    action = () => runAdapterRegisterSchema({ stdout });
+  } else if (argv.length === 5
+    && argv[0] === 'run' && argv[1] === 'adapter' && argv[2] === 'register'
+    && argv[3] === '--input' && typeof argv[4] === 'string' && argv[4].length > 0) {
+    action = () => runAdapterRegister({
+      cwd,
+      inputPath: path.resolve(cwd, argv[4]),
+      stdout,
+    });
+  } else if (argv.length === 4
+    && argv[0] === 'run' && argv[1] === 'adapter' && argv[2] === 'list'
+    && argv[3] === '--json') {
+    action = () => runAdapterList({ cwd, stdout });
   } else if (argv.length === 4
     && argv[0] === 'run' && argv[1] === 'start'
     && argv[2] === '--schema' && argv[3] === '--json') {
@@ -2936,6 +3011,9 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     }
     if (error instanceof RuntimeEpochStoreError) {
       return typedFailure(stderr, error.code, error.message);
+    }
+    if (error instanceof AdapterRegistryError) {
+      return typedFailure(stderr, error.code, error.message, error.detail);
     }
     if (error instanceof ManagedRuntimeError) {
       return typedFailure(stderr, error.code, error.message);

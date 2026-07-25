@@ -32,6 +32,9 @@ Commands:
 Commands:
   start --request <request.json> --executor <adapter>
   start --schema --json              # lattice.run_request.v1 の JSON Schema を出す
+  adapter register --input <descriptor.json>
+  adapter register --schema --json   # 登録入力の JSON Schema を出す
+  adapter list --json
   observe --run .lattice/runs/<id>
   status --run .lattice/runs/<id>
   resume --run .lattice/runs/<id>
@@ -103,6 +106,8 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'plan compile': 'plan compile --request <request.json> | --schema --json',
   'plan verify': 'plan verify --request <request.json> --plan <plan.json>',
   'run start': 'run start --request <request.json> --executor <adapter> | --schema --json',
+  'run adapter register': 'run adapter register --input <descriptor.json> | --schema --json',
+  'run adapter list': 'run adapter list --json',
   'run observe': 'run observe --run .lattice/runs/<id>',
   'run status': 'run status --run .lattice/runs/<id>',
   'run resume': 'run resume --run .lattice/runs/<id>',

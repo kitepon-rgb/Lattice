@@ -62,6 +62,8 @@ test('公開subcommand helpは正規構文をstore非依存で表示する', () 
     [['todo', 'phase', 'accept', '-h'], /--input <file>/u],
     [['help', 'todo', 'done'], /--evidence <file>/u],
     [['help', 'run', 'abandon'], /--reason <reason>/u],
+    [['run', 'adapter', 'register', '--help'], /--schema --json/u],
+    [['help', 'run', 'adapter', 'list'], /adapter list --json/u],
     [['bridge', 'setup', '--help'], /--listen <IP>/u],
   ];
   for (const [args, pattern] of cases) {
