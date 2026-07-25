@@ -1,6 +1,8 @@
-import { isIP } from 'node:net';
+import { createConnection, isIP } from 'node:net';
+import { networkInterfaces } from 'node:os';
 import * as clack from '@clack/prompts';
 
+import { resolveBridgeListenAddress } from './bridge-address.mjs';
 import {
   BridgeConfigError, configureBridge, disableBridge, readBridgeConfig, restoreBridgeConfig,
   normalizeBridgeAllowedHost, withBridgeOperationLock,
@@ -15,7 +17,52 @@ import {
   snapshotBridgeLaunchAgent,
 } from './bridge-launch-agent.mjs';
 
-const RESULT_SCHEMA = 'lattice.bridge_cli_result.v1';
+// v2 adds the liveness fields. `enabled` only says the configuration is on;
+// it never said the bridge could actually be reached, which let a DHCP lease
+// change take the published surface down while status kept reporting health.
+const RESULT_SCHEMA = 'lattice.bridge_cli_result.v2';
+const REACHABILITY_PROBE_TIMEOUT_MS = 750;
+
+/** TCP connect probe. Answers "is anything accepting there right now". */
+export function probeBridgeListener({ address, port, timeoutMs = REACHABILITY_PROBE_TIMEOUT_MS }) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(value);
+    };
+    const socket = createConnection({ host: address, port });
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+  });
+}
+
+/**
+ * Liveness of the configured listen address: does it still exist on this host,
+ * did it move inside its subnet, and is anything accepting connections there.
+ */
+async function bridgeLiveness(config, { interfaces = networkInterfaces(), probe = probeBridgeListener } = {}) {
+  if (config === null || config.enabled !== true) {
+    return { listen_state: 'unconfigured', effective_listen: null, listen_candidates: [],
+      reachable: null, liveness_reason: null };
+  }
+  const resolved = resolveBridgeListenAddress({ configured: config.listen.address, interfaces });
+  const effective = resolved.effective === null ? null
+    : { address: resolved.effective, port: config.listen.port };
+  const reachable = effective === null ? false
+    : await probe({ address: effective.address, port: effective.port });
+  return {
+    listen_state: resolved.state,
+    effective_listen: effective,
+    listen_candidates: resolved.candidates,
+    reachable,
+    liveness_reason: resolved.reason ?? (reachable ? null : 'listener_not_accepting'),
+  };
+}
 
 function fail(stderr, code, message) {
   stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v2', code, message })}\n`);
@@ -48,10 +95,15 @@ function parseOptions(words) {
   return options;
 }
 
-function result(action, config, recovery = null) {
+function result(action, config, recovery = null, liveness = null) {
   return { schema: RESULT_SCHEMA, action, configured: config !== null, enabled: config?.enabled ?? false,
     listen: config?.listen ?? null, allowed_hosts: config?.allowed_hosts ?? null,
-    upstream: config?.upstream ?? null, updated_at: config?.updated_at ?? null, recovery };
+    upstream: config?.upstream ?? null, updated_at: config?.updated_at ?? null, recovery,
+    listen_state: liveness?.listen_state ?? null,
+    effective_listen: liveness?.effective_listen ?? null,
+    listen_candidates: liveness?.listen_candidates ?? null,
+    reachable: liveness?.reachable ?? null,
+    liveness_reason: liveness?.liveness_reason ?? null };
 }
 
 export async function collectBridgeSetupWizard({ input, output, prompts = clack } = {}) {
@@ -104,7 +156,7 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
     stop: stopBridgeDaemon, clearStop: clearBridgeStopControl },
   launchAgent = { snapshot: snapshotBridgeLaunchAgent, install: installBridgeLaunchAgent,
     disable: disableBridgeLaunchAgent, restore: restoreBridgeLaunchAgent },
-  prompts = clack } = {}) {
+  prompts = clack, probe = probeBridgeListener, interfaces = networkInterfaces() } = {}) {
   if (!Array.isArray(argv)) {
     return fail(stderr, 'USAGE', 'usage: lattice bridge <setup|reconfigure|status|disable> [options] --json');
   }
@@ -216,8 +268,11 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
         return configured;
       });
     } else return fail(stderr, 'USAGE', 'unknown bridge command or options');
+    // Liveness is only meaningful for a read: the mutating commands have just
+    // reconfigured the daemon and the socket may not have settled yet.
+    const liveness = command === 'status' ? await bridgeLiveness(config, { probe, interfaces }) : null;
     if (wizard) stdout.write(`Lattice bridgeを${config.listen.address}:${config.listen.port}で有効にしました。\n`);
-    else stdout.write(`${JSON.stringify(result(command, config, recovery))}\n`);
+    else stdout.write(`${JSON.stringify(result(command, config, recovery, liveness))}\n`);
     return 0;
   } catch (error) {
     stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v2',

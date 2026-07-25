@@ -5,6 +5,9 @@ import { lstat, open } from 'node:fs/promises';
 import path from 'node:path';
 import { parseTree } from 'jsonc-parser';
 
+import { networkInterfaces } from 'node:os';
+
+import { resolveBridgeListenAddress } from './bridge-address.mjs';
 import {
   BridgeConfigError, bridgeConfigPaths, normalizeBridgeAllowedHost, readBridgeConfig,
 } from './bridge-config.mjs';
@@ -184,12 +187,28 @@ export async function startBridgeServer({
   config, env = process.env,
   instanceToken = null,
   resolveUpstream = (upstream) => resolveBridgeUpstream(upstream, { env }),
+  interfaces = networkInterfaces(),
 } = {}) {
   if (config?.enabled !== true) throw new BridgeConfigError('BRIDGE_DISABLED', 'bridge is disabled');
   if (!Array.isArray(config.allowed_hosts) || config.allowed_hosts.length === 0) {
     throw new BridgeConfigError('BRIDGE_CONFIG_INVALID', 'bridge allowed hosts are required');
   }
+  // A DHCP lease change moves the host inside its own subnet and strands the
+  // configured literal. Follow it rather than binding a dead address, but only
+  // within the same subnet (see bridge-address.mjs for why that bound matters).
+  const resolvedListen = resolveBridgeListenAddress({ configured: config.listen.address, interfaces });
+  if (resolvedListen.effective === null) {
+    throw new BridgeConfigError('BRIDGE_LISTEN_ADDRESS_ABSENT',
+      'configured bridge listen address is not present on this host',
+      { ...config.listen, listen_state: resolvedListen.state });
+  }
+  const listenAddress = resolvedListen.effective;
   let allowedHosts = new Set(config.allowed_hosts);
+  // The rebound address has to answer for itself, otherwise every request to it
+  // is rejected by the Host allow-list the operator never knew had gone stale.
+  if (listenAddress !== config.listen.address) {
+    allowedHosts.add(normalizeBridgeAllowedHost(listenAddress));
+  }
   let currentConfig = config;
   const handleRequest = async (incoming, response) => {
     let requestHost;
@@ -249,17 +268,19 @@ export async function startBridgeServer({
   });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen({ host: config.listen.address, port: config.listen.port, exclusive: true }, resolve);
+    server.listen({ host: listenAddress, port: config.listen.port, exclusive: true }, resolve);
   }).catch((error) => {
     throw new BridgeConfigError(error?.code === 'EADDRINUSE' ? 'BRIDGE_PORT_UNAVAILABLE' : 'BRIDGE_BIND_FAILED',
-      'bridge listen failed', { ...config.listen }, error);
+      'bridge listen failed', { ...config.listen, effective_address: listenAddress }, error);
   });
   const boundAddress = server.address();
   const actualPort = typeof boundAddress === 'object' && boundAddress !== null
     ? boundAddress.port : config.listen.port;
   let closed = false;
   return Object.freeze({
-    address: config.listen.address,
+    address: listenAddress,
+    configured_address: config.listen.address,
+    rebound: listenAddress !== config.listen.address,
     port: actualPort,
     updateConfig(next) {
       if (next?.enabled !== true || next.listen.address !== config.listen.address
@@ -268,6 +289,9 @@ export async function startBridgeServer({
       }
       currentConfig = next;
       allowedHosts = new Set(next.allowed_hosts);
+      if (listenAddress !== config.listen.address) {
+        allowedHosts.add(normalizeBridgeAllowedHost(listenAddress));
+      }
     },
     close: async () => {
       if (closed) return;
@@ -293,7 +317,11 @@ export function bridgeRuntimeController({ env = process.env, instanceToken = nul
         fingerprint = null;
         return null;
       }
-      if (active !== null && active.address === config.listen.address && active.port === config.listen.port) {
+      // Compare against the CONFIGURED address: a rebound binding still serves
+      // the same configuration, and comparing the effective address would tear
+      // the server down and rebuild it on every reconcile.
+      if (active !== null && active.configured_address === config.listen.address
+        && active.port === config.listen.port) {
         active.updateConfig(config);
         fingerprint = next;
         return active;
