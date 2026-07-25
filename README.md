@@ -8,7 +8,8 @@ schedulability compilerです。
 Latticeは[dotagents開発工場](https://github.com/kitepon-rgb/dotagents)が管理する
 自作コア10製品の一つです。本repoはplan／ToDo／run store、sensor、schema、migration、
 release、diagnosticsを所有し、dotagentsは製品横断の工程利用・導入・host統合を所有します。
-独立Codegraphはretiredで、Lattice sensorが正式後継です。MarkItDownは別区分の第三者CLIです。
+廃止済みの前身sensorは独立製品として配線せず、Lattice sensorだけを現役面とします。
+MarkItDownは別区分の第三者CLIです。
 
 現在の工程状態と完了証拠の正本は、このrepoのLattice storeです。文書の役割と現行導線は
 [docs/README.md](docs/README.md)、製品思想は[PLAN.md](PLAN.md)、公開contractは
