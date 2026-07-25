@@ -13,6 +13,7 @@ import {
   readActiveTodoDashboardProjects,
   readVisibleTodoDashboardProjects,
   registerTodoDashboardActivity,
+  TODO_DASHBOARD_CODE_VERSION,
   TODO_DASHBOARD_STALE_MS,
 } from '../src/todo-dashboard-registry.mjs';
 
@@ -155,6 +156,40 @@ test('legacy health daemonは新daemon成功後だけPID一致を根拠に停止
   assert.equal(signaled, true);
   assert.notEqual(replacement.pid, legacyPid);
   assert.notEqual(replacement.port, legacy.port);
+});
+
+test('古い版を配信し続けているdaemonは新版へ置換される', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-version-drift-'));
+  const runtime = path.join(root, 'runtime');
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const stalePid = 987_655;
+  // 応答形は現行と同じで、名乗る版数だけが古い。install済みのコードとの差が
+  // 「配信中のプロセスだけ取り残されている」ことの唯一の手掛かりになる。
+  const staleBody = { schema: 'lattice.todo_dashboard_health.v1', pid: stalePid, port: 0,
+    project_ids: ['lattice'], version: '0.0.1-old' };
+  const stale = await healthServer(() => staleBody);
+  staleBody.port = stale.port;
+  await writeDaemonDescriptor(runtime, { schema: 'lattice.todo_dashboard_daemon.v1', pid: stalePid,
+    port: stale.port, started_at: new Date().toISOString() });
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime };
+  let replacement = null;
+  let signaled = false;
+  context.after(async () => {
+    if (replacement !== null) try { process.kill(replacement.pid, 'SIGTERM'); } catch {}
+    await new Promise((resolve) => stale.server.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  replacement = await ensureTodoDashboardDaemon({ env,
+    signalProcess(pid, signal) {
+      assert.equal(pid, stalePid); assert.equal(signal, 'SIGTERM'); signaled = true; stale.server.close();
+    },
+    isProcessAlive: () => !signaled,
+  });
+  assert.equal(signaled, true, '古い版のdaemonは停止させる');
+  assert.notEqual(replacement.pid, stalePid);
+
+  const health = await (await fetch(`http://127.0.0.1:${replacement.port}/__lattice/health`)).json();
+  assert.equal(health.version, TODO_DASHBOARD_CODE_VERSION, '新daemonは自分の版数を名乗る');
 });
 
 test('PID不一致healthの無関係serviceにはsignalせず新daemonへ置換する', async (context) => {

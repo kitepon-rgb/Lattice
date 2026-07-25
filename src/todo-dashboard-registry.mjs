@@ -6,6 +6,16 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 
+import packageJson from '../package.json' with { type: 'json' };
+
+/**
+ * The version of the code in THIS process. A daemon loads its modules once at
+ * startup and keeps serving them, so installing a new package does not change
+ * what the running daemon serves. The daemon reports the version it started
+ * with; anything else is code that has already been replaced on disk.
+ */
+export const TODO_DASHBOARD_CODE_VERSION = packageJson.version;
+
 const REGISTRY_SCHEMA = 'lattice.todo_dashboard_registry.v1';
 const DAEMON_SCHEMA = 'lattice.todo_dashboard_daemon.v1';
 const DEFAULT_PORT = 0;
@@ -182,7 +192,13 @@ async function daemonAttestation(descriptor, { timeoutMs = 2_000 } = {}) {
     if (body?.schema !== 'lattice.todo_dashboard_health.v1' || body.pid !== descriptor.pid
       || !Array.isArray(body.project_ids)) return null;
     const keys = Object.keys(body).sort().join(',');
-    if (keys === 'pid,port,project_ids,schema' && body.port === descriptor.port) return 'current';
+    // 'legacy' means "alive, but serving code we have already replaced" — the
+    // caller starts a replacement and stops it. A daemon that predates the
+    // version field, or one still running an older package, is exactly that.
+    if (keys === 'pid,port,project_ids,schema,version' && body.port === descriptor.port) {
+      return body.version === TODO_DASHBOARD_CODE_VERSION ? 'current' : 'legacy';
+    }
+    if (keys === 'pid,port,project_ids,schema' && body.port === descriptor.port) return 'legacy';
     if (keys === 'pid,project_ids,schema') return 'legacy';
     return null;
   } catch { return null; }

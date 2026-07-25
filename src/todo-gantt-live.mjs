@@ -1,5 +1,7 @@
 import { createServer } from 'node:http';
 
+import { TODO_DASHBOARD_CODE_VERSION } from './todo-dashboard-registry.mjs';
+
 const LOOPBACK = '127.0.0.1';
 const POLL_MS = 500;
 const HTTP_ERROR_SCHEMA = 'lattice.todo_gantt_http_error.v1';
@@ -136,8 +138,12 @@ export async function startTodoGanttDashboardServer({ registry, port = 0, redire
       if (url.pathname === '/__lattice/health') {
         response.writeHead(200, { 'content-type': 'application/json; charset=utf-8',
           'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+        // `version` is the package this process loaded at startup, not the one
+        // installed on disk. That difference is the whole point: it is how a
+        // caller learns the daemon is serving code that has been superseded.
         response.end(`${JSON.stringify({ schema: 'lattice.todo_dashboard_health.v1', pid: process.pid,
-          port: actualPort, project_ids: registry.list().map(({ projectId }) => projectId) })}\n`);
+          port: actualPort, project_ids: registry.list().map(({ projectId }) => projectId),
+          version: TODO_DASHBOARD_CODE_VERSION })}\n`);
         return;
       }
       if (url.pathname === '/' || url.pathname === '/projects/') {
