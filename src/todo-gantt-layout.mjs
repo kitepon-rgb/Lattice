@@ -403,10 +403,8 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
 
   // Only the geometry stage below sees the narrowed graph.
   const projected = scope === 'all'
-    ? { nodes: full.nodes, edges: full.edges, foldedByKey: new Map(), folds: [], grouping: null }
-    : projectTodoGanttScope({
-      nodes: full.nodes, edges: full.edges, wave: fullWaves.wave, longestChainKeys: longestNodeKeys,
-    });
+    ? { nodes: full.nodes, edges: full.edges, foldedKeys: new Set() }
+    : projectTodoGanttScope({ nodes: full.nodes, edges: full.edges, wave: fullWaves.wave });
   const nodes = projected.nodes;
   const edges = projected.edges;
   const nodesByKey = new Map(nodes.map((node) => [node.key, node]));
@@ -477,18 +475,9 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
       ref: { ...node.ref }, title: node.title, lane: node.lane, status: node.status,
       wave: wave.get(node.key), row: transversePosition.get(node.key), visible,
       visibility: {
-        // A fold node stands in for a finished branch, so it inherits the chain
-        // marking of the ToDos it replaced rather than carrying one of its own.
-        longest_dependency_chain: node.fold === undefined
-          ? longestNodeKeys.has(node.key) : node.fold.longest_chain_task_count > 0,
+        longest_dependency_chain: longestNodeKeys.has(node.key),
         active: node.status === 'in-progress', next_ready: readyKeys.has(node.key),
         selected: false,
-      },
-      fold: node.fold === undefined ? null : {
-        task_count: node.fold.task_count,
-        lanes: [...node.fold.lanes],
-        longest_chain_task_count: node.fold.longest_chain_task_count,
-        task_refs: node.fold.task_refs.map((entry) => ({ ...entry })),
       },
       geometry,
     };
@@ -636,26 +625,14 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     },
     scope: {
       requested: scope,
-      folded_task_count: projected.foldedByKey.size,
-      fold_node_count: projected.folds.length,
-      grouping: projected.grouping,
-      folds: projected.folds.map((entry) => ({
-        ref: { ...entry.ref },
-        task_count: entry.task_count,
-        lanes: [...entry.lanes],
-        longest_chain_task_count: entry.longest_chain_task_count,
-      })),
+      folded_task_count: projected.foldedKeys.size,
     },
-    folded: [...projected.foldedByKey.entries()]
-      .map(([taskKey, foldKey]) => ({ task: JSON.parse(taskKey), fold: JSON.parse(foldKey) }))
-      .sort((left, right) => compareRefs(
-        { project_id: left.task[0], plan_key: left.task[1], task_id: left.task[2] },
-        { project_id: right.task[0], plan_key: right.task[1], task_id: right.task[2] },
-      ))
-      .map(({ task, fold }) => ({
-        task: { project_id: task[0], plan_key: task[1], task_id: task[2] },
-        fold: { project_id: fold[0], plan_key: fold[1], task_id: fold[2] },
-      })),
+    // The ToDos the diagram no longer draws. They stay in the task index and in
+    // every count, so the reader can still reach them by name.
+    folded: [...projected.foldedKeys]
+      .map((taskKey) => JSON.parse(taskKey))
+      .map(([project_id, plan_key, task_id]) => ({ project_id, plan_key, task_id }))
+      .sort(compareRefs),
     metrics: {
       crossing_count: crossingCount(edges, wave, transversePosition),
       visible_node_count: visibleKeys.size,

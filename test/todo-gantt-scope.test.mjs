@@ -57,7 +57,7 @@ function assertAcyclic(layout) {
   assert.equal(visited, layout.nodes.length, 'projected layout must stay acyclic');
 }
 
-test('全taskがdoneなら図は畳み込みnodeだけになる', () => {
+test('全taskがdoneなら図から工程が消える', () => {
   const A = ref('A');
   const B = ref('B');
   const input = fixture([
@@ -65,32 +65,43 @@ test('全taskがdoneなら図は畳み込みnodeだけになる', () => {
   ], [dependency(A, B)]);
   const live = layoutOf(input, { scope: 'live' });
   assert.equal(live.scope.folded_task_count, 2);
-  assert.equal(live.nodes.length, 1);
-  assert.equal(live.nodes[0].fold.task_count, 2);
-  assert.equal(live.nodes[0].status, 'done');
+  assert.equal(live.nodes.length, 0, 'まとめnodeという代わりの箱も置かない');
+  assert.equal(live.edges.length, 0);
   assert.equal(live.metrics.task_count, 2, '総数はフルグラフ基準で保つ');
+  assert.deepEqual(live.folded.map(({ task_id }) => task_id), ['A', 'B']);
 });
 
-test('縮約で閉路になる f1->s->f2 形は粒度を1段細かくして解消する', () => {
+test('完走したplanは図に一切場所を取らない', () => {
+  const input = plansFixture([
+    { planKey: 'left', tasks: [{ id: 'L1', status: 'done' }, { id: 'L2', status: 'done' }] },
+    { planKey: 'right', tasks: [{ id: 'R1', status: 'done' }, { id: 'R2', status: 'pending' }] },
+  ], [dependency(ref('L1', 'left'), ref('L2', 'left'))]);
+  const live = layoutOf(input, { scope: 'live' });
+  // 完走したleft planは、まとめnode1個ぶんの列すら占めない。
+  assert.deepEqual(live.nodes.map((node) => node.ref.task_id), ['R2']);
+  assert.equal(live.scope.folded_task_count, 3);
+  assert.deepEqual(live.folded.map(({ plan_key, task_id }) => `${plan_key}/${task_id}`),
+    ['left/L1', 'left/L2', 'right/R1']);
+});
+
+test('生きた作業とその直接前提は残り、その先の死んだ枝だけが消える', () => {
   const f1 = ref('f1');
   const f2 = ref('f2');
   const s = ref('s');
   const live = ref('live');
-  // f1(done)とf2(done)は同じplanなのでplan粒度では同じ畳み込みunitになる。
-  // f1 -> s -> f2 があるため、そのまま1nodeへ縮約すると summary -> s -> summary の閉路になる。
   const input = fixture([
     { id: 'f1', status: 'done' }, { id: 'f2', status: 'done' },
     { id: 's', status: 'done' }, { id: 'live', status: 'pending' },
   ], [dependency(f1, f2), dependency(f1, s), dependency(s, f2), dependency(s, live)]);
 
   const projected = layoutOf(input, { scope: 'live' });
-  assert.equal(projected.scope.grouping, 'plan_stage', '粗い粒度から1段だけ細かくして止まる');
   assertAcyclic(projected);
-
-  const drawn = new Set(projected.nodes.map((node) => node.ref.task_id));
-  assert.equal(drawn.has('live'), true);
-  assert.equal(drawn.has('s'), true, 'live作業の直接前提は残る');
-  assert.equal(projected.folded.map(({ task }) => task.task_id).sort().join(','), 'f1,f2');
+  const drawn = projected.nodes.map((node) => node.ref.task_id).sort();
+  assert.deepEqual(drawn, ['live', 's'], 'live作業とその直接前提だけが残る');
+  assert.deepEqual(projected.folded.map(({ task_id }) => task_id), ['f1', 'f2']);
+  // f1 -> s のedgeは、片端が消えたので図からも消える。
+  assert.deepEqual(projected.edges.map((edge) => `${edge.from.task_id}->${edge.to.task_id}`),
+    ['s->live']);
 });
 
 test('projectTodoGanttScopeはfoldableが無ければ入力をそのまま返す', () => {
@@ -103,40 +114,21 @@ test('projectTodoGanttScopeはfoldableが無ければ入力をそのまま返す
   const result = projectTodoGanttScope({ nodes, edges, wave });
   assert.equal(result.nodes, nodes);
   assert.equal(result.edges, edges);
-  assert.equal(result.folds.length, 0);
-  assert.equal(result.grouping, null);
+  assert.equal(result.foldedKeys.size, 0);
 });
 
-test('連結していない完走工程も同じplanなら1nodeへまとまる', () => {
+test('同じ入力からは同じ図が出る', () => {
   const A = ref('A');
   const B = ref('B');
   const C = ref('C');
-  // Cは誰とも繋がっていない。連結成分で束ねると3件が2nodeへしか減らないが、
-  // 履歴は「どのplanのものか」で束ねるので1nodeになる。
   const input = fixture([
     { id: 'A', lane: 'alpha', status: 'done' },
     { id: 'B', lane: 'alpha', status: 'done' },
-    { id: 'C', lane: 'beta', status: 'done' },
-  ], [dependency(A, B)]);
+    { id: 'C', lane: 'beta', status: 'pending' },
+  ], [dependency(A, B), dependency(B, C)]);
   const first = layoutOf(input, { scope: 'live' });
   const second = layoutOf(input, { scope: 'live' });
-  assert.deepEqual(JSON.parse(JSON.stringify(first)), JSON.parse(JSON.stringify(second)),
-    '畳み込みnodeのlaneとrefは決定的である');
-  assert.equal(first.scope.grouping, 'plan');
-  assert.equal(first.nodes.length, 1);
-  assert.deepEqual(first.scope.folds.map(({ task_count }) => task_count), [3]);
-  assert.deepEqual(first.nodes.map((node) => node.lane), ['alpha'], 'lane優勢はalpha');
-  assert.deepEqual(first.scope.folds[0].lanes, ['alpha', 'beta'], '含まれるlaneは全て残す');
-});
-
-test('畳み込みunitはplanをまたがない', () => {
-  const input = plansFixture([
-    { planKey: 'left', tasks: [{ id: 'L1', status: 'done' }, { id: 'L2', status: 'done' }] },
-    { planKey: 'right', tasks: [{ id: 'R1', status: 'done' }, { id: 'R2', status: 'pending' }] },
-  ], [dependency(ref('L1', 'left'), ref('L2', 'left'))]);
-  const live = layoutOf(input, { scope: 'live' });
-  const folds = live.scope.folds;
-  assert.equal(folds.length, 2, 'planごとに1nodeずつ');
-  assert.deepEqual(folds.map(({ ref: foldRef }) => foldRef.plan_key).sort(), ['left', 'right']);
-  assert.deepEqual(folds.map(({ task_count }) => task_count), [2, 1]);
+  assert.deepEqual(JSON.parse(JSON.stringify(first)), JSON.parse(JSON.stringify(second)));
+  assert.deepEqual(first.nodes.map((node) => node.ref.task_id), ['B', 'C']);
+  assert.deepEqual(first.folded.map(({ task_id }) => task_id), ['A']);
 });

@@ -81,8 +81,8 @@ test('既定scopeは完走した枝を畳み、--scope allは全件描く', asyn
     assert.match(html, /data-task-id="T1"/u);
     assert.match(html, /data-task-id="T2"/u);
   }
-  // 畳んでいることと戻し方が図の上で読める。
-  assert.match(liveHtml, /完走済み 1件を畳んで表示中/u);
+  // 外していることと戻し方が図の上で読める。
+  assert.match(liveHtml, /完走済み 1件を非表示/u);
   assert.match(liveHtml, /--scope all/u);
   // 総数は畳み込み前のまま。
   assert.match(liveHtml, /aria-label="main — 3 ToDo"/u);
@@ -90,7 +90,7 @@ test('既定scopeは完走した枝を畳み、--scope allは全件描く', asyn
   assert.match(liveHtml, /完走済みとして畳んだ工程 1件/u);
 });
 
-test('畳んだ工程も畳み込みnodeも、生成物の上でクリックで開ける', async (context) => {
+test('図から外した工程も、生成物の上で一覧から開ける', async (context) => {
   const root = await foldableWorkspace(context);
   const live = run(root, ['todo', 'gantt', '--out', '.lattice/generated/live.html']);
   assert.equal(live.status, 0, live.stderr);
@@ -98,11 +98,14 @@ test('畳んだ工程も畳み込みnodeも、生成物の上でクリックで�
 
   const detailKeys = new Set([...html.matchAll(/data-detail-key="([^"]*)"/gu)].map(([, key]) => key));
   const selectKeys = [...html.matchAll(/data-select-node-key="([^"]*)"/gu)].map(([, key]) => key);
+  const nodeKeys = [...html.matchAll(/data-node-key="([^"]*)"/gu)].map(([, key]) => key);
   assert.notEqual(selectKeys.length, 0);
-  assert.deepEqual([...new Set(selectKeys)].filter((key) => !detailKeys.has(key)), []);
-  // 図に立っている畳み込みnode自身が詳細を持ち、構成工程を並べる。
-  assert.match(html, /data-detail-key="\[[^"]*~folded:0[^"]*\]"/u);
-  assert.match(html, /含まれる工程 1件/u);
+  assert.deepEqual([...new Set(selectKeys)].filter((key) => !detailKeys.has(key)), [],
+    '開ける先の無い選択ボタンを出さない');
+  assert.deepEqual([...new Set(nodeKeys)].filter((key) => !detailKeys.has(key)), [],
+    '図のnodeはすべてクリックで開ける');
+  // 図に代わりの箱は立てない。
+  assert.doesNotMatch(html, /~folded/u);
 });
 
 test('gantt statusはscope違いの生成物をstaleと誤判定しない', async (context) => {

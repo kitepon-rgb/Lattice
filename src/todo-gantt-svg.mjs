@@ -140,31 +140,23 @@ function presentationMaps(presentation) {
 function renderNode(node, maps) {
   if (!node.visible || node.geometry === null) return '';
   const { x, y, width, height } = node.geometry;
-  const fold = node.fold ?? null;
   const classes = ['todo-node', STATUS_CLASSES[node.status] ?? 'status-unknown'];
-  if (fold !== null) classes.push('folded-node');
   if (node.visibility.longest_dependency_chain) classes.push('longest-chain-node');
   if (node.visibility.active) classes.push('active-node');
   if (node.visibility.next_ready) classes.push('next-ready-node');
   if (node.visibility.selected) classes.push('selected-node');
   const key = nodeKey(node.ref);
   const nodeLaneKey = laneKey(node.ref.plan_key, node.lane);
-  const status = fold === null
-    ? TODO_GANTT_STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' }
-    : { mark: '▣', label: '完走済み（畳み込み）' };
+  const status = TODO_GANTT_STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' };
   const lane = maps.lanes.get(nodeLaneKey);
-  const laneLabel = fold === null
-    ? (lane === undefined ? node.lane : `${node.lane}、${lane.name}`)
-    : fold.lanes.join('、');
+  const laneLabel = lane === undefined ? node.lane : `${node.lane}、${lane.name}`;
   const taskNumber = maps.taskNumbers.get(key);
-  const visibleReference = fold !== null ? `${fold.task_count}工程`
-    : taskNumber === undefined ? `ID ${node.ref.task_id}` : `工程 ${taskNumber.display_number}`;
-  const spokenReference = fold !== null ? `${fold.task_count}工程の畳み込み`
-    : taskNumber === undefined ? `ID ${node.ref.task_id}` : `工程${taskNumber.display_number}`;
+  const visibleReference = taskNumber === undefined
+    ? `ID ${node.ref.task_id}` : `工程 ${taskNumber.display_number}`;
+  const spokenReference = taskNumber === undefined
+    ? `ID ${node.ref.task_id}` : `工程${taskNumber.display_number}`;
   const readyLabel = node.visibility.next_ready ? '。ready frontierの同時dispatch候補' : '';
-  const identity = fold === null
-    ? `正規ID ${node.ref.plan_key}/${node.ref.task_id}`
-    : `${node.ref.plan_key}の完走済み${fold.task_count}工程をまとめたノード。全件を描くには --scope all`;
+  const identity = `正規ID ${node.ref.plan_key}/${node.ref.task_id}`;
   const ariaLabel = `${spokenReference}。${status.label}。${laneLabel}。${node.title}。${identity}${readyLabel}`;
   const statusBar = node.status === 'in-progress'
     ? `<line class="status-bar" x1="${x + 5}" y1="${y + 6}" x2="${x + 5}" y2="${y + height - 6}"></line>` : '';
@@ -186,8 +178,15 @@ function summaryChipWidth(label, minimum = 116) {
 function renderTodoSummary(layout, maps) {
   const markup = [];
   let groupX = 16;
-  for (const plan of layout.groups.plans) {
-    const lanes = layout.groups.lanes.filter((lane) => lane.plan_key === plan.plan_key);
+  // The band is a header for the diagram, so it covers what the diagram draws.
+  // Keeping a chip for every lane of every finished plan stretched the canvas to
+  // several times the width of the graph itself, all of it empty columns.
+  // The chips still count every ToDo in the lane, folded ones included.
+  const drawnPlans = new Set(layout.nodes.map((node) => node.ref.plan_key));
+  const drawnLanes = new Set(layout.nodes.map((node) => laneKey(node.ref.plan_key, node.lane)));
+  for (const plan of layout.groups.plans.filter(({ plan_key }) => drawnPlans.has(plan_key))) {
+    const lanes = layout.groups.lanes.filter((lane) => lane.plan_key === plan.plan_key
+      && drawnLanes.has(laneKey(lane.plan_key, lane.lane)));
     const laneChips = lanes.map((lane) => {
       const metadata = maps.lanes.get(laneKey(lane.plan_key, lane.lane));
       const fullLabel = metadata === undefined

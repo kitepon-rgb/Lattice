@@ -301,8 +301,6 @@ test('scope all exposes every task and dependency with no folding projection', (
   ]);
   assert.equal(withHidden.scope.folded_task_count, 0);
   assert.deepEqual(withHidden.folded, []);
-  assert.deepEqual(withHidden.scope.folds, []);
-  assert.equal(withHidden.nodes.every((node) => node.fold === null), true);
 });
 
 test('scope liveは生きた作業とその直接前提を絶対に畳まない', () => {
@@ -326,7 +324,7 @@ test('scope liveは生きた作業とその直接前提を絶対に畳まない'
   assert.equal(drawn.has('A'), false, 'a dead branch behind the premise folds');
   assert.equal(drawn.has('D'), false, 'a finished branch with no live descendant folds');
 
-  const foldedTaskIds = live.folded.map(({ task }) => task.task_id).sort();
+  const foldedTaskIds = live.folded.map(({ task_id }) => task_id).sort();
   assert.deepEqual(foldedTaskIds, ['A', 'D']);
   // 総数はフルグラフ基準のまま正直に出す。
   assert.equal(live.metrics.task_count, 4);
@@ -368,7 +366,7 @@ test('最長依存鎖とready frontierはscopeに依存しない', () => {
   ] }], [dependency(A, B), dependency(B, C)]);
 
   const chainOf = (layout) => layout.nodes
-    .filter((node) => node.visibility.longest_dependency_chain && node.fold === null)
+    .filter((node) => node.visibility.longest_dependency_chain)
     .map((node) => node.ref.task_id).sort();
   const readyOf = (layout) => layout.nodes
     .filter((node) => node.visibility.next_ready).map((node) => node.ref.task_id).sort();
@@ -376,10 +374,10 @@ test('最長依存鎖とready frontierはscopeに依存しない', () => {
   const all = layoutOf(input, { scope: 'all' });
   const live = layoutOf(input, { scope: 'live' });
   assert.deepEqual(readyOf(live), readyOf(all));
-  // 畳まれた鎖上のToDoは、畳み込みnodeの集計として保存される。
-  const foldedChainCount = live.scope.folds
-    .reduce((total, entry) => total + entry.longest_chain_task_count, 0);
-  assert.equal(chainOf(live).length + foldedChainCount, chainOf(all).length);
+  // 図から外した鎖上のToDoは描かれないが、鎖の長さ自体はフルグラフ基準で数える。
+  const foldedIds = new Set(live.folded.map(({ task_id }) => task_id));
+  assert.deepEqual(chainOf(all).filter((taskId) => !foldedIds.has(taskId)), chainOf(live));
+  assert.equal(live.metrics.task_count, all.metrics.task_count);
 });
 
 test('input member/task/edge/join permutations produce byte-identical output', () => {

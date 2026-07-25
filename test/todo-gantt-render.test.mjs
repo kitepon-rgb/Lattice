@@ -85,19 +85,21 @@ test('畳んだ工程の詳細は、畳む前の前提と後続をそのまま�
   const html = renderFixture(foldedFixture()).html;
   const panel = detailPanelOf(html, 'T0001');
   assert.notEqual(panel, null, '畳まれた工程も詳細を持つ');
-  // T0000 -> T0001 は畳み込みunitの内部edgeなので図からは消えるが、事実としては残る。
+  // T0000 -> T0001 は両端が図から外れるのでedgeも消えるが、事実としては残る。
   assert.doesNotMatch(panel.slice(0, panel.indexOf('後続工程')), /登録済みの前提工程はありません/u);
   assert.match(panel, /Task 0</u);
   assert.match(panel, /Task 2</u);
 });
 
-test('畳み込みnodeは詳細を持ち、構成工程へ降りられる', () => {
+test('図から外した工程は、代わりの箱も置かない', () => {
   const html = renderFixture(foldedFixture()).html;
-  assert.match(html, /data-detail-key="\[[^"]*~folded:0[^"]*\]"/u);
-  assert.match(html, /含まれる工程 2件/u);
-  assert.match(html, /完了済み 2件/u);
-  // 畳まれた工程からは、自分を代表している畳み込みnodeへ戻れる。
-  assert.match(detailPanelOf(html, 'T0001'), /畳み込みノードを開く/u);
+  // まとめnodeを置くと、完走したplanのぶんだけ図が横に伸びる。1つも描かない。
+  assert.doesNotMatch(html, /~folded/u);
+  assert.doesNotMatch(html, /folded-node/u);
+  assert.equal((html.match(/data-node-key=/gu) ?? []).length, 2, '残るのは生きた工程とその直接前提だけ');
+  // 外したことと、その工程がどこにいるかは言葉で残す。
+  assert.match(html, /完走済み 2件を非表示/u);
+  assert.match(detailPanelOf(html, 'T0001'), /完走済みのため図には描いていません/u);
 });
 
 test('選択ボタンは必ず開ける詳細を指す', () => {
@@ -273,7 +275,7 @@ test('small real store E2E generates the default self-contained gantt and exact 
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v10');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v11');
   const generatedHtml = await readFile(path.join(root, '.lattice', 'generated', 'gantt.html'), 'utf8');
   assert.match(generatedHtml, /<title>Lattice — Fixture Project 依存工程図<\/title>/u);
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
@@ -418,7 +420,7 @@ test('real store smoke draws every edge and emits readable nodes plus named cate
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v10');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v11');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
