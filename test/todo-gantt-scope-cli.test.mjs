@@ -90,6 +90,21 @@ test('既定scopeは完走した枝を畳み、--scope allは全件描く', asyn
   assert.match(liveHtml, /完走済みとして畳んだ工程 1件/u);
 });
 
+test('畳んだ工程も畳み込みnodeも、生成物の上でクリックで開ける', async (context) => {
+  const root = await foldableWorkspace(context);
+  const live = run(root, ['todo', 'gantt', '--out', '.lattice/generated/live.html']);
+  assert.equal(live.status, 0, live.stderr);
+  const html = await readFile(path.join(root, JSON.parse(live.stdout).output_ref), 'utf8');
+
+  const detailKeys = new Set([...html.matchAll(/data-detail-key="([^"]*)"/gu)].map(([, key]) => key));
+  const selectKeys = [...html.matchAll(/data-select-node-key="([^"]*)"/gu)].map(([, key]) => key);
+  assert.notEqual(selectKeys.length, 0);
+  assert.deepEqual([...new Set(selectKeys)].filter((key) => !detailKeys.has(key)), []);
+  // 図に立っている畳み込みnode自身が詳細を持ち、構成工程を並べる。
+  assert.match(html, /data-detail-key="\[[^"]*~folded:0[^"]*\]"/u);
+  assert.match(html, /含まれる工程 1件/u);
+});
+
 test('gantt statusはscope違いの生成物をstaleと誤判定しない', async (context) => {
   const root = await foldableWorkspace(context);
   const all = run(root, ['todo', 'gantt', '--out', '.lattice/generated/all.html', '--scope', 'all']);

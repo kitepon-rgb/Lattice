@@ -61,6 +61,58 @@ function renderFixture(read, narratives = [], anchorOutcomes = [], document = nu
   return renderTodoGanttHtml({ readModel: read, layout, narratives, anchorOutcomes, presentation, metadata });
 }
 
+/** The one `<article class="task-detail...">` whose detail key ends with `taskId`. */
+function detailPanelOf(html, taskId) {
+  return html.split('<article class="task-detail')
+    .find((chunk) => chunk.startsWith(`" data-detail-key="`)
+      && chunk.slice(0, 200).includes(`&quot;${taskId}&quot;]"`)) ?? null;
+}
+
+function foldedFixture() {
+  // T0000 -> T0001 -> T0002 -> T0003。T0003だけpendingなので、T0002は生きた工程の
+  // 直接前提として残り、T0000とT0001が畳まれる。
+  const read = readFixture(4, [
+    { from: ref('T0000'), to: ref('T0001') },
+    { from: ref('T0001'), to: ref('T0002') },
+    { from: ref('T0002'), to: ref('T0003') },
+  ]);
+  read.members[0].tasks = read.members[0].tasks.map((task) => (task.task_id === 'T0003'
+    ? task : { ...task, status: 'done' }));
+  return read;
+}
+
+test('畳んだ工程の詳細は、畳む前の前提と後続をそのまま示す', () => {
+  const html = renderFixture(foldedFixture()).html;
+  const panel = detailPanelOf(html, 'T0001');
+  assert.notEqual(panel, null, '畳まれた工程も詳細を持つ');
+  // T0000 -> T0001 は畳み込みunitの内部edgeなので図からは消えるが、事実としては残る。
+  assert.doesNotMatch(panel.slice(0, panel.indexOf('後続工程')), /登録済みの前提工程はありません/u);
+  assert.match(panel, /Task 0</u);
+  assert.match(panel, /Task 2</u);
+});
+
+test('畳み込みnodeは詳細を持ち、構成工程へ降りられる', () => {
+  const html = renderFixture(foldedFixture()).html;
+  assert.match(html, /data-detail-key="\[[^"]*~folded:0[^"]*\]"/u);
+  assert.match(html, /含まれる工程 2件/u);
+  assert.match(html, /完了済み 2件/u);
+  // 畳まれた工程からは、自分を代表している畳み込みnodeへ戻れる。
+  assert.match(detailPanelOf(html, 'T0001'), /畳み込みノードを開く/u);
+});
+
+test('選択ボタンは必ず開ける詳細を指す', () => {
+  const html = renderFixture(foldedFixture()).html;
+  const detailKeys = new Set([...html.matchAll(/data-detail-key="([^"]*)"/gu)].map(([, key]) => key));
+  const selectKeys = [...html.matchAll(/data-select-node-key="([^"]*)"/gu)].map(([, key]) => key);
+  const nodeKeys = [...html.matchAll(/data-node-key="([^"]*)"/gu)].map(([, key]) => key);
+  assert.notEqual(selectKeys.length, 0);
+  assert.notEqual(nodeKeys.length, 0);
+  assert.deepEqual([...new Set(selectKeys)].filter((key) => !detailKeys.has(key)), [],
+    '開ける先の無い選択ボタンを出さない');
+  assert.deepEqual([...new Set(nodeKeys)].filter((key) => !detailKeys.has(key)), [],
+    '図のnodeはすべてクリックで開ける');
+});
+
 test('v5 GanttはPhaseを通常ToDoのschedule gateとして説明しない', () => {
   const read = readFixture(2);
   const member = read.members[0];
@@ -221,7 +273,7 @@ test('small real store E2E generates the default self-contained gantt and exact 
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v9');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v10');
   const generatedHtml = await readFile(path.join(root, '.lattice', 'generated', 'gantt.html'), 'utf8');
   assert.match(generatedHtml, /<title>Lattice — Fixture Project 依存工程図<\/title>/u);
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
@@ -366,7 +418,7 @@ test('real store smoke draws every edge and emits readable nodes plus named cate
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v9');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v10');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);

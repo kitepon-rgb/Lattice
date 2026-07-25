@@ -6,7 +6,7 @@ import {
 } from './todo-markdown-renderer.mjs';
 import { renderTodoGanttSvg, TODO_GANTT_STATUS_PRESENTATION } from './todo-gantt-svg.mjs';
 
-export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v9';
+export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v10';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
 export const TODO_GANTT_HTML_MAX_BYTES = 24 * 1024 * 1024;
 
@@ -131,14 +131,16 @@ function foldIndex(layout) {
   return new Map((layout?.folded ?? []).map((entry) => [refKey(entry.task), refKey(entry.fold)]));
 }
 
-function renderTaskIndexEntry(section, lookup, folds) {
+function renderTaskIndexEntry(section, lookup) {
   const key = refKey(section.ref);
   const status = DOCUMENT_STATUS[section.state.status] ?? { mark: '?', label: '状態不明' };
   const blockedReason = section.state.status === 'blocked'
     ? `<span class="task-index-blocked-reason">— ${escapeHtmlText(section.state.blocked_reason ?? '理由未記録')}</span>` : '';
-  // A folded ToDo keeps its row here — the index is the complete list — but
-  // selecting it points at the fold node that actually stands on the diagram.
-  const selectKey = folds.get(key) ?? key;
+  // A folded ToDo keeps its row here — the index is the complete list — and it
+  // selects its OWN detail. Pointing the row at the fold node standing in for it
+  // on the diagram would open nothing: a fold node is not a ToDo, so no detail
+  // panel carries its key.
+  const selectKey = key;
   return `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(selectKey)}"><span class="task-index-status status-${escapeHtmlAttribute(section.state.status)}" role="img" aria-label="${escapeHtmlAttribute(status.label)}">${escapeHtmlText(status.mark)}</span><span class="task-index-reference">${escapeHtmlText(taskReference(section, lookup))}</span><strong>${escapeHtmlText(section.task.title)}</strong>${blockedReason}</button></li>`;
 }
 
@@ -156,11 +158,31 @@ function renderTaskIndex(sections, lookup, folds = new Map()) {
     const drawn = plan.tasks.filter((section) => !folds.has(refKey(section.ref)));
     const folded = plan.tasks.filter((section) => folds.has(refKey(section.ref)));
     const drawnList = drawn.length === 0 ? ''
-      : `<ol class="task-index-list">${drawn.map((section) => renderTaskIndexEntry(section, lookup, folds)).join('')}</ol>`;
+      : `<ol class="task-index-list">${drawn.map((section) => renderTaskIndexEntry(section, lookup)).join('')}</ol>`;
     const foldedList = folded.length === 0 ? ''
-      : `<details class="task-index-folded"><summary>完走済みとして畳んだ工程 ${folded.length}件</summary><ol class="task-index-list">${folded.map((section) => renderTaskIndexEntry(section, lookup, folds)).join('')}</ol></details>`;
+      : `<details class="task-index-folded"><summary>完走済みとして畳んだ工程 ${folded.length}件</summary><ol class="task-index-list">${folded.map((section) => renderTaskIndexEntry(section, lookup)).join('')}</ol></details>`;
     return `<section class="task-index-plan"><h2><code>${escapeHtmlText(plan.planKey)}</code></h2>${drawnList}${foldedList}</section>`;
   }).join('');
+}
+
+/**
+ * Detail panel for a fold node.
+ *
+ * A fold node is the only thing standing on the diagram for the history it
+ * summarises, so it must open like any other node — otherwise clicking the
+ * folded part of the plan does nothing and the folded ToDos become unreachable.
+ */
+function renderFoldDetail(fold, members, lookup) {
+  const laneLabels = fold.lanes.map((lane) => {
+    const entry = lookup.lanes.get(JSON.stringify([fold.ref.plan_key, lane]));
+    return entry === undefined ? lane : `${lane} — ${entry.name}`;
+  });
+  const chain = fold.longest_chain_task_count === 0 ? ''
+    : `<p><strong>構造上の最長依存鎖:</strong> このうち${fold.longest_chain_task_count}工程が乗っています。</p>`;
+  const memberList = members.length === 0
+    ? '<p class="relation-empty">構成工程を復元できませんでした。</p>'
+    : `<ol class="task-index-list">${members.map((section) => renderTaskIndexEntry(section, lookup)).join('')}</ol>`;
+  return `<article class="task-detail fold-detail" data-detail-key="${escapeHtmlAttribute(refKey(fold.ref))}" hidden><header><span class="detail-status status-done">▣ 完走済み（畳み込み）</span><span class="detail-reference">${escapeHtmlText(`${fold.task_count}工程`)}</span></header><h1>完了済み ${escapeHtmlText(String(fold.task_count))}件</h1><p><strong>plan:</strong> <code>${escapeHtmlText(fold.ref.plan_key)}</code></p><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(laneLabels.join('、'))}</p>${chain}<p class="fold-note">後続に作業中・未着手の工程が残っていないため、まとめて1個のノードとして描いています。図に全件を描くには <code>lattice todo gantt --scope all</code> を実行してください。</p><section><h2>含まれる工程 ${escapeHtmlText(String(members.length))}件</h2>${memberList}</section></article>`;
 }
 
 function presentationLookup(presentation) {
@@ -175,14 +197,19 @@ function taskReference(section, lookup) {
   return number === undefined ? `ID ${section.task.task_id}` : `工程 ${number.display_number}`;
 }
 
-function renderRelationList(relations, sectionByKey, lookup, emptyText) {
+function renderRelationList(relations, sectionByKey, lookup, emptyText, folds = new Map()) {
   if (relations.length === 0) return `<p class="relation-empty">${escapeHtmlText(emptyText)}</p>`;
   return `<ul class="relation-list">${relations.map((relation) => {
-    const target = sectionByKey.get(refKey(relation.ref));
+    const targetKey = refKey(relation.ref);
+    const target = sectionByKey.get(targetKey);
     if (target === undefined) return '';
     const join = relation.joinIds.length === 0 ? ''
       : `<span class="relation-kind">合流条件: ${escapeHtmlText(relation.joinIds.join(', '))}</span>`;
-    return `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(refKey(target.ref))}"><strong>${escapeHtmlText(taskReference(target, lookup))}</strong><span>${escapeHtmlText(target.task.title)}</span></button>${join}</li>`;
+    // Mark the ones the diagram no longer draws separately, so the reader knows
+    // why they cannot find this box on screen.
+    const reference = folds.has(targetKey)
+      ? `▣ ${taskReference(target, lookup)}` : taskReference(target, lookup);
+    return `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(targetKey)}"><strong>${escapeHtmlText(reference)}</strong><span>${escapeHtmlText(target.task.title)}</span></button>${join}</li>`;
   }).join('')}</ul>`;
 }
 
@@ -211,6 +238,7 @@ function renderRightPane(sections, layout, presentation, readModel) {
   const lookup = presentationLookup(presentation);
   const sectionByKey = new Map(sections.map((section) => [refKey(section.ref), section]));
   const nodeByKey = new Map(layout.nodes.map((node) => [refKey(node.ref), node]));
+  const folds = foldIndex(layout);
   const incoming = new Map(sections.map((section) => [refKey(section.ref), []]));
   const outgoing = new Map(sections.map((section) => [refKey(section.ref), []]));
   const addRelation = (relations, ownerKey, ref, joinIds) => {
@@ -223,7 +251,10 @@ function renderRightPane(sections, layout, presentation, readModel) {
     }
     entry.joinIds = [...new Set([...entry.joinIds, ...joinIds])].sort();
   };
-  for (const edge of layout.edges) {
+  // Premises and successors come from the FULL graph. `layout.edges` is the
+  // drawn graph, where a fold unit's interior dependencies have been contracted
+  // away — reading those here would tell a folded ToDo it has no premises.
+  for (const edge of layout.full_edges ?? layout.edges) {
     addRelation(incoming, refKey(edge.to), edge.from, edge.join_ids);
     addRelation(outgoing, refKey(edge.from), edge.to, edge.join_ids);
   }
@@ -256,10 +287,25 @@ function renderRightPane(sections, layout, presentation, readModel) {
     const readiness = node?.visibility.next_ready
       ? `<p class="readiness-note">ready frontierの一員です。${ready.length > 1 ? '他のready工程と同時dispatchするのが既定です。subsetだけを選ぶ場合は理由を記録してください。' : '現在の唯一の着手候補です。'}</p>`
       : incoming.get(key).length === 0 ? '<p class="readiness-note">登録済みの前提工程はありません。図だけではdispatch可否を判定しません。</p>' : '';
-    return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。')}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。')}</section><p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;
+    // A folded ToDo has no box of its own on the diagram. Say which fold node
+    // stands in for it, and make that node one click away.
+    const foldKey = folds.get(key);
+    const foldedNote = foldKey === undefined ? ''
+      : `<p class="fold-note">この工程は図の上では ▣ 畳み込みノードにまとめられています。<button type="button" class="fold-return" data-select-node-key="${escapeHtmlAttribute(foldKey)}">畳み込みノードを開く</button></p>`;
+    return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}${foldedNote}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。', folds)}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。', folds)}</section><p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;
   }).join('');
-  const taskIndex = renderTaskIndex(sections, lookup, foldIndex(layout));
-  return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>元Markdown全文</button></div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を、現在の状態とともに登録順で表示しています。</p>${taskIndex}</section></div>`;
+  const membersByFold = new Map();
+  for (const [taskKey, foldKey] of folds) {
+    const section = sectionByKey.get(taskKey);
+    if (section === undefined) continue;
+    if (!membersByFold.has(foldKey)) membersByFold.set(foldKey, []);
+    membersByFold.get(foldKey).push(section);
+  }
+  const foldDetails = (layout.scope?.folds ?? [])
+    .map((fold) => renderFoldDetail(fold, membersByFold.get(refKey(fold.ref)) ?? [], lookup))
+    .join('');
+  const taskIndex = renderTaskIndex(sections, lookup, folds);
+  return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>元Markdown全文</button></div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}${foldDetails}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を、現在の状態とともに登録順で表示しています。</p>${taskIndex}</section></div>`;
 }
 
 function renderDiagramLegend(presentation, layout = null) {
@@ -327,6 +373,9 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .task-index-list{margin:0;padding:0;list-style:none}.task-index-list li+li{margin-top:8px}.task-index-list button{display:grid;width:100%;grid-template-columns:1.5rem auto minmax(0,1fr);gap:4px 8px;align-items:baseline}
 .task-index-status{grid-row:1 / span 2;color:var(--text-secondary);font-size:13.5px;text-align:center}.task-index-status.status-in-progress{color:var(--accent)}.task-index-status.status-done{color:var(--good)}.task-index-status.status-blocked{color:var(--critical)}
 .task-index-reference{color:var(--text-secondary);font-size:12px;white-space:nowrap}.task-index-list strong{font-size:13.5px;font-weight:600;overflow-wrap:anywhere}.task-index-blocked-reason{grid-column:2 / -1;color:var(--text-secondary);font-size:12px;overflow-wrap:anywhere}
+.fold-detail>section{margin-top:16px}.fold-detail h2{margin:0 0 12px;font-size:16px;font-weight:600}
+.fold-return{margin-left:8px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font:500 12px/1.6 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif;cursor:pointer}
+.fold-return:focus-visible{outline:2px solid var(--text-primary);outline-offset:2px}
 .todo-gantt text{font-family:system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif;pointer-events:none}
 .todo-node .node-surface{fill:var(--surface-2);stroke:var(--border);stroke-width:1}
 .todo-node .node-meta{fill:var(--text-secondary);font-size:12px;font-weight:500}
