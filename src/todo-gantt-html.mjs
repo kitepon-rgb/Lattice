@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { serializeJsonForScript } from './todo-markdown-renderer.mjs';
 import { renderTodoGanttSvg, TODO_GANTT_STATUS_PRESENTATION } from './todo-gantt-svg.mjs';
 
-export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v15';
+export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v16';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
 export const TODO_GANTT_HTML_MAX_BYTES = 24 * 1024 * 1024;
 
@@ -41,6 +41,10 @@ function escapeHtmlText(value) {
 
 function refKey(ref) {
   return JSON.stringify([ref.project_id, ref.plan_key, ref.task_id]);
+}
+
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function digest(value) {
@@ -108,16 +112,37 @@ function renderTaskIndexEntry(section, lookup) {
   return `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(selectKey)}"><span class="task-index-status status-${escapeHtmlAttribute(section.state.status)}" role="img" aria-label="${escapeHtmlAttribute(status.label)}">${escapeHtmlText(status.mark)}</span><span class="task-index-reference">${escapeHtmlText(taskReference(section, lookup))}</span><strong>${escapeHtmlText(section.task.title)}</strong>${blockedReason}</button></li>`;
 }
 
-function renderTaskIndex(sections, lookup, folds = new Set()) {
-  const plans = [];
+/** plan_key -> 最終活動時刻。journalの末尾eventが、そのplanが最後に動いた時点。 */
+function planActivity(readModel) {
+  return new Map((readModel?.members ?? []).map((member) => {
+    const events = member.journal?.events ?? [];
+    const last = events.at(-1)?.recorded_at ?? events[0]?.recorded_at ?? '';
+    return [member.plan.plan_key, last];
+  }));
+}
+
+function renderTaskIndex(sections, lookup, folds = new Set(), activity = new Map()) {
+  const byPlan = new Map();
   for (const section of sections) {
-    let plan = plans.at(-1);
-    if (plan === undefined || plan.planKey !== section.ref.plan_key) {
-      plan = { planKey: section.ref.plan_key, tasks: [] };
-      plans.push(plan);
-    }
-    plan.tasks.push(section);
+    if (!byPlan.has(section.ref.plan_key)) byPlan.set(section.ref.plan_key, []);
+    byPlan.get(section.ref.plan_key).push(section);
   }
+  // 全ToDoが図から外れたplanは終わった仕事。読む側が先に見たいのは動いているplanなので、
+  // 動いているものを最終活動の新しい順で上へ、終わったものを古い順で下へまとめる。
+  // plan内のToDo順は登録順のまま触らない。
+  const plans = [...byPlan.entries()].map(([planKey, tasks]) => ({
+    planKey,
+    tasks,
+    settled: tasks.every((section) => folds.has(refKey(section.ref))),
+    lastActivity: activity.get(planKey) ?? '',
+  }));
+  plans.sort((left, right) => {
+    if (left.settled !== right.settled) return left.settled ? 1 : -1;
+    const order = left.settled
+      ? compareText(left.lastActivity, right.lastActivity)
+      : compareText(right.lastActivity, left.lastActivity);
+    return order !== 0 ? order : compareText(left.planKey, right.planKey);
+  });
   return plans.map((plan) => {
     const drawn = plan.tasks.filter((section) => !folds.has(refKey(section.ref)));
     const folded = plan.tasks.filter((section) => folds.has(refKey(section.ref)));
@@ -247,8 +272,8 @@ function renderRightPane(sections, layout, presentation, readModel) {
       : '<p class="fold-note">完走済みのため図には描いていません。図に出すには <code>lattice todo gantt --scope all</code> を実行してください。</p>';
     return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}${foldedNote}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。', folds)}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。', folds)}</section><p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;
   }).join('');
-  const taskIndex = renderTaskIndex(sections, lookup, folds);
-  return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>全工程一覧</button></div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を、現在の状態とともに登録順で表示しています。</p>${taskIndex}</section></div>`;
+  const taskIndex = renderTaskIndex(sections, lookup, folds, planActivity(readModel));
+  return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>全工程一覧</button></div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を現在の状態とともに表示しています。planは動いているものを最終活動の新しい順で上に、完走したものを古い順で下にまとめ、plan内は登録順です。</p>${taskIndex}</section></div>`;
 }
 
 function renderDiagramLegend(presentation, layout = null, expandable = false) {

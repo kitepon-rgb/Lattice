@@ -148,6 +148,33 @@ test('外した工程が無ければ切り替えboxもbuttonも出さない', ()
   assert.match(html, /<div data-diagram="live">/u, '図の枠は常に1枚は出す');
 });
 
+test('全工程一覧は稼働中planを上、完走したplanを古い順で下へまとめる', () => {
+  // live: 未着手を持つ。done-old / done-new: 全件完了で図から外れる。
+  const plan = (planKey, statuses, lastActivity) => ({
+    plan: {
+      project_id: 'project-1', plan_key: planKey, joins: [], hard_dependencies: [],
+      tasks: statuses.map((_, index) => ({ task_id: `${planKey}-${index}`, title: `${planKey} ${index}`,
+        lane: 'main', narrative_ref: null, compile_binding: null })),
+    },
+    tasks: statuses.map((status, index) => ({ task_id: `${planKey}-${index}`, status,
+      started_at: null, done_at: null, blocked_reason: null, evidence: null, evidence_unverified: false })),
+    journal: { events: [{ recorded_at: lastActivity }] },
+  });
+  const read = {
+    schema: 'lattice.todo_store_read.v1', project_id: 'project-1',
+    members: [
+      plan('done-old', ['done'], '2026-07-01T00:00:00.000Z'),
+      plan('live', ['pending'], '2026-07-10T00:00:00.000Z'),
+      plan('done-new', ['done'], '2026-07-20T00:00:00.000Z'),
+    ],
+  };
+  const html = renderFixture(read).html;
+  const index = html.slice(html.indexOf('data-right-panel="task-index"'));
+  const order = [...index.matchAll(/<section class="task-index-plan"><h2><code>([^<]+)<\/code>/gu)]
+    .map(([, planKey]) => planKey);
+  assert.deepEqual(order, ['live', 'done-old', 'done-new']);
+});
+
 test('決着済みPhaseは概要の先頭を占領しない', () => {
   const read = readFixture(2);
   const member = read.members[0];
@@ -337,7 +364,7 @@ test('small real store E2E generates the default self-contained gantt and exact 
   ]);
   assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
   assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v15');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v16');
   const generatedHtml = await readFile(path.join(root, '.lattice', 'generated', 'gantt.html'), 'utf8');
   assert.match(generatedHtml, /<title>Lattice — Fixture Project 依存工程図<\/title>/u);
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
@@ -482,7 +509,7 @@ test('real store smoke draws every edge and emits readable nodes plus named cate
   const execution = run(root, ['todo', 'gantt']);
   assert.equal(execution.status, 0, execution.stderr);
   const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v15');
+  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v16');
   const html = await readFile(path.join(root, result.output_ref), 'utf8');
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
