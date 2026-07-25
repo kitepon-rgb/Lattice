@@ -179,10 +179,13 @@ function renderFoldDetail(fold, members, lookup) {
   });
   const chain = fold.longest_chain_task_count === 0 ? ''
     : `<p><strong>構造上の最長依存鎖:</strong> このうち${fold.longest_chain_task_count}工程が乗っています。</p>`;
+  // The member list is the folded history itself — hundreds of rows for a
+  // finished plan. It opens on demand, like the folded group in the task index;
+  // spilling it into the pane would undo the folding the reader asked for.
   const memberList = members.length === 0
     ? '<p class="relation-empty">構成工程を復元できませんでした。</p>'
-    : `<ol class="task-index-list">${members.map((section) => renderTaskIndexEntry(section, lookup)).join('')}</ol>`;
-  return `<article class="task-detail fold-detail" data-detail-key="${escapeHtmlAttribute(refKey(fold.ref))}" hidden><header><span class="detail-status status-done">▣ 完走済み（畳み込み）</span><span class="detail-reference">${escapeHtmlText(`${fold.task_count}工程`)}</span></header><h1>完了済み ${escapeHtmlText(String(fold.task_count))}件</h1><p><strong>plan:</strong> <code>${escapeHtmlText(fold.ref.plan_key)}</code></p><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(laneLabels.join('、'))}</p>${chain}<p class="fold-note">後続に作業中・未着手の工程が残っていないため、まとめて1個のノードとして描いています。図に全件を描くには <code>lattice todo gantt --scope all</code> を実行してください。</p><section><h2>含まれる工程 ${escapeHtmlText(String(members.length))}件</h2>${memberList}</section></article>`;
+    : `<details class="fold-members"><summary>含まれる工程 ${escapeHtmlText(String(members.length))}件</summary><ol class="task-index-list">${members.map((section) => renderTaskIndexEntry(section, lookup)).join('')}</ol></details>`;
+  return `<article class="task-detail fold-detail" data-detail-key="${escapeHtmlAttribute(refKey(fold.ref))}" hidden><header><span class="detail-status status-done">▣ 完走済み（畳み込み）</span><span class="detail-reference">${escapeHtmlText(`${fold.task_count}工程`)}</span></header><h1>完了済み ${escapeHtmlText(String(fold.task_count))}件</h1><p><strong>plan:</strong> <code>${escapeHtmlText(fold.ref.plan_key)}</code></p><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(laneLabels.join('、'))}</p>${chain}<p class="fold-note">後続に作業中・未着手の工程が残っていないため、まとめて1個のノードとして描いています。図に全件を描くには <code>lattice todo gantt --scope all</code> を実行してください。</p>${memberList}</article>`;
 }
 
 function presentationLookup(presentation) {
@@ -373,7 +376,9 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .task-index-list{margin:0;padding:0;list-style:none}.task-index-list li+li{margin-top:8px}.task-index-list button{display:grid;width:100%;grid-template-columns:1.5rem auto minmax(0,1fr);gap:4px 8px;align-items:baseline}
 .task-index-status{grid-row:1 / span 2;color:var(--text-secondary);font-size:13.5px;text-align:center}.task-index-status.status-in-progress{color:var(--accent)}.task-index-status.status-done{color:var(--good)}.task-index-status.status-blocked{color:var(--critical)}
 .task-index-reference{color:var(--text-secondary);font-size:12px;white-space:nowrap}.task-index-list strong{font-size:13.5px;font-weight:600;overflow-wrap:anywhere}.task-index-blocked-reason{grid-column:2 / -1;color:var(--text-secondary);font-size:12px;overflow-wrap:anywhere}
-.fold-detail>section{margin-top:16px}.fold-detail h2{margin:0 0 12px;font-size:16px;font-weight:600}
+.fold-members{margin-top:16px}.fold-members>summary{cursor:pointer;padding:6px 0;color:var(--text-secondary);font-weight:600}
+.fold-members>summary:focus-visible{outline:2px solid var(--text-primary);outline-offset:2px}
+.fold-members>.task-index-list{margin-top:8px}
 .fold-return{margin-left:8px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font:500 12px/1.6 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif;cursor:pointer}
 .fold-return:focus-visible{outline:2px solid var(--text-primary);outline-offset:2px}
 .todo-gantt text{font-family:system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif;pointer-events:none}
