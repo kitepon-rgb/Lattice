@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 
 import { BridgeConfigError, readBridgeConfig } from './bridge-config.mjs';
 import { readBridgeDaemonDescriptor } from './bridge-daemon.mjs';
+import { bridgeRegistrarSettings } from './bridge-registrar.mjs';
 
 export const BRIDGE_LAUNCH_AGENT_LABEL = 'dev.kitepon.lattice.bridge';
 const START_TIMEOUT_MS = 5_000;
@@ -125,6 +126,17 @@ function plistDocument({ nodePath, bridgePath, instanceToken, env }) {
       throw fail('BRIDGE_CONFIG_DIR_INVALID', 'LATTICE_CONFIG_DIR must be absolute');
     }
     environment.push(['LATTICE_CONFIG_DIR', env.LATTICE_CONFIG_DIR]);
+  }
+  // The daemon registers its upstream on every new binding, but only if it can
+  // see the registrar settings. launchd does not inherit the shell environment,
+  // so without baking them in here the self-registration silently never fires —
+  // which is exactly the kind of quiet non-recovery this whole path exists to
+  // remove. `bridgeRegistrarSettings` rejects a half-configured pair rather than
+  // installing an agent that would skip registration forever.
+  const registrar = bridgeRegistrarSettings(env);
+  if (registrar !== null) {
+    environment.push(['LATTICE_BRIDGE_REGISTRAR_SSH_HOST', registrar.host]);
+    environment.push(['LATTICE_BRIDGE_REGISTRAR_SCRIPT', registrar.script]);
   }
   const environmentXml = environment.map(([key, value]) =>
     `      <key>${xml(key)}</key>\n      <string>${xml(value)}</string>`).join('\n');

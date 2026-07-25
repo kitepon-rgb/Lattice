@@ -138,3 +138,39 @@ test('launchctl bootstrap失敗はtyped errorで、symlink/緩いmode plistは�
     await assert.rejects(snapshotBridgeLaunchAgent({ env, runner: control.runner }),
       { code: 'BRIDGE_LAUNCH_AGENT_PLIST_UNSAFE' });
   });
+
+test('registrar設定はplistへ焼き込まれる（launchdはshell環境を継承しない）', async (context) => {
+  const { env } = await fixture(context, 'lattice-launch-agent-registrar-');
+  const control = launchctlDouble();
+  await installBridgeLaunchAgent({
+    config: config(58_761),
+    env: { ...env,
+      LATTICE_BRIDGE_REGISTRAR_SSH_HOST: 'main-server',
+      LATTICE_BRIDGE_REGISTRAR_SCRIPT: '/home/kite/license-server/bin/lattice-bridge-register.sh' },
+    runner: control.runner,
+    waitReady: async () => ({ pid: 43 }),
+  });
+  const content = await readFile(bridgeLaunchAgentPaths(env).plist, 'utf8');
+  assert.match(content, /<key>LATTICE_BRIDGE_REGISTRAR_SSH_HOST<\/key>\s*<string>main-server<\/string>/u);
+  assert.match(content, /<key>LATTICE_BRIDGE_REGISTRAR_SCRIPT<\/key>\s*<string>\/home\/kite\/license-server\/bin\/lattice-bridge-register\.sh<\/string>/u);
+});
+
+test('registrar未設定のplistには登録用の環境変数を入れない', async (context) => {
+  const { env } = await fixture(context, 'lattice-launch-agent-no-registrar-');
+  const control = launchctlDouble();
+  await installBridgeLaunchAgent({ config: config(58_762), env, runner: control.runner,
+    waitReady: async () => ({ pid: 44 }) });
+  const content = await readFile(bridgeLaunchAgentPaths(env).plist, 'utf8');
+  assert.doesNotMatch(content, /LATTICE_BRIDGE_REGISTRAR/u);
+});
+
+test('registrarが片側だけの環境ではLaunchAgentを入れずtypedに落とす', async (context) => {
+  const { env } = await fixture(context, 'lattice-launch-agent-partial-registrar-');
+  const control = launchctlDouble();
+  await assert.rejects(
+    installBridgeLaunchAgent({ config: config(58_763),
+      env: { ...env, LATTICE_BRIDGE_REGISTRAR_SSH_HOST: 'main-server' },
+      runner: control.runner, waitReady: async () => ({ pid: 45 }) }),
+    (error) => error?.code === 'BRIDGE_REGISTRAR_INVALID',
+  );
+});
