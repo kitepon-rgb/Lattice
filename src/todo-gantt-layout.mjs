@@ -1,3 +1,5 @@
+import { TODO_GANTT_SCOPES, projectTodoGanttScope } from './todo-gantt-scope.mjs';
+
 const TASK_LIMIT = 2_000;
 const EDGE_LIMIT = 8_000;
 const SWEEP_ROUNDS = 4;
@@ -370,18 +372,21 @@ function crossingCount(edges, wave, transversePosition) {
   return total;
 }
 
-export function layoutTodoGantt(readModel, chainProjection) {
-  const { nodes, nodesByKey, edges } = normalizeInput(readModel, chainProjection);
-  const { incoming, outgoing, wave } = assignWaves(nodes, nodesByKey, edges);
-  const layers = orderLayers(nodes, wave, incoming, outgoing);
-  const transversePosition = new Map();
-  for (const layer of layers) {
-    for (let index = 0; index < layer.length; index += 1) transversePosition.set(layer[index], index);
+export function layoutTodoGantt(readModel, chainProjection, options = {}) {
+  const scope = options.scope ?? 'live';
+  if (!TODO_GANTT_SCOPES.includes(scope)) {
+    fail('TODO_LAYOUT_INVALID_INPUT', `scope must be one of ${TODO_GANTT_SCOPES.join(', ')}`);
   }
+
+  // Every structural number below is measured on the FULL graph: the dependency
+  // waves, the longest dependency chain and the ready frontier describe the real
+  // plan. Folding first and measuring second would make all three lie.
+  const full = normalizeInput(readModel, chainProjection);
+  const fullWaves = assignWaves(full.nodes, full.nodesByKey, full.edges);
 
   const longestNodeKeys = new Set(chainProjection.longest_chain_node_refs.map((ref, index) => {
     const key = refKey(refOf(ref, `longest_chain_node_refs[${index}]`));
-    if (!nodesByKey.has(key)) fail('TODO_LAYOUT_INVALID_INPUT', 'chain projection references an absent task');
+    if (!full.nodesByKey.has(key)) fail('TODO_LAYOUT_INVALID_INPUT', 'chain projection references an absent task');
     return key;
   }));
   const longestEdgeKeys = new Set(chainProjection.longest_chain_edges.map((edge, index) => {
@@ -389,12 +394,28 @@ export function layoutTodoGantt(readModel, chainProjection) {
     const from = refKey(refOf(edge.from, `longest_chain_edges[${index}].from`));
     const to = refKey(refOf(edge.to, `longest_chain_edges[${index}].to`));
     const key = JSON.stringify([from, to]);
-    if (!edges.some((candidate) => candidate.key === key)) {
+    if (!full.edges.some((candidate) => candidate.key === key)) {
       fail('TODO_LAYOUT_INVALID_INPUT', 'chain projection edge is absent from the read model');
     }
     return key;
   }));
-  const readyKeys = readyTaskKeys(readModel, nodes, nodesByKey, incoming);
+  const readyKeys = readyTaskKeys(readModel, full.nodes, full.nodesByKey, fullWaves.incoming);
+
+  // Only the geometry stage below sees the narrowed graph.
+  const projected = scope === 'all'
+    ? { nodes: full.nodes, edges: full.edges, foldedByKey: new Map(), folds: [], refined: false }
+    : projectTodoGanttScope({
+      nodes: full.nodes, edges: full.edges, wave: fullWaves.wave, longestChainKeys: longestNodeKeys,
+    });
+  const nodes = projected.nodes;
+  const edges = projected.edges;
+  const nodesByKey = new Map(nodes.map((node) => [node.key, node]));
+  const { incoming, outgoing, wave } = assignWaves(nodes, nodesByKey, edges);
+  const layers = orderLayers(nodes, wave, incoming, outgoing);
+  const transversePosition = new Map();
+  for (const layer of layers) {
+    for (let index = 0; index < layer.length; index += 1) transversePosition.set(layer[index], index);
+  }
   const visibleKeys = new Set(nodes.map(({ key }) => key));
   const displayBranches = edges.flatMap((edge, semanticIndex) => {
     const identities = [...edge.joinIdentities.entries()]
@@ -456,9 +477,18 @@ export function layoutTodoGantt(readModel, chainProjection) {
       ref: { ...node.ref }, title: node.title, lane: node.lane, status: node.status,
       wave: wave.get(node.key), row: transversePosition.get(node.key), visible,
       visibility: {
-        longest_dependency_chain: longestNodeKeys.has(node.key),
+        // A fold node stands in for a finished branch, so it inherits the chain
+        // marking of the ToDos it replaced rather than carrying one of its own.
+        longest_dependency_chain: node.fold === undefined
+          ? longestNodeKeys.has(node.key) : node.fold.longest_chain_task_count > 0,
         active: node.status === 'in-progress', next_ready: readyKeys.has(node.key),
         selected: false,
+      },
+      fold: node.fold === undefined ? null : {
+        task_count: node.fold.task_count,
+        lanes: [...node.fold.lanes],
+        longest_chain_task_count: node.fold.longest_chain_task_count,
+        task_refs: node.fold.task_refs.map((entry) => ({ ...entry })),
       },
       geometry,
     };
@@ -566,9 +596,11 @@ export function layoutTodoGantt(readModel, chainProjection) {
     for (const [x] of connector.route) routeMaximumX = Math.max(routeMaximumX, x);
   }
 
+  // Counts stay honest: the summary chips report every ToDo in the plan, not
+  // only the ones the narrowed diagram happens to draw.
   const planMap = new Map();
   const laneMap = new Map();
-  for (const node of nodes) {
+  for (const node of full.nodes) {
     if (!planMap.has(node.ref.plan_key)) planMap.set(node.ref.plan_key, 0);
     planMap.set(node.ref.plan_key, planMap.get(node.ref.plan_key) + 1);
     const key = groupKey(node.ref.plan_key, node.lane);
@@ -592,12 +624,34 @@ export function layoutTodoGantt(readModel, chainProjection) {
       plans: [...planMap.entries()].map(([plan_key, task_count]) => ({ plan_key, task_count })),
       lanes: [...laneMap.values()],
     },
+    scope: {
+      requested: scope,
+      folded_task_count: projected.foldedByKey.size,
+      fold_node_count: projected.folds.length,
+      per_wave_refinement: projected.refined,
+      folds: projected.folds.map((entry) => ({
+        ref: { ...entry.ref },
+        task_count: entry.task_count,
+        lanes: [...entry.lanes],
+        longest_chain_task_count: entry.longest_chain_task_count,
+      })),
+    },
+    folded: [...projected.foldedByKey.entries()]
+      .map(([taskKey, foldKey]) => ({ task: JSON.parse(taskKey), fold: JSON.parse(foldKey) }))
+      .sort((left, right) => compareRefs(
+        { project_id: left.task[0], plan_key: left.task[1], task_id: left.task[2] },
+        { project_id: right.task[0], plan_key: right.task[1], task_id: right.task[2] },
+      ))
+      .map(({ task, fold }) => ({
+        task: { project_id: task[0], plan_key: task[1], task_id: task[2] },
+        fold: { project_id: fold[0], plan_key: fold[1], task_id: fold[2] },
+      })),
     metrics: {
       crossing_count: crossingCount(edges, wave, transversePosition),
       visible_node_count: visibleKeys.size,
       visible_edge_count: projectedEdges.filter(({ visible }) => visible).length,
-      task_count: nodes.length,
-      edge_count: edges.length,
+      task_count: full.nodes.length,
+      edge_count: full.edges.length,
     },
   };
 }

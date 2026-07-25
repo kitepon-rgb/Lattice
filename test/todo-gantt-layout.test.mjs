@@ -25,8 +25,8 @@ function fixture(plans, hardEdges = [], joins = []) {
   };
 }
 
-function layoutOf(input) {
-  return layoutTodoGantt(input.read, projectTodoChainV1(input.topology));
+function layoutOf(input, options) {
+  return layoutTodoGantt(input.read, projectTodoChainV1(input.topology), options);
 }
 
 function assertNoCollinearOverlap(edges) {
@@ -269,7 +269,7 @@ test('stable median sweep reduces crossings versus task-ref naive order', () => 
   assert.deepEqual(result.nodes.filter(({ wave }) => wave === 1).sort((a, b) => a.row - b.row).map(({ ref: nodeRef }) => nodeRef.task_id), ['Z', 'Y', 'X']);
 });
 
-test('layout has no folding projection and always exposes every task and dependency', () => {
+test('scope all exposes every task and dependency with no folding projection', () => {
   const A = ref('A');
   const B = ref('B');
   const C = ref('C');
@@ -283,14 +283,14 @@ test('layout has no folding projection and always exposes every task and depende
     { id: 'E', lane: 'two', status: 'blocked' },
   ] }], [dependency(A, B), dependency(A, C), dependency(B, E), dependency(D, E)]);
 
-  const folded = layoutOf(input);
+  const folded = layoutOf(input, { scope: 'all' });
   const visibility = Object.fromEntries(folded.nodes.map((node) => [node.ref.task_id, node.visible]));
   assert.deepEqual(visibility, { A: true, B: true, C: true, D: true, E: true });
-  // An isolated task is still drawn: the generated surface has no folded task/edge projection.
+  // An isolated task is still drawn: `all` keeps the complete structural projection.
   input.read.members[0].plan.tasks.push({ task_id: 'F', lane: 'two', title: 'F' });
   input.read.members[0].tasks.push({ task_id: 'F', status: 'blocked' });
   input.topology.nodes.push(ref('F'));
-  const withHidden = layoutOf(input);
+  const withHidden = layoutOf(input, { scope: 'all' });
   assert.equal(withHidden.nodes.find((node) => node.ref.task_id === 'F').visible, true);
   assert.equal(withHidden.metrics.visible_node_count, withHidden.metrics.task_count);
   assert.equal(withHidden.metrics.visible_edge_count, withHidden.metrics.edge_count);
@@ -299,7 +299,66 @@ test('layout has no folding projection and always exposes every task and depende
     { plan_key: 'plan', lane: 'one', task_count: 2 },
     { plan_key: 'plan', lane: 'two', task_count: 4 },
   ]);
-  assert.doesNotMatch(JSON.stringify(withHidden), /fold|hidden|bundle/u);
+  assert.equal(withHidden.scope.folded_task_count, 0);
+  assert.deepEqual(withHidden.folded, []);
+  assert.deepEqual(withHidden.scope.folds, []);
+  assert.equal(withHidden.nodes.every((node) => node.fold === null), true);
+});
+
+test('scope liveは生きた作業とその直接前提を絶対に畳まない', () => {
+  const A = ref('A');
+  const B = ref('B');
+  const C = ref('C');
+  const D = ref('D');
+  // A(done) -> B(done) -> C(pending): Bは生きた作業の直接前提、Aはその先の死んだ枝。
+  // D(done)は後続を持たない完走した枝。
+  const input = fixture([{ plan_key: 'plan', tasks: [
+    { id: 'A', lane: 'one', status: 'done' },
+    { id: 'B', lane: 'one', status: 'done' },
+    { id: 'C', lane: 'one', status: 'pending' },
+    { id: 'D', lane: 'two', status: 'done' },
+  ] }], [dependency(A, B), dependency(B, C)]);
+
+  const live = layoutOf(input, { scope: 'live' });
+  const drawn = new Set(live.nodes.map((node) => node.ref.task_id));
+  assert.equal(drawn.has('C'), true, 'live work is never folded');
+  assert.equal(drawn.has('B'), true, 'the direct premise of live work stays visible');
+  assert.equal(drawn.has('A'), false, 'a dead branch behind the premise folds');
+  assert.equal(drawn.has('D'), false, 'a finished branch with no live descendant folds');
+
+  const foldedTaskIds = live.folded.map(({ task }) => task.task_id).sort();
+  assert.deepEqual(foldedTaskIds, ['A', 'D']);
+  // 総数はフルグラフ基準のまま正直に出す。
+  assert.equal(live.metrics.task_count, 4);
+  assert.deepEqual(live.groups.plans, [{ plan_key: 'plan', task_count: 4 }]);
+  assert.equal(live.scope.folded_task_count, 2);
+});
+
+test('最長依存鎖とready frontierはscopeに依存しない', () => {
+  const A = ref('A');
+  const B = ref('B');
+  const C = ref('C');
+  const D = ref('D');
+  const input = fixture([{ plan_key: 'plan', tasks: [
+    { id: 'A', lane: 'one', status: 'done' },
+    { id: 'B', lane: 'one', status: 'done' },
+    { id: 'C', lane: 'one', status: 'pending' },
+    { id: 'D', lane: 'two', status: 'done' },
+  ] }], [dependency(A, B), dependency(B, C)]);
+
+  const chainOf = (layout) => layout.nodes
+    .filter((node) => node.visibility.longest_dependency_chain && node.fold === null)
+    .map((node) => node.ref.task_id).sort();
+  const readyOf = (layout) => layout.nodes
+    .filter((node) => node.visibility.next_ready).map((node) => node.ref.task_id).sort();
+
+  const all = layoutOf(input, { scope: 'all' });
+  const live = layoutOf(input, { scope: 'live' });
+  assert.deepEqual(readyOf(live), readyOf(all));
+  // 畳まれた鎖上のToDoは、畳み込みnodeの集計として保存される。
+  const foldedChainCount = live.scope.folds
+    .reduce((total, entry) => total + entry.longest_chain_task_count, 0);
+  assert.equal(chainOf(live).length + foldedChainCount, chainOf(all).length);
 });
 
 test('input member/task/edge/join permutations produce byte-identical output', () => {
