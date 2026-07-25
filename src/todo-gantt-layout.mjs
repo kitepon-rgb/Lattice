@@ -403,7 +403,7 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
 
   // Only the geometry stage below sees the narrowed graph.
   const projected = scope === 'all'
-    ? { nodes: full.nodes, edges: full.edges, foldedByKey: new Map(), folds: [], refined: false }
+    ? { nodes: full.nodes, edges: full.edges, foldedByKey: new Map(), folds: [], grouping: null }
     : projectTodoGanttScope({
       nodes: full.nodes, edges: full.edges, wave: fullWaves.wave, longestChainKeys: longestNodeKeys,
     });
@@ -619,6 +619,16 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     },
     nodes: projectedNodes,
     edges: projectedEdges,
+    // Every dependency in the plan, before folding contracted any of them away.
+    // The diagram draws `edges`; anything that describes a ToDo in words — the
+    // premises and successors in the right pane — reads this instead, so a
+    // folded ToDo keeps telling the truth about what it depended on.
+    full_edges: full.edges.map((edge) => ({
+      from: { ...full.nodesByKey.get(edge.from).ref },
+      to: { ...full.nodesByKey.get(edge.to).ref },
+      kinds: [...edge.kinds].sort(compareText),
+      join_ids: [...edge.joinIdentities.values()].map(({ join_id }) => join_id).sort(compareText),
+    })),
     connectors: junctionConnectors,
     groups: {
       plans: [...planMap.entries()].map(([plan_key, task_count]) => ({ plan_key, task_count })),
@@ -628,7 +638,7 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
       requested: scope,
       folded_task_count: projected.foldedByKey.size,
       fold_node_count: projected.folds.length,
-      per_wave_refinement: projected.refined,
+      grouping: projected.grouping,
       folds: projected.folds.map((entry) => ({
         ref: { ...entry.ref },
         task_count: entry.task_count,

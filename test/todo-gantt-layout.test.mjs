@@ -334,6 +334,27 @@ test('scope liveは生きた作業とその直接前提を絶対に畳まない'
   assert.equal(live.scope.folded_task_count, 2);
 });
 
+test('full_edgesは畳み込みで失われた依存も保持する', () => {
+  const A = ref('A');
+  const B = ref('B');
+  const C = ref('C');
+  const input = fixture([{ plan_key: 'plan', tasks: [
+    { id: 'A', lane: 'one', status: 'done' },
+    { id: 'B', lane: 'one', status: 'done' },
+    { id: 'C', lane: 'one', status: 'pending' },
+  ] }], [dependency(A, B), dependency(B, C)]);
+
+  const pair = ({ from, to }) => `${from.task_id}->${to.task_id}`;
+  const all = layoutOf(input, { scope: 'all' });
+  const live = layoutOf(input, { scope: 'live' });
+  // 図はA->Bを描かない（Aは畳まれ、内部edgeとして消える）が、full_edgesには残る。
+  assert.equal(live.edges.some((edge) => pair(edge) === 'A->B'), false);
+  assert.deepEqual(live.full_edges.map(pair).sort(), ['A->B', 'B->C']);
+  assert.deepEqual(live.full_edges.map(pair).sort(), [...new Set(all.edges.map(pair))].sort(),
+    'scope allの依存集合と一致する');
+  assert.equal(live.full_edges.length, live.metrics.edge_count);
+});
+
 test('最長依存鎖とready frontierはscopeに依存しない', () => {
   const A = ref('A');
   const B = ref('B');
