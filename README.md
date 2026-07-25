@@ -95,6 +95,12 @@ LANや外部reverse proxyから閲覧するoptional bridgeは既定で無効で�
 凡例の件数バッジを押すと全工程を描いた図へ切り替わり、`lattice todo gantt --scope all`は最初から全件を
 描きます。表示規約は[ADR 0066](docs/adr/0066-gantt-live-scope-drops-finished-work.md)が正です。
 
+右ペインは概要・選択工程・全工程の3面で、いずれもToDo storeを表示します（元plan Markdown本文は
+再表示しません。元文書へは各工程の詳細が持つ行対応から辿ります）。全工程一覧は動いているplanを
+最終活動の新しい順で上に、全工程が図から外れた完走planを古い順で下にまとめ、plan内は登録順です。
+決着済みPhaseと図から外した工程は既定で畳み、開けば読めます。規約は
+[ADR 0067](docs/adr/0067-right-pane-shows-the-store-and-orders-by-activity.md)が正です。
+
 静的工程表は`lattice todo gantt status`で`current / stale / missing`を確認でき、HTMLまたは
 digest付きsidecarの欠落・改ざんはtyped failureになります。
 dashboard daemonは起動時に読み込んだ版数をhealthで名乗り、installされた版と食い違えば`lattice status`の

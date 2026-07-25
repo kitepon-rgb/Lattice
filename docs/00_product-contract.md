@@ -142,6 +142,9 @@ placeholderを代わりに置かず、生きたToDoとその直接の前提ToDo�
 右ペインの全工程一覧、各ToDoの詳細から辿れ、詳細の前提・後続は除外前のグラフから表示する。総数・進捗・
 最長依存鎖・ready frontierは除外前の全工程で数える。件数バッジは展開の入口を兼ね、押すと同梱した全工程の
 図へ切り替わる。`--scope all`は何も除かない。表示規約は[ADR 0066](adr/0066-gantt-live-scope-drops-finished-work.md)が正。
+右ペインはToDo storeを見せる面であり、元plan Markdown本文を再表示しない。全工程一覧は、動いているplanを
+最終活動の新しい順で上、全ToDoが図から外れた完走planを古い順で下へ並べ、plan内は登録順を保つ。
+右ペインの規約は[ADR 0067](adr/0067-right-pane-shows-the-store-and-orders-by-activity.md)が正。
 
 静的`todo gantt`はoffline証拠として維持する。`todo gantt serve --port <0..65535>`はloopback-onlyの
 foreground read-only viewerで、stable store readとSSEにより更新を反映し、mixed viewを最新として表示しない。
