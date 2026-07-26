@@ -598,15 +598,20 @@ async function independence({ repoRoot, requestedPlanKey }) {
   }
   const frontier = computeReadyFrontier(store);
   const readyPlanKeys = [...new Set(frontier.map(({ plan_key: key }) => key))].sort();
-  // planを絞らない呼び出しでreadyが複数planへまたがる場合、どのplanのartifactを
-  // 根拠にしたのか読み手に決められない。片方だけ見せて答えたことにしない。
-  if (requestedPlanKey === null && readyPlanKeys.length > 1) {
-    throw new TodoStoreError('INDEPENDENCE_PLAN_AMBIGUOUS', 'ready_frontier_spans_plans', undefined, {
-      plan_keys: readyPlanKeys,
+  // planを絞らない呼び出しではreadyがどのplanを指しているかで決める。readyが無い時は
+  // 全planが候補になる。どちらの場合も候補が複数なら、片方だけ見せて答えたことにしない。
+  // ここで黙ってnullへ倒すと、記録があるのにcoverage missingと報告してしまう。
+  const candidatePlanKeys = readyPlanKeys.length > 0
+    ? readyPlanKeys
+    : store.members.map(({ descriptor }) => descriptor.plan_key).sort();
+  if (requestedPlanKey === null && candidatePlanKeys.length > 1) {
+    throw new TodoStoreError('INDEPENDENCE_PLAN_AMBIGUOUS', 'plan_selection_ambiguous', undefined, {
+      plan_keys: candidatePlanKeys,
+      ready_plan_keys: readyPlanKeys,
       next_action: 'rerun_with_plan_flag',
     });
   }
-  const planKey = requestedPlanKey ?? readyPlanKeys[0] ?? null;
+  const planKey = requestedPlanKey ?? candidatePlanKeys[0] ?? null;
 
   const currentBaseSha = currentHeadSha(repoRoot);
   const ready = frontier.filter((task) => task.plan_key === planKey);

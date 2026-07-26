@@ -35,7 +35,21 @@ function git(root, args) {
     .trim();
 }
 
-async function workspace(context, { tasks = ['T1', 'T2'] } = {}) {
+const planFor = (planKey, tasks) => ({
+  plan: {
+    schema: 'lattice.todo_plan.v1',
+    project_id: 'project-1',
+    plan_key: planKey,
+    plan_version: 'v1',
+    predecessor_plan_digest: null,
+    tasks: tasks.map(task),
+    hard_dependencies: [],
+    joins: [],
+  },
+  genesis: { actor: ACTOR, recorded_at: NOW },
+});
+
+async function workspace(context, { tasks = ['T1', 'T2'], extraPlans = [] } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-independence-cli-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: root }).status, 0);
@@ -50,19 +64,7 @@ async function workspace(context, { tasks = ['T1', 'T2'] } = {}) {
     writer: createTodoStoreWriter({ caller: 'g4-migration' }),
     projectId: 'project-1',
     repositories: [{ repo_id: 'self', path: '.' }],
-    plans: [{
-      plan: {
-        schema: 'lattice.todo_plan.v1',
-        project_id: 'project-1',
-        plan_key: 'main',
-        plan_version: 'v1',
-        predecessor_plan_digest: null,
-        tasks: tasks.map(task),
-        hard_dependencies: [],
-        joins: [],
-      },
-      genesis: { actor: ACTOR, recorded_at: NOW },
-    }],
+    plans: [planFor('main', tasks), ...extraPlans],
     now: NOW,
   });
   return root;
@@ -129,6 +131,54 @@ test('記録があればHEAD一致でverified並列グループを返す（senso
   assert.deepEqual(stale.frontier.parallel_groups, []);
   assert.deepEqual(stale.frontier.unknown.map(({ task_id: id }) => id), ['T1', 'T2']);
   assert.equal(stale.frontier.unknown[0].unknowns[0].kind, 'record_stale');
+});
+
+test('readyが無くても記録があればplan指定でverifiedを返す', async (context) => {
+  const root = await workspace(context);
+  const head = git(root, ['rev-parse', 'HEAD']);
+  const artifact = {
+    schema: TODO_INDEPENDENCE_SCHEMA,
+    project_id: 'project-1',
+    plan_key: 'main',
+    plan_version: 'v1',
+    topology_digest: parse(runCli(root, ['verify', '--json']).stdout)
+      .verified_members[0].topology_digest,
+    base_sha: head,
+    witness_set_digest: 'd'.repeat(64),
+    compiled_at: NOW,
+    task_ids: ['T1'],
+    conflicts: [],
+    precedences: [],
+    unknowns: [],
+    wave_plan: { waves: [{ task_ids: ['T1'] }], minimum_feasible_waves: 1 },
+    outcome: 'compiled',
+    result_digest: '',
+  };
+  artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
+  await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
+
+  // 単一planならready集合が空でもそのplanが候補になる。記録があるのに
+  // coverage missingと報告してしまう経路を残さない。
+  const projection = parse(runCli(root, ['independence', '--json']).stdout);
+  assert.equal(projection.plan_key, 'main');
+  assert.equal(projection.coverage, 'verified');
+});
+
+test('planを絞らない呼び出しで候補が複数なら曖昧として止まる', async (context) => {
+  const root = await workspace(context, { extraPlans: [planFor('second', ['S1'])] });
+
+  const result = runCli(root, ['independence', '--json']);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  const error = parse(result.stderr);
+  assert.equal(error.code, 'INDEPENDENCE_PLAN_AMBIGUOUS');
+  assert.deepEqual(error.detail.plan_keys, ['main', 'second']);
+  assert.equal(error.detail.next_action, 'rerun_with_plan_flag');
+
+  // planを絞れば答えられる。
+  const projection = parse(runCli(root, ['independence', '--plan', 'second', '--json']).stdout);
+  assert.equal(projection.plan_key, 'second');
+  assert.equal(projection.coverage, 'missing');
 });
 
 test('存在しないplanはfail closedにする', async (context) => {
