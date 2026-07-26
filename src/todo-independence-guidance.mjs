@@ -17,6 +17,7 @@ export const TODO_INDEPENDENCE_GUIDANCE_CODES = Object.freeze([
   'independence_stale_for_task',
   'independence_conflict_with_active',
   'independence_conflict_between_ready',
+  'independence_verdicts_absent',
   'independence_verified',
 ]);
 
@@ -89,6 +90,10 @@ const CATALOG = Object.freeze({
   independence_conflict_between_ready: Object.freeze({
     message: '他のready工程と同じ資源を書く記録がある。同時に着手すると衝突する。',
     next_action: 'serialize_or_split_boundary',
+  }),
+  independence_verdicts_absent: Object.freeze({
+    message: '判定が途中で止まっており、記録はどの組についてもverdictを持たない。自分にunknownが無いことは、他と干渉しない証拠にならない。',
+    next_action: 'resolve_unknowns_then_recompile',
   }),
   independence_verified: Object.freeze({
     message: '記録時点の宣言境界では、他のready工程と干渉しない。',
@@ -164,7 +169,7 @@ export function todoIndependenceGuidance(code, { severability = null } = {}) {
  */
 export function selectIndependenceGuidance({
   coverage, taskDeclared, taskStale, conflictWithActive = null, conflictBetweenReady = null,
-  contractSuperseded = false, readyCount = null,
+  contractSuperseded = false, readyCount = null, verdictsAbsent = false,
 }) {
   // 着手候補が無いなら述べる対象が無い。ここを通さないと、readyが空のとき
   // 「未検査taskが1件も無い」が空虚に真になり、記録が古くても検証済みへ倒れる。
@@ -186,6 +191,9 @@ export function selectIndependenceGuidance({
   if (coverage === 'superseded') return todoIndependenceGuidance('independence_superseded');
   if (!taskDeclared) return todoIndependenceGuidance('independence_task_undeclared');
   if (taskStale) return todoIndependenceGuidance('independence_stale_for_task');
+  // 記録は新しく、この工程自身にも問題が無い。それでもverdictが1つも無いなら、
+  // 述べられるのは「干渉しない」ではなく「まだ何も判定していない」である。
+  if (verdictsAbsent) return todoIndependenceGuidance('independence_verdicts_absent');
   return todoIndependenceGuidance('independence_verified');
 }
 

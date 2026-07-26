@@ -461,6 +461,7 @@ async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
       contractSuperseded: isTodoIndependenceLegacyMarker(artifact),
       conflictWithActive: conflictsWithActive[0]?.severability ?? null,
       conflictBetweenReady: readyConflict?.severability ?? null,
+      verdictsAbsent: selfUnknowns.some(({ kind }) => kind === 'plan_verdicts_absent'),
     }),
   };
 }
@@ -836,6 +837,8 @@ async function independence({ repoRoot, requestedPlanKey }) {
         .some(({ unknowns }) => unknowns.some(({ kind }) => kind === 'record_stale')),
       conflictWithActive: projected.frontier.conflicts_with_active[0]?.severability ?? null,
       conflictBetweenReady: projected.frontier.serialize_pairs[0]?.severability ?? null,
+      verdictsAbsent: projected.frontier.unknown
+        .some(({ unknowns }) => unknowns.some(({ kind }) => kind === 'plan_verdicts_absent')),
     }),
     frontier: projected.frontier,
     result_digest: '',

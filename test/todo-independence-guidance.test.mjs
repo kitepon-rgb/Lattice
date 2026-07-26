@@ -86,6 +86,26 @@ test('重なった状況からは最も行動を要する1つを選ぶ', () => {
   assert.equal(superseded.code, 'independence_superseded');
 });
 
+test('verdictが1つも無い記録を、検証済みとして述べない', () => {
+  const absent = selectIndependenceGuidance({
+    coverage: 'verified', taskDeclared: true, taskStale: false, readyCount: 3,
+    verdictsAbsent: true,
+  });
+  assert.equal(absent.code, 'independence_verdicts_absent');
+  assert.equal(absent.next_action, 'resolve_unknowns_then_recompile');
+  // 「干渉しない」ではなく「まだ判定していない」と述べる。不在を証拠にしない。
+  assert.match(absent.message, /証拠にならない/u);
+
+  // より具体的な状況があるならそちらが上。判定不能はその次に来る。
+  assert.equal(selectIndependenceGuidance({
+    coverage: 'verified', taskDeclared: true, taskStale: false, readyCount: 3,
+    verdictsAbsent: true, conflictBetweenReady: 'code_seam',
+  }).code, 'independence_conflict_between_ready');
+  assert.equal(selectIndependenceGuidance({
+    coverage: 'stale', taskDeclared: true, taskStale: true, verdictsAbsent: true,
+  }).code, 'independence_stale_for_task');
+});
+
 test('着手候補が無いとき、空虚に検証済みへ倒れない', () => {
   // ready集合が空だとunknown listも空になり、`.every()`が空虚に真、`.some()`が偽になる。
   // readyCountを見ないと「記録が古いのに検証済み」という嘘を返す（0.13.0のsmokeで実際に出た）。

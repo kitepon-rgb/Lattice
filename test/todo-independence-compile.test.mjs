@@ -336,6 +336,61 @@ test('conflictのある組は同じ並列グループへ入らない', () => {
   assert.equal(projected.frontier.serialize_pairs[0].type, 'conflict');
 });
 
+test('判定がunknownで止まった記録は、無関係なtaskまで検証済み並列にしない', () => {
+  // 実conflictを持つ2 taskへ、新規file（未存在path）だけを作る3件目を足す。
+  // compileはBOUNDARY_UNKNOWNで止まり、front endはpairwise verdictを1つも返さない。
+  const set = witnessSet(
+    {
+      'tip-001': witness('src/shared.mjs'),
+      'tip-002': witness('src/shared.mjs'),
+      'tip-003': {
+        ...witness('src/brand-new.mjs', { queryId: 'q-new' }),
+      },
+    },
+    [
+      { id: 'q-status', operation: 'status' },
+      { id: 'q-new', operation: 'affected', target: 'src/brand-new.mjs' },
+      { id: 'q-srcsharedmjs', operation: 'affected', target: 'src/shared.mjs' },
+    ],
+  );
+  const artifact = compileTodoIndependence({
+    witnessSet: set,
+    plan: plan(),
+    baseSha: BASE_SHA,
+    compiledAt: COMPILED_AT,
+    sensorEvidence: evidenceFor(set, [
+      { id: 'q-status', operation: 'status', outcome: 'ready' },
+      {
+        id: 'q-new',
+        operation: 'affected',
+        outcome: 'empty',
+        targets: [{
+          target: 'src/brand-new.mjs',
+          outcome: 'empty',
+          path_state: 'absent',
+          data: { changedFiles: ['src/brand-new.mjs'], affectedTests: [] },
+        }],
+      },
+      affectedOutcome('q-srcsharedmjs', 'src/shared.mjs'),
+    ]),
+  });
+  assert.equal(artifact.outcome, 'unknown');
+  // verdictが1件も無いのでconflictも空になる。この空を独立の証拠に読み替えない。
+  assert.deepEqual(artifact.conflicts, []);
+
+  const projected = projectIndependenceFrontier({
+    artifact, readyTaskIds: ['tip-001', 'tip-002', 'tip-003'], plan: plan(),
+    currentBaseSha: BASE_SHA,
+  });
+  assert.equal(projected.coverage, 'verified');
+  assert.deepEqual(projected.frontier.parallel_groups, []);
+  assert.deepEqual(projected.frontier.unknown.map(({ task_id: id }) => id),
+    ['tip-001', 'tip-002', 'tip-003']);
+  // 自分に固有の問題が無いtaskも、判定そのものが無いことを理由に未検査となる。
+  assert.deepEqual(projected.frontier.unknown[0].unknowns,
+    [{ kind: 'plan_verdicts_absent', ref: 'unknown' }]);
+});
+
 test('宣言境界に触れないdiffではverified独立を維持する', () => {
   const artifact = compiledArtifact();
   // artifactの宣言境界はsrc/alpha.mjsとsrc/beta.mjs（affected queryのexpect pathを含む）。

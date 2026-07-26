@@ -386,6 +386,18 @@ export function projectIndependenceFrontier({
   for (const entry of artifact.unknowns) {
     if (ready.includes(entry.task_id)) noteUnknown(entry.task_id, entry.kind, entry.ref);
   }
+  // 記録全体がverdictを持たない場合、どのpairについても判定は存在しない。
+  //
+  // compileがBOUNDARY_UNKNOWNで止まると、front endはpairwise verdictを1つも返さないので
+  // artifact.conflictsは空になる。この空をそのまま読むと、自分にunknownが無いreadyどうしが
+  // 「ぶつかる記録が無い＝独立」として並列グループへ入る。実際には**誰についても判定していない**。
+  // 新規fileを1つ宣言したToDoが混ざるだけで、無関係なToDoの実competitionが消えて
+  // 検証済み並列に見える——不在を証拠に読み替える、最も危険な向きの誤りである。
+  if (artifact.outcome !== 'compiled') {
+    for (const taskId of ready) {
+      if (covered.has(taskId)) noteUnknown(taskId, 'plan_verdicts_absent', artifact.outcome);
+    }
+  }
   // planが進んだ記録はtask単位に救えない（topology自体が別物）。
   // HEADだけが進んだ場合は、宣言境界に触れたtaskだけを落とす。
   if (coverage === 'superseded') {
