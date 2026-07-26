@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.20.0 — 2026-07-27
 
 - **新規fileだけを作るToDoが並列可否の判定対象になった**
   （`owns[].creates`、[ADR 0136](docs/adr/0136-declared-creation-boundary.md)）。
