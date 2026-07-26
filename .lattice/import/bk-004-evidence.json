@@ -1,0 +1,9 @@
+{
+  "evidence_id": "bridge-control-read-race-retry",
+  "repo_id": "self",
+  "path": "src/bridge-daemon.mjs",
+  "git_blob_oid": "4d13e2c7a3d193fc5d641e14421d1a958701d235",
+  "content_digest": "d8d3bcefefa1cd6f4ce724ed97355e72cf49668064cdbe4e147a214424830bca",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
