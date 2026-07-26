@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.29 — 2026-07-26
+
+- 稼働中のbridgeが、DHCPのlease変更で待受アドレスを失っても気付かない欠陥を修理した。
+  待受アドレスの解決はbridge起動時にしか走らず、reconcileは設定のfingerprintだけを見ていたため、
+  設定が変わらないまま生きたsocketが死んだアドレスへ取り残され、公開siteが502を返し続けていた。
+  プロセスは健康なのでprocess supervisorは再起動せず、新しいbindingが生まれないので
+  reverse proxyへの自己登録も走らなかった。
+- reconcileの各passで実効アドレスを解決し直し、活きたbindingがその位置から外れた時だけ
+  張り直すようにした。静穏時は同値になるため、bindingの作り直しも再登録も起きない。
+- listen IPがDHCPで動く場合の再bind規則とregistrar配線を`docs/bridge-setup.md`へ記載した。
+
 ## 0.12.28 — 2026-07-26
 
 - manifest v2 storeへsuccessor revisionを適用した時、memberの
