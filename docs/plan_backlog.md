@@ -33,6 +33,12 @@ campaign級なので、着手時に専用planを起こす。`bounded-seam.mjs`�
 実データで`tio-009:summarizeIndependence`が該当。解くには公開contract（evidence契約）の
 版上げが要る。頻度を見てから、と裁定済みだが、2件目が出たら着手する。
 
+**裁定済み（2026-07-27・[ADR 0134](adr/0134-ambiguous-symbol-receipt-narrowed-by-declared-resource.md)）。**
+「2件目まで待つ」を改めて実施した。詰まっているのは頻度ではなく、正直な宣言から候補が出る
+唯一の実例がこの1件で、ここが通らない限り実変換campaignの入力が探り宣言に依存し続けるためである。
+`lattice.seam_proposal.v2`の`candidate_paths`で曖昧さを記録し、宣言した資源で絞る。
+[実行記録](evidence/2026-07-27-honest-declaration-first-candidate.md)。
+
 ### 4. bridge daemonのdescriptor読み取りretry
 
 bridge daemonのdescriptor読み取りにretryが無く、起動と同時に読むとraceで落ちる。
@@ -51,7 +57,7 @@ OQ4は新module・新doc・新test追加という実開発ToDoのかなりの割
 
 - [x] plan_lattice_ganttの残checkbox 8件を実態と照合して裁定する
 - [ ] 実変換campaignを起票する
-- [ ] seam evidence receiptの複数path解決を裁定する
+- [x] seam evidence receiptの複数path解決を裁定する
 - [x] bridge daemonのdescriptor読み取りへretryを入れる
 - [ ] ADR 0132 Open questions 2〜4を再裁定する
 

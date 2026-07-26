@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **同名symbolの曖昧さをreceiptへ残し、宣言した資源で絞れる**ようにした
+  （`lattice.seam_proposal.v2`の`candidate_paths`、[ADR 0134](docs/adr/0134-ambiguous-symbol-receipt-narrowed-by-declared-resource.md)）。
+  これまでreceiptは`resolved_path`を単数しか持てず、同じ名前が複数fileにあると解決結果は
+  `unknown`へ潰れていた。潰れた先に候補が残らないので、宣言の`within`で絞れば一意に決まる
+  場合でも絞る材料が記録に無かった。`ambiguous`のreceiptは候補を2つ以上持ち単数pathを持たない、
+  という排他を契約が強制する——決まった事実と決まらなかった事実を同じ形にしない。
+- graph操作（`callers`／`callees`／`impact`）の曖昧さは従来どおり`unknown`へ潰す。展開の起点が
+  一意でなければ観測の意味が定まらないためで、操作ごとに問いが違うから扱いも違う。
+- **正直な宣言のまま`seam_candidate`が出るようになった**（[実行記録](docs/evidence/2026-07-27-honest-declaration-first-candidate.md)）。
+  0.16.0の初回実行は、機械が解決できない1 symbolを宣言から落とした探りの宣言でしか候補が
+  出なかった。宣言を実態からずらして候補を作るのは「宣言の誠実さが判定の上限」という前提を
+  壊す行為なので、そこは限界として記録してあった。今回それが解けている。
+- 旧`lattice.seam_proposal.v1`の記録は移行しない。independence記録とsensorから再生成できる
+  host localの記録であり、古い記録は`recompile_seam_proposal_or_remove_stale_record`で落ちる。
+
 ## 0.17.0 — 2026-07-27
 
 - **`concern_anchors`を宣言手順の単一正本へ載せた**（`lattice todo --help`）。0.16.0で欄を足したのに、
