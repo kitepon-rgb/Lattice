@@ -1,0 +1,9 @@
+{
+  "evidence_id": "adr-0133-concern-anchor-binding",
+  "repo_id": "self",
+  "path": "docs/adr/0133-concern-anchor-binding.md",
+  "git_blob_oid": "24fedb7a5992356700487b8eab2cbade5db05fad",
+  "content_digest": "873e2de307c3e306e6478c465567c05f4858e853ca572c89db2578998fc49088",
+  "media_type": "text/markdown",
+  "anchor_digest": null
+}
