@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.20.1 — 2026-07-27
+
+- 0.20.0で基底run request契約を`lattice.run_request.v2`へ上げたが、その名前は
+  [ADR 0064](docs/adr/0064-runtime-hold-public-bridge.md)のepoch後継request——
+  `predecessor_request_digest`と`task_migration_digest`を持つ別shape——が既に使っていた。
+  同じ名前が2つの意味を持ち、どちらのvalidatorへ聞くかで通る形が変わる状態だったので、
+  基底契約を`lattice.run_request.v3`へ改番した。
+- 併せて、後継requestの本体検査をv1固定から基底契約へ向け直した。v1固定のままだと、
+  創作境界を持つ宣言が再計画を跨げない。
+
 ## 0.20.0 — 2026-07-27
 
 - **新規fileだけを作るToDoが並列可否の判定対象になった**
