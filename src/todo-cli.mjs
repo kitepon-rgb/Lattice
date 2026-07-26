@@ -36,9 +36,11 @@ import {
   applyTodoRevisionSet,
   createTodoStoreWriter,
   TodoStoreError,
+  readTodoIndependenceArtifact,
   readTodoStore,
   readTodoStoreStable,
   rebuildTodoSnapshot,
+  writeTodoIndependenceArtifact,
   verifyEffectivePhaseTodoRevisionSources,
   verifyTodoRevisionSources,
 } from './todo-store.mjs';
@@ -46,7 +48,21 @@ import {
   appendTodoExtraction,
   validateTodoExtraction,
 } from './todo-migration.mjs';
-import { projectTodoBindings, projectTodoStatus } from './todo-status.mjs';
+import {
+  computeReadyFrontier,
+  projectTodoBindings,
+  projectTodoStatus,
+} from './todo-status.mjs';
+import {
+  TODO_INDEPENDENCE_PROJECTION_SCHEMA,
+  explainTodoWitnessSet,
+  validateTodoIndependenceProjection,
+} from './todo-independence-contracts.mjs';
+import {
+  collectWitnessSensorEvidence,
+  compileTodoIndependence,
+  projectIndependenceFrontier,
+} from './todo-independence.mjs';
 import {
   parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
   validateTodoRevision, validateTodoRevisionSet,
@@ -227,6 +243,12 @@ async function readRevisionInput(repoRoot, inputRef, {
 }
 
 async function readEvidenceInput(repoRoot, inputRef) {
+  return readJsonInput(repoRoot, inputRef, {
+    validate: validateEvidenceDescriptor, invalidCode: 'INVALID_EVIDENCE',
+  });
+}
+
+async function readJsonInput(repoRoot, inputRef, { validate, invalidCode }) {
   if (!isTodoRef(inputRef)) {
     throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo', undefined, { input_ref: inputRef });
   }
@@ -270,10 +292,30 @@ async function readEvidenceInput(repoRoot, inputRef) {
   try { descriptor = JSON.parse(text); } catch {
     throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
   }
-  if (!validateEvidenceDescriptor(descriptor)) {
-    throw new TodoStoreError('INVALID_EVIDENCE', 'schema_invalid');
+  if (!validate(descriptor)) {
+    throw new TodoStoreError(invalidCode, 'schema_invalid');
   }
   return descriptor;
+}
+
+/** 安全読み取りとcanonical JSON規律を共有したまま、witness set契約で検証する。 */
+async function readWitnessSetInput(repoRoot, inputRef) {
+  let explained = null;
+  const witnessSet = await readJsonInput(repoRoot, inputRef, {
+    validate: (value) => {
+      explained = explainTodoWitnessSet(value);
+      return explained.valid;
+    },
+    invalidCode: 'INVALID_TODO_WITNESS_SET',
+  }).catch((error) => {
+    if (error?.code === 'INVALID_TODO_WITNESS_SET' && explained !== null) {
+      throw new TodoStoreError('INVALID_TODO_WITNESS_SET', explained.reason, undefined, {
+        input_ref: inputRef, path: explained.path,
+      });
+    }
+    throw error;
+  });
+  return witnessSet;
 }
 
 function mutationActor(env) {
@@ -476,6 +518,127 @@ async function status({ repoRoot }) {
 
 async function bindings({ repoRoot, requestedPlanKey }) {
   return projectTodoBindings(await readTodoStore({ repoRoot }), { requestedPlanKey });
+}
+
+function currentHeadSha(repoRoot) {
+  let head;
+  try {
+    head = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    throw new TodoStoreError('INDEPENDENCE_BASE_UNRESOLVED', 'git_head_unresolved');
+  }
+  if (!/^[0-9a-f]{40}$/u.test(head)) {
+    throw new TodoStoreError('INDEPENDENCE_BASE_UNRESOLVED', 'git_head_invalid');
+  }
+  return head;
+}
+
+function requireCleanWorktree(repoRoot) {
+  let porcelain;
+  try {
+    porcelain = execFileSync('git', ['status', '--porcelain'], {
+      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    throw new TodoStoreError('INDEPENDENCE_BASE_UNRESOLVED', 'git_status_unresolved');
+  }
+  const dirty = porcelain.split('\n').filter((line) => line.trim().length > 0);
+  if (dirty.length > 0) {
+    // 未commitの観測を検証済み証拠として固定化しない（ADR 0127 Decision 3）。
+    throw new TodoStoreError('INDEPENDENCE_WORKTREE_DIRTY', 'worktree_not_clean', undefined, {
+      changed_entries: dirty.length,
+      next_action: 'commit_or_stash_then_retry',
+    });
+  }
+}
+
+async function independenceCompile({ repoRoot, planKey, inputRef }) {
+  const witnessSet = await readWitnessSetInput(repoRoot, inputRef);
+  requireCleanWorktree(repoRoot);
+  const baseSha = currentHeadSha(repoRoot);
+  const store = await readTodoStore({ repoRoot });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (!member) throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, { plan_key: planKey });
+
+  const artifact = compileTodoIndependence({
+    witnessSet,
+    plan: member.plan,
+    baseSha,
+    compiledAt: new Date().toISOString(),
+    sensorEvidence: await collectWitnessSensorEvidence({ cwd: repoRoot, witnessSet }),
+  });
+  const { ref } = await writeTodoIndependenceArtifact({ repoRoot, artifact });
+
+  const result = {
+    schema: 'lattice.todo_independence_compile_result.v1',
+    project_id: artifact.project_id,
+    plan_key: artifact.plan_key,
+    plan_version: artifact.plan_version,
+    base_sha: artifact.base_sha,
+    artifact_ref: ref,
+    outcome: artifact.outcome,
+    task_count: artifact.task_ids.length,
+    conflict_count: artifact.conflicts.length,
+    unknown_count: artifact.unknowns.length,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
+async function independence({ repoRoot, requestedPlanKey }) {
+  const store = await readTodoStore({ repoRoot });
+  if (requestedPlanKey !== null
+    && !store.members.some(({ descriptor }) => descriptor.plan_key === requestedPlanKey)) {
+    throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, {
+      plan_key: requestedPlanKey,
+    });
+  }
+  const frontier = computeReadyFrontier(store);
+  const readyPlanKeys = [...new Set(frontier.map(({ plan_key: key }) => key))].sort();
+  // planを絞らない呼び出しでreadyが複数planへまたがる場合、どのplanのartifactを
+  // 根拠にしたのか読み手に決められない。片方だけ見せて答えたことにしない。
+  if (requestedPlanKey === null && readyPlanKeys.length > 1) {
+    throw new TodoStoreError('INDEPENDENCE_PLAN_AMBIGUOUS', 'ready_frontier_spans_plans', undefined, {
+      plan_keys: readyPlanKeys,
+      next_action: 'rerun_with_plan_flag',
+    });
+  }
+  const planKey = requestedPlanKey ?? readyPlanKeys[0] ?? null;
+
+  const currentBaseSha = currentHeadSha(repoRoot);
+  const ready = frontier.filter((task) => task.plan_key === planKey);
+  const member = planKey === null
+    ? undefined : store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  const artifact = member === undefined
+    ? null : await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+
+  const projected = projectIndependenceFrontier({
+    artifact,
+    readyTaskIds: ready.map(({ task_id: taskId }) => taskId),
+    plan: member?.plan ?? { plan_version: null, topology_digest: null },
+    currentBaseSha,
+  });
+
+  const result = {
+    schema: TODO_INDEPENDENCE_PROJECTION_SCHEMA,
+    project_id: store.project_id,
+    plan_key: planKey,
+    coverage: projected.coverage,
+    compiled_base_sha: artifact?.base_sha ?? null,
+    current_base_sha: currentBaseSha,
+    plan_version: artifact?.plan_version ?? null,
+    topology_digest: artifact?.topology_digest ?? null,
+    frontier: projected.frontier,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  if (!validateTodoIndependenceProjection(result)) {
+    throw new TodoStoreError('INDEPENDENCE_PROJECTION_INVALID', 'independence_projection_invalid');
+  }
+  return result;
 }
 
 async function readNarrative(repoRoot, ref) {
@@ -937,6 +1100,18 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && (argv.length === 3 || argv[3] === '--json')) {
     action = (repoRoot) => bindings({ repoRoot, requestedPlanKey: argv[2] });
+  } else if (argv.length === 6 && argv[0] === 'independence' && argv[1] === 'compile'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--input') {
+    action = (repoRoot) => independenceCompile({
+      repoRoot, planKey: argv[3], inputRef: argv[5],
+    });
+  } else if ((argv.length === 1 && argv[0] === 'independence')
+    || (argv.length === 2 && argv[0] === 'independence' && argv[1] === '--json')) {
+    action = (repoRoot) => independence({ repoRoot, requestedPlanKey: null });
+  } else if ((argv.length === 3 || argv.length === 4) && argv[0] === 'independence'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && (argv.length === 3 || argv[3] === '--json')) {
+    action = (repoRoot) => independence({ repoRoot, requestedPlanKey: argv[2] });
   } else if ((argv.length === 1 && argv[0] === 'verify')
     || (argv.length === 2 && argv[0] === 'verify' && argv[1] === '--json')) {
     action = (repoRoot) => verify({ repoRoot, requestedPlanKey: null });

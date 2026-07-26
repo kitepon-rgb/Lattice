@@ -105,12 +105,22 @@ JSON+LFに限定し、`lattice.todo_plan.v5`と同じPhase／task／topology制�
 v2/v4は既存planの互換契約として維持する。
 
 `.lattice/todo/`のcanonical journalを工程状態の唯一正本とし、snapshotとガントHTMLは再生成可能な
-投影として扱う。読取CLIは`lattice todo status / bindings / verify / snapshot --rebuild / gantt`、一回きりの
-移行入口は`todo migrate`である。`todo bindings [--plan <key>] --json`は`compile_binding`が設定された
+投影として扱う。読取CLIは`lattice todo status / bindings / independence / verify / snapshot --rebuild / gantt`、
+一回きりの移行入口は`todo migrate`である。`todo bindings [--plan <key>] --json`は`compile_binding`が設定された
 Taskだけを`project_id`／`plan_key`／`plan_version`／`task_id`つきで投影し
 （`lattice.todo_binding_projection.v1`・ADR 0124）、TODO工程とruntime実行を結ぶ唯一の公開読み取り面とする。
 `compiled_plan_digest`から`runtime_plan.v1`→`executor_packet.v1`→`executor_receipt.v1`まで辿れる。
-`todo_status_result.v4`は変更せず、加算の別面とする。topologyとsource reconciliationの変更はfull desired-state successorを
+`todo_status_result.v4`は変更せず、加算の別面とする。
+
+依存edgeの不在は順序制約の無申告であって、書き込み境界の非干渉ではない。両者を公開面で区別するため、
+`todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v1`の宣言と
+実sensor観測から並列可否を判定し、`lattice.todo_independence.v1`をplan versionディレクトリへ並置記録する
+（ADR 0127）。記録は`(plan_version, topology_digest, base_sha)`へ束縛し、dirty worktreeでは記録しない。
+`todo independence [--plan <key>] --json`はready frontierを検証済み並列グループ・要直列の組・未検査へ
+分けて投影し（`lattice.todo_independence_projection.v1`）、参照時にsensorを引かない。
+記録の鮮度は`coverage`が`verified`／`stale`／`superseded`／`missing`で示し、現在のコード状態を
+指していない記録をverified独立として読ませない。`dispatch_frontier`の
+`all_ready_parallel_by_default`は変更せず、independenceはhostがsubsetを選ぶ根拠を与える別面とする。topologyとsource reconciliationの変更はfull desired-state successorを
 発行する`todo revise`／`todo revise-phase`だけが所有し、Markdown fallback、部分CRUD、独立`todo reconcile`を持たない。
 通常revision inputはcanonical JSON+LFの`lattice.todo_revision.v1/v2`、Phase revisionは
 `lattice.phase_todo_revision.v1/v2`とする。v2はdesired plan v5を所有する。cross-plan successorは`todo revise-set`で一括公開し、
