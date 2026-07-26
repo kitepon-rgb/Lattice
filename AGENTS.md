@@ -27,6 +27,10 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 
 - source変更TODOをdispatchableにする前に、Lattice sensorでowned symbol／path、caller／callee、impact、affected
   testを確認し、state／effect／dynamic unknownを補ったboundary manifestを作る。
+- 調べた境界は会話で消費せず記録する。`.lattice/todo/witness/<plan_key>.json`へwitness setを宣言して
+  `lattice todo independence compile --plan <key> --input <ref>`を通し、`lattice todo independence --plan <key>`で
+  読む（ADR 0127）。読み出しはsensorを引かないので、参照のたびに調べ直さない。
+  依存線が無いことを並列可の根拠にしない。coverageが`verified`でない記録と未宣言taskは未検査として扱う。
 - 初回scaffoldだけはindexがまだ存在しないためbootstrap例外とする。bootstrap sourceを作った直後、
   初期環境commitより前に`lattice sensor init . --json`を実行し、以後のsource TODOへ例外を持ち越さない。
 - sensor結果は構造証拠であり、semantic independenceやbehavior preservationの単独証明ではない。
@@ -51,6 +55,10 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
   `--reap`で停める（既定は一覧のみ、fixture不在のものだけが対象）。
 - commitは独立revert可能な単位にし、並行作業中はpathspecを明示する。push、publish、remote作成は
   オーナーの明示指示時だけ行う。
+- 新しい工程群をLattice storeへ入れる時は`todo migrate`で新planを起こす。初期化済みprojectでは
+  `can_create_plan`がfalseになり`plan create`は使えず、既存planへのtask追加はphase revision v3の
+  full desired-state全置換（runtime task migration・source inventory・cutover batchの全整合）を要求するため、
+  別campaignの追加には見合わない。散文はdocs/のplan Markdownが持ち、状態と依存はstoreだけが持つ。
 
 ## 所有境界
 
