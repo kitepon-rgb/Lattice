@@ -235,10 +235,13 @@ const WITNESS_PROVENANCE = Object.freeze([
 ]);
 
 /**
- * 現行のrun request契約。v2は`owns[].creates`だけがv1との差であり、境界宣言としては同値である。
+ * 現行のrun request契約。v3は`owns[].creates`だけがv1との差であり、境界宣言としては同値である。
  * 既存requestの書き換えを要求しないため、v1は読み口として残す。
+ *
+ * v2はこの系列ではない。ADR 0064のepoch後継request（`predecessor_request_digest`と
+ * `task_migration_digest`を持つ別shape）が既に使っている番号なので、飛ばして採番する。
  */
-export const RUN_REQUEST_SCHEMA = 'lattice.run_request.v2';
+export const RUN_REQUEST_SCHEMA = 'lattice.run_request.v3';
 export const RUN_REQUEST_LEGACY_SCHEMAS = Object.freeze(['lattice.run_request.v1']);
 export const RUN_REQUEST_SCHEMAS = Object.freeze([
   RUN_REQUEST_SCHEMA,

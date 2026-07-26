@@ -19,7 +19,13 @@
 
 ## Decision
 
-### 1. 創作は宣言する（`lattice.todo_witness_set.v3`・`lattice.run_request.v2`）
+### 1. 創作は宣言する（`lattice.todo_witness_set.v3`・`lattice.run_request.v3`）
+
+run requestの番号がv2を飛ばすのは、[ADR 0064](0064-runtime-hold-public-bridge.md)が
+`lattice.run_request.v2`をepoch後継request（`predecessor_request_digest`と
+`task_migration_digest`を持つ別shape）として既に使っているためである。同じ名前へ
+2つの意味を載せない。後継requestの本体検査はbase契約と同じ規律で読むので、
+創作境界を持つ宣言は再計画を跨いでも失効しない。
 
 `owns`のentryへ`creates: true`を足す。観測から機械的に「創作境界」と読まないのは、
 pathのtypoが「必ず止まるエラー」から「黙って通る創作境界」へ変わるからである。現在は

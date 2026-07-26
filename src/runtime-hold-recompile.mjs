@@ -7,6 +7,7 @@ import {
 } from './runtime-decision-verifier.mjs';
 import {
   computeContextContentDigest,
+  RUN_REQUEST_SCHEMA,
   selfDigest,
   validateCarryOverWitness,
   validateEpochRebindPacket,
@@ -133,7 +134,9 @@ export function validateRunRequestV2(value) {
     || !HEX_DIGEST.test(value.task_migration_digest ?? '')
     || !selfDigestValid(value, 'request_digest')) return false;
   const projected = {
-    schema: 'lattice.run_request.v1', request_id: value.request_id, repo: value.repo,
+    // 後継requestの本体はbase契約と同じ規律で読む。v1へ固定すると、創作境界を持つ
+    // 宣言が再計画を跨げない（ADR 0136）。
+    schema: RUN_REQUEST_SCHEMA, request_id: value.request_id, repo: value.repo,
     capacity: value.capacity, todos: value.todos, manual_witness: value.manual_witness,
     sensor_query_set: value.sensor_query_set, executor_capability: value.executor_capability,
     claim_mode: value.claim_mode, request_digest: '',

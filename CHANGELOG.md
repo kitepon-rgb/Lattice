@@ -13,7 +13,7 @@
   pathのtypoが「必ず止まるエラー」から「黙って通る創作境界」へ変わるためで、宣言していない
   absent pathは従来どおり止まる。宣言と観測がずれる側も全部fail closedにした——既に在るpathへの
   創作宣言は`creates_path_present`、fs観測が証拠に無ければ`creates_unverified`。
-- `lattice.todo_witness_set` v3・`lattice.run_request` v2・`lattice.boundary_manifest` v3へ
+- `lattice.todo_witness_set` v3・`lattice.run_request` v3・`lattice.boundary_manifest` v3へ
   版を上げた。差分は`owns[].creates`だけで、旧版はすべて読み口として受理する。既存の宣言・
   request・run storeは書き換えを要求されない。
 - `BOOTSTRAP_OWNERSHIP_SEAM`の案内が、空seam fileの先行commitより先に`creates`宣言を挙げる

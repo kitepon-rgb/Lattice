@@ -53,7 +53,7 @@ T1/T2が検証済み並列として出ることはない。
 | 契約 | 版 | 差分 | 旧版の扱い |
 |---|---|---|---|
 | `lattice.todo_witness_set` | v2 → **v3** | `owns[].creates` | v1/v2を読み口として受理 |
-| `lattice.run_request` | v1 → **v2** | 同上 | v1を読み口として受理 |
+| `lattice.run_request` | v1 → **v3** | 同上 | v1を読み口として受理 |
 | `lattice.boundary_manifest` | v2 → **v3** | 同上 | v2を読み口として受理 |
 
 `concern_anchors`と違い、創作宣言は合成run requestへそのまま届く。判定そのものへ効く宣言なので

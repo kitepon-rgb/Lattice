@@ -306,7 +306,7 @@ test('創作を宣言したTODOは、不存在pathでも裏付けありとして
     todos: [{ id: 'TA1', symbol: 'futureService', path: 'src/future-service.mjs', tests: [] }],
   });
   // symbol所有は外す。まだ存在しないfileの中のsymbolは、それ自体が未観測である。
-  built.request.schema = 'lattice.run_request.v2';
+  built.request.schema = 'lattice.run_request.v3';
   built.request.manual_witness.TA1.owns = [
     { kind: 'path', target: 'src/future-service.mjs', creates: true },
   ];
@@ -338,7 +338,7 @@ test('創作を宣言したTODOは、不存在pathでも裏付けありとして
     requestId: 'req-declared-present-path',
     todos: [{ id: 'TA1', symbol: 'futureService', path: 'src/future-service.mjs', tests: [] }],
   });
-  present.request.schema = 'lattice.run_request.v2';
+  present.request.schema = 'lattice.run_request.v3';
   present.request.manual_witness.TA1.owns = [
     { kind: 'symbol', target: 'futureService' },
     { kind: 'path', target: 'src/future-service.mjs', creates: true },
@@ -375,7 +375,7 @@ test('創作を宣言したTODOは、不存在pathでも裏付けありとして
     requestId: 'req-declared-unverified',
     todos: [{ id: 'TA1', symbol: 'futureService', path: 'src/future-service.mjs', tests: [] }],
   });
-  unverified.request.schema = 'lattice.run_request.v2';
+  unverified.request.schema = 'lattice.run_request.v3';
   unverified.request.manual_witness.TA1.owns = [
     { kind: 'symbol', target: 'futureService' },
     { kind: 'path', target: 'src/future-service.mjs', creates: true },
