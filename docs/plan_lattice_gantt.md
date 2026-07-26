@@ -6,6 +6,25 @@
 **Status:** Completed history（現行状態はLattice storeを参照）
 **作成日:** 2026-07-18
 **親裁定:** dotagents [Lattice編入計画 Phase LG](../../dotagents/docs/plan_lattice-factory-integration.md)（オーナー裁定 2026-07-18）・親queue 23
+
+## 2026-07-27 残checkbox 8件の裁定（bk-001）
+
+本書は完了済み履歴だが、cutover前の未checkboxが8件残っていた。対応するstore plan
+`phase-control-live-gantt`は35 task全doneであり、8件はstoreに存在しない。実態と1件ずつ
+照合した結果を以下に記録し、checkboxを閉じる。本書は移動しない——ADR 0053とevidence 2件が
+リンクしており、履歴資料のリンクを壊さない。
+
+| checkbox | 裁定 | 根拠 |
+|---|---|---|
+| dotagents側アクセス配線（SessionStart案内） | 実現済み・dotagents所有 | SessionStart hookがガント安定パスと現在地（active／next-ready）を毎session出力しているのを実測 |
+| 受入: 実workloadのガント表示とオーナー目視 | 実現済み | 本書内に2026-07-19のオーナー目視受入記録あり、子checkbox 4件すべて[x] |
+| authoring CLI実装（遷移verb＋todo revise） | 実現済み | `todo start／done／block／unblock／reopen／revise／revise-set`が実在し常用されている |
+| enforcementの実体はCI/`todo verify` | 本裁定で完了 | 読取時再検証は実装済みで実storeも green だったが、`npm run ci`に入っていなかった。`verify:todo-store`をci gateへ追加した |
+| hook接続（SessionStart注入／Stop WARN） | SessionStart実現済み・Stop側dotagents所有 | SessionStartは実測。Stop hookはdotagentsが正本 |
+| ガント再生成タイミングの裁定 | 実現済み（別解で決着） | `todo gantt serve`のlive server＋SSEで解決。公開契約が「snapshotとガントHTMLは再生成可能な投影」と明記 |
+| cutover gate（checkbox列廃止＋store正本化＋憲法規範化） | 実現済み | ADR 0057でper-ToDo source cutoverをrevision transactionへ統合。憲法「計画文書の作法」へ工程正本の規範化済み。未checkboxが残るlive plan文書は本書だけだった |
+| 公開契約・README・生成憲法の同期 | 実現済み | 00_product-contract.mdは各campaignの受入単位で同期を維持、憲法も規範化済み |
+
 **対象repo:** Lattice（実装）／dotagents（消費者adapter・受入）
 
 ## 0. 背景
@@ -272,9 +291,9 @@ rollback: G4開始前に両repoのHEAD・対象path・digestを記録し、受�
 - [x] NPM配布・version pin・dotagents側での`lattice` CLI利用可能化（既存の工場更新経路に乗せる）
   - 2026-07-19完了: `@quolu/lattice@0.3.0`（`8d155b4`）→`0.4.0`（`54f1cbd`・renderer v6）公開。
     dotagents updater pinを0.4.0へ更新（dotagents `6cfbf9b`）・global install実測`lattice --version`=0.4.0
-- [ ] dotagents側アクセス配線: SessionStart hookがガントの安定パスと現在地を毎session案内
+- [x] dotagents側アクセス配線: SessionStart hookがガントの安定パスと現在地を毎session案内
       （§1.6-6。正本はdotagents settings断片・isolated HOME検証を通す）
-- [ ] **受入: dotagents master planの実workloadをガント表示し、最長依存鎖と現在地（active set＋
+- [x] **受入: dotagents master planの実workloadをガント表示し、最長依存鎖と現在地（active set＋
       next-ready）がブラウザで一目で判ること（オーナー目視）**。受入証跡とreject/retry記録を
       evidenceへ残す
   - 2026-07-19実workload再検分: v4〜v6のfixture目視通過は維持するが、dotagents 110件では
@@ -305,7 +324,7 @@ UI磨き込みbacklogは[ui-review-backlog.md](ui-review-backlog.md)が正。
 消化はLattice単独セッションで行い、契約（stdout schema・store wire）へ触れる場合だけdotagents側と調整する。
 
 ### G5 — authoring CLI＋enforcement＋定着（A→dotagents側規範化）
-- [ ] **authoring CLI実装**（ADR 0053契約表）: 遷移verb（start/done/block/unblock/reopen）＋
+- [x] **authoring CLI実装**（ADR 0053契約表）: 遷移verb（start/done/block/unblock/reopen）＋
       topology変更とsource reconciliationの唯一入口`todo revise`（successor version発行）。順序違反
       （`--override-reason`なし）・依存欠落・evidenceなしdone・blocked中doneを書込時拒否。
       revision.json契約と独立`todo reconcile`廃止はADR 0055、通常遷移wireはADR 0056を正とする
@@ -313,17 +332,17 @@ UI磨き込みbacklogは[ui-review-backlog.md](ui-review-backlog.md)が正。
     source reconciliationを`todo revise`へ統合し、独立`todo reconcile`を廃止。
     [ADR 0056](adr/0056-todo-authoring-transitions.md)で通常遷移のactor環境、descriptor読取、
     lock内target解決、`lattice.todo_mutation_result.v1` exact wireを固定した。
-- [ ] **enforcementの実体はCI/`todo verify`**: 「CLI経由のみ」はファイル権限では強制できない
+- [x] **enforcementの実体はCI/`todo verify`**: 「CLI経由のみ」はファイル権限では強制できない
       （手編集・Git mergeを防げない）。journal・snapshot・依存・done evidence・compile bindingの
       読取時再検証をCI必須gateへ入れて初めて強制になる（§1.7・storeレーン落とし穴5）
-- [ ] hook接続: SessionStart=storeから現在地・次pending注入／Stop=commitあるのに遷移なしをWARN
+- [x] hook接続: SessionStart=storeから現在地・次pending注入／Stop=commitあるのに遷移なしをWARN
       （§1.6-7②。正本はdotagents・isolated HOME検証）
-- [ ] ガント再生成タイミングの裁定（§2セッション中意味論: on-demandのみか、遷移成功後の
+- [x] ガント再生成タイミングの裁定（§2セッション中意味論: on-demandのみか、遷移成功後の
       hook自動再生成を足すか。自動化する場合も描画失敗で遷移自体を巻き戻さない＝表示は投影）
-- [ ] **cutover gate（一回で切替）**: 移行済みplanのcheckbox列廃止＋store正本化＋憲法
+- [x] **cutover gate（一回で切替）**: 移行済みplanのcheckbox列廃止＋store正本化＋憲法
       「計画文書の作法」へ「工程はLattice store・散文はMarkdown」を規範化（§1.5-4。正本は
       dotagents `shared/constitution.md`）を同一gateで実施し、二重正本期間を作らない
-- [ ] 公開契約（00_product-contract.md）・README・dotagents install/verify・生成憲法の同期
+- [x] 公開契約（00_product-contract.md）・README・dotagents install/verify・生成憲法の同期
 
 ### G6 — per-ToDo source cutover transaction（2026-07-19追加）
 
