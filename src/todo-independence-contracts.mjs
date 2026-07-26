@@ -13,7 +13,19 @@ import {
 } from './runtime-contracts.mjs';
 import { TODO_INDEPENDENCE_GUIDANCE_CODES } from './todo-independence-guidance.mjs';
 
-export const TODO_WITNESS_SET_SCHEMA = 'lattice.todo_witness_set.v1';
+export const TODO_WITNESS_SET_SCHEMA = 'lattice.todo_witness_set.v2';
+/**
+ * まだ受理する旧witness set契約。v1はconcern anchorを持てないだけで、境界宣言としては
+ * v2と同値である。既存宣言を書き換えさせないために読み口を残す。
+ */
+export const TODO_WITNESS_SET_LEGACY_SCHEMAS = Object.freeze(['lattice.todo_witness_set.v1']);
+export const TODO_WITNESS_SET_SCHEMAS = Object.freeze([
+  TODO_WITNESS_SET_SCHEMA,
+  ...TODO_WITNESS_SET_LEGACY_SCHEMAS,
+]);
+
+/** 1 taskが宣言できるconcern anchorの資源数と、資源あたりのsymbol数の上限。 */
+export const TODO_CONCERN_ANCHOR_LIMIT = 256;
 export const TODO_INDEPENDENCE_SCHEMA = 'lattice.todo_independence.v3';
 export const TODO_INDEPENDENCE_PROJECTION_SCHEMA = 'lattice.todo_independence_projection.v2';
 export const TODO_INDEPENDENCE_LEGACY_MARKER_SCHEMA = 'lattice.todo_independence_legacy_marker.v1';
@@ -97,6 +109,10 @@ function boundedText(value, maximumBytes = 4_096) {
  * manual witnessとsensor query setの判定正本は`explainRunRequest`だけが持つ（ADR 0123）。
  * ここで同じ規則を書き直すと契約が二箇所へ分裂するため、検証もcompileもこの合成を通す。
  * `requestId`はplan identityとwitness digestから導出され、run lifecycleへは登録されない。
+ *
+ * `concern_anchors`はここで落とす。並列可否の判定はこの合成requestだけを入力にするので、
+ * 落としておけばconcern宣言が判定へ影響しないことが構造で保証される（testの主張ではない）。
+ * 宣言はseam束縛の入力であり、witness setから直接読む。
  */
 export function synthesizeWitnessRunRequest(witnessSet, { baseSha, requestId }) {
   const taskIds = Object.keys(witnessSet.manual_witness).sort(compareText);
@@ -106,7 +122,10 @@ export function synthesizeWitnessRunRequest(witnessSet, { baseSha, requestId }) 
     repo: { base_sha: baseSha, root_kind: 'git' },
     capacity: witnessSet.capacity,
     todos: taskIds.map((taskId) => ({ todo_id: taskId })),
-    manual_witness: witnessSet.manual_witness,
+    manual_witness: Object.fromEntries(taskIds.map((taskId) => {
+      const { concern_anchors: _concernAnchors, ...boundary } = witnessSet.manual_witness[taskId];
+      return [taskId, boundary];
+    })),
     sensor_query_set: witnessSet.sensor_query_set,
     executor_capability: { adapters: ['todo-independence'] },
     claim_mode: RUN_REQUEST_CLAIM_MODE,
@@ -117,10 +136,57 @@ export function synthesizeWitnessRunRequest(witnessSet, { baseSha, requestId }) 
 }
 
 /**
- * `lattice.todo_witness_set.v1`を検証し、拒否理由とpathを返す。
+ * 1 taskのconcern anchor宣言を検査する。
+ *
+ * `within`はそのtask自身が`owns`で主張している資源に限る。所有していない資源の内側に
+ * 担当を主張させない。symbol名の実在・資源内包含・task間排他はsensorとcompile側が見る。
+ */
+function explainConcernAnchors(anchors, owns, at) {
+  const reject = (reason, path) => ({ valid: false, reason, path });
+  if (!Array.isArray(anchors) || anchors.length > TODO_CONCERN_ANCHOR_LIMIT) {
+    return reject('bounded_collection_violation', at);
+  }
+  const ownedKeys = new Set(owns.map((own) => `${own.kind}\0${own.target}`));
+  for (const [index, entry] of anchors.entries()) {
+    const entryAt = `${at}/${index}`;
+    if (!exactRecord(entry, ['within', 'symbols'])) {
+      return reject('unexpected_or_missing_keys', entryAt);
+    }
+    if (!exactRecord(entry.within, ['kind', 'target'])
+      || !['symbol', 'path'].includes(entry.within.kind)) {
+      return reject('invalid_concern_anchor_resource', `${entryAt}/within`);
+    }
+    const targetValid = entry.within.kind === 'path'
+      ? repoRelativeResourceTarget(entry.within.target)
+      : boundedText(entry.within.target, 1_024);
+    if (!targetValid) return reject('invalid_concern_anchor_resource', `${entryAt}/within`);
+    if (!ownedKeys.has(`${entry.within.kind}\0${entry.within.target}`)) {
+      return reject('concern_anchor_resource_not_owned', `${entryAt}/within`);
+    }
+    if (!Array.isArray(entry.symbols) || entry.symbols.length < 1
+      || entry.symbols.length > TODO_CONCERN_ANCHOR_LIMIT) {
+      return reject('bounded_collection_violation', `${entryAt}/symbols`);
+    }
+    if (!entry.symbols.every((symbol) => boundedText(symbol, 1_024))) {
+      return reject('invalid_concern_anchor_symbol', `${entryAt}/symbols`);
+    }
+    if (!strictlySorted(entry.symbols)) {
+      return reject('unsorted_or_duplicate_collection', `${entryAt}/symbols`);
+    }
+  }
+  if (!strictlySorted(anchors, (entry) => `${entry.within.kind}\0${entry.within.target}`)) {
+    return reject('unsorted_or_duplicate_collection', at);
+  }
+  return { valid: true };
+}
+
+/**
+ * `lattice.todo_witness_set.v2`（およびconcern anchorを持たない旧v1）を検証し、
+ * 拒否理由とpathを返す。
  *
  * 自分のshapeだけをここで見て、witness本体はprobe requestへ合成して
  * `explainRunRequest`へ委譲する。probeのbase_shaは検証専用の定数であり永続化しない。
+ * `concern_anchors`はprobeから落ちるので、ここだけが判定正本になる。
  */
 export function explainTodoWitnessSet(value) {
   const reject = (reason, at = '') => ({ valid: false, reason, path: at });
@@ -129,7 +195,7 @@ export function explainTodoWitnessSet(value) {
       'schema', 'project_id', 'plan_key', 'capacity', 'sensor_query_set',
       'manual_witness', 'witness_set_digest',
     ])) return reject('unexpected_or_missing_top_level_keys');
-    if (value.schema !== TODO_WITNESS_SET_SCHEMA) return reject('schema_mismatch', '/schema');
+    if (!TODO_WITNESS_SET_SCHEMAS.includes(value.schema)) return reject('schema_mismatch', '/schema');
     if (!isTodoIdentifier(value.project_id)) return reject('invalid_identifier', '/project_id');
     if (!isTodoIdentifier(value.plan_key)) return reject('invalid_identifier', '/plan_key');
     if (!plain(value.manual_witness)) return reject('not_an_object', '/manual_witness');
@@ -146,6 +212,16 @@ export function explainTodoWitnessSet(value) {
     });
     const explained = explainRunRequest(probe);
     if (!explained.valid) return reject(explained.reason, explained.path);
+    // concern anchorはprobeへ写していないので、ここが唯一の判定正本になる。
+    const legacy = TODO_WITNESS_SET_LEGACY_SCHEMAS.includes(value.schema);
+    for (const taskId of taskIds) {
+      const witness = value.manual_witness[taskId];
+      const at = `/manual_witness/${taskId}/concern_anchors`;
+      if (!Object.hasOwn(witness, 'concern_anchors')) continue;
+      if (legacy) return reject('concern_anchors_require_witness_set_v2', at);
+      const anchors = explainConcernAnchors(witness.concern_anchors, witness.owns, at);
+      if (!anchors.valid) return reject(anchors.reason, anchors.path);
+    }
     return { valid: true };
   } catch {
     return reject('non_canonical_witness_set_bytes');

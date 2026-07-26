@@ -150,6 +150,80 @@ test('合成したrun requestはrun_request.v1契約を満たす', () => {
   assert.equal(request.repo.base_sha, BASE_SHA);
 });
 
+test('concern anchorは合成run requestへ写らない', () => {
+  const set = witnessSet({
+    manual_witness: {
+      'tip-001': witness({
+        concern_anchors: [{
+          within: { kind: 'path', target: 'src/alpha.mjs' },
+          symbols: ['renderLeft', 'renderRight'],
+        }],
+      }),
+    },
+  });
+  assert.equal(validateTodoWitnessSet(set), true);
+  const request = synthesizeWitnessRunRequest(set, {
+    baseSha: BASE_SHA, requestId: 'independence-probe',
+  });
+  // 判定入力から構造的に落ちていること。非影響をtestの主張でなく合成で保証する。
+  assert.equal(Object.hasOwn(request.manual_witness['tip-001'], 'concern_anchors'), false);
+  assert.equal(validateRunRequest(request), true);
+  // 宣言側は書き換えられない。
+  assert.equal(set.manual_witness['tip-001'].concern_anchors.length, 1);
+});
+
+test('concern anchorは所有資源・整列・v2 schemaを要求する', () => {
+  const anchored = (anchors) => witnessSet({
+    manual_witness: { 'tip-001': witness({ concern_anchors: anchors }) },
+  });
+
+  assert.equal(explainTodoWitnessSet(anchored([{
+    within: { kind: 'path', target: 'src/beta.mjs' },
+    symbols: ['renderLeft'],
+  }])).reason, 'concern_anchor_resource_not_owned');
+
+  assert.equal(explainTodoWitnessSet(anchored([{
+    within: { kind: 'path', target: 'src/alpha.mjs' },
+    symbols: ['renderRight', 'renderLeft'],
+  }])).reason, 'unsorted_or_duplicate_collection');
+
+  assert.equal(explainTodoWitnessSet(anchored([{
+    within: { kind: 'path', target: 'src/alpha.mjs' },
+    symbols: [],
+  }])).reason, 'bounded_collection_violation');
+
+  assert.equal(explainTodoWitnessSet(anchored([{
+    within: { kind: 'module', target: 'src/alpha.mjs' },
+    symbols: ['renderLeft'],
+  }])).reason, 'invalid_concern_anchor_resource');
+
+  const duplicated = anchored([
+    { within: { kind: 'path', target: 'src/alpha.mjs' }, symbols: ['renderLeft'] },
+    { within: { kind: 'path', target: 'src/alpha.mjs' }, symbols: ['renderRight'] },
+  ]);
+  assert.equal(explainTodoWitnessSet(duplicated).reason, 'unsorted_or_duplicate_collection');
+
+  const legacy = witnessSet({
+    schema: 'lattice.todo_witness_set.v1',
+    manual_witness: {
+      'tip-001': witness({
+        concern_anchors: [{
+          within: { kind: 'path', target: 'src/alpha.mjs' },
+          symbols: ['renderLeft'],
+        }],
+      }),
+    },
+  });
+  assert.equal(explainTodoWitnessSet(legacy).reason, 'concern_anchors_require_witness_set_v2');
+});
+
+test('concern anchorを持たない旧v1宣言はそのまま受理される', () => {
+  const legacy = witnessSet({ schema: 'lattice.todo_witness_set.v1' });
+  assert.equal(validateTodoWitnessSet(legacy), true);
+  assert.equal(explainTodoWitnessSet(witnessSet({ schema: 'lattice.todo_witness_set.v0' })).reason,
+    'schema_mismatch');
+});
+
 test('independence artifactは境界とdigestを検査する', () => {
   assert.equal(validateTodoIndependence(independence()), true);
 

@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_witness_set.v1.schema.json",
-  "title": "lattice.todo_witness_set.v1",
-  "description": "Per-ToDo boundary declaration compiled into a recorded independence judgement (ADR 0127). Each entry declares what the ToDo owns, reads and writes so that pairwise interference can be decided before dispatch.",
-  "$comment": "Superseded by lattice.todo_witness_set.v2, which adds the optional concern_anchors declaration. v1 remains valid input and is never rewritten in place; it simply cannot carry concern_anchors. Runtime validation additionally enforces canonical JSON+LF bytes and the self-digest rule, and delegates manual_witness and sensor_query_set to explainRunRequest so the witness contract is not duplicated (ADR 0123). Declaring nothing is not an assertion of independence: an undeclared ToDo compiles to unknown, never to verified.",
+  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_witness_set.v2.schema.json",
+  "title": "lattice.todo_witness_set.v2",
+  "description": "Per-ToDo boundary declaration compiled into a recorded independence judgement (ADR 0127). Each entry declares what the ToDo owns, reads and writes so that pairwise interference can be decided before dispatch. v2 adds the optional concern_anchors declaration, which binds seam candidates and never participates in the independence judgement.",
+  "$comment": "Runtime validation additionally enforces canonical JSON+LF bytes and the self-digest rule, and delegates manual_witness and sensor_query_set to explainRunRequest so the witness contract is not duplicated (ADR 0123). concern_anchors is stripped before that synthesis, so its non-influence on the judgement is structural rather than asserted. Declaring nothing is not an assertion of independence: an undeclared ToDo compiles to unknown, never to verified. v1 declarations stay valid input and simply cannot carry concern_anchors.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,7 @@
     "witness_set_digest"
   ],
   "properties": {
-    "schema": { "const": "lattice.todo_witness_set.v1" },
+    "schema": { "const": "lattice.todo_witness_set.v2" },
     "project_id": { "$ref": "#/$defs/identifier" },
     "plan_key": { "$ref": "#/$defs/identifier" },
     "capacity": {
@@ -191,6 +191,35 @@
             "properties": {
               "kind": { "$ref": "#/$defs/identifier" },
               "ref": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "concern_anchors": {
+          "type": "array",
+          "maxItems": 256,
+          "description": "Optional. Which named symbols inside an owned-but-contested resource are this ToDo's concern. Consumed only when binding seam candidates; it can never create, remove or alter a conflict, so a dishonest declaration degrades the proposal without touching the judgement. Declared symbols must resolve through the sensor with an exact name and path match, must live inside the declared resource, and must not overlap another ToDo's declaration for the same resource; any breach yields a typed unknown instead of a proposal.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["within", "symbols"],
+            "properties": {
+              "within": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "target"],
+                "description": "The contested resource. Must be a resource this same ToDo claims under 'owns'.",
+                "properties": {
+                  "kind": { "enum": ["symbol", "path"] },
+                  "target": { "type": "string", "minLength": 1, "maxLength": 1024 }
+                }
+              },
+              "symbols": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 256,
+                "description": "Symbol names owned by this ToDo inside the resource. Strictly sorted and unique.",
+                "items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+              }
             }
           }
         }

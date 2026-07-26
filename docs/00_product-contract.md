@@ -113,13 +113,17 @@ Taskだけを`project_id`／`plan_key`／`plan_version`／`task_id`つきで投�
 `todo_status_result.v4`は変更せず、加算の別面とする。
 
 依存edgeの不在は順序制約の無申告であって、書き込み境界の非干渉ではない。両者を公開面で区別するため、
-`todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v1`の宣言と
+`todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v2`の宣言と
 実sensor観測から並列可否を判定し、`lattice.todo_independence.v3`をplan versionディレクトリへ並置記録する
 （ADR 0127・0132）。conflictは`conflict_resources`のresource idを参照し、kindと衝突した実体
 （symbolまたはrepo相対path）を辞書側で一度だけ保持する。既知の旧契約で書かれた記録は`superseded`として
 再compileを案内し、壊れた記録とは区別する。記録は`(plan_version, topology_digest, base_sha)`へ束縛し、
 dirty worktreeでは記録しない。
 記録はwitness setから再生成できるhost localの投影として扱い、git追跡するのは入力のwitness setだけとする。
+witness setは`concern_anchors`を任意で持てる。これは係争資源の内側で自分が触るsymbolをToDoごとに
+名前で宣言する束縛専用の入力であり、並列可否の判定へは写らない——判定入力へ合成する時点で落とすので、
+宣言が誤っていてもconflictを作ることも消すこともできない。concern anchorを持たない
+`lattice.todo_witness_set.v1`の宣言もそのまま受理し、書き換えを要求しない。
 `todo independence [--plan <key>] --json`はready frontierを検証済み並列グループ・要直列の組・未検査へ
 分けて投影し（`lattice.todo_independence_projection.v2`）、参照時にsensorを引かない。
 記録の鮮度は`coverage`が`verified`／`stale`／`superseded`／`missing`で示し、現在のコード状態を
