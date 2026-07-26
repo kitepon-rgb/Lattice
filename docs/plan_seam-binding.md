@@ -84,13 +84,13 @@ task間で重なっていないことを確認する。どれか一つでも欠�
 
 工程の状態・依存・完了証拠はLattice storeの`seam-binding` planが正本。以下は対応表である。
 
-- [ ] concern宣言fieldをwitness契約へ足す
-- [ ] 宣言をsensorのexact一致と資源内包含で検証する
-- [ ] task間のconcern重複をtyped unknownとして棄却する
-- [ ] concern anchorでcut候補を束縛しanchor優先順位を定める
-- [ ] 独立性判定への非影響をtestで固定する
-- [ ] 実conflictへ宣言を足して再compileし結果を記録する
-- [ ] 不変DecisionをADRへ記録し公開契約を実装へ揃える
+- [x] concern宣言fieldをwitness契約へ足す
+- [x] 宣言をsensorのexact一致と資源内包含で検証する
+- [x] task間のconcern重複をtyped unknownとして棄却する
+- [x] concern anchorでcut候補を束縛しanchor優先順位を定める
+- [x] 独立性判定への非影響をtestで固定する
+- [x] 実conflictへ宣言を足して再compileし結果を記録する
+- [x] 不変DecisionをADRへ記録し公開契約を実装へ揃える
 
 ## 導線
 

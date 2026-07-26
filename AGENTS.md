@@ -45,6 +45,10 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 - sensorのsymbol lookupは、存在しない要求名を近い別symbolへfuzzy解決する場合がある。返却されたsymbol名とpathのexact一致を
   照合し、不一致をplanned symbolのcaller／callee／impact証拠へ使わない。不一致や空結果はunknown／absentとして記録する。
 - conflictに切断可能なseamがあれば、直列化だけで済ませず、純並列便益を目的とするrefactorを候補化する。
+- 係争資源しか宣言していないToDoは固有anchorを持たず束縛できない。その時はwitnessの`concern_anchors`へ
+  「その資源の中で自分が触るsymbol」を実態のまま宣言する（ADR 0133）。宣言は並列可否の判定へ写らないので
+  conflictを作ることも消すこともできず、効くのは切断候補の束縛だけである。機械が解決できないからと
+  いって実際に触るsymbolを宣言から落とさない。落とせば宣言が実態からずれ、判定の前提が壊れる。
 - active plan versionのtopologyを追記で変えない。code変換後は旧plan／旧agent context／途中patchを失効し、
   accepted artifactをpredecessorにした新versionへ全affected TODOを再コンパイルする。
 

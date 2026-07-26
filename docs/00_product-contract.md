@@ -136,7 +136,11 @@ witness setは`concern_anchors`を任意で持てる。これは係争資源の�
 conflict componentとし、`seam_candidate`／`intentional_serial`／`unknown_requires_evidence`のsum typeで
 全conflictを覆う。提案が持つのは切断の手順ではなく変更前後のsurfaceとその所有者であり、
 seam候補は提案後ownershipで残余conflictが0になるものだけとする。ToDoへの割り当てをcaller／callee／impactの
-edgeから導出せず、witnessのtask固有anchorが束縛できない場合はtyped unknownを返す。提案は構造証拠であって
+edgeから導出せず、witnessのtask固有anchorが束縛できない場合はtyped unknownを返す。
+witnessの`concern_anchors`は、当たったskeletonでは粗いanchorに優先する束縛根拠になり、pathのconflictでは
+宣言そのものが切断候補（`declared_partition`）になる。componentの全taskが同じpath内でsymbolを名指しした
+場合だけ候補にし、片側の宣言から他方の担当を補完しない。宣言symbolはsensorのexact一致・資源内包含・
+task間排他で検証し、破れた宣言は候補にせずkindの異なるtyped unknownで返す（ADR 0133）。提案は構造証拠であって
 意味的独立やbehavior preservationの証明ではなく、実変換は本面に含まれない。記録はindependence記録と同じく
 plan versionディレクトリへ並置し、再生成できるhost localの投影として扱う。
 

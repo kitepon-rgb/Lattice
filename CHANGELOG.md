@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **係争資源の中で自分が触るsymbolをToDoごとに宣言できる**ようにした
+  （`lattice.todo_witness_set.v2`の`concern_anchors`、[ADR 0133](docs/adr/0133-concern-anchor-binding.md)）。
+  これまで係争中のfileしか宣言していないToDoは固有anchorを持たず、切断候補を束縛できなかった。
+  宣言は並列可否の**判定へ写らない**——判定入力へ合成する時点で落とすので、宣言が誤っていても
+  conflictを作ることも消すこともできず、効くのは切断候補の束縛だけである。`concern_anchors`を
+  持たない`lattice.todo_witness_set.v1`の宣言はそのまま受理する。
+- 宣言symbolをsensorのexact一致・資源内包含・task間排他で検証し、破れた宣言は候補にせず
+  kindの異なるtyped unknownで返すようにした。解決失敗・資源外・重複を潰さず区別する。
+- **pathのconflictでは宣言そのものを切断候補にする**ようにした（`declared_partition`）。pathの競合には
+  分割するcall graphが無いが、宣言は所有者ごとのsymbol分割そのものを与える。componentの全taskが
+  同じpath内でsymbolを名指しした時だけ候補にし、片側の宣言から他方の担当を補完しない。
+- これにより、このrepoの実conflictで**初めて`seam_candidate`が出た**（残余conflict 0、
+  [実行記録](docs/evidence/2026-07-27-concern-declaration-first-candidate.md)）。同名symbolが複数fileに
+  ある場合は名前だけで解決できず`concern_anchor_unresolved`で止まる限界も併せて記録している。
+
 ## 0.15.0 — 2026-07-26
 
 - **切断候補をread-onlyで提案する面**を追加した（`lattice todo seam-proposal compile` と
