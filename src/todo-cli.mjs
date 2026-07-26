@@ -59,6 +59,7 @@ import {
 import {
   TODO_INDEPENDENCE_PROJECTION_SCHEMA,
   explainTodoWitnessSet,
+  isTodoIndependenceLegacyMarker,
   validateTodoIndependenceProjection,
 } from './todo-independence-contracts.mjs';
 import {
@@ -404,7 +405,7 @@ async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
   // 記録があるなら鮮度の判定にHEADが要る。ここで読めないのは判定不能であり、
   // 助言なしで通してよい状態ではない。
   const currentBaseSha = currentHeadSha(repoRoot);
-  const changedPaths = artifact.base_sha !== currentBaseSha
+  const changedPaths = artifact.base_sha !== null && artifact.base_sha !== currentBaseSha
     ? changedPathsSince(repoRoot, artifact.base_sha) : null;
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
   const projected = projectIndependenceFrontier({
@@ -442,6 +443,7 @@ async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
       coverage: projected.coverage,
       taskDeclared: declared,
       taskStale: selfUnknowns.some(({ kind }) => kind === 'record_stale'),
+      contractSuperseded: isTodoIndependenceLegacyMarker(artifact),
       conflictWithActive: conflictsWithActive[0]?.severability ?? null,
       conflictBetweenReady: readyConflict?.severability ?? null,
     }),
@@ -782,7 +784,8 @@ async function independence({ repoRoot, requestedPlanKey }) {
   const active = projectTodoStatus(store).active_set
     .filter((task) => task.plan_key === planKey);
   // HEADが進んでいる時だけdiffを取る。一致していれば宣言境界を見るまでもない。
-  const changedPaths = artifact !== null && artifact.base_sha !== currentBaseSha
+  const changedPaths = artifact !== null && artifact.base_sha !== null
+    && artifact.base_sha !== currentBaseSha
     ? changedPathsSince(repoRoot, artifact.base_sha) : null;
 
   const projected = projectIndependenceFrontier({
@@ -809,7 +812,9 @@ async function independence({ repoRoot, requestedPlanKey }) {
     // planを読みに来た人にも、着手する人と同じ文言を返す（ADR 0130 Decision 1）。
     guidance: selectIndependenceGuidance({
       coverage: projected.coverage,
-      readyCount: ready.length,
+      // 旧契約markerはreadyが空でも「対象なし」へ隠さず、superseded guidanceを返す。
+      readyCount: isTodoIndependenceLegacyMarker(artifact) ? null : ready.length,
+      contractSuperseded: isTodoIndependenceLegacyMarker(artifact),
       taskDeclared: projected.frontier.unknown
         .every(({ unknowns }) => !unknowns.some(({ kind }) => kind === 'witness_missing')),
       taskStale: projected.frontier.unknown
@@ -1031,7 +1036,7 @@ async function independenceForGantt({ repoRoot, store }) {
     if (artifact === null) continue;
     // 記録があるplanが1つでもあれば鮮度の判定にHEADが要る。
     if (currentBaseSha === null) currentBaseSha = currentHeadSha(repoRoot);
-    const changedPaths = artifact.base_sha !== currentBaseSha
+    const changedPaths = artifact.base_sha !== null && artifact.base_sha !== currentBaseSha
       ? changedPathsSince(repoRoot, artifact.base_sha) : null;
     const projected = projectIndependenceFrontier({
       artifact,

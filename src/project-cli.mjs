@@ -14,6 +14,7 @@ import {
 } from './todo-contracts.mjs';
 import { projectTodoStatus } from './todo-status.mjs';
 import { projectIndependenceFrontier } from './todo-independence.mjs';
+import { isTodoIndependenceLegacyMarker } from './todo-independence-contracts.mjs';
 import { selectIndependenceGuidance } from './todo-independence-guidance.mjs';
 import { ensureTodoDashboardActivity } from './todo-dashboard-registry.mjs';
 import { resolveProjectIdentity } from './project-identity.mjs';
@@ -161,6 +162,7 @@ async function summarizeIndependence({ repoRoot, store, todo }) {
       coverage: projected.coverage,
       guidance: selectIndependenceGuidance({
         coverage: projected.coverage,
+        contractSuperseded: isTodoIndependenceLegacyMarker(artifact),
         readyCount: todo.next_ready.filter((task) => task.plan_key === planKey).length,
         taskDeclared: projected.frontier.unknown
           .every(({ unknowns }) => !unknowns.some(({ kind }) => kind === 'witness_missing')),

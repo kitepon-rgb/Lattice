@@ -21,6 +21,8 @@ import {
   validateTodoSnapshot,
 } from './todo-contracts.mjs';
 import {
+  TODO_INDEPENDENCE_LEGACY_MARKER_SCHEMA,
+  isTodoIndependenceLegacyArtifactIdentity,
   validateTodoIndependence,
   validateTodoWitnessSet,
 } from './todo-independence-contracts.mjs';
@@ -3609,12 +3611,25 @@ export async function readTodoIndependenceArtifact(options = {}) {
   const member = activeMember(store, options.planKey);
   const ref = todoIndependenceRef(member.plan.plan_key, member.plan.plan_version);
   try {
-    return await readArtifact(repoRoot, ref, {
+    const artifact = await readArtifact(repoRoot, ref, {
       code: 'INDEPENDENCE_ARTIFACT_INVALID',
       maxBytes: INDEPENDENCE_ARTIFACT_BYTES,
-      validate: validateTodoIndependence,
+      // 旧契約は本体を信用せず、canonical JSONと版をまたいで不変なidentityの型だけを見る。
+      // schema名だけの壊れた記録や現行v3をこの分岐へ逃がさず、旧版集合も明示したものだけに閉じる。
+      validate: (value) => validateTodoIndependence(value)
+        || isTodoIndependenceLegacyArtifactIdentity(value),
       missing: true,
     });
+    if (artifact === null || validateTodoIndependence(artifact)) return artifact;
+    return {
+      schema: TODO_INDEPENDENCE_LEGACY_MARKER_SCHEMA,
+      legacy_schema: artifact.schema,
+      project_id: member.plan.project_id,
+      plan_key: member.plan.plan_key,
+      plan_version: null,
+      topology_digest: null,
+      base_sha: null,
+    };
   } catch (error) {
     // 読めない記録は握りつぶさない。ただしどのplanをどう直すかまで言わないと、
     // 消費者は「壊れている」以上のことができない。

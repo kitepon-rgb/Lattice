@@ -104,6 +104,7 @@ test('宣言と観測が揃えばcompiledとして記録され、独立な2 task
 
   assert.equal(artifact.outcome, 'compiled');
   assert.deepEqual(artifact.task_ids, ['tip-001', 'tip-002']);
+  assert.deepEqual(artifact.conflict_resources, []);
   assert.deepEqual(artifact.conflicts, []);
   assert.deepEqual(artifact.unknowns, []);
   assert.equal(artifact.wave_plan.minimum_feasible_waves, 1);
@@ -131,7 +132,15 @@ test('同一pathを両方が所有すればconflictとして記録され、wave�
 
   assert.equal(artifact.outcome, 'compiled');
   assert.equal(artifact.conflicts.length, 1);
-  assert.deepEqual(artifact.conflicts[0].task_ids, ['tip-001', 'tip-002']);
+  assert.deepEqual(artifact.conflicts[0], {
+    task_ids: ['tip-001', 'tip-002'],
+    resource_id: artifact.conflict_resources[0].resource_id,
+  });
+  assert.deepEqual(artifact.conflict_resources, [{
+    resource_id: artifact.conflicts[0].resource_id,
+    kind: 'path',
+    target: 'src/shared.mjs',
+  }]);
   assert.equal(artifact.wave_plan.minimum_feasible_waves, 2);
 });
 
@@ -144,6 +153,7 @@ test('sensorがreadyでなければunknownとして記録し、wave planを持�
 
   assert.equal(artifact.outcome, 'unknown');
   assert.equal(artifact.wave_plan, null);
+  assert.deepEqual(artifact.conflict_resources, []);
   assert.deepEqual(artifact.conflicts, []);
   assert.ok(artifact.unknowns.length >= 2);
   assert.deepEqual([...new Set(artifact.unknowns.map(({ task_id: id }) => id))].sort(),

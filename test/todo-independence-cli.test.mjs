@@ -19,7 +19,7 @@ import {
 } from '../src/todo-store.mjs';
 import { ganttLiveHeadDigest } from '../src/todo-cli.mjs';
 import { TODO_INDEPENDENCE_SCHEMA } from '../src/todo-independence-contracts.mjs';
-import { todoSelfDigest } from '../src/todo-contracts.mjs';
+import { canonicalizeTodoArtifact, todoSelfDigest } from '../src/todo-contracts.mjs';
 
 // ADR 0127 Decision 5。読み出しはsensorを引かず、記録済みartifactとHEAD照合だけで閉じる。
 // dirty worktreeでのcompileは拒否し、未commitの観測を検証済み証拠にしない。
@@ -94,6 +94,84 @@ test('記録が無い時はcoverage missingでready全件を未検査として�
   assert.deepEqual(projection.frontier.unknown.map(({ task_id: id }) => id), ['T1', 'T2']);
 });
 
+test('既知の旧artifactはsupersededとしてindependence・session-context・Ganttで読める',
+  async (context) => {
+    const root = await workspace(context);
+    const legacyRef = path.join(root, '.lattice/todo/plans/main/v1/independence.json');
+    const legacyArtifact = {
+      schema: 'lattice.todo_independence.v2',
+      project_id: 'project-1',
+      plan_key: 'main',
+      plan_version: 'v1',
+      topology_digest: parse(runCli(root, ['verify', '--json']).stdout)
+        .verified_members[0].topology_digest,
+      base_sha: git(root, ['rev-parse', 'HEAD']),
+      witness_set_digest: 'd'.repeat(64),
+      compiled_at: NOW,
+      task_ids: ['T1', 'T2'],
+      task_boundaries: [
+        { task_id: 'T1', paths: ['src/t1.mjs'] },
+        { task_id: 'T2', paths: ['src/t2.mjs'] },
+      ],
+      conflicts: [],
+      precedences: [],
+      unknowns: [],
+      wave_plan: { waves: [{ task_ids: ['T1', 'T2'] }], minimum_feasible_waves: 1 },
+      outcome: 'compiled',
+      result_digest: '',
+    };
+    legacyArtifact.result_digest = todoSelfDigest(legacyArtifact, 'result_digest');
+    await writeFile(legacyRef, `${canonicalizeTodoArtifact(legacyArtifact)}\n`);
+
+    const independenceResult = runCli(root, ['independence', '--plan', 'main', '--json']);
+    assert.equal(independenceResult.status, 0, independenceResult.stderr);
+    const projection = parse(independenceResult.stdout);
+    assert.equal(projection.coverage, 'superseded');
+    assert.equal(projection.compiled_base_sha, null);
+    assert.equal(projection.guidance.code, 'independence_contract_superseded');
+    assert.equal(projection.guidance.next_action, 'recompile_independence');
+    assert.deepEqual(projection.frontier.unknown, [
+      {
+        task_id: 'T1',
+        unknowns: [{ kind: 'record_superseded', ref: 'lattice.todo_independence.v2' }],
+      },
+      {
+        task_id: 'T2',
+        unknowns: [{ kind: 'record_superseded', ref: 'lattice.todo_independence.v2' }],
+      },
+    ]);
+
+    const actorEnv = {
+      LATTICE_TODO_ACTOR_HOST: 'host-1',
+      LATTICE_TODO_ACTOR_SESSION: 'session-1',
+      LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+    };
+    const started = spawnSync(process.execPath, [
+      CLI, 'todo', 'start', '--plan', 'main', '--task', 'T1', '--parallel-frontier',
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, ...actorEnv, LATTICE_DASHBOARD_AUTOSTART: '0' },
+    });
+    assert.equal(started.status, 0, started.stderr);
+    const advisory = parse(started.stdout).advisory;
+    assert.equal(advisory.coverage, 'superseded');
+    assert.deepEqual(advisory.guidance, projection.guidance);
+
+    const session = spawnSync(process.execPath, [CLI, 'session-context', '--json'], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, LATTICE_DASHBOARD_AUTOSTART: '0' },
+    });
+    assert.equal(session.status, 0, session.stderr);
+    const summary = parse(session.stdout).independence[0];
+    assert.equal(summary.coverage, 'superseded');
+    assert.equal(summary.guidance.code, 'independence_contract_superseded');
+    assert.deepEqual(summary.guidance, projection.guidance);
+    assert.equal(summary.unreadable_reason, null);
+
+    const gantt = runCli(root, ['gantt', '--out', 'gantt.html']);
+    assert.equal(gantt.status, 0, gantt.stderr);
+  });
+
 test('記録があればHEAD一致でverified並列グループを返す（sensorは引かない）', async (context) => {
   const root = await workspace(context);
   const head = git(root, ['rev-parse', 'HEAD']);
@@ -112,6 +190,7 @@ test('記録があればHEAD一致でverified並列グループを返す（senso
       { task_id: 'T1', paths: ['src/t1.mjs'] },
       { task_id: 'T2', paths: ['src/t2.mjs'] },
     ],
+    conflict_resources: [],
     conflicts: [],
     precedences: [],
     unknowns: [],
@@ -176,7 +255,10 @@ test('進行中ToDoとの競合をconflicts_with_activeとして返す', async (
       { task_id: 'T1', paths: ['src/shared.mjs'] },
       { task_id: 'T2', paths: ['src/shared.mjs'] },
     ],
-    conflicts: [{ task_ids: ['T1', 'T2'], resource_id: 'own-path-shared', kind: 'path' }],
+    conflict_resources: [{
+      resource_id: 'own-path-shared', kind: 'path', target: 'src/shared.mjs',
+    }],
+    conflicts: [{ task_ids: ['T1', 'T2'], resource_id: 'own-path-shared' }],
     precedences: [],
     unknowns: [],
     wave_plan: {
@@ -230,6 +312,7 @@ test('readyが無くても記録があればplan指定でverifiedを返す', asy
     compiled_at: NOW,
     task_ids: ['T1'],
     task_boundaries: [{ task_id: 'T1', paths: ['src/t1.mjs'] }],
+    conflict_resources: [],
     conflicts: [],
     precedences: [],
     unknowns: [],
@@ -282,7 +365,10 @@ test('着手時のadvisoryが進行中との競合と切断可能性を返す', 
       { task_id: 'T1', paths: ['src/shared.mjs'] },
       { task_id: 'T2', paths: ['src/shared.mjs'] },
     ],
-    conflicts: [{ task_ids: ['T1', 'T2'], resource_id: 'own-path-shared', kind: 'path' }],
+    conflict_resources: [{
+      resource_id: 'own-path-shared', kind: 'path', target: 'src/shared.mjs',
+    }],
+    conflicts: [{ task_ids: ['T1', 'T2'], resource_id: 'own-path-shared' }],
     precedences: [],
     unknowns: [],
     wave_plan: {
@@ -485,7 +571,10 @@ test('進行中との競合では案内が切断可能性まで述べる', async
       { task_id: 'T1', paths: ['src/shared.mjs'] },
       { task_id: 'T2', paths: ['src/shared.mjs'] },
     ],
-    conflicts: [{ task_ids: ['T1', 'T2'], resource_id: 'own-path-shared', kind: 'path' }],
+    conflict_resources: [{
+      resource_id: 'own-path-shared', kind: 'path', target: 'src/shared.mjs',
+    }],
+    conflicts: [{ task_ids: ['T1', 'T2'], resource_id: 'own-path-shared' }],
     precedences: [],
     unknowns: [],
     wave_plan: {
@@ -536,6 +625,7 @@ test('live head digestは独立性の変化を拾う', async (context) => {
       { task_id: 'T1', paths: ['src/t1.mjs'] },
       { task_id: 'T2', paths: ['src/t2.mjs'] },
     ],
+    conflict_resources: [],
     conflicts: [],
     precedences: [],
     unknowns: [],

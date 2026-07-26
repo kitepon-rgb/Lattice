@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_independence.v3.schema.json",
+  "title": "lattice.todo_independence.v3",
+  "description": "Recorded schedulability judgement for a declared ToDo boundary set. Conflicts reference a normalized resource dictionary that preserves each resource's exact compiler target.",
+  "$comment": "Runtime validation additionally enforces canonical JSON+LF bytes, the result_digest self-digest, byte-based 4096-byte text limits, strict lexical ordering, unique conflict resource_id values, exact conflict-to-resource references, and absence of unreferenced conflict_resources. JSON Schema uniqueItems covers duplicate full entries; key-based uniqueness, ordering, cross-array references and self-digests are enforced by validateTodoIndependence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "project_id",
+    "plan_key",
+    "plan_version",
+    "topology_digest",
+    "base_sha",
+    "witness_set_digest",
+    "compiled_at",
+    "task_ids",
+    "task_boundaries",
+    "conflict_resources",
+    "conflicts",
+    "precedences",
+    "unknowns",
+    "wave_plan",
+    "outcome",
+    "result_digest"
+  ],
+  "properties": {
+    "schema": { "const": "lattice.todo_independence.v3" },
+    "project_id": { "$ref": "#/$defs/identifier" },
+    "plan_key": { "$ref": "#/$defs/identifier" },
+    "plan_version": { "$ref": "#/$defs/identifier" },
+    "topology_digest": { "$ref": "#/$defs/digest" },
+    "base_sha": { "$ref": "#/$defs/gitSha" },
+    "witness_set_digest": { "$ref": "#/$defs/digest" },
+    "compiled_at": { "$ref": "#/$defs/strictTimestamp" },
+    "task_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "task_boundaries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/taskBoundary" }
+    },
+    "conflict_resources": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/conflictResource" }
+    },
+    "conflicts": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/conflict" }
+    },
+    "precedences": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/precedence" }
+    },
+    "unknowns": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/unknown" }
+    },
+    "wave_plan": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/wavePlan" }
+      ]
+    },
+    "outcome": { "enum": ["compiled", "unknown"] },
+    "result_digest": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "outcome": { "const": "compiled" } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": { "unknowns": { "maxItems": 0 } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "outcome": { "const": "unknown" } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": { "wave_plan": { "type": "null" } }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$"
+    },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "strictTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"
+    },
+    "boundedText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "repoRelativePathOrPrefix": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Repo-relative normalized resource target. Absolute paths, drive-letter paths, traversal, dot/empty segments, control characters and backslashes are rejected; a trailing slash may represent a declared prefix.",
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*//)(?!.*(?:^|/)\\.\\.?(?:/|$))[^\\u0000-\\u001f\\u007f\\\\]+/?$"
+    },
+    "taskBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "paths"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/identifier" },
+        "paths": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/boundedText" }
+        }
+      }
+    },
+    "conflictResource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["resource_id", "kind", "target"],
+          "properties": {
+            "resource_id": { "$ref": "#/$defs/boundedText" },
+            "kind": { "const": "path" },
+            "target": { "$ref": "#/$defs/repoRelativePathOrPrefix" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["resource_id", "kind", "target"],
+          "properties": {
+            "resource_id": { "$ref": "#/$defs/boundedText" },
+            "kind": { "enum": ["symbol", "state", "effect"] },
+            "target": { "$ref": "#/$defs/boundedText" }
+          }
+        }
+      ]
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_ids", "resource_id"],
+      "properties": {
+        "task_ids": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "resource_id": { "$ref": "#/$defs/boundedText" }
+      }
+    },
+    "precedence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_task_id", "to_task_id", "reason"],
+      "properties": {
+        "from_task_id": { "$ref": "#/$defs/identifier" },
+        "to_task_id": { "$ref": "#/$defs/identifier" },
+        "reason": { "$ref": "#/$defs/boundedText" }
+      }
+    },
+    "unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "kind", "ref"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/identifier" },
+        "kind": { "$ref": "#/$defs/identifier" },
+        "ref": { "$ref": "#/$defs/boundedText" }
+      }
+    },
+    "wave": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_ids"],
+      "properties": {
+        "task_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        }
+      }
+    },
+    "wavePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["waves", "minimum_feasible_waves"],
+      "properties": {
+        "waves": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/wave" }
+        },
+        "minimum_feasible_waves": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

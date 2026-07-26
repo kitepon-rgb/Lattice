@@ -14,8 +14,13 @@ import {
 import { TODO_INDEPENDENCE_GUIDANCE_CODES } from './todo-independence-guidance.mjs';
 
 export const TODO_WITNESS_SET_SCHEMA = 'lattice.todo_witness_set.v1';
-export const TODO_INDEPENDENCE_SCHEMA = 'lattice.todo_independence.v2';
+export const TODO_INDEPENDENCE_SCHEMA = 'lattice.todo_independence.v3';
 export const TODO_INDEPENDENCE_PROJECTION_SCHEMA = 'lattice.todo_independence_projection.v2';
+export const TODO_INDEPENDENCE_LEGACY_MARKER_SCHEMA = 'lattice.todo_independence_legacy_marker.v1';
+export const TODO_INDEPENDENCE_LEGACY_SCHEMAS = Object.freeze([
+  'lattice.todo_independence.v1',
+  'lattice.todo_independence.v2',
+]);
 
 /** boundary compileが一度に扱えるToDo数（runtime front-endのMAX_COLLECTIONと同じ閉じ方）。 */
 export const TODO_INDEPENDENCE_TASK_LIMIT = 256;
@@ -51,6 +56,19 @@ export const isGitSha = (value) => typeof value === 'string' && GIT_SHA.test(val
 function plain(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+/**
+ * 既知の旧independence artifactを、単なるschema文字列だけでなく版をまたいで不変な
+ * identity fieldの型までで識別する。本体構造や自己digestは旧契約validatorの再実装に
+ * なるため、ここでは検査しない。
+ */
+export function isTodoIndependenceLegacyArtifactIdentity(value) {
+  return plain(value) && TODO_INDEPENDENCE_LEGACY_SCHEMAS.includes(value.schema)
+    && isTodoIdentifier(value.project_id) && isTodoIdentifier(value.plan_key)
+    && isTodoIdentifier(value.plan_version) && isTodoDigest(value.topology_digest)
+    && isTodoDigest(value.witness_set_digest) && isTodoDigest(value.result_digest)
+    && isGitSha(value.base_sha);
 }
 
 function boundedList(value, validator, limit = TODO_INDEPENDENCE_LIST_LIMIT) {
@@ -139,12 +157,39 @@ export function validateTodoWitnessSet(value) {
 }
 
 function conflictEntry(value) {
-  return exactRecord(value, ['task_ids', 'resource_id', 'kind'])
+  return exactRecord(value, ['task_ids', 'resource_id'])
     && Array.isArray(value.task_ids) && value.task_ids.length === 2
     && value.task_ids.every(isTodoIdentifier)
     && compareText(value.task_ids[0], value.task_ids[1]) < 0
-    && boundedText(value.resource_id)
-    && TODO_INDEPENDENCE_CONFLICT_KINDS.includes(value.kind);
+    && boundedText(value.resource_id);
+}
+
+function repoRelativeResourceTarget(value) {
+  if (!boundedText(value) || value.startsWith('/') || value.includes('\\')
+    || /^[A-Za-z]:/u.test(value)) return false;
+  const body = value.endsWith('/') ? value.slice(0, -1) : value;
+  return body.length > 0 && body.split('/')
+    .every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+}
+
+function conflictResourceEntry(value) {
+  if (!exactRecord(value, ['resource_id', 'kind', 'target'])
+    || !boundedText(value.resource_id)
+    || !TODO_INDEPENDENCE_CONFLICT_KINDS.includes(value.kind)) return false;
+  return value.kind === 'path'
+    ? repoRelativeResourceTarget(value.target)
+    : boundedText(value.target);
+}
+
+export function isTodoIndependenceLegacyMarker(value) {
+  return exactRecord(value, [
+    'schema', 'legacy_schema', 'project_id', 'plan_key', 'plan_version',
+    'topology_digest', 'base_sha',
+  ])
+    && value.schema === TODO_INDEPENDENCE_LEGACY_MARKER_SCHEMA
+    && TODO_INDEPENDENCE_LEGACY_SCHEMAS.includes(value.legacy_schema)
+    && isTodoIdentifier(value.project_id) && isTodoIdentifier(value.plan_key)
+    && value.plan_version === null && value.topology_digest === null && value.base_sha === null;
 }
 
 /**
@@ -188,10 +233,10 @@ function wavePlan(value, taskIds) {
 }
 
 /**
- * `lattice.todo_independence.v2`。
+ * `lattice.todo_independence.v3`。
  *
  * conflict／precedence／unknownはnormalized boundary graphから採る（ADR 0127 Decision 4）。
- * conflictはresource kindを併せて持ち、切断可能性の導出を投影側に許す（ADR 0128 Decision 1）。
+ * conflictは`conflict_resources`のresource idを参照し、kindとnormalized targetを一度だけ保持する。
  * `task_boundaries`はtask別の宣言境界で、鮮度のdiff交差判定をartifactだけで閉じるために持つ。
  * `wave_plan`はschedulability compileが`compiled`を返した時だけ持ち、unknownが残る間はnullになる。
  * verdictに現れないペアをverified独立と読めるのは、両taskにunknownが無いときだけである。
@@ -200,7 +245,7 @@ export function validateTodoIndependence(value) {
   try {
     if (!exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'plan_version', 'topology_digest', 'base_sha',
-      'witness_set_digest', 'compiled_at', 'task_ids', 'task_boundaries', 'conflicts',
+      'witness_set_digest', 'compiled_at', 'task_ids', 'task_boundaries', 'conflict_resources', 'conflicts',
       'precedences', 'unknowns', 'wave_plan', 'outcome', 'result_digest',
     ])) return false;
     if (value.schema !== TODO_INDEPENDENCE_SCHEMA) return false;
@@ -221,10 +266,16 @@ export function validateTodoIndependence(value) {
       || !value.task_boundaries.every((entry, index) => entry.task_id === value.task_ids[index])) {
       return false;
     }
+    if (!boundedList(value.conflict_resources, conflictResourceEntry)
+      || !strictlySorted(value.conflict_resources, (entry) => entry.resource_id)) return false;
+    const conflictResourceIds = new Set(value.conflict_resources.map(({ resource_id: id }) => id));
     if (!boundedList(value.conflicts, conflictEntry)
       || !value.conflicts.every((entry) => entry.task_ids.every((taskId) => known.has(taskId)))
+      || !value.conflicts.every((entry) => conflictResourceIds.has(entry.resource_id))
       || !strictlySorted(value.conflicts, (entry) => (
         `${entry.task_ids[0]}\0${entry.task_ids[1]}\0${entry.resource_id}`))) return false;
+    const referencedResourceIds = new Set(value.conflicts.map(({ resource_id: id }) => id));
+    if (referencedResourceIds.size !== value.conflict_resources.length) return false;
     if (!boundedList(value.precedences, precedenceEntry)
       || !value.precedences.every((entry) => known.has(entry.from_task_id) && known.has(entry.to_task_id))
       || !strictlySorted(value.precedences, (entry) => (
@@ -345,7 +396,9 @@ export function validateTodoIndependenceProjection(value) {
     // 記録が無い状態でcompile済みidentityを名乗らない。
     if (value.coverage === 'missing'
       && (value.compiled_base_sha !== null || value.topology_digest !== null)) return false;
-    if (value.coverage !== 'missing' && value.compiled_base_sha === null) return false;
+    if (['verified', 'stale'].includes(value.coverage) && value.compiled_base_sha === null) return false;
+    if (value.coverage === 'superseded' && value.compiled_base_sha === null
+      && (value.plan_version !== null || value.topology_digest !== null)) return false;
     for (const key of ['active_task_ids', 'uncovered_active_task_ids']) {
       if (!Array.isArray(value[key]) || value[key].length > TODO_INDEPENDENCE_TASK_LIMIT
         || !value[key].every(isTodoIdentifier) || !strictlySorted(value[key])) return false;

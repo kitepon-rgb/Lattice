@@ -6,6 +6,7 @@ import {
   TODO_INDEPENDENCE_SCHEMA,
   TODO_WITNESS_SET_SCHEMA,
   explainTodoWitnessSet,
+  isTodoIndependenceLegacyArtifactIdentity,
   severabilityOfConflictKind,
   synthesizeWitnessRunRequest,
   validateTodoIndependence,
@@ -13,7 +14,10 @@ import {
   validateTodoWitnessSet,
 } from '../src/todo-independence-contracts.mjs';
 import { validateRunRequest } from '../src/runtime-contracts.mjs';
-import { todoIndependenceGuidance } from '../src/todo-independence-guidance.mjs';
+import {
+  selectIndependenceGuidance,
+  todoIndependenceGuidance,
+} from '../src/todo-independence-guidance.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 
 // ADR 0127。依存線の不在と境界の非干渉は別概念であり、未検査（unknown）と
@@ -71,6 +75,7 @@ function independence(overrides = {}) {
       { task_id: 'tip-001', paths: ['src/alpha.mjs'] },
       { task_id: 'tip-002', paths: ['src/beta.mjs'] },
     ],
+    conflict_resources: [],
     conflicts: [],
     precedences: [],
     unknowns: [],
@@ -152,12 +157,14 @@ test('independence artifactは境界とdigestを検査する', () => {
   assert.equal(validateTodoIndependence(unsortedTasks), false);
 
   const danglingConflict = independence({
-    conflicts: [{ task_ids: ['tip-001', 'tip-999'], resource_id: 'own-path-1', kind: 'path' }],
+    conflict_resources: [{ resource_id: 'own-path-1', kind: 'path', target: 'src/shared.mjs' }],
+    conflicts: [{ task_ids: ['tip-001', 'tip-999'], resource_id: 'own-path-1' }],
   });
   assert.equal(validateTodoIndependence(danglingConflict), false);
 
   const unorderedPair = independence({
-    conflicts: [{ task_ids: ['tip-002', 'tip-001'], resource_id: 'own-path-1', kind: 'path' }],
+    conflict_resources: [{ resource_id: 'own-path-1', kind: 'path', target: 'src/shared.mjs' }],
+    conflicts: [{ task_ids: ['tip-002', 'tip-001'], resource_id: 'own-path-1' }],
   });
   assert.equal(validateTodoIndependence(unorderedPair), false);
 
@@ -166,23 +173,84 @@ test('independence artifactは境界とdigestを検査する', () => {
   assert.equal(validateTodoIndependence(tampered), false);
 });
 
-test('conflictはresource kindを必須にし、切断可能性を導けない記録を作らせない', () => {
-  const withoutKind = independence({
+test('旧artifact identityは既知schemaと版共通fieldの型だけを要求する', () => {
+  const identity = {
+    schema: 'lattice.todo_independence.v2',
+    project_id: 'lattice',
+    plan_key: 'plan-a',
+    plan_version: 'v1',
+    topology_digest: DIGEST('c'),
+    base_sha: BASE_SHA,
+    witness_set_digest: DIGEST('d'),
+    result_digest: DIGEST('e'),
+    body_is_not_validated: true,
+  };
+  assert.equal(isTodoIndependenceLegacyArtifactIdentity(identity), true);
+  assert.equal(isTodoIndependenceLegacyArtifactIdentity({
+    schema: 'lattice.todo_independence.v2',
+  }), false);
+  assert.equal(isTodoIndependenceLegacyArtifactIdentity({
+    ...identity,
+    schema: TODO_INDEPENDENCE_SCHEMA,
+  }), false);
+  assert.equal(isTodoIndependenceLegacyArtifactIdentity({
+    ...identity,
+    result_digest: 'not-a-digest',
+  }), false);
+});
+
+test('conflict resource辞書は参照完全性・kind・targetを要求する', () => {
+  const withoutResource = independence({
     conflicts: [{ task_ids: ['tip-001', 'tip-002'], resource_id: 'own-path-1' }],
   });
-  assert.equal(validateTodoIndependence(withoutKind), false);
+  assert.equal(validateTodoIndependence(withoutResource), false);
 
   const unknownKind = independence({
-    conflicts: [{ task_ids: ['tip-001', 'tip-002'], resource_id: 'own-path-1', kind: 'dynamic' }],
+    conflict_resources: [{ resource_id: 'own-path-1', kind: 'dynamic', target: 'src/shared.mjs' }],
+    conflicts: [{ task_ids: ['tip-001', 'tip-002'], resource_id: 'own-path-1' }],
   });
   assert.equal(validateTodoIndependence(unknownKind), false);
 
-  for (const kind of ['symbol', 'path', 'state', 'effect']) {
+  for (const [kind, target] of [
+    ['symbol', 'compileTodoIndependence'],
+    ['path', 'src/shared.mjs'],
+    ['state', 'shared-cache'],
+    ['effect', 'deployment-api'],
+  ]) {
     const value = independence({
-      conflicts: [{ task_ids: ['tip-001', 'tip-002'], resource_id: 'r-1', kind }],
+      conflict_resources: [{ resource_id: 'r-1', kind, target }],
+      conflicts: [{ task_ids: ['tip-001', 'tip-002'], resource_id: 'r-1' }],
     });
     assert.equal(validateTodoIndependence(value), true, `kind ${kind} should be accepted`);
   }
+
+  const unused = independence({
+    conflict_resources: [{ resource_id: 'r-1', kind: 'state', target: 'shared-cache' }],
+  });
+  assert.equal(validateTodoIndependence(unused), false);
+
+  const duplicateId = independence({
+    conflict_resources: [
+      { resource_id: 'r-1', kind: 'path', target: 'src/a.mjs' },
+      { resource_id: 'r-1', kind: 'path', target: 'src/b.mjs' },
+    ],
+    conflicts: [{ task_ids: ['tip-001', 'tip-002'], resource_id: 'r-1' }],
+  });
+  assert.equal(validateTodoIndependence(duplicateId), false);
+
+  for (const target of ['/absolute.mjs', 'src/../secret.mjs', 'src\\windows.mjs', 'src/\u0000bad']) {
+    const invalidPath = independence({
+      conflict_resources: [{ resource_id: 'r-1', kind: 'path', target }],
+      conflicts: [{ task_ids: ['tip-001', 'tip-002'], resource_id: 'r-1' }],
+    });
+    assert.equal(validateTodoIndependence(invalidPath), false, `path ${JSON.stringify(target)}`);
+  }
+
+  const oversizedSymbol = independence({
+    conflict_resources: [{ resource_id: 'r-1', kind: 'symbol', target: 'x'.repeat(4_097) }],
+    conflicts: [{ task_ids: ['tip-001', 'tip-002'], resource_id: 'r-1' }],
+  });
+  assert.equal(validateTodoIndependence(oversizedSymbol), false);
 });
 
 test('切断可能性はkindだけから決まる', () => {
@@ -191,6 +259,39 @@ test('切断可能性はkindだけから決まる', () => {
   // 共有state／effectはcode seamでは切断できない（RC1 boundary compilerと同一規則）。
   assert.equal(severabilityOfConflictKind('state'), 'serial');
   assert.equal(severabilityOfConflictKind('effect'), 'serial');
+});
+
+test('旧契約supersededとplan改訂supersededは異なるguidanceを返す', () => {
+  const legacyContract = selectIndependenceGuidance({
+    coverage: 'superseded',
+    contractSuperseded: true,
+    taskDeclared: true,
+    taskStale: false,
+  });
+  assert.deepEqual(legacyContract, {
+    code: 'independence_contract_superseded',
+    message: '記録は旧契約versionで書かれており、現在の並列可否の判定としては読めない。現在の契約での再compileが次の一歩になる。',
+    next_action: 'recompile_independence',
+  });
+
+  const revisedPlan = selectIndependenceGuidance({
+    coverage: 'superseded',
+    contractSuperseded: false,
+    taskDeclared: true,
+    taskStale: false,
+  });
+  assert.equal(revisedPlan.code, 'independence_superseded');
+  assert.equal(revisedPlan.next_action, 'migrate_witness_set_then_compile');
+  assert.notEqual(legacyContract.code, revisedPlan.code);
+
+  const conflictWins = selectIndependenceGuidance({
+    coverage: 'superseded',
+    contractSuperseded: true,
+    taskDeclared: true,
+    taskStale: false,
+    conflictWithActive: 'serial',
+  });
+  assert.equal(conflictWins.code, 'independence_conflict_with_active');
 });
 
 test('宣言境界はcompile対象taskとちょうど一対一で対応する', () => {
@@ -290,6 +391,21 @@ test('projectionはcoverageとidentityの整合を要求する', () => {
 
   const staleWithoutRecord = projection({ coverage: 'stale', compiled_base_sha: null });
   assert.equal(validateTodoIndependenceProjection(staleWithoutRecord), false);
+
+  const legacySuperseded = projection({
+    coverage: 'superseded',
+    compiled_base_sha: null,
+    plan_version: null,
+    topology_digest: null,
+  });
+  assert.equal(validateTodoIndependenceProjection(legacySuperseded), true);
+
+  const partiallyBoundLegacy = projection({
+    coverage: 'superseded',
+    compiled_base_sha: null,
+    plan_version: 'v1',
+  });
+  assert.equal(validateTodoIndependenceProjection(partiallyBoundLegacy), false);
 
   const unknownCoverage = projection({ coverage: 'probably-fine' });
   assert.equal(validateTodoIndependenceProjection(unknownCoverage), false);

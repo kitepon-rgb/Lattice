@@ -12,6 +12,7 @@ export const TODO_INDEPENDENCE_GUIDANCE_CODES = Object.freeze([
   'independence_no_ready_frontier',
   'independence_unrecorded',
   'independence_task_undeclared',
+  'independence_contract_superseded',
   'independence_superseded',
   'independence_stale_for_task',
   'independence_conflict_with_active',
@@ -31,6 +32,10 @@ const CATALOG = Object.freeze({
   independence_task_undeclared: Object.freeze({
     message: 'この工程はwitness setで宣言されていないため、記録には含まれていない。',
     next_action: 'add_task_to_witness_set_then_compile',
+  }),
+  independence_contract_superseded: Object.freeze({
+    message: '記録は旧契約versionで書かれており、現在の並列可否の判定としては読めない。現在の契約での再compileが次の一歩になる。',
+    next_action: 'recompile_independence',
   }),
   independence_superseded: Object.freeze({
     message: 'planが改訂され、記録は別のtopologyについての判定になっている。',
@@ -82,7 +87,7 @@ export function todoIndependenceGuidance(code, { severability = null } = {}) {
  */
 export function selectIndependenceGuidance({
   coverage, taskDeclared, taskStale, conflictWithActive = null, conflictBetweenReady = null,
-  readyCount = null,
+  contractSuperseded = false, readyCount = null,
 }) {
   // 着手候補が無いなら述べる対象が無い。ここを通さないと、readyが空のとき
   // 「未検査taskが1件も無い」が空虚に真になり、記録が古くても検証済みへ倒れる。
@@ -96,6 +101,9 @@ export function selectIndependenceGuidance({
     return todoIndependenceGuidance('independence_conflict_between_ready', {
       severability: conflictBetweenReady,
     });
+  }
+  if (contractSuperseded) {
+    return todoIndependenceGuidance('independence_contract_superseded');
   }
   if (coverage === 'missing') return todoIndependenceGuidance('independence_unrecorded');
   if (coverage === 'superseded') return todoIndependenceGuidance('independence_superseded');

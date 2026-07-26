@@ -140,3 +140,38 @@ test('壊れた記録は未判定へ丸めず理由を載せる', async (context
   assert.match(summary.unreadable_reason, /INDEPENDENCE_ARTIFACT_INVALID/u);
   assert.deepEqual(summary.parallel_groups, []);
 });
+
+test('identityが揃った旧v2記録は旧契約由来のsupersededとして要約する', async (context) => {
+  const root = await initialized(context);
+  const artifactRef = path.join(root, '.lattice', 'todo', 'plans', 'main', 'v1', 'independence.json');
+  const artifact = {
+    schema: 'lattice.todo_independence.v2',
+    project_id: 'sample-project',
+    plan_key: 'main',
+    plan_version: 'v1',
+    topology_digest: 'b'.repeat(64),
+    base_sha: 'a'.repeat(40),
+    witness_set_digest: 'c'.repeat(64),
+    compiled_at: '2026-07-26T00:00:00.000Z',
+    task_ids: ['T1', 'T2'],
+    task_boundaries: [
+      { task_id: 'T1', paths: ['src/t1.mjs'] },
+      { task_id: 'T2', paths: ['src/t2.mjs'] },
+    ],
+    conflicts: [],
+    precedences: [],
+    unknowns: [],
+    wave_plan: { waves: [{ task_ids: ['T1', 'T2'] }], minimum_feasible_waves: 1 },
+    outcome: 'compiled',
+    result_digest: '',
+  };
+  artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
+  await writeFile(artifactRef, `${canonicalizeTodoArtifact(artifact)}\n`);
+
+  const value = parse(run(root, ['session-context', '--json']).stdout);
+  const [summary] = value.independence;
+  assert.equal(summary.coverage, 'superseded');
+  assert.equal(summary.guidance.code, 'independence_contract_superseded');
+  assert.equal(summary.guidance.next_action, 'recompile_independence');
+  assert.equal(summary.unreadable_reason, null);
+});

@@ -2,6 +2,7 @@ import { digestTodoArtifact, isTodoIdentifier, todoSelfDigest } from './todo-con
 import {
   TODO_INDEPENDENCE_SCHEMA,
   isGitSha,
+  isTodoIndependenceLegacyMarker,
   severabilityOfConflictKind,
   synthesizeWitnessRunRequest,
   validateTodoIndependence,
@@ -50,34 +51,65 @@ export async function collectWitnessSensorEvidence({ cwd, witnessSet, execute = 
 }
 
 /**
- * conflictへresource kindを載せる（ADR 0128 Decision 1）。
+ * conflictから参照されるnormalized resourceを正規化してartifactへ載せる。
  *
  * `graph.conflicts`はresource_idしか持たず、宣言由来のstate resource idは任意文字列なので
  * prefixからkindを復元できない。normalized resourceを引けない場合は、切断可能性を
  * 不明のまま記録するのでなくtyped failで止める。
  */
 function conflictsFrom(verdicts, resources) {
-  const kindByResourceId = new Map((Array.isArray(resources) ? resources : [])
-    .map((resource) => [resource?.resource_id, resource?.kind]));
-  return verdicts
+  const resourceById = new Map();
+  for (const resource of Array.isArray(resources) ? resources : []) {
+    const resourceId = resource?.resource_id;
+    if (resourceById.has(resourceId)) {
+      const previous = resourceById.get(resourceId);
+      if (previous.kind !== resource?.kind) {
+        fail('INDEPENDENCE_RESOURCE_KIND_MISMATCH', 'conflict_resource_kind_mismatch', {
+          resource_id: resourceId ?? null,
+          observed_kinds: [previous.kind ?? null, resource?.kind ?? null],
+        });
+      }
+      if (previous.target !== resource?.target) {
+        fail('INDEPENDENCE_RESOURCE_TARGET_MISMATCH', 'conflict_resource_target_mismatch', {
+          resource_id: resourceId ?? null,
+          observed_targets: [previous.target ?? null, resource?.target ?? null],
+        });
+      }
+      fail('INDEPENDENCE_RESOURCE_DUPLICATE', 'conflict_resource_duplicate', {
+        resource_id: resourceId ?? null,
+      });
+    }
+    resourceById.set(resourceId, { kind: resource?.kind, target: resource?.target });
+  }
+  const conflicts = verdicts
     .filter((verdict) => verdict.type === 'conflict')
     .map((verdict) => {
-      const kind = kindByResourceId.get(verdict.resource_id);
+      const resource = resourceById.get(verdict.resource_id);
+      const kind = resource?.kind;
       if (!['symbol', 'path', 'state', 'effect'].includes(kind)) {
         fail('INDEPENDENCE_RESOURCE_KIND_UNRESOLVED', 'conflict_resource_kind_unresolved', {
           resource_id: verdict.resource_id, observed_kind: kind ?? null,
         });
       }
+      if (typeof resource.target !== 'string' || resource.target.length === 0) {
+        fail('INDEPENDENCE_RESOURCE_TARGET_UNRESOLVED', 'conflict_resource_target_unresolved', {
+          resource_id: verdict.resource_id, observed_target: resource.target ?? null,
+        });
+      }
       return {
         task_ids: [...verdict.todo_ids].sort(compareText),
         resource_id: verdict.resource_id,
-        kind,
       };
     })
     .sort((left, right) => compareText(
       `${left.task_ids[0]}\0${left.task_ids[1]}\0${left.resource_id}`,
       `${right.task_ids[0]}\0${right.task_ids[1]}\0${right.resource_id}`,
     ));
+  const used = new Set(conflicts.map(({ resource_id: resourceId }) => resourceId));
+  const conflictResources = [...used]
+    .map((resourceId) => ({ resource_id: resourceId, ...resourceById.get(resourceId) }))
+    .sort((left, right) => compareText(left.resource_id, right.resource_id));
+  return { conflicts, conflictResources };
 }
 
 /**
@@ -141,7 +173,7 @@ function unknownsFrom(detail) {
 }
 
 /**
- * witness setとsensor evidenceから`lattice.todo_independence.v1`を作る。
+ * witness setとsensor evidenceから`lattice.todo_independence.v3`を作る。
  *
  * compileは宣言済みtaskの部分集合へ閉じる（ADR 0127 Decision 4）。未宣言taskを混ぜると、
  * unknownが1件でも出た時点で宣言済みtask同士の判定まで失われるためである。
@@ -187,6 +219,9 @@ export function compileTodoIndependence(options = {}) {
   }
 
   const dispatchable = compiled.outcome === 'dispatchable';
+  const conflictProjection = dispatchable
+    ? conflictsFrom(compiled.pairwise_verdicts, compiled.resources)
+    : { conflicts: [], conflictResources: [] };
   const artifact = {
     schema: TODO_INDEPENDENCE_SCHEMA,
     project_id: plan.project_id,
@@ -201,8 +236,8 @@ export function compileTodoIndependence(options = {}) {
       task_id: taskId,
       paths: boundaryPathsOf(witnessSet.manual_witness[taskId]),
     })),
-    conflicts: dispatchable
-      ? conflictsFrom(compiled.pairwise_verdicts, compiled.resources) : [],
+    conflict_resources: conflictProjection.conflictResources,
+    conflicts: conflictProjection.conflicts,
     precedences: dispatchable ? precedencesFrom(compiled.pairwise_verdicts) : [],
     unknowns: dispatchable ? [] : unknownsFrom(compiled.detail),
     wave_plan: dispatchable
@@ -287,6 +322,24 @@ export function projectIndependenceFrontier({
       active_task_ids: active,
       uncovered_active_task_ids: active,
       frontier: emptyFrontier(),
+    };
+  }
+
+  if (isTodoIndependenceLegacyMarker(artifact)) {
+    return {
+      coverage: 'superseded',
+      drift: null,
+      active_task_ids: active,
+      uncovered_active_task_ids: active,
+      frontier: {
+        parallel_groups: [],
+        serialize_pairs: [],
+        conflicts_with_active: [],
+        unknown: ready.map((taskId) => ({
+          task_id: taskId,
+          unknowns: [{ kind: 'record_superseded', ref: artifact.legacy_schema }],
+        })),
+      },
     };
   }
 
@@ -382,9 +435,17 @@ export function projectIndependenceFrontier({
     });
   };
 
+  const conflictResourceById = new Map(artifact.conflict_resources
+    .map((resource) => [resource.resource_id, resource]));
   for (const conflict of artifact.conflicts) {
+    const resource = conflictResourceById.get(conflict.resource_id);
+    if (resource === undefined) {
+      fail('INDEPENDENCE_RESOURCE_KIND_UNRESOLVED', 'conflict_resource_kind_unresolved', {
+        resource_id: conflict.resource_id, observed_kind: null,
+      });
+    }
     notePair(conflict.task_ids[0], conflict.task_ids[1], 'conflict', conflict.resource_id,
-      conflict.kind);
+      resource.kind);
   }
   for (const precedence of artifact.precedences) {
     notePair(precedence.from_task_id, precedence.to_task_id, 'precedence', precedence.reason, null);

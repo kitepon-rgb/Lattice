@@ -14,7 +14,10 @@ import {
   todoIndependenceRef,
   writeTodoIndependenceArtifact,
 } from '../src/todo-store.mjs';
-import { TODO_INDEPENDENCE_SCHEMA } from '../src/todo-independence-contracts.mjs';
+import {
+  TODO_INDEPENDENCE_LEGACY_MARKER_SCHEMA,
+  TODO_INDEPENDENCE_SCHEMA,
+} from '../src/todo-independence-contracts.mjs';
 import { canonicalizeTodoArtifact, todoSelfDigest } from '../src/todo-contracts.mjs';
 
 // ADR 0127 Decision 1。independence artifactはplanへ並置し、manifestへは登録しない。
@@ -71,6 +74,7 @@ function artifactFor(plan, overrides = {}) {
       { task_id: 'T1', paths: ['src/t1.mjs'] },
       { task_id: 'T2', paths: ['src/t2.mjs'] },
     ],
+    conflict_resources: [],
     conflicts: [],
     precedences: [],
     unknowns: [],
@@ -157,15 +161,58 @@ test('契約を満たさないartifactは書かせない', async (context) => {
 
   await expectCode(writeTodoIndependenceArtifact({ repoRoot: root, artifact: tampered, now: NOW }),
     'INDEPENDENCE_ARTIFACT_INVALID', 'independence_artifact_invalid');
+
+  const legacy = artifactFor(plan, { schema: 'lattice.todo_independence.v2' });
+  await expectCode(writeTodoIndependenceArtifact({ repoRoot: root, artifact: legacy, now: NOW }),
+    'INDEPENDENCE_ARTIFACT_INVALID', 'independence_artifact_invalid');
 });
 
-test('壊れた記録はnullへ丸めずfail closedにする', async (context) => {
+test('identityが揃った既知の旧契約は本体を信用せずlegacy markerとして返す', async (context) => {
   const { root, plan } = await workspace(context);
   const { ref } = await writeTodoIndependenceArtifact({
     repoRoot: root, artifact: artifactFor(plan), now: NOW,
   });
 
-  await writeFile(path.join(root, ref), '{"schema":"lattice.todo_independence.v1"}\n');
+  for (const schema of ['lattice.todo_independence.v1', 'lattice.todo_independence.v2']) {
+    await writeFile(path.join(root, ref), `${canonicalizeTodoArtifact({
+      schema,
+      project_id: plan.project_id,
+      plan_key: plan.plan_key,
+      plan_version: plan.plan_version,
+      topology_digest: plan.topology_digest,
+      base_sha: BASE_SHA,
+      witness_set_digest: 'd'.repeat(64),
+      result_digest: 'e'.repeat(64),
+      ignored_body: true,
+    })}\n`);
+    const read = await readTodoIndependenceArtifact({ repoRoot: root, planKey: 'main', now: NOW });
+    assert.deepEqual(read, {
+      schema: TODO_INDEPENDENCE_LEGACY_MARKER_SCHEMA,
+      legacy_schema: schema,
+      project_id: 'project-1',
+      plan_key: 'main',
+      plan_version: null,
+      topology_digest: null,
+      base_sha: null,
+    });
+  }
+});
+
+test('壊れた・非canonical・未知schema・不正な現行v3はfail closedにする', async (context) => {
+  const { root, plan } = await workspace(context);
+  const { ref } = await writeTodoIndependenceArtifact({
+    repoRoot: root, artifact: artifactFor(plan), now: NOW,
+  });
+
+  await writeFile(path.join(root, ref), '{"schema":"lattice.todo_independence.v4"}\n');
+  await expectCode(readTodoIndependenceArtifact({ repoRoot: root, planKey: 'main', now: NOW }),
+    'INDEPENDENCE_ARTIFACT_INVALID', 'schema_invalid');
+
+  await writeFile(path.join(root, ref), `{"schema":"${TODO_INDEPENDENCE_SCHEMA}"}\n`);
+  await expectCode(readTodoIndependenceArtifact({ repoRoot: root, planKey: 'main', now: NOW }),
+    'INDEPENDENCE_ARTIFACT_INVALID', 'schema_invalid');
+
+  await writeFile(path.join(root, ref), '{"schema":"lattice.todo_independence.v2"}\n');
   await expectCode(readTodoIndependenceArtifact({ repoRoot: root, planKey: 'main', now: NOW }),
     'INDEPENDENCE_ARTIFACT_INVALID', 'schema_invalid');
 
@@ -174,6 +221,10 @@ test('壊れた記録はnullへ丸めずfail closedにする', async (context) =
   await writeFile(path.join(root, ref), `${JSON.stringify(artifact, null, 2)}\n`);
   await expectCode(readTodoIndependenceArtifact({ repoRoot: root, planKey: 'main', now: NOW }),
     'INDEPENDENCE_ARTIFACT_INVALID');
+
+  await writeFile(path.join(root, ref), '{broken-json}\n');
+  await expectCode(readTodoIndependenceArtifact({ repoRoot: root, planKey: 'main', now: NOW }),
+    'INDEPENDENCE_ARTIFACT_INVALID', 'artifact_truncated_or_trailing_bytes');
 });
 
 test('同じrefへの再compileは前の記録を置き換える', async (context) => {
