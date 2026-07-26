@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.14.0 — 2026-07-26
+
+- **session開始時の現在地を1プロセス・1回のstore読みで返す**入口を追加した
+  （`lattice session-context --json`、[ADR 0131](docs/adr/0131-session-context-single-store-read.md)）。
+  `lattice status`と`lattice todo status`は同じ`readTodoStore`を別プロセスで二重に払っており、
+  hostのSessionStartは両方を呼ぶ。storeが育ったprojectでは実行枠（実測6秒）を超え、
+  **現在地の案内が毎回捨てられていた**。実測でdotagents（store 9.7MB／218ファイル）が
+  6.5秒から3.2秒へ落ちる。`status`フィールドは`project_status.v1`、`todo`フィールドは
+  `todo_status_result.v4`をそのまま埋めるので、hostは既存の検証器を再利用できる。
+  既存2面は不変で、これはその合成である。dashboard活動を登録しない読み取り専用面とした。
+- **着手候補が無いときに「検証済み」と読める出力**を直した。ready集合が空だと未検査taskの一覧も
+  空になり、「未検査が1件も無い」が空虚に真となって、記録が古くても検証済みと答えていた
+  （0.13.0のsmokeで露見）。述べる対象が無いことを独立の案内codeにした。
+- 独立性投影の消費者へexact key検証を要求しないことを公開契約へ明記した。
+  知っているkeyだけを読んでよく、Latticeは既存keyの意味を変えるときだけschema版を上げる。
+
 ## 0.13.0 — 2026-07-26
 
 依存線の不在は「順序制約が申告されていない」ことしか意味せず、書き込み境界が干渉しないことは
