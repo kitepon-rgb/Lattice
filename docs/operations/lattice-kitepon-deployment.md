@@ -6,7 +6,8 @@ Cloudflare管理APIの資格情報はリポジトリへ置かず、operator共�
 
 ## 配備構成
 
-- Mac bridge: `192.168.1.102:53939`
+- Mac bridge: LAN上のMac。アドレスはDHCPで動くため、Caddyのupstreamは
+  `lattice bridge register`の自己登録が正本であり、この文書はリテラルを持たない。
 - Docker/Caddy host: `192.168.1.2`
 - Public hostname: `lattice.kitepon.dev`
 - Tunnel origin: `https://caddy:443`

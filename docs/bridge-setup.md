@@ -33,6 +33,18 @@ fileを除去し、JSON結果の`recovery`へ処置を明示する。その後�
 自動化・隔離testではabsoluteな`LATTICE_CONFIG_DIR`で設定rootを変更できる。無効な設定、低いport、
 使用中の明示port、危険なrequest target、到達不能upstreamはsilent fallbackせずtyped errorを返す。
 
+## listen IPがDHCPで動く場合
+
+設定したlisten IPがホストから消えると、古いsocketは死んだアドレスへ取り残され、LANから到達できなくなる。
+daemonは各reconcileで実効アドレスを解決し直し、同一subnet（IPv4 /24、IPv6 /64）に生きたアドレスがあれば
+そこへbindし直す。VPNや別NICなど異なるnetworkのアドレスは採用せず、候補が無ければ
+`BRIDGE_LISTEN_ADDRESS_ABSENT`で公開socketをfail-closedにする。再bind先は許可Hostへ自動で加わる。
+
+`LATTICE_BRIDGE_REGISTRAR_SSH_HOST`と`LATTICE_BRIDGE_REGISTRAR_SCRIPT`を両方設定すると、新しいbindingを
+張るたびに`ssh <host> <script> <port>`でreverse proxy hostへ自己登録する。アドレスは送らず、remote側が
+ssh送信元から決めるため、各hostは自分自身しか登録できない。登録の失敗はbridgeを落とさずstderrへ
+typedに報告する。この配線が無いと、Caddy等が持つリテラルはlease変更のたびに黙って陳腐化する。
+
 ## Docker Caddy／Cloudflare Tunnelへ接続する
 
 bridgeを有効化したMacとreverse proxy hostの間で、まず許可Hostを付けたLAN到達を確認する。
