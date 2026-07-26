@@ -457,14 +457,26 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     if (!portGroups.has(key)) portGroups.set(key, []);
     portGroups.get(key).push(entry);
   };
+  // 隣の段の真下へ繋ぐ辺は、出発と到着が同じ取り付け位置の集合を奪い合う。別々の
+  // 枠を取ると2本の縦線が12pxずれて短い横棒で継がれ、まっすぐ引ける線が段差付きに
+  // 見える。両端の縦線は帯の中で1点で接するだけなので、1枠を共有させて直線にする。
+  const sharedPort = new Set();
   displayBranches.forEach((branch) => {
     const { edge } = branch;
     for (const gap of new Set([wave.get(edge.from), wave.get(edge.to) - 1])) {
       if (!gapGroups.has(gap)) gapGroups.set(gap, []);
       gapGroups.get(gap).push(branch.key);
     }
-    addPort(wave.get(edge.from), transversePosition.get(edge.from), portEntryKey(branch.key, 'departure'));
-    addPort(wave.get(edge.to) - 1, transversePosition.get(edge.to), portEntryKey(branch.key, 'arrival'));
+    const departureGap = wave.get(edge.from);
+    const fromColumn = transversePosition.get(edge.from);
+    const toColumn = transversePosition.get(edge.to);
+    if (departureGap === wave.get(edge.to) - 1 && fromColumn === toColumn) {
+      sharedPort.add(branch.key);
+      addPort(departureGap, fromColumn, portEntryKey(branch.key, 'through'));
+      return;
+    }
+    addPort(departureGap, fromColumn, portEntryKey(branch.key, 'departure'));
+    addPort(wave.get(edge.to) - 1, toColumn, portEntryKey(branch.key, 'arrival'));
   });
   for (const keys of gapGroups.values()) keys.sort(compareText);
   for (const entries of portGroups.values()) entries.sort(compareText);
@@ -571,8 +583,9 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   }
   const portPosition = (edgeKey, direction, gap, row, nodeX) => {
     const entries = portGroups.get(portGroupKey(gap, row));
+    const entry = portEntryKey(edgeKey, sharedPort.has(edgeKey) ? 'through' : direction);
     return nodeX + GEOMETRY.route_inset
-      + GEOMETRY.route_spacing * (entries.indexOf(portEntryKey(edgeKey, direction)) + 1);
+      + GEOMETRY.route_spacing * (entries.indexOf(entry) + 1);
   };
 
   const projectedEdges = displayBranches.map((branch) => {
@@ -590,13 +603,17 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     const endY = to.y;
     const departureY = gapPosition(branch.key, departureGap);
     const arrivalY = gapPosition(branch.key, arrivalGap);
-    const route = [[startX, startY], [startX, departureY]];
-    if (departureGap === arrivalGap) route.push([endX, arrivalY]);
+    const corners = [[startX, startY], [startX, departureY]];
+    if (departureGap === arrivalGap) corners.push([endX, arrivalY]);
     else {
       const channelX = channelPosition(branch.key);
-      route.push([channelX, departureY], [channelX, arrivalY], [endX, arrivalY]);
+      corners.push([channelX, departureY], [channelX, arrivalY], [endX, arrivalY]);
     }
-    route.push([endX, endY]);
+    corners.push([endX, endY]);
+    // 1枠を共有する直線では折れ点が重なる。長さゼロの区間を残すと交差判定にも
+    // 描画にも意味のない点が混ざるので畳む。
+    const route = corners.filter(([x, y], index) =>
+      index === 0 || x !== corners[index - 1][0] || y !== corners[index - 1][1]);
     return {
       id: branchCounts.get(branch.semanticIndex) === 1
         ? `edge-${branch.semanticIndex}` : `edge-${branch.semanticIndex}-join-${branch.branchIndex}`,

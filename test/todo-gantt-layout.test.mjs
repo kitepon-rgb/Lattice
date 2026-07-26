@@ -109,9 +109,10 @@ test('small branch/join/multi-lane DAG has a deterministic coordinate snapshot',
   ]);
   assert.deepEqual(result.edges.map(({ kinds, join_ids, visible, route }) => ({ kinds, join_ids, visible, route })), [
     { kinds: ['hard'], join_ids: [], visible: true, route: [[36, 84], [36, 96], [332, 96], [332, 120]] },
-    { kinds: ['hard'], join_ids: [], visible: true, route: [[60, 84], [60, 108], [48, 108], [48, 120]] },
+    // A→CとC→Dは真下へ繋ぐので、出発と到着が同じ取り付け枠を共有して一直線になる。
+    { kinds: ['hard'], join_ids: [], visible: true, route: [[48, 84], [48, 108], [48, 120]] },
     { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[332, 188], [332, 200], [36, 200], [36, 224], [36, 236]] },
-    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[60, 188], [60, 212], [48, 212], [48, 224]] },
+    { kinds: ['join'], join_ids: ['join-1'], visible: true, route: [[48, 188], [48, 212], [48, 224]] },
   ]);
   const logicalJoinEdges = result.edges.filter(({ join_ids }) => join_ids.includes('join-1'));
   assert.equal(logicalJoinEdges.filter(({ junction }) => junction !== null).length, 1);
@@ -326,6 +327,38 @@ test('段をまたぐ線は端点カードの間の縦チャネルを降り、�
     assert.ok(x < rightmost, `${fromId}→${toId} が図の右端の外へ迂回している`);
   }
   assert.ok(acrossColumns >= 1);
+});
+
+test('真下の工程へ繋ぐ線は折れずに一直線で降りる', () => {
+  const chain = ['P1', 'P2', 'P3'];
+  const input = fixture([{ plan_key: 'plan', tasks: chain.map((id) => ({ id, lane: 'same' })) }],
+    [dependency(ref('P1'), ref('P2')), dependency(ref('P2'), ref('P3'))]);
+  const result = layoutOf(input);
+  const columnOf = (taskId) => result.nodes
+    .find(({ ref: nodeRef }) => nodeRef.task_id === taskId).geometry.x;
+  assert.equal(new Set(chain.map(columnOf)).size, 1, '前提: 3工程が同じ列に並ぶ');
+  for (const edge of result.edges) {
+    const xs = new Set(edge.route.map(([x]) => x));
+    assert.equal(xs.size, 1,
+      `${edge.from.task_id}→${edge.to.task_id} が横へ折れている: ${JSON.stringify(edge.route)}`);
+  }
+  // 折れ点が重なって生まれる長さゼロの区間を残さない。
+  for (const edge of result.edges) {
+    for (let index = 0; index < edge.route.length - 1; index += 1) {
+      assert.notDeepEqual(edge.route[index], edge.route[index + 1]);
+    }
+  }
+});
+
+test('同じ列の別々の辺は取り付け枠を共有せず縦線が重ならない', () => {
+  const Z = ref('Z'); const A = ref('A'); const B = ref('B');
+  const input = fixture([{ plan_key: 'plan', tasks: [
+    { id: 'Z', lane: 'a' }, { id: 'A', lane: 'a' }, { id: 'B', lane: 'a' },
+  ] }], [dependency(Z, B), dependency(A, B)]);
+  const result = layoutOf(input);
+  assertNoCollinearOverlap(result.edges);
+  const arrivals = result.edges.map(({ route }) => route.at(-1)[0]);
+  assert.equal(new Set(arrivals).size, 2, '1枚のカードへ入る2本は別々の取り付け位置を取る');
 });
 
 test('stable median sweep reduces crossings versus task-ref naive order', () => {
