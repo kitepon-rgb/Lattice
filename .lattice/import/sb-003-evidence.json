@@ -1,0 +1,9 @@
+{
+  "evidence_id": "concern-anchor-overlap-rejection",
+  "repo_id": "self",
+  "path": "src/seam-proposal.mjs",
+  "git_blob_oid": "c7b227f36400fddd6fb7d5ac919f15194c3c7798",
+  "content_digest": "fa39b88c88cb248dc5357ff87cd744492933dcc33eedb400c19777448d2fa824",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
