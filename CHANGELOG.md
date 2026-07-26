@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.30 — 2026-07-26
+
+- 配布文書`docs/bridge-setup.md`へ、LANへbindせずloopbackだけをssh逆トンネルで公開する構成を追記した。
+  reverse proxy hostへsshで到達できる場合、bridge hostのaddressはreverse proxyのどこにも現れなくなるため、
+  lease変更への追従も自己登録も不要になる。sshdの`GatewayPorts`、Docker container から見たloopbackの
+  別物性、host firewallのINPUT DROPという実測3条件を併記した。
+- 設定例から実配備のLAN addressと公開hostnameを外し、例示値へ揃えた。
+
 ## 0.12.29 — 2026-07-26
 
 - 稼働中のbridgeが、DHCPのlease変更で待受アドレスを失っても気付かない欠陥を修理した。
