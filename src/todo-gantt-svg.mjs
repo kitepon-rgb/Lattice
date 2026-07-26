@@ -14,6 +14,19 @@ export const TODO_GANTT_STATUS_PRESENTATION = Object.freeze({
   done: Object.freeze({ mark: '✅', label: '完了' }),
 });
 
+/**
+ * 独立性バッジの記号と和名（ADR 0129 Decision 1）。
+ *
+ * 枠線はstatusとready frontierが使い切っているため、カード内の記号と色で示す。
+ * 記録が語らないtaskにはバッジを出さない——「独立と分かっている」と「まだ何も言えない」を
+ * 同じ見た目にしない。
+ */
+export const TODO_GANTT_INDEPENDENCE_PRESENTATION = Object.freeze({
+  verified: Object.freeze({ mark: '∥', label: '独立検証済', class: 'independence-verified' }),
+  conflict: Object.freeze({ mark: '⛓', label: '要直列', class: 'independence-conflict' }),
+  unknown: Object.freeze({ mark: '?', label: '未検査', class: 'independence-unknown' }),
+});
+
 export function escapeSvgText(value) {
   return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
@@ -145,6 +158,8 @@ function renderNode(node, maps) {
   if (node.visibility.active) classes.push('active-node');
   if (node.visibility.next_ready) classes.push('next-ready-node');
   if (node.visibility.selected) classes.push('selected-node');
+  const independence = TODO_GANTT_INDEPENDENCE_PRESENTATION[node.visibility.independence] ?? null;
+  if (independence !== null) classes.push(independence.class);
   const key = nodeKey(node.ref);
   const nodeLaneKey = laneKey(node.ref.plan_key, node.lane);
   const status = TODO_GANTT_STATUS_PRESENTATION[node.status] ?? { mark: '?', label: '状態不明' };
@@ -156,15 +171,19 @@ function renderNode(node, maps) {
   const spokenReference = taskNumber === undefined
     ? `ID ${node.ref.task_id}` : `工程${taskNumber.display_number}`;
   const readyLabel = node.visibility.next_ready ? '。ready frontierの同時dispatch候補' : '';
+  const independenceLabel = independence === null ? '' : `。並列可否は${independence.label}`;
   const identity = `正規ID ${node.ref.plan_key}/${node.ref.task_id}`;
-  const ariaLabel = `${spokenReference}。${status.label}。${laneLabel}。${node.title}。${identity}${readyLabel}`;
+  const ariaLabel = `${spokenReference}。${status.label}。${laneLabel}。${node.title}。${identity}${readyLabel}${independenceLabel}`;
+  // カードの右上へ寄せる。node_width／node_heightは変えないので配線規約に影響しない。
+  const independenceBadge = independence === null ? ''
+    : `<text class="independence-badge" x="${x + width - 10}" y="${y + 20}" text-anchor="end">${escapeSvgText(`${independence.mark} ${independence.label}`)}</text>`;
   const statusBar = node.status === 'in-progress'
     ? `<line class="status-bar" x1="${x + 5}" y1="${y + 6}" x2="${x + 5}" y2="${y + height - 6}"></line>` : '';
   const titleLines = wrapLabel(node.title);
   const titleMarkup = titleLines.map((line, index) => `<tspan x="${x + 10}" dy="${index === 0 ? 0 : 17}" class="node-title-line">${escapeSvgText(line)}</tspan>`).join('');
   const taskNumberAttributes = taskNumber === undefined ? ''
     : ` data-task-number="${escapeSvgAttribute(taskNumber.display_number)}" data-task-number-normalized="${escapeSvgAttribute(taskNumber.normalized_number)}" data-task-number-globally-unique="${taskNumber.globally_unique ? 'true' : 'false'}"`;
-  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" data-lane-key="${escapeSvgAttribute(nodeLaneKey)}" data-project-id="${escapeSvgAttribute(node.ref.project_id)}" data-plan-key="${escapeSvgAttribute(node.ref.plan_key)}" data-task-id="${escapeSvgAttribute(node.ref.task_id)}"${taskNumberAttributes} tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(ariaLabel)}"><rect class="node-surface" x="${x}" y="${y}" width="${width}" height="${height}" rx="4"></rect>${statusBar}<text class="status-mark" x="${x + 10}" y="${y + 21}">${escapeSvgText(status.mark)}</text><text class="node-meta" x="${x + 34}" y="${y + 20}">${escapeSvgText(`${status.label} · ${visibleReference}`)}</text><text class="node-title" x="${x + 10}" y="${y + 42}">${titleMarkup}</text><title>${escapeSvgText(`${spokenReference}: ${node.title} — ${status.label} — ${laneLabel} — ${identity}`)}</title></g>`;
+  return `<g class="${classes.join(' ')}" data-node-key="${escapeSvgAttribute(key)}" data-lane-key="${escapeSvgAttribute(nodeLaneKey)}" data-project-id="${escapeSvgAttribute(node.ref.project_id)}" data-plan-key="${escapeSvgAttribute(node.ref.plan_key)}" data-task-id="${escapeSvgAttribute(node.ref.task_id)}"${taskNumberAttributes} tabindex="0" role="button" aria-selected="${node.visibility.selected ? 'true' : 'false'}" aria-label="${escapeSvgAttribute(ariaLabel)}"><rect class="node-surface" x="${x}" y="${y}" width="${width}" height="${height}" rx="4"></rect>${statusBar}<text class="status-mark" x="${x + 10}" y="${y + 21}">${escapeSvgText(status.mark)}</text><text class="node-meta" x="${x + 34}" y="${y + 20}">${escapeSvgText(`${status.label} · ${visibleReference}`)}</text>${independenceBadge}<text class="node-title" x="${x + 10}" y="${y + 42}">${titleMarkup}</text><title>${escapeSvgText(`${spokenReference}: ${node.title} — ${status.label} — ${laneLabel} — ${identity}`)}</title></g>`;
 }
 
 function summaryLabel(value, maximum = 34) {

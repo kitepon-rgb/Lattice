@@ -370,6 +370,11 @@ button.fold-chip[aria-expanded="true"]{border-color:var(--text-primary)}
 .status-blocked .node-surface{fill:var(--surface-1);stroke:var(--critical);stroke-width:2}
 .status-blocked .status-mark{fill:var(--critical)}
 .next-ready-node .node-surface{stroke:var(--accent);stroke-width:2;stroke-dasharray:4 3}
+/* 独立性は記号と色で示す。枠線はstatusとready frontierが使い切っている（ADR 0129）。 */
+.independence-badge{font-size:10px;font-weight:600;letter-spacing:0.02em}
+.independence-verified .independence-badge{fill:var(--good)}
+.independence-conflict .independence-badge{fill:var(--critical)}
+.independence-unknown .independence-badge{fill:var(--text-secondary)}
 .todo-node:focus .node-surface,.selected-node .node-surface{stroke:var(--text-primary);stroke-width:2.5}
 .dependency-edge .edge-route{fill:none;stroke:var(--text-secondary);stroke-width:1.5;stroke-linejoin:round;opacity:.4}
 .dependency-edge .edge-arrow{fill:var(--text-secondary);opacity:.7}
