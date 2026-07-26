@@ -337,7 +337,9 @@ function mutationActor(env) {
   return { host: entries[0].value, session: entries[1].value, agent: entries[2].value };
 }
 
-async function mutate({ repoRoot, env, planKey, taskId, kind, payload, evidenceRef }) {
+async function mutate({
+  repoRoot, env, planKey, taskId, kind, payload, evidenceRef, advisory = null,
+}) {
   const actor = mutationActor(env);
   const evidence = evidenceRef === null ? null : await readEvidenceInput(repoRoot, evidenceRef);
   let eventPayload = payload;
@@ -353,7 +355,7 @@ async function mutate({ repoRoot, env, planKey, taskId, kind, payload, evidenceR
   });
   const task = snapshot.tasks.find(({ task_id: current }) => current === event.task_id);
   const result = {
-    schema: 'lattice.todo_mutation_result.v1',
+    schema: 'lattice.todo_mutation_result.v2',
     project_id: event.project_id,
     plan_key: event.plan_key,
     plan_version: event.plan_version,
@@ -364,14 +366,72 @@ async function mutate({ repoRoot, env, planKey, taskId, kind, payload, evidenceR
     journal_head_digest: event.event_digest,
     snapshot_digest: snapshot.snapshot_digest,
     status: task.status,
+    advisory,
     result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
 }
 
+/**
+ * 着手しようとしているtaskについて、記録済みの独立性から助言を組む（ADR 0128 Decision 5）。
+ *
+ * 助言であって拒否ではない。ADR 0063のdispatch契約は変えない。ただし助言を計算できない
+ * 状況——git HEADが読めない等——はsilent degradeせず、呼び出し側でstart自体を止める。
+ */
+async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
+  const artifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+  if (artifact === null) {
+    // 記録が無ければ鮮度を語る相手がいない。HEADを要求すると、commitがまだ無いrepoで
+    // 「判定できない」でなく「startできない」になってしまう。
+    return {
+      coverage: 'missing',
+      drift_intersecting: null,
+      conflicts_with_active: [],
+      uncovered_active_task_ids: projection.active_set
+        .filter((task) => task.plan_key === planKey).map(({ task_id: id }) => id),
+      self_unknowns: [{ kind: 'witness_missing', ref: 'no_independence_record' }],
+    };
+  }
+  // 記録があるなら鮮度の判定にHEADが要る。ここで読めないのは判定不能であり、
+  // 助言なしで通してよい状態ではない。
+  const currentBaseSha = currentHeadSha(repoRoot);
+  const changedPaths = artifact.base_sha !== currentBaseSha
+    ? changedPathsSince(repoRoot, artifact.base_sha) : null;
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  const projected = projectIndependenceFrontier({
+    artifact,
+    readyTaskIds: projection.next_ready
+      .filter((task) => task.plan_key === planKey).map(({ task_id: id }) => id),
+    activeTaskIds: projection.active_set
+      .filter((task) => task.plan_key === planKey).map(({ task_id: id }) => id),
+    plan: member?.plan ?? { plan_version: null, topology_digest: null },
+    currentBaseSha,
+    changedPaths,
+  });
+  const selfUnknowns = projected.frontier.unknown
+    .find((entry) => entry.task_id === taskId)?.unknowns ?? [];
+  return {
+    coverage: projected.coverage,
+    drift_intersecting: projected.drift === null
+      ? null : projected.drift.intersecting_task_ids.includes(taskId),
+    conflicts_with_active: projected.frontier.conflicts_with_active
+      .filter((entry) => entry.ready_task_id === taskId)
+      .map((entry) => ({
+        active_task_id: entry.active_task_id,
+        type: entry.type,
+        detail: entry.detail,
+        kind: entry.kind,
+        severability: entry.severability,
+      })),
+    uncovered_active_task_ids: projected.uncovered_active_task_ids,
+    self_unknowns: selfUnknowns,
+  };
+}
+
 async function startTask({ repoRoot, env, planKey, taskId, overrideReason, parallelFrontier }) {
-  const projection = projectTodoStatus(await readTodoStore({ repoRoot }));
+  const store = await readTodoStore({ repoRoot });
+  const projection = projectTodoStatus(store);
   const readyTask = projection.next_ready.find((task) => (
     task.plan_key === planKey && task.task_id.toLowerCase() === taskId.toLowerCase()
   ));
@@ -389,8 +449,13 @@ async function startTask({ repoRoot, env, planKey, taskId, overrideReason, paral
         serial_reason_flag: '--override-reason',
       });
   }
-  return mutate({ repoRoot, env, planKey, taskId: readyTask?.task_id ?? taskId, kind: 'start',
-    payload: { override_reason: overrideReason }, evidenceRef: null });
+  const resolvedTaskId = readyTask?.task_id ?? taskId;
+  // 助言はjournalへ書く前に確定させる。計算できないならstart自体を止める。
+  const advisory = await startAdvisory({
+    repoRoot, store, projection, planKey, taskId: resolvedTaskId,
+  });
+  return mutate({ repoRoot, env, planKey, taskId: resolvedTaskId, kind: 'start',
+    payload: { override_reason: overrideReason }, evidenceRef: null, advisory });
 }
 
 function validatePhaseDecisionInput(value, outcome) {

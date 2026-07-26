@@ -386,9 +386,19 @@ test('authoring CLIはclosed遷移をappendしmutation resultをdigest束縛す�
     sequence += 1;
     assertExactKeys(output, [
       'schema', 'project_id', 'plan_key', 'plan_version', 'task_id', 'kind', 'sequence',
-      'event_digest', 'journal_head_digest', 'snapshot_digest', 'status', 'result_digest',
+      'event_digest', 'journal_head_digest', 'snapshot_digest', 'status', 'advisory',
+      'result_digest',
     ]);
-    assert.equal(output.schema, 'lattice.todo_mutation_result.v1');
+    assert.equal(output.schema, 'lattice.todo_mutation_result.v2');
+    // 助言はstartだけが持つ。他の遷移で独立性を語らない（ADR 0128 Decision 5）。
+    if (kind === 'start') {
+      assertExactKeys(output.advisory, [
+        'coverage', 'drift_intersecting', 'conflicts_with_active',
+        'uncovered_active_task_ids', 'self_unknowns',
+      ]);
+    } else {
+      assert.equal(output.advisory, null);
+    }
     assert.equal(output.kind, kind);
     assert.equal(output.status, status);
     assert.equal(output.sequence, sequence);

@@ -144,8 +144,11 @@ frontier digest、subset選択時の理由要否を機械表示する。readyが
 mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,
 `LATTICE_TODO_ACTOR_AGENT`をすべてtodo identifierとして明示し、欠落時は書き込まない。`done`の
 evidenceはrepo内descriptor JSONとpinned Git objectをwrite時にhard検証する。成功は
-`lattice.todo_mutation_result.v1`一行、失敗は`lattice.cli_error.v2`一行、usage違反は人間向け診断一行で、
-失敗時のstore bytesは不変とする。actor解決失敗はrequired／missing／invalid環境キーと正規次操作を
+`lattice.todo_mutation_result.v2`一行、失敗は`lattice.cli_error.v2`一行、usage違反は人間向け診断一行で、
+失敗時のstore bytesは不変とする。v2の`advisory`は`todo start`だけが非nullで返し、着手対象と
+進行中ToDoの競合・切断可能性・未検査の内訳を機械可読で載せる（ADR 0128）。助言であって拒否ではなく、
+ready frontier dispatch契約は変えない。ただし記録があるのに鮮度を判定できない場合は、
+助言なしで通さずjournal書込前に失敗させる。actor解決失敗はrequired／missing／invalid環境キーと正規次操作を
 error detailへ返し、OS由来の偽identityへfallbackしない。
 
 PhaseはToDoの直列化groupではなく重監査の制御境界である。`todo_plan.v5`は各ToDoの`phase_id`、

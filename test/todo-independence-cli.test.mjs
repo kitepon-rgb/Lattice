@@ -261,6 +261,89 @@ test('planを絞らない呼び出しで候補が複数なら曖昧として止�
   assert.equal(projection.coverage, 'missing');
 });
 
+test('着手時のadvisoryが進行中との競合と切断可能性を返す', async (context) => {
+  const root = await workspace(context, { tasks: ['T1', 'T2'] });
+  const head = git(root, ['rev-parse', 'HEAD']);
+  const artifact = {
+    schema: TODO_INDEPENDENCE_SCHEMA,
+    project_id: 'project-1',
+    plan_key: 'main',
+    plan_version: 'v1',
+    topology_digest: parse(runCli(root, ['verify', '--json']).stdout)
+      .verified_members[0].topology_digest,
+    base_sha: head,
+    witness_set_digest: 'd'.repeat(64),
+    compiled_at: NOW,
+    task_ids: ['T1', 'T2'],
+    task_boundaries: [
+      { task_id: 'T1', paths: ['src/shared.mjs'] },
+      { task_id: 'T2', paths: ['src/shared.mjs'] },
+    ],
+    conflicts: [{ task_ids: ['T1', 'T2'], resource_id: 'own-path-shared', kind: 'path' }],
+    precedences: [],
+    unknowns: [],
+    wave_plan: {
+      waves: [{ task_ids: ['T1'] }, { task_ids: ['T2'] }],
+      minimum_feasible_waves: 2,
+    },
+    outcome: 'compiled',
+    result_digest: '',
+  };
+  artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
+  await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
+
+  const actorEnv = {
+    LATTICE_TODO_ACTOR_HOST: 'host-1',
+    LATTICE_TODO_ACTOR_SESSION: 'session-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+  };
+  const start = (taskId) => spawnSync(process.execPath, [
+    CLI, 'todo', 'start', '--plan', 'main', '--task', taskId, '--override-reason', 'fixture',
+  ], { cwd: root, encoding: 'utf8', env: { ...process.env, ...actorEnv, NO_COLOR: '1' } });
+
+  const first = start('T1');
+  assert.equal(first.status, 0, first.stderr);
+  const firstResult = parse(first.stdout);
+  assert.equal(firstResult.advisory.coverage, 'verified');
+  // まだactiveが無いので競合相手はいない。
+  assert.deepEqual(firstResult.advisory.conflicts_with_active, []);
+  assert.deepEqual(firstResult.advisory.self_unknowns, []);
+
+  // T1が進行中の状態でT2へ着手すると、相手と切断可能性が助言に載る。
+  const second = start('T2');
+  assert.equal(second.status, 0, second.stderr);
+  const advisory = parse(second.stdout).advisory;
+  assert.deepEqual(advisory.conflicts_with_active, [{
+    active_task_id: 'T1',
+    type: 'conflict',
+    detail: 'own-path-shared',
+    kind: 'path',
+    severability: 'code_seam',
+  }]);
+  assert.equal(advisory.coverage, 'verified');
+  assert.equal(advisory.drift_intersecting, null);
+});
+
+test('記録が無い時の着手も助言を返し、未検査であることを告げる', async (context) => {
+  const root = await workspace(context, { tasks: ['T1'] });
+  const actorEnv = {
+    LATTICE_TODO_ACTOR_HOST: 'host-1',
+    LATTICE_TODO_ACTOR_SESSION: 'session-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+  };
+  const started = spawnSync(process.execPath, [
+    CLI, 'todo', 'start', '--plan', 'main', '--task', 'T1',
+  ], { cwd: root, encoding: 'utf8', env: { ...process.env, ...actorEnv, NO_COLOR: '1' } });
+
+  assert.equal(started.status, 0, started.stderr);
+  const advisory = parse(started.stdout).advisory;
+  assert.equal(advisory.coverage, 'missing');
+  // 「競合なし」でなく「まだ判定していない」として返す。
+  assert.deepEqual(advisory.self_unknowns, [
+    { kind: 'witness_missing', ref: 'no_independence_record' },
+  ]);
+});
+
 test('存在しないplanはfail closedにする', async (context) => {
   const root = await workspace(context);
   const result = runCli(root, ['independence', '--plan', 'absent', '--json']);
