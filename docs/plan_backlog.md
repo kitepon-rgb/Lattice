@@ -59,3 +59,31 @@ OQ4は新module・新doc・新test追加という実開発ToDoのかなりの割
 
 - 製品思想: [PLAN.md](../PLAN.md)
 - 直近の裁定: [ADR 0133](adr/0133-concern-anchor-binding.md)
+
+---
+
+# 自己記述面のparity（ADR 0130の履行漏れ）
+
+工程状態の正本はLattice storeの`self-description-parity` plan。
+
+0.16.0で`concern_anchors`という能力を足したのに、**Latticeの自己記述面へ足さなかった**。
+[ADR 0130](adr/0130-lattice-describes-its-own-parallelism-surface.md)は「Latticeが自分の
+並列化面を自分で説明する／案内文言の単一正本」を決めており、これはその履行漏れである。
+
+具体的に欠けているのは2箇所:
+
+1. `TODO_INDEPENDENCE_WORKFLOW`（`lattice todo --help`とMCP instructionsへ出る宣言手順）が
+   `owns／reads／writes／affected_tests`しか挙げておらず、`concern_anchors`が載っていない。
+2. guidanceカタログに束縛失敗の項目が無い。`SEAM_PROPOSAL_GUIDANCE_CODES`は記録の鮮度
+   （unrecorded／superseded／stale／verified）だけで、`semantic_owner_binding_missing`や
+   `concern_anchor_unresolved`が出た時に次の一歩を返す口が無い。
+
+**一番必要な瞬間——機械が「束縛できませんでした」と言った瞬間——に解決法を知らせない。**
+ToDoのtitleが読めるのに入口が無かったのと同じ構図で、能力はあるのに案内が無い。
+AGENTS.mdには書いたので人（AI）側のcontextには入るが、機械が黙っている状態は
+ADR 0130が禁じたものそのものである。
+
+## 工程
+
+- [ ] 宣言手順の単一正本へconcern_anchorsを載せる
+- [ ] 束縛失敗のunknownへguidance codeとnext_actionを与える
