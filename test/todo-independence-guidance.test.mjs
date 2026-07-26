@@ -108,9 +108,22 @@ test('着手候補が無いとき、空虚に検証済みへ倒れない', () =>
 });
 
 test('作業手順は宣言からcompileを経て読むまでを順に述べる', () => {
-  assert.equal(TODO_INDEPENDENCE_WORKFLOW.length, 4);
-  assert.match(TODO_INDEPENDENCE_WORKFLOW[0], /witness/u);
-  assert.match(TODO_INDEPENDENCE_WORKFLOW[1], /independence compile/u);
-  assert.match(TODO_INDEPENDENCE_WORKFLOW[2], /todo independence --plan/u);
-  assert.match(TODO_INDEPENDENCE_WORKFLOW[3], /witness migrate/u);
+  const numbered = TODO_INDEPENDENCE_WORKFLOW.filter((line) => /^\d\. /u.test(line));
+  assert.equal(numbered.length, 4);
+  assert.match(numbered[0], /witness/u);
+  assert.match(numbered[1], /independence compile/u);
+  assert.match(numbered[2], /todo independence --plan/u);
+  assert.match(numbered[3], /witness migrate/u);
+});
+
+test('宣言の手順はconcern_anchorsを宣言できる欄として挙げる', () => {
+  const declareAt = TODO_INDEPENDENCE_WORKFLOW.findIndex((line) => line.startsWith('1. '));
+  const anchorAt = TODO_INDEPENDENCE_WORKFLOW.findIndex((line) => line.includes('concern_anchors'));
+  // 宣言の段（1.）に属する。判定や追従の段へ置くと、書く時点が過ぎてから読まれる。
+  assert.ok(anchorAt > declareAt);
+  assert.ok(!/^\d\. /u.test(TODO_INDEPENDENCE_WORKFLOW[anchorAt]));
+  // 誰が書くべきかの条件を述べる。条件が無いと全ToDoが書く欄だと読まれる。
+  assert.match(TODO_INDEPENDENCE_WORKFLOW[anchorAt], /係争資源/u);
+  // 判定へ写らないことまで述べる。並列可否の入力と誤読されると、宣言が判定を動かすと思われる。
+  assert.match(TODO_INDEPENDENCE_WORKFLOW[anchorAt], /判定には写らず/u);
 });

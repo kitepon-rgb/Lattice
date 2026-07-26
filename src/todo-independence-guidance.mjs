@@ -147,9 +147,13 @@ export function selectSeamProposalGuidance({ coverage }) {
 /**
  * 宣言からcompileを経て読むまでの順序。helpとMCP instructionsが同じ手順を語るための正本。
  * 面ごとに手順を書き直すと、片方だけが古くなる。
+ *
+ * 宣言できる欄を挙げる面はここだけなので、witness契約へ欄を足したらここへも足す。
+ * 足さないと、能力はあるのに機械が黙る面が残る（ADR 0130）。
  */
 export const TODO_INDEPENDENCE_WORKFLOW = Object.freeze([
   '1. 宣言する: .lattice/todo/witness/<plan_key>.json へ、ToDoごとのowns／reads／writes／affected_testsを書く',
+  '   係争資源しか所有していないToDoは、その資源の中で自分が触るsymbolをconcern_anchorsへ宣言できる（witness set v2）。並列可否の判定には写らず、切断候補の束縛だけに効く',
   '2. 判定する: lattice todo independence compile --plan <key> --input <ref>（実sensorを引き、clean worktreeが要る）',
   '3. 読む: lattice todo independence --plan <key> --json（sensorを引かず、記録とHEAD照合だけで返る）',
   '4. 追従する: plan改訂後は lattice todo independence witness migrate --plan <key> で宣言を写してから再compileする',
