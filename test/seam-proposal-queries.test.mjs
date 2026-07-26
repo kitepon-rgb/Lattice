@@ -191,6 +191,41 @@ test('conflict resource集合からrun_request query setを決定的に構成す
   assert.equal(new Set(ids).size, ids.length);
 });
 
+test('宣言concern symbolはquery operationだけを足し、conflict symbolとは重複しない', () => {
+  const resources = [{ resource_id: 'symbol-a', kind: 'symbol', target: 'selectAll' }];
+  const built = buildSeamProposalQuerySet({
+    conflictResources: resources,
+    concernSymbols: ['renderRightPane', 'selectAll', 'renderRightPane'],
+  });
+  const byTarget = (target) => built.query_set.queries
+    .filter((query) => query.target === target)
+    .map(({ operation }) => operation).sort();
+
+  // conflict symbolはgraph展開まで、宣言symbolは解決だけ。
+  assert.deepEqual(byTarget('selectAll'), ['callees', 'callers', 'impact', 'query']);
+  assert.deepEqual(byTarget('renderRightPane'), ['query']);
+
+  const ids = built.query_set.queries.map(({ id }) => id);
+  assert.deepEqual(ids, [...ids].sort());
+  assert.equal(new Set(ids).size, ids.length);
+  // 宣言順に依らず同じbytesが出る。
+  assert.equal(JSON.stringify(built), JSON.stringify(buildSeamProposalQuerySet({
+    conflictResources: resources,
+    concernSymbols: ['selectAll', 'renderRightPane'],
+  })));
+  // 宣言が無ければquery setは従来と一字一句同じ。
+  assert.equal(
+    JSON.stringify(buildSeamProposalQuerySet({ conflictResources: resources })),
+    JSON.stringify(buildSeamProposalQuerySet({ conflictResources: resources, concernSymbols: [] })),
+  );
+
+  assert.throws(
+    () => buildSeamProposalQuerySet({ conflictResources: resources, concernSymbols: [''] }),
+    (error) => error instanceof SeamProposalQueryError
+      && error.code === 'SEAM_QUERY_CONCERN_SYMBOL_INVALID',
+  );
+});
+
 test('exact symbol/path evidenceを正規化しquery set bindingと自己digestを分離する', () => {
   const { query_set: querySet } = buildSeamProposalQuerySet({ conflictResources: [
     {

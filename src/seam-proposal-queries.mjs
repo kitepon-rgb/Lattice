@@ -129,13 +129,30 @@ function assertRuntimeQuerySet(querySet) {
   }
 }
 
+function assertConcernSymbols(concernSymbols) {
+  if (!Array.isArray(concernSymbols) || concernSymbols.length > QUERY_LIMIT) {
+    fail('SEAM_QUERY_CONCERN_SYMBOLS_INVALID', 'concern_symbols_not_bounded_array');
+  }
+  for (const symbol of concernSymbols) {
+    if (!boundedText(symbol, 1_024)) {
+      fail('SEAM_QUERY_CONCERN_SYMBOL_INVALID', 'concern_symbol_invalid');
+    }
+  }
+  return sortedUnique(concernSymbols);
+}
+
 /**
  * Build the schema-less `lattice.run_request.v1.sensor_query_set` vocabulary used by
  * todo-independence. The wrapper records non-code conflicts without putting their targets
  * on the sensor command line.
+ *
+ * `concernSymbols` are the symbol names declared through witness `concern_anchors`. They only
+ * need the `query` operation: the binder asks whether the declared name resolves to exactly one
+ * symbol, and where it lives. Graph expansion stays owned by the conflict resources.
  */
-export function buildSeamProposalQuerySet({ conflictResources } = {}) {
+export function buildSeamProposalQuerySet({ conflictResources, concernSymbols = [] } = {}) {
   const resources = assertConflictResources(conflictResources);
+  const concerns = assertConcernSymbols(concernSymbols);
   const queryById = new Map([[
     'seam-00-status',
     { id: 'seam-00-status', operation: 'status' },
@@ -166,6 +183,13 @@ export function buildSeamProposalQuerySet({ conflictResources } = {}) {
       }
       queryById.set(id, { id, operation, target: resource.target });
     }
+  }
+
+  // 宣言concern symbolの解決query。conflict symbolと同名なら既存queryがそのまま答えになる。
+  for (const symbol of concerns) {
+    const id = queryId('query', 'symbol', symbol);
+    if (queryById.has(id)) continue;
+    queryById.set(id, { id, operation: 'query', target: symbol });
   }
 
   const querySet = {

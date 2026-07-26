@@ -755,6 +755,92 @@ export function verifyVirtualCompileReceipt({ verification, ...options } = {}) {
   };
 }
 
+/** 宣言されたconcern symbolを、`query` operationの解決receiptから探す。 */
+function resolvedSymbolPath(evidence, name) {
+  const receipt = evidence.queries.find((query) => (
+    query.operation === 'query'
+      && query.target === name
+      && query.outcome === 'resolved'
+      && query.resolved_name === name
+      && typeof query.resolved_path === 'string'
+      && query.resolved_path.length > 0
+  ));
+  return receipt === undefined ? null : receipt.resolved_path;
+}
+
+function pathContains(resourcePath, symbolPath) {
+  return resourcePath.endsWith('/')
+    ? symbolPath.startsWith(resourcePath)
+    : symbolPath === resourcePath;
+}
+
+/**
+ * Resolve declared concern anchors against fresh sensor evidence.
+ *
+ * A declaration only becomes a binding anchor when the sensor resolves the exact name to exactly
+ * one path and that path lies inside the declared resource. Fuzzy resolution to a neighbouring
+ * symbol, an absent name, or a symbol living outside the contested resource yields a typed
+ * unknown instead — a wrong declaration must never widen what the binder believes it knows.
+ */
+export function resolveConcernAnchors({ manualWitness, taskIds, evidence } = {}) {
+  if (!plainRecord(manualWitness) || !Array.isArray(taskIds)
+    || !plainRecord(evidence) || !Array.isArray(evidence.queries)) {
+    fail('concern anchor resolution input shapeが不正');
+  }
+  const anchorsByTask = new Map();
+  const unknowns = [];
+  for (const taskId of taskIds) {
+    const anchors = [];
+    for (const entry of manualWitness[taskId]?.concern_anchors ?? []) {
+      const resourcePath = entry.within.kind === 'path'
+        ? entry.within.target
+        : resolvedSymbolPath(evidence, entry.within.target);
+      if (resourcePath === null) {
+        unknowns.push({
+          kind: 'concern_anchor_resource_unresolved',
+          ref: `${taskId}:${entry.within.kind}:${entry.within.target}`,
+        });
+        continue;
+      }
+      for (const symbol of entry.symbols) {
+        const symbolPath = resolvedSymbolPath(evidence, symbol);
+        if (symbolPath === null) {
+          unknowns.push({ kind: 'concern_anchor_unresolved', ref: `${taskId}:${symbol}` });
+          continue;
+        }
+        if (!pathContains(resourcePath, symbolPath)) {
+          unknowns.push({
+            kind: 'concern_anchor_outside_resource',
+            ref: `${taskId}:${symbol}:${symbolPath}`,
+          });
+          continue;
+        }
+        anchors.push(`concern:${symbolPath}\0${symbol}`);
+      }
+    }
+    anchorsByTask.set(taskId, sortedUnique(anchors));
+  }
+  return {
+    anchorsByTask,
+    unknowns: unknowns.sort((left, right) => compareText(
+      `${left.kind}\0${left.ref}`, `${right.kind}\0${right.ref}`,
+    )),
+  };
+}
+
+/** witness set全体から、sensorへ問い合わせるconcern symbol名を集める。 */
+export function declaredConcernSymbols(manualWitness) {
+  if (!plainRecord(manualWitness)) fail('manual witness shapeが不正');
+  const names = [];
+  for (const witness of Object.values(manualWitness)) {
+    for (const entry of witness?.concern_anchors ?? []) {
+      names.push(...entry.symbols);
+      if (entry.within.kind === 'symbol') names.push(entry.within.target);
+    }
+  }
+  return sortedUnique(names);
+}
+
 function uniqueIntentAnchors(manualWitness, taskIds) {
   const anchorsByTask = new Map();
   const counts = new Map();

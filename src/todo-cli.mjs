@@ -83,7 +83,7 @@ import {
   SEAM_PROPOSAL_PROJECTION_SCHEMA,
   validateSeamProposalProjection,
 } from './seam-proposal-contracts.mjs';
-import { compileSeamProposalArtifact } from './seam-proposal.mjs';
+import { compileSeamProposalArtifact, declaredConcernSymbols } from './seam-proposal.mjs';
 import {
   parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
   validateTodoRevision, validateTodoRevisionSet,
@@ -893,6 +893,7 @@ async function seamProposalCompile({ repoRoot, planKey }) {
 
   const { query_set: querySet } = buildSeamProposalQuerySet({
     conflictResources: independenceArtifact.conflict_resources,
+    concernSymbols: declaredConcernSymbols(witnessSet.manual_witness),
   });
   const [sensorEvidence, proposalEvidence] = await Promise.all([
     collectWitnessSensorEvidence({ cwd: repoRoot, witnessSet }),

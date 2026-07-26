@@ -7,9 +7,11 @@ import {
   buildVirtualWitness,
   compileSeamProposalDecision,
   createVirtualCompileReceipt,
+  declaredConcernSymbols,
   deriveVirtualBoundary,
   enumerateCutSkeletons,
   evaluateSeamProposalCandidates,
+  resolveConcernAnchors,
   verifyVirtualCompileReceipt,
 } from '../src/seam-proposal.mjs';
 import { validateSeamProposal } from '../src/seam-proposal-contracts.mjs';
@@ -563,6 +565,122 @@ test('task固有anchorが無ければsemantic owner binding missingになる', (
     { kind: 'semantic_owner_binding_missing', ref: 'CUT1' },
     { kind: 'semantic_owner_binding_missing', ref: 'CUT2' },
   ]);
+});
+
+function concernEvidence(resolutions) {
+  return {
+    queries: Object.entries(resolutions).map(([name, path]) => ({
+      query_id: `q-${name}`,
+      operation: 'query',
+      target: name,
+      outcome: path === null ? 'absent' : 'resolved',
+      resolved_name: path === null ? null : name,
+      resolved_path: path,
+      result_digest: DIGEST('9'),
+    })),
+  };
+}
+
+test('宣言concern anchorはexact解決と資源内包含を満たした分だけanchorになる', () => {
+  const manualWitness = {
+    T1: {
+      concern_anchors: [{
+        within: { kind: 'path', target: 'src/shared.mjs' },
+        symbols: ['renderRightPane', 'summarizeIndependence'],
+      }],
+    },
+    T2: { concern_anchors: [] },
+  };
+  const resolved = resolveConcernAnchors({
+    manualWitness,
+    taskIds: ['T1', 'T2'],
+    evidence: concernEvidence({
+      renderRightPane: 'src/shared.mjs',
+      summarizeIndependence: 'src/shared.mjs',
+    }),
+  });
+  assert.deepEqual(resolved.unknowns, []);
+  assert.deepEqual(resolved.anchorsByTask.get('T1'), [
+    'concern:src/shared.mjs\0renderRightPane',
+    'concern:src/shared.mjs\0summarizeIndependence',
+  ]);
+  assert.deepEqual(resolved.anchorsByTask.get('T2'), []);
+});
+
+test('解決しない・資源の外にある宣言はanchorにならずtyped unknownになる', () => {
+  const manualWitness = {
+    T1: {
+      concern_anchors: [{
+        within: { kind: 'path', target: 'src/shared.mjs' },
+        symbols: ['movedAway', 'neverExisted', 'stillHere'],
+      }],
+    },
+  };
+  const resolved = resolveConcernAnchors({
+    manualWitness,
+    taskIds: ['T1'],
+    evidence: concernEvidence({
+      movedAway: 'src/elsewhere.mjs',
+      neverExisted: null,
+      stillHere: 'src/shared.mjs',
+    }),
+  });
+  // 生き残るのは実在してかつ資源の中にあるものだけ。
+  assert.deepEqual(resolved.anchorsByTask.get('T1'), ['concern:src/shared.mjs\0stillHere']);
+  assert.deepEqual(resolved.unknowns, [
+    { kind: 'concern_anchor_outside_resource', ref: 'T1:movedAway:src/elsewhere.mjs' },
+    { kind: 'concern_anchor_unresolved', ref: 'T1:neverExisted' },
+  ]);
+});
+
+test('symbol資源の宣言は資源自身の解決に依存し、未解決ならunknownへ倒れる', () => {
+  const manualWitness = {
+    T1: {
+      concern_anchors: [{
+        within: { kind: 'symbol', target: 'renderGantt' },
+        symbols: ['renderRightPane'],
+      }],
+    },
+  };
+  const inside = resolveConcernAnchors({
+    manualWitness,
+    taskIds: ['T1'],
+    evidence: concernEvidence({
+      renderGantt: 'src/shared.mjs',
+      renderRightPane: 'src/shared.mjs',
+    }),
+  });
+  assert.deepEqual(inside.unknowns, []);
+  assert.deepEqual(inside.anchorsByTask.get('T1'), ['concern:src/shared.mjs\0renderRightPane']);
+
+  const unresolved = resolveConcernAnchors({
+    manualWitness,
+    taskIds: ['T1'],
+    evidence: concernEvidence({ renderGantt: null, renderRightPane: 'src/shared.mjs' }),
+  });
+  assert.deepEqual(unresolved.anchorsByTask.get('T1'), []);
+  assert.deepEqual(unresolved.unknowns, [
+    { kind: 'concern_anchor_resource_unresolved', ref: 'T1:symbol:renderGantt' },
+  ]);
+});
+
+test('sensorへ問い合わせる宣言symbolは資源名まで含めて重複なく集まる', () => {
+  assert.deepEqual(declaredConcernSymbols({
+    T2: {
+      concern_anchors: [{
+        within: { kind: 'symbol', target: 'renderGantt' },
+        symbols: ['renderRightPane'],
+      }],
+    },
+    T1: {
+      concern_anchors: [{
+        within: { kind: 'path', target: 'src/shared.mjs' },
+        symbols: ['summarizeIndependence', 'renderRightPane'],
+      }],
+    },
+    T3: {},
+  }), ['renderGantt', 'renderRightPane', 'summarizeIndependence']);
+  assert.deepEqual(declaredConcernSymbols({ T1: {} }), []);
 });
 
 test('複数incomparable候補はv1のseam_candidateを名乗らない', () => {
