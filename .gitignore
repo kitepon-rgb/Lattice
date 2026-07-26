@@ -17,5 +17,7 @@ research/runs/
 # independence判定は現在のcode状態(base_sha)についての証拠であり、witness setから再生成できる。
 # 追跡するとcommitのたびにHEADが進んで自分自身をstaleにするため、host localの投影として扱う（ADR 0127）。
 .lattice/todo/plans/*/*/independence.json
+# seam提案も同じ並置artifactで、independence記録とHEADから再生成できる。
+.lattice/todo/plans/*/*/seam-proposal.json
 # Project-local orchestration run state（ADR 0060）。
 .lattice/runs/
