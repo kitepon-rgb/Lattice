@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { readTodoStoreStable } from '../src/todo-store.mjs';
 import { projectTodoStatus } from '../src/todo-status.mjs';
-import { renderTodoGanttForProject } from '../src/todo-cli.mjs';
+import { ganttLiveHeadDigest, renderTodoGanttForProject } from '../src/todo-cli.mjs';
 import {
   readVisibleTodoDashboardProjects,
   writeTodoDashboardDaemonDescriptor,
@@ -89,9 +89,14 @@ async function synchronize() {
         const store = await readCachedStore(entry.repo_root);
         const result = await renderTodoGanttForProject({ repoRoot: entry.repo_root,
           stable: true, displayName, readModel: store });
-        return { html: result.rendered.html, head_digest: result.metadata.manifest_digest };
+        return {
+          html: result.rendered.html,
+          head_digest: await ganttLiveHeadDigest({ repoRoot: entry.repo_root, store }),
+        };
       },
-      readHead: async () => (await readCachedStore(entry.repo_root)).manifest.manifest_digest,
+      readHead: async () => ganttLiveHeadDigest({
+        repoRoot: entry.repo_root, store: await readCachedStore(entry.repo_root),
+      }),
     });
     roots.set(entry.project_id, binding);
   }

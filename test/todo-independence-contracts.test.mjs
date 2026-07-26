@@ -92,7 +92,12 @@ function projection(overrides = {}) {
     current_base_sha: BASE_SHA,
     plan_version: 'v1',
     topology_digest: DIGEST('c'),
-    frontier: { parallel_groups: [], serialize_pairs: [], unknown: [] },
+    active_task_ids: [],
+    uncovered_active_task_ids: [],
+    drift: null,
+    frontier: {
+      parallel_groups: [], serialize_pairs: [], conflicts_with_active: [], unknown: [],
+    },
     result_digest: '',
     ...overrides,
   };
@@ -292,7 +297,11 @@ test('projectionのfrontierは安定順序を要求する', () => {
   const ordered = projection({
     frontier: {
       parallel_groups: [{ task_ids: ['tip-001', 'tip-002'] }, { task_ids: ['tip-003'] }],
-      serialize_pairs: [{ task_ids: ['tip-001', 'tip-004'], type: 'conflict', detail: 'own-path-1' }],
+      serialize_pairs: [{
+        task_ids: ['tip-001', 'tip-004'], type: 'conflict', detail: 'own-path-1',
+        kind: 'path', severability: 'code_seam',
+      }],
+      conflicts_with_active: [],
       unknown: [{ task_id: 'tip-005', unknowns: [{ kind: 'sensor_unbound', ref: 'path:src/e.mjs' }] }],
     },
   });
@@ -302,6 +311,7 @@ test('projectionのfrontierは安定順序を要求する', () => {
     frontier: {
       parallel_groups: [{ task_ids: ['tip-003'] }, { task_ids: ['tip-001', 'tip-002'] }],
       serialize_pairs: [],
+      conflicts_with_active: [],
       unknown: [],
     },
   });
@@ -311,6 +321,7 @@ test('projectionのfrontierは安定順序を要求する', () => {
     frontier: {
       parallel_groups: [],
       serialize_pairs: [],
+      conflicts_with_active: [],
       unknown: [
         { task_id: 'tip-005', unknowns: [{ kind: 'sensor_unbound', ref: 'a' }] },
         { task_id: 'tip-004', unknowns: [{ kind: 'sensor_unbound', ref: 'b' }] },

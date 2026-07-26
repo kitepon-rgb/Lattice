@@ -13,9 +13,11 @@ import {
 import {
   createTodoStoreWriter,
   initializeTodoStore,
+  readTodoStore,
   writeTodoIndependenceArtifact,
   writeTodoWitnessSet,
 } from '../src/todo-store.mjs';
+import { ganttLiveHeadDigest } from '../src/todo-cli.mjs';
 import { TODO_INDEPENDENCE_SCHEMA } from '../src/todo-independence-contracts.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 
@@ -440,6 +442,47 @@ test('witness migrateは宣言もrevisionも無い状態をfail closedにする'
   const absentPlan = runCli(root, ['independence', 'witness', 'migrate', '--plan', 'nope']);
   assert.equal(absentPlan.status, 1);
   assert.equal(parse(absentPlan.stderr).detail.reason, 'plan_not_active');
+});
+
+test('live head digestは独立性の変化を拾う', async (context) => {
+  const root = await workspace(context);
+  const store = await readTodoStore({ repoRoot: root });
+  const before = await ganttLiveHeadDigest({ repoRoot: root, store });
+
+  const head = git(root, ['rev-parse', 'HEAD']);
+  const artifact = {
+    schema: TODO_INDEPENDENCE_SCHEMA,
+    project_id: 'project-1',
+    plan_key: 'main',
+    plan_version: 'v1',
+    topology_digest: parse(runCli(root, ['verify', '--json']).stdout)
+      .verified_members[0].topology_digest,
+    base_sha: head,
+    witness_set_digest: 'd'.repeat(64),
+    compiled_at: NOW,
+    task_ids: ['T1', 'T2'],
+    task_boundaries: [
+      { task_id: 'T1', paths: ['src/t1.mjs'] },
+      { task_id: 'T2', paths: ['src/t2.mjs'] },
+    ],
+    conflicts: [],
+    precedences: [],
+    unknowns: [],
+    wave_plan: { waves: [{ task_ids: ['T1', 'T2'] }], minimum_feasible_waves: 1 },
+    outcome: 'compiled',
+    result_digest: '',
+  };
+  artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
+  await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
+
+  // manifestは動いていないが、記録が生まれたので画面は更新されなければならない。
+  const afterStore = await readTodoStore({ repoRoot: root });
+  assert.equal(afterStore.manifest.manifest_digest, store.manifest.manifest_digest);
+  const after = await ganttLiveHeadDigest({ repoRoot: root, store: afterStore });
+  assert.notEqual(after, before);
+
+  // 同じ状態からは同じ値が出る（描画側と検知側が食い違わない根拠）。
+  assert.equal(await ganttLiveHeadDigest({ repoRoot: root, store: afterStore }), after);
 });
 
 test('未知の引数はusage failureで終わる', async (context) => {

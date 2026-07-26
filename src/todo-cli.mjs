@@ -974,6 +974,26 @@ function parseGanttDescriptor(bytes, descriptorRef) {
  * plan単位で記録を引き、記録が無いplanは投影を持たないまま通す——描けない事実を
  * 図の側で作り出さない。
  */
+/**
+ * live配信の更新検知に使うhead digest（ADR 0129 Decision 6）。
+ *
+ * manifest_digestだけでは、独立性の再compileもHEAD前進も検知できず画面が古いまま残る。
+ * 同じ値を描画側と検知側で別々に組み立てると、更新されない状態が静かに再発するため、
+ * 一つの関数だけが組む。
+ */
+export async function ganttLiveHeadDigest({ repoRoot, store }) {
+  const independence = await independenceForGantt({ repoRoot, store });
+  return digestTodoArtifact({
+    schema: 'lattice.todo_gantt_live_head.v1',
+    manifest_digest: store.manifest.manifest_digest,
+    independence: independence === null ? null : independence.map((entry) => ({
+      plan_key: entry.plan_key,
+      coverage: entry.coverage,
+      frontier_digest: digestTodoArtifact(entry.frontier),
+    })),
+  });
+}
+
 async function independenceForGantt({ repoRoot, store }) {
   const frontier = computeReadyFrontier(store);
   const status = projectTodoStatus(store);
@@ -1149,12 +1169,15 @@ async function serveGantt({ repoRoot, port, stdout, env, scope = DEFAULT_GANTT_S
     displayName: identity.displayName,
     port,
     render: async () => {
-      const { rendered, metadata } = await renderTodoGanttForProject({
-        repoRoot, stable: true, displayName: identity.displayName, scope,
+      const store = await readTodoStoreStable({ repoRoot });
+      const { rendered } = await renderTodoGanttForProject({
+        repoRoot, stable: true, displayName: identity.displayName, scope, readModel: store,
       });
-      return { html: rendered.html, head_digest: metadata.manifest_digest };
+      return { html: rendered.html, head_digest: await ganttLiveHeadDigest({ repoRoot, store }) };
     },
-    readHead: async () => (await readTodoStoreStable({ repoRoot })).manifest.manifest_digest,
+    readHead: async () => ganttLiveHeadDigest({
+      repoRoot, store: await readTodoStoreStable({ repoRoot }),
+    }),
   });
   const result = { schema: 'lattice.todo_gantt_live_result.v2', project_id: live.projectId,
     host: live.host, port: live.port, project_path: live.projectPath,
