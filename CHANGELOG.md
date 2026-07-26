@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.18.0 — 2026-07-27
 
 - **同名symbolの曖昧さをreceiptへ残し、宣言した資源で絞れる**ようにした
   （`lattice.seam_proposal.v2`の`candidate_paths`、[ADR 0134](docs/adr/0134-ambiguous-symbol-receipt-narrowed-by-declared-resource.md)）。
