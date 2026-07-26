@@ -1,0 +1,9 @@
+{
+  "evidence_id": "concern-declaration-non-influence-test",
+  "repo_id": "self",
+  "path": "test/todo-independence-compile.test.mjs",
+  "git_blob_oid": "568e6871949e408ee06931d4683e42b79877ce6b",
+  "content_digest": "3f3490337ba3f781a1b4d7ceeee839e3360ab91e07b556c4eaad386c679984f8",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
