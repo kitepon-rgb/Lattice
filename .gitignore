@@ -14,5 +14,8 @@ research/runs/
 
 # Generated TODO projections are reproducible; the TODO store itself is tracked.
 .lattice/generated/
+# independence判定は現在のcode状態(base_sha)についての証拠であり、witness setから再生成できる。
+# 追跡するとcommitのたびにHEADが進んで自分自身をstaleにするため、host localの投影として扱う（ADR 0127）。
+.lattice/todo/plans/*/*/independence.json
 # Project-local orchestration run state（ADR 0060）。
 .lattice/runs/

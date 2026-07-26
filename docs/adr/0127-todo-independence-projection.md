@@ -41,6 +41,9 @@ ToDo 256件までの汎用経路であり、RC1専用の`compileBoundaryConditio
    plan schemaは上げず、manifestにも登録しない。判定はコード状態についての証拠であってtopologyでは
    ないため、`plan_digest`と`topology_digest`の意味を汚さない。plan versionディレクトリに置くことで、
    revisionでversionが変われば旧artifactは自然に非アクティブになる。
+   artifactはhost localの投影としてgit追跡せず、witness setから再生成する。追跡すると、
+   記録をcommitした時点でHEADが進んで自分自身をstaleにし、再compileしてcommitするとまた進むため、
+   verifiedへ到達できない。追跡するのは入力であるwitness setであり、判定結果ではない。
 
 2. **宣言は入力artifact `lattice.todo_witness_set.v1`として持つ。** ToDoごとの
    owns／reads／writes／resources／state_effects／sensor_provenance／affected_tests／unknownsを

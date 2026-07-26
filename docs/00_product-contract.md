@@ -116,6 +116,7 @@ Taskだけを`project_id`／`plan_key`／`plan_version`／`task_id`つきで投�
 `todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v1`の宣言と
 実sensor観測から並列可否を判定し、`lattice.todo_independence.v1`をplan versionディレクトリへ並置記録する
 （ADR 0127）。記録は`(plan_version, topology_digest, base_sha)`へ束縛し、dirty worktreeでは記録しない。
+記録はwitness setから再生成できるhost localの投影として扱い、git追跡するのは入力のwitness setだけとする。
 `todo independence [--plan <key>] --json`はready frontierを検証済み並列グループ・要直列の組・未検査へ
 分けて投影し（`lattice.todo_independence_projection.v1`）、参照時にsensorを引かない。
 記録の鮮度は`coverage`が`verified`／`stale`／`superseded`／`missing`で示し、現在のコード状態を
