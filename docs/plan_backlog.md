@@ -123,6 +123,6 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 
 ## 工程
 
-- [ ] 創作宣言を入力契約へ足す（witness set v3・run_request v2）
-- [ ] front endが創作境界を裏付けありとして判定する
-- [ ] 実データで新規fileを含むplanの並列可否を出し、releaseまで通す
+- [x] 創作宣言を入力契約へ足す（witness set v3・run_request v2）
+- [x] front endが創作境界を裏付けありとして判定する
+- [x] 実データで新規fileを含むplanの並列可否を出し、releaseまで通す

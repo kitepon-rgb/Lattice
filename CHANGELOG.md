@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- **新規fileだけを作るToDoが並列可否の判定対象になった**
+  （`owns[].creates`、[ADR 0136](docs/adr/0136-declared-creation-boundary.md)）。
+  まだ存在しないpathの`owns`は`path_state: absent`という決定的な観測——索引の推測ではなく
+  fsのlstat結果——を持ちながら判定対象外へ落ちており、新module・新doc・新test追加という
+  実開発ToDoのかなりの割合が並列可否を持てなかった。実測では、同じfileを書く2 ToDoと
+  新規fileを作る1 ToDoのplanが`conflict_count: 1 / unknown_count: 0`でcompileし、
+  実conflictを保ったまま新規fileのToDoが並列グループへ入る。
+- 観測から自動導出はしない。**宣言があるpathだけ**を裏付けありとして扱う。機械的に読むと
+  pathのtypoが「必ず止まるエラー」から「黙って通る創作境界」へ変わるためで、宣言していない
+  absent pathは従来どおり止まる。宣言と観測がずれる側も全部fail closedにした——既に在るpathへの
+  創作宣言は`creates_path_present`、fs観測が証拠に無ければ`creates_unverified`。
+- `lattice.todo_witness_set` v3・`lattice.run_request` v2・`lattice.boundary_manifest` v3へ
+  版を上げた。差分は`owns[].creates`だけで、旧版はすべて読み口として受理する。既存の宣言・
+  request・run storeは書き換えを要求されない。
+- `BOOTSTRAP_OWNERSHIP_SEAM`の案内が、空seam fileの先行commitより先に`creates`宣言を挙げる
+  ようになった。機械が止めた瞬間に最小の解決法から知らせる。
+
 ## 0.19.0 — 2026-07-27
 
 - **判定が途中で止まった記録を、無関係な工程の「検証済み並列」として読まなくなった**。
