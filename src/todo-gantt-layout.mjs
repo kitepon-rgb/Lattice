@@ -436,6 +436,8 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     });
     stageRowCount.push(Math.max(0, ...layer.map((key) => stageRow.get(key))) + 1);
   }
+  const maximumLayerWidth = Math.max(1,
+    ...[...transversePosition.values()].map((position) => position + 1));
   const visibleKeys = new Set(nodes.map(({ key }) => key));
   const displayBranches = edges.flatMap((edge, semanticIndex) => {
     const identities = [...edge.joinIdentities.entries()]
@@ -477,9 +479,51 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   const allGapIndexes = new Set([...gapGroups.keys(), ...connectorGroupKeysByGap.keys()]);
   const maximumGapOccupancy = Math.max(0, ...[...allGapIndexes].map((gap) =>
     (gapGroups.get(gap)?.length ?? 0) + (connectorGroupKeysByGap.get(gap)?.size ?? 0)));
+  // An edge that skips a stage has to travel vertically past the stages in
+  // between. It used to do that in a corridor beyond the right edge of the
+  // whole diagram, so a local hop between two neighbouring cards was drawn as a
+  // trip to the far right and back. It now descends through the vertical
+  // channel between two columns of cards, chosen from the boundaries that lie
+  // between its endpoints. Every card sits on the same column grid, so those
+  // gaps are free of cards at every stage: routing inside one is both shorter
+  // to follow and structurally unable to cross a card.
+  const channelLoad = new Map();
+  const channelAssignment = new Map();
+  const channelTraffic = (boundary) => channelLoad.get(boundary) ?? 0;
+  for (const branch of [...displayBranches].sort((left, right) => compareText(left.key, right.key))) {
+    const { edge } = branch;
+    if (wave.get(edge.from) === wave.get(edge.to) - 1) continue;
+    const fromColumn = transversePosition.get(edge.from);
+    const toColumn = transversePosition.get(edge.to);
+    const [first, last] = fromColumn === toColumn
+      ? [toColumn, toColumn + 1]
+      : [Math.min(fromColumn, toColumn) + 1, Math.max(fromColumn, toColumn)];
+    let chosen = first;
+    for (let boundary = first + 1; boundary <= last; boundary += 1) {
+      const closer = Math.abs(boundary - toColumn) < Math.abs(chosen - toColumn);
+      if (channelTraffic(boundary) < channelTraffic(chosen)
+        || (channelTraffic(boundary) === channelTraffic(chosen) && closer)) chosen = boundary;
+    }
+    channelAssignment.set(branch.key, { boundary: chosen, lane: channelTraffic(chosen) });
+    channelLoad.set(chosen, channelTraffic(chosen) + 1);
+  }
+
   const nodeWidth = Math.max(GEOMETRY.node_width,
     GEOMETRY.route_inset * 2 + (maximumPortTraffic + 1) * GEOMETRY.route_spacing);
-  const laneGap = nodeWidth + 24;
+  // Only the boundaries that actually carry channels pay for them. Boundary 0
+  // is the margin left of the first column and only exists when something
+  // routes there, so an untravelled diagram keeps its original left edge.
+  const channelWidth = (boundary) => Math.max(24,
+    (channelTraffic(boundary) + 1) * GEOMETRY.route_spacing);
+  const columnLeft = [GEOMETRY.left + (channelTraffic(0) === 0 ? 0 : channelWidth(0))];
+  for (let column = 1; column < maximumLayerWidth; column += 1) {
+    columnLeft.push(columnLeft[column - 1] + nodeWidth + channelWidth(column));
+  }
+  const channelPosition = (edgeKey) => {
+    const { boundary, lane } = channelAssignment.get(edgeKey);
+    const left = boundary === 0 ? GEOMETRY.left : columnLeft[boundary - 1] + nodeWidth;
+    return left + GEOMETRY.route_spacing * (lane + 1);
+  };
   // Each routing band is sized for the edges that actually cross it. One
   // crowded band used to set the spacing for every stage in the diagram, so a
   // long plan paid the width of its busiest junction on all of its stages.
@@ -496,7 +540,7 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   const projectedNodes = nodes.map((node) => {
     const visible = visibleKeys.has(node.key);
     const geometry = visible ? {
-      x: GEOMETRY.left + transversePosition.get(node.key) * laneGap,
+      x: columnLeft[transversePosition.get(node.key)],
       y: stageTop[wave.get(node.key)]
         + stageRow.get(node.key) * (GEOMETRY.node_height + GEOMETRY.stage_row_gap),
       width: nodeWidth,
@@ -521,9 +565,6 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     return stageTop[waveIndex] + stageHeight(waveIndex)
       + GEOMETRY.route_spacing * (index + 1);
   };
-  const maximumLayerWidth = Math.max(1,
-    ...[...transversePosition.values()].map((position) => position + 1));
-  const routeRight = GEOMETRY.left + (maximumLayerWidth - 1) * laneGap + nodeWidth + 12;
   const branchCounts = new Map();
   for (const branch of displayBranches) {
     branchCounts.set(branch.semanticIndex, (branchCounts.get(branch.semanticIndex) ?? 0) + 1);
@@ -534,7 +575,7 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
       + GEOMETRY.route_spacing * (entries.indexOf(portEntryKey(edgeKey, direction)) + 1);
   };
 
-  const projectedEdges = displayBranches.map((branch, index) => {
+  const projectedEdges = displayBranches.map((branch) => {
     const { edge } = branch;
     const onLongestChain = longestEdgeKeys.has(edge.key);
     const from = coordinates.get(edge.from);
@@ -549,10 +590,12 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     const endY = to.y;
     const departureY = gapPosition(branch.key, departureGap);
     const arrivalY = gapPosition(branch.key, arrivalGap);
-    const corridorX = routeRight + GEOMETRY.route_spacing * (index + 1);
     const route = [[startX, startY], [startX, departureY]];
-    if (arrivalY === departureY) route.push([endX, arrivalY]);
-    else route.push([corridorX, departureY], [corridorX, arrivalY], [endX, arrivalY]);
+    if (departureGap === arrivalGap) route.push([endX, arrivalY]);
+    else {
+      const channelX = channelPosition(branch.key);
+      route.push([channelX, departureY], [channelX, arrivalY], [endX, arrivalY]);
+    }
     route.push([endX, endY]);
     return {
       id: branchCounts.get(branch.semanticIndex) === 1
@@ -610,7 +653,7 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   }
   addCrossingBridges([...projectedEdges, ...junctionConnectors], logicalContacts);
   let routeMaximumX = nodes.length === 0 ? 0
-    : GEOMETRY.left + (maximumLayerWidth - 1) * laneGap + nodeWidth;
+    : columnLeft[maximumLayerWidth - 1] + nodeWidth;
   for (const edge of projectedEdges) {
     for (const [x] of edge.route) routeMaximumX = Math.max(routeMaximumX, x);
   }

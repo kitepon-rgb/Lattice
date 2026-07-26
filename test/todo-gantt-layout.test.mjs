@@ -64,11 +64,15 @@ function enclosingBoxes(result) {
 // 線がカードの内側を通ると、そのカードに隠れて経路を追えなくなる。端点の
 // カードとは辺で接するので、判定は厳密不等号で「内部」だけを見る。
 //
-function assertNoRouteEntersBox(result) {
+// skipPortStubsは、カード下端から帯へ降りる最初と最後の一区間を除く。同じ段の
+// 下段へ折り返した未接続カードを、その真上のカードのstubが貫く既存欠陥が別に
+// あり（docs/ui-review-backlog.md）、段をまたぐ本体経路の主張と混ぜないため。
+function assertNoRouteEntersBox(result, { skipPortStubs = false } = {}) {
   const boxes = enclosingBoxes(result);
   for (const model of [...result.edges, ...result.connectors]) {
     const lastSegment = model.route.length - 2;
     for (let index = 0; index <= lastSegment; index += 1) {
+      if (skipPortStubs && (index === 0 || index === lastSegment)) continue;
       const [start, end] = [model.route[index], model.route[index + 1]];
       const horizontal = start[1] === end[1];
       for (const box of boxes) {
@@ -281,6 +285,47 @@ test('routes use exclusive channels, avoid unrelated boxes, and mark only geomet
   assert.ok(result.edges.some(({ bridges }) => bridges.length > 0));
   assert.ok(result.edges.every(({ junction, join_ids }) => junction === null && join_ids.length === 0));
   assertNoRouteEntersBox(result);
+});
+
+test('段をまたぐ線は端点カードの間の縦チャネルを降り、図の右端へ迂回しない', () => {
+  const chained = ['A', 'B', 'C'].flatMap((chain) => [0, 1, 2, 3].map((stage) => `${chain}${stage}`));
+  const loose = ['L0', 'L1', 'L2'];
+  const step = (chain) => [0, 1, 2].map((stage) => dependency(ref(`${chain}${stage}`), ref(`${chain}${stage + 1}`)));
+  const input = fixture([{ plan_key: 'plan', tasks: [...chained, ...loose]
+    .map((id, index) => ({ id, lane: `lane-${index % 3}` })) }], [
+    ...step('A'), ...step('B'), ...step('C'),
+    // 右向き・左向き・同一列の段跳びを1枚に同居させる。
+    dependency(ref('A0'), ref('C3')), dependency(ref('C0'), ref('A3')), dependency(ref('B0'), ref('B3')),
+  ]);
+  const result = layoutOf(input);
+  assertNoCollinearOverlap([...result.edges, ...result.connectors]);
+  assertNoRouteEntersBox(result, { skipPortStubs: true });
+
+  const geometryOf = (taskId) => result.nodes
+    .find(({ ref: nodeRef }) => nodeRef.task_id === taskId).geometry;
+  const rightmost = Math.max(...enclosingBoxes(result).map(({ x, width }) => x + width));
+  let acrossColumns = 0;
+  for (const [fromId, toId] of [['A0', 'C3'], ['C0', 'A3'], ['B0', 'B3']]) {
+    const skip = result.edges.find(({ from, to }) => from.task_id === fromId && to.task_id === toId);
+    const from = geometryOf(fromId);
+    const to = geometryOf(toId);
+    // 最初と最後の縦区間はカードに取り付くport stub。段をまたぐ降下はその間の1本。
+    const descents = skip.route.slice(0, -1)
+      .map((start, index) => ({ start, end: skip.route[index + 1], index }))
+      .filter(({ start, end, index }) => start[0] === end[0] && start[1] !== end[1]
+        && index !== 0 && index !== skip.route.length - 2);
+    assert.equal(descents.length, 1, `${fromId}→${toId} の段またぎ降下は1本`);
+    const x = descents[0].start[0];
+    if (from.x === to.x) {
+      assert.ok(x < from.x || x > from.x + from.width, `${fromId}→${toId} が自列のカードを貫く`);
+      continue;
+    }
+    acrossColumns += 1;
+    assert.ok(x > Math.min(from.x, to.x) + from.width && x < Math.max(from.x, to.x),
+      `${fromId}→${toId} の縦移動 x=${x} が端点カードの間に無い`);
+    assert.ok(x < rightmost, `${fromId}→${toId} が図の右端の外へ迂回している`);
+  }
+  assert.ok(acrossColumns >= 1);
 });
 
 test('stable median sweep reduces crossings versus task-ref naive order', () => {
