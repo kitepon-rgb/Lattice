@@ -126,3 +126,56 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 - [x] 創作宣言を入力契約へ足す（witness set v3・run_request v3）
 - [x] front endが創作境界を裏付けありとして判定する
 - [x] 実データで新規fileを含むplanの並列可否を出し、releaseまで通す
+
+---
+
+# 請求項の充足状況
+
+製品目標は特許請求の範囲12項の体現である（正本は`AGENTS.md`が指すPatent repo。請求項本文はここへ複製しない）。
+2026-07-27時点の実コード照合結果。
+
+| 項 | 状況 | 根拠 |
+|---:|---|---|
+| 1(a) 影響範囲の推定 | 形が違う | 製品は作業仕様から推定せず、witness setの**宣言**をsensorの構造観測で裏付ける。推定の主体が製品の外 |
+| 1(b) 変換後に並行配置 | **未実装** | 提案（`seam_candidate`）で止まる。提案surfaceはディスク上に存在せず、artifact自身が`hypothetical_new_surfaces`とラベルする |
+| 1(c) 並行実行制御 | 実装済み | `runtime-engine.mjs`が`capacity.executors`まで同時dispatchし、eventごとにready frontierを再評価 |
+| 2 AIへの入力と出力 | 未実装 | 製品コードにAI呼び出しが無い |
+| 3 構造グラフ | 物は在る | sensorのnode／edge知識グラフ。ただし項2従属 |
+| 4 読取り／書込みからの競合判定 | 実装済み | `runtime-front-end.mjs`のwrite×read/write交差 |
+| 5 競合時のリファクタリング | **未実装** | 切り方を決めて仮想検証するところまで。ソースは書き換えない |
+| 6 前後比較と再推定 | 半分 | 仮想再compileで残余conflict 0は確認する。実変換していないので外部挙動の前後比較は走らない |
+| 7 一方停止・他方commit・再開 | 未実装かつ現設計と衝突 | `runtime-engine.mjs`が`commit`を`FORBIDDEN_OPERATIONS`に入れている |
+| 8 双方停止・限定変換・双方再開 | 半分 | `seam_transform`／`intentional_serial`への振り分けは在る。限定変換の実施が無い |
+| 9 実変更観測による実行時競合検出 | 実装済み | `detectCheckpointFindings`が`scope_violation`と`observed_write_conflict`を返す |
+| 10 対象作業群だけ停止して再計画 | 実装済み | `computeAffectedClosure`＋`recompileNextEpochPlan` |
+| 11・12 | 1と同じ | |
+
+実装根拠として過去に挙げた`bounded-seam.mjs`は自分のtestからしか呼ばれず、`rc2-campaign.mjs`と
+`rc2-delivery-policy-transform.mjs`はどこからもimportされていない（`npm run check`の対象外）。
+実変換campaignはこの断線も含めて解消する。
+
+---
+
+# 実変換（請求項1(b)・5・6の閉ループ）
+
+工程状態の正本はLattice storeの`real-transform` plan。
+
+`seam_candidate`は「どこで切れば競合が消えるか」を、提案後ownershipでの仮想再compile（残余conflict 0）
+まで確かめて記録する。**足りないのは、その切り方を実際のソースへ適用する側である。**
+`bounded-seam.mjs`は隔離worktree、base_sha照合、scope drift検査、4ゲート検証（外部挙動同等性・
+focused test・sensor鮮度・重複解消）、本repo不変のassertまで持つが、`transform`と`verify`は
+注入引数であり、製品側が誰も渡していない。
+
+閉ループの受入条件は、変換後のソースから同じ宣言で再compileして残余conflictが0になり、
+かつ外部挙動が許容範囲内であることを**実測で**示すこととする。read-onlyの推薦で完了扱いにしない。
+
+## 工程
+
+- [ ] 実変換の受入契約とrc2断線の扱いを裁定する
+- [ ] seam_candidateからbounded seam candidateを導出する
+- [ ] 宣言anchorのsymbolを新surfaceへ移す変換器を実装する
+- [ ] 外部挙動同等性・focused test・再index・重複解消の検証器を実装する
+- [ ] 隔離worktreeで変換を実行する公開CLI面を足す
+- [ ] 採用した変換を本ツリーへ着地させ、再indexして残余conflict 0を実測する
+- [ ] accepted artifactをpredecessorにした新plan versionへ再コンパイルする
+- [ ] このrepoの実conflictで閉ループを1周させ、releaseまで通す
