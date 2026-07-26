@@ -1,0 +1,9 @@
+{
+  "evidence_id": "seam-proposal-query-builder",
+  "repo_id": "self",
+  "path": "src/seam-proposal-queries.mjs",
+  "git_blob_oid": "56077053ffe7096f694ee689fcac1ca823d6a299",
+  "content_digest": "268fd7839ccbef4a50e63fa2587a78ef7da49bb69a8e1bdc201b34a5aa6d0e86",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
