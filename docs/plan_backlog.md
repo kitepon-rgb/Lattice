@@ -136,19 +136,24 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 
 | 項 | 状況 | 根拠 |
 |---:|---|---|
-| 1(a) 影響範囲の推定 | 形が違う | 製品は作業仕様から推定せず、witness setの**宣言**をsensorの構造観測で裏付ける。推定の主体が製品の外 |
+| 1(a) 影響範囲の推定 | 入口が無いだけ | 項2と同じ。推定はAI操作者が行い、Latticeが仕様と解析情報を供給し出力を検証する。面が割れているため、推定の依頼と受領がLatticeの記録に残らない |
 | 1(b) 変換後に並行配置 | **未実装** | 提案（`seam_candidate`）で止まる。提案surfaceはディスク上に存在せず、artifact自身が`hypothetical_new_surfaces`とラベルする |
 | 1(c) 並行実行制御 | 実装済み | `runtime-engine.mjs`が`capacity.executors`まで同時dispatchし、eventごとにready frontierを再評価 |
-| 2 AIへの入力と出力 | 未実装 | 製品コードにAI呼び出しが無い |
+| 2 AIへの入力と出力 | **入口が無いだけ** | Latticeを操作するのはAIであり、ループは実在する——`todo status`が自然言語の`label`を返し、MCPの`lattice_sensor_explore`が解析情報を返し、AIが`owns`／`reads`／`writes`／`affected_tests`を出力し、Latticeがsensor再観測で検証する。欠けているのは面の統合で、解析情報はMCP面・仕様と出力schemaと検証はCLI面に割れている（`sensor/src/mcp/server-instructions.ts:88`が「witness契約の証拠はCLI面からのみ」と明記）。**推定を依頼した事実も受け取った事実も1つの面に存在しない** |
 | 3 構造グラフ | 物は在る | sensorのnode／edge知識グラフ。ただし項2従属 |
 | 4 読取り／書込みからの競合判定 | 実装済み | `runtime-front-end.mjs`のwrite×read/write交差 |
 | 5 競合時のリファクタリング | **未実装** | 切り方を決めて仮想検証するところまで。ソースは書き換えない |
 | 6 前後比較と再推定 | 半分 | 仮想再compileで残余conflict 0は確認する。実変換していないので外部挙動の前後比較は走らない |
-| 7 一方停止・他方commit・再開 | 未実装かつ現設計と衝突 | `runtime-engine.mjs`が`commit`を`FORBIDDEN_OPERATIONS`に入れている |
+| 7 一方停止・他方commit・再開 | **確定の手段だけが違う** | 停止と再開は実装済み。各TODOは隔離worktreeで走り、freeze後は影響閉包内だけhold、閉包外は`carry_over_witness`（`todo_input`／`boundary_manifest`／`validator`／`context_content`のdigest＋非重複証拠＋receipt binding）を実証できた場合だけ継続する。請求項が版管理commitで果たす「他方の確定」を、隔離worktree＋暗号学的witnessで果たしている。`commit`が`FORBIDDEN_OPERATIONS`なのは公開契約の「承認なしに外部effectを行わない」に由来するので、明示承認付きのcommit経路を足せば思想と衝突しない |
 | 8 双方停止・限定変換・双方再開 | 半分 | `seam_transform`／`intentional_serial`への振り分けは在る。限定変換の実施が無い |
 | 9 実変更観測による実行時競合検出 | 実装済み | `detectCheckpointFindings`が`scope_violation`と`observed_write_conflict`を返す |
 | 10 対象作業群だけ停止して再計画 | 実装済み | `computeAffectedClosure`＋`recompileNextEpochPlan` |
 | 11・12 | 1と同じ | |
+
+「AIが推定する」を製品内のAI呼び出しの有無で測るのは誤りである。Latticeの操作者はAIであり、
+請求項2が要求するのは装置がAI APIを叩くことではなく、仕様と解析情報をAIへ入力して変更影響範囲を
+出力させることである。したがって残る課題は「AIを組み込む」ではなく「推定を依頼し受け取る入口を
+1つの面にする」ことである。
 
 実装根拠として過去に挙げた`bounded-seam.mjs`は自分のtestからしか呼ばれず、`rc2-campaign.mjs`と
 `rc2-delivery-policy-transform.mjs`はどこからもimportされていない（`npm run check`の対象外）。
