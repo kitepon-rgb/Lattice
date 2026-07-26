@@ -1,0 +1,9 @@
+{
+  "evidence_id": "todo-independence-v3-schema",
+  "repo_id": "self",
+  "path": "docs/schemas/lattice.todo_independence.v3.schema.json",
+  "git_blob_oid": "7aa0df24eb72bb346373019b13bb34a2f7ba0e9d",
+  "content_digest": "353780ae28e86d60baacaa2d34b8a4b5736285a8521991688dec43590b16286c",
+  "media_type": "application/json",
+  "anchor_digest": null
+}
