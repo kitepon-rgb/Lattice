@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -125,16 +125,91 @@ test('記録があればHEAD一致でverified並列グループを返す（senso
   assert.deepEqual(projection.frontier.parallel_groups, [{ task_ids: ['T1', 'T2'] }]);
   assert.deepEqual(projection.frontier.unknown, []);
 
-  // HEADが進めばstaleへ落ち、verified独立を主張しなくなる。
+  // 宣言境界に触れないcommitでHEADが進んでも、観測は変わらないのでverified独立は維持する。
+  // coverageはsha水準の事実としてstaleを述べるが、taskは未検査へ落とさない。
   await writeFile(path.join(root, 'NEXT.md'), 'next\n');
   git(root, ['add', 'NEXT.md']);
-  git(root, ['commit', '--quiet', '-m', 'advance head']);
+  git(root, ['commit', '--quiet', '-m', 'advance head outside declared boundaries']);
 
-  const stale = parse(runCli(root, ['independence', '--json']).stdout);
-  assert.equal(stale.coverage, 'stale');
-  assert.deepEqual(stale.frontier.parallel_groups, []);
-  assert.deepEqual(stale.frontier.unknown.map(({ task_id: id }) => id), ['T1', 'T2']);
-  assert.equal(stale.frontier.unknown[0].unknowns[0].kind, 'record_stale');
+  const untouched = parse(runCli(root, ['independence', '--json']).stdout);
+  assert.equal(untouched.coverage, 'stale');
+  assert.equal(untouched.drift.base_reachable, true);
+  assert.equal(untouched.drift.changed_path_count, 1);
+  assert.deepEqual(untouched.drift.intersecting_task_ids, []);
+  assert.deepEqual(untouched.frontier.parallel_groups, [{ task_ids: ['T1', 'T2'] }]);
+  assert.deepEqual(untouched.frontier.unknown, []);
+
+  // 宣言境界に触れたcommitは、そのtaskだけを未検査へ落とす。
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src', 't1.mjs'), 'export const t1 = 1;\n');
+  git(root, ['add', 'src/t1.mjs']);
+  git(root, ['commit', '--quiet', '-m', 'touch declared boundary of T1']);
+
+  const touched = parse(runCli(root, ['independence', '--json']).stdout);
+  assert.equal(touched.coverage, 'stale');
+  assert.deepEqual(touched.drift.intersecting_task_ids, ['T1']);
+  assert.deepEqual(touched.frontier.unknown.map(({ task_id: id }) => id), ['T1']);
+  assert.equal(touched.frontier.unknown[0].unknowns[0].kind, 'record_stale');
+  // 触れていないT2は検証済みのまま残る。
+  assert.deepEqual(touched.frontier.parallel_groups, [{ task_ids: ['T2'] }]);
+});
+
+test('進行中ToDoとの競合をconflicts_with_activeとして返す', async (context) => {
+  const root = await workspace(context, { tasks: ['T1', 'T2'] });
+  const head = git(root, ['rev-parse', 'HEAD']);
+  const topologyDigest = parse(runCli(root, ['verify', '--json']).stdout)
+    .verified_members[0].topology_digest;
+  const artifact = {
+    schema: TODO_INDEPENDENCE_SCHEMA,
+    project_id: 'project-1',
+    plan_key: 'main',
+    plan_version: 'v1',
+    topology_digest: topologyDigest,
+    base_sha: head,
+    witness_set_digest: 'd'.repeat(64),
+    compiled_at: NOW,
+    task_ids: ['T1', 'T2'],
+    task_boundaries: [
+      { task_id: 'T1', paths: ['src/shared.mjs'] },
+      { task_id: 'T2', paths: ['src/shared.mjs'] },
+    ],
+    conflicts: [{ task_ids: ['T1', 'T2'], resource_id: 'own-path-shared', kind: 'path' }],
+    precedences: [],
+    unknowns: [],
+    wave_plan: {
+      waves: [{ task_ids: ['T1'] }, { task_ids: ['T2'] }],
+      minimum_feasible_waves: 2,
+    },
+    outcome: 'compiled',
+    result_digest: '',
+  };
+  artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
+  await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
+
+  // T1を着手すると、readyはT2だけになりペアの片端がactiveになる。
+  const env = {
+    LATTICE_TODO_ACTOR_HOST: 'host-1',
+    LATTICE_TODO_ACTOR_SESSION: 'session-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+  };
+  const started = spawnSync(process.execPath, [
+    CLI, 'todo', 'start', '--plan', 'main', '--task', 'T1', '--override-reason', 'fixture',
+  ], { cwd: root, encoding: 'utf8', env: { ...process.env, ...env, NO_COLOR: '1' } });
+  assert.equal(started.status, 0, started.stderr);
+
+  const projection = parse(runCli(root, ['independence', '--json']).stdout);
+  assert.deepEqual(projection.active_task_ids, ['T1']);
+  assert.deepEqual(projection.uncovered_active_task_ids, []);
+  // v1はここで黙って捨てていた。着手時に最も危ない組み合わせを落とさない。
+  assert.deepEqual(projection.frontier.conflicts_with_active, [{
+    ready_task_id: 'T2',
+    active_task_id: 'T1',
+    type: 'conflict',
+    detail: 'own-path-shared',
+    kind: 'path',
+    severability: 'code_seam',
+  }]);
+  assert.deepEqual(projection.frontier.serialize_pairs, []);
 });
 
 test('readyが無くても記録があればplan指定でverifiedを返す', async (context) => {

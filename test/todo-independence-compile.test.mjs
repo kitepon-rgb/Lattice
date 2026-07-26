@@ -279,6 +279,59 @@ test('conflictのある組は同じ並列グループへ入らない', () => {
   assert.equal(projected.frontier.serialize_pairs[0].type, 'conflict');
 });
 
+test('宣言境界に触れないdiffではverified独立を維持する', () => {
+  const artifact = compiledArtifact();
+  // artifactの宣言境界はsrc/alpha.mjsとsrc/beta.mjs（affected queryのexpect pathを含む）。
+  const untouched = projectIndependenceFrontier({
+    artifact, readyTaskIds: ['tip-001', 'tip-002'], plan: plan(),
+    currentBaseSha: OTHER_SHA, changedPaths: ['docs/notes.md'],
+  });
+  assert.equal(untouched.coverage, 'stale');
+  assert.deepEqual(untouched.drift.intersecting_task_ids, []);
+  assert.deepEqual(untouched.frontier.parallel_groups, [{ task_ids: ['tip-001', 'tip-002'] }]);
+
+  const touched = projectIndependenceFrontier({
+    artifact, readyTaskIds: ['tip-001', 'tip-002'], plan: plan(),
+    currentBaseSha: OTHER_SHA, changedPaths: ['src/alpha.mjs'],
+  });
+  assert.deepEqual(touched.drift.intersecting_task_ids, ['tip-001']);
+  assert.deepEqual(touched.frontier.parallel_groups, [{ task_ids: ['tip-002'] }]);
+  assert.deepEqual(touched.frontier.unknown.map(({ task_id: id }) => id), ['tip-001']);
+});
+
+test('diffを確定できなければ全taskを未検査へ落とす', () => {
+  // base到達不能（rebase等）。「変更なし」と同じ扱いにすると、根拠なくverifiedを主張してしまう。
+  const projected = projectIndependenceFrontier({
+    artifact: compiledArtifact(), readyTaskIds: ['tip-001', 'tip-002'], plan: plan(),
+    currentBaseSha: OTHER_SHA, changedPaths: null,
+  });
+  assert.equal(projected.coverage, 'stale');
+  assert.equal(projected.drift.base_reachable, false);
+  assert.deepEqual(projected.drift.intersecting_task_ids, ['tip-001', 'tip-002']);
+  assert.deepEqual(projected.frontier.parallel_groups, []);
+});
+
+test('planが進んだ記録はtask単位に救わない', () => {
+  const projected = projectIndependenceFrontier({
+    artifact: compiledArtifact(), readyTaskIds: ['tip-001', 'tip-002'],
+    plan: plan({ plan_version: 'v2' }), currentBaseSha: BASE_SHA, changedPaths: [],
+  });
+  assert.equal(projected.coverage, 'superseded');
+  // topology自体が別物なので、diffが宣言境界に触れていなくても維持できない。
+  assert.equal(projected.drift, null);
+  assert.deepEqual(projected.frontier.parallel_groups, []);
+});
+
+test('記録が有効でないactiveは競合なしでなく判定不能として示す', () => {
+  const projected = projectIndependenceFrontier({
+    artifact: compiledArtifact(), readyTaskIds: ['tip-002'], activeTaskIds: ['tip-001'],
+    plan: plan(), currentBaseSha: OTHER_SHA, changedPaths: ['src/alpha.mjs'],
+  });
+  assert.deepEqual(projected.active_task_ids, ['tip-001']);
+  assert.deepEqual(projected.uncovered_active_task_ids, ['tip-001']);
+  assert.deepEqual(projected.frontier.conflicts_with_active, []);
+});
+
 test('宣言のないready taskは、宣言済みが検証済みでも未検査のまま残る', () => {
   const projected = projectIndependenceFrontier({
     artifact: compiledArtifact(), readyTaskIds: ['tip-001', 'tip-002', 'tip-003'],

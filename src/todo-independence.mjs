@@ -2,6 +2,7 @@ import { digestTodoArtifact, isTodoIdentifier, todoSelfDigest } from './todo-con
 import {
   TODO_INDEPENDENCE_SCHEMA,
   isGitSha,
+  severabilityOfConflictKind,
   synthesizeWitnessRunRequest,
   validateTodoIndependence,
   validateTodoWitnessSet,
@@ -234,27 +235,58 @@ function pairKey(left, right) {
 }
 
 /**
- * ready frontierを、記録済みartifactだけを根拠に
- * 「検証済み独立」「直列化すべき組」「未検査」へ分けて投影する。
+ * 変更pathが宣言境界に触れたかを判定する。
  *
- * sensorは引かない。artifactが無い／planが進んだ／HEADが動いた場合はcoverageで示し、
- * 記録が現在のコード状態を指していない間はverified独立を主張しない。
+ * 完全一致か、宣言側が`dir/`形式のprefixで変更pathを覆う場合に交差とみなす
+ * （runtime diff observerのscope判定と同一規則）。
  */
-export function projectIndependenceFrontier({ artifact, readyTaskIds, plan, currentBaseSha }) {
+function boundaryTouches(declaredPaths, changedPath) {
+  return declaredPaths.some((declared) => declared === changedPath
+    || (declared.endsWith('/') && changedPath.startsWith(declared)));
+}
+
+/**
+ * ready frontierを、記録済みartifactだけを根拠に
+ * 「検証済み独立」「直列化すべき組」「進行中との競合」「未検査」へ分けて投影する。
+ *
+ * sensorは引かない。artifactが無い／planが進んだ場合はcoverageで示す。
+ * HEADが動いた場合は`changedPaths`と宣言境界の交差を見て、交差したtaskだけを未検査へ落とす
+ * （ADR 0128 Decision 4）。宣言境界に触れないdiffは観測を変えないため、
+ * 交差しなかったtaskのverified独立は維持する。
+ *
+ * @param {object} options
+ * @param {object|null} options.artifact 記録済みindependence artifact（v2）
+ * @param {string[]} options.readyTaskIds 同一plan内のready task
+ * @param {string[]} options.activeTaskIds 同一plan内のin-progress task
+ * @param {object} options.plan plan_versionとtopology_digestを持つactive plan
+ * @param {string} options.currentBaseSha 現在のHEAD
+ * @param {string[]|null} options.changedPaths base_sha..HEADの変更path。
+ *   nullはdiffを確定できなかったこと（base到達不能）を意味し、全taskを交差扱いにする。
+ */
+export function projectIndependenceFrontier({
+  artifact, readyTaskIds, activeTaskIds = [], plan, currentBaseSha, changedPaths = null,
+}) {
   const ready = [...readyTaskIds].sort(compareText);
+  const active = [...activeTaskIds].sort(compareText);
   if (!isGitSha(currentBaseSha)) fail('INDEPENDENCE_BASE_INVALID', 'current_base_sha_invalid');
+
+  const emptyFrontier = () => ({
+    parallel_groups: [],
+    serialize_pairs: [],
+    conflicts_with_active: [],
+    unknown: ready.map((taskId) => ({
+      task_id: taskId,
+      unknowns: [{ kind: 'witness_missing', ref: 'no_independence_record' }],
+    })),
+  });
 
   if (artifact === null) {
     return {
       coverage: 'missing',
-      frontier: {
-        parallel_groups: [],
-        serialize_pairs: [],
-        unknown: ready.map((taskId) => ({
-          task_id: taskId,
-          unknowns: [{ kind: 'witness_missing', ref: 'no_independence_record' }],
-        })),
-      },
+      drift: null,
+      active_task_ids: active,
+      uncovered_active_task_ids: active,
+      frontier: emptyFrontier(),
     };
   }
 
@@ -264,6 +296,32 @@ export function projectIndependenceFrontier({ artifact, readyTaskIds, plan, curr
     : artifact.base_sha === currentBaseSha ? 'verified' : 'stale';
 
   const covered = new Set(artifact.task_ids);
+  const boundariesByTask = new Map(artifact.task_boundaries
+    .map((entry) => [entry.task_id, entry.paths]));
+
+  // 宣言境界とdiffの交差。coverage==='stale'のときだけ意味を持つ。
+  let drift = null;
+  const intersecting = new Set();
+  if (coverage === 'stale') {
+    const baseReachable = changedPaths !== null;
+    if (!baseReachable) {
+      // 差分を確定できないなら、記録が今も有効だと主張する根拠が無い。
+      for (const taskId of artifact.task_ids) intersecting.add(taskId);
+    } else {
+      for (const taskId of artifact.task_ids) {
+        const declared = boundariesByTask.get(taskId) ?? [];
+        if (changedPaths.some((changed) => boundaryTouches(declared, changed))) {
+          intersecting.add(taskId);
+        }
+      }
+    }
+    drift = {
+      base_reachable: baseReachable,
+      changed_path_count: baseReachable ? changedPaths.length : 0,
+      intersecting_task_ids: [...intersecting].sort(compareText),
+    };
+  }
+
   const unknownByTask = new Map();
   const noteUnknown = (taskId, kind, ref) => {
     if (!unknownByTask.has(taskId)) unknownByTask.set(taskId, []);
@@ -275,34 +333,69 @@ export function projectIndependenceFrontier({ artifact, readyTaskIds, plan, curr
   for (const entry of artifact.unknowns) {
     if (ready.includes(entry.task_id)) noteUnknown(entry.task_id, entry.kind, entry.ref);
   }
-  // 記録が現在の状態を指していない間は、記録済みtaskも検証済みとして扱わない。
-  if (coverage !== 'verified') {
+  // planが進んだ記録はtask単位に救えない（topology自体が別物）。
+  // HEADだけが進んだ場合は、宣言境界に触れたtaskだけを落とす。
+  if (coverage === 'superseded') {
     for (const taskId of ready) {
-      if (covered.has(taskId)) {
-        noteUnknown(taskId, coverage === 'stale' ? 'record_stale' : 'record_superseded',
-          artifact.base_sha);
+      if (covered.has(taskId)) noteUnknown(taskId, 'record_superseded', artifact.base_sha);
+    }
+  } else if (coverage === 'stale') {
+    for (const taskId of ready) {
+      if (covered.has(taskId) && intersecting.has(taskId)) {
+        noteUnknown(taskId, 'record_stale', artifact.base_sha);
       }
     }
   }
 
+  // 記録が今のtaskへ有効か。無効な相手との競合は「競合なし」でなく「判定不能」であり、
+  // conflicts_with_activeではなくuncovered_activeとして示す。
+  const usable = (taskId) => covered.has(taskId)
+    && !(coverage === 'superseded')
+    && !(coverage === 'stale' && intersecting.has(taskId));
+  const uncoveredActive = active.filter((taskId) => !usable(taskId));
+
+  const readySet = new Set(ready);
+  const activeSet = new Set(active);
   const serializePairs = [];
+  const activeConflicts = [];
   const blocked = new Set();
+
+  const notePair = (left, right, type, detail, kind) => {
+    const severability = type === 'conflict' ? severabilityOfConflictKind(kind) : 'serial';
+    const pairKind = type === 'conflict' ? kind : null;
+    if (readySet.has(left) && readySet.has(right)) {
+      const pair = [left, right].sort(compareText);
+      serializePairs.push({
+        task_ids: pair, type, detail, kind: pairKind, severability,
+      });
+      blocked.add(pairKey(left, right));
+      return;
+    }
+    // 片端がactiveなら着手時の警告面へ回す。v1はここで黙って捨てていた。
+    const readyId = readySet.has(left) ? left : readySet.has(right) ? right : null;
+    const activeId = activeSet.has(left) ? left : activeSet.has(right) ? right : null;
+    if (readyId === null || activeId === null || readyId === activeId) return;
+    if (!usable(readyId) || !usable(activeId)) return;
+    activeConflicts.push({
+      ready_task_id: readyId, active_task_id: activeId, type, detail,
+      kind: pairKind, severability,
+    });
+  };
+
   for (const conflict of artifact.conflicts) {
-    const [left, right] = conflict.task_ids;
-    if (!ready.includes(left) || !ready.includes(right)) continue;
-    serializePairs.push({ task_ids: [left, right], type: 'conflict', detail: conflict.resource_id });
-    blocked.add(pairKey(left, right));
+    notePair(conflict.task_ids[0], conflict.task_ids[1], 'conflict', conflict.resource_id,
+      conflict.kind);
   }
   for (const precedence of artifact.precedences) {
-    const { from_task_id: from, to_task_id: to } = precedence;
-    if (!ready.includes(from) || !ready.includes(to)) continue;
-    const pair = [from, to].sort(compareText);
-    serializePairs.push({ task_ids: pair, type: 'precedence', detail: precedence.reason });
-    blocked.add(pairKey(from, to));
+    notePair(precedence.from_task_id, precedence.to_task_id, 'precedence', precedence.reason, null);
   }
   serializePairs.sort((left, right) => compareText(
     `${left.task_ids[0]}\0${left.task_ids[1]}\0${left.type}\0${left.detail}`,
     `${right.task_ids[0]}\0${right.task_ids[1]}\0${right.type}\0${right.detail}`,
+  ));
+  activeConflicts.sort((left, right) => compareText(
+    `${left.ready_task_id}\0${left.active_task_id}\0${left.type}\0${left.detail}`,
+    `${right.ready_task_id}\0${right.active_task_id}\0${right.type}\0${right.detail}`,
   ));
 
   // 未検査を並列グループへ入れない。verdictの不在を独立の証拠にできるのは、
@@ -316,10 +409,14 @@ export function projectIndependenceFrontier({ artifact, readyTaskIds, plan, curr
 
   return {
     coverage,
+    drift,
+    active_task_ids: active,
+    uncovered_active_task_ids: uncoveredActive,
     frontier: {
       parallel_groups: groups.map((task_ids) => ({ task_ids: [...task_ids].sort(compareText) }))
         .sort((left, right) => compareText(left.task_ids[0], right.task_ids[0])),
       serialize_pairs: serializePairs,
+      conflicts_with_active: activeConflicts,
       unknown: [...unknownByTask.entries()]
         .map(([taskId, unknowns]) => ({ task_id: taskId, unknowns }))
         .sort((left, right) => compareText(left.task_id, right.task_id)),

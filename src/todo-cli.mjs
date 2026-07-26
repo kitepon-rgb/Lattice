@@ -535,6 +535,33 @@ function currentHeadSha(repoRoot) {
   return head;
 }
 
+/**
+ * `base_sha..HEAD`で変わったrepo相対pathを返す。
+ *
+ * baseがgit historyから到達できない場合（rebase・shallow等）はnullを返す。
+ * 「変更なし」の空配列と「差分を確定できない」を同じ顔にしない——前者は記録の有効性を
+ * 支える事実だが、後者は支えない（ADR 0128 Decision 4）。
+ */
+function changedPathsSince(repoRoot, baseSha) {
+  try {
+    execFileSync('git', ['cat-file', '-e', `${baseSha}^{commit}`], {
+      cwd: repoRoot, stdio: ['ignore', 'ignore', 'ignore'],
+    });
+  } catch {
+    return null;
+  }
+  let output;
+  try {
+    output = execFileSync('git', ['diff', '--name-only', '--no-renames', `${baseSha}..HEAD`], {
+      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null;
+  }
+  return [...new Set(output.split('\n').map((line) => line.trim()).filter((line) => line.length > 0))]
+    .sort();
+}
+
 function requireCleanWorktree(repoRoot) {
   let porcelain;
   try {
@@ -619,12 +646,19 @@ async function independence({ repoRoot, requestedPlanKey }) {
     ? undefined : store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
   const artifact = member === undefined
     ? null : await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+  const active = projectTodoStatus(store).active_set
+    .filter((task) => task.plan_key === planKey);
+  // HEADが進んでいる時だけdiffを取る。一致していれば宣言境界を見るまでもない。
+  const changedPaths = artifact !== null && artifact.base_sha !== currentBaseSha
+    ? changedPathsSince(repoRoot, artifact.base_sha) : null;
 
   const projected = projectIndependenceFrontier({
     artifact,
     readyTaskIds: ready.map(({ task_id: taskId }) => taskId),
+    activeTaskIds: active.map(({ task_id: taskId }) => taskId),
     plan: member?.plan ?? { plan_version: null, topology_digest: null },
     currentBaseSha,
+    changedPaths,
   });
 
   const result = {
@@ -636,6 +670,9 @@ async function independence({ repoRoot, requestedPlanKey }) {
     current_base_sha: currentBaseSha,
     plan_version: artifact?.plan_version ?? null,
     topology_digest: artifact?.topology_digest ?? null,
+    active_task_ids: projected.active_task_ids,
+    uncovered_active_task_ids: projected.uncovered_active_task_ids,
+    drift: projected.drift,
     frontier: projected.frontier,
     result_digest: '',
   };

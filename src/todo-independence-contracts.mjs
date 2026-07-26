@@ -14,7 +14,7 @@ import {
 
 export const TODO_WITNESS_SET_SCHEMA = 'lattice.todo_witness_set.v1';
 export const TODO_INDEPENDENCE_SCHEMA = 'lattice.todo_independence.v2';
-export const TODO_INDEPENDENCE_PROJECTION_SCHEMA = 'lattice.todo_independence_projection.v1';
+export const TODO_INDEPENDENCE_PROJECTION_SCHEMA = 'lattice.todo_independence_projection.v2';
 
 /** boundary compileが一度に扱えるToDo数（runtime front-endのMAX_COLLECTIONと同じ閉じ方）。 */
 export const TODO_INDEPENDENCE_TASK_LIMIT = 256;
@@ -251,12 +251,53 @@ function groupEntry(value) {
     && value.task_ids.every(isTodoIdentifier) && strictlySorted(value.task_ids);
 }
 
+function pairKindAndSeverability(value) {
+  // conflictはkindを持ちseverabilityがそこから導かれる。precedenceは順序制約であって
+  // resource起因ではないためkindを持たず、常にserialになる。
+  if (value.type === 'conflict') {
+    return TODO_INDEPENDENCE_CONFLICT_KINDS.includes(value.kind)
+      && value.severability === severabilityOfConflictKind(value.kind);
+  }
+  return value.kind === null && value.severability === 'serial';
+}
+
 function serializeEntry(value) {
-  return exactRecord(value, ['task_ids', 'type', 'detail'])
+  return exactRecord(value, ['task_ids', 'type', 'detail', 'kind', 'severability'])
     && Array.isArray(value.task_ids) && value.task_ids.length === 2
     && value.task_ids.every(isTodoIdentifier)
     && compareText(value.task_ids[0], value.task_ids[1]) < 0
-    && ['conflict', 'precedence'].includes(value.type) && boundedText(value.detail);
+    && ['conflict', 'precedence'].includes(value.type) && boundedText(value.detail)
+    && pairKindAndSeverability(value);
+}
+
+/**
+ * 着手候補と進行中ToDoの競合。
+ *
+ * v1は両端がready集合のペアだけを採っており、片端がactiveのペアを黙って捨てていた。
+ * 着手する瞬間に最も危ないのはこの組み合わせなので、独立した面として持つ（ADR 0128 Decision 3）。
+ */
+function activeConflictEntry(value) {
+  return exactRecord(value, [
+    'ready_task_id', 'active_task_id', 'type', 'detail', 'kind', 'severability',
+  ]) && isTodoIdentifier(value.ready_task_id) && isTodoIdentifier(value.active_task_id)
+    && value.ready_task_id !== value.active_task_id
+    && ['conflict', 'precedence'].includes(value.type) && boundedText(value.detail)
+    && pairKindAndSeverability(value);
+}
+
+/**
+ * 鮮度の内訳。`coverage`がsha水準の事実を述べるのに対し、こちらは
+ * 「そのdiffが宣言境界に触れたか」というtask単位の事実を述べる（ADR 0128 Decision 4）。
+ */
+function driftEntry(value) {
+  if (value === null) return true;
+  return exactRecord(value, ['base_reachable', 'changed_path_count', 'intersecting_task_ids'])
+    && typeof value.base_reachable === 'boolean'
+    && isNonNegativeSafeInteger(value.changed_path_count)
+    && Array.isArray(value.intersecting_task_ids)
+    && value.intersecting_task_ids.length <= TODO_INDEPENDENCE_TASK_LIMIT
+    && value.intersecting_task_ids.every(isTodoIdentifier)
+    && strictlySorted(value.intersecting_task_ids);
 }
 
 function unknownTaskEntry(value) {
@@ -269,16 +310,18 @@ function unknownTaskEntry(value) {
 }
 
 /**
- * `lattice.todo_independence_projection.v1`。
+ * `lattice.todo_independence_projection.v2`。
  *
  * ready frontierを「検証済み並列グループ」「直列化すべき組」「未検査」へ分けた読み出し面。
+ * v2は進行中ToDoとの競合（`conflicts_with_active`）と鮮度の内訳（`drift`）を加える。
  * `todo_status_result.v4`と`dispatch_frontier`は変更せず、加算の別面として持つ（ADR 0124の規律）。
  */
 export function validateTodoIndependenceProjection(value) {
   try {
     if (!exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'coverage', 'compiled_base_sha', 'current_base_sha',
-      'plan_version', 'topology_digest', 'frontier', 'result_digest',
+      'plan_version', 'topology_digest', 'active_task_ids', 'uncovered_active_task_ids',
+      'drift', 'frontier', 'result_digest',
     ])) return false;
     if (value.schema !== TODO_INDEPENDENCE_PROJECTION_SCHEMA) return false;
     if (!isTodoIdentifier(value.project_id)) return false;
@@ -292,12 +335,29 @@ export function validateTodoIndependenceProjection(value) {
     if (value.coverage === 'missing'
       && (value.compiled_base_sha !== null || value.topology_digest !== null)) return false;
     if (value.coverage !== 'missing' && value.compiled_base_sha === null) return false;
-    if (!exactRecord(value.frontier, ['parallel_groups', 'serialize_pairs', 'unknown'])) return false;
+    for (const key of ['active_task_ids', 'uncovered_active_task_ids']) {
+      if (!Array.isArray(value[key]) || value[key].length > TODO_INDEPENDENCE_TASK_LIMIT
+        || !value[key].every(isTodoIdentifier) || !strictlySorted(value[key])) return false;
+    }
+    // 宣言のないactiveは考慮済みactiveの部分集合でなければならない。
+    const activeSet = new Set(value.active_task_ids);
+    if (!value.uncovered_active_task_ids.every((taskId) => activeSet.has(taskId))) return false;
+    if (!driftEntry(value.drift)) return false;
+    // driftはstale時の内訳。それ以外で語ると鮮度の事実を二重に主張することになる。
+    if (value.coverage !== 'stale' && value.drift !== null) return false;
+    if (!exactRecord(value.frontier, [
+      'parallel_groups', 'serialize_pairs', 'conflicts_with_active', 'unknown',
+    ])) return false;
     if (!boundedList(value.frontier.parallel_groups, groupEntry, TODO_INDEPENDENCE_TASK_LIMIT)
       || !strictlySorted(value.frontier.parallel_groups, (entry) => entry.task_ids[0])) return false;
     if (!boundedList(value.frontier.serialize_pairs, serializeEntry)
       || !strictlySorted(value.frontier.serialize_pairs, (entry) => (
         `${entry.task_ids[0]}\0${entry.task_ids[1]}\0${entry.type}\0${entry.detail}`))) return false;
+    if (!boundedList(value.frontier.conflicts_with_active, activeConflictEntry)
+      || !strictlySorted(value.frontier.conflicts_with_active, (entry) => (
+        `${entry.ready_task_id}\0${entry.active_task_id}\0${entry.type}\0${entry.detail}`))) {
+      return false;
+    }
     if (!boundedList(value.frontier.unknown, unknownTaskEntry, TODO_INDEPENDENCE_TASK_LIMIT)
       || !strictlySorted(value.frontier.unknown, (entry) => entry.task_id)) return false;
     return isTodoDigest(value.result_digest)
