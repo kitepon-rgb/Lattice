@@ -20,6 +20,7 @@ import {
   validateTodoPlan,
   validateTodoSnapshot,
 } from './todo-contracts.mjs';
+import { validateTodoIndependence } from './todo-independence-contracts.mjs';
 import { sha256Bytes, verifyLinearHashChain } from './hash-chain.mjs';
 import {
   parseTodoSourceRef,
@@ -3531,5 +3532,83 @@ export async function createSuccessorTodoPlan(options = {}) {
     store.manifest.manifest_digest = todoSelfDigest(store.manifest, 'manifest_digest');
     await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(store.manifest));
     return { plan, genesis, snapshot };
+  });
+}
+
+const INDEPENDENCE_ARTIFACT_NAME = 'independence.json';
+const INDEPENDENCE_ARTIFACT_BYTES = 1_048_576;
+
+/**
+ * planと同じversionディレクトリに置く並置artifactのref（ADR 0127 Decision 1）。
+ * manifestへは登録しない。plan versionが変われば旧artifactは自然に非アクティブになる。
+ */
+export function todoIndependenceRef(planKey, planVersion) {
+  return `${STORE_ROOT_REF}/plans/${planKey}/${planVersion}/${INDEPENDENCE_ARTIFACT_NAME}`;
+}
+
+function activeMember(store, planKey) {
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (!member) fail('STORE_INCONSISTENT', 'plan_not_active', { plan_key: planKey });
+  return member;
+}
+
+/**
+ * independence artifactを、active planへbindしてから書く。
+ *
+ * plan versionとtopology digestが現在のactive planと一致しない記録は、書いた瞬間から
+ * 別topologyについての主張になるため受理しない。planの正本（journal・snapshot・manifest）
+ * には触れない。
+ */
+export async function writeTodoIndependenceArtifact(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const { artifact } = options;
+  if (!validateTodoIndependence(artifact)) {
+    fail('INDEPENDENCE_ARTIFACT_INVALID', 'independence_artifact_invalid');
+  }
+  return withLock(repoRoot, async () => {
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
+    if (store.project_id !== artifact.project_id) {
+      fail('INDEPENDENCE_BINDING_MISMATCH', 'project_id_mismatch', {
+        expected: store.project_id, actual: artifact.project_id,
+      });
+    }
+    const member = activeMember(store, artifact.plan_key);
+    if (member.plan.plan_version !== artifact.plan_version) {
+      fail('INDEPENDENCE_BINDING_MISMATCH', 'plan_version_mismatch', {
+        expected: member.plan.plan_version, actual: artifact.plan_version,
+      });
+    }
+    if (member.plan.topology_digest !== artifact.topology_digest) {
+      fail('INDEPENDENCE_BINDING_MISMATCH', 'topology_digest_mismatch', {
+        expected: member.plan.topology_digest, actual: artifact.topology_digest,
+      });
+    }
+    const planTaskIds = new Set(member.plan.tasks.map(({ task_id: taskId }) => taskId));
+    const absent = artifact.task_ids.filter((taskId) => !planTaskIds.has(taskId));
+    if (absent.length > 0) {
+      fail('INDEPENDENCE_BINDING_MISMATCH', 'task_absent_from_plan', { task_ids: absent });
+    }
+    const ref = todoIndependenceRef(artifact.plan_key, artifact.plan_version);
+    await atomicWrite(path.resolve(repoRoot, ref), canonicalLine(artifact));
+    return { ref, artifact };
+  });
+}
+
+/**
+ * active planに紐づくindependence artifactを読む。
+ *
+ * 記録が無ければnull（「まだ判定していない」）を返す。壊れている・非canonical・
+ * 契約違反はnullへ丸めずtyped failにする。無い状態と読めない状態を同じ顔にしない。
+ */
+export async function readTodoIndependenceArtifact(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const store = options.store ?? await readTodoStore({ repoRoot, now: options.now });
+  const member = activeMember(store, options.planKey);
+  const ref = todoIndependenceRef(member.plan.plan_key, member.plan.plan_version);
+  return readArtifact(repoRoot, ref, {
+    code: 'INDEPENDENCE_ARTIFACT_INVALID',
+    maxBytes: INDEPENDENCE_ARTIFACT_BYTES,
+    validate: validateTodoIndependence,
+    missing: true,
   });
 }
