@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.13.0 — 2026-07-26
+
+依存線の不在は「順序制約が申告されていない」ことしか意味せず、書き込み境界が干渉しないことは
+意味しない。この2つを区別できず、工程表の横並びと`dispatch_frontier`が無申告をそのまま並列可と
+提示していた。並列作業可能性を判定・記録・伝達する面を新設した。
+
+**この版から0.12線のpatch運用を離れminorを使う。** `lattice.todo_mutation_result`をv1からv2へ
+置換しており、6つのmutationコマンド全部のwireが変わる。v1を読む既存hostは更新が必要になる。
+0.12線では公開result schemaの置換をpatchで出していたが（`todo_gantt_artifact` v1→v2、
+`bridge_cli_result` v1→v2）、今回は新しい公開CLI面3つと合わせて変更量が大きく、
+patchのまま出すと利用側が破壊的変更に気づけない。
+
+- **並列可能性の判定と記録**を追加した（[ADR 0127](docs/adr/0127-todo-independence-projection.md)）。
+  `lattice todo independence compile --plan <key> --input <witness_set>`が、ToDoごとの宣言境界
+  （`lattice.todo_witness_set.v1`）と実sensor観測から並列可否を判定し、plan versionディレクトリへ
+  `lattice.todo_independence.v2`として記録する。`lattice todo independence [--plan <key>] --json`は
+  ready frontierを検証済み並列グループ・要直列の組・未検査へ分けて返し、**参照時にsensorを引かない**。
+  判定は`(plan_version, topology_digest, base_sha)`へ束縛し、dirty worktreeでは記録しない。
+  記録はwitness setから再生成できるhost localの投影として扱い、git追跡するのは入力の宣言だけとする。
+- **conflictの切断可能性**を分類するようにした（[ADR 0128](docs/adr/0128-todo-independence-operational-wiring.md)）。
+  symbol／path起因の衝突は`code_seam`（コードの分割で並列化しうる）、state／effect共有は`serial`
+  （分割では切り離せない）。判定の元になるresource kindはcompile時にartifactへ焼き込む——
+  宣言由来のstate resource idは任意文字列で、後から復元できないため。
+- **着手時に助言を返す**ようにした。`lattice todo start`の結果が`lattice.todo_mutation_result.v2`となり、
+  `advisory`で進行中ToDoとの競合・切断可能性・未検査の内訳を機械可読で返す。従来のgateは
+  active taskが1件も無い初回にしか発火せず、**すでに誰かが走っている状態での着手**——最も競合
+  しやすい場面——が素通りだった。助言であって拒否ではなく、ready frontier dispatch契約は変えない。
+- **記録の鮮度をtask単位の事実として扱う**ようにした。従来は宣言境界と無関係なcommitでも全taskの
+  記録が一斉に失効し、運用が進むほど「常に未検査」へ漸近していた。`base_sha..HEAD`のdiffと宣言境界を
+  突き合わせ、交差したtaskだけを未検査へ落とす。diffを確定できない場合（rebase等）は全taskを落とす。
+- **plan改訂後の宣言移行**に`lattice todo independence witness migrate --plan <key>`を追加した。
+  revisionのtask migrationでtask_idを写す。写像だけを担い、宣言内容が改訂後も妥当かは主張しない。
+- **工程表で独立性を示す**ようにした（[ADR 0129](docs/adr/0129-gantt-independence-presentation.md)）。
+  カード内のバッジ（∥ 独立検証済／⛓ 要直列／? 未検査）と右ペインの内訳。記録があるplanでは
+  「ready frontierは全件同時dispatchが既定」という無条件の断定をやめる。カード寸法と配線には
+  触れないのでADR 0068の非交差gateへ影響しない。conflictを線で描くのは配線モデルに定義が無いため
+  行わない。renderer版数を`v17`へ上げた。live配信の更新検知へ独立性を混ぜ、再compileが画面へ届くようにした。
+- **読み方を製品自身が配る**ようにした（[ADR 0130](docs/adr/0130-lattice-describes-its-own-parallelism-surface.md)）。
+  状況から`{code, message, next_action}`を引く案内の単一正本を持ち、advisory・投影・CLI helpが
+  そこから引く。MCP server instructionsへ「依存線の不在は独立の証拠ではない／判定はCLI面で読める」
+  節を足した。MCPへtoolは足していない——案内は構造を変えないが、toolは構造を変えるため。
+- 吸収前CodeGraphの残骸（`.codegraph/`）を掃除した。索引は`.lattice/sensor/`へ移っている。
+
 ## 0.12.34 — 2026-07-26
 
 - 0.12.31〜0.12.33で入れた配線変更を文書へ追従させた。依存線がカードとカードの間を通ること、真下へ
