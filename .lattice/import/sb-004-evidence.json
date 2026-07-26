@@ -1,0 +1,9 @@
+{
+  "evidence_id": "declared-partition-cut-binding",
+  "repo_id": "self",
+  "path": "src/seam-proposal.mjs",
+  "git_blob_oid": "42e0d022ee929594e6a1b12940cbf3b4c5f25125",
+  "content_digest": "bc979da9888b3315f1400a8c75c663584a0b002fad5342115cfe505a66e8c0af",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
