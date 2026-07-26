@@ -444,6 +444,77 @@ test('witness migrateは宣言もrevisionも無い状態をfail closedにする'
   assert.equal(parse(absentPlan.stderr).detail.reason, 'plan_not_active');
 });
 
+test('案内はadvisoryと投影の両方へ同じ文言で載る', async (context) => {
+  const root = await workspace(context, { tasks: ['T1'] });
+
+  // 記録が無い状態: 「競合が無い」ではなく「まだ判定していない」と、判定する手順を返す。
+  const projection = parse(runCli(root, ['independence', '--json']).stdout);
+  assert.equal(projection.guidance.code, 'independence_unrecorded');
+  assert.equal(projection.guidance.next_action, 'declare_witness_set_then_compile');
+  assert.match(projection.guidance.message, /まだ判定していない/u);
+
+  const actorEnv = {
+    LATTICE_TODO_ACTOR_HOST: 'host-1',
+    LATTICE_TODO_ACTOR_SESSION: 'session-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+  };
+  const started = spawnSync(process.execPath, [
+    CLI, 'todo', 'start', '--plan', 'main', '--task', 'T1',
+  ], { cwd: root, encoding: 'utf8', env: { ...process.env, ...actorEnv, NO_COLOR: '1' } });
+  assert.equal(started.status, 0, started.stderr);
+
+  // 読みに来た人と着手する人へ、同じ状況について同じ文言を返す（文言の正本が1つ）。
+  assert.deepEqual(parse(started.stdout).advisory.guidance, projection.guidance);
+});
+
+test('進行中との競合では案内が切断可能性まで述べる', async (context) => {
+  const root = await workspace(context, { tasks: ['T1', 'T2'] });
+  const head = git(root, ['rev-parse', 'HEAD']);
+  const artifact = {
+    schema: TODO_INDEPENDENCE_SCHEMA,
+    project_id: 'project-1',
+    plan_key: 'main',
+    plan_version: 'v1',
+    topology_digest: parse(runCli(root, ['verify', '--json']).stdout)
+      .verified_members[0].topology_digest,
+    base_sha: head,
+    witness_set_digest: 'd'.repeat(64),
+    compiled_at: NOW,
+    task_ids: ['T1', 'T2'],
+    task_boundaries: [
+      { task_id: 'T1', paths: ['src/shared.mjs'] },
+      { task_id: 'T2', paths: ['src/shared.mjs'] },
+    ],
+    conflicts: [{ task_ids: ['T1', 'T2'], resource_id: 'own-path-shared', kind: 'path' }],
+    precedences: [],
+    unknowns: [],
+    wave_plan: {
+      waves: [{ task_ids: ['T1'] }, { task_ids: ['T2'] }],
+      minimum_feasible_waves: 2,
+    },
+    outcome: 'compiled',
+    result_digest: '',
+  };
+  artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
+  await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
+
+  const actorEnv = {
+    LATTICE_TODO_ACTOR_HOST: 'host-1',
+    LATTICE_TODO_ACTOR_SESSION: 'session-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+  };
+  const start = (taskId) => spawnSync(process.execPath, [
+    CLI, 'todo', 'start', '--plan', 'main', '--task', taskId, '--override-reason', 'fixture',
+  ], { cwd: root, encoding: 'utf8', env: { ...process.env, ...actorEnv, NO_COLOR: '1' } });
+
+  assert.equal(start('T1').status, 0);
+  const advisory = parse(start('T2').stdout).advisory;
+  assert.equal(advisory.guidance.code, 'independence_conflict_with_active');
+  assert.equal(advisory.guidance.next_action, 'serialize_or_split_boundary');
+  // pathの衝突なので、分割で並列化しうることまで述べる。
+  assert.match(advisory.guidance.message, /refactorで並列化しうる/u);
+});
+
 test('live head digestは独立性の変化を拾う', async (context) => {
   const root = await workspace(context);
   const store = await readTodoStore({ repoRoot: root });

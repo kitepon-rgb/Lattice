@@ -13,6 +13,7 @@ import {
   validateTodoWitnessSet,
 } from '../src/todo-independence-contracts.mjs';
 import { validateRunRequest } from '../src/runtime-contracts.mjs';
+import { todoIndependenceGuidance } from '../src/todo-independence-guidance.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 
 // ADR 0127。依存線の不在と境界の非干渉は別概念であり、未検査（unknown）と
@@ -95,6 +96,7 @@ function projection(overrides = {}) {
     active_task_ids: [],
     uncovered_active_task_ids: [],
     drift: null,
+    guidance: todoIndependenceGuidance('independence_verified'),
     frontier: {
       parallel_groups: [], serialize_pairs: [], conflicts_with_active: [], unknown: [],
     },

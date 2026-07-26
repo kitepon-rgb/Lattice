@@ -67,6 +67,7 @@ import {
   migrateWitnessSetTaskIds,
   projectIndependenceFrontier,
 } from './todo-independence.mjs';
+import { selectIndependenceGuidance } from './todo-independence-guidance.mjs';
 import {
   parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
   validateTodoRevision, validateTodoRevisionSet,
@@ -395,6 +396,9 @@ async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
       uncovered_active_task_ids: projection.active_set
         .filter((task) => task.plan_key === planKey).map(({ task_id: id }) => id),
       self_unknowns: [{ kind: 'witness_missing', ref: 'no_independence_record' }],
+      guidance: selectIndependenceGuidance({
+        coverage: 'missing', taskDeclared: false, taskStale: false,
+      }),
     };
   }
   // 記録があるなら鮮度の判定にHEADが要る。ここで読めないのは判定不能であり、
@@ -415,21 +419,32 @@ async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
   });
   const selfUnknowns = projected.frontier.unknown
     .find((entry) => entry.task_id === taskId)?.unknowns ?? [];
+  const conflictsWithActive = projected.frontier.conflicts_with_active
+    .filter((entry) => entry.ready_task_id === taskId)
+    .map((entry) => ({
+      active_task_id: entry.active_task_id,
+      type: entry.type,
+      detail: entry.detail,
+      kind: entry.kind,
+      severability: entry.severability,
+    }));
+  const readyConflict = projected.frontier.serialize_pairs
+    .find((pair) => pair.task_ids.includes(taskId)) ?? null;
+  const declared = !selfUnknowns.some(({ kind }) => kind === 'witness_missing');
   return {
     coverage: projected.coverage,
     drift_intersecting: projected.drift === null
       ? null : projected.drift.intersecting_task_ids.includes(taskId),
-    conflicts_with_active: projected.frontier.conflicts_with_active
-      .filter((entry) => entry.ready_task_id === taskId)
-      .map((entry) => ({
-        active_task_id: entry.active_task_id,
-        type: entry.type,
-        detail: entry.detail,
-        kind: entry.kind,
-        severability: entry.severability,
-      })),
+    conflicts_with_active: conflictsWithActive,
     uncovered_active_task_ids: projected.uncovered_active_task_ids,
     self_unknowns: selfUnknowns,
+    guidance: selectIndependenceGuidance({
+      coverage: projected.coverage,
+      taskDeclared: declared,
+      taskStale: selfUnknowns.some(({ kind }) => kind === 'record_stale'),
+      conflictWithActive: conflictsWithActive[0]?.severability ?? null,
+      conflictBetweenReady: readyConflict?.severability ?? null,
+    }),
   };
 }
 
@@ -791,6 +806,16 @@ async function independence({ repoRoot, requestedPlanKey }) {
     active_task_ids: projected.active_task_ids,
     uncovered_active_task_ids: projected.uncovered_active_task_ids,
     drift: projected.drift,
+    // planを読みに来た人にも、着手する人と同じ文言を返す（ADR 0130 Decision 1）。
+    guidance: selectIndependenceGuidance({
+      coverage: projected.coverage,
+      taskDeclared: projected.frontier.unknown
+        .every(({ unknowns }) => !unknowns.some(({ kind }) => kind === 'witness_missing')),
+      taskStale: projected.frontier.unknown
+        .some(({ unknowns }) => unknowns.some(({ kind }) => kind === 'record_stale')),
+      conflictWithActive: projected.frontier.conflicts_with_active[0]?.severability ?? null,
+      conflictBetweenReady: projected.frontier.serialize_pairs[0]?.severability ?? null,
+    }),
     frontier: projected.frontier,
     result_digest: '',
   };

@@ -11,6 +11,7 @@ import {
   explainRunRequest,
   selfDigest as runtimeSelfDigest,
 } from './runtime-contracts.mjs';
+import { TODO_INDEPENDENCE_GUIDANCE_CODES } from './todo-independence-guidance.mjs';
 
 export const TODO_WITNESS_SET_SCHEMA = 'lattice.todo_witness_set.v1';
 export const TODO_INDEPENDENCE_SCHEMA = 'lattice.todo_independence.v2';
@@ -286,6 +287,16 @@ function activeConflictEntry(value) {
 }
 
 /**
+ * 案内。単一正本のcatalogが返した形をそのまま載せる（ADR 0130 Decision 1・2）。
+ * 面ごとに文言を組み立て直さないため、ここではshapeだけを検査する。
+ */
+function guidanceEntry(value) {
+  return exactRecord(value, ['code', 'message', 'next_action'])
+    && TODO_INDEPENDENCE_GUIDANCE_CODES.includes(value.code)
+    && boundedText(value.message) && isTodoIdentifier(value.next_action);
+}
+
+/**
  * 鮮度の内訳。`coverage`がsha水準の事実を述べるのに対し、こちらは
  * 「そのdiffが宣言境界に触れたか」というtask単位の事実を述べる（ADR 0128 Decision 4）。
  */
@@ -321,7 +332,7 @@ export function validateTodoIndependenceProjection(value) {
     if (!exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'coverage', 'compiled_base_sha', 'current_base_sha',
       'plan_version', 'topology_digest', 'active_task_ids', 'uncovered_active_task_ids',
-      'drift', 'frontier', 'result_digest',
+      'drift', 'guidance', 'frontier', 'result_digest',
     ])) return false;
     if (value.schema !== TODO_INDEPENDENCE_PROJECTION_SCHEMA) return false;
     if (!isTodoIdentifier(value.project_id)) return false;
@@ -343,6 +354,7 @@ export function validateTodoIndependenceProjection(value) {
     const activeSet = new Set(value.active_task_ids);
     if (!value.uncovered_active_task_ids.every((taskId) => activeSet.has(taskId))) return false;
     if (!driftEntry(value.drift)) return false;
+    if (!guidanceEntry(value.guidance)) return false;
     // driftはstale時の内訳。それ以外で語ると鮮度の事実を二重に主張することになる。
     if (value.coverage !== 'stale' && value.drift !== null) return false;
     if (!exactRecord(value.frontier, [
