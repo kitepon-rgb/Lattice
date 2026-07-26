@@ -62,7 +62,7 @@ OQ2は保留を維持しつつ発火条件を「`multiple_incomparable_candidate
 工程の状態・依存・完了証拠はLattice storeの`backlog` planが正本。以下は対応表である。
 
 - [x] plan_lattice_ganttの残checkbox 8件を実態と照合して裁定する
-- [ ] 実変換campaignを起票する
+- [x] 実変換campaignを起票する
 - [x] seam evidence receiptの複数path解決を裁定する
 - [x] bridge daemonのdescriptor読み取りへretryを入れる
 - [x] ADR 0132 Open questions 2〜4を再裁定する
