@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **判定が途中で止まった記録を、無関係な工程の「検証済み並列」として読まなくなった**。
+  compileが`BOUNDARY_UNKNOWN`で止まるとpairwise verdictが1つも作られず記録の`conflicts`が
+  空になるが、投影はその空をそのまま「ぶつかる記録が無い＝独立」と読んでいた。実測では、
+  同じfileを書く2 ToDoが正しく直列と出ていた状態へ**新規fileを作るToDoを1件足すだけで**、
+  競合が消えて2 ToDoが検証済み並列として提示され、案内も`independence_verified`を返していた。
+  **判定が失われるだけでなく反転する**——不在を証拠へ読み替える、最も危険な向きの誤りである。
+  記録全体がverdictを持たない時は、covered readyを全件`plan_verdicts_absent`として未検査へ落とす。
+- 案内へ`independence_verdicts_absent`を足した。「干渉しない」ではなく「まだ判定していない」を
+  述べ、次の一歩に`resolve_unknowns_then_recompile`を返す。
+- ADR 0132のOpen questions 2〜4を再裁定した（[ADR 0135](docs/adr/0135-readjudicating-seam-proposal-open-questions.md)）。
+  複数候補のv2は保留を維持しつつ発火条件を明文化、`verification` digestは同型問題を所有する
+  実変換campaignへ移し、新規fileだけを作るToDoは判定対象にすると決めた——ただし自動導出でなく
+  宣言とする。観測から機械的に創作境界と読むと、pathのtypoが「必ず止まるエラー」から
+  「黙って通る創作境界」へ変わるためである。
+
 ## 0.18.0 — 2026-07-27
 
 - **同名symbolの曖昧さをreceiptへ残し、宣言した資源で絞れる**ようにした
