@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.19.0 — 2026-07-27
 
 - **判定が途中で止まった記録を、無関係な工程の「検証済み並列」として読まなくなった**。
   compileが`BOUNDARY_UNKNOWN`で止まるとpairwise verdictが1つも作られず記録の`conflicts`が
