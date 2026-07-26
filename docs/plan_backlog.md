@@ -49,10 +49,10 @@ OQ4は新module・新doc・新test追加という実開発ToDoのかなりの割
 
 工程の状態・依存・完了証拠はLattice storeの`backlog` planが正本。以下は対応表である。
 
-- [ ] plan_lattice_ganttの残checkbox 8件を実態と照合して裁定する
+- [x] plan_lattice_ganttの残checkbox 8件を実態と照合して裁定する
 - [ ] 実変換campaignを起票する
 - [ ] seam evidence receiptの複数path解決を裁定する
-- [ ] bridge daemonのdescriptor読み取りへretryを入れる
+- [x] bridge daemonのdescriptor読み取りへretryを入れる
 - [ ] ADR 0132 Open questions 2〜4を再裁定する
 
 ## 導線
@@ -85,5 +85,5 @@ ADR 0130が禁じたものそのものである。
 
 ## 工程
 
-- [ ] 宣言手順の単一正本へconcern_anchorsを載せる
-- [ ] 束縛失敗のunknownへguidance codeとnext_actionを与える
+- [x] 宣言手順の単一正本へconcern_anchorsを載せる
+- [x] 束縛失敗のunknownへguidance codeとnext_actionを与える
