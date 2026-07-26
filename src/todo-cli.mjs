@@ -809,6 +809,7 @@ async function independence({ repoRoot, requestedPlanKey }) {
     // planを読みに来た人にも、着手する人と同じ文言を返す（ADR 0130 Decision 1）。
     guidance: selectIndependenceGuidance({
       coverage: projected.coverage,
+      readyCount: ready.length,
       taskDeclared: projected.frontier.unknown
         .every(({ unknowns }) => !unknowns.some(({ kind }) => kind === 'witness_missing')),
       taskStale: projected.frontier.unknown

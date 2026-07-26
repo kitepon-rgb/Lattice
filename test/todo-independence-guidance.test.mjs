@@ -82,6 +82,31 @@ test('重なった状況からは最も行動を要する1つを選ぶ', () => {
   assert.equal(superseded.code, 'independence_superseded');
 });
 
+test('着手候補が無いとき、空虚に検証済みへ倒れない', () => {
+  // ready集合が空だとunknown listも空になり、`.every()`が空虚に真、`.some()`が偽になる。
+  // readyCountを見ないと「記録が古いのに検証済み」という嘘を返す（0.13.0のsmokeで実際に出た）。
+  const noReady = selectIndependenceGuidance({
+    coverage: 'stale', taskDeclared: true, taskStale: false, readyCount: 0,
+  });
+  assert.equal(noReady.code, 'independence_no_ready_frontier');
+  assert.equal(noReady.next_action, 'none');
+
+  // 記録が無い場合も同じ——述べる対象が無いことのほうが precise。
+  assert.equal(selectIndependenceGuidance({
+    coverage: 'missing', taskDeclared: false, taskStale: false, readyCount: 0,
+  }).code, 'independence_no_ready_frontier');
+
+  // readyがあれば従来どおり状況を述べる。
+  assert.equal(selectIndependenceGuidance({
+    coverage: 'verified', taskDeclared: true, taskStale: false, readyCount: 2,
+  }).code, 'independence_verified');
+
+  // readyCount未指定（着手時advisory）は対象taskが確定しているので影響を受けない。
+  assert.equal(selectIndependenceGuidance({
+    coverage: 'stale', taskDeclared: true, taskStale: true,
+  }).code, 'independence_stale_for_task');
+});
+
 test('作業手順は宣言からcompileを経て読むまでを順に述べる', () => {
   assert.equal(TODO_INDEPENDENCE_WORKFLOW.length, 4);
   assert.match(TODO_INDEPENDENCE_WORKFLOW[0], /witness/u);

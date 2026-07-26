@@ -9,6 +9,7 @@
  */
 
 export const TODO_INDEPENDENCE_GUIDANCE_CODES = Object.freeze([
+  'independence_no_ready_frontier',
   'independence_unrecorded',
   'independence_task_undeclared',
   'independence_superseded',
@@ -19,6 +20,10 @@ export const TODO_INDEPENDENCE_GUIDANCE_CODES = Object.freeze([
 ]);
 
 const CATALOG = Object.freeze({
+  independence_no_ready_frontier: Object.freeze({
+    message: '着手候補が無いため、並列可否を述べる対象が無い。',
+    next_action: 'none',
+  }),
   independence_unrecorded: Object.freeze({
     message: 'このplanの並列可否はまだ判定していない。競合が無いのではなく、記録が存在しない。',
     next_action: 'declare_witness_set_then_compile',
@@ -77,7 +82,11 @@ export function todoIndependenceGuidance(code, { severability = null } = {}) {
  */
 export function selectIndependenceGuidance({
   coverage, taskDeclared, taskStale, conflictWithActive = null, conflictBetweenReady = null,
+  readyCount = null,
 }) {
+  // 着手候補が無いなら述べる対象が無い。ここを通さないと、readyが空のとき
+  // 「未検査taskが1件も無い」が空虚に真になり、記録が古くても検証済みへ倒れる。
+  if (readyCount === 0) return todoIndependenceGuidance('independence_no_ready_frontier');
   if (conflictWithActive !== null) {
     return todoIndependenceGuidance('independence_conflict_with_active', {
       severability: conflictWithActive,
