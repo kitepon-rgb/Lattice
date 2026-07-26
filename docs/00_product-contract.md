@@ -154,6 +154,10 @@ placeholderを代わりに置かず、生きたToDoとその直接の前提ToDo�
 右ペインの全工程一覧、各ToDoの詳細から辿れ、詳細の前提・後続は除外前のグラフから表示する。総数・進捗・
 最長依存鎖・ready frontierは除外前の全工程で数える。件数バッジは展開の入口を兼ね、押すと同梱した全工程の
 図へ切り替わる。`--scope all`は何も除かない。表示規約は[ADR 0066](adr/0066-gantt-live-scope-drops-finished-work.md)が正。
+依存線はカードとカードの間の列境界を通り、図の右端の外へ迂回せず、カードの矩形の内部を通らない。真下へ
+繋ぐ線は折れずに一直線で降りる。依存edgeを持たないToDoのブロックは接続済みToDoの上へ置き、接続済み
+ToDoが段の最下行になる。配線規約は[ADR 0068](adr/0068-gantt-routes-run-between-the-columns.md)が正
+（ADR 0066 Decision 7を置き換える）。
 右ペインはToDo storeを見せる面であり、元plan Markdown本文を再表示しない。全工程一覧は、動いているplanを
 最終活動の新しい順で上、全ToDoが図から外れた完走planを古い順で下へ並べ、plan内は登録順を保つ。
 右ペインの規約は[ADR 0067](adr/0067-right-pane-shows-the-store-and-orders-by-activity.md)が正。
@@ -164,6 +168,10 @@ live result v2は`project_id`、`/projects/<project_id>/`のproject固有URL、�
 各projectのforeground sessionは独立portで同時起動でき、project間でHTML、SSE、store stateを共有しない。
 共有dashboardのactive project判定はrecent session activityまたはstoreの非空`active_set`だけを根拠にする。
 activity TTLを越えてもactive runがあるprojectを一覧から除外せず、active run終了かつTTL期限切れで除外する。
+dashboard daemonは起動時に読み込んだ版数をhealthで名乗り、installされた版と食い違うdaemonは新版へ
+置き換える。publishとinstallを終えた版が、古いdaemonの生存を理由に配信面へ届かないままになることを
+許さない。置き換えの待ち時間は固定秒数で打ち切らず、spawnした子が生きている間は待ち、子の死で即座に
+`DASHBOARD_DAEMON_UNAVAILABLE`を返す。
 静的生成時はHTMLと`<output_ref>.status.json` descriptorを発行する。`todo gantt status [--out <ref>]`は
 現在の決定的renderとdescriptor／HTML digestを照合し、`current / stale / missing`を返す。
 片側欠落、non-canonical descriptor、digest不一致、project不一致は`GANTT_ARTIFACT_INVALID`として失敗し、
