@@ -131,7 +131,7 @@ witness setは`concern_anchors`を任意で持てる。これは係争資源の�
 `all_ready_parallel_by_default`は変更せず、independenceはhostがsubsetを選ぶ根拠を与える別面とする。
 
 切断可能と分類されたconflictについて、`todo seam-proposal compile --plan <key>`が独立性記録と実sensorから
-`lattice.seam_proposal.v1`を生成し、`todo seam-proposal [--plan <key>] --json`がsensorを引かずに
+`lattice.seam_proposal.v2`を生成し、`todo seam-proposal [--plan <key>] --json`がsensorを引かずに
 `lattice.seam_proposal_projection.v1`として投影する（ADR 0132）。提案の単位はconflict pairではなく
 conflict componentとし、`seam_candidate`／`intentional_serial`／`unknown_requires_evidence`のsum typeで
 全conflictを覆う。提案が持つのは切断の手順ではなく変更前後のsurfaceとその所有者であり、
