@@ -64,14 +64,14 @@ compiler」へ進める工程群。実変換（隔離worktreeでの実行）と�
 
 工程の状態・依存・完了証拠はLattice storeの`seam-proposal` planが正本。以下は対応表である。
 
-- [ ] conflict artifactへexact targetを復元する
-- [ ] seam proposal artifactの契約とschemaを定義する
-- [ ] conflict targetからsensor query setを決定的に構成する
-- [ ] cut候補を列挙し仮想ownershipの再compileで選別する
-- [ ] read-onlyのCLI入口から提案を投影する
-- [ ] 工程表（Gantt）へ提案を表示する
-- [ ] このrepoの実conflictで提案を出し裁定用サマリを作る
-- [ ] 不変DecisionをADRへ記録し公開契約の記述を実装へ揃える
+- [x] conflict artifactへexact targetを復元する
+- [x] seam proposal artifactの契約とschemaを定義する
+- [x] conflict targetからsensor query setを決定的に構成する
+- [x] cut候補を列挙し仮想ownershipの再compileで選別する
+- [x] read-onlyのCLI入口から提案を投影する
+- [x] 工程表（Gantt）へ提案を表示する
+- [x] このrepoの実conflictで提案を出し裁定用サマリを作る
+- [x] 不変DecisionをADRへ記録し公開契約の記述を実装へ揃える
 
 ## 導線
 

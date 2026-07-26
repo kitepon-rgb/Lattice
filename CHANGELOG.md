@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.16.0 — 2026-07-27
 
 - **係争資源の中で自分が触るsymbolをToDoごとに宣言できる**ようにした
   （`lattice.todo_witness_set.v2`の`concern_anchors`、[ADR 0133](docs/adr/0133-concern-anchor-binding.md)）。
