@@ -24,8 +24,38 @@ export const SEAM_PROPOSAL_GUIDANCE_CODES = Object.freeze([
   'seam_proposal_unrecorded',
   'seam_proposal_superseded',
   'seam_proposal_stale',
+  'seam_proposal_binding_overlap',
+  'seam_proposal_binding_outside_resource',
+  'seam_proposal_binding_symbol_unresolved',
+  'seam_proposal_binding_resource_unresolved',
+  'seam_proposal_binding_ambiguous',
+  'seam_proposal_binding_missing',
   'seam_proposal_verified',
 ]);
+
+/**
+ * 束縛失敗のunknown種別から案内codeを引く表。並びは優先順で、先頭ほど次の一歩が具体的である。
+ *
+ * 宣言が壊れている状況を、宣言が無い状況より上に置く。壊れている方は直す対象が
+ * 一意に決まるのに対し、無い方は何をどう宣言するかから決めることになるからである。
+ */
+const SEAM_PROPOSAL_BINDING_GUIDANCE = Object.freeze([
+  Object.freeze(['concern_anchor_overlap', 'seam_proposal_binding_overlap']),
+  Object.freeze(['concern_anchor_outside_resource', 'seam_proposal_binding_outside_resource']),
+  Object.freeze(['concern_anchor_unresolved', 'seam_proposal_binding_symbol_unresolved']),
+  Object.freeze(['concern_anchor_resource_unresolved', 'seam_proposal_binding_resource_unresolved']),
+  Object.freeze(['semantic_owner_binding_ambiguous', 'seam_proposal_binding_ambiguous']),
+  Object.freeze(['semantic_owner_binding_missing', 'seam_proposal_binding_missing']),
+]);
+
+/**
+ * 束縛の案内へ共通で添える、記録が更新される条件。
+ *
+ * concern_anchorsはwitness setにあり、seam提案はindependence記録のwitness_set_digestと
+ * 一致する宣言しか読まない。宣言を直しただけでは提案は変わらないので、そこまで述べないと
+ * 「直したのに同じunknownが出る」で止まる。
+ */
+const BINDING_RECOMPILE_HINT = '宣言はwitness setにあり、independence compileとseam-proposal compileを通し直すまで提案へ写らない。';
 
 const CATALOG = Object.freeze({
   independence_no_ready_frontier: Object.freeze({
@@ -75,6 +105,30 @@ const CATALOG = Object.freeze({
   seam_proposal_stale: Object.freeze({
     message: 'seam提案の生成後にHEADが進み、記録時点の構造証拠は現在のcodeを指していない。',
     next_action: 'compile_seam_proposal',
+  }),
+  seam_proposal_binding_overlap: Object.freeze({
+    message: `同じ資源について、複数のToDoが同じsymbolを自分の担当として宣言している。どちら側へ切るか決まらないため、切断候補を束縛できない。${BINDING_RECOMPILE_HINT}`,
+    next_action: 'split_overlapping_concern_anchors_then_recompile',
+  }),
+  seam_proposal_binding_outside_resource: Object.freeze({
+    message: `concern_anchorsが挙げたsymbolが、withinで指した資源の外にある。その資源の分割を説明しないので束縛へ使えない。${BINDING_RECOMPILE_HINT}`,
+    next_action: 'correct_concern_anchors_then_recompile',
+  }),
+  seam_proposal_binding_symbol_unresolved: Object.freeze({
+    message: `concern_anchorsが挙げたsymbolを、sensorが同名同pathで解決できなかった。近い別symbolへは寄せないため、束縛は成立していない。${BINDING_RECOMPILE_HINT}`,
+    next_action: 'correct_concern_anchors_then_recompile',
+  }),
+  seam_proposal_binding_resource_unresolved: Object.freeze({
+    message: `concern_anchorsのwithinが指す資源をsensorで解決できなかった。宣言がどの資源についてのものか確定しない。${BINDING_RECOMPILE_HINT}`,
+    next_action: 'correct_concern_anchors_then_recompile',
+  }),
+  seam_proposal_binding_ambiguous: Object.freeze({
+    message: `宣言したsymbolが切断候補の複数側へ当たるため、どのToDoがどちらを所有するか一意に決まらない。${BINDING_RECOMPILE_HINT}`,
+    next_action: 'narrow_concern_anchors_then_recompile',
+  }),
+  seam_proposal_binding_missing: Object.freeze({
+    message: `係争資源の中でどのToDoが何を触るかが宣言されていないため、切断候補を所有者へ束縛できない。依存線でも呼び出し辺でも所有は決まらない。${BINDING_RECOMPILE_HINT}`,
+    next_action: 'declare_concern_anchors_then_recompile',
   }),
   seam_proposal_verified: Object.freeze({
     message: 'seam提案の記録は現在のplan、並列可否記録、HEADと一致している。',
@@ -135,13 +189,25 @@ export function selectIndependenceGuidance({
   return todoIndependenceGuidance('independence_verified');
 }
 
-export function selectSeamProposalGuidance({ coverage }) {
-  const code = coverage === 'missing' ? 'seam_proposal_unrecorded'
-    : coverage === 'superseded' ? 'seam_proposal_superseded'
-      : coverage === 'stale' ? 'seam_proposal_stale'
-        : coverage === 'verified' ? 'seam_proposal_verified' : null;
-  if (code === null) throw new TypeError(`unknown seam proposal coverage: ${coverage}`);
-  return todoIndependenceGuidance(code);
+/**
+ * seam提案の状況から案内codeを引く。投影の生成側と契約の検査側が同じ規則を読むための正本。
+ *
+ * 鮮度（coverage）を束縛失敗より先に見る。記録が古い・別topologyについてのものである時、
+ * そこに載っているunknownは現在のcodeについての事実ではないため、先に再compileが要る。
+ * 記録が現在と一致している時だけ、束縛失敗が「今直せる状況」になる。
+ */
+export function seamProposalGuidanceCode({ coverage, unknownKinds = [] }) {
+  if (coverage === 'missing') return 'seam_proposal_unrecorded';
+  if (coverage === 'superseded') return 'seam_proposal_superseded';
+  if (coverage === 'stale') return 'seam_proposal_stale';
+  if (coverage !== 'verified') throw new TypeError(`unknown seam proposal coverage: ${coverage}`);
+  const kinds = new Set(unknownKinds);
+  const binding = SEAM_PROPOSAL_BINDING_GUIDANCE.find(([kind]) => kinds.has(kind));
+  return binding === undefined ? 'seam_proposal_verified' : binding[1];
+}
+
+export function selectSeamProposalGuidance({ coverage, unknownKinds = [] }) {
+  return todoIndependenceGuidance(seamProposalGuidanceCode({ coverage, unknownKinds }));
 }
 
 /**

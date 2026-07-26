@@ -15,7 +15,10 @@ import {
   isGitSha,
   severabilityOfConflictKind,
 } from './todo-independence-contracts.mjs';
-import { SEAM_PROPOSAL_GUIDANCE_CODES } from './todo-independence-guidance.mjs';
+import {
+  SEAM_PROPOSAL_GUIDANCE_CODES,
+  seamProposalGuidanceCode,
+} from './todo-independence-guidance.mjs';
 
 export const SEAM_PROPOSAL_SCHEMA = 'lattice.seam_proposal.v1';
 export const SEAM_PROPOSAL_PROJECTION_SCHEMA = 'lattice.seam_proposal_projection.v1';
@@ -309,19 +312,21 @@ export function validateSeamProposal(value) {
   }
 }
 
-const PROJECTION_GUIDANCE_BY_COVERAGE = Object.freeze({
-  missing: 'seam_proposal_unrecorded',
-  stale: 'seam_proposal_stale',
-  superseded: 'seam_proposal_superseded',
-  verified: 'seam_proposal_verified',
-});
-
-function projectionGuidance(value, coverage) {
-  return exactRecord(value, ['code', 'message', 'next_action'])
-    && SEAM_PROPOSAL_GUIDANCE_CODES.includes(value.code)
-    && value.code === PROJECTION_GUIDANCE_BY_COVERAGE[coverage]
-    && boundedText(value.message)
-    && isTodoIdentifier(value.next_action);
+/**
+ * 案内は、鮮度と載っているunknownから一意に決まる。生成側の文言をそのまま載せる規約なので
+ * shapeだけを見ると、投影が状況と噛み合わない案内を載せても通ってしまう。codeは規則正本へ
+ * 引き直して照合する（ADR 0130 Decision 1・2）。
+ */
+function projectionGuidance(value, coverage, components) {
+  if (!exactRecord(value, ['code', 'message', 'next_action'])
+    || !SEAM_PROPOSAL_GUIDANCE_CODES.includes(value.code)
+    || !boundedText(value.message)
+    || !isTodoIdentifier(value.next_action)) return false;
+  const unknownKinds = Array.isArray(components)
+    ? components.flatMap((component) => (Array.isArray(component?.unknowns)
+      ? component.unknowns.map((unknown) => unknown?.kind) : []))
+    : [];
+  return value.code === seamProposalGuidanceCode({ coverage, unknownKinds });
 }
 
 function projectionComponent(value) {
@@ -383,7 +388,7 @@ export function validateSeamProposalProjection(value) {
       || !isTodoIdentifier(value.plan_key)
       || !TODO_INDEPENDENCE_COVERAGE.includes(value.coverage)
       || !isGitSha(value.current_base_sha)
-      || !projectionGuidance(value.guidance, value.coverage)
+      || !projectionGuidance(value.guidance, value.coverage, value.components)
       || !isTodoDigest(value.result_digest)) return false;
 
     if (value.coverage === 'missing') {

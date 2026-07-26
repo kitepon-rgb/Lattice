@@ -273,16 +273,58 @@ test('projection validatorはshape違反・coverage矛盾・digest不一致を�
     assert.equal(validateSeamProposalProjection(digestMismatch), false);
   });
 
-test('seam proposalの全coverageはguidance単一正本から説明と次の一歩を得る', () => {
-  const coverageByCode = new Map([
-    ['seam_proposal_unrecorded', 'missing'],
-    ['seam_proposal_superseded', 'superseded'],
-    ['seam_proposal_stale', 'stale'],
-    ['seam_proposal_verified', 'verified'],
+test('projection validatorは載っているunknownと噛み合わない案内を拒否する',
+  async (context) => {
+    const root = await workspace(context);
+    await recordedFixture(root);
+    const projection = parse(run(root, [
+      'todo', 'seam-proposal', '--plan', 'main', '--json',
+    ]).stdout);
+    assert.equal(projection.coverage, 'verified');
+    assert.ok(projection.components.some(({ unknowns }) => unknowns.length > 0),
+      'fixtureに束縛できなかったcomponentが無い');
+
+    // shapeは正しく、codeもenumにある。噛み合っていないのは状況との対応だけ。
+    const mismatched = structuredClone(projection);
+    mismatched.guidance = selectSeamProposalGuidance({ coverage: 'verified' });
+    mismatched.result_digest = todoSelfDigest(mismatched, 'result_digest');
+    assert.equal(mismatched.guidance.code, 'seam_proposal_verified');
+    assert.equal(validateSeamProposalProjection(mismatched), false);
+
+    // 生成側が載せた案内はそのまま通る。
+    assert.equal(validateSeamProposalProjection(projection), true);
+  });
+
+test('seam proposalの全codeはguidance単一正本から説明と次の一歩を得る', () => {
+  // coverage（記録の鮮度）から出るcodeと、束縛失敗のunknownから出るcodeの2系統がある。
+  const situationByCode = new Map([
+    ['seam_proposal_unrecorded', { coverage: 'missing' }],
+    ['seam_proposal_superseded', { coverage: 'superseded' }],
+    ['seam_proposal_stale', { coverage: 'stale' }],
+    ['seam_proposal_binding_overlap', {
+      coverage: 'verified', unknownKinds: ['concern_anchor_overlap'],
+    }],
+    ['seam_proposal_binding_outside_resource', {
+      coverage: 'verified', unknownKinds: ['concern_anchor_outside_resource'],
+    }],
+    ['seam_proposal_binding_symbol_unresolved', {
+      coverage: 'verified', unknownKinds: ['concern_anchor_unresolved'],
+    }],
+    ['seam_proposal_binding_resource_unresolved', {
+      coverage: 'verified', unknownKinds: ['concern_anchor_resource_unresolved'],
+    }],
+    ['seam_proposal_binding_ambiguous', {
+      coverage: 'verified', unknownKinds: ['semantic_owner_binding_ambiguous'],
+    }],
+    ['seam_proposal_binding_missing', {
+      coverage: 'verified', unknownKinds: ['semantic_owner_binding_missing'],
+    }],
+    ['seam_proposal_verified', { coverage: 'verified' }],
   ]);
-  assert.deepEqual([...coverageByCode.keys()], [...SEAM_PROPOSAL_GUIDANCE_CODES]);
-  for (const [code, coverage] of coverageByCode) {
-    const guidance = selectSeamProposalGuidance({ coverage });
+  // 到達できないcodeを増やさない。codeを足したら、それが出る状況もここへ書く。
+  assert.deepEqual([...situationByCode.keys()], [...SEAM_PROPOSAL_GUIDANCE_CODES]);
+  for (const [code, situation] of situationByCode) {
+    const guidance = selectSeamProposalGuidance(situation);
     assert.equal(guidance.code, code);
     assert.ok(guidance.message.length > 0);
     assert.ok(guidance.next_action.length > 0);
@@ -342,7 +384,10 @@ test('storeはproposalをplan versionへ並置し、read投影はexact targetを
   assert.equal(projection.conflict_resource_count, 1);
   assert.equal(projection.components[0].conflicts[0].target, 'src/shared.mjs');
   assert.equal(projection.components[0].conflicts[0].kind, 'path');
-  assert.equal(projection.guidance.code, 'seam_proposal_verified');
+  // 記録は現在と一致しているが、componentは所有者へ束縛できていない。鮮度だけを述べると
+  // 「一致している」で終わり、束縛できなかった事実と次の一歩が読み手へ届かない。
+  assert.equal(projection.guidance.code, 'seam_proposal_binding_missing');
+  assert.equal(projection.guidance.next_action, 'declare_concern_anchors_then_recompile');
 
   const duplicate = structuredClone(projection);
   duplicate.components.push(structuredClone(duplicate.components[0]));

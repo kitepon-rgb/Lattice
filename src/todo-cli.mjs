@@ -1013,7 +1013,10 @@ async function seamProposal({ repoRoot, requestedPlanKey }) {
     topology_digest: artifact?.source_binding.topology_digest ?? null,
     independence_result_digest: artifact?.source_binding.independence_result_digest ?? null,
     compiled_at: artifact?.compiled_at ?? null,
-    guidance: selectSeamProposalGuidance({ coverage }),
+    guidance: selectSeamProposalGuidance({
+      coverage,
+      unknownKinds: components.flatMap(({ unknowns }) => unknowns.map(({ kind }) => kind)),
+    }),
     component_count: artifact === null ? null : components.length,
     conflict_resource_count: artifact === null ? null : components
       .reduce((count, component) => count + component.conflicts.length, 0),
