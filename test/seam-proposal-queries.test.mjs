@@ -9,7 +9,7 @@ import {
 } from '../src/seam-proposal-contracts.mjs';
 import {
   buildSeamProposalQuerySet,
-  collectSeamProposalEvidence,
+  collectSeamProposalEvidenceBundle,
   normalizeSeamProposalEvidence,
   SeamProposalQueryError,
 } from '../src/seam-proposal-queries.mjs';
@@ -360,13 +360,23 @@ test('collectorはcollectSensorEvidence経路を使いfixture executorを注入�
     }
     return { code: 0, stdout: '[]', stderr: '' };
   };
-  const evidence = await collectSeamProposalEvidence({
+  const bundle = await collectSeamProposalEvidenceBundle({
     cwd: '/repo',
     querySet,
     execute,
   });
+  const evidence = bundle.evidence;
 
   assert.equal(evidence.queries.every(({ outcome }) => outcome === 'resolved'), true);
+  assert.deepEqual(Object.keys(evidence).sort(), [
+    'evidence_digest',
+    'queries',
+    'query_set_digest',
+  ]);
+  assert.equal(bundle.raw_collected.outcomes.length, querySet.queries.length);
+  assert.ok(bundle.raw_collected.outcomes.some(({ operation }) => operation === 'callees'));
+  assert.equal(bundle.raw_collected.graph_closure.complete, true);
+  assert.deepEqual(bundle.raw_collected.graph_closure.expansions, []);
   assert.equal(executed.filter((entry) => entry === `query:${target}`).length, 4);
   assert.equal(executed.includes('status:'), true);
 });

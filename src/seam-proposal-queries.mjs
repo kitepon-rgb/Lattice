@@ -10,10 +10,12 @@ const QUERYABLE_KINDS = new Set(['symbol', 'path']);
 const SYMBOL_OPERATIONS = Object.freeze(['query', 'callers', 'callees', 'impact']);
 const SENSOR_OPERATIONS = new Set(SENSOR_QUERY_OPERATIONS);
 const QUERY_LIMIT = 256;
+const GRAPH_NODE_LIMIT = 64;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/u;
 const CONTROL = /[\u0000-\u001f\u007f]/u;
 
 const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+const sortedUnique = (values) => [...new Set(values)].sort(compareText);
 
 export class SeamProposalQueryError extends Error {
   constructor(code, reason, detail = {}) {
@@ -341,8 +343,114 @@ export function normalizeSeamProposalEvidence({ querySet, collected } = {}) {
   return evidence;
 }
 
-/** Collect through the bundled sensor adapter and normalize into seam proposal evidence. */
-export async function collectSeamProposalEvidence({
+function observedGraphNode(entry) {
+  const node = entry?.node ?? entry;
+  if (!plainRecord(node)
+    || !boundedText(node.name)
+    || !repoRelativePath(node.filePath)) return null;
+  return { name: node.name, filePath: node.filePath };
+}
+
+function graphNodeKey(node) {
+  return `${node.name}\0${node.filePath}`;
+}
+
+async function collectCalleeClosure({
+  cwd,
+  initialCollected,
+  execute,
+  inspectAffectedPath,
+}) {
+  const queueByKey = new Map();
+  let complete = true;
+  for (const outcome of initialCollected.outcomes) {
+    if (outcome.operation !== 'callees' || outcome.outcome !== 'ready'
+      || !plainRecord(outcome.data) || !Array.isArray(outcome.data.callees)) continue;
+    for (const entry of outcome.data.callees) {
+      const node = observedGraphNode(entry);
+      if (node === null) complete = false;
+      else queueByKey.set(graphNodeKey(node), node);
+    }
+  }
+  const seen = new Set();
+  const expansions = [];
+  while (queueByKey.size > 0) {
+    if (seen.size >= GRAPH_NODE_LIMIT) {
+      complete = false;
+      break;
+    }
+    const [key, node] = [...queueByKey.entries()]
+      .sort((left, right) => compareText(left[0], right[0]))[0];
+    queueByKey.delete(key);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const token = sha16(key);
+    const querySet = {
+      queries: [
+        { id: `seam-expand-callees-${token}`, operation: 'callees', target: node.name },
+        { id: `seam-expand-query-${token}`, operation: 'query', target: node.name },
+        { id: `seam-expand-status-${token}`, operation: 'status' },
+      ].sort((left, right) => compareText(left.id, right.id)),
+    };
+    const collected = await collectSensorEvidence({
+      cwd,
+      querySet,
+      ...(execute === undefined ? {} : { execute }),
+      ...(inspectAffectedPath === undefined ? {} : { inspectAffectedPath }),
+    });
+    const queryOutcome = collected.outcomes.find(({ operation }) => operation === 'query');
+    const calleeOutcome = collected.outcomes.find(({ operation }) => operation === 'callees');
+    const exactPaths = Array.isArray(queryOutcome?.data)
+      ? sortedUnique(queryOutcome.data.map(observedGraphNode)
+        .filter((entry) => entry !== null && entry.name === node.name)
+        .map(({ filePath }) => filePath))
+      : [];
+    const resolutionPaths = Array.isArray(calleeOutcome?.resolution)
+      ? sortedUnique(calleeOutcome.resolution.map(observedGraphNode)
+        .filter((entry) => entry !== null && entry.name === node.name)
+        .map(({ filePath }) => filePath))
+      : [];
+    const exact = queryOutcome?.outcome === 'ready'
+      && calleeOutcome?.outcome === 'ready'
+      && exactPaths.length === 1
+      && resolutionPaths.length === 1
+      && exactPaths[0] === node.filePath
+      && resolutionPaths[0] === node.filePath
+      && plainRecord(calleeOutcome.data)
+      && Array.isArray(calleeOutcome.data.callees);
+    expansions.push({
+      parent: node,
+      query_outcome: queryOutcome ?? null,
+      callees_outcome: calleeOutcome ?? null,
+      exact,
+    });
+    if (!exact) {
+      complete = false;
+      continue;
+    }
+    for (const entry of calleeOutcome.data.callees) {
+      const child = observedGraphNode(entry);
+      if (child === null) {
+        complete = false;
+        continue;
+      }
+      const childKey = graphNodeKey(child);
+      if (!seen.has(childKey)) queueByKey.set(childKey, child);
+    }
+  }
+  return {
+    complete: complete && queueByKey.size === 0,
+    node_limit: GRAPH_NODE_LIMIT,
+    expansions,
+  };
+}
+
+/**
+ * Collect through the bundled sensor adapter. The normalized evidence remains the only
+ * contract-shaped artifact; raw outcomes are returned on a separate, in-memory channel for
+ * structural cut enumeration and must not be embedded in lattice.seam_proposal.v1.
+ */
+export async function collectSeamProposalEvidenceBundle({
   cwd,
   querySet,
   execute = undefined,
@@ -354,5 +462,23 @@ export async function collectSeamProposalEvidence({
     ...(execute === undefined ? {} : { execute }),
     ...(inspectAffectedPath === undefined ? {} : { inspectAffectedPath }),
   });
-  return normalizeSeamProposalEvidence({ querySet, collected });
+  const graphClosure = await collectCalleeClosure({
+    cwd,
+    initialCollected: collected,
+    execute,
+    inspectAffectedPath,
+  });
+  return {
+    evidence: normalizeSeamProposalEvidence({ querySet, collected }),
+    raw_collected: {
+      ...collected,
+      graph_closure: graphClosure,
+    },
+  };
+}
+
+/** Backward-compatible normalized-only collection entry point. */
+export async function collectSeamProposalEvidence(options = {}) {
+  const bundle = await collectSeamProposalEvidenceBundle(options);
+  return bundle.evidence;
 }
