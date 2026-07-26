@@ -394,8 +394,10 @@ test('authoring CLIはclosed遷移をappendしmutation resultをdigest束縛す�
     if (kind === 'start') {
       assertExactKeys(output.advisory, [
         'coverage', 'drift_intersecting', 'conflicts_with_active',
-        'uncovered_active_task_ids', 'self_unknowns',
+        'uncovered_active_task_ids', 'self_unknowns', 'guidance',
       ]);
+      // 案内は単一正本のcatalogから来る（ADR 0130 Decision 1）。
+      assertExactKeys(output.advisory.guidance, ['code', 'message', 'next_action']);
     } else {
       assert.equal(output.advisory, null);
     }

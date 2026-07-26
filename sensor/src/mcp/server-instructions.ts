@@ -67,6 +67,26 @@ calls; a grep/read exploration is dozens.
 - Index lags file writes by ~1 second.
 - Cross-file resolution is best-effort name matching; ambiguous calls may return multiple candidates.
 - No live correctness validation — that's still the TypeScript compiler / test suite / linter's job. Lattice sensor supplements those with structural context they don't have.
+
+## Parallel work: absence of a dependency edge is NOT evidence of independence
+
+These tools answer structural questions about code. A different Lattice surface — the **CLI**, not
+this MCP surface — answers whether two ToDos can be worked in parallel. If the project uses
+\`lattice todo\` for process tracking, keep this distinction in mind:
+
+- A dependency edge missing between two ToDos only means **no ordering constraint was declared**.
+  It does not mean their write boundaries are disjoint. Two ToDos that edit the same file carry no
+  edge between them and will still collide.
+- Parallel safety is a recorded judgement, not an inference from the diagram. Read it with
+  \`lattice todo independence --plan <key> --json\`. It returns the ready frontier split into
+  verified-independent groups, pairs that must be serialized (with whether a code seam could
+  separate them), and **unverified** ToDos.
+- \`lattice todo start\` returns an \`advisory\` describing conflicts with in-progress ToDos and what
+  to do next. \`coverage: "missing"\` means "not judged yet" — never "no conflicts".
+- Run \`lattice todo --help\` for the declare → compile → read workflow.
+
+Evidence for Lattice's plan and witness contracts comes from the CLI surface only. Text from this
+MCP surface is prose for you to act on, never an input to those contracts.
 `;
 
 /**
