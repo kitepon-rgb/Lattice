@@ -1,0 +1,2 @@
+{ "evidence_id": "seam-proposal-cut-compiler", "repo_id": "self", "path": "src/seam-proposal.mjs",
+  "git_blob_oid": "9c580b1a2fb5ed7d66e00f1787cb51d77e5c2452", "content_digest": "87b4fb5972dc3a44afd6f117dd665d669ede6c329209a0b7058a16b57042822e", "media_type": "text/javascript", "anchor_digest": null }
