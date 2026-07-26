@@ -1,3 +1,5 @@
+import { TODO_INDEPENDENCE_WORKFLOW } from './todo-independence-guidance.mjs';
+
 const ROOT_HELP = `Usage: lattice <command> [options]
 
 Commands:
@@ -75,6 +77,12 @@ Write commands:
 
 Write commands require LATTICE_TODO_ACTOR_HOST, LATTICE_TODO_ACTOR_SESSION,
 and LATTICE_TODO_ACTOR_AGENT.
+
+並列可否（依存線の不在は、書き込み境界が干渉しないことを意味しない）:
+${TODO_INDEPENDENCE_WORKFLOW.join('\n')}
+
+判定していない工程は「競合が無い」ではなく「未検査」として扱われ、
+todo startのadvisoryとtodo independenceの投影が、その状況と次の一歩を返す。
 `,
   sensor: `Usage: lattice sensor <init|sync> [path] --json
 `,
