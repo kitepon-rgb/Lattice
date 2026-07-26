@@ -6,6 +6,8 @@ import {
   renderTodoGanttSvg,
 } from '../src/todo-gantt-svg.mjs';
 import { TodoGanttLayoutError, layoutTodoGantt } from '../src/todo-gantt-layout.mjs';
+import { renderTodoGanttHtml } from '../src/todo-gantt-html.mjs';
+import { projectTodoGanttPresentation } from '../src/todo-gantt-presentation.mjs';
 
 // ADR 0129。独立性はカード内のバッジと色で示し、寸法と配線には触れない。
 // 記録が語らないtaskへはバッジを出さない（未検査と検証済みを同じ顔にしない）。
@@ -47,6 +49,18 @@ const chain = { schema: 'lattice.todo_chain.v1', longest_chain_node_refs: [], lo
 const projectionFor = (frontier) => [{
   project_id: PROJECT, plan_key: PLAN, coverage: 'verified', frontier,
 }];
+
+function htmlInput(layout) {
+  const read = readModel(layout.nodes.map(({ ref: nodeRef }) => nodeRef.task_id));
+  return {
+    readModel: read,
+    layout,
+    narratives: [],
+    anchorOutcomes: [],
+    presentation: projectTodoGanttPresentation(read, null),
+    metadata: {},
+  };
+}
 
 function layoutWith(taskIds, frontier) {
   return layoutTodoGantt(readModel(taskIds), chain, {
@@ -115,6 +129,39 @@ test('進行中との競合もconflictとしてカードへ出る', () => {
     'conflict');
   assert.equal(layout.nodes.find((node) => node.ref.task_id === 'B').visibility.independence,
     'unknown');
+});
+
+test('右ペインは記録がある時だけ全件同時dispatchの断定をやめる', () => {
+  const plain = renderTodoGanttHtml(htmlInput(layoutTodoGantt(readModel(['A', 'B']), chain, { scope: 'all' })));
+  // 記録が無いplanでは従来どおりADR 0063の既定を述べる。
+  assert.match(plain.html, /ready frontierは全件同時dispatchが既定/u);
+
+  const marked = renderTodoGanttHtml(htmlInput(layoutWith(['A', 'B', 'C'], {
+    parallel_groups: [{ task_ids: ['A'] }],
+    serialize_pairs: [{
+      task_ids: ['B', 'C'], type: 'conflict', detail: 'own-path-1',
+      kind: 'path', severability: 'code_seam',
+    }],
+    conflicts_with_active: [],
+    unknown: [],
+  })));
+  assert.doesNotMatch(marked.html, /ready frontierは全件同時dispatchが既定/u);
+  assert.match(marked.html, /検証済み並列 1工程/u);
+  assert.match(marked.html, /要直列 1組/u);
+  // 切断可能性を言葉で示し、相手の資源も出す。
+  assert.match(marked.html, /コードの分割で並列化しうる/u);
+  assert.match(marked.html, /∥ 独立検証済/u);
+});
+
+test('未検査は「競合が無い」と書かない', () => {
+  const output = renderTodoGanttHtml(htmlInput(layoutWith(['A'], {
+    parallel_groups: [],
+    serialize_pairs: [],
+    conflicts_with_active: [],
+    unknown: [{ task_id: 'A', unknowns: [{ kind: 'witness_missing', ref: 'x' }] }],
+  })));
+  assert.match(output.html, /未検査です。競合が無いのではなく、まだ判定していません/u);
+  assert.match(output.html, /未検査 1工程/u);
 });
 
 test('SVGはバッジ記号とクラスを描き、カード寸法を変えない', () => {

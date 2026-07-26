@@ -643,8 +643,10 @@ test('right pane exposes overview/detail/current task index states while retaini
   assert.match(output.html, /class="diagram-legend"[^>]*aria-label="工程図の凡例"/u);
   assert.match(output.html, /class="status-symbol status-in-progress"[^>]*>▶<\/span> 作業中/u);
   assert.match(output.html, /☐ 未着手/u);
-  assert.match(output.html, /破線枠: ready frontier（同時dispatch推奨）/u);
+  assert.match(output.html, /破線枠: ready frontier/u);
+  // 独立性の記録が無いplanでは、従来どおりADR 0063の既定をそのまま述べる。
   assert.match(output.html, /ready frontierは全件同時dispatchが既定/u);
+  assert.doesNotMatch(output.html, /独立検証済|要直列|未検査/u);
   assert.match(output.html, /太線: 構造上の最長依存鎖/u);
   assert.match(output.html, /半円: 非接触の線交差/u);
   assert.match(output.html, /黒丸: 論理上の合流/u);
