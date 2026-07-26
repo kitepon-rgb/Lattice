@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_witness_set.v1.schema.json",
+  "title": "lattice.todo_witness_set.v1",
+  "description": "Per-ToDo boundary declaration compiled into a recorded independence judgement (ADR 0127). Each entry declares what the ToDo owns, reads and writes so that pairwise interference can be decided before dispatch.",
+  "$comment": "Runtime validation additionally enforces canonical JSON+LF bytes and the self-digest rule, and delegates manual_witness and sensor_query_set to explainRunRequest so the witness contract is not duplicated (ADR 0123). Declaring nothing is not an assertion of independence: an undeclared ToDo compiles to unknown, never to verified.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "project_id",
+    "plan_key",
+    "capacity",
+    "sensor_query_set",
+    "manual_witness",
+    "witness_set_digest"
+  ],
+  "properties": {
+    "schema": { "const": "lattice.todo_witness_set.v1" },
+    "project_id": { "$ref": "#/$defs/identifier" },
+    "plan_key": { "$ref": "#/$defs/identifier" },
+    "capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executors"],
+      "properties": {
+        "executors": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "sensor_query_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["queries"],
+      "description": "Sensor queries backing the declarations. Exactly one query must have operation 'status'.",
+      "properties": {
+        "queries": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "operation"],
+            "properties": {
+              "id": { "$ref": "#/$defs/identifier" },
+              "operation": {
+                "enum": ["status", "query", "callers", "callees", "impact", "affected"]
+              },
+              "target": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "manual_witness": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 256,
+      "description": "Keyed by task_id of the plan. Keys must be a subset of the plan's tasks.",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": { "$ref": "#/$defs/witness" }
+    },
+    "witness_set_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]{0,127}$"
+    },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "repoRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Repo-relative path. Absolute paths, backslashes and '..' traversal are rejected. A trailing '/' declares a directory prefix and is accepted only under 'writes'."
+    },
+    "witness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owns",
+        "reads",
+        "writes",
+        "resources",
+        "state_effects",
+        "sensor_provenance",
+        "affected_tests",
+        "unknowns"
+      ],
+      "properties": {
+        "owns": {
+          "type": "array",
+          "maxItems": 256,
+          "description": "Symbols and paths this ToDo claims ownership of. Every entry needs a covering sensor query or it compiles to a sensor_unbound unknown.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "target"],
+            "properties": {
+              "kind": { "enum": ["symbol", "path"] },
+              "target": { "type": "string", "minLength": 1, "maxLength": 1024 }
+            }
+          }
+        },
+        "reads": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/repoRelativePath" }
+        },
+        "writes": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/repoRelativePath" }
+        },
+        "resources": {
+          "type": "array",
+          "maxItems": 256,
+          "description": "Shared resource ids. A resource with no matching state_effect entry is treated as a shared resource of unknown direction and becomes a conflict.",
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "state_effects": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["resource_id", "kind"],
+            "properties": {
+              "resource_id": { "$ref": "#/$defs/identifier" },
+              "kind": {
+                "enum": ["state", "schema", "invariant", "effect", "external_effect"]
+              }
+            }
+          }
+        },
+        "sensor_provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["queries"],
+          "properties": {
+            "queries": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["query_id", "expect"],
+                "properties": {
+                  "query_id": { "$ref": "#/$defs/identifier" },
+                  "expect": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["kind", "name", "path"],
+                        "properties": {
+                          "kind": { "const": "symbol" },
+                          "name": { "type": "string", "minLength": 1 },
+                          "path": { "$ref": "#/$defs/repoRelativePath" }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["kind", "path"],
+                        "properties": {
+                          "kind": { "enum": ["path", "affected"] },
+                          "path": { "$ref": "#/$defs/repoRelativePath" }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "affected_tests": {
+          "type": "array",
+          "maxItems": 256,
+          "description": "Declared affected tests. Compared exactly against fresh sensor observation; any drift fails the compile rather than being narrowed.",
+          "items": { "$ref": "#/$defs/repoRelativePath" }
+        },
+        "unknowns": {
+          "type": "array",
+          "maxItems": 256,
+          "description": "Explicitly declared residual unknowns. Recorded, never rounded away.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "ref"],
+            "properties": {
+              "kind": { "$ref": "#/$defs/identifier" },
+              "ref": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
