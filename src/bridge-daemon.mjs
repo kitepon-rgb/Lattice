@@ -17,6 +17,9 @@ const STOP_REQUEST_SCHEMA = 'lattice.bridge_stop_request.v1';
 const STOP_RECEIPT_SCHEMA = 'lattice.bridge_stop_receipt.v1';
 const ACTIVE_MARKER_SCHEMA = 'lattice.bridge_daemon_active.v1';
 const CONTROL_MAX_BYTES = 65_536;
+/** control fileの差し替え競合だけを吸収する再読の上限と間隔（`readStrictJson`が唯一の使用者）。 */
+const CONTROL_READ_RETRY_LIMIT = 5;
+const CONTROL_READ_RETRY_DELAY_MS = 20;
 
 export function bridgeDaemonDescriptorPath(env = process.env) {
   return path.join(bridgeConfigPaths(env).root, 'bridge-daemon.json');
@@ -66,7 +69,16 @@ function isIsoTimestamp(value) {
   try { return new Date(value).toISOString() === value; } catch { return false; }
 }
 
-async function readStrictJson(ref, code, label) {
+/** 読み取り中の差し替え・消失につけるmarker。内容の異常と同じ顔をさせない。 */
+const CONTROL_READ_RACE = Symbol('bridge_control_read_race');
+
+function controlReadRace(message) {
+  const error = new Error(message);
+  error[CONTROL_READ_RACE] = true;
+  return error;
+}
+
+async function readStrictJsonOnce(ref, label) {
   let before;
   let handle;
   try {
@@ -77,12 +89,12 @@ async function readStrictJson(ref, code, label) {
     const opened = await handle.stat();
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino
       || opened.size !== before.size || opened.size > CONTROL_MAX_BYTES) {
-      throw new Error(`${label} changed during validation`);
+      throw controlReadRace(`${label} changed during validation`);
     }
     const text = await handle.readFile('utf8');
     const after = await lstat(ref);
     if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size) {
-      throw new Error(`${label} changed during read`);
+      throw controlReadRace(`${label} changed during read`);
     }
     const errors = [];
     const tree = parseTree(text, errors, { allowTrailingComma: false, disallowComments: true });
@@ -91,9 +103,35 @@ async function readStrictJson(ref, code, label) {
     }
     return JSON.parse(text);
   } catch (error) {
-    if (error?.code === 'ENOENT' && before === undefined) return null;
-    throw new BridgeConfigError(code, `${label} invalid`, undefined, error);
+    // 最初のlstatで無い＝未起動。読み始めた後に消えたのは停止との競合で、再読でnullへ落ち着く。
+    if (error?.code === 'ENOENT') {
+      if (before === undefined) return null;
+      throw controlReadRace(`${label} removed during read`);
+    }
+    throw error;
   } finally { await handle?.close(); }
+}
+
+/**
+ * 公開はatomic renameなので、読み手はinodeの差し替えに必ず出会う。差し替えを跨いだ読みは
+ * 内容の異常ではなく再読で解ける競合であり、壊れたcontrol fileと同じerrorにしてはならない。
+ *
+ * 再試行するのは`CONTROL_READ_RACE`が付いた3条件だけである——検証中のinode／size変化、
+ * 読み取り中のinode／size変化、最初のlstat後の消失。最大`CONTROL_READ_RETRY_LIMIT`回、
+ * 間隔`CONTROL_READ_RETRY_DELAY_MS`で再読し、超えたら他と同じtyped errorで落とす。
+ * JSON不正・schema不正・mode不正は競合ではないので一度も再試行せず即fail closedにする。
+ */
+async function readStrictJson(ref, code, label) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await readStrictJsonOnce(ref, label);
+    } catch (error) {
+      if (error?.[CONTROL_READ_RACE] !== true || attempt >= CONTROL_READ_RETRY_LIMIT) {
+        throw new BridgeConfigError(code, `${label} invalid`, undefined, error);
+      }
+      await new Promise((resolve) => setTimeout(resolve, CONTROL_READ_RETRY_DELAY_MS));
+    }
+  }
 }
 
 async function readStrictControl(ref, schema, keys) {

@@ -299,3 +299,44 @@ test('invalid config/descriptorでもdisableは未証明PIDをkillせずpublic s
       'invalid_descriptor_removed_after_fail_closed_shutdown');
     await assertBridgeIdentityGone(thirdHealth, thirdDescriptor.pid);
   });
+
+// 書き手はatomic renameでdescriptorを公開するので、読み手はinode差し替えに必ず出会う。
+// 「読んでいる最中に差し替わった」は内容の異常ではなく、再読で解ける競合である。
+test('公開中のdescriptorを読み続けても差し替え競合で落ちない', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-descriptor-race-'));
+  const env = { ...process.env, LATTICE_CONFIG_DIR: root,
+    LATTICE_BRIDGE_INSTANCE_TOKEN: 'b'.repeat(64) };
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const config = { listen: { address: '127.0.0.1', port: 58_771 },
+    updated_at: new Date().toISOString() };
+  await writeBridgeDaemonDescriptor({ config, env });
+
+  let publishing = true;
+  const publisher = (async () => {
+    while (publishing) await writeBridgeDaemonDescriptor({ config, env });
+  })();
+
+  const failures = [];
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    try {
+      const descriptor = await readBridgeDaemonDescriptor({ env });
+      assert.equal(descriptor?.port, 58_771);
+    } catch (error) { failures.push(error?.code ?? String(error)); }
+  }
+  publishing = false;
+  await publisher;
+
+  assert.deepEqual(failures, []);
+});
+
+test('内容が壊れたdescriptorは再試行せずfail closedのまま', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-descriptor-broken-'));
+  const env = { ...process.env, LATTICE_CONFIG_DIR: root };
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(bridgeDaemonDescriptorPath(env), '{"schema":"nope"}\n', { mode: 0o600 });
+  await assert.rejects(readBridgeDaemonDescriptor({ env }),
+    (error) => error?.code === 'BRIDGE_DAEMON_DESCRIPTOR_INVALID');
+  // 未起動（fileが無い）は異常ではなくnull。
+  await rm(bridgeDaemonDescriptorPath(env), { force: true });
+  assert.equal(await readBridgeDaemonDescriptor({ env }), null);
+});
