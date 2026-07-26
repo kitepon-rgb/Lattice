@@ -3608,12 +3608,26 @@ export async function readTodoIndependenceArtifact(options = {}) {
   const store = options.store ?? await readTodoStore({ repoRoot, now: options.now });
   const member = activeMember(store, options.planKey);
   const ref = todoIndependenceRef(member.plan.plan_key, member.plan.plan_version);
-  return readArtifact(repoRoot, ref, {
-    code: 'INDEPENDENCE_ARTIFACT_INVALID',
-    maxBytes: INDEPENDENCE_ARTIFACT_BYTES,
-    validate: validateTodoIndependence,
-    missing: true,
-  });
+  try {
+    return await readArtifact(repoRoot, ref, {
+      code: 'INDEPENDENCE_ARTIFACT_INVALID',
+      maxBytes: INDEPENDENCE_ARTIFACT_BYTES,
+      validate: validateTodoIndependence,
+      missing: true,
+    });
+  } catch (error) {
+    // 読めない記録は握りつぶさない。ただしどのplanをどう直すかまで言わないと、
+    // 消費者は「壊れている」以上のことができない。
+    if (error instanceof TodoStoreError && error.code === 'INDEPENDENCE_ARTIFACT_INVALID') {
+      throw new TodoStoreError(error.code, error.detail.reason, undefined, {
+        ...error.detail,
+        plan_key: member.plan.plan_key,
+        artifact_ref: ref,
+        next_action: 'recompile_independence_or_remove_stale_record',
+      });
+    }
+    throw error;
+  }
 }
 
 const WITNESS_SET_BYTES = 4_194_304;

@@ -376,6 +376,68 @@ function crossingCount(edges, wave, transversePosition) {
   return total;
 }
 
+/**
+ * plan別の独立性投影を、task refで引ける索引と図の外が語る要約へ畳む（ADR 0129 Decision 4）。
+ *
+ * 読み出しはasync I/Oとgit実行を伴うためCLI層が行い、ここへは値として渡る。
+ * layoutは同期pureのままに保つ。
+ */
+function normalizeIndependence(value, nodesByKey) {
+  if (value === null || value === undefined) return { stateByKey: new Map(), summary: null };
+  if (!Array.isArray(value)) {
+    fail('TODO_LAYOUT_INVALID_INPUT', 'independence must be an array of plan projections');
+  }
+  const stateByKey = new Map();
+  const plans = [];
+  for (const projection of value) {
+    if (!plain(projection) || typeof projection.plan_key !== 'string'
+      || typeof projection.coverage !== 'string' || !plain(projection.frontier)) {
+      fail('TODO_LAYOUT_INVALID_INPUT', 'independence entry must carry plan_key, coverage and frontier');
+    }
+    const { plan_key: planKey, frontier } = projection;
+    const mark = (taskId, state) => {
+      const key = refKey({
+        project_id: projection.project_id, plan_key: planKey, task_id: taskId,
+      });
+      // 図に無いtaskへ状態を付けない。layoutのready判定と投影のready判定が食い違えば、
+      // 静かに無視するのでなくここで露見させる。
+      if (!nodesByKey.has(key)) {
+        fail('TODO_LAYOUT_INDEPENDENCE_DRIFT', 'independence references a task absent from layout', {
+          plan_key: planKey, task_id: taskId,
+        });
+      }
+      stateByKey.set(key, state);
+    };
+    for (const group of frontier.parallel_groups ?? []) {
+      for (const taskId of group.task_ids) mark(taskId, 'verified');
+    }
+    for (const pair of frontier.serialize_pairs ?? []) {
+      for (const taskId of pair.task_ids) mark(taskId, 'conflict');
+    }
+    for (const entry of frontier.conflicts_with_active ?? []) mark(entry.ready_task_id, 'conflict');
+    for (const entry of frontier.unknown ?? []) mark(entry.task_id, 'unknown');
+    plans.push({
+      plan_key: planKey,
+      coverage: projection.coverage,
+      verified_group_count: (frontier.parallel_groups ?? []).length,
+      verified_task_count: (frontier.parallel_groups ?? [])
+        .reduce((total, group) => total + group.task_ids.length, 0),
+      serialize_pairs: (frontier.serialize_pairs ?? []).map((pair) => ({
+        task_ids: [...pair.task_ids], type: pair.type, detail: pair.detail,
+        kind: pair.kind ?? null, severability: pair.severability ?? 'serial',
+      })),
+      conflicts_with_active: (frontier.conflicts_with_active ?? []).map((entry) => ({
+        ready_task_id: entry.ready_task_id, active_task_id: entry.active_task_id,
+        type: entry.type, detail: entry.detail,
+        kind: entry.kind ?? null, severability: entry.severability ?? 'serial',
+      })),
+      unknown_task_ids: (frontier.unknown ?? []).map(({ task_id: taskId }) => taskId).sort(compareText),
+    });
+  }
+  plans.sort((left, right) => compareText(left.plan_key, right.plan_key));
+  return { stateByKey, summary: { plans } };
+}
+
 export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   const scope = options.scope ?? 'live';
   if (!TODO_GANTT_SCOPES.includes(scope)) {
@@ -404,6 +466,7 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     return key;
   }));
   const readyKeys = readyTaskKeys(readModel, full.nodes, full.nodesByKey, fullWaves.incoming);
+  const independence = normalizeIndependence(options.independence ?? null, full.nodesByKey);
 
   // Only the geometry stage below sees the narrowed graph.
   const projected = scope === 'all'
@@ -575,6 +638,9 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
         longest_dependency_chain: longestNodeKeys.has(node.key),
         active: node.status === 'in-progress', next_ready: readyKeys.has(node.key),
         selected: false,
+        // 記録が語らないtaskはnull。「独立と分かっている」と「まだ何も言えない」を
+        // 図の上でも同じ顔にしない（ADR 0129 Decision 1）。
+        independence: independence.stateByKey.get(node.key) ?? null,
       },
       geometry,
     };
@@ -699,7 +765,7 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     laneMap.get(key).task_count += 1;
   }
   return {
-    schema: 'lattice.todo_gantt_layout.v1',
+    schema: 'lattice.todo_gantt_layout.v2',
     assumptions: { logical_time: 'dependency_wave', duration_estimation: false, lane_is_presentation_only: true },
     sweep: { method: 'stable_median', rounds: SWEEP_ROUNDS, tie_break: 'previous_position_then_task_ref' },
     bounds: {
@@ -709,6 +775,8 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
       wave_count: layers.length,
     },
     nodes: projectedNodes,
+    // 図の外が語るための投影。カードはバッジで状態だけを示し、相手と理由は右ペインが持つ。
+    independence: independence.summary,
     edges: projectedEdges,
     // Every dependency in the plan, before folding contracted any of them away.
     // The diagram draws `edges`; anything that describes a ToDo in words — the

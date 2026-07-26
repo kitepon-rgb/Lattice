@@ -217,9 +217,9 @@ function renderTodoSummary(layout, maps) {
 }
 
 export function renderTodoGanttSvg(layout, options = {}) {
-  if (layout === null || typeof layout !== 'object' || layout.schema !== 'lattice.todo_gantt_layout.v1'
+  if (layout === null || typeof layout !== 'object' || layout.schema !== 'lattice.todo_gantt_layout.v2'
     || !Array.isArray(layout.nodes) || !Array.isArray(layout.edges)) {
-    throw new TypeError('layout must be lattice.todo_gantt_layout.v1');
+    throw new TypeError('layout must be lattice.todo_gantt_layout.v2');
   }
   const maps = presentationMaps(options.presentation);
   const summary = renderTodoSummary(layout, maps);

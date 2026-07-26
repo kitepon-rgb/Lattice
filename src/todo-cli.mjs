@@ -967,6 +967,46 @@ function parseGanttDescriptor(bytes, descriptorRef) {
   return value;
 }
 
+/**
+ * 図が描く全planについて独立性を投影する（ADR 0129 Decision 4）。
+ *
+ * Ganttは複数planを同時に描くので、単一plan前提の`todo independence`の曖昧判定は持ち込まない。
+ * plan単位で記録を引き、記録が無いplanは投影を持たないまま通す——描けない事実を
+ * 図の側で作り出さない。
+ */
+async function independenceForGantt({ repoRoot, store }) {
+  const frontier = computeReadyFrontier(store);
+  const status = projectTodoStatus(store);
+  let currentBaseSha = null;
+  const projections = [];
+  for (const member of store.members) {
+    const planKey = member.plan.plan_key;
+    const artifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+    if (artifact === null) continue;
+    // 記録があるplanが1つでもあれば鮮度の判定にHEADが要る。
+    if (currentBaseSha === null) currentBaseSha = currentHeadSha(repoRoot);
+    const changedPaths = artifact.base_sha !== currentBaseSha
+      ? changedPathsSince(repoRoot, artifact.base_sha) : null;
+    const projected = projectIndependenceFrontier({
+      artifact,
+      readyTaskIds: frontier.filter((task) => task.plan_key === planKey)
+        .map(({ task_id: taskId }) => taskId),
+      activeTaskIds: status.active_set.filter((task) => task.plan_key === planKey)
+        .map(({ task_id: taskId }) => taskId),
+      plan: member.plan,
+      currentBaseSha,
+      changedPaths,
+    });
+    projections.push({
+      project_id: member.plan.project_id,
+      plan_key: planKey,
+      coverage: projected.coverage,
+      frontier: projected.frontier,
+    });
+  }
+  return projections.length === 0 ? null : projections;
+}
+
 export async function renderTodoGanttForProject({
   repoRoot, stable = false, displayName = null, env = process.env, readModel = null,
   scope = DEFAULT_GANTT_SCOPE,
@@ -979,11 +1019,12 @@ export async function renderTodoGanttForProject({
   const presentation = await loadTodoGanttPresentation({ repoRoot, readModel: store });
   const topology = mergedTopology(store);
   const chain = projectTodoChainV1(topology);
-  const layout = layoutTodoGantt(store, chain, { scope });
+  const independence = await independenceForGantt({ repoRoot, store });
+  const layout = layoutTodoGantt(store, chain, { scope, independence });
   // When the diagram hides history, the page also carries the full diagram so
   // the reader can bring it back in place. Nothing is hidden under `all`.
   const expandedLayout = layout.scope.folded_task_count === 0
-    ? null : layoutTodoGantt(store, chain, { scope: 'all' });
+    ? null : layoutTodoGantt(store, chain, { scope: 'all', independence });
   const narrative = await loadNarratives(store, repoRoot);
   const anchorOutcomes = verifyNarrativeAnchors({
     readModel: store,

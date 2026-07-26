@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { serializeJsonForScript } from './todo-markdown-renderer.mjs';
 import { renderTodoGanttSvg, TODO_GANTT_STATUS_PRESENTATION } from './todo-gantt-svg.mjs';
 
-export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v16';
+export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v17';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
 export const TODO_GANTT_HTML_MAX_BYTES = 24 * 1024 * 1024;
 
