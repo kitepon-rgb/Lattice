@@ -8,21 +8,31 @@ import {
 } from './todo-contracts.mjs';
 import {
   RUN_REQUEST_CLAIM_MODE,
+  RUN_REQUEST_SCHEMA,
   explainRunRequest,
   selfDigest as runtimeSelfDigest,
 } from './runtime-contracts.mjs';
 import { TODO_INDEPENDENCE_GUIDANCE_CODES } from './todo-independence-guidance.mjs';
 
-export const TODO_WITNESS_SET_SCHEMA = 'lattice.todo_witness_set.v2';
+export const TODO_WITNESS_SET_SCHEMA = 'lattice.todo_witness_set.v3';
 /**
- * まだ受理する旧witness set契約。v1はconcern anchorを持てないだけで、境界宣言としては
- * v2と同値である。既存宣言を書き換えさせないために読み口を残す。
+ * まだ受理する旧witness set契約。v1はconcern anchorを、v2は創作宣言を持てないだけで、
+ * 境界宣言としてはv3と同値である。既存宣言を書き換えさせないために読み口を残す。
  */
-export const TODO_WITNESS_SET_LEGACY_SCHEMAS = Object.freeze(['lattice.todo_witness_set.v1']);
+export const TODO_WITNESS_SET_LEGACY_SCHEMAS = Object.freeze([
+  'lattice.todo_witness_set.v2',
+  'lattice.todo_witness_set.v1',
+]);
 export const TODO_WITNESS_SET_SCHEMAS = Object.freeze([
   TODO_WITNESS_SET_SCHEMA,
   ...TODO_WITNESS_SET_LEGACY_SCHEMAS,
 ]);
+/** 宣言できる欄はversionごとに違う。どの版から使えるかを1箇所で持つ。 */
+const CONCERN_ANCHOR_SCHEMAS = Object.freeze([
+  TODO_WITNESS_SET_SCHEMA,
+  'lattice.todo_witness_set.v2',
+]);
+const CREATES_SCHEMAS = Object.freeze([TODO_WITNESS_SET_SCHEMA]);
 
 /** 1 taskが宣言できるconcern anchorの資源数と、資源あたりのsymbol数の上限。 */
 export const TODO_CONCERN_ANCHOR_LIMIT = 256;
@@ -117,7 +127,7 @@ function boundedText(value, maximumBytes = 4_096) {
 export function synthesizeWitnessRunRequest(witnessSet, { baseSha, requestId }) {
   const taskIds = Object.keys(witnessSet.manual_witness).sort(compareText);
   const request = {
-    schema: 'lattice.run_request.v1',
+    schema: RUN_REQUEST_SCHEMA,
     request_id: requestId,
     repo: { base_sha: baseSha, root_kind: 'git' },
     capacity: witnessSet.capacity,
@@ -212,13 +222,19 @@ export function explainTodoWitnessSet(value) {
     });
     const explained = explainRunRequest(probe);
     if (!explained.valid) return reject(explained.reason, explained.path);
-    // concern anchorはprobeへ写していないので、ここが唯一の判定正本になる。
-    const legacy = TODO_WITNESS_SET_LEGACY_SCHEMAS.includes(value.schema);
+    // 版ごとの欄。probeはRUN_REQUEST_SCHEMAで合成するので創作宣言はそこを通ってしまう。
+    // 旧版の宣言に新しい欄を書けないことは、ここだけが見る。
     for (const taskId of taskIds) {
       const witness = value.manual_witness[taskId];
+      if (!CREATES_SCHEMAS.includes(value.schema)
+        && witness.owns.some((own) => Object.hasOwn(own, 'creates'))) {
+        return reject('creates_require_witness_set_v3', `/manual_witness/${taskId}/owns`);
+      }
       const at = `/manual_witness/${taskId}/concern_anchors`;
       if (!Object.hasOwn(witness, 'concern_anchors')) continue;
-      if (legacy) return reject('concern_anchors_require_witness_set_v2', at);
+      if (!CONCERN_ANCHOR_SCHEMAS.includes(value.schema)) {
+        return reject('concern_anchors_require_witness_set_v2', at);
+      }
       const anchors = explainConcernAnchors(witness.concern_anchors, witness.owns, at);
       if (!anchors.valid) return reject(anchors.reason, anchors.path);
     }

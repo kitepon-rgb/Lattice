@@ -172,6 +172,46 @@ test('concern anchorは合成run requestへ写らない', () => {
   assert.equal(set.manual_witness['tip-001'].concern_anchors.length, 1);
 });
 
+test('創作宣言はv3から使え、判定入力へそのまま届く', () => {
+  const creating = witness({
+    owns: [{ kind: 'path', target: 'src/alpha.mjs', creates: true }],
+  });
+  const set = witnessSet({ manual_witness: { 'tip-001': creating } });
+  assert.equal(validateTodoWitnessSet(set), true);
+
+  // concern anchorと違い、創作宣言は判定そのものへ効くので合成から落とさない。
+  const request = synthesizeWitnessRunRequest(set, {
+    baseSha: BASE_SHA, requestId: 'independence-probe',
+  });
+  assert.equal(validateRunRequest(request), true);
+  assert.deepEqual(request.manual_witness['tip-001'].owns,
+    [{ kind: 'path', target: 'src/alpha.mjs', creates: true }]);
+
+  // 旧版の宣言には書けない。加算互換が成立しないので版で切る。
+  for (const schema of ['lattice.todo_witness_set.v2', 'lattice.todo_witness_set.v1']) {
+    const legacy = witnessSet({ schema, manual_witness: { 'tip-001': creating } });
+    assert.equal(explainTodoWitnessSet(legacy).reason, 'creates_require_witness_set_v3');
+  }
+});
+
+test('創作宣言はpathに限り、値はtrueだけを受理する', () => {
+  // symbolの存在はfsのlstatで決まらない。創作境界はfile単位に限る。
+  const onSymbol = witnessSet({
+    manual_witness: {
+      'tip-001': witness({ owns: [{ kind: 'symbol', target: 'renderLeft', creates: true }] }),
+    },
+  });
+  assert.equal(validateTodoWitnessSet(onSymbol), false);
+
+  // falseは「存在するpath」と同義。同じ事実へ2つの書き方を与えない。
+  const explicitFalse = witnessSet({
+    manual_witness: {
+      'tip-001': witness({ owns: [{ kind: 'path', target: 'src/alpha.mjs', creates: false }] }),
+    },
+  });
+  assert.equal(validateTodoWitnessSet(explicitFalse), false);
+});
+
 test('concern anchorは所有資源・整列・v2 schemaを要求する', () => {
   const anchored = (anchors) => witnessSet({
     manual_witness: { 'tip-001': witness({ concern_anchors: anchors }) },

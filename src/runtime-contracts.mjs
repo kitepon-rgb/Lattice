@@ -140,10 +140,23 @@ const STATE_EFFECT_KINDS = Object.freeze([
   'external_effect',
 ]);
 
-function ownEntry(value) {
-  return plainObject(value)
-    && exactRecord(value, ['kind', 'target'])
+/**
+ * 所有宣言。`creates: true`は「このpathはまだ存在せず、このTODOが作る」という創作の意思である
+ * （ADR 0135 Decision 3・ADR 0136）。
+ *
+ * `kind`は`path`のまま据え置く。存在の有無は資源の種類ではなく資源の状態であり、kindを分けると
+ * 既存のpath判定（write交差の免除、conflict resourceのkind）が全部この宣言を取りこぼす。
+ *
+ * 値は`true`だけを受理する。`false`は「存在するpath」と同義で、同じ事実に2つの書き方を
+ * 与えることになる。省略が既定である。
+ */
+function ownEntry(value, { allowCreates = false } = {}) {
+  if (!plainObject(value)) return false;
+  const creates = Object.hasOwn(value, 'creates');
+  if (creates && !allowCreates) return false;
+  return exactRecord(value, creates ? ['kind', 'target', 'creates'] : ['kind', 'target'])
     && OWN_KINDS.includes(value.kind)
+    && (!creates || (value.creates === true && value.kind === 'path'))
     && typeof value.target === 'string'
     && value.target.length > 0
     && Buffer.byteLength(value.target, 'utf8') <= MAX_PATH_BYTES;
@@ -221,6 +234,17 @@ const WITNESS_PROVENANCE = Object.freeze([
   'manual_state_effect',
 ]);
 
+/**
+ * 現行のrun request契約。v2は`owns[].creates`だけがv1との差であり、境界宣言としては同値である。
+ * 既存requestの書き換えを要求しないため、v1は読み口として残す。
+ */
+export const RUN_REQUEST_SCHEMA = 'lattice.run_request.v2';
+export const RUN_REQUEST_LEGACY_SCHEMAS = Object.freeze(['lattice.run_request.v1']);
+export const RUN_REQUEST_SCHEMAS = Object.freeze([
+  RUN_REQUEST_SCHEMA,
+  ...RUN_REQUEST_LEGACY_SCHEMAS,
+]);
+
 export const RUN_REQUEST_FIELDS = Object.freeze([
   'schema',
   'request_id',
@@ -276,7 +300,9 @@ export function explainRunRequest(value) {
     return reject('non_canonical_request_bytes', '');
   }
   if (!exactRecord(value, RUN_REQUEST_FIELDS)) return reject('unexpected_or_missing_top_level_keys', '');
-  if (value.schema !== 'lattice.run_request.v1') return reject('schema_mismatch', '/schema');
+  if (!RUN_REQUEST_SCHEMAS.includes(value.schema)) return reject('schema_mismatch', '/schema');
+  // 創作宣言はv2から。v1のclosed shapeは余分fieldを拒否するので加算互換が成立しない。
+  const allowCreates = value.schema === RUN_REQUEST_SCHEMA;
   if (!identifier(value.request_id)) return reject('invalid_identifier', '/request_id');
   if (!exactRecord(value.repo, ['base_sha', 'root_kind'])) return reject('unexpected_or_missing_keys', '/repo');
   if (!gitSha(value.repo.base_sha)) return reject('invalid_git_sha', '/repo/base_sha');
@@ -301,7 +327,9 @@ export function explainRunRequest(value) {
     const at = `/manual_witness/${todoId}`;
     if (!plainObject(witness)) return reject('not_an_object', at);
     if (!exactRecord(witness, MANUAL_WITNESS_FIELDS)) return reject('unexpected_or_missing_keys', at);
-    if (!boundedArray(witness.owns, ownEntry)) return reject('invalid_own_entries', `${at}/owns`);
+    if (!boundedArray(witness.owns, (own) => ownEntry(own, { allowCreates }))) {
+      return reject('invalid_own_entries', `${at}/owns`);
+    }
     if (!repoPathArray(witness.reads)) return reject('invalid_repo_relative_paths', `${at}/reads`);
     if (!repoPathArray(witness.writes, { allowPrefix: true })) return reject('invalid_repo_relative_paths', `${at}/writes`);
     if (!boundedArray(witness.resources, identifier)) return reject('invalid_identifier', `${at}/resources`);
