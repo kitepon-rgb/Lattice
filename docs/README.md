@@ -9,6 +9,7 @@
 - [01_integration-package.md](01_integration-package.md): host／工場への組込み面
 - [06_design-spec.md](06_design-spec.md): static／live Ganttの表示仕様
 - [adr/0063-ready-frontier-dispatch-contract.md](adr/0063-ready-frontier-dispatch-contract.md): ready全件を並列既定にする開始契約
+- [adr/0068-gantt-routes-run-between-the-columns.md](adr/0068-gantt-routes-run-between-the-columns.md): 依存線の配線規約（ADR 0066 Decision 7を置き換え）
 - [../PLAN.md](../PLAN.md): 製品思想と研究方向
 - [../CHANGELOG.md](../CHANGELOG.md): 公開版ごとの差分
 
