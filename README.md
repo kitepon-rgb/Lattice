@@ -26,10 +26,16 @@ CLIの全体像は`lattice --help`、各公開namespaceの正規構文は
 npm test
 npm run check
 npm run ci
+node scripts/reap-orphan-test-daemons.mjs
 lattice sensor sync . --json
 spotter doctor
 codex-sidecar diagnostics --project . --preset auditor --json
 ```
+
+`reap-orphan-test-daemons.mjs`は、実daemonを起動するtestが取り残したprocessを一覧します。既定は表示
+だけで何も停めません。停めるのは`--reap`を付けた時に限り、対象はargvが指すfixtureのdirectoryが既に
+存在しないものだけです。実行中のtestを巻き込まないための条件なので、fixtureが残ったまま死んだ実行を
+含めたい場合だけ`--older-than-hours=<n>`で起動時刻による許可を明示します。
 
 未初期化projectで`sensor sync`した場合は`LATTICE_SENSOR_NOT_INITIALIZED`と正規`next_action`を返します。
 その他のsensor失敗もexit code、signal、bounded stderrをtyped detailへ残し、原因を隠しません。
@@ -137,6 +143,10 @@ LANや外部reverse proxyから閲覧するoptional bridgeは既定で無効で�
 digest付きsidecarの欠落・改ざんはtyped failureになります。
 dashboard daemonは起動時に読み込んだ版数をhealthで名乗り、installされた版と食い違えば`lattice status`の
 たびに新版daemonへ置き換わります。publishしただけで配信面が古いまま残ることはありません。
+入れ替えは新daemonが登録済み全projectのstoreを読み終えるまで待つため、`lattice status`の応答が
+その間伸びます（実測: 8 project登録で約50秒台）。待ち時間は固定秒数ではなく、spawnした子が生きている
+間だけ待ち、子が死ねば即座に`DASHBOARD_DAEMON_UNAVAILABLE`を返します。既定120秒の上限は、応答を
+返さない子に対するbackstopであって正常な起動時間の見積りではありません。
 状態を書き込む`start / block / unblock / done / evidence promote / reopen / revise / revise-phase / revise-set`
 では、監査actorとして次の3環境変数をすべて設定してください。
 

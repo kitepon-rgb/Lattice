@@ -44,6 +44,11 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 - 外部挙動不変のrefactorと挙動修正を分ける。安全網を先に置き、失敗をfallbackで隠さない。
 - `npm test`を局所／標準test、`npm run check`をsyntax／静的検査、`npm run ci`を完全gateの正規入口にする。
 - 実Lattice sensor、実repo、隔離worktreeを使うintegration testはunit testと分け、未実行をgreenへ丸めない。
+- 実daemon・実processを起動するtestは、後片付けをtestごとに手書きせず共通のfixture helperへ焼き込む。
+  停止対象はdescriptorのpidでなくargvがfixtureのtemp pathを指すprocessとし、SIGTERMからSIGKILLへ上げて
+  死を確認してからfixtureを消し、最後に生き残りゼロをassertする。取り残しは機械を重くして、時間予算を
+  見るtestを偽陽性で落とす。既に常駐している分は`node scripts/reap-orphan-test-daemons.mjs`で一覧し、
+  `--reap`で停める（既定は一覧のみ、fixture不在のものだけが対象）。
 - commitは独立revert可能な単位にし、並行作業中はpathspecを明示する。push、publish、remote作成は
   オーナーの明示指示時だけ行う。
 
