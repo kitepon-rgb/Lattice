@@ -37,6 +37,7 @@ import {
   createTodoStoreWriter,
   TodoStoreError,
   readTodoIndependenceArtifact,
+  readTodoSeamProposalArtifact,
   readTodoStore,
   readTodoWitnessSet,
   todoWitnessRef,
@@ -44,6 +45,7 @@ import {
   readTodoStoreStable,
   rebuildTodoSnapshot,
   writeTodoIndependenceArtifact,
+  writeTodoSeamProposalArtifact,
   verifyEffectivePhaseTodoRevisionSources,
   verifyTodoRevisionSources,
 } from './todo-store.mjs';
@@ -60,6 +62,7 @@ import {
   TODO_INDEPENDENCE_PROJECTION_SCHEMA,
   explainTodoWitnessSet,
   isTodoIndependenceLegacyMarker,
+  validateTodoIndependence,
   validateTodoIndependenceProjection,
 } from './todo-independence-contracts.mjs';
 import {
@@ -68,7 +71,19 @@ import {
   migrateWitnessSetTaskIds,
   projectIndependenceFrontier,
 } from './todo-independence.mjs';
-import { selectIndependenceGuidance } from './todo-independence-guidance.mjs';
+import {
+  selectIndependenceGuidance,
+  selectSeamProposalGuidance,
+} from './todo-independence-guidance.mjs';
+import {
+  buildSeamProposalQuerySet,
+  collectSeamProposalEvidenceBundle,
+} from './seam-proposal-queries.mjs';
+import {
+  SEAM_PROPOSAL_PROJECTION_SCHEMA,
+  validateSeamProposalProjection,
+} from './seam-proposal-contracts.mjs';
+import { compileSeamProposalArtifact } from './seam-proposal.mjs';
 import {
   parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
   validateTodoRevision, validateTodoRevisionSet,
@@ -832,6 +847,185 @@ async function independence({ repoRoot, requestedPlanKey }) {
   return result;
 }
 
+async function seamProposalCompile({ repoRoot, planKey }) {
+  requireCleanWorktree(repoRoot);
+  const currentBaseSha = currentHeadSha(repoRoot);
+  const store = await readTodoStore({ repoRoot });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (!member) {
+    throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, {
+      plan_key: planKey,
+    });
+  }
+  const independenceArtifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+  if (independenceArtifact === null || !validateTodoIndependence(independenceArtifact)) {
+    throw new TodoStoreError(
+      'SEAM_PROPOSAL_COMPILE_UNAVAILABLE',
+      independenceArtifact === null ? 'independence_artifact_absent' : 'independence_artifact_superseded',
+      undefined,
+      { next_action: 'compile_independence' },
+    );
+  }
+  if (independenceArtifact.outcome !== 'compiled') {
+    throw new TodoStoreError('SEAM_PROPOSAL_COMPILE_UNAVAILABLE', 'independence_outcome_not_compiled', undefined, {
+      outcome: independenceArtifact.outcome,
+      next_action: 'recompile_independence',
+    });
+  }
+  if (independenceArtifact.base_sha !== currentBaseSha) {
+    throw new TodoStoreError('SEAM_PROPOSAL_COMPILE_UNAVAILABLE', 'independence_artifact_stale', undefined, {
+      independence_base_sha: independenceArtifact.base_sha,
+      current_base_sha: currentBaseSha,
+      next_action: 'recompile_independence',
+    });
+  }
+  const witnessSet = await readTodoWitnessSet({ repoRoot, planKey });
+  if (witnessSet === null) {
+    throw new TodoStoreError('SEAM_PROPOSAL_COMPILE_UNAVAILABLE', 'witness_set_absent', undefined, {
+      next_action: 'declare_witness_set_then_compile_independence',
+    });
+  }
+  if (witnessSet.witness_set_digest !== independenceArtifact.witness_set_digest) {
+    throw new TodoStoreError('SEAM_PROPOSAL_COMPILE_UNAVAILABLE', 'witness_set_changed', undefined, {
+      next_action: 'recompile_independence',
+    });
+  }
+
+  const { query_set: querySet } = buildSeamProposalQuerySet({
+    conflictResources: independenceArtifact.conflict_resources,
+  });
+  const [sensorEvidence, proposalEvidence] = await Promise.all([
+    collectWitnessSensorEvidence({ cwd: repoRoot, witnessSet }),
+    collectSeamProposalEvidenceBundle({ cwd: repoRoot, querySet }),
+  ]);
+  const artifact = compileSeamProposalArtifact({
+    independenceArtifact,
+    witnessSet,
+    plan: member.plan,
+    compiledAt: new Date().toISOString(),
+    sensorEvidence,
+    evidence: proposalEvidence.evidence,
+    rawCollected: proposalEvidence.raw_collected,
+  });
+  const { ref } = await writeTodoSeamProposalArtifact({ repoRoot, artifact });
+  const verdictCounts = {
+    seam_candidate: artifact.decisions.filter(({ verdict }) => verdict === 'seam_candidate').length,
+    intentional_serial: artifact.decisions
+      .filter(({ verdict }) => verdict === 'intentional_serial').length,
+    unknown_requires_evidence: artifact.decisions
+      .filter(({ verdict }) => verdict === 'unknown_requires_evidence').length,
+  };
+  const result = {
+    schema: 'lattice.seam_proposal_compile_result.v1',
+    project_id: artifact.project_id,
+    plan_key: artifact.plan_key,
+    plan_version: artifact.source_binding.plan_version,
+    base_sha: artifact.source_binding.base_sha,
+    artifact_ref: ref,
+    component_count: artifact.decisions.length,
+    conflict_resource_count: artifact.decisions
+      .reduce((count, decision) => count + decision.conflicts.length, 0),
+    verdict_counts: verdictCounts,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
+function summarizeSeamProposalDecision(decision) {
+  return {
+    component_id: decision.component_id,
+    verdict: decision.verdict,
+    task_ids: decision.task_ids,
+    conflicts: decision.conflicts.map(({
+      resource_id: resourceId, kind, target, task_pairs: taskPairs,
+    }) => ({
+      resource_id: resourceId,
+      kind,
+      target,
+      task_pairs: taskPairs,
+    })),
+    proposed_surfaces: decision.seam_candidate?.proposed_surfaces ?? [],
+    affected_tests: decision.seam_candidate?.affected_tests ?? [],
+    limits: decision.seam_candidate?.limits ?? [],
+    reasons: decision.reasons,
+    unknowns: decision.unknowns,
+  };
+}
+
+async function seamProposal({ repoRoot, requestedPlanKey }) {
+  const store = await readTodoStore({ repoRoot });
+  if (requestedPlanKey !== null
+    && !store.members.some(({ descriptor }) => descriptor.plan_key === requestedPlanKey)) {
+    throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, {
+      plan_key: requestedPlanKey,
+    });
+  }
+  const frontier = computeReadyFrontier(store);
+  const readyPlanKeys = [...new Set(frontier.map(({ plan_key: key }) => key))].sort();
+  const candidatePlanKeys = readyPlanKeys.length > 0
+    ? readyPlanKeys
+    : store.members.map(({ descriptor }) => descriptor.plan_key).sort();
+  if (requestedPlanKey === null && candidatePlanKeys.length > 1) {
+    throw new TodoStoreError('SEAM_PROPOSAL_PLAN_AMBIGUOUS', 'plan_selection_ambiguous', undefined, {
+      plan_keys: candidatePlanKeys,
+      ready_plan_keys: readyPlanKeys,
+      next_action: 'rerun_with_plan_flag',
+    });
+  }
+  const planKey = requestedPlanKey ?? candidatePlanKeys[0] ?? null;
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  const currentBaseSha = currentHeadSha(repoRoot);
+  const independenceArtifact = member === undefined
+    ? null : await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+  const artifact = member === undefined
+    ? null : await readTodoSeamProposalArtifact({ repoRoot, store, planKey });
+
+  let coverage = 'verified';
+  if (artifact === null) coverage = 'missing';
+  else {
+    const binding = artifact.source_binding;
+    const independenceMatches = independenceArtifact !== null
+      && validateTodoIndependence(independenceArtifact)
+      && independenceArtifact.schema === binding.independence_schema
+      && independenceArtifact.result_digest === binding.independence_result_digest
+      && independenceArtifact.witness_set_digest === binding.witness_set_digest
+      && independenceArtifact.plan_version === binding.plan_version
+      && independenceArtifact.topology_digest === binding.topology_digest
+      && independenceArtifact.base_sha === binding.base_sha;
+    const planMatches = member !== undefined
+      && member.plan.plan_version === binding.plan_version
+      && member.plan.topology_digest === binding.topology_digest;
+    if (!independenceMatches || !planMatches) coverage = 'superseded';
+    else if (binding.base_sha !== currentBaseSha) coverage = 'stale';
+  }
+
+  const components = artifact?.decisions.map(summarizeSeamProposalDecision) ?? [];
+  const result = {
+    schema: SEAM_PROPOSAL_PROJECTION_SCHEMA,
+    project_id: store.project_id,
+    plan_key: planKey,
+    coverage,
+    compiled_base_sha: artifact?.source_binding.base_sha ?? null,
+    current_base_sha: currentBaseSha,
+    plan_version: artifact?.source_binding.plan_version ?? null,
+    topology_digest: artifact?.source_binding.topology_digest ?? null,
+    independence_result_digest: artifact?.source_binding.independence_result_digest ?? null,
+    compiled_at: artifact?.compiled_at ?? null,
+    guidance: selectSeamProposalGuidance({ coverage }),
+    component_count: artifact === null ? null : components.length,
+    conflict_resource_count: artifact === null ? null : components
+      .reduce((count, component) => count + component.conflicts.length, 0),
+    components,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  if (!validateSeamProposalProjection(result)) {
+    throw new TodoStoreError('SEAM_PROPOSAL_PROJECTION_INVALID', 'seam_proposal_projection_invalid');
+  }
+  return result;
+}
+
 async function readNarrative(repoRoot, ref) {
   const canonicalRoot = await realpath(repoRoot);
   const source = parseTodoSourceRef(ref);
@@ -1368,8 +1562,18 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     action = (repoRoot) => independence({ repoRoot, requestedPlanKey: null });
   } else if ((argv.length === 3 || argv.length === 4) && argv[0] === 'independence'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && (argv.length === 3 || argv[3] === '--json')) {
+  && (argv.length === 3 || argv[3] === '--json')) {
     action = (repoRoot) => independence({ repoRoot, requestedPlanKey: argv[2] });
+  } else if (argv.length === 4 && argv[0] === 'seam-proposal' && argv[1] === 'compile'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
+    action = (repoRoot) => seamProposalCompile({ repoRoot, planKey: argv[3] });
+  } else if ((argv.length === 1 && argv[0] === 'seam-proposal')
+    || (argv.length === 2 && argv[0] === 'seam-proposal' && argv[1] === '--json')) {
+    action = (repoRoot) => seamProposal({ repoRoot, requestedPlanKey: null });
+  } else if ((argv.length === 3 || argv.length === 4) && argv[0] === 'seam-proposal'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && (argv.length === 3 || argv[3] === '--json')) {
+    action = (repoRoot) => seamProposal({ repoRoot, requestedPlanKey: argv[2] });
   } else if ((argv.length === 1 && argv[0] === 'verify')
     || (argv.length === 2 && argv[0] === 'verify' && argv[1] === '--json')) {
     action = (repoRoot) => verify({ repoRoot, requestedPlanKey: null });

@@ -26,6 +26,7 @@ import {
   validateTodoIndependence,
   validateTodoWitnessSet,
 } from './todo-independence-contracts.mjs';
+import { validateSeamProposal } from './seam-proposal-contracts.mjs';
 import { sha256Bytes, verifyLinearHashChain } from './hash-chain.mjs';
 import {
   parseTodoSourceRef,
@@ -3639,6 +3640,91 @@ export async function readTodoIndependenceArtifact(options = {}) {
         plan_key: member.plan.plan_key,
         artifact_ref: ref,
         next_action: 'recompile_independence_or_remove_stale_record',
+      });
+    }
+    throw error;
+  }
+}
+
+const SEAM_PROPOSAL_ARTIFACT_NAME = 'seam-proposal.json';
+const SEAM_PROPOSAL_ARTIFACT_BYTES = 4_194_304;
+
+/** independence.jsonと同じplan versionディレクトリへ並置し、manifestへ登録しない。 */
+export function todoSeamProposalRef(planKey, planVersion) {
+  return `${STORE_ROOT_REF}/plans/${planKey}/${planVersion}/${SEAM_PROPOSAL_ARTIFACT_NAME}`;
+}
+
+/**
+ * seam proposal artifactをactive planと現在のindependence artifactへbindして書く。
+ * planの正本とmanifestには触れない。
+ */
+export async function writeTodoSeamProposalArtifact(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const { artifact } = options;
+  if (!validateSeamProposal(artifact)) {
+    fail('SEAM_PROPOSAL_ARTIFACT_INVALID', 'seam_proposal_artifact_invalid');
+  }
+  return withLock(repoRoot, async () => {
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
+    if (store.project_id !== artifact.project_id) {
+      fail('SEAM_PROPOSAL_BINDING_MISMATCH', 'project_id_mismatch', {
+        expected: store.project_id, actual: artifact.project_id,
+      });
+    }
+    const member = activeMember(store, artifact.plan_key);
+    const binding = artifact.source_binding;
+    if (member.plan.plan_version !== binding.plan_version) {
+      fail('SEAM_PROPOSAL_BINDING_MISMATCH', 'plan_version_mismatch', {
+        expected: member.plan.plan_version, actual: binding.plan_version,
+      });
+    }
+    if (member.plan.topology_digest !== binding.topology_digest) {
+      fail('SEAM_PROPOSAL_BINDING_MISMATCH', 'topology_digest_mismatch', {
+        expected: member.plan.topology_digest, actual: binding.topology_digest,
+      });
+    }
+    const independenceArtifact = await readTodoIndependenceArtifact({
+      repoRoot, store, planKey: artifact.plan_key,
+    });
+    if (independenceArtifact === null
+      || !validateTodoIndependence(independenceArtifact)
+      || independenceArtifact.schema !== binding.independence_schema
+      || independenceArtifact.result_digest !== binding.independence_result_digest
+      || independenceArtifact.witness_set_digest !== binding.witness_set_digest
+      || independenceArtifact.plan_version !== binding.plan_version
+      || independenceArtifact.topology_digest !== binding.topology_digest
+      || independenceArtifact.base_sha !== binding.base_sha) {
+      fail('SEAM_PROPOSAL_BINDING_MISMATCH', 'independence_binding_mismatch');
+    }
+    const ref = todoSeamProposalRef(artifact.plan_key, binding.plan_version);
+    await atomicWrite(path.resolve(repoRoot, ref), canonicalLine(artifact));
+    return { ref, artifact };
+  });
+}
+
+/**
+ * active planに並置されたseam proposal artifactを読む。
+ * 無ければnull、壊れた記録はtyped failureとし、missingへ丸めない。
+ */
+export async function readTodoSeamProposalArtifact(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const store = options.store ?? await readTodoStore({ repoRoot, now: options.now });
+  const member = activeMember(store, options.planKey);
+  const ref = todoSeamProposalRef(member.plan.plan_key, member.plan.plan_version);
+  try {
+    return await readArtifact(repoRoot, ref, {
+      code: 'SEAM_PROPOSAL_ARTIFACT_INVALID',
+      maxBytes: SEAM_PROPOSAL_ARTIFACT_BYTES,
+      validate: validateSeamProposal,
+      missing: true,
+    });
+  } catch (error) {
+    if (error instanceof TodoStoreError && error.code === 'SEAM_PROPOSAL_ARTIFACT_INVALID') {
+      throw new TodoStoreError(error.code, error.detail.reason, undefined, {
+        ...error.detail,
+        plan_key: member.plan.plan_key,
+        artifact_ref: ref,
+        next_action: 'recompile_seam_proposal_or_remove_stale_record',
       });
     }
     throw error;

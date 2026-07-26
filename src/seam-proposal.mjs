@@ -2,8 +2,21 @@ import { createHash } from 'node:crypto';
 
 import { digestArtifact } from './artifact-contracts.mjs';
 import { portableSensorOutcome } from './sensor-adapter.mjs';
-import { deriveSeamProposalId } from './seam-proposal-contracts.mjs';
-import { todoSelfDigest } from './todo-contracts.mjs';
+import {
+  SEAM_PROPOSAL_SCHEMA,
+  deriveSeamProposalId,
+  validateSeamProposal,
+} from './seam-proposal-contracts.mjs';
+import {
+  synthesizeWitnessRunRequest,
+  validateTodoIndependence,
+  validateTodoWitnessSet,
+} from './todo-independence-contracts.mjs';
+import {
+  digestTodoArtifact,
+  todoSelfDigest,
+  validateTodoPlan,
+} from './todo-contracts.mjs';
 import {
   selfDigest,
   validateRunRequest,
@@ -1570,4 +1583,181 @@ export function compileSeamProposalDecision({
     candidateSpecs,
     explorationComplete: enumeration.exploration_complete,
   });
+}
+
+export class SeamProposalCompileError extends Error {
+  constructor(code, reason, detail = {}) {
+    super(reason);
+    this.name = 'SeamProposalCompileError';
+    this.code = code;
+    this.detail = { reason, ...detail };
+  }
+}
+
+function compileFail(code, reason, detail) {
+  throw new SeamProposalCompileError(code, reason, detail);
+}
+
+function conflictComponents(independenceArtifact) {
+  const resourceById = new Map(independenceArtifact.conflict_resources.map((resource) => (
+    [resource.resource_id, resource]
+  )));
+  const parent = new Map();
+  const find = (taskId) => {
+    const current = parent.get(taskId) ?? taskId;
+    if (!parent.has(taskId)) parent.set(taskId, taskId);
+    if (current === taskId) return taskId;
+    const root = find(current);
+    parent.set(taskId, root);
+    return root;
+  };
+  const union = (left, right) => {
+    const leftRoot = find(left);
+    const rightRoot = find(right);
+    if (leftRoot === rightRoot) return;
+    if (compareText(leftRoot, rightRoot) < 0) parent.set(rightRoot, leftRoot);
+    else parent.set(leftRoot, rightRoot);
+  };
+
+  for (const { task_ids: [left, right] } of independenceArtifact.conflicts) {
+    union(left, right);
+  }
+
+  const conflictsByRoot = new Map();
+  for (const conflict of independenceArtifact.conflicts) {
+    const root = find(conflict.task_ids[0]);
+    const entries = conflictsByRoot.get(root) ?? [];
+    entries.push(conflict);
+    conflictsByRoot.set(root, entries);
+  }
+
+  const components = [];
+  const classifiedPairKeys = new Set();
+  const classifiedResourceIds = new Set();
+  for (const entries of conflictsByRoot.values()) {
+    const taskIds = sortedUnique(entries.flatMap(({ task_ids: taskPair }) => taskPair));
+    const pairsByResource = new Map();
+    for (const entry of entries) {
+      const pairs = pairsByResource.get(entry.resource_id) ?? [];
+      pairs.push([...entry.task_ids]);
+      pairsByResource.set(entry.resource_id, pairs);
+      classifiedPairKeys.add(`${entry.task_ids[0]}\0${entry.task_ids[1]}\0${entry.resource_id}`);
+    }
+    const conflicts = [...pairsByResource].map(([resourceId, pairs]) => {
+      const resource = resourceById.get(resourceId);
+      if (resource === undefined) {
+        compileFail('SEAM_PROPOSAL_COMPONENT_INVALID', 'conflict_resource_missing', {
+          resource_id: resourceId,
+        });
+      }
+      if (classifiedResourceIds.has(resourceId)) {
+        compileFail('SEAM_PROPOSAL_COMPONENT_INVALID', 'conflict_resource_classified_twice', {
+          resource_id: resourceId,
+        });
+      }
+      classifiedResourceIds.add(resourceId);
+      return {
+        ...structuredClone(resource),
+        task_pairs: pairs.sort((left, right) => compareText(
+          `${left[0]}\0${left[1]}`, `${right[0]}\0${right[1]}`,
+        )),
+      };
+    }).sort((left, right) => compareText(left.resource_id, right.resource_id));
+    const identity = { task_ids: taskIds, conflicts };
+    components.push({
+      component_id: `component-${digestTodoArtifact(identity).slice(0, 24)}`,
+      ...identity,
+    });
+  }
+
+  const expectedPairKeys = new Set(independenceArtifact.conflicts.map((entry) => (
+    `${entry.task_ids[0]}\0${entry.task_ids[1]}\0${entry.resource_id}`
+  )));
+  if (classifiedPairKeys.size !== expectedPairKeys.size
+    || [...expectedPairKeys].some((key) => !classifiedPairKeys.has(key))
+    || classifiedResourceIds.size !== independenceArtifact.conflict_resources.length) {
+    compileFail('SEAM_PROPOSAL_COMPONENT_INVALID', 'conflict_component_partition_incomplete', {
+      expected_pair_count: expectedPairKeys.size,
+      classified_pair_count: classifiedPairKeys.size,
+      expected_resource_count: independenceArtifact.conflict_resources.length,
+      classified_resource_count: classifiedResourceIds.size,
+    });
+  }
+  return components.sort((left, right) => compareText(left.component_id, right.component_id));
+}
+
+/**
+ * Build the immutable lattice.seam_proposal.v1 artifact from one complete independence record.
+ * Sensor collection stays outside this producer; callers pass the original witness evidence and
+ * the seam-specific normalized/raw evidence collected for the same clean HEAD.
+ */
+export function compileSeamProposalArtifact({
+  independenceArtifact,
+  witnessSet,
+  plan,
+  compiledAt,
+  sensorEvidence,
+  evidence,
+  rawCollected,
+} = {}) {
+  if (!validateTodoIndependence(independenceArtifact)) {
+    compileFail('SEAM_PROPOSAL_INDEPENDENCE_INVALID', 'independence_artifact_invalid');
+  }
+  if (independenceArtifact.outcome !== 'compiled') {
+    compileFail('SEAM_PROPOSAL_INDEPENDENCE_UNAVAILABLE', 'independence_outcome_not_compiled', {
+      outcome: independenceArtifact.outcome,
+    });
+  }
+  if (!validateTodoWitnessSet(witnessSet)) {
+    compileFail('SEAM_PROPOSAL_WITNESS_INVALID', 'witness_set_invalid');
+  }
+  if (!validateTodoPlan(plan)) {
+    compileFail('SEAM_PROPOSAL_PLAN_INVALID', 'plan_invalid');
+  }
+  if (independenceArtifact.project_id !== plan.project_id
+    || independenceArtifact.plan_key !== plan.plan_key
+    || independenceArtifact.plan_version !== plan.plan_version
+    || independenceArtifact.topology_digest !== plan.topology_digest) {
+    compileFail('SEAM_PROPOSAL_BINDING_MISMATCH', 'independence_plan_mismatch');
+  }
+  if (witnessSet.project_id !== plan.project_id
+    || witnessSet.plan_key !== plan.plan_key
+    || witnessSet.witness_set_digest !== independenceArtifact.witness_set_digest) {
+    compileFail('SEAM_PROPOSAL_BINDING_MISMATCH', 'witness_independence_mismatch');
+  }
+
+  const request = synthesizeWitnessRunRequest(witnessSet, {
+    baseSha: independenceArtifact.base_sha,
+    requestId: `seam-proposal-${independenceArtifact.result_digest.slice(0, 24)}`,
+  });
+  const decisions = conflictComponents(independenceArtifact).map((component) => (
+    compileSeamProposalDecision({
+      component,
+      request,
+      sensorEvidence,
+      evidence,
+      rawCollected,
+    })
+  )).sort((left, right) => compareText(left.component_id, right.component_id));
+  const artifact = {
+    schema: SEAM_PROPOSAL_SCHEMA,
+    project_id: plan.project_id,
+    plan_key: plan.plan_key,
+    source_binding: {
+      independence_schema: independenceArtifact.schema,
+      independence_result_digest: independenceArtifact.result_digest,
+      witness_set_digest: independenceArtifact.witness_set_digest,
+      plan_version: independenceArtifact.plan_version,
+      topology_digest: independenceArtifact.topology_digest,
+      base_sha: independenceArtifact.base_sha,
+    },
+    compiled_at: compiledAt,
+    decisions,
+    result_digest: '',
+  };
+  artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
+  if (!validateSeamProposal(artifact)) {
+    compileFail('SEAM_PROPOSAL_ARTIFACT_INVALID', 'seam_proposal_artifact_invalid');
+  }
+  return artifact;
 }

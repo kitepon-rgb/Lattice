@@ -20,6 +20,13 @@ export const TODO_INDEPENDENCE_GUIDANCE_CODES = Object.freeze([
   'independence_verified',
 ]);
 
+export const SEAM_PROPOSAL_GUIDANCE_CODES = Object.freeze([
+  'seam_proposal_unrecorded',
+  'seam_proposal_superseded',
+  'seam_proposal_stale',
+  'seam_proposal_verified',
+]);
+
 const CATALOG = Object.freeze({
   independence_no_ready_frontier: Object.freeze({
     message: '着手候補が無いため、並列可否を述べる対象が無い。',
@@ -55,6 +62,22 @@ const CATALOG = Object.freeze({
   }),
   independence_verified: Object.freeze({
     message: '記録時点の宣言境界では、他のready工程と干渉しない。',
+    next_action: 'none',
+  }),
+  seam_proposal_unrecorded: Object.freeze({
+    message: 'このplanのseam提案はまだ生成していない。提案対象が無いのではなく、記録が存在しない。',
+    next_action: 'compile_seam_proposal',
+  }),
+  seam_proposal_superseded: Object.freeze({
+    message: '参照元のplanまたは並列可否記録が更新され、このseam提案は現在の競合についての記録ではない。',
+    next_action: 'compile_seam_proposal',
+  }),
+  seam_proposal_stale: Object.freeze({
+    message: 'seam提案の生成後にHEADが進み、記録時点の構造証拠は現在のcodeを指していない。',
+    next_action: 'compile_seam_proposal',
+  }),
+  seam_proposal_verified: Object.freeze({
+    message: 'seam提案の記録は現在のplan、並列可否記録、HEADと一致している。',
     next_action: 'none',
   }),
 });
@@ -110,6 +133,15 @@ export function selectIndependenceGuidance({
   if (!taskDeclared) return todoIndependenceGuidance('independence_task_undeclared');
   if (taskStale) return todoIndependenceGuidance('independence_stale_for_task');
   return todoIndependenceGuidance('independence_verified');
+}
+
+export function selectSeamProposalGuidance({ coverage }) {
+  const code = coverage === 'missing' ? 'seam_proposal_unrecorded'
+    : coverage === 'superseded' ? 'seam_proposal_superseded'
+      : coverage === 'stale' ? 'seam_proposal_stale'
+        : coverage === 'verified' ? 'seam_proposal_verified' : null;
+  if (code === null) throw new TypeError(`unknown seam proposal coverage: ${coverage}`);
+  return todoIndependenceGuidance(code);
 }
 
 /**

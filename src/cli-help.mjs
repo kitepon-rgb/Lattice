@@ -53,6 +53,7 @@ Read commands:
   status [--json]
   bindings [--plan <key>] [--json]   # compile_binding付きTaskをTODO identityつきで投影する
   independence [--plan <key>] [--json]  # readyを検証済み並列・要直列・未検査へ分けて投影する
+  seam-proposal [--plan <key>] [--json]  # 記録済みseam提案をsensor無しで投影する
   verify [--plan <key>] [--json]
   snapshot --rebuild --plan <key>
   gantt [--out <file>] [--scope live|all]  # 既定live: 完走した工程を図から除く（一覧には残る）
@@ -69,6 +70,7 @@ Write commands:
   evidence promote --plan <key> --task <id> --evidence <file>
   independence compile --plan <key> --input <file>  # witness setとsensorから並列可否を記録する
   independence witness migrate --plan <key>  # revision後の宣言をtask migrationで写す
+  seam-proposal compile --plan <key>  # 並列可否記録と実sensorからseam提案を記録する
   revise --plan <key> --input <file>
   revise-phase --plan <key> --input <file>
   revise-set --input <file>
@@ -130,6 +132,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo status': 'todo status [--json]',
   'todo bindings': 'todo bindings [--plan <key>] [--json]',
   'todo independence': 'todo independence [--plan <key>] [--json] | compile --plan <key> --input <file> | witness migrate --plan <key>',
+  'todo seam-proposal': 'todo seam-proposal [--plan <key>] [--json] | compile --plan <key>',
   'todo verify': 'todo verify [--plan <key>] [--json]',
   'todo snapshot': 'todo snapshot --rebuild --plan <key>',
   'todo gantt': 'todo gantt [--out <file>] [--scope live|all] | status [--out <file>] | serve --port <port> [--scope live|all]',

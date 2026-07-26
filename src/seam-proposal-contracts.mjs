@@ -1,6 +1,7 @@
 import {
   digestTodoArtifact,
   exactRecord,
+  isNonNegativeSafeInteger,
   isStrictTodoTimestamp,
   isTodoDigest,
   isTodoIdentifier,
@@ -8,13 +9,16 @@ import {
 } from './todo-contracts.mjs';
 import {
   TODO_INDEPENDENCE_CONFLICT_KINDS,
+  TODO_INDEPENDENCE_COVERAGE,
   TODO_INDEPENDENCE_SCHEMA,
   TODO_INDEPENDENCE_TASK_LIMIT,
   isGitSha,
   severabilityOfConflictKind,
 } from './todo-independence-contracts.mjs';
+import { SEAM_PROPOSAL_GUIDANCE_CODES } from './todo-independence-guidance.mjs';
 
 export const SEAM_PROPOSAL_SCHEMA = 'lattice.seam_proposal.v1';
+export const SEAM_PROPOSAL_PROJECTION_SCHEMA = 'lattice.seam_proposal_projection.v1';
 export const SEAM_PROPOSAL_VERDICTS = Object.freeze([
   'seam_candidate',
   'intentional_serial',
@@ -300,6 +304,123 @@ export function validateSeamProposal(value) {
       .flatMap(({ conflicts }) => conflicts.map(({ resource_id: resourceId }) => resourceId));
     if (new Set(resourceIds).size !== resourceIds.length) return false;
     return value.result_digest === todoSelfDigest(value, 'result_digest');
+  } catch {
+    return false;
+  }
+}
+
+const PROJECTION_GUIDANCE_BY_COVERAGE = Object.freeze({
+  missing: 'seam_proposal_unrecorded',
+  stale: 'seam_proposal_stale',
+  superseded: 'seam_proposal_superseded',
+  verified: 'seam_proposal_verified',
+});
+
+function projectionGuidance(value, coverage) {
+  return exactRecord(value, ['code', 'message', 'next_action'])
+    && SEAM_PROPOSAL_GUIDANCE_CODES.includes(value.code)
+    && value.code === PROJECTION_GUIDANCE_BY_COVERAGE[coverage]
+    && boundedText(value.message)
+    && isTodoIdentifier(value.next_action);
+}
+
+function projectionComponent(value) {
+  if (!exactRecord(value, [
+    'component_id', 'verdict', 'task_ids', 'conflicts', 'proposed_surfaces',
+    'affected_tests', 'limits', 'reasons', 'unknowns',
+  ])
+    || !isTodoIdentifier(value.component_id)
+    || !SEAM_PROPOSAL_VERDICTS.includes(value.verdict)
+    || !boundedList(value.task_ids, isTodoIdentifier, {
+      min: 2, max: TODO_INDEPENDENCE_TASK_LIMIT,
+    })
+    || !strictlySorted(value.task_ids)
+    || !boundedList(value.reasons, reasonEntry)
+    || !strictlySorted(value.reasons, (reason) => `${reason.code}\0${reason.detail}`)
+    || !boundedList(value.unknowns, unknownEntry)
+    || !strictlySorted(value.unknowns, (unknown) => `${unknown.kind}\0${unknown.ref}`)
+    || !boundedList(value.affected_tests, repoRelativePath)
+    || !strictlySorted(value.affected_tests)
+    || !boundedList(value.limits, isTodoIdentifier)
+    || !strictlySorted(value.limits)) return false;
+  const taskIds = new Set(value.task_ids);
+  if (!boundedList(value.conflicts, (conflict) => conflictEntry(conflict, taskIds), { min: 1 })
+    || !strictlySorted(value.conflicts, (conflict) => conflict.resource_id)
+    || !conflictsFormConnectedComponent(value.conflicts, taskIds)
+    || !boundedList(value.proposed_surfaces,
+      (surface) => surfaceEntry(surface, taskIds, { proposed: true }))
+    || !strictlySorted(value.proposed_surfaces, surfaceKey)) return false;
+  if (value.verdict === 'seam_candidate') {
+    const ownerTaskIds = new Set(value.proposed_surfaces
+      .flatMap(({ owner_task_ids: owners }) => owners));
+    return value.unknowns.length === 0
+      && value.proposed_surfaces.length > 0
+      && value.limits.includes('structural_only')
+      && ownerTaskIds.size === taskIds.size
+      && [...taskIds].every((taskId) => ownerTaskIds.has(taskId));
+  }
+  if (value.proposed_surfaces.length > 0
+    || value.affected_tests.length > 0
+    || value.limits.length > 0) return false;
+  if (value.verdict === 'intentional_serial') return value.reasons.length > 0;
+  return value.unknowns.length > 0;
+}
+
+/**
+ * Validate the read-only lattice.seam_proposal_projection.v1 public CLI projection.
+ * The immutable seam proposal artifact contract above remains independent from this read model.
+ */
+export function validateSeamProposalProjection(value) {
+  try {
+    if (!exactRecord(value, [
+      'schema', 'project_id', 'plan_key', 'coverage', 'compiled_base_sha',
+      'current_base_sha', 'plan_version', 'topology_digest', 'independence_result_digest',
+      'compiled_at', 'guidance', 'component_count', 'conflict_resource_count',
+      'components', 'result_digest',
+    ])
+      || value.schema !== SEAM_PROPOSAL_PROJECTION_SCHEMA
+      || !isTodoIdentifier(value.project_id)
+      || !isTodoIdentifier(value.plan_key)
+      || !TODO_INDEPENDENCE_COVERAGE.includes(value.coverage)
+      || !isGitSha(value.current_base_sha)
+      || !projectionGuidance(value.guidance, value.coverage)
+      || !isTodoDigest(value.result_digest)) return false;
+
+    if (value.coverage === 'missing') {
+      return value.compiled_base_sha === null
+        && value.plan_version === null
+        && value.topology_digest === null
+        && value.independence_result_digest === null
+        && value.compiled_at === null
+        && value.component_count === null
+        && value.conflict_resource_count === null
+        && Array.isArray(value.components)
+        && value.components.length === 0
+        && value.result_digest === todoSelfDigest(value, 'result_digest');
+    }
+
+    if (!isGitSha(value.compiled_base_sha)
+      || !isTodoIdentifier(value.plan_version)
+      || !isTodoDigest(value.topology_digest)
+      || !isTodoDigest(value.independence_result_digest)
+      || !isStrictTodoTimestamp(value.compiled_at)
+      || !isNonNegativeSafeInteger(value.component_count)
+      || !isNonNegativeSafeInteger(value.conflict_resource_count)
+      || !boundedList(value.components, projectionComponent)
+      || !strictlySorted(value.components, (component) => component.component_id)
+      || value.component_count !== value.components.length
+      || value.conflict_resource_count !== value.components
+        .reduce((count, component) => count + component.conflicts.length, 0)) return false;
+    if (value.coverage === 'verified' && value.compiled_base_sha !== value.current_base_sha) {
+      return false;
+    }
+    if (value.coverage === 'stale' && value.compiled_base_sha === value.current_base_sha) {
+      return false;
+    }
+    const resourceIds = value.components
+      .flatMap(({ conflicts }) => conflicts.map(({ resource_id: resourceId }) => resourceId));
+    return new Set(resourceIds).size === resourceIds.length
+      && value.result_digest === todoSelfDigest(value, 'result_digest');
   } catch {
     return false;
   }
