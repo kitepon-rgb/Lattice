@@ -45,6 +45,26 @@ daemonは各reconcileで実効アドレスを解決し直し、同一subnet（IP
 ssh送信元から決めるため、各hostは自分自身しか登録できない。登録の失敗はbridgeを落とさずstderrへ
 typedに報告する。この配線が無いと、Caddy等が持つリテラルはlease変更のたびに黙って陳腐化する。
 
+## reverse proxyへ逆トンネルで繋ぐ（LAN bindを使わない）
+
+reverse proxy hostへsshで到達できるなら、LANへbindせずloopbackだけで公開できる。bridgeが動くhostから
+接続しに行くため、そのhostのLAN addressはreverse proxyのどこにも現れず、追従も自己登録も不要になる。
+
+```bash
+lattice bridge setup --listen 127.0.0.1 --port 53939 --dashboard --allow-host lattice.example.com --json
+ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+  -R 172.18.0.1:53939:127.0.0.1:53939 proxy-host
+```
+
+reverse proxyはこの固定endpointだけを見る。転送口のbind先は、reverse proxyが到達できるaddressにする。
+Docker上のreverse proxyでは、containerの`127.0.0.1`はcontainer自身のloopbackでありhostのそれではないため、
+hostのloopbackへ開いた口には届かない。対象networkのgateway（`docker network inspect`の`Gateway`）へbindする。
+
+sshdは既定の`GatewayPorts no`だと`127.0.0.1`にしかbindできない。`clientspecified`にすると、clientが明示した
+addressだけにbindする（`yes`と違い全interfaceへは晒さない）。host firewallがINPUTをDROPしている場合は、
+その1 portだけを許可する。`ExitOnForwardFailure=yes`は、転送口を開けないまま接続だけ生かす状態を防ぐ。
+常駐はprocess supervisorのKeepAliveに任せ、切断時は張り直す。
+
 ## Docker Caddy／Cloudflare Tunnelへ接続する
 
 bridgeを有効化したMacとreverse proxy hostの間で、まず許可Hostを付けたLAN到達を確認する。
