@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.32 — 2026-07-26
+
+- publish済みの新しいcodeへdashboard daemonを入れ替えられず、公開面が古いまま取り残される欠陥を修理した。
+  daemonはdescriptorを書く前に登録済み全projectのstoreを読むため、起動時間はproject数とstore規模に
+  比例する（実測: 8 projectで約51秒）。入れ替え側の待ち時間は4秒固定だったので、実機では必ず競り負け、
+  `DASHBOARD_DAEMON_UNAVAILABLE`で失敗して古いdaemonが残り続けていた。install済みのcodeと配信中の
+  codeが恒久的に食い違う。
+- 待ち方を、固定秒数の見積りから「spawnした子が生きている間は待ち、死んだら即座に諦める」へ変えた。
+  `startupTimeoutMs`は無反応な子に対するbackstopという位置付けに変え、既定を120秒へ広げた。
+  死んだreplacementを猶予いっぱい待たないことと、遅い子を待ち切ることを回帰testで固定した。
+
 ## 0.12.31 — 2026-07-26
 
 - 工程図で段を跳ぶ依存線が、図全体の右端の外にある回廊まで走ってから縦移動して戻る配線をやめた。
