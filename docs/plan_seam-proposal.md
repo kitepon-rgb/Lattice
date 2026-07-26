@@ -40,9 +40,9 @@ compiler」へ進める工程群。実変換（隔離worktreeでの実行）と�
 ## 受入条件
 
 1. conflictから**exact target**（symbol名またはrepo path）が機械可読に取れる。
-2. 提案artifactが、切断点・移動するsymbol集合・提案後のownership・残余overlap・sensor証拠・
-   未知を1つのversioned artifactとして持つ。
-3. 提案は**仮想ownershipの再compileで検証**される。残余write overlapが0にならない候補は提案しない。
+2. 提案artifactが、変更前後のsurfaceと所有者・残余conflict・sensor証拠・未知を1つの
+   versioned artifactとして持つ。切断の**手順**は正本にしない。
+3. 提案後ownershipへ**compilerと同一の競合規則**を適用して検証する。残余が0にならない候補は出さない。
 4. read-only CLI入口から提案が読め、工程表（Gantt）にも現れる。
 5. このrepo自身の実conflictで提案を出し、人が3秒で妥当性を判断できるサマリが出る。
 6. 不変DecisionがADRに記録され、公開契約の記述が実装と一致する。
