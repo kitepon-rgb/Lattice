@@ -1,0 +1,9 @@
+{
+  "evidence_id": "todo-witness-set-v2-schema",
+  "repo_id": "self",
+  "path": "docs/schemas/lattice.todo_witness_set.v2.schema.json",
+  "git_blob_oid": "f65d3c81c27d875459bc43cd8aa0118f29e1b32e",
+  "content_digest": "867f7d91bbadcbe34383ca022f7043502645af7e7bd6a9b7eaa559581993bb5f",
+  "media_type": "application/json",
+  "anchor_digest": null
+}
