@@ -1,0 +1,2 @@
+{ "evidence_id": "seam-proposal-cli-surface", "repo_id": "self", "path": "test/seam-proposal-cli.test.mjs",
+  "git_blob_oid": "1eb77dc50265b471e14c9d53737166639a296e8f", "content_digest": "1156d71a9f7a3f4d6523ce183b71224978dc02788cf662876683c879efe89000", "media_type": "text/javascript", "anchor_digest": null }
