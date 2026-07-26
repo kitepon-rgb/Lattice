@@ -118,10 +118,19 @@ Taskだけを`project_id`／`plan_key`／`plan_version`／`task_id`つきで投�
 （ADR 0127）。記録は`(plan_version, topology_digest, base_sha)`へ束縛し、dirty worktreeでは記録しない。
 記録はwitness setから再生成できるhost localの投影として扱い、git追跡するのは入力のwitness setだけとする。
 `todo independence [--plan <key>] --json`はready frontierを検証済み並列グループ・要直列の組・未検査へ
-分けて投影し（`lattice.todo_independence_projection.v1`）、参照時にsensorを引かない。
+分けて投影し（`lattice.todo_independence_projection.v2`）、参照時にsensorを引かない。
 記録の鮮度は`coverage`が`verified`／`stale`／`superseded`／`missing`で示し、現在のコード状態を
 指していない記録をverified独立として読ませない。`dispatch_frontier`の
-`all_ready_parallel_by_default`は変更せず、independenceはhostがsubsetを選ぶ根拠を与える別面とする。topologyとsource reconciliationの変更はfull desired-state successorを
+`all_ready_parallel_by_default`は変更せず、independenceはhostがsubsetを選ぶ根拠を与える別面とする。
+
+session開始時にhostが必要とする現在地は`lattice session-context --json`が
+**1プロセス・1回のstore読み**で返す（`lattice.session_context.v1`、ADR 0131）。
+`status`フィールドは`project_status.v1`、`todo`フィールドは`todo_status_result.v4`をそのまま埋め、
+`independence`はreadyのあるplanだけの並列可否要約を持つ。既存2面は不変で、これはその合成である。
+この面はdashboard活動を登録しない読み取り専用面とする。消費者へexact key検証を要求せず、
+知っているkeyだけを読んでよい——Lattice側は既存keyの意味を変えるときだけschema版を上げる。
+
+topologyとsource reconciliationの変更はfull desired-state successorを
 発行する`todo revise`／`todo revise-phase`だけが所有し、Markdown fallback、部分CRUD、独立`todo reconcile`を持たない。
 通常revision inputはcanonical JSON+LFの`lattice.todo_revision.v1/v2`、Phase revisionは
 `lattice.phase_todo_revision.v1/v2`とする。v2はdesired plan v5を所有する。cross-plan successorは`todo revise-set`で一括公開し、

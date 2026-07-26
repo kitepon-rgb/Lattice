@@ -4,6 +4,7 @@ const ROOT_HELP = `Usage: lattice <command> [options]
 
 Commands:
   status --json                 Discover the current project and next action
+  session-context --json        Session開始時の現在地を1プロセスで返す（工程状態＋並列可否）
   plan <command>                Create, compile, or verify plans
   run <command>                 Start or observe compiled runs
   event verify                  Verify a runtime event log

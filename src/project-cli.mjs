@@ -13,12 +13,15 @@ import {
   todoSelfDigest,
 } from './todo-contracts.mjs';
 import { projectTodoStatus } from './todo-status.mjs';
+import { projectIndependenceFrontier } from './todo-independence.mjs';
+import { selectIndependenceGuidance } from './todo-independence-guidance.mjs';
 import { ensureTodoDashboardActivity } from './todo-dashboard-registry.mjs';
 import { resolveProjectIdentity } from './project-identity.mjs';
 import {
   buildTodoPlan,
   createTodoStoreWriter,
   initializeAuthoredTodoStore,
+  readTodoIndependenceArtifact,
   readTodoStore,
   TodoStoreError,
 } from './todo-store.mjs';
@@ -27,6 +30,9 @@ const STORE_REF = '.lattice/todo';
 const MANIFEST_REF = `${STORE_REF}/manifest.json`;
 const MAX_INPUT_BYTES = 8_388_608;
 const STATUS_SCHEMA = 'lattice.project_status.v1';
+const SESSION_CONTEXT_SCHEMA = 'lattice.session_context.v1';
+/** HEADが読めない環境でも投影を組めるようにする。記録があるときは実HEADで置き換わる。 */
+const PLACEHOLDER_SHA = '0'.repeat(40);
 const CREATE_INPUT_SCHEMA = 'lattice.plan_create_input.v1';
 const PHASE_CREATE_INPUT_SCHEMA = 'lattice.plan_create_input.v2';
 const DECOUPLED_PHASE_CREATE_INPUT_SCHEMA = 'lattice.plan_create_input.v3';
@@ -106,6 +112,73 @@ export function validateProjectStatus(value) {
   } catch { return false; }
 }
 
+/**
+ * readyのあるplanについてだけ並列可否を要約する（ADR 0131 Decision 5）。
+ *
+ * store読みは呼び出し側が済ませている。ここが払うのはplanごとの小さな記録ファイルと、
+ * 記録があるときだけのHEAD照合である。readyが無いplanは述べる対象が無いので載せない。
+ */
+async function summarizeIndependence({ repoRoot, store, todo }) {
+  const readyPlanKeys = [...new Set(todo.next_ready.map(({ plan_key: key }) => key))].sort();
+  if (readyPlanKeys.length === 0) return [];
+  const activeByPlan = new Map();
+  for (const task of todo.active_set) {
+    if (!activeByPlan.has(task.plan_key)) activeByPlan.set(task.plan_key, []);
+    activeByPlan.get(task.plan_key).push(task.task_id);
+  }
+  let currentBaseSha = null;
+  const summaries = [];
+  for (const planKey of readyPlanKeys) {
+    const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+    if (member === undefined) continue;
+    let artifact = null;
+    try {
+      artifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+    } catch (error) {
+      // 読めない記録を「記録なし」へ丸めない。理由を載せて先へ進む。
+      summaries.push({
+        plan_key: planKey, coverage: null,
+        guidance: { code: 'independence_unrecorded', message: null, next_action: 'none' },
+        unreadable_reason: error instanceof TodoStoreError
+          ? `${error.code}:${error.detail?.reason ?? error.message}` : 'independence_unreadable',
+        parallel_groups: [], serialize_pair_count: 0,
+        conflict_with_active_count: 0, unknown_task_ids: [],
+      });
+      continue;
+    }
+    if (currentBaseSha === null && artifact !== null) currentBaseSha = gitHead(repoRoot);
+    const projected = projectIndependenceFrontier({
+      artifact,
+      readyTaskIds: todo.next_ready.filter((task) => task.plan_key === planKey)
+        .map(({ task_id: taskId }) => taskId),
+      activeTaskIds: activeByPlan.get(planKey) ?? [],
+      plan: member.plan,
+      currentBaseSha: currentBaseSha ?? PLACEHOLDER_SHA,
+      changedPaths: null,
+    });
+    summaries.push({
+      plan_key: planKey,
+      coverage: projected.coverage,
+      guidance: selectIndependenceGuidance({
+        coverage: projected.coverage,
+        readyCount: todo.next_ready.filter((task) => task.plan_key === planKey).length,
+        taskDeclared: projected.frontier.unknown
+          .every(({ unknowns }) => !unknowns.some(({ kind }) => kind === 'witness_missing')),
+        taskStale: projected.frontier.unknown
+          .some(({ unknowns }) => unknowns.some(({ kind }) => kind === 'record_stale')),
+        conflictWithActive: projected.frontier.conflicts_with_active[0]?.severability ?? null,
+        conflictBetweenReady: projected.frontier.serialize_pairs[0]?.severability ?? null,
+      }),
+      unreadable_reason: null,
+      parallel_groups: projected.frontier.parallel_groups.map(({ task_ids: ids }) => [...ids]),
+      serialize_pair_count: projected.frontier.serialize_pairs.length,
+      conflict_with_active_count: projected.frontier.conflicts_with_active.length,
+      unknown_task_ids: projected.frontier.unknown.map(({ task_id: taskId }) => taskId),
+    });
+  }
+  return summaries;
+}
+
 function statusResult(fields) {
   const result = { schema: STATUS_SCHEMA, ...fields, result_digest: '' };
   result.result_digest = resultDigest(result);
@@ -124,12 +197,18 @@ function invalidStatus({ cliVersion, repoRoot, reason }) {
   });
 }
 
-export async function runProjectStatus({ cwd, stdout, cliVersion, env = process.env,
-  ensureDashboardActivity = ensureTodoDashboardActivity }) {
+/**
+ * discoveryとstore読みを1回で済ませ、status結果と（読めたなら）storeを返す。
+ *
+ * `runProjectStatus`と`runSessionContext`が同じ判定を二度書かないための共有点。
+ * store読みはここでしか行わない——session開始経路が同じstoreを二度払っていたのが
+ * ADR 0131で直した欠陥である。
+ */
+async function resolveProjectState({ cwd, cliVersion }) {
   const repoRoot = resolveRepoRoot(cwd);
   if (repoRoot === null) {
-    stdout.write(`${JSON.stringify(invalidStatus({ cliVersion, repoRoot, reason: 'git_repository_unresolved' }))}\n`);
-    return 1;
+    return { exitCode: 1, repoRoot: null, store: null, todo: null,
+      result: invalidStatus({ cliVersion, repoRoot: null, reason: 'git_repository_unresolved' }) };
   }
   const storeAbsolute = path.join(repoRoot, STORE_REF);
   const manifestAbsolute = path.join(repoRoot, MANIFEST_REF);
@@ -137,30 +216,24 @@ export async function runProjectStatus({ cwd, stdout, cliVersion, env = process.
   let latticeState;
   let storeState;
   let manifestState;
+  const invalid = (reason) => ({
+    exitCode: 1, repoRoot, store: null, todo: null,
+    result: invalidStatus({ cliVersion, repoRoot, reason }),
+  });
   try { latticeState = await lstat(latticeAbsolute); } catch (error) {
-    if (error?.code !== 'ENOENT') {
-      stdout.write(`${JSON.stringify(invalidStatus({ cliVersion, repoRoot, reason: 'lattice_root_unreadable' }))}\n`);
-      return 1;
-    }
+    if (error?.code !== 'ENOENT') return invalid('lattice_root_unreadable');
   }
   if (latticeState !== undefined && (latticeState.isSymbolicLink() || !latticeState.isDirectory())) {
-    stdout.write(`${JSON.stringify(invalidStatus({ cliVersion, repoRoot, reason: 'lattice_root_invalid' }))}\n`);
-    return 1;
+    return invalid('lattice_root_invalid');
   }
   try { storeState = await lstat(storeAbsolute); } catch (error) {
-    if (error?.code !== 'ENOENT') {
-      stdout.write(`${JSON.stringify(invalidStatus({ cliVersion, repoRoot, reason: 'store_unreadable' }))}\n`);
-      return 1;
-    }
+    if (error?.code !== 'ENOENT') return invalid('store_unreadable');
   }
   try { manifestState = await lstat(manifestAbsolute); } catch (error) {
-    if (error?.code !== 'ENOENT') {
-      stdout.write(`${JSON.stringify(invalidStatus({ cliVersion, repoRoot, reason: 'manifest_unreadable' }))}\n`);
-      return 1;
-    }
+    if (error?.code !== 'ENOENT') return invalid('manifest_unreadable');
   }
   if (storeState === undefined && manifestState === undefined) {
-    const result = statusResult({
+    return { exitCode: 0, repoRoot, store: null, todo: null, result: statusResult({
       cli: { available: true, version: cliVersion },
       project: { root: repoRoot, git_head: gitHead(repoRoot), project_id: null },
       state: 'uninitialized',
@@ -171,14 +244,11 @@ export async function runProjectStatus({ cwd, stdout, cliVersion, env = process.
         input_schema: CURRENT_CREATE_INPUT_SCHEMA,
         schema_command: CURRENT_CREATE_SCHEMA_COMMAND,
       },
-    });
-    stdout.write(`${JSON.stringify(result)}\n`);
-    return 0;
+    }) };
   }
   if (storeState?.isSymbolicLink() || !storeState?.isDirectory()
     || manifestState?.isSymbolicLink() || !manifestState?.isFile()) {
-    stdout.write(`${JSON.stringify(invalidStatus({ cliVersion, repoRoot, reason: 'store_layout_invalid' }))}\n`);
-    return 1;
+    return invalid('store_layout_invalid');
   }
   try {
     const store = await readTodoStore({ repoRoot });
@@ -205,21 +275,60 @@ export async function runProjectStatus({ cwd, stdout, cliVersion, env = process.
       can_create_plan: false,
       next_action: next,
     });
-    if (env.LATTICE_DASHBOARD_AUTOSTART !== '0') {
-      const identity = await resolveProjectIdentity({ repoRoot, projectId: store.project_id, env });
-      const actorSession = env.LATTICE_TODO_ACTOR_SESSION;
-      await ensureDashboardActivity({
-        repoRoot, projectId: store.project_id, displayName: identity.displayName,
-        sessionId: isTodoIdentifier(actorSession) ? actorSession : `status-${process.pid}`, env,
-      });
-    }
-    stdout.write(`${JSON.stringify(result)}\n`);
-    return 0;
+    return { exitCode: 0, repoRoot, store, todo, result };
   } catch (error) {
-    const reason = error instanceof TodoStoreError ? `${error.code}:${error.detail?.reason ?? error.message}` : 'store_validation_failed';
-    stdout.write(`${JSON.stringify(invalidStatus({ cliVersion, repoRoot, reason }))}\n`);
-    return 1;
+    const reason = error instanceof TodoStoreError
+      ? `${error.code}:${error.detail?.reason ?? error.message}` : 'store_validation_failed';
+    return invalid(reason);
   }
+}
+
+export async function runProjectStatus({ cwd, stdout, cliVersion, env = process.env,
+  ensureDashboardActivity = ensureTodoDashboardActivity }) {
+  const state = await resolveProjectState({ cwd, cliVersion });
+  // dashboard活動の登録はdiscovery面の副作用として維持する（ADR 0131 Decision 4で
+  // session-context側だけが持たない、と決めた面である）。
+  if (state.store !== null && env.LATTICE_DASHBOARD_AUTOSTART !== '0') {
+    const identity = await resolveProjectIdentity({
+      repoRoot: state.repoRoot, projectId: state.store.project_id, env,
+    });
+    const actorSession = env.LATTICE_TODO_ACTOR_SESSION;
+    await ensureDashboardActivity({
+      repoRoot: state.repoRoot, projectId: state.store.project_id,
+      displayName: identity.displayName,
+      sessionId: isTodoIdentifier(actorSession) ? actorSession : `status-${process.pid}`, env,
+    });
+  }
+  stdout.write(`${JSON.stringify(state.result)}\n`);
+  return state.exitCode;
+}
+
+/**
+ * session開始時の現在地を1プロセス・1 store読みで返す（ADR 0131）。
+ *
+ * `lattice status`と`lattice todo status`は同じ`readTodoStore`を別プロセスで二重に払う。
+ * hostのSessionStartはその両方を呼ぶため、storeが育ったprojectでは実行枠を超えて
+ * 案内ごと捨てられていた。ここは合成であって置き換えではない——既存2面は不変で、
+ * それぞれの消費者を持ち続ける。
+ *
+ * dashboard活動の登録は行わない。現在地を知るために呼ぶ面であり、常駐面を起こす面ではない。
+ */
+export async function runSessionContext({ cwd, stdout, cliVersion }) {
+  const state = await resolveProjectState({ cwd, cliVersion });
+  const independence = state.store === null || state.todo === null
+    ? [] : await summarizeIndependence({ repoRoot: state.repoRoot, store: state.store, todo: state.todo });
+  const result = {
+    schema: SESSION_CONTEXT_SCHEMA,
+    // project discoveryの答えをそのまま埋める。hostは既存の検証器を再利用できる。
+    status: state.result,
+    // todoは`todo_status_result.v4`そのもの。新しい意味論を発明しない。
+    todo: state.todo,
+    independence,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  stdout.write(`${JSON.stringify(result)}\n`);
+  return state.exitCode;
 }
 
 async function readCanonicalInput(repoRoot, inputRef) {
