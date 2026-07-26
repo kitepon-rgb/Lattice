@@ -20,7 +20,7 @@ import {
   seamProposalGuidanceCode,
 } from './todo-independence-guidance.mjs';
 
-export const SEAM_PROPOSAL_SCHEMA = 'lattice.seam_proposal.v1';
+export const SEAM_PROPOSAL_SCHEMA = 'lattice.seam_proposal.v2';
 export const SEAM_PROPOSAL_PROJECTION_SCHEMA = 'lattice.seam_proposal_projection.v1';
 export const SEAM_PROPOSAL_VERDICTS = Object.freeze([
   'seam_candidate',
@@ -142,10 +142,18 @@ function surfaceEntry(value, taskIds, { proposed }) {
     : value.owner_task_ids.length === 1;
 }
 
+/**
+ * `candidate_paths`は、同名symbolが複数fileに居た時だけ埋まる（ADR 0134）。
+ *
+ * 単数の`resolved_path`と併存させるのは、両者が別の事実だからである。前者は「一意に決まった」、
+ * 後者は「決まらず、候補はこれだけあった」。候補を持つ受け皿が無かった頃、後者は`unknown`へ
+ * 潰れ、宣言の`within`で絞れる情報が記録に残らなかった。一意に決まった時に候補を並べない
+ * （空配列に限る）のは、決まった事実と決まらなかった事実を同じ形にしないためである。
+ */
 function queryEntry(value) {
   return exactRecord(value, [
     'query_id', 'operation', 'target', 'outcome', 'resolved_name', 'resolved_path',
-    'result_digest',
+    'candidate_paths', 'result_digest',
   ])
     && isTodoIdentifier(value.query_id)
     && isTodoIdentifier(value.operation)
@@ -153,6 +161,12 @@ function queryEntry(value) {
     && isTodoIdentifier(value.outcome)
     && (value.resolved_name === null || boundedText(value.resolved_name))
     && (value.resolved_path === null || repoRelativePath(value.resolved_path))
+    && boundedList(value.candidate_paths, repoRelativePath)
+    && strictlySorted(value.candidate_paths)
+    && (value.outcome === 'ambiguous'
+      ? value.candidate_paths.length >= 2 && value.resolved_path === null
+        && boundedText(value.resolved_name)
+      : value.candidate_paths.length === 0)
     && isTodoDigest(value.result_digest);
 }
 
@@ -284,7 +298,7 @@ function decisionEntry(value) {
 }
 
 /**
- * Validate the immutable public `lattice.seam_proposal.v1` artifact.
+ * Validate the immutable public `lattice.seam_proposal.v2` artifact.
  *
  * This validates the artifact's closed runtime shape and canonical relations. Binding the
  * recorded conflicts back to the referenced independence bytes is a consumer responsibility.

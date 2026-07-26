@@ -333,6 +333,41 @@ test('同名symbolの複数path解決とcross-operation path不一致をunknown�
   );
 });
 
+test('query操作は同名複数pathを候補付きで残し、graph操作はunknownのまま潰す', () => {
+  const target = 'summarizeIndependence';
+  const { query_set: querySet } = buildSeamProposalQuerySet({
+    conflictResources: [{ resource_id: 'symbol-shared', kind: 'symbol', target }],
+  });
+  const collected = collectedFor(querySet, (query) => {
+    if (query.operation === 'status') {
+      return { id: query.id, operation: query.operation, outcome: 'ready', data: {} };
+    }
+    const nodes = [exactNode(target, 'src/b.mjs'), exactNode(target, 'src/a.mjs')];
+    return {
+      id: query.id,
+      operation: query.operation,
+      outcome: 'ready',
+      data: query.operation === 'query' ? nodes : [],
+      resolution: nodes,
+    };
+  });
+  const evidence = normalizeSeamProposalEvidence({ querySet, collected });
+
+  const resolution = evidence.queries.find(({ operation }) => operation === 'query');
+  assert.equal(resolution.outcome, 'ambiguous');
+  assert.equal(resolution.resolved_path, null);
+  assert.equal(resolution.resolved_name, target);
+  // 候補は決定的な順序で載る。receiptは記録なので、収集順に揺れてはならない。
+  assert.deepEqual(resolution.candidate_paths, ['src/a.mjs', 'src/b.mjs']);
+
+  // graph操作は起点が一意でないと意味を持たないので、候補を持たずunknownのままにする。
+  for (const query of evidence.queries) {
+    if (['status', 'query'].includes(query.operation)) continue;
+    assert.equal(query.outcome, 'unknown');
+    assert.deepEqual(query.candidate_paths, []);
+  }
+});
+
 test('stale statusとsensor command failureをtyped failにする', () => {
   const { query_set: querySet } = buildSeamProposalQuerySet({ conflictResources: [{
     resource_id: 'symbol-shared',

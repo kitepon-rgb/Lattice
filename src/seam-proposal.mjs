@@ -775,12 +775,41 @@ function pathContains(resourcePath, symbolPath) {
 }
 
 /**
+ * 宣言symbolのpathを、宣言した資源の内側で解く（ADR 0134）。
+ *
+ * 一意に解決した名前はそのまま返す。同名が複数fileに居た場合だけ、receiptが持つ候補を
+ * 資源で絞る——絞って1つに決まる時だけ束縛根拠になる。0個なら宣言した資源の中には無く、
+ * 2つ以上なら資源の中でも決まらない。どちらも「解けなかった」であって、片方を勝たせない。
+ *
+ * 絞るのは宣言された資源であって、宣言そのものではない。sensorが返した候補集合の外から
+ * pathを持ち込むことはないので、宣言が誤っていても存在しないsymbolへは束縛されない。
+ */
+function resolveConcernSymbolPath(queries, name, resourcePath) {
+  const receipt = queries.find((query) => (
+    query.operation === 'query' && query.target === name && query.resolved_name === name
+      && (query.outcome === 'resolved' || query.outcome === 'ambiguous')
+  ));
+  if (receipt === undefined) return null;
+  if (receipt.outcome === 'resolved') {
+    return typeof receipt.resolved_path === 'string' && receipt.resolved_path.length > 0
+      ? receipt.resolved_path : null;
+  }
+  const inside = (receipt.candidate_paths ?? [])
+    .filter((candidate) => pathContains(resourcePath, candidate));
+  return inside.length === 1 ? inside[0] : null;
+}
+
+/**
  * Resolve declared concern anchors against fresh sensor evidence.
  *
- * A declaration only becomes a binding anchor when the sensor resolves the exact name to exactly
- * one path and that path lies inside the declared resource. Fuzzy resolution to a neighbouring
- * symbol, an absent name, or a symbol living outside the contested resource yields a typed
- * unknown instead — a wrong declaration must never widen what the binder believes it knows.
+ * A declaration only becomes a binding anchor when the sensor resolves the exact name inside the
+ * declared resource to exactly one path. Fuzzy resolution to a neighbouring symbol, an absent
+ * name, or a symbol living outside the contested resource yields a typed unknown instead — a
+ * wrong declaration must never widen what the binder believes it knows.
+ *
+ * A name living in several files is resolved against the declared resource rather than being
+ * dropped (ADR 0134). The resource is one the ToDo already claims under `owns`, so this narrows
+ * the sensor's own candidate set; it never introduces a path the sensor did not report.
  *
  * Two ToDos claiming the same symbol is a contradiction in the declarations themselves, not a cut
  * to be discovered: the anchor is dropped from both and reported, so neither side can be bound by
@@ -808,7 +837,7 @@ export function resolveConcernAnchors({ manualWitness, taskIds, evidence } = {})
         continue;
       }
       for (const symbol of entry.symbols) {
-        const symbolPath = resolvedSymbolPath(queries, symbol);
+        const symbolPath = resolveConcernSymbolPath(queries, symbol, resourcePath);
         if (symbolPath === null) {
           unknowns.push({ kind: 'concern_anchor_unresolved', ref: `${taskId}:${symbol}` });
           continue;
@@ -1894,7 +1923,7 @@ function conflictComponents(independenceArtifact) {
 }
 
 /**
- * Build the immutable lattice.seam_proposal.v1 artifact from one complete independence record.
+ * Build the immutable lattice.seam_proposal.v2 artifact from one complete independence record.
  * Sensor collection stays outside this producer; callers pass the original witness evidence and
  * the seam-specific normalized/raw evidence collected for the same clean HEAD.
  */

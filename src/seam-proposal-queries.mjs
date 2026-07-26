@@ -249,12 +249,24 @@ function exactSymbolResolution(outcome, target, operation) {
     return { outcome: 'unknown' };
   }
   const paths = [...new Set(exact.map(({ node }) => node.filePath))].sort(compareText);
-  if (paths.length !== 1) return { outcome: 'unknown' };
-  return { outcome: 'resolved', resolved_name: target, resolved_path: paths[0] };
+  if (paths.length === 1) {
+    return { outcome: 'resolved', resolved_name: target, resolved_path: paths[0] };
+  }
+  // 同名が複数fileにある。`query`は「その名前はどこに居るか」を問う操作なので、候補を
+  // 持ったまま返す——宣言の`within`が指す資源で絞れば一意に決まる場合がある（ADR 0134）。
+  // graph操作（callers／callees／impact）は逆に、展開の起点が一意でなければ意味を持たない。
+  // 同じ曖昧さでも問いが違うので、そちらはunknownのまま潰す。
+  if (operation === 'query') {
+    return { outcome: 'ambiguous', resolved_name: target, candidate_paths: paths };
+  }
+  return { outcome: 'unknown' };
 }
 
 function symbolResolutionForEvidence(local, canonical) {
-  if (canonical.outcome === 'unknown') return { outcome: 'unknown' };
+  // 起点が一意でない名前についてのgraph観測は、どのsymbolについての観測か確定しない。
+  if (canonical.outcome === 'unknown' || canonical.outcome === 'ambiguous') {
+    return { outcome: 'unknown' };
+  }
   if (canonical.outcome === 'absent') {
     return local.outcome === 'absent' ? local : { outcome: 'unknown' };
   }
@@ -294,6 +306,7 @@ function evidenceQuery({ query, outcome, resolution }) {
     outcome: resolution.outcome,
     resolved_name: resolution.resolved_name ?? null,
     resolved_path: resolution.resolved_path ?? null,
+    candidate_paths: resolution.candidate_paths ?? [],
     result_digest: digestArtifact(portableSensorOutcome(outcome)),
   };
 }
@@ -472,7 +485,7 @@ async function collectCalleeClosure({
 /**
  * Collect through the bundled sensor adapter. The normalized evidence remains the only
  * contract-shaped artifact; raw outcomes are returned on a separate, in-memory channel for
- * structural cut enumeration and must not be embedded in lattice.seam_proposal.v1.
+ * structural cut enumeration and must not be embedded in lattice.seam_proposal.v2.
  */
 export async function collectSeamProposalEvidenceBundle({
   cwd,

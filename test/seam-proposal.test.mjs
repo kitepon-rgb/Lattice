@@ -147,6 +147,7 @@ function proposalEvidence() {
       outcome: 'resolved',
       resolved_name: null,
       resolved_path: 'src/seam-proposal.mjs',
+      candidate_paths: [],
       result_digest: DIGEST('c'),
     }],
   };
@@ -326,6 +327,7 @@ function enumerationFixture({ uniqueAnchors = true } = {}) {
     outcome: 'resolved',
     resolved_name: target,
     resolved_path: path,
+    candidate_paths: [],
     result_digest: DIGEST(operation[0]),
   })).sort((left, right) => left.query_id.localeCompare(right.query_id));
   fixture.evidence = {
@@ -576,6 +578,7 @@ function concernEvidence(resolutions) {
       outcome: path === null ? 'absent' : 'resolved',
       resolved_name: path === null ? null : name,
       resolved_path: path,
+      candidate_paths: [],
       result_digest: DIGEST('9'),
     })),
   };
@@ -630,6 +633,89 @@ test('解決しない・資源の外にある宣言はanchorにならずtyped un
   assert.deepEqual(resolved.unknowns, [
     { kind: 'concern_anchor_outside_resource', ref: 'T1:movedAway:src/elsewhere.mjs' },
     { kind: 'concern_anchor_unresolved', ref: 'T1:neverExisted' },
+  ]);
+});
+
+function ambiguousEvidence(name, candidatePaths) {
+  return {
+    queries: [{
+      query_id: `q-${name}`,
+      operation: 'query',
+      target: name,
+      outcome: 'ambiguous',
+      resolved_name: name,
+      resolved_path: null,
+      candidate_paths: [...candidatePaths].sort(),
+      result_digest: DIGEST('a'),
+    }],
+  };
+}
+
+test('同名が複数fileに居ても、宣言した資源の中で一意なら束縛できる', () => {
+  // ADR 0134。receiptが候補を持つ前は、この状況がまるごとunknownへ潰れていた。
+  const resolved = resolveConcernAnchors({
+    manualWitness: {
+      T1: {
+        concern_anchors: [{
+          within: { kind: 'path', target: 'src/shared.mjs' },
+          symbols: ['summarizeIndependence'],
+        }],
+      },
+    },
+    taskIds: ['T1'],
+    evidence: ambiguousEvidence('summarizeIndependence',
+      ['src/shared.mjs', 'src/elsewhere.mjs']),
+  });
+  assert.deepEqual(resolved.unknowns, []);
+  assert.deepEqual(resolved.anchorsByTask.get('T1'),
+    ['concern:src/shared.mjs\0summarizeIndependence']);
+});
+
+test('候補が資源の中に無い／中で複数ある曖昧さは、束縛せずunknownのままにする', () => {
+  const anchorFor = (within) => ({
+    T1: { concern_anchors: [{ within, symbols: ['duplicated'] }] },
+  });
+
+  // 資源の外にしか居ない。宣言した資源についての束縛根拠にはならない。
+  const outside = resolveConcernAnchors({
+    manualWitness: anchorFor({ kind: 'path', target: 'src/shared.mjs' }),
+    taskIds: ['T1'],
+    evidence: ambiguousEvidence('duplicated', ['src/a.mjs', 'src/b.mjs']),
+  });
+  assert.deepEqual(outside.anchorsByTask.get('T1'), []);
+  assert.deepEqual(outside.unknowns, [
+    { kind: 'concern_anchor_unresolved', ref: 'T1:duplicated' },
+  ]);
+
+  // 資源がディレクトリで、その中に2つ居る。絞っても決まらないので片方を勝たせない。
+  const stillAmbiguous = resolveConcernAnchors({
+    manualWitness: anchorFor({ kind: 'path', target: 'src/' }),
+    taskIds: ['T1'],
+    evidence: ambiguousEvidence('duplicated', ['src/a.mjs', 'src/b.mjs']),
+  });
+  assert.deepEqual(stillAmbiguous.anchorsByTask.get('T1'), []);
+  assert.deepEqual(stillAmbiguous.unknowns, [
+    { kind: 'concern_anchor_unresolved', ref: 'T1:duplicated' },
+  ]);
+});
+
+test('曖昧なsymbolを資源として指した宣言は、資源の解決から絞れないのでunknownになる', () => {
+  // withinがsymbolの時、その資源自身を絞る外側の宣言は無い。
+  const resolved = resolveConcernAnchors({
+    manualWitness: {
+      T1: {
+        concern_anchors: [{
+          within: { kind: 'symbol', target: 'duplicated' },
+          symbols: ['inner'],
+        }],
+      },
+    },
+    taskIds: ['T1'],
+    evidence: ambiguousEvidence('duplicated', ['src/a.mjs', 'src/b.mjs']),
+  });
+  assert.deepEqual(resolved.anchorsByTask.get('T1'), []);
+  assert.deepEqual(resolved.unknowns, [
+    { kind: 'concern_anchor_resource_unresolved', ref: 'T1:symbol:duplicated' },
   ]);
 });
 
@@ -769,7 +855,7 @@ test('verification digestを同じ入力から再導出し改ざんを検出す�
   }).mismatches, ['virtual_compile_result_digest']);
 });
 
-test('一意なfeasible候補だけをv1 artifactへ落としcontractを満たす', () => {
+test('一意なfeasible候補だけをv2 artifactへ落としcontractを満たす', () => {
   const fixture = sharedFixture();
   const decision = compileDecision(fixture, [candidateSpec(fixture, 'only')], {
     explorationComplete: true,
@@ -777,7 +863,7 @@ test('一意なfeasible候補だけをv1 artifactへ落としcontractを満た�
   assert.equal(decision.verdict, 'seam_candidate');
   assert.ok(decision.seam_candidate.limits.includes('hypothetical_new_surfaces'));
   const artifact = {
-    schema: 'lattice.seam_proposal.v1',
+    schema: 'lattice.seam_proposal.v2',
     project_id: 'lattice',
     plan_key: 'seam-proposal',
     source_binding: {

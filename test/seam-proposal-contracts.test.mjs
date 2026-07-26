@@ -142,6 +142,7 @@ function acceptedArtifact() {
               outcome: 'resolved',
               resolved_name: 'selectAll',
               resolved_path: 'src/shared.mjs',
+              candidate_paths: [],
               result_digest: DIGEST('2'),
             },
             {
@@ -151,6 +152,7 @@ function acceptedArtifact() {
               outcome: 'absent',
               resolved_name: null,
               resolved_path: null,
+              candidate_paths: [],
               result_digest: DIGEST('3'),
             },
           ],
@@ -175,6 +177,52 @@ test('正しいN-task conflict componentのaccepted artifactが通る', () => {
   assert.equal(validateSeamProposal(value), true);
   assert.equal(value.decisions[0].task_ids.length, 3);
   assert.equal(value.decisions[0].conflicts.length, 2);
+});
+
+test('receiptは「一意に決まった」と「決まらず候補があった」を混ぜられない', () => {
+  const receipt = (value) => value.decisions[0].seam_candidate.evidence.queries[0];
+
+  // 一意に決まったreceiptへ候補を並べる。決まった事実と決まらなかった事実は同じ形にしない。
+  const resolvedWithCandidates = acceptedArtifact();
+  receipt(resolvedWithCandidates).candidate_paths = ['src/a.mjs', 'src/b.mjs'];
+  seal(resolvedWithCandidates);
+  assert.equal(validateSeamProposal(resolvedWithCandidates), false);
+
+  // 曖昧なreceiptは候補を2つ以上持ち、単数のpathは持たない。
+  const ambiguous = acceptedArtifact();
+  Object.assign(receipt(ambiguous), {
+    outcome: 'ambiguous',
+    resolved_path: null,
+    candidate_paths: ['src/a.mjs', 'src/b.mjs'],
+  });
+  seal(ambiguous);
+  assert.equal(validateSeamProposal(ambiguous), true);
+
+  const ambiguousWithPath = acceptedArtifact();
+  Object.assign(receipt(ambiguousWithPath), {
+    outcome: 'ambiguous',
+    candidate_paths: ['src/a.mjs', 'src/b.mjs'],
+  });
+  seal(ambiguousWithPath);
+  assert.equal(validateSeamProposal(ambiguousWithPath), false);
+
+  const ambiguousWithOne = acceptedArtifact();
+  Object.assign(receipt(ambiguousWithOne), {
+    outcome: 'ambiguous',
+    resolved_path: null,
+    candidate_paths: ['src/a.mjs'],
+  });
+  seal(ambiguousWithOne);
+  assert.equal(validateSeamProposal(ambiguousWithOne), false);
+
+  const unsorted = acceptedArtifact();
+  Object.assign(receipt(unsorted), {
+    outcome: 'ambiguous',
+    resolved_path: null,
+    candidate_paths: ['src/b.mjs', 'src/a.mjs'],
+  });
+  seal(unsorted);
+  assert.equal(validateSeamProposal(unsorted), false);
 });
 
 test('verdictとseam_candidateはexact sum typeになる', () => {
