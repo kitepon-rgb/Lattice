@@ -114,14 +114,27 @@ Taskだけを`project_id`／`plan_key`／`plan_version`／`task_id`つきで投�
 
 依存edgeの不在は順序制約の無申告であって、書き込み境界の非干渉ではない。両者を公開面で区別するため、
 `todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v1`の宣言と
-実sensor観測から並列可否を判定し、`lattice.todo_independence.v1`をplan versionディレクトリへ並置記録する
-（ADR 0127）。記録は`(plan_version, topology_digest, base_sha)`へ束縛し、dirty worktreeでは記録しない。
+実sensor観測から並列可否を判定し、`lattice.todo_independence.v3`をplan versionディレクトリへ並置記録する
+（ADR 0127・0132）。conflictは`conflict_resources`のresource idを参照し、kindと衝突した実体
+（symbolまたはrepo相対path）を辞書側で一度だけ保持する。既知の旧契約で書かれた記録は`superseded`として
+再compileを案内し、壊れた記録とは区別する。記録は`(plan_version, topology_digest, base_sha)`へ束縛し、
+dirty worktreeでは記録しない。
 記録はwitness setから再生成できるhost localの投影として扱い、git追跡するのは入力のwitness setだけとする。
 `todo independence [--plan <key>] --json`はready frontierを検証済み並列グループ・要直列の組・未検査へ
 分けて投影し（`lattice.todo_independence_projection.v2`）、参照時にsensorを引かない。
 記録の鮮度は`coverage`が`verified`／`stale`／`superseded`／`missing`で示し、現在のコード状態を
 指していない記録をverified独立として読ませない。`dispatch_frontier`の
 `all_ready_parallel_by_default`は変更せず、independenceはhostがsubsetを選ぶ根拠を与える別面とする。
+
+切断可能と分類されたconflictについて、`todo seam-proposal compile --plan <key>`が独立性記録と実sensorから
+`lattice.seam_proposal.v1`を生成し、`todo seam-proposal [--plan <key>] --json`がsensorを引かずに
+`lattice.seam_proposal_projection.v1`として投影する（ADR 0132）。提案の単位はconflict pairではなく
+conflict componentとし、`seam_candidate`／`intentional_serial`／`unknown_requires_evidence`のsum typeで
+全conflictを覆う。提案が持つのは切断の手順ではなく変更前後のsurfaceとその所有者であり、
+seam候補は提案後ownershipで残余conflictが0になるものだけとする。ToDoへの割り当てをcaller／callee／impactの
+edgeから導出せず、witnessのtask固有anchorが束縛できない場合はtyped unknownを返す。提案は構造証拠であって
+意味的独立やbehavior preservationの証明ではなく、実変換は本面に含まれない。記録はindependence記録と同じく
+plan versionディレクトリへ並置し、再生成できるhost localの投影として扱う。
 
 session開始時にhostが必要とする現在地は`lattice session-context --json`が
 **1プロセス・1回のstore読み**で返す（`lattice.session_context.v1`、ADR 0131）。

@@ -15,7 +15,7 @@ compiler」へ進める工程群。実変換（隔離worktreeでの実行）と�
 本planはその閉ループの**入口**だけを作る。実変換に賭ける前に、提案の品質を実データで人が裁定
 できる状態にするのが目的である。read-onlyなので失敗してもstoreを壊さない。
 
-## 現状（棚卸しで確定した事実）
+## 着手時点の現状（棚卸しで確定した事実・以降の工程で解消済み）
 
 - `lattice todo independence`はconflictを検出し、`severabilityOfConflictKind`で
   `symbol|path → code_seam`、それ以外 → `serial`まで分類する。判断材料はconflict kindの一点だけで、
