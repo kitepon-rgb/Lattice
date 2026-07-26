@@ -167,8 +167,13 @@ export function validateTodoStatusResult(value) {
   }
 }
 
-/** Canonical todo read modelからSessionStart向け現在地をread-only投影する。 */
-export function projectTodoStatus(readModel) {
+/**
+ * read modelからtask node・依存辺・phase gateを組み立てる。
+ *
+ * ready判定の唯一の計算元。`projectTodoStatus`と`computeReadyFrontier`が同じ結果を
+ * 出すために共有する（同じ規則を二箇所へ持たない）。
+ */
+function buildTodoGraph(readModel) {
   if (!plain(readModel) || readModel.schema !== 'lattice.todo_store_read.v1'
     || !isTodoIdentifier(readModel.project_id) || !Array.isArray(readModel.members)) {
     fail('TODO_STATUS_INVALID_INPUT', 'todo_status_read_model_invalid');
@@ -275,6 +280,45 @@ export function projectTodoStatus(readModel) {
     }
   }
 
+  return { nodes, incoming, phaseAcceptIncoming, phaseStatuses, memberHeads };
+}
+
+/** 先行完了とphase gateを満たしたpending taskだけがreadyになる。 */
+function isNodeReady(node, { nodes, incoming, phaseAcceptIncoming, phaseStatuses }) {
+  return node.status === 'pending' && node.phase_ready
+    && [...incoming.get(node.key)].every((key) => {
+      const predecessor = nodes.get(key);
+      return predecessor.status === 'done'
+        && (predecessor.plan_schema !== 'lattice.todo_plan.v4'
+          || predecessor.phase_id === null
+          || (predecessor.plan_key === node.plan_key && predecessor.phase_id === node.phase_id)
+          || predecessor.phase_status === 'accepted');
+    })
+    && [...phaseAcceptIncoming.get(node.key)]
+      .every((key) => phaseStatuses.get(key) === 'accepted');
+}
+
+/**
+ * ready frontierだけをread-only投影する。
+ *
+ * `todo status`の`next_ready`と同じ計算・同じ順序を返す。independence投影が
+ * ready集合を別実装で持たないための共有入口である。
+ */
+export function computeReadyFrontier(readModel) {
+  const graph = buildTodoGraph(readModel);
+  const ready = [...graph.nodes.values()]
+    .filter((node) => isNodeReady(node, graph))
+    .map((node) => ({ plan_key: node.plan_key, task_id: node.task_id, label: node.label }));
+  ready.sort(compareTaskEntries);
+  enforceListLimit('next_ready', ready);
+  return ready;
+}
+
+/** Canonical todo read modelからSessionStart向け現在地をread-only投影する。 */
+export function projectTodoStatus(readModel) {
+  const graph = buildTodoGraph(readModel);
+  const { nodes, incoming, memberHeads } = graph;
+
   const activeSet = [];
   const nextReady = [];
   const blocked = [];
@@ -291,16 +335,7 @@ export function projectTodoStatus(readModel) {
       enforceListLimit('active_set.unmet_dependencies', unmetDependencies);
       activeSet.push({ ...task, unmet_dependencies: unmetDependencies });
     }
-    if (node.status === 'pending' && node.phase_ready
-      && [...incoming.get(node.key)].every((key) => {
-        const predecessor = nodes.get(key);
-        return predecessor.status === 'done'
-          && (predecessor.plan_schema !== 'lattice.todo_plan.v4'
-            || predecessor.phase_id === null
-            || (predecessor.plan_key === node.plan_key && predecessor.phase_id === node.phase_id)
-            || predecessor.phase_status === 'accepted');
-      }) && [...phaseAcceptIncoming.get(node.key)]
-        .every((key) => phaseStatuses.get(key) === 'accepted')) nextReady.push(task);
+    if (isNodeReady(node, graph)) nextReady.push(task);
     if (node.status === 'blocked') {
       blocked.push({
         plan_key: node.plan_key,
