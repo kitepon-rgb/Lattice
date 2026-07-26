@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.15.0 — 2026-07-26
+
+- **切断候補をread-onlyで提案する面**を追加した（`lattice todo seam-proposal compile` と
+  `lattice todo seam-proposal`、[ADR 0132](docs/adr/0132-seam-proposal-read-only-surface.md)）。
+  これまでconflictは「symbol／path起因なら切断しうる」と分類するだけで、**どこで切るかの情報を
+  製品は持っていなかった**。conflict componentを単位に、変更前後のsurfaceとその所有者、提案後の
+  残余conflict、sensor証拠、未知を1つのversioned artifactへ記録する。生成はclean worktreeと
+  実sensorを要求し、読み出しはsensorを引かない。
+- **conflictが争っている実体を記録へ残す**ようにした（`lattice.todo_independence.v3`）。v2の
+  conflictは`{task_ids, resource_id, kind}`だけで、`resource_id`は`own-path-<hash>`の合成IDだった。
+  **どのsymbol・どのpathが衝突したのか復元できず**、提案生成の入力が存在しなかった。targetは
+  conflictへ直書きせず`conflict_resources`辞書へ一度だけ持たせる（conflict最大4,096件×target最大
+  4,096 byteに対し保存上限は1 MiB）。
+- 既知の旧契約で書かれた独立性記録を`superseded`として再compileへ案内し、**壊れた記録とは区別する**
+  ようにした。旧記録が残ったままでも工程表表示とsession-context案内は落ちない。planの改訂と契約の
+  陳腐化に別の次の一歩を返す。
+- 工程表へseam提案を表示するようにした。実データではほとんどのcomponentが「情報が足りない」に
+  なるため、**なぜ提案できないか**（typed unknownのkindと対象ToDo）まで読める見せ方にした。
+  争っている資源はhash IDでなくexact targetで出る。
+- ToDoへの割り当てをcaller／callee／impactのedgeから導出しない規律を固定した。witnessのtask固有
+  anchorが束縛できない場合は`unknown_requires_evidence`を返す。1候補の失敗を`intentional_serial`へ
+  昇格させない——探索の不完備は「切れない」ではない。
+- 公開契約が独立性artifactを`v1`と記載していたdriftを実装（`v3`）へ揃えた。
+
 ## 0.14.0 — 2026-07-26
 
 - **session開始時の現在地を1プロセス・1回のstore読みで返す**入口を追加した
