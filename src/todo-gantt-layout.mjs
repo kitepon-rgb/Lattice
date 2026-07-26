@@ -416,9 +416,15 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   const layers = orderLayers(nodes, wave, incoming, outgoing);
   // A ToDo with no registered dependency has nothing to line up with. Laying
   // every one of them out in a single row makes the canvas as wide as the plan
-  // is old — real stores have hundreds — so they wrap into a block underneath
-  // the wired ToDos of their stage. Nodes that carry edges keep the top row:
-  // edge routing assumes both endpoints of a stage share one baseline.
+  // is old — real stores have hundreds — so they wrap into a block of rows.
+  //
+  // That block goes ABOVE the wired ToDos of its stage. Below them it used to be
+  // pierced: a wired card's port descends from its own bottom edge to the routing
+  // band under the whole stage, straight through whatever independent card had
+  // wrapped into the same column, and the hidden half of that line read as a
+  // dependency the plan does not have. Independent ToDos carry no edge, so they
+  // have no incoming one either and always land in stage 0, which nothing ever
+  // arrives into — putting them on top leaves no line to cross them.
   const wired = new Set();
   for (const edge of edges) { wired.add(edge.from); wired.add(edge.to); }
   const transversePosition = new Map();
@@ -427,12 +433,15 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   for (const layer of layers) {
     const connected = layer.filter((key) => wired.has(key));
     const loose = layer.filter((key) => !wired.has(key));
-    connected.forEach((key, index) => { transversePosition.set(key, index); stageRow.set(key, 0); });
     const columns = Math.max(LOOSE_COLUMNS_MINIMUM, connected.length);
-    const firstLooseRow = connected.length === 0 ? 0 : 1;
+    const looseRows = loose.length === 0 ? 0 : Math.ceil(loose.length / columns);
     loose.forEach((key, index) => {
       transversePosition.set(key, index % columns);
-      stageRow.set(key, firstLooseRow + Math.floor(index / columns));
+      stageRow.set(key, Math.floor(index / columns));
+    });
+    connected.forEach((key, index) => {
+      transversePosition.set(key, index);
+      stageRow.set(key, looseRows);
     });
     stageRowCount.push(Math.max(0, ...layer.map((key) => stageRow.get(key))) + 1);
   }

@@ -64,15 +64,11 @@ function enclosingBoxes(result) {
 // 線がカードの内側を通ると、そのカードに隠れて経路を追えなくなる。端点の
 // カードとは辺で接するので、判定は厳密不等号で「内部」だけを見る。
 //
-// skipPortStubsは、カード下端から帯へ降りる最初と最後の一区間を除く。同じ段の
-// 下段へ折り返した未接続カードを、その真上のカードのstubが貫く既存欠陥が別に
-// あり（docs/ui-review-backlog.md）、段をまたぐ本体経路の主張と混ぜないため。
-function assertNoRouteEntersBox(result, { skipPortStubs = false } = {}) {
+function assertNoRouteEntersBox(result) {
   const boxes = enclosingBoxes(result);
   for (const model of [...result.edges, ...result.connectors]) {
     const lastSegment = model.route.length - 2;
     for (let index = 0; index <= lastSegment; index += 1) {
-      if (skipPortStubs && (index === 0 || index === lastSegment)) continue;
       const [start, end] = [model.route[index], model.route[index + 1]];
       const horizontal = start[1] === end[1];
       for (const box of boxes) {
@@ -300,7 +296,7 @@ test('段をまたぐ線は端点カードの間の縦チャネルを降り、�
   ]);
   const result = layoutOf(input);
   assertNoCollinearOverlap([...result.edges, ...result.connectors]);
-  assertNoRouteEntersBox(result, { skipPortStubs: true });
+  assertNoRouteEntersBox(result);
 
   const geometryOf = (taskId) => result.nodes
     .find(({ ref: nodeRef }) => nodeRef.task_id === taskId).geometry;
@@ -327,6 +323,27 @@ test('段をまたぐ線は端点カードの間の縦チャネルを降り、�
     assert.ok(x < rightmost, `${fromId}→${toId} が図の右端の外へ迂回している`);
   }
   assert.ok(acrossColumns >= 1);
+});
+
+test('依存を持たない工程は同じ段の上へ積まれ、どの線にも貫かれない', () => {
+  const wired = ['W0', 'W1', 'W2'];
+  const alone = Array.from({ length: 11 }, (_, index) => `A${index}`);
+  const input = fixture([{ plan_key: 'plan', tasks: [...wired, ...alone]
+    .map((id) => ({ id, lane: 'same' })) }],
+  [dependency(ref('W0'), ref('W1')), dependency(ref('W1'), ref('W2'))]);
+  const result = layoutOf(input);
+  const nodeOf = (taskId) => result.nodes.find(({ ref: nodeRef }) => nodeRef.task_id === taskId);
+
+  assert.deepEqual(alone.map((id) => nodeOf(id).wave), alone.map(() => 0), '前提: 独立工程はwave 0');
+  const wiredTop = nodeOf('W0').geometry.y;
+  for (const id of alone) {
+    assert.ok(nodeOf(id).geometry.y < wiredTop,
+      `${id} が依存を持つ工程より下に積まれている`);
+  }
+  // 折り返しが複数行に及ぶ状況で確かめる（列数分より多い独立工程を置いた）。
+  assert.ok(new Set(alone.map((id) => nodeOf(id).geometry.y)).size >= 2, '前提: 独立工程が複数行へ折り返す');
+  assertNoRouteEntersBox(result);
+  assertNoCollinearOverlap([...result.edges, ...result.connectors]);
 });
 
 test('真下の工程へ繋ぐ線は折れずに一直線で降りる', () => {
