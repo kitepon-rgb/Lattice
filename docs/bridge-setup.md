@@ -10,7 +10,7 @@ portを省略するか`auto`にすると、49152–65535から候補を重複な
 実際のexclusive bindとhealth確認に成功したportだけを保存する。
 
 ```bash
-lattice bridge setup --listen 192.168.1.102 --port auto --dashboard --allow-host lattice.kitepon.dev --json
+lattice bridge setup --listen 192.168.1.50 --port auto --dashboard --allow-host lattice.example.com --json
 ```
 
 `--dashboard`は現在のlocal dashboard descriptorをrequestごとに解決するため、dashboard再起動でportが変わっても
@@ -20,7 +20,7 @@ listen IPは常に許可Hostへ入り、reverse proxyで公開するhostnameは`
 
 ```bash
 lattice bridge status --json
-lattice bridge reconfigure --listen 192.168.1.102 --port auto --dashboard --json
+lattice bridge reconfigure --listen 192.168.1.50 --port auto --dashboard --json
 lattice bridge disable --json
 ```
 

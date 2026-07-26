@@ -119,7 +119,8 @@ dashboardはmanifestのfile identityが変わらない間のstable store readを
 最近のsession activityが期限切れでも、Lattice storeの`active_set`が非空なprojectは一覧へ残ります。
 長時間の外部処理中にCLI呼出しが途切れても進行中projectを休眠扱いしません。
 LANや外部reverse proxyから閲覧するoptional bridgeは既定で無効です。明示したIPにだけbindする初回設定、
-再設定、停止方法は[bridge setup](docs/bridge-setup.md)を参照してください。
+再設定、停止方法は[bridge setup](docs/bridge-setup.md)を参照してください。reverse proxy hostへsshで
+到達できる場合は、LANへbindせずloopbackだけを逆トンネルで公開する構成も選べます。
 工程図の既定表示は、後続に作業中・未着手が残っていない完了工程を図から除きます。まとめnodeも置かないため、
 完走したplanは図の場所を取りません。除いた工程は凡例の件数、右ペインの「全工程」一覧、各工程の詳細から
 辿れ、詳細の前提・後続は除外前の依存関係を示します。総数・進捗・最長依存鎖は除外前の全工程で数えます。
