@@ -46,8 +46,70 @@ function exec(command, args, cwd, expected = 0, env = process.env) {
   return result;
 }
 
-async function createUnmanagedRun({ twoTodos = false, sharedResource = false } = {}) {
+// このtestはCLI経由で本物のsupervisor/controller daemonを起動する。daemonは
+// detachedなので、testが終わってもfixtureごと消えたりはしない。descriptorに
+// 書かれたpidだけを見て停めると、descriptorが書かれる前にtestが落ちた場合や
+// 配置が変わった場合に取り逃す。fixtureのtemp pathを指しているprocessは全部
+// この試験の落とし物なので、そちらを基準に刈る。
+function daemonPidsUnder(temporary) {
+  const listed = spawnSync('ps', ['-eo', 'pid=,command='], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (listed.status !== 0 || typeof listed.stdout !== 'string') return [];
+  return listed.stdout.split('\n')
+    .filter((line) => line.includes(temporary))
+    .map((line) => Number.parseInt(line.trim(), 10))
+    .filter((pid) => Number.isSafeInteger(pid) && pid > 0 && pid !== process.pid);
+}
+
+// kill(pid, 0) は回収前のzombieにも通るので、生存判定には使えない。ps の状態を見る。
+function processAlive(pid) {
+  const listed = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
+  const state = (listed.stdout ?? '').trim();
+  return state.length > 0 && !state.startsWith('Z');
+}
+
+// tracked は test 自身がspawnした子。argvにfixtureのpathが出ないので個別に預かる。
+// SIGSTOPで止められている場合があるため、終わらせる前にSIGCONTで起こす。
+async function reapDaemonsUnder(temporary, tracked = []) {
+  const survivors = () => [...new Set([...daemonPidsUnder(temporary), ...tracked.filter(processAlive)])];
+  for (const signal of ['SIGTERM', 'SIGKILL']) {
+    if (survivors().length === 0) return [];
+    for (const pid of tracked) {
+      try { process.kill(-pid, 'SIGCONT'); process.kill(-pid, signal); } catch { /* already stopped */ }
+    }
+    for (const pid of daemonPidsUnder(temporary)) {
+      try { process.kill(pid, signal); } catch { /* already stopped */ }
+    }
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && survivors().length > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+  return survivors();
+}
+
+// after hookが走らずに終わった場合（timeoutでの打ち切りなど）の最後の受け皿。
+// 非同期は使えないので、同期のspawnSyncとkillだけで刈る。
+const liveFixtures = new Set();
+process.on('exit', () => {
+  for (const temporary of liveFixtures) {
+    for (const pid of daemonPidsUnder(temporary)) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already stopped */ }
+    }
+  }
+});
+
+async function createUnmanagedRun(t, { twoTodos = false, sharedResource = false } = {}) {
   const temporary = await mkdtemp(path.join(tmpdir(), 'lattice-conflict-cli-'));
+  const tracked = [];
+  liveFixtures.add(temporary);
+  // 後片付けは呼び出し側に任せない。testごとに書くと、停め忘れ・supervisorだけ
+  // 停めてcontrollerを残す、といった取りこぼしが個別に増える。
+  t.after(async () => {
+    const survivors = await reapDaemonsUnder(temporary, tracked);
+    liveFixtures.delete(temporary);
+    await rm(temporary, { recursive: true, force: true });
+    assert.deepEqual(survivors, [], `fixtureのdaemonが停まらずに残った: ${survivors.join(', ')}`);
+  });
   const repo = path.join(temporary, 'repo');
   await mkdir(path.join(repo, 'src'), { recursive: true });
   await mkdir(path.join(repo, 'test'), { recursive: true });
@@ -95,7 +157,8 @@ async function createUnmanagedRun({ twoTodos = false, sharedResource = false } =
   const requestPath = path.join(temporary, 'request.json');
   await writeFile(requestPath, `${JSON.stringify(request)}\n`);
   exec(process.execPath, [CLI, 'run', 'start', '--request', requestPath, '--executor', 'scripted'], repo);
-  return { temporary, repo, runRef: '.lattice/runs/conflict-cli-fixture', request };
+  return { temporary, repo, runRef: '.lattice/runs/conflict-cli-fixture', request,
+    track: (pid) => tracked.push(pid) };
 }
 
 async function installManagedControllerFixture(fixture, { signed = false } = {}) {
@@ -165,9 +228,32 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
   await writeFile(path.join(runtimeDir, 'registry.json'), `${canonicalizeArtifact(registry)}\n`);
 }
 
+test('後片付けはfixtureを掴んだ子を、停止要求を無視する相手でも停める', async (t) => {
+  const temporary = await mkdtemp(path.join(tmpdir(), 'lattice-conflict-cli-'));
+  t.after(() => rm(temporary, { recursive: true, force: true }));
+  // SIGTERMを握り潰す子を立てる。daemonが停止要求を取りこぼした時に、後片付けが
+  // 諦めて孤児を残さないことを見る。argvへfixture pathを入れて刈り取り対象にする。
+  const stubborn = spawn(process.execPath, ['-e',
+    `process.on('SIGTERM', () => {}); setInterval(() => {}, 1000); void ${JSON.stringify(temporary)};`],
+  { detached: true, stdio: 'ignore' });
+  stubborn.unref();
+  const appeared = Date.now() + 5_000;
+  while (Date.now() < appeared && !daemonPidsUnder(temporary).includes(stubborn.pid)) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.ok(daemonPidsUnder(temporary).includes(stubborn.pid), 'fixtureを掴んだ子を見つけられていない');
+
+  const survivors = await reapDaemonsUnder(temporary);
+  assert.deepEqual(survivors, [], `停め切れていない: ${survivors.join(', ')}`);
+  const exitSignal = await new Promise((resolve) => {
+    if (stubborn.signalCode !== null || stubborn.exitCode !== null) { resolve(stubborn.signalCode); return; }
+    stubborn.once('exit', (_code, signal) => resolve(signal));
+  });
+  assert.equal(exitSignal, 'SIGKILL', 'SIGTERMを無視する相手にはSIGKILLまで上げる');
+});
+
 test('conflict・hold・reprocessは公開argvだがunmanaged runへfallbackしない', async (t) => {
-  const fixture = await createUnmanagedRun();
-  t.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  const fixture = await createUnmanagedRun(t);
   for (const argv of [
     ['run', 'conflict', '--run', fixture.runRef, '--finding', 'd'.repeat(64)],
     ['run', 'hold', '--run', fixture.runRef],
@@ -180,20 +266,8 @@ test('conflict・hold・reprocessは公開argvだがunmanaged runへfallbackし�
 });
 
 test('public finding recordは保存checkpointから再導出できないcandidateを実daemonで拒否する', async (t) => {
-  const fixture = await createUnmanagedRun({ twoTodos: true });
+  const fixture = await createUnmanagedRun(t, { twoTodos: true });
   const runDir = path.join(fixture.repo, fixture.runRef);
-  t.after(async () => {
-    try {
-      for (const controllerId of await readdir(path.join(runDir, 'controllers'))) {
-        try {
-          const descriptor = JSON.parse(await readFile(path.join(runDir, 'controllers', controllerId,
-            'descriptor.json')));
-          process.kill(descriptor.pid, 'SIGTERM');
-        } catch { /* already stopped */ }
-      }
-    } catch { /* activation前失敗 */ }
-    await rm(fixture.temporary, { recursive: true, force: true });
-  });
   await installManagedControllerFixture(fixture);
   exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo);
   let events = JSON.parse(await readFile(path.join(runDir, 'events.json')));
@@ -224,16 +298,14 @@ test('public finding recordは保存checkpointから再導出できないcandida
 });
 
 test('external hold ack surfaceはusage違反のまま閉じる', async (t) => {
-  const fixture = await createUnmanagedRun();
-  t.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  const fixture = await createUnmanagedRun(t);
   const result = exec(process.execPath, [CLI, 'run', 'hold', 'ack', '--run', fixture.runRef,
     '--input', 'forged.json'], fixture.repo, 2);
   assert.match(result.stderr, /unsupported command or arguments/u);
 });
 
 test('signed host binaryはpre/post-exec codesign identityをproduction observerで照合する', async (t) => {
-  const fixture = await createUnmanagedRun();
-  t.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  const fixture = await createUnmanagedRun(t);
   await installManagedControllerFixture(fixture, { signed: true });
   const activated = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo);
   assert.equal(JSON.parse(activated.stdout).outcome, 'activated');
@@ -241,8 +313,7 @@ test('signed host binaryはpre/post-exec codesign identityをproduction observer
 });
 
 test('crashしたmanaged supervisorを新nonceで再起動しcontrollerを孤児化しない', async (t) => {
-  const fixture = await createUnmanagedRun();
-  t.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  const fixture = await createUnmanagedRun(t);
   await installManagedControllerFixture(fixture);
   exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo);
   const runDir = path.join(fixture.repo, fixture.runRef);
@@ -280,8 +351,7 @@ test('crashしたmanaged supervisorを新nonceで再起動しcontrollerを孤児
 });
 
 test('restart activation失敗は旧descriptor/session/control/gate証拠をbyte不変で残す', async (t) => {
-  const fixture = await createUnmanagedRun();
-  t.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  const fixture = await createUnmanagedRun(t);
   await installManagedControllerFixture(fixture);
   exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo);
   const runDir = path.join(fixture.repo, fixture.runRef);
@@ -312,15 +382,7 @@ test('restart activation失敗は旧descriptor/session/control/gate証拠をbyte
 });
 
 test('実controller daemonはholdからsuccessor prepare/release/中央gate/intake resumeまで公開CLIで完走する', async (t) => {
-  const fixture = await createUnmanagedRun({ twoTodos: true, sharedResource: true });
-  t.after(async () => {
-    const runDir = path.join(fixture.repo, fixture.runRef);
-    try {
-      const active = await resolveActiveRuntimePaths({ runDir });
-      process.kill(JSON.parse(await readFile(active.descriptorPath)).pid, 'SIGTERM');
-    } catch { /* already stopped */ }
-    await rm(fixture.temporary, { recursive: true, force: true });
-  });
+  const fixture = await createUnmanagedRun(t, { twoTodos: true, sharedResource: true });
   await installManagedControllerFixture(fixture);
   exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef], fixture.repo, 0,
     { ...process.env, NODE_ENV: 'test',
@@ -567,24 +629,8 @@ test('実controller daemonはholdからsuccessor prepare/release/中央gate/inta
 });
 
 test('activate後もdaemonが生存しfinding→conflict→hold receiptとdispatch freezeを維持する', async (t) => {
-  const fixture = await createUnmanagedRun();
+  const fixture = await createUnmanagedRun(t);
   let worker = null;
-  t.after(async () => {
-    if (worker?.pid) {
-      try { process.kill(-worker.pid, 'SIGCONT'); process.kill(-worker.pid, 'SIGTERM'); } catch { /* already stopped */ }
-    }
-    const runDir = path.join(fixture.repo, fixture.runRef);
-    const descriptorPaths = [path.join(runDir, 'supervisor', 'descriptor.json')];
-    try {
-      for (const controllerId of await readdir(path.join(runDir, 'controllers'))) {
-        descriptorPaths.push(path.join(runDir, 'controllers', controllerId, 'descriptor.json'));
-      }
-    } catch { /* activation前失敗 */ }
-    for (const descriptorPath of descriptorPaths) {
-      try { process.kill(JSON.parse(await readFile(descriptorPath)).pid, 'SIGTERM'); } catch { /* already stopped */ }
-    }
-    await rm(fixture.temporary, { recursive: true, force: true });
-  });
   await installManagedControllerFixture(fixture);
   const activate = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef],
     fixture.repo, 0, { ...process.env, NODE_ENV: 'test',
@@ -595,6 +641,7 @@ test('activate後もdaemonが生存しfinding→conflict→hold receiptとdispat
     cwd: fixture.repo, detached: true, stdio: 'ignore',
   });
   worker.unref();
+  fixture.track(worker.pid);
   await new Promise((resolve) => setTimeout(resolve, 100));
   let events = JSON.parse(await readFile(path.join(runDir, 'events.json')));
   const epoch = JSON.parse(await readFile(path.join(runDir, 'epochs', '00000001', 'epoch-bundle.json')));
