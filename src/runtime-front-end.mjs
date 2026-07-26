@@ -786,6 +786,9 @@ export function compileRuntimePlanV1(options = {}) {
     schedule: compiled.plan,
     pairwise_verdicts: compiled.pairwise_verdicts,
     graph: bundle.graph,
+    // graph.conflictsはresource_idしか持たない。resource kindはここでしか引けないため、
+    // conflictの切断可能性を判定する消費者へnormalized resourceをそのまま渡す（ADR 0128）。
+    resources: bundle.resources,
     graph_digest: bundle.graph_digest,
   };
 }

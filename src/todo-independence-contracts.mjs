@@ -13,7 +13,7 @@ import {
 } from './runtime-contracts.mjs';
 
 export const TODO_WITNESS_SET_SCHEMA = 'lattice.todo_witness_set.v1';
-export const TODO_INDEPENDENCE_SCHEMA = 'lattice.todo_independence.v1';
+export const TODO_INDEPENDENCE_SCHEMA = 'lattice.todo_independence.v2';
 export const TODO_INDEPENDENCE_PROJECTION_SCHEMA = 'lattice.todo_independence_projection.v1';
 
 /** boundary compileが一度に扱えるToDo数（runtime front-endのMAX_COLLECTIONと同じ閉じ方）。 */
@@ -22,6 +22,25 @@ export const TODO_INDEPENDENCE_LIST_LIMIT = 4_096;
 export const TODO_INDEPENDENCE_COVERAGE = Object.freeze([
   'verified', 'stale', 'superseded', 'missing',
 ]);
+
+/** conflictを生んだresourceの種別。切断可能性の導出はこの種別だけを根拠にする。 */
+export const TODO_INDEPENDENCE_CONFLICT_KINDS = Object.freeze([
+  'symbol', 'path', 'state', 'effect',
+]);
+
+/** 切断可能性。code seamで切れるのはsymbol/path起因のconflictだけ（ADR 0128 Decision 2）。 */
+export const TODO_INDEPENDENCE_SEVERABILITY = Object.freeze(['code_seam', 'serial']);
+
+/**
+ * conflict kindから切断可能性を導く。
+ *
+ * 共有state／effectはcode seamでは切断できない（RC1 boundary compilerの分類規則と同一）。
+ * read×write交差から実体化される`rw-*`はkind=stateなのでserialへ倒れる。seam候補を
+ * 見逃す方向にしか外れない保守的な誤りであり、既知の限界として受け入れる。
+ */
+export function severabilityOfConflictKind(kind) {
+  return ['symbol', 'path'].includes(kind) ? 'code_seam' : 'serial';
+}
 
 const GIT_SHA = /^[0-9a-f]{40}$/u;
 const PROBE_BASE_SHA = '0'.repeat(40);
@@ -119,11 +138,23 @@ export function validateTodoWitnessSet(value) {
 }
 
 function conflictEntry(value) {
-  return exactRecord(value, ['task_ids', 'resource_id'])
+  return exactRecord(value, ['task_ids', 'resource_id', 'kind'])
     && Array.isArray(value.task_ids) && value.task_ids.length === 2
     && value.task_ids.every(isTodoIdentifier)
     && compareText(value.task_ids[0], value.task_ids[1]) < 0
-    && boundedText(value.resource_id);
+    && boundedText(value.resource_id)
+    && TODO_INDEPENDENCE_CONFLICT_KINDS.includes(value.kind);
+}
+
+/**
+ * task別の宣言境界。鮮度判定をartifactとgit diffだけで閉じるために持つ（ADR 0128 Decision 4）。
+ * witness setを読み直さないので、参照コストは定数のまま保たれる。
+ */
+function taskBoundaryEntry(value) {
+  return exactRecord(value, ['task_id', 'paths'])
+    && isTodoIdentifier(value.task_id)
+    && Array.isArray(value.paths) && value.paths.length <= TODO_INDEPENDENCE_LIST_LIMIT
+    && value.paths.every((path) => boundedText(path)) && strictlySorted(value.paths);
 }
 
 function precedenceEntry(value) {
@@ -156,9 +187,11 @@ function wavePlan(value, taskIds) {
 }
 
 /**
- * `lattice.todo_independence.v1`。
+ * `lattice.todo_independence.v2`。
  *
  * conflict／precedence／unknownはnormalized boundary graphから採る（ADR 0127 Decision 4）。
+ * conflictはresource kindを併せて持ち、切断可能性の導出を投影側に許す（ADR 0128 Decision 1）。
+ * `task_boundaries`はtask別の宣言境界で、鮮度のdiff交差判定をartifactだけで閉じるために持つ。
  * `wave_plan`はschedulability compileが`compiled`を返した時だけ持ち、unknownが残る間はnullになる。
  * verdictに現れないペアをverified独立と読めるのは、両taskにunknownが無いときだけである。
  */
@@ -166,8 +199,8 @@ export function validateTodoIndependence(value) {
   try {
     if (!exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'plan_version', 'topology_digest', 'base_sha',
-      'witness_set_digest', 'compiled_at', 'task_ids', 'conflicts', 'precedences',
-      'unknowns', 'wave_plan', 'outcome', 'result_digest',
+      'witness_set_digest', 'compiled_at', 'task_ids', 'task_boundaries', 'conflicts',
+      'precedences', 'unknowns', 'wave_plan', 'outcome', 'result_digest',
     ])) return false;
     if (value.schema !== TODO_INDEPENDENCE_SCHEMA) return false;
     if (!isTodoIdentifier(value.project_id) || !isTodoIdentifier(value.plan_key)
@@ -179,6 +212,14 @@ export function validateTodoIndependence(value) {
       || value.task_ids.length > TODO_INDEPENDENCE_TASK_LIMIT
       || !value.task_ids.every(isTodoIdentifier) || !strictlySorted(value.task_ids)) return false;
     const known = new Set(value.task_ids);
+    // 宣言境界はcompile対象taskとちょうど一対一で対応する。欠けたtaskがあると、
+    // そのtaskだけ交差判定ができないのに全体はverifiedを名乗れてしまう。
+    if (!boundedList(value.task_boundaries, taskBoundaryEntry, TODO_INDEPENDENCE_TASK_LIMIT)
+      || value.task_boundaries.length !== value.task_ids.length
+      || !strictlySorted(value.task_boundaries, (entry) => entry.task_id)
+      || !value.task_boundaries.every((entry, index) => entry.task_id === value.task_ids[index])) {
+      return false;
+    }
     if (!boundedList(value.conflicts, conflictEntry)
       || !value.conflicts.every((entry) => entry.task_ids.every((taskId) => known.has(taskId)))
       || !strictlySorted(value.conflicts, (entry) => (

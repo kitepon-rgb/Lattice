@@ -48,17 +48,54 @@ export async function collectWitnessSensorEvidence({ cwd, witnessSet, execute = 
   return evidenceFromCollectedOutcomes({ querySet, collected });
 }
 
-function conflictsFrom(verdicts) {
+/**
+ * conflictへresource kindを載せる（ADR 0128 Decision 1）。
+ *
+ * `graph.conflicts`はresource_idしか持たず、宣言由来のstate resource idは任意文字列なので
+ * prefixからkindを復元できない。normalized resourceを引けない場合は、切断可能性を
+ * 不明のまま記録するのでなくtyped failで止める。
+ */
+function conflictsFrom(verdicts, resources) {
+  const kindByResourceId = new Map((Array.isArray(resources) ? resources : [])
+    .map((resource) => [resource?.resource_id, resource?.kind]));
   return verdicts
     .filter((verdict) => verdict.type === 'conflict')
-    .map((verdict) => ({
-      task_ids: [...verdict.todo_ids].sort(compareText),
-      resource_id: verdict.resource_id,
-    }))
+    .map((verdict) => {
+      const kind = kindByResourceId.get(verdict.resource_id);
+      if (!['symbol', 'path', 'state', 'effect'].includes(kind)) {
+        fail('INDEPENDENCE_RESOURCE_KIND_UNRESOLVED', 'conflict_resource_kind_unresolved', {
+          resource_id: verdict.resource_id, observed_kind: kind ?? null,
+        });
+      }
+      return {
+        task_ids: [...verdict.todo_ids].sort(compareText),
+        resource_id: verdict.resource_id,
+        kind,
+      };
+    })
     .sort((left, right) => compareText(
       `${left.task_ids[0]}\0${left.task_ids[1]}\0${left.resource_id}`,
       `${right.task_ids[0]}\0${right.task_ids[1]}\0${right.resource_id}`,
     ));
+}
+
+/**
+ * witnessが宣言した境界pathを集める。
+ *
+ * 鮮度のdiff交差判定に使うので、observationへ効くpathを漏れなく採る——所有path、
+ * 書き込み、読み取り、affected test、sensor queryのexpect path。symbol owns自体は
+ * pathを持たないが、それを裏取りするqueryのexpect pathが同じ効果を持つ。
+ */
+function boundaryPathsOf(witness) {
+  const paths = new Set();
+  for (const own of witness.owns) {
+    if (own.kind === 'path') paths.add(own.target);
+  }
+  for (const path of witness.writes) paths.add(path);
+  for (const path of witness.reads) paths.add(path);
+  for (const path of witness.affected_tests) paths.add(path);
+  for (const entry of witness.sensor_provenance.queries) paths.add(entry.expect.path);
+  return [...paths].sort(compareText);
 }
 
 function precedencesFrom(verdicts) {
@@ -159,7 +196,12 @@ export function compileTodoIndependence(options = {}) {
     witness_set_digest: witnessSet.witness_set_digest,
     compiled_at: compiledAt,
     task_ids: taskIds,
-    conflicts: dispatchable ? conflictsFrom(compiled.pairwise_verdicts) : [],
+    task_boundaries: taskIds.map((taskId) => ({
+      task_id: taskId,
+      paths: boundaryPathsOf(witnessSet.manual_witness[taskId]),
+    })),
+    conflicts: dispatchable
+      ? conflictsFrom(compiled.pairwise_verdicts, compiled.resources) : [],
     precedences: dispatchable ? precedencesFrom(compiled.pairwise_verdicts) : [],
     unknowns: dispatchable ? [] : unknownsFrom(compiled.detail),
     wave_plan: dispatchable

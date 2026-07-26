@@ -67,6 +67,10 @@ function artifactFor(plan, overrides = {}) {
     witness_set_digest: 'd'.repeat(64),
     compiled_at: NOW,
     task_ids: ['T1', 'T2'],
+    task_boundaries: [
+      { task_id: 'T1', paths: ['src/t1.mjs'] },
+      { task_id: 'T2', paths: ['src/t2.mjs'] },
+    ],
     conflicts: [],
     precedences: [],
     unknowns: [],
@@ -132,6 +136,10 @@ test('active planへbindできない記録は書かせない', async (context) =
     repoRoot: root,
     artifact: artifactFor(plan, {
       task_ids: ['T1', 'T9'],
+      task_boundaries: [
+        { task_id: 'T1', paths: ['src/t1.mjs'] },
+        { task_id: 'T9', paths: ['src/t9.mjs'] },
+      ],
       wave_plan: { waves: [{ task_ids: ['T1', 'T9'] }], minimum_feasible_waves: 1 },
     }),
     now: NOW,

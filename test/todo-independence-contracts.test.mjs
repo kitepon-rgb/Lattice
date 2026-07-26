@@ -6,6 +6,7 @@ import {
   TODO_INDEPENDENCE_SCHEMA,
   TODO_WITNESS_SET_SCHEMA,
   explainTodoWitnessSet,
+  severabilityOfConflictKind,
   synthesizeWitnessRunRequest,
   validateTodoIndependence,
   validateTodoIndependenceProjection,
@@ -65,6 +66,10 @@ function independence(overrides = {}) {
     witness_set_digest: DIGEST('d'),
     compiled_at: '2026-07-26T00:00:00.000Z',
     task_ids: ['tip-001', 'tip-002'],
+    task_boundaries: [
+      { task_id: 'tip-001', paths: ['src/alpha.mjs'] },
+      { task_id: 'tip-002', paths: ['src/beta.mjs'] },
+    ],
     conflicts: [],
     precedences: [],
     unknowns: [],
@@ -140,18 +145,77 @@ test('independence artifactは境界とdigestを検査する', () => {
   assert.equal(validateTodoIndependence(unsortedTasks), false);
 
   const danglingConflict = independence({
-    conflicts: [{ task_ids: ['tip-001', 'tip-999'], resource_id: 'own-path-1' }],
+    conflicts: [{ task_ids: ['tip-001', 'tip-999'], resource_id: 'own-path-1', kind: 'path' }],
   });
   assert.equal(validateTodoIndependence(danglingConflict), false);
 
   const unorderedPair = independence({
-    conflicts: [{ task_ids: ['tip-002', 'tip-001'], resource_id: 'own-path-1' }],
+    conflicts: [{ task_ids: ['tip-002', 'tip-001'], resource_id: 'own-path-1', kind: 'path' }],
   });
   assert.equal(validateTodoIndependence(unorderedPair), false);
 
   const tampered = independence();
   tampered.base_sha = 'b'.repeat(40);
   assert.equal(validateTodoIndependence(tampered), false);
+});
+
+test('conflictはresource kindを必須にし、切断可能性を導けない記録を作らせない', () => {
+  const withoutKind = independence({
+    conflicts: [{ task_ids: ['tip-001', 'tip-002'], resource_id: 'own-path-1' }],
+  });
+  assert.equal(validateTodoIndependence(withoutKind), false);
+
+  const unknownKind = independence({
+    conflicts: [{ task_ids: ['tip-001', 'tip-002'], resource_id: 'own-path-1', kind: 'dynamic' }],
+  });
+  assert.equal(validateTodoIndependence(unknownKind), false);
+
+  for (const kind of ['symbol', 'path', 'state', 'effect']) {
+    const value = independence({
+      conflicts: [{ task_ids: ['tip-001', 'tip-002'], resource_id: 'r-1', kind }],
+    });
+    assert.equal(validateTodoIndependence(value), true, `kind ${kind} should be accepted`);
+  }
+});
+
+test('切断可能性はkindだけから決まる', () => {
+  assert.equal(severabilityOfConflictKind('symbol'), 'code_seam');
+  assert.equal(severabilityOfConflictKind('path'), 'code_seam');
+  // 共有state／effectはcode seamでは切断できない（RC1 boundary compilerと同一規則）。
+  assert.equal(severabilityOfConflictKind('state'), 'serial');
+  assert.equal(severabilityOfConflictKind('effect'), 'serial');
+});
+
+test('宣言境界はcompile対象taskとちょうど一対一で対応する', () => {
+  const missingBoundary = independence({
+    task_boundaries: [{ task_id: 'tip-001', paths: ['src/alpha.mjs'] }],
+  });
+  assert.equal(validateTodoIndependence(missingBoundary), false);
+
+  const strayBoundary = independence({
+    task_boundaries: [
+      { task_id: 'tip-001', paths: ['src/alpha.mjs'] },
+      { task_id: 'tip-999', paths: ['src/other.mjs'] },
+    ],
+  });
+  assert.equal(validateTodoIndependence(strayBoundary), false);
+
+  const unsortedPaths = independence({
+    task_boundaries: [
+      { task_id: 'tip-001', paths: ['src/b.mjs', 'src/a.mjs'] },
+      { task_id: 'tip-002', paths: ['src/beta.mjs'] },
+    ],
+  });
+  assert.equal(validateTodoIndependence(unsortedPaths), false);
+
+  // 宣言が空のtaskも記録できる（境界ゼロは「宣言していない」でなく「触れない」の主張）。
+  const emptyPaths = independence({
+    task_boundaries: [
+      { task_id: 'tip-001', paths: [] },
+      { task_id: 'tip-002', paths: ['src/beta.mjs'] },
+    ],
+  });
+  assert.equal(validateTodoIndependence(emptyPaths), true);
 });
 
 test('unknownが残る間はwave planもcompiled outcomeも主張できない', () => {

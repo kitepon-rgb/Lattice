@@ -105,6 +105,10 @@ test('記録があればHEAD一致でverified並列グループを返す（senso
     witness_set_digest: 'd'.repeat(64),
     compiled_at: NOW,
     task_ids: ['T1', 'T2'],
+    task_boundaries: [
+      { task_id: 'T1', paths: ['src/t1.mjs'] },
+      { task_id: 'T2', paths: ['src/t2.mjs'] },
+    ],
     conflicts: [],
     precedences: [],
     unknowns: [],
@@ -147,6 +151,7 @@ test('readyが無くても記録があればplan指定でverifiedを返す', asy
     witness_set_digest: 'd'.repeat(64),
     compiled_at: NOW,
     task_ids: ['T1'],
+    task_boundaries: [{ task_id: 'T1', paths: ['src/t1.mjs'] }],
     conflicts: [],
     precedences: [],
     unknowns: [],
