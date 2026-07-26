@@ -15,6 +15,11 @@ const PROVENANCE_SOURCES = new Set([
 const SENSOR_STATUSES = new Set([
   'ready',
   'symbol_absent',
+  // 不存在path関連。宣言の有無で3つに分かれる（ADR 0136）。宣言が無いabsentはpath_absent、
+  // 宣言があるのに実在するのはcreates_path_present、fs観測が記録に無いのはcreates_unverified。
+  'path_absent',
+  'creates_path_present',
+  'creates_unverified',
   'empty',
   'unresolved',
   'command_failure',

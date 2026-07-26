@@ -399,7 +399,18 @@ export function verifyRuntimePlanBinding(options = {}) {
   return plan.nodes.every((node) => requestTodoIds.has(node.todo_id));
 }
 
-/** `lattice.boundary_manifest.v2`。witness_provenanceはresourceごとに区別する。 */
+/**
+ * `lattice.boundary_manifest.v3`。witness_provenanceはresourceごとに区別する。
+ *
+ * v3は`owns[].creates`だけがv2との差である。宣言が持っていた「このpathはまだ無い」を
+ * 記録側でも保つ——落とすと、manifestだけを読む消費者が既存fileと同じ扱いをする。
+ * 旧v2 manifestはrun storeに残るので読み口として受理する。
+ */
+export const BOUNDARY_MANIFEST_SCHEMA = 'lattice.boundary_manifest.v3';
+export const BOUNDARY_MANIFEST_SCHEMAS = Object.freeze([
+  BOUNDARY_MANIFEST_SCHEMA,
+  'lattice.boundary_manifest.v2',
+]);
 export function validateRuntimeBoundaryManifest(value) {
   return validateSafely(value, (manifest) => (
     exactRecord(manifest, [
@@ -416,9 +427,11 @@ export function validateRuntimeBoundaryManifest(value) {
       'witness_provenance',
       'manifest_digest',
     ])
-    && manifest.schema === 'lattice.boundary_manifest.v2'
+    && BOUNDARY_MANIFEST_SCHEMAS.includes(manifest.schema)
     && identifier(manifest.todo_id)
-    && boundedArray(manifest.owns, ownEntry)
+    && boundedArray(manifest.owns, (own) => ownEntry(own, {
+      allowCreates: manifest.schema === BOUNDARY_MANIFEST_SCHEMA,
+    }))
     && repoPathArray(manifest.reads)
     && repoPathArray(manifest.writes, { allowPrefix: true })
     && boundedArray(manifest.resources, identifier)

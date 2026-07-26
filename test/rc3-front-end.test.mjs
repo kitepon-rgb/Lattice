@@ -298,6 +298,96 @@ test('stale index・fuzzy解決・未束縛owns・write交差はunknownとして
   assert.equal(overlap.code, 'BOUNDARY_UNKNOWN');
 });
 
+test('創作を宣言したTODOは、不存在pathでも裏付けありとして判定される', async () => {
+  // ADR 0136。fresh absentはfsのlstat結果であり、存在しないfileに依存するものは
+  // 構造的に存在しえない。宣言があるときだけ、その観測を裏付けとして受ける。
+  const built = buildCase({
+    requestId: 'req-declared-new-path',
+    todos: [{ id: 'TA1', symbol: 'futureService', path: 'src/future-service.mjs', tests: [] }],
+  });
+  // symbol所有は外す。まだ存在しないfileの中のsymbolは、それ自体が未観測である。
+  built.request.schema = 'lattice.run_request.v2';
+  built.request.manual_witness.TA1.owns = [
+    { kind: 'path', target: 'src/future-service.mjs', creates: true },
+  ];
+  built.request.manual_witness.TA1.sensor_provenance.queries = built.request.manual_witness
+    .TA1.sensor_provenance.queries.filter(({ expect }) => expect.kind === 'affected');
+  built.request.sensor_query_set.queries = built.request.sensor_query_set.queries
+    .filter(({ operation }) => operation !== 'query');
+  built.request.request_digest = selfDigest(built.request, 'request_digest');
+
+  const collected = await collectSensorEvidence({
+    cwd: '/repo',
+    querySet: built.request.sensor_query_set,
+    execute: async ({ operation }) => {
+      if (operation === 'status') return { code: 0, stdout: JSON.stringify(statusRaw().data), stderr: '' };
+      throw new Error(`不存在pathのaffected commandは起動してはならない: ${operation}`);
+    },
+    inspectAffectedPath: async () => 'absent',
+  });
+  built.sensorEvidence = evidenceFromCollectedOutcomes({
+    querySet: built.request.sensor_query_set,
+    collected,
+  });
+
+  const result = compile(built);
+  assert.equal(result.outcome, 'dispatchable', JSON.stringify(result.detail ?? {}));
+
+  // 宣言が実態とずれている側は止める。既に在るpathへ創作を宣言しても黙って通さない。
+  const present = buildCase({
+    requestId: 'req-declared-present-path',
+    todos: [{ id: 'TA1', symbol: 'futureService', path: 'src/future-service.mjs', tests: [] }],
+  });
+  present.request.schema = 'lattice.run_request.v2';
+  present.request.manual_witness.TA1.owns = [
+    { kind: 'symbol', target: 'futureService' },
+    { kind: 'path', target: 'src/future-service.mjs', creates: true },
+  ];
+  present.request.request_digest = selfDigest(present.request, 'request_digest');
+  const presentCollected = await collectSensorEvidence({
+    cwd: '/repo',
+    querySet: present.request.sensor_query_set,
+    execute: async ({ operation }) => {
+      if (operation === 'status') return { code: 0, stdout: JSON.stringify(statusRaw().data), stderr: '' };
+      if (operation === 'query') {
+        return { code: 0, stdout: JSON.stringify(symbolQueryRaw([['futureService', 'src/future-service.mjs']]).data), stderr: '' };
+      }
+      return {
+        code: 0,
+        stdout: JSON.stringify(affectedRaw('src/future-service.mjs', []).data),
+        stderr: '',
+      };
+    },
+    inspectAffectedPath: async () => 'file',
+  });
+  present.sensorEvidence = evidenceFromCollectedOutcomes({
+    querySet: present.request.sensor_query_set,
+    collected: presentCollected,
+  });
+  const presentResult = compile(present);
+  assert.equal(presentResult.outcome, 'non_dispatchable');
+  assert.ok(presentResult.detail.unresolved_witnesses.some(({ kind }) => (
+    kind === 'sensor_creates_path_present'
+  )), JSON.stringify(presentResult.detail.unresolved_witnesses));
+
+  // fs観測そのものが記録に無い証拠では、宣言だけで裏付けにしない。
+  const unverified = buildCase({
+    requestId: 'req-declared-unverified',
+    todos: [{ id: 'TA1', symbol: 'futureService', path: 'src/future-service.mjs', tests: [] }],
+  });
+  unverified.request.schema = 'lattice.run_request.v2';
+  unverified.request.manual_witness.TA1.owns = [
+    { kind: 'symbol', target: 'futureService' },
+    { kind: 'path', target: 'src/future-service.mjs', creates: true },
+  ];
+  unverified.request.request_digest = selfDigest(unverified.request, 'request_digest');
+  const unverifiedResult = compile(unverified);
+  assert.equal(unverifiedResult.outcome, 'non_dispatchable');
+  assert.ok(unverifiedResult.detail.unresolved_witnesses.some(({ kind }) => (
+    kind === 'sensor_creates_unverified'
+  )), JSON.stringify(unverifiedResult.detail.unresolved_witnesses));
+});
+
 test('実Sensorのfresh path不存在だけがseam bootstrapを返し、未束縛ownershipは証拠取得を返す', async () => {
   const built = buildCase({
     requestId: 'req-new-path',

@@ -6,6 +6,7 @@ import { portableSensorOutcome } from './sensor-adapter.mjs';
 import { compileSchedulabilityGraphV2 } from './schedulability-compiler-v2.mjs';
 import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
 import {
+  BOUNDARY_MANIFEST_SCHEMA,
   SENSOR_EXPECT_KINDS,
   SENSOR_QUERY_OPERATIONS,
   selfDigest,
@@ -266,10 +267,43 @@ function entryNode(entry) {
 }
 
 /**
+ * 創作宣言されたpathの裏付けを決める（ADR 0136）。
+ *
+ * 宣言と観測が一致する時だけ`ready`にする。fresh absentは推測ではなくfsのlstat結果なので、
+ * 「観測できなかった」ではなく「観測して、無かった」である。存在しないfileに依存するものは
+ * 構造的に存在しえないため、affected testが空であることまで確かめれば裏付けは閉じる。
+ *
+ * 既に存在するpathへ創作を宣言していたら`creates_path_present`で止める。実害は無いが、
+ * 宣言が実態からずれているのを黙って通すと、宣言と観測が一致しているという前提が崩れる。
+ * 宣言していないabsent pathは従来どおり`path_absent`のままにする——綴り違いを
+ * 「黙って通る創作境界」にしないための線である。
+ */
+function creationBoundaryStatus(outcome, expectPath) {
+  // sensorが答えられていない状況は、この関数の管轄でない。通常のstatus判定へ返す。
+  if (!['ready', 'empty'].includes(outcome.status)) return null;
+  const target = affectedTarget(outcome.raw, expectPath);
+  // fs観測が記録に無いなら、不存在は確かめられていない。宣言だけで裏付けにしない。
+  if (target === null || target === undefined) return 'creates_unverified';
+  if (target.path_state !== 'absent') return 'creates_path_present';
+  const payload = affectedPayload(outcome.raw, expectPath);
+  if (payload === null
+    || !Array.isArray(payload.changedFiles)
+    || payload.changedFiles.length !== 1
+    || payload.changedFiles[0] !== expectPath
+    || !Array.isArray(payload.affectedTests)
+    || payload.affectedTests.length !== 0) return 'creates_unverified';
+  return 'ready';
+}
+
+/**
  * 束縛queryのoutcomeへexpectをexact照合し、sensor statusを決める。
  * fuzzy解決・空結果は依存なしへ丸めず、unknown系statusへ落とす（AGENTS.md）。
  */
 function resolveBindingStatus(binding, outcome) {
+  if (binding.expect.kind === 'affected' && binding.creates === true) {
+    const declared = creationBoundaryStatus(outcome, binding.expect.path);
+    if (declared !== null) return declared;
+  }
   if (outcome.status !== 'ready') return outcome.status;
   const { expect } = binding;
   if (expect.kind === 'affected') {
@@ -401,7 +435,13 @@ export function compileRuntimePlanV1(options = {}) {
   const driftDetails = [];
   for (const todoId of todoIds) {
     const witness = request.manual_witness[todoId];
-    const bindings = normalizeProvenanceQueries(witness, todoId);
+    // 創作宣言はowns側にある。裏付けを決めるのはbindingなので、覆っているbindingへ写す。
+    const creating = new Set(witness.owns
+      .filter((own) => own.creates === true).map((own) => own.target));
+    const bindings = normalizeProvenanceQueries(witness, todoId)
+      .map((binding) => (creating.size > 0
+        && [...creating].some((target) => bindingCoversOwn(binding, { kind: 'path', target }))
+        ? { ...binding, creates: true } : binding));
     for (const binding of bindings) {
       const query = queryById.get(binding.query_id);
       if (query === undefined) {
@@ -697,7 +737,7 @@ export function compileRuntimePlanV1(options = {}) {
       guidance: hasFreshAbsentPath
         ? {
           code: 'BOOTSTRAP_OWNERSHIP_SEAM',
-          message: 'fresh path観測で不存在の新規pathは親が空の専用seamをbase commitへ先行追加し、sensor sync後に同じrequestを再compileする',
+          message: '不存在と観測されたpathは、そのTODOが作るならowns entryへcreates: trueを宣言して再compileする。宣言せずに裏付けを得るなら、親が空の専用seamをbase commitへ先行追加し、sensor sync後に同じrequestを再compileする',
         }
         : {
           code: 'ACQUIRE_OWNERSHIP_EVIDENCE',
@@ -729,7 +769,7 @@ export function compileRuntimePlanV1(options = {}) {
         : 'manual_state_effect';
     }
     const manifest = {
-      schema: 'lattice.boundary_manifest.v2',
+      schema: BOUNDARY_MANIFEST_SCHEMA,
       todo_id: todoId,
       owns: witness.owns,
       reads: witness.reads,
@@ -751,7 +791,7 @@ export function compileRuntimePlanV1(options = {}) {
     };
     manifest.manifest_digest = selfDigest(manifest, 'manifest_digest');
     if (!validateRuntimeBoundaryManifest(manifest)) {
-      fail(`生成manifestがboundary_manifest.v2 contractを満たさない: ${todoId}`);
+      fail(`生成manifestがboundary_manifest contractを満たさない: ${todoId}`);
     }
     manifests[todoId] = manifest;
   }
