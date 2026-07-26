@@ -1,0 +1,9 @@
+{
+  "evidence_id": "concern-anchor-sensor-resolution",
+  "repo_id": "self",
+  "path": "src/seam-proposal.mjs",
+  "git_blob_oid": "7a058a24df5e02105394a54f8d1eeb4ca407b3ec",
+  "content_digest": "f6a4bb3ce58105108e03ff97caea2ed6b567be886135c575eb50288161cc6273",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
