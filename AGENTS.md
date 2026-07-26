@@ -30,7 +30,13 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 - 調べた境界は会話で消費せず記録する。`.lattice/todo/witness/<plan_key>.json`へwitness setを宣言して
   `lattice todo independence compile --plan <key> --input <ref>`を通し、`lattice todo independence --plan <key>`で
   読む（ADR 0127）。読み出しはsensorを引かないので、参照のたびに調べ直さない。
-  依存線が無いことを並列可の根拠にしない。coverageが`verified`でない記録と未宣言taskは未検査として扱う。
+  依存線が無いことを並列可の根拠にしない。未宣言taskと、宣言境界に触れるdiffで失効した記録は未検査として扱う。
+- 着手時は`todo start`が返す`advisory`を読む（ADR 0128）。`conflicts_with_active`は進行中ToDoとの競合、
+  `severability`は`code_seam`（分割で並列化しうる）か`serial`（共有状態ゆえ直列必須）かを示す。
+  助言であって拒否ではないので、無視して進めるなら理由を残す。`coverage`が`missing`の時は
+  「競合なし」ではなく「まだ判定していない」であり、宣言を書いてcompileするのが正しい応答である。
+- plan revisionでtask_idが変わったら`lattice todo independence witness migrate --plan <key>`で宣言を写し、
+  commitしてから再compileする。移行はid写像だけを行い、宣言内容が改訂後も妥当かは主張しない。
 - 初回scaffoldだけはindexがまだ存在しないためbootstrap例外とする。bootstrap sourceを作った直後、
   初期環境commitより前に`lattice sensor init . --json`を実行し、以後のsource TODOへ例外を持ち越さない。
 - sensor結果は構造証拠であり、semantic independenceやbehavior preservationの単独証明ではない。

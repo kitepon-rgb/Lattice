@@ -20,7 +20,10 @@ import {
   validateTodoPlan,
   validateTodoSnapshot,
 } from './todo-contracts.mjs';
-import { validateTodoIndependence } from './todo-independence-contracts.mjs';
+import {
+  validateTodoIndependence,
+  validateTodoWitnessSet,
+} from './todo-independence-contracts.mjs';
 import { sha256Bytes, verifyLinearHashChain } from './hash-chain.mjs';
 import {
   parseTodoSourceRef,
@@ -3611,4 +3614,40 @@ export async function readTodoIndependenceArtifact(options = {}) {
     validate: validateTodoIndependence,
     missing: true,
   });
+}
+
+const WITNESS_SET_BYTES = 4_194_304;
+
+/**
+ * witness set宣言の置き場（ADR 0128 Decision 6）。
+ *
+ * 運用規約だった規則をコードの所有へ移す。`todoIndependenceRef`が判定結果のpathを持つのに対し、
+ * こちらは入力のpathを持つ。plan versionで分けないのは、宣言はtopologyでなくtaskについての
+ * 記述であり、revisionを跨いで移行して使い続けるためである。
+ */
+export function todoWitnessRef(planKey) {
+  return `${STORE_ROOT_REF}/witness/${planKey}.json`;
+}
+
+/** witness setを読む。無ければnull、壊れていればtyped fail（両者を同じ顔にしない）。 */
+export async function readTodoWitnessSet(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  return readArtifact(repoRoot, todoWitnessRef(options.planKey), {
+    code: 'INVALID_TODO_WITNESS_SET',
+    maxBytes: WITNESS_SET_BYTES,
+    validate: validateTodoWitnessSet,
+    missing: true,
+  });
+}
+
+/** witness setを書く。canonical JSON+LFで、契約を満たさないものは書かせない。 */
+export async function writeTodoWitnessSet(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const { witnessSet } = options;
+  if (!validateTodoWitnessSet(witnessSet)) {
+    fail('INVALID_TODO_WITNESS_SET', 'witness_set_invalid');
+  }
+  const ref = todoWitnessRef(witnessSet.plan_key);
+  await atomicWrite(path.resolve(repoRoot, ref), canonicalLine(witnessSet));
+  return { ref, witnessSet };
 }

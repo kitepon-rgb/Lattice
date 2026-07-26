@@ -38,6 +38,9 @@ import {
   TodoStoreError,
   readTodoIndependenceArtifact,
   readTodoStore,
+  readTodoWitnessSet,
+  todoWitnessRef,
+  writeTodoWitnessSet,
   readTodoStoreStable,
   rebuildTodoSnapshot,
   writeTodoIndependenceArtifact,
@@ -61,6 +64,7 @@ import {
 import {
   collectWitnessSensorEvidence,
   compileTodoIndependence,
+  migrateWitnessSetTaskIds,
   projectIndependenceFrontier,
 } from './todo-independence.mjs';
 import {
@@ -680,6 +684,55 @@ async function independenceCompile({ repoRoot, planKey, inputRef }) {
   return result;
 }
 
+/**
+ * revision後のwitness宣言をtask migrationで写す（ADR 0128 Decision 6）。
+ *
+ * compileしないので証拠を固定化せず、dirty worktreeを拒否しない。
+ * 想定運用は「移行 → commit → cleanな状態でcompile」である。
+ */
+async function independenceWitnessMigrate({ repoRoot, planKey }) {
+  const store = await readTodoStore({ repoRoot });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (!member) {
+    throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, { plan_key: planKey });
+  }
+  const witnessSet = await readTodoWitnessSet({ repoRoot, planKey });
+  if (witnessSet === null) {
+    throw new TodoStoreError('WITNESS_MIGRATION_UNAVAILABLE', 'witness_set_absent', undefined, {
+      witness_ref: todoWitnessRef(planKey),
+    });
+  }
+  const revision = member.revision;
+  if (!revision || !Array.isArray(revision.task_migration)) {
+    // revisionを経ていないplanには写す先が無い。「移行済み」と装わない。
+    throw new TodoStoreError('WITNESS_MIGRATION_UNAVAILABLE', 'plan_has_no_revision', undefined, {
+      plan_key: planKey, plan_version: member.plan.plan_version,
+    });
+  }
+
+  const migration = migrateWitnessSetTaskIds({
+    witnessSet,
+    taskMigration: revision.task_migration,
+    planTaskIds: member.plan.tasks.map(({ task_id: taskId }) => taskId),
+  });
+  const { ref } = await writeTodoWitnessSet({ repoRoot, witnessSet: migration.witnessSet });
+
+  const result = {
+    schema: 'lattice.todo_witness_migrate_result.v1',
+    project_id: store.project_id,
+    plan_key: planKey,
+    plan_version: member.plan.plan_version,
+    witness_ref: ref,
+    migrated_count: migration.migrated_count,
+    removed_count: migration.removed_count,
+    unchanged_count: migration.unchanged_count,
+    witness_set_digest: migration.witnessSet.witness_set_digest,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
 async function independence({ repoRoot, requestedPlanKey }) {
   const store = await readTodoStore({ repoRoot });
   if (requestedPlanKey !== null
@@ -1207,6 +1260,9 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && (argv.length === 3 || argv[3] === '--json')) {
     action = (repoRoot) => bindings({ repoRoot, requestedPlanKey: argv[2] });
+  } else if (argv.length === 5 && argv[0] === 'independence' && argv[1] === 'witness'
+    && argv[2] === 'migrate' && argv[3] === '--plan' && isTodoIdentifier(argv[4])) {
+    action = (repoRoot) => independenceWitnessMigrate({ repoRoot, planKey: argv[4] });
   } else if (argv.length === 6 && argv[0] === 'independence' && argv[1] === 'compile'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--input') {
     action = (repoRoot) => independenceCompile({

@@ -427,3 +427,59 @@ export function projectIndependenceFrontier({
 export function isIndependenceIdentifier(value) {
   return isTodoIdentifier(value);
 }
+
+/**
+ * revisionのtask migrationでwitness宣言のtask_idを写す（ADR 0128 Decision 6）。
+ *
+ * 写像だけを担い、宣言内容が改訂後も意味的に妥当かは主張しない——それは機械には判定できない。
+ * 解決できないIDはfail closedにする。既に新IDになっている宣言はそのまま通す（冪等）。
+ *
+ * @param {object} options
+ * @param {object} options.witnessSet 現在の宣言
+ * @param {Array<{from_task_id: string, to_task_id: string}>} options.taskMigration
+ * @param {string[]} options.planTaskIds 移行後planのtask_id集合
+ */
+export function migrateWitnessSetTaskIds({ witnessSet, taskMigration, planTaskIds }) {
+  const mapping = new Map(taskMigration.map((entry) => [entry.from_task_id, entry.to_task_id]));
+  const current = new Set(planTaskIds);
+  const migrated = {};
+  const unresolved = [];
+  let migratedCount = 0;
+  let removedCount = 0;
+  let unchangedCount = 0;
+
+  for (const taskId of Object.keys(witnessSet.manual_witness).sort(compareText)) {
+    const witness = witnessSet.manual_witness[taskId];
+    if (mapping.has(taskId)) {
+      const target = mapping.get(taskId);
+      if (target === 'removed') { removedCount += 1; continue; }
+      migrated[target] = witness;
+      if (target === taskId) unchangedCount += 1; else migratedCount += 1;
+      continue;
+    }
+    // 移行表に無くても、既に現planのtaskなら再実行とみなして通す。
+    if (current.has(taskId)) { migrated[taskId] = witness; unchangedCount += 1; continue; }
+    unresolved.push(taskId);
+  }
+  if (unresolved.length > 0) {
+    fail('WITNESS_MIGRATION_UNRESOLVED', 'witness_task_id_unresolved', {
+      task_ids: unresolved.sort(compareText),
+      next_action: 'update_witness_set_manually',
+    });
+  }
+  if (Object.keys(migrated).length === 0) {
+    fail('WITNESS_MIGRATION_EMPTY', 'witness_set_would_be_empty');
+  }
+
+  const next = { ...witnessSet, manual_witness: migrated, witness_set_digest: '' };
+  next.witness_set_digest = todoSelfDigest(next, 'witness_set_digest');
+  if (!validateTodoWitnessSet(next)) {
+    fail('INVALID_TODO_WITNESS_SET', 'migrated_witness_set_invalid');
+  }
+  return {
+    witnessSet: next,
+    migrated_count: migratedCount,
+    removed_count: removedCount,
+    unchanged_count: unchangedCount,
+  };
+}

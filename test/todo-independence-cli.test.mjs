@@ -14,6 +14,7 @@ import {
   createTodoStoreWriter,
   initializeTodoStore,
   writeTodoIndependenceArtifact,
+  writeTodoWitnessSet,
 } from '../src/todo-store.mjs';
 import { TODO_INDEPENDENCE_SCHEMA } from '../src/todo-independence-contracts.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
@@ -398,12 +399,58 @@ test('契約を満たさないwitness setはtyped errorで止まる', async (con
   assert.equal(parse(result.stderr).code, 'INVALID_TODO_WITNESS_SET');
 });
 
+test('witness migrateは宣言もrevisionも無い状態をfail closedにする', async (context) => {
+  const root = await workspace(context);
+
+  const noWitness = runCli(root, ['independence', 'witness', 'migrate', '--plan', 'main']);
+  assert.equal(noWitness.status, 1);
+  const absent = parse(noWitness.stderr);
+  assert.equal(absent.code, 'WITNESS_MIGRATION_UNAVAILABLE');
+  assert.equal(absent.detail.reason, 'witness_set_absent');
+  assert.equal(absent.detail.witness_ref, '.lattice/todo/witness/main.json');
+
+  // 宣言はあるがrevisionを経ていないplanは、写す先が無いので「移行済み」と装わない。
+  const witnessSet = {
+    schema: TODO_WITNESS_SET_SCHEMA,
+    project_id: 'project-1',
+    plan_key: 'main',
+    capacity: { executors: 2 },
+    sensor_query_set: { queries: [{ id: 'q-status', operation: 'status' }] },
+    manual_witness: {
+      T1: {
+        owns: [],
+        reads: [],
+        writes: ['src/a.mjs'],
+        resources: [],
+        state_effects: [],
+        sensor_provenance: { queries: [] },
+        affected_tests: [],
+        unknowns: [],
+      },
+    },
+    witness_set_digest: '',
+  };
+  witnessSet.witness_set_digest = todoSelfDigest(witnessSet, 'witness_set_digest');
+  await writeTodoWitnessSet({ repoRoot: root, witnessSet });
+
+  const noRevision = runCli(root, ['independence', 'witness', 'migrate', '--plan', 'main']);
+  assert.equal(noRevision.status, 1);
+  assert.equal(parse(noRevision.stderr).detail.reason, 'plan_has_no_revision');
+
+  const absentPlan = runCli(root, ['independence', 'witness', 'migrate', '--plan', 'nope']);
+  assert.equal(absentPlan.status, 1);
+  assert.equal(parse(absentPlan.stderr).detail.reason, 'plan_not_active');
+});
+
 test('未知の引数はusage failureで終わる', async (context) => {
   const root = await workspace(context);
   for (const args of [
     ['independence', 'compile'],
     ['independence', 'compile', '--plan', 'main', '--input'],
     ['independence', '--plan'],
+    ['independence', 'witness'],
+    ['independence', 'witness', 'migrate'],
+    ['independence', 'witness', 'migrate', '--plan'],
   ]) {
     const result = runCli(root, args);
     assert.equal(result.status, 2, `expected usage failure for: ${args.join(' ')}`);

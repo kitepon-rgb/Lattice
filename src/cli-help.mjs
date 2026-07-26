@@ -65,6 +65,7 @@ Write commands:
   reopen --plan <key> --task <id> --reason <text> [--override-reason <text>]
   evidence promote --plan <key> --task <id> --evidence <file>
   independence compile --plan <key> --input <file>  # witness setとsensorから並列可否を記録する
+  independence witness migrate --plan <key>  # revision後の宣言をtask migrationで写す
   revise --plan <key> --input <file>
   revise-phase --plan <key> --input <file>
   revise-set --input <file>
@@ -119,7 +120,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'event verify': 'event verify --run .lattice/runs/<id>',
   'todo status': 'todo status [--json]',
   'todo bindings': 'todo bindings [--plan <key>] [--json]',
-  'todo independence': 'todo independence [--plan <key>] [--json] | compile --plan <key> --input <file>',
+  'todo independence': 'todo independence [--plan <key>] [--json] | compile --plan <key> --input <file> | witness migrate --plan <key>',
   'todo verify': 'todo verify [--plan <key>] [--json]',
   'todo snapshot': 'todo snapshot --rebuild --plan <key>',
   'todo gantt': 'todo gantt [--out <file>] [--scope live|all] | status [--out <file>] | serve --port <port> [--scope live|all]',
