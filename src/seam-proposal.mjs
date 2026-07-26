@@ -781,6 +781,10 @@ function pathContains(resourcePath, symbolPath) {
  * one path and that path lies inside the declared resource. Fuzzy resolution to a neighbouring
  * symbol, an absent name, or a symbol living outside the contested resource yields a typed
  * unknown instead — a wrong declaration must never widen what the binder believes it knows.
+ *
+ * Two ToDos claiming the same symbol is a contradiction in the declarations themselves, not a cut
+ * to be discovered: the anchor is dropped from both and reported, so neither side can be bound by
+ * a claim the other also makes.
  */
 export function resolveConcernAnchors({ manualWitness, taskIds, evidence } = {}) {
   if (!plainRecord(manualWitness) || !Array.isArray(taskIds)
@@ -820,6 +824,31 @@ export function resolveConcernAnchors({ manualWitness, taskIds, evidence } = {})
     }
     anchorsByTask.set(taskId, sortedUnique(anchors));
   }
+
+  // 同じsymbolを2 task以上が担当と主張したら、どちらの束縛根拠にもしない。
+  const claimantsByAnchor = new Map();
+  for (const [taskId, anchors] of anchorsByTask) {
+    for (const anchor of anchors) {
+      if (!claimantsByAnchor.has(anchor)) claimantsByAnchor.set(anchor, []);
+      claimantsByAnchor.get(anchor).push(taskId);
+    }
+  }
+  const overlapping = new Set();
+  for (const [anchor, claimants] of claimantsByAnchor) {
+    if (claimants.length < 2) continue;
+    overlapping.add(anchor);
+    const [path, symbol] = anchor.slice('concern:'.length).split('\0');
+    unknowns.push({
+      kind: 'concern_anchor_overlap',
+      ref: `${[...claimants].sort(compareText).join(',')}:${path}:${symbol}`,
+    });
+  }
+  if (overlapping.size > 0) {
+    for (const [taskId, anchors] of anchorsByTask) {
+      anchorsByTask.set(taskId, anchors.filter((anchor) => !overlapping.has(anchor)));
+    }
+  }
+
   return {
     anchorsByTask,
     unknowns: unknowns.sort((left, right) => compareText(

@@ -664,6 +664,33 @@ test('symbol資源の宣言は資源自身の解決に依存し、未解決な�
   ]);
 });
 
+test('同じsymbolを2 taskが主張したらどちらのanchorにもならない', () => {
+  const anchorFor = (symbols) => ({
+    concern_anchors: [{ within: { kind: 'path', target: 'src/shared.mjs' }, symbols }],
+  });
+  const resolved = resolveConcernAnchors({
+    manualWitness: {
+      T1: anchorFor(['contested', 'onlyT1']),
+      T2: anchorFor(['contested', 'onlyT2']),
+      T3: anchorFor(['onlyT3']),
+    },
+    taskIds: ['T1', 'T2', 'T3'],
+    evidence: concernEvidence({
+      contested: 'src/shared.mjs',
+      onlyT1: 'src/shared.mjs',
+      onlyT2: 'src/shared.mjs',
+      onlyT3: 'src/shared.mjs',
+    }),
+  });
+  // 争っているanchorは両者から落ち、固有の宣言だけが残る。
+  assert.deepEqual(resolved.anchorsByTask.get('T1'), ['concern:src/shared.mjs\0onlyT1']);
+  assert.deepEqual(resolved.anchorsByTask.get('T2'), ['concern:src/shared.mjs\0onlyT2']);
+  assert.deepEqual(resolved.anchorsByTask.get('T3'), ['concern:src/shared.mjs\0onlyT3']);
+  assert.deepEqual(resolved.unknowns, [
+    { kind: 'concern_anchor_overlap', ref: 'T1,T2:src/shared.mjs:contested' },
+  ]);
+});
+
 test('sensorへ問い合わせる宣言symbolは資源名まで含めて重複なく集まる', () => {
   assert.deepEqual(declaredConcernSymbols({
     T2: {
