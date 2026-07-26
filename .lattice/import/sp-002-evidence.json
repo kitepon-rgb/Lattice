@@ -1,0 +1,9 @@
+{
+  "evidence_id": "seam-proposal-v1-schema",
+  "repo_id": "self",
+  "path": "docs/schemas/lattice.seam_proposal.v1.schema.json",
+  "git_blob_oid": "eb37c60e818dfa576332af47d343d1c29861645c",
+  "content_digest": "36ea7c4aa121771f39741923a2c3fec8b0568e446beec9174b986cc970e312b0",
+  "media_type": "application/json",
+  "anchor_digest": null
+}
