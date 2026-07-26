@@ -863,6 +863,71 @@ test('task固有anchorで束縛不能なskeletonはseam_candidateへ昇格しな
   assert.ok(decision.unknowns.every(({ kind }) => kind === 'semantic_owner_binding_missing'));
 });
 
+test('path conflictは宣言concernからdeclared_partition skeletonになる', () => {
+  const fixture = sharedFixture({ uniqueAnchors: false });
+  const path = 'src/seam-proposal.mjs';
+  const concernAnchors = new Map([
+    ['CUT1', [`concern:${path}\0buildVirtualWitness`]],
+    ['CUT2', [`concern:${path}\0deriveVirtualBoundary`]],
+  ]);
+  const result = enumerateCutSkeletons({
+    component: fixture.component,
+    request: fixture.request,
+    evidence: fixture.evidence,
+    concernAnchors,
+  });
+
+  assert.deepEqual(result.unknowns, []);
+  assert.equal(result.skeletons.length, 1);
+  const [skeleton] = result.skeletons;
+  assert.deepEqual(skeleton.cut_kinds, ['declared_partition']);
+  assert.deepEqual(skeleton.root_surface, { kind: 'path', target: path, path });
+  // 各taskが自分の宣言したpartitionへ、宣言anchorだけで束縛される。
+  assert.deepEqual(skeleton.task_bindings.map(({ task_id: id, anchors }) => [id, anchors]), [
+    ['CUT1', [`concern:${path}\0buildVirtualWitness`]],
+    ['CUT2', [`concern:${path}\0deriveVirtualBoundary`]],
+  ]);
+  assert.equal(new Set(skeleton.task_bindings.map((b) => b.partition_index)).size, 2);
+  // 現在surfaceであるpath自身がraw graphに載っている（後段のsurface照合が通る条件）。
+  assert.ok(skeleton.raw_graph.nodes.some((node) => node.kind === 'path' && node.path === path));
+});
+
+test('宣言が片側だけのpath conflictは依然として資源unavailableになる', () => {
+  // 両taskとも粗いanchorは持つので束縛不能ではない。欠けているのは分け方の宣言だけ。
+  const fixture = sharedFixture();
+  const result = enumerateCutSkeletons({
+    component: fixture.component,
+    request: fixture.request,
+    evidence: fixture.evidence,
+    concernAnchors: new Map([
+      ['CUT1', ['concern:src/seam-proposal.mjs\0buildVirtualWitness']],
+    ]),
+  });
+  assert.deepEqual(result.skeletons, []);
+  assert.deepEqual(result.unknowns, [
+    { kind: 'raw_graph_unavailable', ref: 'own-path-current' },
+  ]);
+});
+
+test('宣言anchorは同じskeleton内で粗いanchorより優先される', () => {
+  const fixture = enumerationFixture();
+  const path = 'src/seam-proposal.mjs';
+  // CUT1は係争symbol内のconcernを宣言し、同時にfile全体を粗く所有している。
+  const withConcern = enumerateCutSkeletons({
+    component: fixture.component,
+    request: fixture.request,
+    evidence: fixture.evidence,
+    rawCollected: fixture.rawCollected,
+    concernAnchors: new Map([['CUT1', [`concern:${path}\0buildVirtualWitness`]]]),
+  });
+  const bound = withConcern.skeletons
+    .flatMap(({ task_bindings: bindings }) => bindings)
+    .filter(({ task_id: id }) => id === 'CUT1');
+  assert.ok(bound.length > 0);
+  // 宣言が当たったskeletonでは、粗いanchorは束縛根拠に混ざらない。
+  assert.ok(bound.every(({ anchors }) => anchors.every((anchor) => anchor.startsWith('concern:'))));
+});
+
 test('raw graphが無い列挙はraw_graph_unavailableへ倒れる', () => {
   const fixture = enumerationFixture();
   const result = enumerateCutSkeletons({

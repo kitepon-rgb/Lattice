@@ -756,8 +756,8 @@ export function verifyVirtualCompileReceipt({ verification, ...options } = {}) {
 }
 
 /** 宣言されたconcern symbolを、`query` operationの解決receiptから探す。 */
-function resolvedSymbolPath(evidence, name) {
-  const receipt = evidence.queries.find((query) => (
+function resolvedSymbolPath(queries, name) {
+  const receipt = queries.find((query) => (
     query.operation === 'query'
       && query.target === name
       && query.outcome === 'resolved'
@@ -787,10 +787,11 @@ function pathContains(resourcePath, symbolPath) {
  * a claim the other also makes.
  */
 export function resolveConcernAnchors({ manualWitness, taskIds, evidence } = {}) {
-  if (!plainRecord(manualWitness) || !Array.isArray(taskIds)
-    || !plainRecord(evidence) || !Array.isArray(evidence.queries)) {
+  if (!plainRecord(manualWitness) || !Array.isArray(taskIds) || !plainRecord(evidence)) {
     fail('concern anchor resolution input shapeが不正');
   }
+  // receiptが1件も無い証拠は「解決しなかった」であって、宣言を素通しさせる理由にはしない。
+  const queries = Array.isArray(evidence.queries) ? evidence.queries : [];
   const anchorsByTask = new Map();
   const unknowns = [];
   for (const taskId of taskIds) {
@@ -798,7 +799,7 @@ export function resolveConcernAnchors({ manualWitness, taskIds, evidence } = {})
     for (const entry of manualWitness[taskId]?.concern_anchors ?? []) {
       const resourcePath = entry.within.kind === 'path'
         ? entry.within.target
-        : resolvedSymbolPath(evidence, entry.within.target);
+        : resolvedSymbolPath(queries, entry.within.target);
       if (resourcePath === null) {
         unknowns.push({
           kind: 'concern_anchor_resource_unresolved',
@@ -807,7 +808,7 @@ export function resolveConcernAnchors({ manualWitness, taskIds, evidence } = {})
         continue;
       }
       for (const symbol of entry.symbols) {
-        const symbolPath = resolvedSymbolPath(evidence, symbol);
+        const symbolPath = resolvedSymbolPath(queries, symbol);
         if (symbolPath === null) {
           unknowns.push({ kind: 'concern_anchor_unresolved', ref: `${taskId}:${symbol}` });
           continue;
@@ -1123,6 +1124,12 @@ function canonicalPartitions(partitions) {
 }
 
 function anchorMatchesNode(anchor, node) {
+  if (anchor.startsWith('concern:')) {
+    const separator = anchor.indexOf('\0');
+    return node.kind === 'symbol'
+      && node.path === anchor.slice('concern:'.length, separator)
+      && node.target === anchor.slice(separator + 1);
+  }
   if (anchor.startsWith('owns:symbol\0')) {
     return node.kind === 'symbol' && node.target === anchor.slice('owns:symbol\0'.length);
   }
@@ -1136,18 +1143,32 @@ function anchorMatchesNode(anchor, node) {
   return false;
 }
 
-function bindSkeleton({ skeleton, graph, intentAnchors, taskIds }) {
+/**
+ * Bind tasks to partitions.
+ *
+ * Declared concern anchors take precedence over the coarse owns/writes/test anchors within one
+ * skeleton: a ToDo that named the symbols it touches inside the contested resource has given
+ * strictly more specific evidence than "it owns some file". The coarse anchors stay as the
+ * fallback for skeletons the declaration says nothing about, so declaring a concern for one
+ * conflict never blinds the binder to another.
+ */
+function bindSkeleton({ skeleton, graph, intentAnchors, concernAnchors, taskIds }) {
   const nodeByKey = new Map(graph.nodes.map((node) => [graphNodeKey(node), node]));
   const taskBindings = [];
   const unknowns = [];
-  for (const taskId of taskIds) {
-    const matches = [];
+  const matchesFor = (anchors) => {
+    const matched = [];
     skeleton.partitions.forEach((partition, index) => {
-      const anchors = intentAnchors.get(taskId).filter((anchor) => (
+      const hits = anchors.filter((anchor) => (
         partition.some((key) => anchorMatchesNode(anchor, nodeByKey.get(key)))
       ));
-      if (anchors.length > 0) matches.push({ index, anchors: sortedUnique(anchors) });
+      if (hits.length > 0) matched.push({ index, anchors: sortedUnique(hits) });
     });
+    return matched;
+  };
+  for (const taskId of taskIds) {
+    const declared = matchesFor(concernAnchors.get(taskId) ?? []);
+    const matches = declared.length > 0 ? declared : matchesFor(intentAnchors.get(taskId));
     if (matches.length === 0) {
       unknowns.push({
         kind: 'semantic_owner_binding_missing',
@@ -1184,14 +1205,53 @@ function bindSkeleton({ skeleton, graph, intentAnchors, taskIds }) {
 }
 
 /**
+ * Build a cut skeleton for a contested repo path out of the declared concern anchors alone.
+ *
+ * A path conflict has no call graph to partition — the sensor was only asked which tests the file
+ * affects. What the declarations do give is a partition of the file's symbols by owner, which is
+ * exactly the shape a cut needs. Every task in the component must have named at least one symbol
+ * inside the path; otherwise there is nothing to say about who owns which half and the caller
+ * keeps reporting the resource as unavailable rather than guessing.
+ */
+function declaredPartitionSkeleton({ conflict, concernAnchors, taskIds }) {
+  const rootPath = conflict.target;
+  const root = { kind: 'path', target: rootPath, path: rootPath };
+  const nodes = [root];
+  const partitions = [];
+  for (const taskId of taskIds) {
+    const owned = (concernAnchors.get(taskId) ?? [])
+      .map((anchor) => {
+        const separator = anchor.indexOf('\0');
+        return {
+          path: anchor.slice('concern:'.length, separator),
+          name: anchor.slice(separator + 1),
+        };
+      })
+      .filter(({ path }) => pathContains(rootPath, path));
+    if (owned.length === 0) return null;
+    for (const { path, name } of owned) nodes.push({ kind: 'symbol', target: name, path });
+    partitions.push(owned.map(({ path, name }) => graphNodeKey({
+      kind: 'symbol', target: name, path,
+    })));
+  }
+  return {
+    root,
+    nodes,
+    partitions: canonicalPartitions(partitions),
+  };
+}
+
+/**
  * Enumerate structural cut skeletons from the in-memory sensor outcomes. Graph edges only shape
- * SCC/closure/frontier partitions; task ownership is bound exclusively by unique witness anchors.
+ * SCC/closure/frontier partitions; task ownership is bound exclusively by unique witness anchors
+ * and by declared concern anchors, never by the edges themselves.
  */
 export function enumerateCutSkeletons({
   component,
   request,
   evidence,
   rawCollected,
+  concernAnchors = new Map(),
 } = {}) {
   if (!plainRecord(component)
     || !Array.isArray(component.task_ids)
@@ -1202,7 +1262,9 @@ export function enumerateCutSkeletons({
   }
   const taskIds = [...component.task_ids].sort(compareText);
   const intentAnchors = uniqueIntentAnchors(request.manual_witness, taskIds);
-  const missingIntent = taskIds.filter((taskId) => intentAnchors.get(taskId).length === 0);
+  const missingIntent = taskIds.filter((taskId) => (
+    intentAnchors.get(taskId).length === 0 && (concernAnchors.get(taskId) ?? []).length === 0
+  ));
   if (missingIntent.length > 0) {
     return {
       skeletons: [],
@@ -1217,6 +1279,26 @@ export function enumerateCutSkeletons({
   const skeletonByLayout = new Map();
   const unknowns = [];
   for (const conflict of component.conflicts) {
+    if (conflict.kind === 'path') {
+      const declared = declaredPartitionSkeleton({ conflict, concernAnchors, taskIds });
+      if (declared === null || declared.partitions.length < 2) {
+        unknowns.push({ kind: 'raw_graph_unavailable', ref: conflict.resource_id });
+        continue;
+      }
+      const layoutKey = digestArtifact({
+        conflict_resource_id: conflict.resource_id,
+        partitions: declared.partitions,
+      });
+      skeletonByLayout.set(layoutKey, {
+        skeleton_id: `cut-${sha16(layoutKey)}`,
+        conflict_resource_id: conflict.resource_id,
+        cut_kinds: ['declared_partition'],
+        root_surface: structuredClone(declared.root),
+        partitions: declared.partitions,
+        raw_graph: { nodes: structuredClone(declared.nodes), edges: [] },
+      });
+      continue;
+    }
     if (conflict.kind !== 'symbol') {
       unknowns.push({ kind: 'raw_graph_unavailable', ref: conflict.resource_id });
       continue;
@@ -1269,6 +1351,7 @@ export function enumerateCutSkeletons({
       skeleton,
       graph: skeleton.raw_graph,
       intentAnchors,
+      concernAnchors,
       taskIds,
     }));
   for (const skeleton of skeletons) unknowns.push(...skeleton.binding_unknowns);
@@ -1366,6 +1449,7 @@ export function evaluateSeamProposalCandidates({
   evidence,
   candidateSpecs,
   explorationComplete = false,
+  concernAnchors = new Map(),
 } = {}) {
   if (!plainRecord(component)
     || !Array.isArray(component.task_ids)
@@ -1380,7 +1464,9 @@ export function evaluateSeamProposalCandidates({
   }
   const taskSet = new Set(taskIds);
   const intentAnchors = uniqueIntentAnchors(request.manual_witness, taskIds);
-  const missingIntent = taskIds.filter((taskId) => intentAnchors.get(taskId).length === 0);
+  const missingIntent = taskIds.filter((taskId) => (
+    intentAnchors.get(taskId).length === 0 && (concernAnchors.get(taskId) ?? []).length === 0
+  ));
   if (missingIntent.length > 0) {
     return decisionUnknown(component, missingIntent.map((taskId) => ({
       kind: 'semantic_owner_binding_missing',
@@ -1671,15 +1757,20 @@ export function compileSeamProposalDecision({
   sensorEvidence,
   evidence,
   rawCollected,
+  concernAnchors = new Map(),
+  concernUnknowns = [],
 } = {}) {
   const enumeration = enumerateCutSkeletons({
     component,
     request,
     evidence,
     rawCollected,
+    concernAnchors,
   });
-  if (enumeration.unknowns.length > 0) {
-    return decisionUnknown(component, enumeration.unknowns);
+  // 宣言が解決しなかった事実は、束縛が成功したかに関わらず記録から消さない。
+  const unknowns = [...concernUnknowns, ...enumeration.unknowns];
+  if (unknowns.length > 0) {
+    return decisionUnknown(component, unknowns);
   }
   const candidateSpecs = enumeration.skeletons.map((skeleton) => (
     skeletonCandidateSpec({ skeleton, component, request, evidence })
@@ -1697,6 +1788,7 @@ export function compileSeamProposalDecision({
     evidence,
     candidateSpecs,
     explorationComplete: enumeration.exploration_complete,
+    concernAnchors,
   });
 }
 
@@ -1845,13 +1937,25 @@ export function compileSeamProposalArtifact({
     baseSha: independenceArtifact.base_sha,
     requestId: `seam-proposal-${independenceArtifact.result_digest.slice(0, 24)}`,
   });
-  const decisions = conflictComponents(independenceArtifact).map((component) => (
+  const components = conflictComponents(independenceArtifact);
+  const concern = resolveConcernAnchors({
+    manualWitness: witnessSet.manual_witness,
+    taskIds: [...new Set(components.flatMap(({ task_ids: ids }) => ids))].sort(compareText),
+    evidence,
+  });
+  const decisions = components.map((component) => (
     compileSeamProposalDecision({
       component,
       request,
       sensorEvidence,
       evidence,
       rawCollected,
+      concernAnchors: concern.anchorsByTask,
+      // このcomponentのtaskに関する解決失敗だけを持ち込む。
+      concernUnknowns: concern.unknowns.filter((unknown) => (
+        component.task_ids.some((taskId) => unknown.ref.startsWith(`${taskId}:`)
+          || unknown.ref.split(':')[0].split(',').includes(taskId))
+      )),
     })
   )).sort((left, right) => compareText(left.component_id, right.component_id));
   const artifact = {
