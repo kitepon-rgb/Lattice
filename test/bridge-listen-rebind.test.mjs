@@ -232,6 +232,94 @@ test('registrar未設定なら何も報告しない', async (context) => {
   assert.deepEqual(reported, []);
 });
 
+// 実機で落ちた形: 設定は1バイトも変わらないのにDHCPのlease変更で待受アドレスが
+// ホストから消え、死んだアドレスの上にsocketだけが residual した。設定のfingerprintしか
+// 見ていなかったreconcileはこれを素通りし、公開siteが502のまま誰も気付かなかった。
+test('設定が変わらなくても待受アドレスがホストから消えればreconcileが検知する', async (context) => {
+  const env = await envFixture(context);
+  const upstream = await upstreamServer((request, response) => { response.end('ok'); });
+  context.after(() => close(upstream));
+  await configureBridge({ env, address: LIVE,
+    upstream: { mode: 'url', url: `http://${LIVE}:${upstream.address().port}/` }, allowedHosts: [] });
+
+  let interfaces = UNCHANGED;
+  const controller = bridgeRuntimeController({ env,
+    register: async ({ port }) => ({ schema: 'lattice.bridge_registrar_result.v1',
+      state: 'updated', port, host: 'main-server', remote: { changed: true }, detail: null }),
+    report: () => {},
+    readInterfaces: () => interfaces });
+  context.after(() => controller.close());
+
+  assert.notEqual(await controller.reconcile(), null, '健在なアドレスではbindできる');
+
+  // 設定には触れない。ホストの下からアドレスだけが消える。
+  interfaces = OFF_SUBNET;
+  await assert.rejects(
+    controller.reconcile(),
+    (error) => error?.code === 'BRIDGE_LISTEN_ADDRESS_ABSENT',
+    '消失を素通りせず、fallbackもせずtypedに失敗する',
+  );
+});
+
+test('ホストが動かない限りreconcileは再bindも再登録もしない', async (context) => {
+  const env = await envFixture(context);
+  const upstream = await upstreamServer((request, response) => { response.end('ok'); });
+  context.after(() => close(upstream));
+  await configureBridge({ env, address: LIVE,
+    upstream: { mode: 'url', url: `http://${LIVE}:${upstream.address().port}/` }, allowedHosts: [] });
+
+  const registered = [];
+  const controller = bridgeRuntimeController({ env,
+    register: async ({ port }) => {
+      registered.push(port);
+      return { schema: 'lattice.bridge_registrar_result.v1', state: 'updated', port,
+        host: 'main-server', remote: { changed: true }, detail: null };
+    },
+    report: () => {},
+    readInterfaces: () => UNCHANGED });
+  context.after(() => controller.close());
+
+  const first = await controller.reconcile();
+  const second = await controller.reconcile();
+  const third = await controller.reconcile();
+
+  assert.equal(first, second, '静かなpassでbindingを作り直さない');
+  assert.equal(second, third);
+  assert.equal(registered.length, 1, '毎passでreverse proxyへ登録し直さない');
+});
+
+test('アドレスが戻ればbindingを張り直して登録もやり直す', async (context) => {
+  const env = await envFixture(context);
+  const upstream = await upstreamServer((request, response) => { response.end('ok'); });
+  context.after(() => close(upstream));
+  await configureBridge({ env, address: LIVE,
+    upstream: { mode: 'url', url: `http://${LIVE}:${upstream.address().port}/` }, allowedHosts: [] });
+
+  let interfaces = UNCHANGED;
+  const registered = [];
+  const controller = bridgeRuntimeController({ env,
+    register: async ({ port }) => {
+      registered.push(port);
+      return { schema: 'lattice.bridge_registrar_result.v1', state: 'updated', port,
+        host: 'main-server', remote: { changed: true }, detail: null };
+    },
+    report: () => {},
+    readInterfaces: () => interfaces });
+  context.after(() => controller.close());
+
+  await controller.reconcile();
+  assert.equal(registered.length, 1);
+
+  // daemonは失敗時に公開traffic をfail-closedにする。その後アドレスが戻る。
+  interfaces = OFF_SUBNET;
+  await assert.rejects(controller.reconcile(), (error) => error?.code === 'BRIDGE_LISTEN_ADDRESS_ABSENT');
+  await controller.close();
+
+  interfaces = UNCHANGED;
+  assert.notEqual(await controller.reconcile(), null, '復帰でbindingを張り直す');
+  assert.equal(registered.length, 2, '新しいbindingは必ずreverse proxyへ知らせ直す');
+});
+
 test('reconcileは同じ設定のbindingを作り直さない', async (context) => {
   const env = await envFixture(context);
   const upstream = await upstreamServer((request, response) => { response.end('ok'); });

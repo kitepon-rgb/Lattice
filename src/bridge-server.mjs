@@ -308,6 +308,7 @@ export function bridgeRuntimeController({
   env = process.env, instanceToken = null,
   register = registerBridgeUpstream,
   report = (line) => process.stderr.write(`${line}\n`),
+  readInterfaces = () => networkInterfaces(),
 } = {}) {
   let active = null;
   let fingerprint = null;
@@ -329,23 +330,36 @@ export function bridgeRuntimeController({
     async reconcile() {
       const config = await readBridgeConfig({ env });
       const next = config === null || !config.enabled ? null : JSON.stringify(config);
-      if (next === fingerprint) return active;
+      // The config is not the only thing that can change under a live binding.
+      // A DHCP lease change removes the bound address from the host without
+      // touching a byte of config, and the socket lingers on an address nothing
+      // can route to. Resolve the effective address on every pass, from the
+      // interfaces as they are now, so the binding follows the host rather than
+      // only the file. One snapshot serves both the comparison and the bind, so
+      // a lease that changes mid-reconcile cannot land them on different
+      // addresses.
+      const interfaces = next === null ? null : readInterfaces();
+      const effective = next === null ? null
+        : resolveBridgeListenAddress({ configured: config.listen.address, interfaces }).effective;
+      if (next === fingerprint && (active === null || active.address === effective)) return active;
       if (next === null) {
         await active?.close();
         active = null;
         fingerprint = null;
         return null;
       }
-      // Compare against the CONFIGURED address: a rebound binding still serves
-      // the same configuration, and comparing the effective address would tear
-      // the server down and rebuild it on every reconcile.
+      // The binding is reused while it still serves the same configuration AND
+      // still sits on the address that configuration resolves to today. The
+      // effective address is stable for an unchanged host, so this compares
+      // equal on every quiet pass and only forces a rebind when the ground has
+      // actually moved.
       if (active !== null && active.configured_address === config.listen.address
-        && active.port === config.listen.port) {
+        && active.port === config.listen.port && active.address === effective) {
         active.updateConfig(config);
         fingerprint = next;
         return active;
       }
-      const replacement = await startBridgeServer({ config, env, instanceToken });
+      const replacement = await startBridgeServer({ config, env, instanceToken, interfaces });
       const previous = active;
       active = replacement;
       fingerprint = next;
