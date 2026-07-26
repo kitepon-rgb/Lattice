@@ -174,9 +174,15 @@ focused test・sensor鮮度・重複解消）、本repo不変のassertまで持�
 閉ループの受入条件は、変換後のソースから同じ宣言で再compileして残余conflictが0になり、
 かつ外部挙動が許容範囲内であることを**実測で**示すこととする。read-onlyの推薦で完了扱いにしない。
 
+受入契約は[ADR 0137](adr/0137-real-transform-acceptance-contract.md)で確定した。適用可能な候補は
+所有・共有・残余の三面をすべて挙げ、依存は「所有→共有」「残余→所有」の一方向に固定する。
+現行の候補は所有面しか持たないため**そのままでは実行できない**——これは実行しようとした瞬間に
+露見した欠落で、read-onlyで止まっている限り見えなかった
+（[実行記録](evidence/2026-07-27-rt-001-transform-acceptance-contract.md)）。
+
 ## 工程
 
-- [ ] 実変換の受入契約とrc2断線の扱いを裁定する
+- [x] 実変換の受入契約とrc2断線の扱いを裁定する
 - [ ] seam_candidateからbounded seam candidateを導出する
 - [ ] 宣言anchorのsymbolを新surfaceへ移す変換器を実装する
 - [ ] 外部挙動同等性・focused test・再index・重複解消の検証器を実装する
