@@ -144,6 +144,53 @@ test('同一pathを両方が所有すればconflictとして記録され、wave�
   assert.equal(artifact.wave_plan.minimum_feasible_waves, 2);
 });
 
+test('concern宣言はconflict判定を一切動かさない', () => {
+  const queries = [
+    { id: 'q-status', operation: 'status' },
+    { id: 'q-srcsharedmjs', operation: 'affected', target: 'src/shared.mjs' },
+  ];
+  const outcomes = [
+    { id: 'q-status', operation: 'status', outcome: 'ready' },
+    affectedOutcome('q-srcsharedmjs', 'src/shared.mjs'),
+  ];
+  const compile = (manualWitness) => {
+    const set = witnessSet(manualWitness, queries);
+    return compileTodoIndependence({
+      witnessSet: set, plan: plan(), baseSha: BASE_SHA, compiledAt: COMPILED_AT,
+      sensorEvidence: evidenceFor(set, outcomes),
+    });
+  };
+  const bare = compile({
+    'tip-001': witness('src/shared.mjs'),
+    'tip-002': witness('src/shared.mjs'),
+  });
+  const declared = compile({
+    'tip-001': {
+      ...witness('src/shared.mjs'),
+      concern_anchors: [{
+        within: { kind: 'path', target: 'src/shared.mjs' },
+        symbols: ['renderRightPane'],
+      }],
+    },
+    'tip-002': {
+      ...witness('src/shared.mjs'),
+      concern_anchors: [{
+        within: { kind: 'path', target: 'src/shared.mjs' },
+        symbols: ['renderCard'],
+      }],
+    },
+  });
+
+  // 宣言はwitness setの一部なのでwitness_set_digestとその従属digestだけが動く。
+  // 判定そのもの——conflict・unknown・波・結論——は一字一句変わらない。
+  const judgement = ({ witness_set_digest: _digest, result_digest: _result, ...rest }) => rest;
+  assert.deepEqual(judgement(declared), judgement(bare));
+  assert.notEqual(declared.witness_set_digest, bare.witness_set_digest);
+  assert.equal(declared.outcome, 'compiled');
+  assert.equal(declared.conflicts.length, 1);
+  assert.equal(declared.wave_plan.minimum_feasible_waves, 2);
+});
+
 test('sensorがreadyでなければunknownとして記録し、wave planを持たない', () => {
   const { set, evidence } = disjointFixture({ statusOutcome: 'stale' });
   const artifact = compileTodoIndependence({
