@@ -51,11 +51,14 @@ ToDo 256件までの汎用経路であり、RC1専用の`compileBoundaryConditio
    `verified`／`stale`／`superseded`／`missing`をtypedに区別する。sensor照会は読み出し時に行わない。
    dirty worktreeでのcompileは拒否する。未commitの観測を検証済み証拠として固定化しない。
 
-4. **conflictとunknownはgraph層から採り、schedulability outcomeへ丸めない。**
-   `compileSchedulabilityGraphV2`はunknownが1件でもあると`outcome:'unknown'`を返し
-   `pairwise_verdicts`を返さない。宣言が段階的に増える運用では常にunknownとなるため、
-   normalized bundleのgraph（conflicts／precedences／unknowns）をtask単位で写像する。
-   wave planは`outcome:'compiled'`のときだけ記録する。
+4. **compileは宣言済みtaskの部分集合に閉じる。** `compileSchedulabilityGraphV2`はunknownが
+   1件でもあると`outcome:'unknown'`を返し`pairwise_verdicts`を返さず、`compileRuntimePlanV1`は
+   その経路でgraphを露出しない。宣言の無いtaskをcompileへ入れると、宣言済みtask同士の
+   判定まで巻き添えで失われる。したがってartifactの`task_ids`はwitness setが宣言したtaskだけとし、
+   plan上の未宣言taskはcompileへ入れず、読み出し時に`witness_missing`として提示する。
+   部分集合がcompiledなら`pairwise_verdicts`からconflictとprecedenceを、planからwave planを写す。
+   宣言済みtaskにunknownが残るときはunknownをtask単位で記録し、wave planを持たず、
+   その部分集合のどのペアもverified独立として読ませない。
 
 5. **読み出しは新しい読取サブコマンドを加算する。** `lattice todo independence`が
    `lattice.todo_independence_projection.v1`を返し、ready frontierを
