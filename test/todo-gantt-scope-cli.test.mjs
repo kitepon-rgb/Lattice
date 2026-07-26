@@ -83,6 +83,10 @@ test('既定scopeは完走した枝を畳み、--scope allは全件描く', asyn
   for (const html of [liveHtml, allHtml]) {
     assert.match(shownDiagram(html), /data-task-id="T1"/u);
     assert.match(shownDiagram(html), /data-task-id="T2"/u);
+    // seam proposal artifactが無くても生成でき、「提案なし」ではなく未生成guidanceを出す。
+    assert.match(html, /seam_proposal_unrecorded/u);
+    assert.match(html, /このplanのseam提案はまだ生成していない/u);
+    assert.match(html, /compile_seam_proposal/u);
   }
   // 畳んだ図は展開図を同梱し、そこにはFが描かれている。
   assert.match(liveHtml, /<div data-diagram="expanded" hidden>/u);

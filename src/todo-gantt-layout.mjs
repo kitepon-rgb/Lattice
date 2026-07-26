@@ -438,6 +438,79 @@ function normalizeIndependence(value, nodesByKey) {
   return { stateByKey, summary: { plans } };
 }
 
+/**
+ * seam proposalの公開投影を、描画に必要なhuman-facing fieldだけへ畳む。
+ * resource_idは記録のidentityであって表示名ではないため、layoutへ持ち込まない。
+ */
+function normalizeSeamProposals(value) {
+  if (value === null || value === undefined) return { summary: null };
+  if (!Array.isArray(value)) {
+    fail('TODO_LAYOUT_INVALID_INPUT', 'seamProposals must be an array of plan projections');
+  }
+  const plans = value.map((projection) => {
+    if (!plain(projection) || typeof projection.project_id !== 'string'
+      || typeof projection.plan_key !== 'string'
+      || !['missing', 'superseded', 'stale', 'verified'].includes(projection.coverage)
+      || !plain(projection.guidance)
+      || typeof projection.guidance.code !== 'string'
+      || typeof projection.guidance.message !== 'string'
+      || typeof projection.guidance.next_action !== 'string'
+      || !Array.isArray(projection.components)) {
+      fail('TODO_LAYOUT_INVALID_INPUT', 'seam proposal entry has an invalid projection shape');
+    }
+    return {
+      project_id: projection.project_id,
+      plan_key: projection.plan_key,
+      coverage: projection.coverage,
+      guidance: { ...projection.guidance },
+      component_count: projection.component_count,
+      conflict_resource_count: projection.conflict_resource_count,
+      components: projection.components.map((component) => {
+        if (!plain(component) || typeof component.component_id !== 'string'
+          || typeof component.verdict !== 'string'
+          || !Array.isArray(component.task_ids)
+          || !Array.isArray(component.conflicts)
+          || !Array.isArray(component.proposed_surfaces)
+          || !Array.isArray(component.affected_tests)
+          || !Array.isArray(component.limits)
+          || !Array.isArray(component.reasons)
+          || !Array.isArray(component.unknowns)) {
+          fail('TODO_LAYOUT_INVALID_INPUT', 'seam proposal component has an invalid shape');
+        }
+        return {
+          component_id: component.component_id,
+          verdict: component.verdict,
+          task_ids: [...component.task_ids],
+          conflicts: component.conflicts.map((conflict) => {
+            if (!plain(conflict) || typeof conflict.kind !== 'string'
+              || typeof conflict.target !== 'string' || !Array.isArray(conflict.task_pairs)) {
+              fail('TODO_LAYOUT_INVALID_INPUT', 'seam proposal conflict has an invalid shape');
+            }
+            return {
+              kind: conflict.kind,
+              target: conflict.target,
+              task_pairs: conflict.task_pairs.map((pair) => [...pair]),
+            };
+          }),
+          proposed_surfaces: component.proposed_surfaces.map((surface) => ({ ...surface,
+            owner_task_ids: [...surface.owner_task_ids] })),
+          affected_tests: [...component.affected_tests],
+          limits: [...component.limits],
+          reasons: component.reasons.map((reason) => ({ ...reason })),
+          unknowns: component.unknowns.map((unknown) => ({ ...unknown })),
+        };
+      }),
+    };
+  });
+  plans.sort((left, right) => {
+    const leftHasDecisions = left.components.length > 0;
+    const rightHasDecisions = right.components.length > 0;
+    return leftHasDecisions === rightHasDecisions
+      ? compareText(left.plan_key, right.plan_key) : leftHasDecisions ? -1 : 1;
+  });
+  return { summary: { plans } };
+}
+
 export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   const scope = options.scope ?? 'live';
   if (!TODO_GANTT_SCOPES.includes(scope)) {
@@ -467,6 +540,7 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   }));
   const readyKeys = readyTaskKeys(readModel, full.nodes, full.nodesByKey, fullWaves.incoming);
   const independence = normalizeIndependence(options.independence ?? null, full.nodesByKey);
+  const seamProposals = normalizeSeamProposals(options.seamProposals ?? null);
 
   // Only the geometry stage below sees the narrowed graph.
   const projected = scope === 'all'
@@ -777,6 +851,8 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     nodes: projectedNodes,
     // 図の外が語るための投影。カードはバッジで状態だけを示し、相手と理由は右ペインが持つ。
     independence: independence.summary,
+    // seam提案は図形を増やさず、右ペインで係争資源・ToDo組・判定・不足証拠をまとめて示す。
+    seam_proposals: seamProposals.summary,
     edges: projectedEdges,
     // Every dependency in the plan, before folding contracted any of them away.
     // The diagram draws `edges`; anything that describes a ToDo in words — the

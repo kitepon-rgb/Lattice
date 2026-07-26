@@ -8,6 +8,7 @@ import {
 import { TodoGanttLayoutError, layoutTodoGantt } from '../src/todo-gantt-layout.mjs';
 import { renderTodoGanttHtml } from '../src/todo-gantt-html.mjs';
 import { projectTodoGanttPresentation } from '../src/todo-gantt-presentation.mjs';
+import { selectSeamProposalGuidance } from '../src/todo-independence-guidance.mjs';
 
 // ADR 0129。独立性はカード内のバッジと色で示し、寸法と配線には触れない。
 // 記録が語らないtaskへはバッジを出さない（未検査と検証済みを同じ顔にしない）。
@@ -67,6 +68,36 @@ function layoutWith(taskIds, frontier) {
     scope: 'all', independence: projectionFor(frontier),
   });
 }
+
+const seamProjection = ({
+  planKey = PLAN, coverage = 'verified', components = [], componentCount = components.length,
+} = {}) => ({
+  project_id: PROJECT,
+  plan_key: planKey,
+  coverage,
+  guidance: selectSeamProposalGuidance({ coverage }),
+  component_count: coverage === 'missing' ? null : componentCount,
+  conflict_resource_count: coverage === 'missing' ? null : components
+    .reduce((total, component) => total + component.conflicts.length, 0),
+  components,
+});
+
+const unknownSeamComponent = {
+  component_id: 'component-1',
+  verdict: 'unknown_requires_evidence',
+  task_ids: ['A', 'B'],
+  conflicts: [{
+    resource_id: 'own-path-deadbeef',
+    kind: 'path',
+    target: 'src/todo-gantt-html.mjs',
+    task_pairs: [['A', 'B']],
+  }],
+  proposed_surfaces: [],
+  affected_tests: [],
+  limits: [],
+  reasons: [],
+  unknowns: [{ kind: 'semantic_owner_binding_missing', ref: 'B' }],
+};
 
 test('独立性はnode projectionへ状態として載る', () => {
   const layout = layoutWith(['A', 'B', 'C', 'D'], {
@@ -162,6 +193,62 @@ test('未検査は「競合が無い」と書かない', () => {
   })));
   assert.match(output.html, /未検査です。競合が無いのではなく、まだ判定していません/u);
   assert.match(output.html, /未検査 1工程/u);
+});
+
+test('seam提案はexact資源・ToDo組・verdict・typed unknownを先頭で示す', () => {
+  const read = readModel(['A', 'B']);
+  const layout = layoutTodoGantt(read, chain, {
+    scope: 'all',
+    seamProposals: [
+      seamProjection({ coverage: 'missing', planKey: 'legacy-plan' }),
+      seamProjection({ components: [unknownSeamComponent] }),
+    ],
+  });
+  const output = renderTodoGanttHtml({
+    readModel: read,
+    layout,
+    narratives: [],
+    anchorOutcomes: [],
+    presentation: projectTodoGanttPresentation(read, null),
+    metadata: {},
+  });
+
+  assert.equal(layout.seam_proposals.plans[0].plan_key, PLAN,
+    'componentがあるplanを未生成planより先に置く');
+  assert.equal('resource_id' in layout.seam_proposals.plans[0].components[0].conflicts[0], false,
+    'hash identityはhuman-facing layoutへ持ち込まない');
+  assert.match(output.html, /src\/todo-gantt-html\.mjs/u);
+  assert.match(output.html, /<code>A<\/code><span aria-hidden="true"> ↔ <\/span><code>B<\/code>/u);
+  assert.match(output.html, /unknown_requires_evidence/u);
+  assert.match(output.html, /semantic_owner_binding_missing/u);
+  assert.match(output.html, /ToDo <code>B<\/code>/u);
+  assert.doesNotMatch(output.html, /own-path-deadbeef/u);
+  assert.ok(output.html.indexOf('src/todo-gantt-html.mjs')
+    < output.html.indexOf('seam_proposal_unrecorded'));
+});
+
+test('component 0件と未生成はguidance正本のcode・message・next_actionで区別する', () => {
+  const read = readModel(['A']);
+  const verified = seamProjection();
+  const missing = seamProjection({ coverage: 'missing', planKey: 'legacy-plan' });
+  const layout = layoutTodoGantt(read, chain, {
+    scope: 'all', seamProposals: [verified, missing],
+  });
+  const output = renderTodoGanttHtml({
+    readModel: read,
+    layout,
+    narratives: [],
+    anchorOutcomes: [],
+    presentation: projectTodoGanttPresentation(read, null),
+    metadata: {},
+  });
+
+  assert.match(output.html, new RegExp(verified.guidance.code, 'u'));
+  assert.match(output.html, new RegExp(verified.guidance.message, 'u'));
+  assert.match(output.html, new RegExp(missing.guidance.code, 'u'));
+  assert.match(output.html, new RegExp(missing.guidance.message, 'u'));
+  assert.match(output.html, new RegExp(missing.guidance.next_action, 'u'));
+  assert.doesNotMatch(output.html, /競合が無い/u);
 });
 
 test('SVGはバッジ記号とクラスを描き、カード寸法を変えない', () => {

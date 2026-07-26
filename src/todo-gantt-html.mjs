@@ -282,6 +282,54 @@ function renderIndependenceNote(ref, node, summary) {
   return `<p class="readiness-note"><strong>並列可否:</strong> 要直列です。</p><ul class="independence-conflicts">${items}</ul>`;
 }
 
+function renderSeamComponent(component) {
+  const conflicts = component.conflicts.map((conflict) => {
+    const pairs = conflict.task_pairs
+      .map(([left, right]) => `<span class="seam-task-pair"><code>${escapeHtmlText(left)}</code><span aria-hidden="true"> ↔ </span><code>${escapeHtmlText(right)}</code></span>`)
+      .join('');
+    return `<li class="seam-conflict"><strong class="seam-target">${escapeHtmlText(conflict.target)}</strong><span class="seam-conflict-kind"><code>${escapeHtmlText(conflict.kind)}</code></span><span class="seam-pairs">${pairs}</span></li>`;
+  }).join('');
+  const unknowns = component.unknowns.length === 0 ? '' : `<section class="seam-evidence-needed"><h4>次に必要な証拠</h4><ul>${component.unknowns.map((unknown) => {
+    const reference = component.task_ids.includes(unknown.ref)
+      ? `ToDo <code>${escapeHtmlText(unknown.ref)}</code>`
+      : `ref <code>${escapeHtmlText(unknown.ref)}</code>`;
+    return `<li><code>${escapeHtmlText(unknown.kind)}</code><span>${reference}</span></li>`;
+  }).join('')}</ul></section>`;
+  const reasons = component.reasons.length === 0 ? '' : `<section class="seam-reasons"><h4>判定理由</h4><ul>${component.reasons.map((reason) => `<li><code>${escapeHtmlText(reason.code)}</code><span>${escapeHtmlText(reason.detail)}</span></li>`).join('')}</ul></section>`;
+  const proposed = component.proposed_surfaces.length === 0 ? '' : `<section class="seam-surfaces"><h4>提案する所有境界</h4><ul>${component.proposed_surfaces.map((surface) => `<li><strong>${escapeHtmlText(surface.target)}</strong><span><code>${escapeHtmlText(surface.kind)}</code> / <code>${escapeHtmlText(surface.role)}</code> / owner ${surface.owner_task_ids.map((taskId) => `<code>${escapeHtmlText(taskId)}</code>`).join(', ') || '—'}</span></li>`).join('')}</ul></section>`;
+  const affectedTests = component.affected_tests.length === 0 ? ''
+    : `<p class="seam-tests"><strong>影響test:</strong> ${component.affected_tests.map((testRef) => `<code>${escapeHtmlText(testRef)}</code>`).join(', ')}</p>`;
+  return `<article class="seam-component verdict-${escapeHtmlAttribute(component.verdict)}"><header><span>Seam判定</span><code>${escapeHtmlText(component.verdict)}</code></header><ul class="seam-conflicts">${conflicts}</ul>${unknowns}${reasons}${proposed}${affectedTests}</article>`;
+}
+
+function renderSeamPlan(plan, { compact = false } = {}) {
+  const components = plan.components.map(renderSeamComponent).join('');
+  const count = plan.component_count === null ? '—' : String(plan.component_count);
+  const nextAction = plan.guidance.next_action === 'none' ? ''
+    : `<p class="seam-next-action"><strong>次の一歩:</strong> <code>${escapeHtmlText(plan.guidance.next_action)}</code></p>`;
+  return `<section class="seam-plan${compact ? ' seam-plan-compact' : ''}" data-seam-plan="${escapeHtmlAttribute(plan.plan_key)}"><header><code>${escapeHtmlText(plan.plan_key)}</code><span class="seam-coverage coverage-${escapeHtmlAttribute(plan.coverage)}">${escapeHtmlText(plan.guidance.code)}</span><span class="seam-component-count">component ${escapeHtmlText(count)}件</span></header><p class="seam-guidance">${escapeHtmlText(plan.guidance.message)}</p>${nextAction}${components}</section>`;
+}
+
+/**
+ * componentがあるplanを先に展開し、0件planはcoverageごとに畳む。
+ * 実データのunknownと係争資源を、未生成planの列より先に視認できるようにする。
+ */
+function renderSeamProposalOverview(layout) {
+  const plans = layout.seam_proposals?.plans;
+  if (!Array.isArray(plans)) return '';
+  const withComponents = plans.filter((plan) => plan.components.length > 0);
+  const emptyByGuidance = new Map();
+  for (const plan of plans.filter((entry) => entry.components.length === 0)) {
+    if (!emptyByGuidance.has(plan.guidance.code)) emptyByGuidance.set(plan.guidance.code, []);
+    emptyByGuidance.get(plan.guidance.code).push(plan);
+  }
+  const decisions = withComponents.map((plan) => renderSeamPlan(plan)).join('');
+  const emptyGroups = [...emptyByGuidance.entries()].sort(([left], [right]) => compareText(left, right))
+    .map(([code, grouped]) => `<details class="seam-empty-group"><summary><code>${escapeHtmlText(code)}</code><span>${grouped.length} plan</span></summary>${grouped.map((plan) => renderSeamPlan(plan, { compact: true })).join('')}</details>`)
+    .join('');
+  return `<section class="seam-overview"><h2>Seam提案</h2>${decisions}${emptyGroups}</section>`;
+}
+
 function renderRightPane(sections, layout, presentation, readModel) {
   const lookup = presentationLookup(presentation);
   const sectionByKey = new Map(sections.map((section) => [refKey(section.ref), section]));
@@ -323,7 +371,7 @@ function renderRightPane(sections, layout, presentation, readModel) {
   const dispatchSummary = `${readyHeadline}${independenceNote}`;
   const activeLinks = active.length === 0 ? '<p>作業中の工程はありません。</p>'
     : `<ul class="active-list">${active.map((section) => `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(refKey(section.ref))}">${escapeHtmlText(taskReference(section, lookup))} — ${escapeHtmlText(section.task.title)}</button></li>`).join('')}</ul>`;
-  const overview = `<section class="right-overview" data-right-panel="overview"><h1>工程を選択してください</h1><p>左の依存工程図から工程を選ぶと、題名・状態・前提・後続を表示します。</p><div class="status-summary"><span>☐ 未着手 ${counts.pending}</span><span>▶ 作業中 ${counts['in-progress']}</span><span>✅ 完了 ${counts.done}</span><span>⛔ ブロック中 ${counts.blocked}</span></div>${dispatchSummary}${renderPhaseProgress(readModel)}<h2>作業中</h2>${activeLinks}</section>`;
+  const overview = `<section class="right-overview" data-right-panel="overview"><h1>工程を選択してください</h1><p>左の依存工程図から工程を選ぶと、題名・状態・前提・後続を表示します。</p><div class="status-summary"><span>☐ 未着手 ${counts.pending}</span><span>▶ 作業中 ${counts['in-progress']}</span><span>✅ 完了 ${counts.done}</span><span>⛔ ブロック中 ${counts.blocked}</span></div>${dispatchSummary}${renderSeamProposalOverview(layout)}${renderPhaseProgress(readModel)}<h2>作業中</h2>${activeLinks}</section>`;
   const details = sections.map((section) => {
     const key = refKey(section.ref);
     const node = nodeByKey.get(key);
@@ -418,6 +466,17 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .right-overview h1,.task-detail h1{margin:0 0 16px;font-size:19px;font-weight:650;line-height:1.45}
 .right-overview h2,.task-detail h2{margin:24px 0 8px;font-size:16px;font-weight:600}
 .status-summary{display:flex;flex-wrap:wrap;gap:8px 16px;margin:16px 0;padding:12px;background:var(--surface-2)}
+.seam-overview{margin:24px 0}.seam-overview>h2{margin-bottom:8px}
+.seam-plan{margin:8px 0;padding:12px;border:1px solid var(--border);border-left:4px solid var(--accent);background:var(--surface-2)}
+.seam-plan>header{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}.seam-plan>header>code{font-weight:650}.seam-component-count{margin-left:auto;color:var(--text-secondary);font-size:12px}
+.seam-coverage{padding:1px 7px;border:1px solid var(--border);border-radius:9999px;background:var(--surface-1);font-size:11px;font-weight:650}.seam-coverage.coverage-missing,.seam-coverage.coverage-stale,.seam-coverage.coverage-superseded{border-color:var(--critical);color:var(--critical)}
+.seam-guidance,.seam-next-action{margin:6px 0 0;color:var(--text-secondary);font-size:12px}.seam-next-action code{color:var(--text-primary);font-weight:650}
+.seam-component{margin-top:10px;padding:10px;border:1px solid var(--border);border-left:4px solid var(--text-secondary);background:var(--surface-1)}.seam-component.verdict-seam_candidate{border-left-color:var(--good)}.seam-component.verdict-intentional_serial{border-left-color:var(--critical)}.seam-component.verdict-unknown_requires_evidence{border-left-color:var(--accent)}
+.seam-component>header{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;font-weight:650}.seam-component>header code{overflow-wrap:anywhere}
+.seam-conflicts,.seam-evidence-needed ul,.seam-reasons ul,.seam-surfaces ul{margin:8px 0 0;padding:0;list-style:none}.seam-conflict{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:8px;border:1px solid var(--border)}.seam-conflict+.seam-conflict{margin-top:6px}
+.seam-target{font-size:13.5px;overflow-wrap:anywhere}.seam-conflict-kind{color:var(--text-secondary);font-size:11px}.seam-pairs{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:4px 10px}.seam-task-pair{font-weight:650}
+.seam-evidence-needed,.seam-reasons,.seam-surfaces{margin-top:10px}.seam-evidence-needed h4,.seam-reasons h4,.seam-surfaces h4{margin:0;font-size:12px}.seam-evidence-needed li,.seam-reasons li,.seam-surfaces li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;padding:5px 8px;background:var(--surface-2)}.seam-evidence-needed li+li,.seam-reasons li+li,.seam-surfaces li+li{margin-top:4px}.seam-evidence-needed li>code{font-weight:650}.seam-evidence-needed li>span,.seam-reasons li>span,.seam-surfaces li>span{color:var(--text-secondary)}
+.seam-tests{margin:8px 0 0;color:var(--text-secondary);font-size:12px}.seam-empty-group{margin-top:8px;border-top:1px solid var(--border)}.seam-empty-group>summary{display:flex;gap:10px;padding:8px 0;cursor:pointer;color:var(--text-secondary)}.seam-empty-group>summary span{margin-left:auto}.seam-plan-compact{border-left-width:1px}
 .phase-overview>p{color:var(--text-secondary)}.phase-overview>ol{display:grid;gap:8px;margin:0;padding:0;list-style:none}.phase-progress{padding:10px 12px;border:1px solid var(--border);border-left-width:4px;background:var(--surface-2)}.phase-progress>header{display:flex;justify-content:space-between;gap:12px}.phase-progress>p{margin:4px 0;color:var(--text-secondary);font-size:12px}.phase-progress progress{display:block;width:100%}.phase-progress.status-accepted{border-left-color:var(--good)}.phase-progress.status-reviewing,.phase-progress.status-gate_ready{border-left-color:var(--accent)}.phase-progress.status-rejected{border-left-color:var(--critical)}
 .active-list,.relation-list{margin:0;padding:0;list-style:none}.active-list li+li,.relation-list li+li{margin-top:8px}
 .active-list button{width:100%}.anchor-status,.readiness-note,.category-description,.relation-empty{color:var(--text-secondary)}

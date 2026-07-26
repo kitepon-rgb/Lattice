@@ -1207,7 +1207,10 @@ function parseGanttDescriptor(bytes, descriptorRef) {
  * 一つの関数だけが組む。
  */
 export async function ganttLiveHeadDigest({ repoRoot, store }) {
-  const independence = await independenceForGantt({ repoRoot, store });
+  const [independence, seamProposals] = await Promise.all([
+    independenceForGantt({ repoRoot, store }),
+    seamProposalsForGantt({ repoRoot, store }),
+  ]);
   return digestTodoArtifact({
     schema: 'lattice.todo_gantt_live_head.v1',
     manifest_digest: store.manifest.manifest_digest,
@@ -1215,6 +1218,11 @@ export async function ganttLiveHeadDigest({ repoRoot, store }) {
       plan_key: entry.plan_key,
       coverage: entry.coverage,
       frontier_digest: digestTodoArtifact(entry.frontier),
+    })),
+    seam_proposals: seamProposals.map((entry) => ({
+      plan_key: entry.plan_key,
+      coverage: entry.coverage,
+      projection_digest: digestTodoArtifact(entry),
     })),
   });
 }
@@ -1252,6 +1260,59 @@ async function independenceForGantt({ repoRoot, store }) {
   return projections.length === 0 ? null : projections;
 }
 
+/**
+ * 図が描く全planのseam提案記録を読む。生成は行わず、記録が無いplanもmissing guidanceを
+ * 持つ投影として残すので、「提案対象なし」と「まだ生成していない」を混同しない。
+ */
+async function seamProposalsForGantt({ repoRoot, store }) {
+  let currentBaseSha = null;
+  const projections = [];
+  for (const member of store.members) {
+    const planKey = member.plan.plan_key;
+    const artifact = await readTodoSeamProposalArtifact({ repoRoot, store, planKey });
+    if (artifact === null) {
+      projections.push({
+        project_id: member.plan.project_id,
+        plan_key: planKey,
+        coverage: 'missing',
+        guidance: selectSeamProposalGuidance({ coverage: 'missing' }),
+        component_count: null,
+        conflict_resource_count: null,
+        components: [],
+      });
+      continue;
+    }
+
+    if (currentBaseSha === null) currentBaseSha = currentHeadSha(repoRoot);
+    const independenceArtifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+    const binding = artifact.source_binding;
+    const independenceMatches = independenceArtifact !== null
+      && validateTodoIndependence(independenceArtifact)
+      && independenceArtifact.schema === binding.independence_schema
+      && independenceArtifact.result_digest === binding.independence_result_digest
+      && independenceArtifact.witness_set_digest === binding.witness_set_digest
+      && independenceArtifact.plan_version === binding.plan_version
+      && independenceArtifact.topology_digest === binding.topology_digest
+      && independenceArtifact.base_sha === binding.base_sha;
+    const planMatches = member.plan.plan_version === binding.plan_version
+      && member.plan.topology_digest === binding.topology_digest;
+    const coverage = !independenceMatches || !planMatches ? 'superseded'
+      : binding.base_sha !== currentBaseSha ? 'stale' : 'verified';
+    const components = artifact.decisions.map(summarizeSeamProposalDecision);
+    projections.push({
+      project_id: member.plan.project_id,
+      plan_key: planKey,
+      coverage,
+      guidance: selectSeamProposalGuidance({ coverage }),
+      component_count: components.length,
+      conflict_resource_count: components
+        .reduce((count, component) => count + component.conflicts.length, 0),
+      components,
+    });
+  }
+  return projections;
+}
+
 export async function renderTodoGanttForProject({
   repoRoot, stable = false, displayName = null, env = process.env, readModel = null,
   scope = DEFAULT_GANTT_SCOPE,
@@ -1264,12 +1325,17 @@ export async function renderTodoGanttForProject({
   const presentation = await loadTodoGanttPresentation({ repoRoot, readModel: store });
   const topology = mergedTopology(store);
   const chain = projectTodoChainV1(topology);
-  const independence = await independenceForGantt({ repoRoot, store });
-  const layout = layoutTodoGantt(store, chain, { scope, independence });
+  const [independence, seamProposals] = await Promise.all([
+    independenceForGantt({ repoRoot, store }),
+    seamProposalsForGantt({ repoRoot, store }),
+  ]);
+  const layout = layoutTodoGantt(store, chain, { scope, independence, seamProposals });
   // When the diagram hides history, the page also carries the full diagram so
   // the reader can bring it back in place. Nothing is hidden under `all`.
   const expandedLayout = layout.scope.folded_task_count === 0
-    ? null : layoutTodoGantt(store, chain, { scope: 'all', independence });
+    ? null : layoutTodoGantt(store, chain, {
+      scope: 'all', independence, seamProposals,
+    });
   const narrative = await loadNarratives(store, repoRoot);
   const anchorOutcomes = verifyNarrativeAnchors({
     readModel: store,
