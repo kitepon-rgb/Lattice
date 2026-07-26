@@ -8,6 +8,13 @@ Latticeは、要求とcodebaseから並列開発可能なTODO graphを作るsche
 Lattice所有の内蔵sensorを構造sensorとして使い、TODO候補の境界競合を検出し、必要ならcode architectureへ
 seam-refactorを施し、再解析後に全planを新versionへコンパイルする。
 
+**製品目標の正本はオーナーの特許請求の範囲である。** 機能の優先順位は、どの構成要件を埋めるかで決める。
+請求項本文は本repoへ複製せず、`/Users/kite/Developer/Patent/Lattice/出願書類/03_特許請求の範囲案.md`
+（12項・凍結済み）を正本として参照する。複製しないのは正本を二重化しないためであり、
+出願の前後を問わない。出願は2026-07-27夜に行う予定であり、出願日が確保されるまでは
+請求項の内容を公開面へ出さない（本repoはprivate、npmはrestricted accessなので現状は該当しない）。
+充足状況と残りの穴は[docs/plan_backlog.md](docs/plan_backlog.md)の「請求項の充足状況」が持つ。
+
 - 製品思想の正本: [PLAN.md](PLAN.md)
 - 公開契約: [docs/00_product-contract.md](docs/00_product-contract.md)
 - 生きた工程状態: dotagents Lattice storeの`lattice-factory-integration` plan（思想・編入契約はdotagents `docs/plan_lattice-factory-integration.md`、RC4完了記録は[docs/archive/plan_lattice_rc4_dotagents_dogfood.md](docs/archive/plan_lattice_rc4_dotagents_dogfood.md)）
