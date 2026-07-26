@@ -55,6 +55,34 @@ function assertNoCollinearOverlap(edges) {
   }
 }
 
+function enclosingBoxes(result) {
+  return result.nodes.filter(({ visible }) => visible).map(({ ref: nodeRef, geometry }) => ({
+    id: `${nodeRef.plan_key}/${nodeRef.task_id}`, ...geometry,
+  }));
+}
+
+// 線がカードの内側を通ると、そのカードに隠れて経路を追えなくなる。端点の
+// カードとは辺で接するので、判定は厳密不等号で「内部」だけを見る。
+//
+function assertNoRouteEntersBox(result) {
+  const boxes = enclosingBoxes(result);
+  for (const model of [...result.edges, ...result.connectors]) {
+    const lastSegment = model.route.length - 2;
+    for (let index = 0; index <= lastSegment; index += 1) {
+      const [start, end] = [model.route[index], model.route[index + 1]];
+      const horizontal = start[1] === end[1];
+      for (const box of boxes) {
+        const spansX = Math.max(start[0], end[0]) > box.x && Math.min(start[0], end[0]) < box.x + box.width;
+        const spansY = Math.max(start[1], end[1]) > box.y && Math.min(start[1], end[1]) < box.y + box.height;
+        const inside = horizontal
+          ? start[1] > box.y && start[1] < box.y + box.height && spansX
+          : start[0] > box.x && start[0] < box.x + box.width && spansY;
+        assert.equal(inside, false, `${model.id}[${index}] enters ${box.id}`);
+      }
+    }
+  }
+}
+
 test('small branch/join/multi-lane DAG has a deterministic coordinate snapshot', () => {
   const A = ref('A', 'alpha');
   const B = ref('B', 'alpha');
@@ -252,6 +280,7 @@ test('routes use exclusive channels, avoid unrelated boxes, and mark only geomet
   }
   assert.ok(result.edges.some(({ bridges }) => bridges.length > 0));
   assert.ok(result.edges.every(({ junction, join_ids }) => junction === null && join_ids.length === 0));
+  assertNoRouteEntersBox(result);
 });
 
 test('stable median sweep reduces crossings versus task-ref naive order', () => {
