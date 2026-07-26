@@ -51,6 +51,12 @@ maintenance級の欠陥修理。
 OQ4は新module・新doc・新test追加という実開発ToDoのかなりの割合が判定対象外になる実害があり、
 再裁定の優先候補。
 
+**裁定済み（2026-07-27・[ADR 0135](adr/0135-readjudicating-seam-proposal-open-questions.md)）。**
+OQ2は保留を維持しつつ発火条件を「`multiple_incomparable_candidates`が実データで1件出たら着手」へ
+明文化。OQ3は同型問題を所有する実変換campaign（課題2）へ移した。OQ4は判定対象にすると決め、
+自動導出でなく宣言とした——実装は下記`creation-boundary`工程が持つ。
+測定中に判定反転の欠陥を1件見つけて修理した（[実行記録](evidence/2026-07-27-bk-005-open-question-readjudication.md)）。
+
 ## 工程
 
 工程の状態・依存・完了証拠はLattice storeの`backlog` planが正本。以下は対応表である。
@@ -59,7 +65,7 @@ OQ4は新module・新doc・新test追加という実開発ToDoのかなりの割
 - [ ] 実変換campaignを起票する
 - [x] seam evidence receiptの複数path解決を裁定する
 - [x] bridge daemonのdescriptor読み取りへretryを入れる
-- [ ] ADR 0132 Open questions 2〜4を再裁定する
+- [x] ADR 0132 Open questions 2〜4を再裁定する
 
 ## 導線
 
@@ -93,3 +99,30 @@ ADR 0130が禁じたものそのものである。
 
 - [x] 宣言手順の単一正本へconcern_anchorsを載せる
 - [x] 束縛失敗のunknownへguidance codeとnext_actionを与える
+
+---
+
+# 創作境界（新規fileだけを作るToDoの独立性判定）
+
+工程状態の正本はLattice storeの`creation-boundary` plan。
+
+[ADR 0135](adr/0135-readjudicating-seam-proposal-open-questions.md) Decision 3で方向を確定した。
+まだ存在しないpathの`owns`は、`path_state: absent`という**決定的な観測**（filesystemのlstat結果）を
+持ちながら判定対象外に落ちている。新module・新doc・新test追加という実開発ToDoのかなりの割合が
+並列可否を持てない。
+
+自動導出にはしない。観測から機械的に創作境界と読むと、pathのtypoが「必ず止まるエラー」から
+「黙って通る創作境界」へ変わるためである。よって`owns`側へ創作の意思を宣言させ、宣言がある
+pathだけを、fresh absentかつ`affectedTests`が空という条件の下で構造的裏付けありとして扱う。
+宣言の無いabsent pathは従来どおりfail closedのままにする。prefix形（末尾`/`）は`affected`が
+`unresolved`を返すため対象外とし、file単位に限る。
+
+判定を行うのはfront endであり、front endは`lattice.run_request.v1`の`manual_witness`しか読まない。
+したがって創作宣言は`lattice.todo_witness_set`（v3）と`lattice.run_request`（v2）の両方へ届く必要が
+ある。後者は83箇所・30ファイルから参照される入力契約であり、campaign規模である。
+
+## 工程
+
+- [ ] 創作宣言を入力契約へ足す（witness set v3・run_request v2）
+- [ ] front endが創作境界を裏付けありとして判定する
+- [ ] 実データで新規fileを含むplanの並列可否を出し、releaseまで通す
