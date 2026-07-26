@@ -272,7 +272,7 @@ export async function writeTodoDashboardDaemonDescriptor({ port, env = process.e
 }
 
 export async function ensureTodoDashboardDaemon({ env = process.env, spawnDaemon = spawn,
-  signalProcess = process.kill, isProcessAlive = processIsAlive, startupTimeoutMs = 4_000,
+  signalProcess = process.kill, isProcessAlive = processIsAlive, startupTimeoutMs = 120_000,
   legacyStopTimeoutMs = 3_000, replacementIsProcessAlive = processIsAlive,
   attestationTimeoutMs = 2_000 } = {}) {
   const refs = paths(env);
@@ -299,11 +299,20 @@ export async function ensureTodoDashboardDaemon({ env = process.env, spawnDaemon
       env: { ...env, LATTICE_DASHBOARD_RUNTIME_DIR: refs.root, LATTICE_DASHBOARD_PORT: String(port) },
     });
     child.unref();
+    // 起動待ちの終わりを固定秒数で決めない。それは機械の速さの見積りになり、遅い側
+    // へ外すとpublish済みのcodeを載せたdaemonへ入れ替われず、公開面が古いまま取り
+    // 残される。daemonはdescriptorを書く前に登録済み全projectのstoreを読むので、
+    // 起動時間はproject数とstore規模に比例する（実測: 8 projectで約51秒）。
+    // 待つのはspawnした子が生きている間だけとし、死んだら即座に諦める。
+    // startupTimeoutMsは無反応な子に対するbackstopであって起動時間の上限ではない。
     const deadline = Date.now() + startupTimeoutMs;
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 50));
       const descriptor = await readJson(refs.descriptor, null);
-      if (await daemonHealthy(descriptor) && descriptor.pid !== legacy?.pid) {
+      const healthy = await daemonHealthy(descriptor);
+      if (!healthy && typeof child.pid === 'number'
+        && !await replacementIsProcessAlive(child.pid)) break;
+      if (healthy && descriptor.pid !== legacy?.pid) {
         if (legacy !== null) {
           try {
             await stopAttestedLegacyDaemon(legacy, {

@@ -274,6 +274,54 @@ test('新daemon起動中にlegacy再attestationを失ったPIDへはsignalしな
   }), (error) => error.code === 'DASHBOARD_LEGACY_ATTESTATION_LOST');
 });
 
+test('死んだreplacementは猶予の満了を待たず諦め、生きている遅い子は待ち切る',
+  async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-liveness-'));
+    const runtime = path.join(root, 'runtime');
+    await mkdir(runtime, { recursive: true, mode: 0o700 });
+    const legacyPid = 555_555;
+    const body = { schema: 'lattice.todo_dashboard_health.v1', pid: legacyPid, port: 0,
+      project_ids: ['lattice'] };
+    const served = await healthServer(() => body);
+    body.port = served.port;
+    const descriptor = { schema: 'lattice.todo_dashboard_daemon.v1', pid: legacyPid,
+      port: served.port, started_at: new Date().toISOString() };
+    await writeDaemonDescriptor(runtime, descriptor);
+    const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime, LATTICE_DASHBOARD_PORT: '0' };
+    context.after(async () => {
+      await new Promise((resolve) => served.server.close(resolve));
+      await rm(root, { recursive: true, force: true });
+    });
+
+    // 死んだ子を待ち続けない。猶予10秒でも、死を見た時点で諦める。
+    const startedAt = Date.now();
+    await assert.rejects(ensureTodoDashboardDaemon({ env, startupTimeoutMs: 10_000,
+      spawnDaemon: () => ({ pid: 777_777, unref() {}, kill() {} }),
+      replacementIsProcessAlive: () => false,
+      signalProcess() { throw new Error('legacy must remain available'); },
+    }), (error) => error.code === 'DASHBOARD_DAEMON_UNAVAILABLE');
+    assert.ok(Date.now() - startedAt < 3_000, '死んだreplacementを猶予いっぱい待っている');
+    assert.deepEqual(JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8')), descriptor);
+
+    // 生きている子は、pollを何周も跨ぐ遅さでも待って受け取る。
+    await rm(path.join(runtime, 'daemon.json'), { force: true });
+    let descriptorWritten = false;
+    setTimeout(() => {
+      body.pid = 888_888;
+      body.version = TODO_DASHBOARD_CODE_VERSION;
+      descriptorWritten = true;
+      writeDaemonDescriptor(runtime, { schema: 'lattice.todo_dashboard_daemon.v1', pid: 888_888,
+        port: served.port, started_at: new Date().toISOString() });
+    }, 700);
+    const slow = await ensureTodoDashboardDaemon({ env, startupTimeoutMs: 10_000,
+      spawnDaemon: () => ({ pid: 888_888, unref() {}, kill() {} }),
+      replacementIsProcessAlive: () => true,
+      signalProcess() { throw new Error('legacyは無いのでsignalしない'); },
+    });
+    assert.equal(descriptorWritten, true);
+    assert.equal(slow.pid, 888_888);
+  });
+
 test('新daemon起動失敗時はattested legacyを停止せずdescriptorと可用性を維持する',
   async (context) => {
     const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-upgrade-rollback-'));
