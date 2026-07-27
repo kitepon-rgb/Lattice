@@ -130,11 +130,35 @@ async function buildPatch(worktreePath, changedPaths) {
   return Buffer.concat(parts);
 }
 
+/**
+ * mountのために作った親dirが1エントリで報告されたら、除外せず展開して子を同じ規律で見る。
+ *
+ * 親ごと除外すると、その中に現れた別の変更まで隠れる。runnerが張ったmountだけを外す規律を、
+ * ディレクトリ単位の報告でも保つ。
+ */
+async function expandMountAncestors(worktreePath, paths, mountedEntries) {
+  const isAncestor = (entry) => mountedEntries
+    .some((mount) => mount.startsWith(`${entry}/`));
+  const expanded = [];
+  const pending = [...paths];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    const normalized = current.replace(/\/$/u, '');
+    if (!current.endsWith('/') || !isAncestor(normalized)) { expanded.push(current); continue; }
+    const children = await readdir(path.join(worktreePath, normalized), { withFileTypes: true });
+    for (const child of children) {
+      pending.push(`${normalized}/${child.name}${child.isDirectory() ? '/' : ''}`);
+    }
+  }
+  return [...new Set(expanded)].sort();
+}
+
 async function captureSnapshot(worktreePath, baseSha, allowedPaths, mountedEntries = []) {
   const mounted = new Set(mountedEntries);
-  const changedPaths = statusPaths((await run('git', [
+  const reported = statusPaths((await run('git', [
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
-  ], { cwd: worktreePath })).stdout)
+  ], { cwd: worktreePath })).stdout);
+  const changedPaths = (await expandMountAncestors(worktreePath, reported, [...mounted]))
     // runnerが張ったmountだけを外す。それ以外は無視しない——gitignore対象であっても、
     // allowed pathの外に現れたものは変更である。
     .filter((changedPath) => {
