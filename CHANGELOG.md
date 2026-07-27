@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.25.0 — 2026-07-27
+
+- **宣言を書く道具を足した**（`lattice todo independence witness scaffold --plan <key> --input <draft>`）。
+  下書き（`lattice.todo_witness_draft.v1`）に書くのは**何を所有し係争資源の中で何を触るか**だけで、
+  道具が供給するのは**AIには作れないもの**——`affected_tests`のfresh観測、`sensor_query_set`と
+  `sensor_provenance`の配線、canonical bytesと自己digest——に限る。**推定はしない。**
+- この3つは実際の摩擦である。手書きだと`affected_tests`は観測とbinding単位でexact比較されて外れ、
+  非canonicalなbytesは独立性判定を通ってseam提案でだけ落ち、観測を取るために使い捨てscriptを書く
+  ことになる。実際、このrepoの手書き宣言を道具で再生成したら、**同日追加した2件のtestが
+  `affected_tests`から抜け落ちていた**——手書きは既に陳腐化していた。
+- 観測できていないpathを空配列へ丸めない。複数pathを所有する宣言は、`affected_tests`が
+  binding単位でexact比較される以上いまの契約で表現できないので**書けたことにしない**。
+  明示unknownは書き手の欄なので道具が発明も削除もしない。
+
 ## 0.24.0 — 2026-07-27
 
 - **再計画で解けていない競合を、非収束としてfail closedにするようにした。** 過去epochのconflictを
