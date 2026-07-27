@@ -251,15 +251,19 @@ function deterministicWriteBytes(packet, relativePath) {
   })}\n`);
 }
 
-async function executePacket({ packet, repoRoot }) {
+async function executePacket({ packet, repoRoot, extraWrites = [] }) {
   const writes = packet.scope?.writes;
   if (!Array.isArray(writes) || writes.length === 0
     || writes.some((entry, index) => !safeWritePath(entry)
       || (index > 0 && writes[index - 1] >= entry))) {
     fail('SCRIPTED_PACKET_REJECTED', 'scope.writesは非空の昇順一意pathでなければならない');
   }
+  // 宣言scope外への書き込みは、検知そのものを検証するために要る。writeがすべて宣言内に
+  // 収まる限り、実行時competitionは原理的に一度も起きないので、検知経路を実runで通せない。
+  // 宣言と実writeが食い違う状態を意図して作れることが、この面の受入条件である。
+  const allWrites = [...new Set([...writes, ...extraWrites])].sort();
   const prepared = [];
-  for (const relativePath of writes) {
+  for (const relativePath of allWrites) {
     const target = await requireSafeTarget(repoRoot, relativePath);
     const existedAtBase = await basePathExists(repoRoot, packet.base_sha, relativePath);
     prepared.push({
@@ -318,6 +322,66 @@ async function readAndValidateGate(runDir, writeLease) {
  * supervisor controller protocolを実装する決定論的scripted adapter。
  * 時刻はheartbeat schedulingだけに使い、write bytes／handle／receiptへ混入させない。
  */
+/**
+ * 登録済みadapter configから、このcontrollerの振る舞いを読む。
+ *
+ * **configはregistrationのdigestへ束縛されている。** repo内の任意のfileを信用するのではなく、
+ * `run adapter register`が記録した`config_digest`と一致するbytesだけを受ける。一致しなければ
+ * 既定の振る舞いへ落とすのではなく止める——registrationと実configがずれた状態で走ると、
+ * 記録されたrunの再現性が壊れる。
+ *
+ * 読むのは3つだけ:
+ * - `hold_ms`: 書き込み後にworkerが走り続ける時間。実行時観測が成立する窓を作る。
+ * - `extra_writes`: 宣言scope外へのwrite。競合検知そのものを検証するために要る。
+ * - `mode`: 既存の`deterministic`のみ。未知の値は黙って無視せず止める。
+ */
+async function readScriptedBehavior(repoRoot) {
+  const descriptorPath = path.join(repoRoot, '.lattice', 'runtime', 'adapter-registry',
+    'descriptors', 'scripted.json');
+  let descriptor;
+  try {
+    descriptor = JSON.parse(await readFile(descriptorPath, 'utf8'));
+  } catch {
+    // 未登録のまま走らせる経路（unit test等）は既定の振る舞いで動かす。
+    return { hold_ms: 0, extra_writes: [] };
+  }
+  if (typeof descriptor?.config_ref !== 'string' || typeof descriptor.config_digest !== 'string') {
+    return { hold_ms: 0, extra_writes: [] };
+  }
+  const configPath = path.join(repoRoot, ...descriptor.config_ref.split('/'));
+  let bytes;
+  try {
+    bytes = await readFile(configPath);
+  } catch {
+    fail('SCRIPTED_BOOTSTRAP_INVALID', '登録済みadapter configを読めない', {
+      config_ref: descriptor.config_ref,
+    });
+  }
+  if (sha256Bytes(bytes) !== descriptor.config_digest) {
+    fail('SCRIPTED_BOOTSTRAP_INVALID', 'adapter configが登録時のdigestと一致しない', {
+      config_ref: descriptor.config_ref,
+    });
+  }
+  let config;
+  try {
+    config = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    fail('SCRIPTED_BOOTSTRAP_INVALID', 'adapter configのJSONが不正');
+  }
+  if (config?.mode !== undefined && config.mode !== 'deterministic') {
+    fail('SCRIPTED_BOOTSTRAP_INVALID', `未知のscripted mode: ${String(config.mode)}`);
+  }
+  const holdMs = config?.hold_ms ?? 0;
+  if (!Number.isSafeInteger(holdMs) || holdMs < 0 || holdMs > 600_000) {
+    fail('SCRIPTED_BOOTSTRAP_INVALID', 'hold_msが不正');
+  }
+  const extraWrites = config?.extra_writes ?? [];
+  if (!Array.isArray(extraWrites) || extraWrites.some((entry) => !safeWritePath(entry))) {
+    fail('SCRIPTED_BOOTSTRAP_INVALID', 'extra_writesが不正');
+  }
+  return { hold_ms: holdMs, extra_writes: [...extraWrites] };
+}
+
 export async function createScriptedAdapterController({
   bootstrap,
   runDir,
@@ -373,6 +437,7 @@ export async function createScriptedAdapterController({
     descriptor_digest: '',
   }, 'descriptor_digest');
   const sessionNonceDigest = digestArtifact(bootstrap.supervisor_session_nonce);
+  const behavior = await readScriptedBehavior(canonicalRepoRoot);
   const stagedLeases = new Map();
   const armedLeases = new Map();
   const preparedPackets = new Map();
@@ -551,40 +616,66 @@ export async function createScriptedAdapterController({
           worktree_path: worktreePath,
         });
       }
-      const { observedDiff, checkpointDigest } = await executePacket({
-        packet,
-        repoRoot: await realpath(worktreePath),
-      });
       const executorHandle = `scripted-${packet.packet_digest.slice(0, 24)}`;
       const worktreeId = scriptedWorktreeId(packet);
-      const receipt = sign({
-        schema: 'lattice.executor_receipt.v1',
-        receipt_id: `receipt-${packet.packet_digest.slice(0, 24)}`,
+      // **dispatchで作業を終わらせない。** 終わらせると、走行中のTODOが1つも存在しない
+      // runになり、実行時の観測——書き込みを見て、他のworkerとの重なりを掴む——が
+      // 原理的に成立しない。dispatchは作業を起こして返り、完了はobserveが拾う。
+      const progress = {
+        schema: 'lattice.scripted_adapter_progress.v1',
+        run_id: bootstrap.run_id,
+        todo_id: packet.todo_id,
         executor_handle: executorHandle,
         worktree_id: worktreeId,
-        base_sha: packet.base_sha,
-        plan_epoch: packet.plan_epoch,
-        packet_digest: packet.packet_digest,
-        todo_id: packet.todo_id,
-        checkpoint_digest: checkpointDigest,
-        observed_diff: observedDiff,
-        receipt_digest: '',
-      }, 'receipt_digest');
-      if (!validateExecutorReceipt(receipt)) {
-        fail('SCRIPTED_EXECUTION_FAILED', '生成receiptがexecutor contractを満たさない');
-      }
-      const payloadDigest = await persistReceipt(receipt);
+        state: 'running',
+      };
       const task = {
         packet: structuredClone(packet),
         lease: structuredClone(writeLease),
         executorHandle,
         worktreeId,
-        receipt,
-        payloadDigest,
-        state: 'terminal',
+        receipt: null,
+        payloadDigest: digestArtifact(progress),
+        state: 'running',
+        failure: null,
+        settled: null,
       };
       tasks.set(executorHandle, task);
       todoToHandle.set(packet.todo_id, executorHandle);
+      const worktreeReal = await realpath(worktreePath);
+      task.settled = (async () => {
+        try {
+          const { observedDiff, checkpointDigest } = await executePacket({
+            packet, repoRoot: worktreeReal, extraWrites: behavior.extra_writes,
+          });
+          // 書いた後も走り続ける。これが実行時観測の窓であり、0ならば窓は存在しない。
+          if (behavior.hold_ms > 0) {
+            await new Promise((resolve) => { setTimeout(resolve, behavior.hold_ms); });
+          }
+          const receipt = sign({
+            schema: 'lattice.executor_receipt.v1',
+            receipt_id: `receipt-${packet.packet_digest.slice(0, 24)}`,
+            executor_handle: executorHandle,
+            worktree_id: worktreeId,
+            base_sha: packet.base_sha,
+            plan_epoch: packet.plan_epoch,
+            packet_digest: packet.packet_digest,
+            todo_id: packet.todo_id,
+            checkpoint_digest: checkpointDigest,
+            observed_diff: observedDiff,
+            receipt_digest: '',
+          }, 'receipt_digest');
+          if (!validateExecutorReceipt(receipt)) {
+            throw new TypeError('生成receiptがexecutor contractを満たさない');
+          }
+          task.payloadDigest = await persistReceipt(receipt);
+          task.receipt = receipt;
+          task.state = 'terminal';
+        } catch (error) {
+          // 失敗を走行中のまま放置しない。observeがtypedに落ちる形へ残す。
+          task.failure = String(error?.detail?.reason ?? error?.message ?? error);
+        }
+      })();
       return sign({
         schema: 'lattice.adapter_dispatch_response.v1',
         request_id: request.request_id,
@@ -601,6 +692,10 @@ export async function createScriptedAdapterController({
         || task.packet.plan_epoch !== request.expected_epoch
         || task.lease.lease_digest !== request.expected_lease_digest) {
         fail('SCRIPTED_OBSERVATION_REJECTED', 'observe bindingがdispatch記録と一致しない');
+      }
+      // 走行中に落ちた作業を「まだ走っている」と言い続けない。
+      if (task.failure !== null) {
+        fail('SCRIPTED_EXECUTION_FAILED', 'worker実行が失敗した', { reason: task.failure });
       }
       const observation = sign({
         schema: 'lattice.adapter_observation.v1',
@@ -641,10 +736,19 @@ export async function createScriptedAdapterController({
       }, 'response_digest');
     }
     if (operation === 'barrier') {
-      const acks = request.running_bindings.map((binding) => {
+      const acks = [];
+      for (const binding of request.running_bindings) {
         const task = tasks.get(binding.executor_handle);
         if (task === undefined || task.packet.todo_id !== binding.todo_id) {
           fail('SCRIPTED_BARRIER_REJECTED', 'barrierが未知のrunning bindingを含む');
+        }
+        // barrierは静止の宣言である。走行中の作業を残したままackを返すと、
+        // 「止まった」と言いながらworktreeが動き続ける。settleを待ってから答える。
+        if (task.settled !== null) await task.settled;
+        if (task.failure !== null) {
+          fail('SCRIPTED_BARRIER_REJECTED', 'barrier対象のworker実行が失敗している', {
+            reason: task.failure,
+          });
         }
         task.state = 'held';
         const processObservationDigest = digestArtifact({
@@ -657,7 +761,7 @@ export async function createScriptedAdapterController({
           worktree_id: task.worktreeId,
           checkpoint_digest: task.receipt.checkpoint_digest,
         });
-        return sign({
+        acks.push(sign({
           schema: 'lattice.executor_quiescence_ack.v1',
           ack_id: `barrier-${binding.packet_digest.slice(0, 24)}`,
           run_id: bootstrap.run_id,
@@ -673,8 +777,8 @@ export async function createScriptedAdapterController({
           worktree_fingerprint_digest: worktreeFingerprintDigest,
           supervisor_session_nonce_digest: sessionNonceDigest,
           ack_digest: '',
-        }, 'ack_digest');
-      });
+        }, 'ack_digest'));
+      }
       return sign({
         schema: 'lattice.adapter_barrier_response.v1',
         request_id: request.request_id,

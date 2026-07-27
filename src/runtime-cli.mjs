@@ -139,6 +139,9 @@ const KNOWN_ADAPTERS = Object.freeze(['scripted', 'isolated-worktree', 'actual-a
  * 超えたら`rejected`として理由ごとjournalへ残す（黙って見送らない）。
  */
 const IO_ESCALATION_LOCK_TIMEOUT_MS = 15_000;
+/** 走行中workerの完了を待つ上限と間隔。待てないと走行中の観測が成立しない。 */
+const SCRIPTED_OBSERVE_TIMEOUT_MS = 120_000;
+const SCRIPTED_OBSERVE_POLL_MS = 20;
 
 class CliContractError extends Error {
   constructor(code, message, detail) {
@@ -750,6 +753,7 @@ async function driveInitialScriptedManagedEpoch({
   initialEvents,
   controlEvents,
   sentinel = null,
+  preDispatchBindings = null,
 }) {
   let events = [...initialEvents];
   const { plan, manifests, executor_packets: packets } = committed.bundle;
@@ -777,9 +781,13 @@ async function driveInitialScriptedManagedEpoch({
     // 木がTODOごとに分かれて初めて、書き込みの帰属をrootから決められる。
     const worktreeByTodo = new Map();
     for (const todoId of frontier) {
-      worktreeByTodo.set(todoId, await ensureScriptedWorktree({
+      const worktreePath = await ensureScriptedWorktree({
         repoRoot, runDir, packet: packets[todoId],
-      }));
+      });
+      worktreeByTodo.set(todoId, worktreePath);
+      preDispatchBindings?.set(todoId, {
+        worktree_path: worktreePath, base_sha: packets[todoId].base_sha,
+      });
     }
     syncSentinelWatches({ sentinel, runningTodoIds: [...frontier],
       rootOf: (todoId) => worktreeByTodo.get(todoId) });
@@ -869,23 +877,37 @@ async function driveInitialScriptedManagedEpoch({
           event.kind === 'executor_dispatched'
           && event.payload?.executor_handle === executorHandle
         ));
-        const response = await managedSupervisor.route('observe', controllerId, {
-          executor_handle: executorHandle,
-          expected_epoch: dispatch.plan_epoch,
-          expected_lease_digest: dispatch.payload.write_lease_digest,
-        });
-        if (response.observation.state !== 'terminal') {
-          throw new ManagedRuntimeError(
-            'ADAPTER_CONTROLLER_UNAVAILABLE',
-            `scripted controllerがterminal以外を返した: ${response.observation.state}`,
-          );
+        // workerはdispatchで終わらない。走り続けている間はrunningが返るので、
+        // 完了まで待つ。ここが待てないと、走行中の観測が成立する構成を持てない。
+        const deadline = Date.now() + SCRIPTED_OBSERVE_TIMEOUT_MS;
+        for (;;) {
+          const response = await managedSupervisor.route('observe', controllerId, {
+            executor_handle: executorHandle,
+            expected_epoch: dispatch.plan_epoch,
+            expected_lease_digest: dispatch.payload.write_lease_digest,
+          });
+          if (response.observation.state === 'terminal') {
+            const receipt = await readScriptedControllerReceipt({
+              runDir,
+              controllerId,
+              payloadDigest: response.observation.payload_digest,
+            });
+            return { state: 'terminal', receipt };
+          }
+          if (response.observation.state !== 'running') {
+            throw new ManagedRuntimeError(
+              'ADAPTER_CONTROLLER_UNAVAILABLE',
+              `scripted controllerが未知のstateを返した: ${response.observation.state}`,
+            );
+          }
+          if (Date.now() >= deadline) {
+            throw new ManagedRuntimeError(
+              'ADAPTER_CONTROLLER_UNAVAILABLE',
+              `scripted workerが時間内に終わらない: ${executorHandle}`,
+            );
+          }
+          await new Promise((resolve) => { setTimeout(resolve, SCRIPTED_OBSERVE_POLL_MS); });
         }
-        const receipt = await readScriptedControllerReceipt({
-          runDir,
-          controllerId,
-          payloadDigest: response.observation.payload_digest,
-        });
-        return { state: 'terminal', receipt };
       },
     };
     const dispatched = await dispatchReadyFrontier({
@@ -1738,6 +1760,14 @@ export async function runManagedSupervisorDaemon({
    * probeが撮るのはgitから読んだ本物のdiffなので、そのままfindingの証拠になる。
    * fs eventをfindingへ昇格させる必要が無く、契約を1つも緩めずに済む。
    */
+  /**
+   * dispatch event耐久化より前のobservation binding。
+   *
+   * frontierのworktreeを用意した時点でsupervisorが知っている値を置く。警報はdispatchの
+   * 最中に飛ぶので、eventの耐久化を待つと最も早い観測を取り逃す。
+   */
+  const preDispatchBindings = new Map();
+
   const probeWarning = async (warning) => {
     const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events')
       .catch(() => null);
@@ -1749,7 +1779,12 @@ export async function runManagedSupervisorDaemon({
     for (const todoId of warning.todo_ids) {
       const dispatch = events.findLast((event) => event.kind === 'executor_dispatched'
         && event.subject?.kind === 'todo' && event.subject.ref === todoId);
-      const binding = dispatch?.payload?.direct_os_observation_binding;
+      // dispatch eventは、frontier全体のdispatchが終わってから一括で耐久化される。
+      // 警報はその最中に飛ぶので、eventだけを頼りにすると**いちばん早い観測を必ず取り逃す**。
+      // supervisorはdispatchの前にworktreeを用意した時点で同じbindingを知っているので、
+      // そちらを先に見る。値はどちらも同一で、早いか遅いかの違いしかない。
+      const binding = dispatch?.payload?.direct_os_observation_binding
+        ?? preDispatchBindings.get(todoId);
       if (typeof binding?.worktree_path !== 'string' || typeof binding?.base_sha !== 'string') continue;
       roots[todoId] = binding.worktree_path;
       // 観測できないTODOは「書いていない」へ丸めない。probeIoWarningが未観測として扱う。
@@ -2090,6 +2125,7 @@ export async function runManagedSupervisorDaemon({
             sentinel,
             initialEvents: events,
             controlEvents: () => controlEvents,
+            preDispatchBindings,
           });
         }
         if (restarting) {
