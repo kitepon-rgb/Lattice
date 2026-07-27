@@ -1,6 +1,6 @@
 import net from 'node:net';
 import { createHash, randomBytes } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { constants as fsConstants, readFileSync } from 'node:fs';
 import {
   chmod,
@@ -13,6 +13,7 @@ import {
   rm,
 } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
@@ -29,6 +30,7 @@ import {
   validateExecutorPacket,
   validateExecutorReceipt,
 } from './runtime-contracts.mjs';
+import { captureWorktreeDiff } from './runtime-diff-observer.mjs';
 import { validateSupervisorWriteGate } from './runtime-gate-store.mjs';
 import { observeManagedProcessStartIdentity } from './runtime-managed-supervisor.mjs';
 import { scriptedWorktreeId, scriptedWorktreePath } from './runtime-scripted-worktree.mjs';
@@ -251,7 +253,13 @@ function deterministicWriteBytes(packet, relativePath) {
   })}\n`);
 }
 
-async function executePacket({ packet, repoRoot, extraWrites = [] }) {
+/**
+ * packetの宣言writeを実行する。**worker processから呼ばれる。**
+ *
+ * controllerと同じprocessで走らせていた頃、このrunには走行中のTODOが存在せず、
+ * 実行時の観測も静止の証明も原理的に成立しなかった（ADR 0143 Decision 7・9）。
+ */
+export async function executePacket({ packet, repoRoot, extraWrites = [] }) {
   const writes = packet.scope?.writes;
   if (!Array.isArray(writes) || writes.length === 0
     || writes.some((entry, index) => !safeWritePath(entry)
@@ -382,6 +390,62 @@ async function readScriptedBehavior(repoRoot) {
   return { hold_ms: holdMs, extra_writes: [...extraWrites] };
 }
 
+const WORKER_ENTRYPOINT = fileURLToPath(new URL('../bin/lattice-scripted-worker.mjs', import.meta.url));
+
+/**
+ * worker processを起こす（ADR 0143 Decision 9）。
+ *
+ * `detached`で独立process groupへ置く。controllerと同じgroupに居ると、直接OS観測が
+ * 「未記録process group memberを検出」として落とす——正しく落ちるので、ここを外さない。
+ *
+ * 起動直後にprocess start identityを観測して束ねる。pidは再利用されうるので、
+ * pidだけでは「同じprocessか」を後から言えない。
+ */
+async function spawnScriptedWorker({ packet, worktreePath, extraWrites, holdMs,
+  controllerId, runDir }) {
+  const job = {
+    schema: 'lattice.scripted_worker_job.v1',
+    packet: structuredClone(packet),
+    worktree_path: worktreePath,
+    extra_writes: [...extraWrites],
+    hold_ms: holdMs,
+  };
+  const jobPath = path.join(runDir, 'controllers', controllerId, 'jobs',
+    `${packet.packet_digest}.json`);
+  await durableReplaceBytes(jobPath, Buffer.from(`${canonicalizeArtifact(job)}\n`));
+  const child = spawn(process.execPath, [WORKER_ENTRYPOINT, jobPath], {
+    detached: true, stdio: ['ignore', 'pipe', 'pipe'], cwd: worktreePath,
+  });
+  if (!Number.isSafeInteger(child.pid)) {
+    fail('SCRIPTED_EXECUTION_FAILED', 'worker processを起こせない');
+  }
+  const identity = await observeManagedProcessStartIdentity(child.pid);
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+  child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+  const completed = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      const line = stdout.split('\n').find((entry) => entry.includes('scripted_worker_result'));
+      let parsed = null;
+      try { parsed = line === undefined ? null : JSON.parse(line); } catch { parsed = null; }
+      if (parsed?.schema !== 'lattice.scripted_worker_result.v1') {
+        reject(new TypeError(`worker結果を読めない (${signal ?? code}): ${stderr.trim() || '(出力なし)'}`));
+        return;
+      }
+      resolve({ observedDiff: parsed.observed_diff, checkpointDigest: parsed.checkpoint_digest });
+    });
+  });
+  return {
+    pid: child.pid,
+    process_group_id: child.pid,
+    process_start_identity: identity,
+    child,
+    completed,
+  };
+}
+
 export async function createScriptedAdapterController({
   bootstrap,
   runDir,
@@ -445,6 +509,13 @@ export async function createScriptedAdapterController({
   const todoToHandle = new Map();
   let currentEpoch = 1;
   let registrationDigest = null;
+
+  /** dispatch応答が運ぶworker process。誰を止めればよいかをsupervisorへ名指しする。 */
+  const workerProcessOf = (task) => ({
+    pid: task.worker.pid,
+    process_group_id: task.worker.process_group_id,
+    process_start_identity: structuredClone(task.worker.process_start_identity),
+  });
 
   const persistReceipt = async (receipt) => {
     const payloadDigest = digestArtifact(receipt);
@@ -594,12 +665,13 @@ export async function createScriptedAdapterController({
           fail('SCRIPTED_DUPLICATE_DISPATCH', '同じTODOへ異なるpacketをdispatchできない');
         }
         return sign({
-          schema: 'lattice.adapter_dispatch_response.v1',
+          schema: 'lattice.adapter_dispatch_response.v2',
           request_id: request.request_id,
           executor_handle: prior.executorHandle,
           worktree_id: prior.worktreeId,
           packet_digest: packet.packet_digest,
           lease_digest: writeLease.lease_digest,
+          worker_process: workerProcessOf(prior),
           response_digest: '',
         }, 'response_digest');
       }
@@ -629,36 +701,33 @@ export async function createScriptedAdapterController({
         worktree_id: worktreeId,
         state: 'running',
       };
+      const worktreeReal = await realpath(worktreePath);
+      // **workerは別processで起こす。** controller自身のprocessで作業すると、holdが
+      // 要求する静止を証明できない——止めれば応答できず、止めなければ証明できない。
+      // `detached`で独立process groupへ置く。同じgroupにcontrollerが居ると、直接OS観測が
+      // 「未記録process group memberを検出」として正しく落とす。
+      const spawned = await spawnScriptedWorker({
+        packet, worktreePath: worktreeReal, extraWrites: behavior.extra_writes,
+        holdMs: behavior.hold_ms, controllerId, runDir: canonicalRunDir,
+      });
       const task = {
         packet: structuredClone(packet),
         lease: structuredClone(writeLease),
         executorHandle,
         worktreeId,
+        worktreePath: worktreeReal,
         receipt: null,
         payloadDigest: digestArtifact(progress),
         state: 'running',
         failure: null,
         settled: null,
-        releaseHold: null,
+        worker: spawned,
       };
       tasks.set(executorHandle, task);
       todoToHandle.set(packet.todo_id, executorHandle);
-      const worktreeReal = await realpath(worktreePath);
       task.settled = (async () => {
         try {
-          const { observedDiff, checkpointDigest } = await executePacket({
-            packet, repoRoot: worktreeReal, extraWrites: behavior.extra_writes,
-          });
-          // 書いた後も走り続ける。これが実行時観測の窓であり、0ならば窓は存在しない。
-          // barrierが掛かったら**そこで止まる**。barrierは「いま静止せよ」であって
-          // 「終わってから静止せよ」ではない——完走を待たせると、止めたい時ほど止まらない。
-          if (behavior.hold_ms > 0) {
-            await new Promise((resolve) => {
-              const timer = setTimeout(resolve, behavior.hold_ms);
-              task.releaseHold = () => { clearTimeout(timer); resolve(); };
-            });
-            task.releaseHold = null;
-          }
+          const { observedDiff, checkpointDigest } = await spawned.completed;
           const receipt = sign({
             schema: 'lattice.executor_receipt.v1',
             receipt_id: `receipt-${packet.packet_digest.slice(0, 24)}`,
@@ -684,12 +753,13 @@ export async function createScriptedAdapterController({
         }
       })();
       return sign({
-        schema: 'lattice.adapter_dispatch_response.v1',
+        schema: 'lattice.adapter_dispatch_response.v2',
         request_id: request.request_id,
         executor_handle: executorHandle,
         worktree_id: worktreeId,
         packet_digest: packet.packet_digest,
         lease_digest: writeLease.lease_digest,
+        worker_process: workerProcessOf(task),
         response_digest: '',
       }, 'response_digest');
     }
@@ -749,26 +819,40 @@ export async function createScriptedAdapterController({
         if (task === undefined || task.packet.todo_id !== binding.todo_id) {
           fail('SCRIPTED_BARRIER_REJECTED', 'barrierが未知のrunning bindingを含む');
         }
-        // barrierは静止の宣言である。走行中の作業を残したままackを返すと、
-        // 「止まった」と言いながらworktreeが動き続ける。走っている分を中断させ、
-        // 静止したことを確かめてから答える。
-        task.releaseHold?.();
-        if (task.settled !== null) await task.settled;
-        if (task.failure !== null) {
-          fail('SCRIPTED_BARRIER_REJECTED', 'barrier対象のworker実行が失敗している', {
-            reason: task.failure,
+        // **barrierは静止の宣言である。** worker processを実際に止め、止まった木を読む。
+        // 走行中の作業を残したままackを返すと、「止まった」と言いながらworktreeが動き続ける。
+        try {
+          process.kill(task.worker.pid, 'SIGSTOP');
+        } catch (error) {
+          fail('SCRIPTED_BARRIER_REJECTED', 'worker processを止められない', {
+            pid: task.worker.pid, reason: String(error?.code ?? error?.message ?? error),
           });
         }
         task.state = 'held';
+        // supervisorも同じ観測を独立に行い、3つのdigestの一致を要求する。**こちらが別の形で
+        // 作ると、両者が別のものを見ていても気づけない。** 形はdirect OS observerの契約に
+        // 揃え、入力（自分のprocess・自分の木）だけを独立に観測する。
+        const checkpoint = await captureWorktreeDiff({
+          worktreePath: task.worktreePath, baseSha: task.packet.base_sha,
+        });
         const processObservationDigest = digestArtifact({
-          schema: 'lattice.scripted_process_observation.v1',
-          executor_handle: task.executorHandle,
-          state: 'stopped',
+          schema: 'lattice.direct_process_observation.v2',
+          root: {
+            pid: task.worker.pid,
+            parent_pid: process.pid,
+            process_start_identity_digest: task.worker.process_start_identity.identity_digest,
+            process_group_id: task.worker.process_group_id,
+            state: 'stopped',
+          },
+          children: [],
+          process_group_id: task.worker.process_group_id,
+          quiesced: true,
         });
         const worktreeFingerprintDigest = digestArtifact({
-          schema: 'lattice.scripted_worktree_fingerprint.v1',
+          schema: 'lattice.direct_worktree_fingerprint.v1',
           worktree_id: task.worktreeId,
-          checkpoint_digest: task.receipt.checkpoint_digest,
+          worktree_realpath: task.worktreePath,
+          checkpoint_digest: checkpoint.checkpoint_digest,
         });
         acks.push(sign({
           schema: 'lattice.executor_quiescence_ack.v1',
@@ -781,7 +865,7 @@ export async function createScriptedAdapterController({
           packet_digest: binding.packet_digest,
           write_lease_id: binding.write_lease_id,
           barrier_control_digest: request.barrier_control_digest,
-          final_checkpoint_digest: task.receipt.checkpoint_digest,
+          final_checkpoint_digest: checkpoint.checkpoint_digest,
           process_observation_digest: processObservationDigest,
           worktree_fingerprint_digest: worktreeFingerprintDigest,
           supervisor_session_nonce_digest: sessionNonceDigest,
