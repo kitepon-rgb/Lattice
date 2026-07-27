@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
-import { detectCheckpointFindings } from './runtime-diff-observer.mjs';
+import { captureWorktreeDiff, detectCheckpointFindings } from './runtime-diff-observer.mjs';
 import {
   buildIoEscalation, createRunSentinel, probeIoWarning, syncSentinelWatches,
 } from './runtime-io-sentinel.mjs';
