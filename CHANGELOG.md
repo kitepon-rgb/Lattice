@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.32.0 — 2026-07-28
+
+- **早期警報からholdまでが実runで通った。** 書き込み観測→probe→finding→conflict→freeze→
+  静止証明→holdが、走行中のworkerに対して1本で繋がった
+  （[ADR 0143](docs/adr/0143-io-sentinel-is-an-early-warning-not-a-finding.md)・
+  [実測](docs/evidence/2026-07-28-io-sentinel-live-run.md)）。
+
+  | 段 | dispatchからの経過 |
+  |---|---|
+  | 実在警報 | 137 ms |
+  | intake freeze | 662 ms |
+  | hold | 663 ms |
+  | （従来）worker完了まで | 8,000 ms |
+
+  従来値は**workerの実行時間そのもの**であり、装置が決められない値だった。長い作業ほど差が開く。
+- **workerを別processへ出した**（`adapter_dispatch_response.v2`）。holdの静止証明は「名指しされた
+  processが実際に停止していること」を要求するが、executorがcontroller自身のprocessだと、止めれば
+  応答できず止めなければ証明できない——構成として証明不能だった。`detached`で独立process groupへ
+  置き、barrierでSIGSTOPして止まった木を読む。**装置はprocessを止めない**——止めるのはexecutorの
+  責務で、Latticeが行うのは検証だけである。
+- **escalationをepoch駆動の安全点で捌くようにした。** 駆動側はrun eventsをメモリに抱えたまま
+  awaitをまたぐので、横から追記すると次の全体置換で消える。lockを取れるようにするだけでは、
+  静かに記録を失う方向へ壊れる。
+- この配線で、当該経路のholdが一度も実行されていなかったために露出していなかった不整合を5件
+  直した（artifact digestの取り違え、barrierが完走を待っていた、`process_children`欠落、
+  attestationの形違い2件）。
+
 ## 0.31.0 — 2026-07-28
 
 - **実行時競合の早期警報が、実runで初めて発火した**
