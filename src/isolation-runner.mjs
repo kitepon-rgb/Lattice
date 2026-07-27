@@ -300,8 +300,16 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
     await run('git', ['worktree', 'add', '--detach', worktreePath, baseSha], { cwd: repoRoot });
     added = true;
     for (const { entry, target } of mounts) {
-      await mkdir(path.dirname(path.join(worktreePath, entry)), { recursive: true });
-      await symlink(target, path.join(worktreePath, entry));
+      // 保護pathへはmountさせない。そこを許すと、変更をsnapshotから隠す口になる。
+      if (PROTECTED_PATHS.includes(entry.split('/')[0])) {
+        throw new Error(`mount over protected path is not allowed: ${entry}`);
+      }
+      const mountPath = path.join(worktreePath, entry);
+      await mkdir(path.dirname(mountPath), { recursive: true });
+      // base checkoutが同名を持つ場合がある（trackedな.gitignore等）。mount配下は
+      // まるごとsnapshotの対象外になるので、置き換えても判定の抜けは生まれない。
+      await rm(mountPath, { recursive: true, force: true });
+      await symlink(target, mountPath);
     }
     await transform({ worktreePath });
     snapshot = await captureSnapshot(worktreePath, baseSha, allowedPaths, mountedEntries);
