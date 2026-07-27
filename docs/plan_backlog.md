@@ -150,7 +150,7 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 | 5 競合時のリファクタリング | **実装済み** | 宣言anchorのsymbolを所有面へ移し、未宣言の依存先を共有面へ、残りを残余面へ分ける。公開ビルドが他所のprojectでも実行できることを確認済み |
 | 6 前後比較と再推定 | **実装済み** | 五条件が外部挙動同等性（原pathの公開面）・focused test・再index・重複解消（対象競合の消滅とplan全体の競合対の非増加）・実行段階数の改善を測る。1つでも欠けたら棄却 |
 | 7 一方停止・他方commit・再開 | **確定の手段が入った** | 停止と再開は実装済み。各TODOは隔離worktreeで走り、freeze後は影響閉包内だけhold、閉包外は`carry_over_witness`（`todo_input`／`boundary_manifest`／`validator`／`context_content`のdigest＋非重複証拠＋receipt binding）を実証できた場合だけ継続する。請求項が版管理commitで果たす「他方の確定」を、隔離worktree＋暗号学的witnessで果たしている。`commit`が`FORBIDDEN_OPERATIONS`なのは公開契約の「承認なしに外部effectを行わない」に由来するので、明示承認付きのcommit経路を足せば思想と衝突しない |
-| 8 双方停止・限定変換・双方再開 | **実装済み** | 実行時に観測した競合から変換候補を導出し、隔離worktreeで五条件を通して`runtime_seam_split`を組む。実git repo・実sensorで1周（[記録](evidence/2026-07-27-xf-003-runtime-transform-loop.md)） |
+| 8 双方停止・限定変換・双方再開 | **実装済み・製品面から到達可能** | 実行時に観測した競合から変換候補を導出し、隔離worktreeで五条件を通して`runtime_seam_split`を組む（[記録](evidence/2026-07-27-xf-003-runtime-transform-loop.md)）。入口は`lattice run seam resolve`で、事前宣言のない競合が実CLI・実sensor・実repoで変換され、返った後継baseに宣言した面が実在するところまで通る（[記録](evidence/2026-07-27-functional-parity.md)） |
 | 9 実変更観測による実行時競合検出 | 実装済み | `detectCheckpointFindings`が`scope_violation`と`observed_write_conflict`を返す |
 | 10 対象作業群だけ停止して再計画 | 実装済み | `computeAffectedClosure`＋`recompileNextEpochPlan` |
 | 11・12 | 1と同じ | |
@@ -159,9 +159,12 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 Latticeのプロセス境界へ引くのも誤りである**——操作するAIも装置の一部であり、推定部はすでに
 「AI＋sensor＋witness契約＋検証」として実現している。ここへ「推定入口」を新設するのは過剰設計になる。
 
-実装根拠として過去に挙げた`bounded-seam.mjs`は自分のtestからしか呼ばれず、`rc2-campaign.mjs`と
-`rc2-delivery-policy-transform.mjs`はどこからもimportされていない（`npm run check`の対象外）。
-実変換campaignはこの断線も含めて解消する。
+**この断線は解消していない。** 実変換campaignは`bounded-seam.mjs`の4ゲートを配線するのでなく、
+`seam-derivation`／`seam-rewrite`／`seam-verification`／`seam-apply`という別経路を作り、五条件
+（ADR 0138）で受入を決めた。結果として`bounded-seam.mjs`は依然として自分のtestからしか呼ばれず、
+`rc2-campaign.mjs`と`rc2-delivery-policy-transform.mjs`は研究campaign（`rc3-scripted-campaign.mjs`）
+からしか参照されない。`npm run check`は全src fileを走査するようになったので構文は見ているが、
+**製品経路から呼ばれていないことに変わりはない。** 配布物に残す／退避する／消すの裁定は未了である。
 
 ---
 
