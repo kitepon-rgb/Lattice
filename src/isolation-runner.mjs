@@ -311,7 +311,14 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
   const mountedEntries = mounts.map(({ entry }) => entry);
 
   const sourceState = await captureSourceState(repoRoot);
-  if (sourceState.visibleStatus.length > 0) throw new Error('source repository must be clean');
+  if (sourceState.visibleStatus.length > 0) {
+    // どのpathが汚しているかを言わないと、呼び出したAIは何を片付ければよいか分からない。
+    // 実運用で、このコマンドへ渡す入力fileそのものが木を汚して詰まった。
+    const entries = sourceState.visibleStatus
+      .map((line) => String(line).trim()).filter((line) => line.length > 0).slice(0, 20);
+    throw new Error('source repository must be clean :: '
+      + `${entries.join(' | ')} :: 入力fileはgitignore配下（.lattice/等）へ置くかcommitする`);
+  }
   const baseSha = (await run('git', ['rev-parse', '--verify', `${baseRef}^{commit}`], { cwd: repoRoot })).stdout.toString('utf8').trim();
   const worktreePath = await mkdtemp(path.join(os.tmpdir(), 'lattice-isolated-transform-'));
   let added = false;
