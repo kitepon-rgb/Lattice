@@ -205,9 +205,20 @@ focused test・sensor鮮度・重複解消）、本repo不変のassertまで持�
 推定部が製品の持ち物になる。
 
 **確定の手段（請求項7）。** 停止と再開は実装済みで、閉包外の継続は`carry_over_witness`で
-不変量を固定している。請求項が版管理commitで果たす確定を、明示承認付きのcommit経路として
-足せるかを裁定する。`commit`が`FORBIDDEN_OPERATIONS`にあるのは「承認なしに外部effectを行わない」
-という公開契約に由来するので、承認を伴えば思想と衝突しない。
+不変量を固定している。ただし**これは今の実装が弱い**。
+
+`recompileNextEpochPlan`は後継planへ`base_sha: plan.base_sha`を渡し、**baseを前進させない**。
+carry-overで走り続ける作業が隔離worktreeへ変更を積んでいる間に、他の工程を再計画すると、
+その再計画は**進行中の変更を含まないソース状態**に対して行われる。`carry_over_witness`が
+非重複を証明するので安全ではあるが、閉ループの前提——作業後のソースで影響範囲を再推定する——が
+半分崩れている。`carry_over_witness`が縛るのは入力側のdigestだけで、生み出した木は縛れていない。
+
+隔離worktree内のdetached HEADへcommitすれば、canonical branchを動かさずにbaseを前進させられる。
+外部effectを出さないことと、baseを現実へ合わせることは両立する。`FORBIDDEN_OPERATIONS`は
+どこへのcommitかを区別せず全部禁じており、公開契約が懸念する範囲より広い。
+
+したがってこの工程は「請求項へ合わせる」ためではなく、**再計画がstale baseで行われる弱点を直す**
+ために行う。承認機構が要るかは、canonical branchへ出す段だけの論点として裁定に含める。
 
 ## 工程
 
