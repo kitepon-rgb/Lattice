@@ -21,7 +21,8 @@ const base = (overrides = {}) => ({
   ownedSymbolsByTask: { T1: ['renderLeft'], T2: ['renderRight'] },
   proposedPathByTask: { T1: 'src/shared.seam-left.mjs', T2: 'src/shared.seam-right.mjs' },
   sharedPath: 'src/shared.seam-common.mjs',
-  calleesBySymbol: {},
+  // 未照会と「calleeが無い」は別物なので、空配列を明示する。
+  calleesBySymbol: { renderLeft: [], renderRight: [] },
   affectedTests: ['test/shared.test.mjs'],
   baseSha: BASE_SHA,
   manifestDigest: DIGEST('1'),
@@ -36,6 +37,7 @@ test('宣言が依存する未宣言symbolは共有面へ集まり、原pathは�
       // helperのhelperまで推移的に辿る。1段で止めると共有面から原pathへの辺が残る。
       renderLeft: [{ name: 'escapeText', path: SOURCE }],
       escapeText: [{ name: 'CONTROL', path: SOURCE }],
+      CONTROL: [],
       renderRight: [{ name: 'escapeText', path: SOURCE }],
     },
   }));
@@ -69,6 +71,8 @@ test('同一file外へ解決したcalleeは共有面へ引き込まない', () =
         { name: 'escapeText', path: 'src/elsewhere.mjs' },
         { name: 'unrelated', path: 'sensor/scripts/other.mjs' },
       ],
+      escapeText: [],
+      renderRight: [],
     },
   }));
   const shared = candidate.surfaces.find(({ role }) => role === 'shared');
@@ -81,6 +85,7 @@ test('共有面から所有面へ辺が入る構成は候補にしない', () =>
       renderLeft: [{ name: 'dispatch', path: SOURCE }],
       // 共有へ回ったdispatchが所有面のrenderRightを呼ぶ。切ると循環importになる。
       dispatch: [{ name: 'renderRight', path: SOURCE }],
+      renderRight: [],
     },
   }));
   assert.equal(candidate, null);
@@ -120,6 +125,20 @@ test('五条件を1つでも緩めた候補は契約が拒否する', () => {
     relaxed.verification_policy[key] = false;
     assert.equal(validateBoundedSeamCandidate(relaxed), false, key);
   }
+});
+
+test('calleeを照会していないsymbolがあれば、閉包を閉じたことにしない', () => {
+  // 未照会を「calleeが無い」と同一視すると閉包が黙って浅くなる。移動先で参照だけが宙に浮き、
+  // 構文は通るので実行するまで壊れたと分からない。実データで踏んだ欠陥をここで固定する。
+  const { candidate, reasons } = deriveBoundedSeamCandidate(base({
+    calleesBySymbol: {
+      renderLeft: [{ name: 'renderIndex', path: SOURCE }],
+      renderRight: [],
+      // renderIndexのcalleeを引いていない。
+    },
+  }));
+  assert.equal(candidate, null);
+  assert.deepEqual(reasons, ['callee_data_missing:renderIndex']);
 });
 
 test('導出queryは宣言symbolのcalleeだけを引く', () => {

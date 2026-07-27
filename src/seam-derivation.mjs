@@ -32,10 +32,15 @@ function reject(reasons) {
 function collectSharedClosure({ sourcePath, ownedSymbols, calleesBySymbol }) {
   const owned = new Set(ownedSymbols);
   const shared = new Set();
+  const missing = new Set();
   const pending = [...ownedSymbols];
   while (pending.length > 0) {
     const current = pending.pop();
-    for (const callee of calleesBySymbol[current] ?? []) {
+    const callees = calleesBySymbol[current];
+    // 未照会と「calleeが無い」を同一視しない。同一視すると閉包が黙って浅くなり、
+    // 移動先で参照だけが宙に浮く——構文は通るので、実行するまで壊れたと分からない。
+    if (callees === undefined) { missing.add(current); continue; }
+    for (const callee of callees) {
       // 同一file内だけを見る。sensorのsymbol解決は同名の別fileへ寄ることがあるので、
       // pathのexact一致で絞らないと無関係なsymbolを共有面へ引き込む。
       if (callee.path !== sourcePath) continue;
@@ -44,7 +49,7 @@ function collectSharedClosure({ sourcePath, ownedSymbols, calleesBySymbol }) {
       pending.push(callee.name);
     }
   }
-  return [...shared].sort(compareText);
+  return { shared: [...shared].sort(compareText), missing: [...missing].sort(compareText) };
 }
 
 /** 共有面から所有面への辺。1本でもあれば循環を作るので候補にしない（ADR 0137 Decision 2）。 */
@@ -98,7 +103,12 @@ export function deriveBoundedSeamCandidate(options = {}) {
   const declaredCount = [...ownedByTask.values()].reduce((total, list) => total + list.length, 0);
   if (ownedSymbols.length !== declaredCount) return reject(['owned_symbol_claimed_twice']);
 
-  const sharedSymbols = collectSharedClosure({ sourcePath, ownedSymbols, calleesBySymbol });
+  const closure = collectSharedClosure({ sourcePath, ownedSymbols, calleesBySymbol });
+  // 閉包が閉じていない。呼び出し側は不足分のcalleeを引いてから導出をやり直す。
+  if (closure.missing.length > 0) {
+    return reject(closure.missing.map((symbol) => `callee_data_missing:${symbol}`));
+  }
+  const sharedSymbols = closure.shared;
   if (sharedSymbols.length > 0 && !isTodoRef(sharedPath)) return reject(['invalid_shared_path']);
   const violations = sharedDependsOnOwned({
     sourcePath, ownedSymbols, sharedSymbols, calleesBySymbol,
