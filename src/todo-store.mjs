@@ -696,6 +696,34 @@ function validateMergedTransition(store, member, event) {
   }
 }
 
+/**
+ * refsから辿れるobject idの集合。repositoryごとに1度だけ数え、以後は使い回す。
+ *
+ * 到達可能性を見ないと、手元にだけ在るdangling blobを「検証済み」と読んでしまう。
+ */
+const reachableObjectCache = new Map();
+function reachableObjects(absoluteRepo) {
+  const cached = reachableObjectCache.get(absoluteRepo);
+  if (cached !== undefined) return cached;
+  let set;
+  try {
+    const stdout = execFileSync('git', ['rev-list', '--objects', '--all'],
+      { cwd: absoluteRepo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 256 * 1024 * 1024 });
+    set = new Set();
+    for (const line of stdout.split('\n')) {
+      const oid = line.slice(0, 40);
+      if (oid.length === 40) set.add(oid);
+    }
+  } catch {
+    // 数えられない環境では到達可能性で落とさない。判定できないことを「到達不能」へ丸めると、
+    // 既存recordが一斉に読めなくなる。ここは厳しさより「誤って否定しない」を採る。
+    set = { has: () => true };
+  }
+  reachableObjectCache.set(absoluteRepo, set);
+  return set;
+}
+
 function evidenceVerifier(manifest, repoRoot, hard) {
   const repositories = new Map(manifest.repositories.map((repo) => [repo.repo_id, repo.path]));
   return (descriptor) => {
@@ -706,6 +734,17 @@ function evidenceVerifier(manifest, repoRoot, hard) {
     try {
       const type = execFileSync('git', ['cat-file', '-t', descriptor.git_blob_oid], { cwd: absoluteRepo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
       if (type !== 'blob') throw new Error('not blob');
+      // **objectが在ることと、cloneした人が読めることは別である。** commitやtagから辿れない
+      // dangling blobでも`cat-file`は通るので、手元では検証済みに見えるのに、fresh cloneでは
+      // 誰も確かめられない証拠が残る。実際に16件そうなっており、公開CIで初めて露見した。
+      // 手元とCIで判定が食い違う状態を残さない。
+      //
+      // ただし**書き込み時には要求しない**。証拠文書は同じ変更でcommitするのが普通の流れで、
+      // `todo done`の時点ではindexに在るだけである。そこで拒むと正常な運用が止まる。
+      // 「記録はできるが、commitするまでverifyは通らない」が正しい強さである。
+      if (!hard && !reachableObjects(absoluteRepo).has(descriptor.git_blob_oid)) {
+        throw new Error('blob unreachable from refs');
+      }
       const bytes = execFileSync('git', ['cat-file', 'blob', descriptor.git_blob_oid], { cwd: absoluteRepo, encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: TODO_LIMITS.narrativeSectionBytes + 1 });
       if (sha256Bytes(bytes) !== descriptor.content_digest) throw new Error('digest mismatch');
       return true;

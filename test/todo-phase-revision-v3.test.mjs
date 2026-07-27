@@ -66,9 +66,15 @@ async function fixture(t, {
     writer: createTodoStoreWriter({ caller: 'g4-migration' }), projectId: 'project-1',
     repositories: [{ repo_id: 'self', path: '.' }],
     plans: [{ plan: initial, genesis: { actor: ACTOR, recorded_at: INITIAL_AT } }], now: INITIAL_AT });
+  // 証拠blobはcommitまでして参照可能にする。`hash-object -w`だけだとdangling objectになり、
+  // 手元では読めてもcloneした人には読めない。`todo verify`はその区別をするようになった。
   const evidenceBytes = Buffer.from('phase-v3 done evidence\n');
-  const oid = execFileSync('git', ['hash-object', '-w', '--stdin'], {
-    cwd: root, input: evidenceBytes, encoding: 'utf8',
+  await writeFile(path.join(root, 'evidence.txt'), evidenceBytes);
+  execFileSync('git', ['add', 'evidence.txt'], { cwd: root });
+  execFileSync('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t',
+    'commit', '--quiet', '-m', 'evidence'], { cwd: root });
+  const oid = execFileSync('git', ['rev-parse', 'HEAD:evidence.txt'], {
+    cwd: root, encoding: 'utf8',
   }).trim();
   const evidence = { evidence_id: 'phase-v3-done', repo_id: 'self', path: 'evidence.txt',
     git_blob_oid: oid, content_digest: createHash('sha256').update(evidenceBytes).digest('hex'),
