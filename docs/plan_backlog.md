@@ -229,7 +229,7 @@ carry-overで走り続ける作業が隔離worktreeへ変更を積んでいる�
 
 ## 工程
 
-- [ ] 宣言を書く道具（観測済みaffected testの取得とcanonical書き出し）を足す
+- [x] 宣言を書く道具（観測済みaffected testの取得とcanonical書き出し）を足す
 - [x] 明示承認付きの版管理commit経路を裁定して足す
 
 ---
