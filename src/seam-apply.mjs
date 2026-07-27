@@ -71,6 +71,19 @@ async function deriveWithClosure({ cwd, deriveOnce }) {
 /** 宣言symbolの行範囲。移す範囲を決めるので、原path上のexact一致だけを採る。 */
 const SYMBOL_LOOKUP_LIMIT = 500;
 
+/** gitに載らないbuild成果物のうち、focused testが要るものを実在する時だけ張る。 */
+async function buildOutputMounts(repoRoot) {
+  const { access } = await import('node:fs/promises');
+  const mounts = [];
+  for (const entry of ['sensor/dist']) {
+    try {
+      await access(path.join(repoRoot, entry));
+      mounts.push({ entry, target: path.join(repoRoot, entry) });
+    } catch { /* 無ければ張らない。無い環境ではそのtestも同梱sensorを要求しない。 */ }
+  }
+  return mounts;
+}
+
 /**
  * 変換対象symbolの行範囲を、対象file限定で読む。
  *
@@ -333,6 +346,11 @@ export async function applySeamConflict({
         // 索引の書き先を使い捨てへ向ける。verifierも再indexもここへ書くので、本repoの
         // 索引を触らせない。src／testへはrunnerがmountを拒否する。
         { entry: '.lattice/sensor', target: scratchLattice },
+        // build成果物はgitignoreされているので、どのcommitのworktreeにも存在しない。
+        // 張らないと、同梱sensorを起動するfocused testがすべてENOENTで落ち、
+        // focused_tests_passedが原理的に満たせなくなる（実測でこれに当たった）。
+        // 存在する時だけ張る——Latticeを依存として使うprojectはnode_modules側に持つ。
+        ...await buildOutputMounts(repoRoot),
       ],
       // 書き先を隠すのでなく、書かせない。verifierが常駐面を起こすとworktreeへ索引が
       // 生まれ、変更を残さない規律に当たる。
