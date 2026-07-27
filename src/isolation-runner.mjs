@@ -5,6 +5,7 @@ import {
   readFile,
   readlink,
   rm,
+  symlink,
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -123,10 +124,14 @@ async function buildPatch(worktreePath, changedPaths) {
   return Buffer.concat(parts);
 }
 
-async function captureSnapshot(worktreePath, baseSha, allowedPaths) {
+async function captureSnapshot(worktreePath, baseSha, allowedPaths, mountedEntries = []) {
+  const mounted = new Set(mountedEntries);
   const changedPaths = statusPaths((await run('git', [
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
-  ], { cwd: worktreePath })).stdout);
+  ], { cwd: worktreePath })).stdout)
+    // runnerが張ったmountだけを外す。それ以外は無視しない——gitignore対象であっても、
+    // allowed pathの外に現れたものは変更である。
+    .filter((changedPath) => !mounted.has(changedPath.replace(/\/$/u, '').split('/')[0]));
   for (const changedPath of changedPaths) {
     if (!safeRelativePath(changedPath) || !isAllowed(changedPath, allowedPaths)) {
       throw new Error(`change outside allowed paths: ${changedPath}`);
@@ -136,8 +141,8 @@ async function captureSnapshot(worktreePath, baseSha, allowedPaths) {
   return { changedPaths, patch: await buildPatch(worktreePath, changedPaths) };
 }
 
-async function assertSnapshotUnchanged(worktreePath, baseSha, allowedPaths, expected, actor) {
-  const actual = await captureSnapshot(worktreePath, baseSha, allowedPaths);
+async function assertSnapshotUnchanged(worktreePath, baseSha, allowedPaths, expected, actor, mountedEntries = []) {
+  const actual = await captureSnapshot(worktreePath, baseSha, allowedPaths, mountedEntries);
   if (actual.changedPaths.length !== expected.changedPaths.length
     || actual.changedPaths.some((changedPath, index) => changedPath !== expected.changedPaths[index])
     || !actual.patch.equals(expected.patch)) {
@@ -257,13 +262,19 @@ async function assertSourceUnchanged(repoRoot, sourceState) {
   return receipt;
 }
 
-export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, transform, verifyCommands, observe } = {}) {
+export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, transform, verifyCommands, observe, mounts = [] } = {}) {
   if (!safeRelativePath('.') || typeof repoRoot !== 'string' || typeof baseRef !== 'string'
     || !Array.isArray(allowedPaths) || allowedPaths.some((entry) => !safeRelativePath(entry))
     || typeof transform !== 'function' || !Array.isArray(verifyCommands)
-    || (observe !== undefined && typeof observe !== 'function')) {
+    || (observe !== undefined && typeof observe !== 'function')
+    || !Array.isArray(mounts)
+    || mounts.some(({ entry, target } = {}) => typeof entry !== 'string'
+      || !/^[A-Za-z0-9._-]+$/u.test(entry) || typeof target !== 'string' || !path.isAbsolute(target))) {
     throw new TypeError('invalid isolated transform arguments');
   }
+  // mountはrunnerが自分で張り、自分が張ったentryだけをsnapshotから外す。呼び出し側が
+  // transformの中で作ると、任意の変更をsnapshotから隠す口になる。
+  const mountedEntries = mounts.map(({ entry }) => entry);
 
   const sourceState = await captureSourceState(repoRoot);
   if (sourceState.visibleStatus.length > 0) throw new Error('source repository must be clean');
@@ -278,8 +289,11 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
   try {
     await run('git', ['worktree', 'add', '--detach', worktreePath, baseSha], { cwd: repoRoot });
     added = true;
+    for (const { entry, target } of mounts) {
+      await symlink(target, path.join(worktreePath, entry));
+    }
     await transform({ worktreePath });
-    snapshot = await captureSnapshot(worktreePath, baseSha, allowedPaths);
+    snapshot = await captureSnapshot(worktreePath, baseSha, allowedPaths, mountedEntries);
     for (const verifier of verifyCommands) {
       if (!verifier || typeof verifier.command !== 'string' || !Array.isArray(verifier.args) || verifier.args.some((arg) => typeof arg !== 'string')) {
         throw new TypeError('verifyCommands must contain command and string args');
@@ -294,11 +308,11 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
         verifications.push(verificationReceipt(verifier, error, 'failed'));
         throw new Error(`verifier failed (${error.signal ?? error.code}): ${verifier.command}`);
       }
-      await assertSnapshotUnchanged(worktreePath, baseSha, allowedPaths, snapshot, 'verifier');
+      await assertSnapshotUnchanged(worktreePath, baseSha, allowedPaths, snapshot, 'verifier', mountedEntries);
     }
     if (observe) {
       await observe({ worktreePath, changedPaths: snapshot.changedPaths, patch: snapshot.patch, baseSha });
-      await assertSnapshotUnchanged(worktreePath, baseSha, allowedPaths, snapshot, 'observe');
+      await assertSnapshotUnchanged(worktreePath, baseSha, allowedPaths, snapshot, 'observe', mountedEntries);
     }
     result = { baseSha, ...snapshot, verifications };
   } catch (error) {
