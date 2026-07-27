@@ -141,10 +141,10 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 
 | 項 | 状況 | 根拠 |
 |---:|---|---|
-| 1(a) 影響範囲の推定 | 入口が無いだけ | 項2と同じ。推定はAI操作者が行い、Latticeが仕様と解析情報を供給し出力を検証する。面が割れているため、推定の依頼と受領がLatticeの記録に残らない |
+| 1(a) 影響範囲の推定 | **成立** | 項2と同じ |
 | 1(b) 変換後に並行配置 | **未実装** | 提案（`seam_candidate`）で止まる。提案surfaceはディスク上に存在せず、artifact自身が`hypothetical_new_surfaces`とラベルする |
 | 1(c) 並行実行制御 | 実装済み | `runtime-engine.mjs`が`capacity.executors`まで同時dispatchし、eventごとにready frontierを再評価 |
-| 2 AIへの入力と出力 | **入口が無いだけ** | Latticeを操作するのはAIであり、ループは実在する——`todo status`が自然言語の`label`を返し、MCPの`lattice_sensor_explore`が解析情報を返し、AIが`owns`／`reads`／`writes`／`affected_tests`を出力し、Latticeがsensor再観測で検証する。欠けているのは面の統合で、解析情報はMCP面・仕様と出力schemaと検証はCLI面に割れている（`sensor/src/mcp/server-instructions.ts:88`が「witness契約の証拠はCLI面からのみ」と明記）。**推定を依頼した事実も受け取った事実も1つの面に存在しない** |
+| 2 AIへの入力と出力 | **成立** | 装置の境界はLatticeのプロセス境界ではない。操作するAIも装置の一部であり、推定部は「AI＋sensor＋witness契約＋検証」として実現している。`todo status`が自然言語の作業仕様を渡し、MCPの`lattice_sensor_explore`が解析情報を渡し、advisoryの`declare_witness_set_then_compile`が出力を促し、compileがsensor再観測でexact照合する |
 | 3 構造グラフ | 物は在る | sensorのnode／edge知識グラフ。ただし項2従属 |
 | 4 読取り／書込みからの競合判定 | 実装済み | `runtime-front-end.mjs`のwrite×read/write交差 |
 | 5 競合時のリファクタリング | **未実装** | 切り方を決めて仮想検証するところまで。ソースは書き換えない |
@@ -155,10 +155,9 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 | 10 対象作業群だけ停止して再計画 | 実装済み | `computeAffectedClosure`＋`recompileNextEpochPlan` |
 | 11・12 | 1と同じ | |
 
-「AIが推定する」を製品内のAI呼び出しの有無で測るのは誤りである。Latticeの操作者はAIであり、
-請求項2が要求するのは装置がAI APIを叩くことではなく、仕様と解析情報をAIへ入力して変更影響範囲を
-出力させることである。したがって残る課題は「AIを組み込む」ではなく「推定を依頼し受け取る入口を
-1つの面にする」ことである。
+「AIが推定する」を製品内のAI呼び出しの有無で測るのは誤りである。さらに、**装置の境界を
+Latticeのプロセス境界へ引くのも誤りである**——操作するAIも装置の一部であり、推定部はすでに
+「AI＋sensor＋witness契約＋検証」として実現している。ここへ「推定入口」を新設するのは過剰設計になる。
 
 実装根拠として過去に挙げた`bounded-seam.mjs`は自分のtestからしか呼ばれず、`rc2-campaign.mjs`と
 `rc2-delivery-policy-transform.mjs`はどこからもimportされていない（`npm run check`の対象外）。
@@ -204,10 +203,13 @@ focused test・sensor鮮度・重複解消）、本repo不変のassertまで持�
 
 実変換（`real-transform`）が請求項1(b)・5・6を持つのに対し、本工程は「一歩で埋まる」2件を持つ。
 
-**推定の入口（請求項1(a)・2）。** ループ自体は実在するが、解析情報はMCP面、自然言語の作業仕様と
-出力schemaと検証はCLI面に割れている。Latticeの記録には「推定を依頼した」事実も「受け取った」事実も
-残らない。task idを渡すと仕様と該当する解析情報を返し、witnessを受け取る入口を1つ置けば、
-推定部が製品の持ち物になる。
+**宣言を書く道具（請求項の穴ではない）。** 請求項1(a)・2は成立している。操作するAIも装置の一部
+であり、推定部を製品コードへ移設する必要はない——それは過剰設計である。
+
+残るのは操作の摩擦だけである。宣言を手で書く際、`affected_tests`はfresh観測とexact一致が要り、
+bytesはcanonicalでなければstore読みで落ちる。2026-07-27の作業では前者で1回、後者で1回落ち、
+観測を取るための使い捨てscriptを1本書いた。要るのは推定器ではなく、**宣言したpathのaffected testを
+観測して返す道具と、canonical bytesで書き出す道具**である。規模が一桁小さい。
 
 **確定の手段（請求項7）。** 停止と再開は実装済みで、閉包外の継続は`carry_over_witness`で
 不変量を固定している。ただし**これは今の実装が弱い**。
@@ -227,5 +229,5 @@ carry-overで走り続ける作業が隔離worktreeへ変更を積んでいる�
 
 ## 工程
 
-- [ ] 影響範囲の推定を依頼し受け取る入口を1つの面にする
+- [ ] 宣言を書く道具（観測済みaffected testの取得とcanonical書き出し）を足す
 - [ ] 明示承認付きの版管理commit経路を裁定して足す
