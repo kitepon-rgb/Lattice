@@ -85,7 +85,12 @@ import {
   validateSeamProposalProjection,
 } from './seam-proposal-contracts.mjs';
 import { compileSeamProposalArtifact, declaredConcernSymbols } from './seam-proposal.mjs';
+import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { applySeamProposal } from './seam-apply.mjs';
+import {
+  WITNESS_DRAFT_SCHEMA, buildWitnessObservationQuerySet, buildWitnessSet, serializeWitnessSet,
+  validateWitnessDraft,
+} from './witness-scaffold.mjs';
 import {
   parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
   validateTodoRevision, validateTodoRevisionSet,
@@ -939,6 +944,53 @@ async function seamProposalCompile({ repoRoot, planKey }) {
 }
 
 /**
+ * 下書きとfresh観測から、そのまま通るwitness setを書き出す。
+ *
+ * 推定はしない。何を所有し何を触るかは下書きが述べ、ここが供給するのはAIには作れないもの——
+ * affected testのfresh観測、query setとprovenanceの配線、canonical bytesと自己digest——だけである。
+ */
+async function witnessScaffold({ repoRoot, planKey, inputRef }) {
+  const draft = await readJsonInput(repoRoot, inputRef, {
+    validate: validateWitnessDraft,
+    invalidCode: 'WITNESS_DRAFT_INVALID',
+  });
+  if (draft.plan_key !== planKey) {
+    throw new TodoStoreError('INPUT_INVALID', 'witness_draft_plan_mismatch', undefined, {
+      draft_plan_key: draft.plan_key, plan_key: planKey,
+    });
+  }
+  const { queries, paths } = buildWitnessObservationQuerySet(draft);
+  const collected = await collectSensorEvidence({ cwd: repoRoot, querySet: { queries } });
+  const affectedTestsByPath = {};
+  queries.forEach((query, index) => {
+    if (query.operation !== 'affected') return;
+    const entry = collected.outcomes[index]?.targets?.[0];
+    // 観測できていないものを空配列へ丸めない。丸めるとdriftでcompileが落ちる。
+    if (entry?.path_state === 'absent' || !Array.isArray(entry?.data?.affectedTests)) return;
+    affectedTestsByPath[query.target] = [...entry.data.affectedTests];
+  });
+  const { witnessSet, reasons } = buildWitnessSet({ draft, affectedTestsByPath });
+  if (witnessSet === null) {
+    throw new TodoStoreError('WITNESS_SCAFFOLD_INCOMPLETE', 'witness_scaffold_incomplete', undefined, {
+      reasons, next_action: 'resolve_declaration_then_retry',
+    });
+  }
+  const ref = todoWitnessRef(planKey);
+  await mkdir(path.dirname(path.join(repoRoot, ref)), { recursive: true });
+  await writeFile(path.join(repoRoot, ref), serializeWitnessSet(witnessSet));
+  return {
+    schema: 'lattice.todo_witness_scaffold_result.v1',
+    project_id: draft.project_id,
+    plan_key: planKey,
+    witness_ref: ref,
+    observed_paths: paths,
+    task_count: Object.keys(witnessSet.manual_witness).length,
+    witness_set_digest: witnessSet.witness_set_digest,
+    next_action: 'compile_independence',
+  };
+}
+
+/**
  * 着地時に使うsurface名。提案が出すhash由来の仮名を、人が読む名前へ置き換える。
  *
  * 名前を付けるのは判断なので製品が発明しない（AGENTS.md「装置の境界」）。与えられた名前は
@@ -1729,6 +1781,10 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   } else if (argv.length === 4 && argv[0] === 'seam-proposal' && argv[1] === 'apply'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
     action = (repoRoot) => seamProposalApply({ repoRoot, planKey: argv[3] });
+  } else if (argv.length === 7 && argv[0] === 'independence' && argv[1] === 'witness'
+    && argv[2] === 'scaffold' && argv[3] === '--plan' && isTodoIdentifier(argv[4])
+    && argv[5] === '--input' && isTodoRef(argv[6])) {
+    action = (repoRoot) => witnessScaffold({ repoRoot, planKey: argv[4], inputRef: argv[6] });
   } else if (argv.length === 6 && argv[0] === 'seam-proposal' && argv[1] === 'land'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])
     && argv[4] === '--names' && isTodoRef(argv[5])) {

@@ -70,6 +70,7 @@ Write commands:
   evidence promote --plan <key> --task <id> --evidence <file>
   independence compile --plan <key> --input <file>  # witness setとsensorから並列可否を記録する
   independence witness migrate --plan <key>  # revision後の宣言をtask migrationで写す
+  independence witness scaffold --plan <key> --input <draft>  # 下書きとfresh観測から宣言を書き出す
   seam-proposal compile --plan <key>  # 並列可否記録と実sensorからseam提案を記録する
   seam-proposal apply --plan <key>  # 記録済み提案を隔離worktreeで適用し五条件で採否を決める
   seam-proposal land --plan <key> --names <file>  # 採用された変換を本ツリーへ着地させる
