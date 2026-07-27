@@ -9,6 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # 工程storeのevidenceは履歴中のblob OIDを指す。既定のshallow clone（depth 1）だと
+          # そのblobが無く、`todo verify`がevidence_unverifiedで落ちる。証拠の検証を
+          # 諦めるのでなく、検証に要る履歴をCIへ渡す。
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: '22'

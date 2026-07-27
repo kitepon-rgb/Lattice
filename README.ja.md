@@ -240,8 +240,9 @@ error detailの`missing_environment`／`invalid_environment`と
 これはOSI承認のオープンソースライセンス**ではありません**。設計が特許出願の対象であり、
 商用の権利を留保しているので、意図してそうしています。
 
-**商用で使いたい場合**は[issue](https://github.com/kitepon-rgb/Lattice/issues)を立ててください。
-商用licenseを用意します。
+**商用利用には**、著作権者・特許権者からの別途の許諾が必要です。
+問い合わせは[issue](https://github.com/kitepon-rgb/Lattice/issues)から受け付けます。
+許諾するかどうか、どのような条件にするかは個別に判断します。
 
 同梱の構造sensor（[`sensor/`](sensor/)）は本repositoryへ吸収した第三者成果物で、
 **MIT License**のままです。upstreamの出自と帰属表示は[`sensor/NOTICE`](sensor/NOTICE)、

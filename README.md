@@ -199,8 +199,9 @@ Detailed operational notes (dashboard, bridge, actor environment, store transact
 This is **not** an OSI-approved open source license, and that is deliberate: the design is
 covered by a patent application and commercial rights are retained.
 
-**Want to use Lattice commercially?** Open an
-[issue](https://github.com/kitepon-rgb/Lattice/issues) — commercial licensing is available.
+**For commercial use**, a separate license from the copyright and patent holder is required.
+Enquiries can be made via [issues](https://github.com/kitepon-rgb/Lattice/issues). Whether a
+license is granted, and on what terms, is decided case by case.
 
 The bundled structure sensor in [`sensor/`](sensor/) is third-party work absorbed into this
 repository and remains under the **MIT License**. Its upstream origin and attribution are
