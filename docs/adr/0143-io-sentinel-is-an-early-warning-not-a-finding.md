@@ -101,26 +101,44 @@ epoch駆動はrun eventsをメモリに抱えたままawaitをまたぎ、節目
 記録を失う**。駆動中の警報は積むだけにし、駆動側が`replaceEventsAtomically`の直後——diskと
 メモリのeventsが一致している唯一の点——で捌く。そこはworkerがまだ走っている最中でもある。
 
-### 9. 静止を証明できない構成では、freezeさせない
+### 9. workerは別processで走る。executorが自分を止められることがholdの前提である
 
-holdは静止の証明を要求する。直接OS観測はexecutorのprocessが実際に停止していることまで
-確かめるが、**executorがcontroller自身のprocessである構成では証明できない**——止めると制御
-そのものが止まり、止めなければ証明できない。
+holdは静止の証明を要求し、直接OS観測は**名指しされたprocessが実際に停止している**ことまで
+確かめる。executorがcontroller自身のprocessだと、止めれば応答できず、止めなければ証明できない
+——**構成として証明不能**である。
 
-`conflict`はintakeをfreezeするので、freezeが掛かってholdが通らない状態を作ると、runは進むことも
-畳むこともできなくなる（`abandon`も同じ静止証明を要求する）。よって**証明できないと分かって
-いる構成では、conflictの手前で止める**。freezeできるのにあえてしない——止まれない状態を作る方が
-危険だからである。理由はcontrol journalへ残す。判定は従来どおりcheckpointが担う。
+よってworkerは別processで走らせ、`detached`で独立process groupへ置く。同じgroupにcontrollerが
+居ると直接OS観測が「未記録process group memberを検出」として落とす——正しく落ちるので、ここを
+外さない。workerは書いたあとも生きたまま待つ。作業を終えて消えると、barrierが掛かった時に
+止めるべきprocessが存在せず、証明する相手が居なくなる。
+
+誰を止めればよいかはdispatchの時点で名指しさせる（`adapter_dispatch_response.v2`の
+`worker_process`）。pidだけでは足りない——pidは再利用されるので、start identityを束ねて初めて
+「同じprocessか」を後から言える。
+
+**装置はprocessを止めない。** Latticeにstop相当のcodeは存在せず、行うのは検証だけである。
+止めるのはexecutorの責務であり、barrierはその責務を果たせという要求である。
+
+attestationはsupervisorと**独立に**作り、3つのdigest（process observation・worktree
+fingerprint・final checkpoint）の一致を要求する。形が分かれると、両者が別のものを見ていても
+気づけない。
 
 ## Consequences
 
 - 早期警報は**実runで発火する**ようになった（[受入証拠](../evidence/2026-07-28-io-sentinel-live-run.md)）。
   一時fileに対しては`transient`、宣言scope外の実書き込みに対しては`observed`と裁定される。
-- **警報からholdまでは、まだ通らない。** epoch駆動からの切り離しは済み、走行中のworkerに対して
-  `finding_record`→`conflict`→`intake_frozen`まで実runで到達することは確認した。残るのは静止の
-  証明であり、**executorを別processにするまで埋まらない**（Decision 9）。scripted controllerが
-  TODOごとに子processを起こし、supervisorがそれを停止する形になる。dispatch応答がworkerのpidを
-  運ぶ必要があるので、契約の版上げを伴う。したがって**検出遅延の実測も未了**である。
+- **警報からholdまでが実runで通る。** 書き込み観測→probe→finding→conflict→freeze→静止証明→hold
+  が、走行中のworkerに対して1本で繋がった。実測（worker 2並列、宣言scope外への書き込み）:
+
+  | 段 | dispatchからの経過 |
+  |---|---|
+  | 実在警報（probeが`observed`と裁定） | 137 ms |
+  | `intake_frozen` | 662 ms |
+  | `hold_decided` | 663 ms |
+  | （従来）worker完了まで | 8,000 ms |
+
+  従来値は**workerの実行時間そのもの**なので、長い作業ほど差が開く。装置が決められない値が、
+  装置が決める値に変わった。
 - runはユーザーのtreeを直接書き換えなくなった。workerの成果は`<runDir>/worktrees/`の中にあり、
   `close`では畳まない（木そのものがrunの成果である）。`abandon`は成果を捨てる決定なので畳む。
 - `LATTICE_IO_SENTINEL=off`で警報を完全に無効化できる。無効でもrunの判定は従来どおり成立する。

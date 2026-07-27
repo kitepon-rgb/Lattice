@@ -556,30 +556,26 @@ Decision 8）。残りは下記の独立課題が持つ。
 
 ---
 
-# executorのprocess分離（静止の証明）
+# executorのprocess分離（静止の証明）— 完了
 
-工程状態の正本はLattice storeの`executor-process-isolation` plan（未起票。着手時に起こす）。
+工程状態の正本はLattice storeの`io-sentinel` plan（st-004・st-005の後、同じ流れで完了）。
+設計は[ADR 0143](adr/0143-io-sentinel-is-an-early-warning-not-a-finding.md) Decision 9、
+実測は[受入証拠](evidence/2026-07-28-io-sentinel-live-run.md)。
 
-**holdは静止の証明を要求する。** 直接OS観測はexecutorのprocessが実際に停止していることまで
-確かめるが、scripted controllerは自分のprocessで作業するので証明できない——止めると制御そのものが
-止まり、止めなければ証明できない。`abandon`も同じ証明を要求するため、freezeだけ掛かった状態のrunは
-進むことも畳むこともできなくなる。
+**holdの静止証明は、executorが自分を止められることを前提にしていた。** controller自身の
+processで作業していると、止めれば応答できず止めなければ証明できない——構成として証明不能だった。
+workerを別processへ出し、`detached`で独立process groupへ置き、barrierでSIGSTOPして止まった木を
+読む形にした。dispatch応答は`worker_process`で誰を止めればよいかを名指しする
+（`adapter_dispatch_response.v2`）。
 
-そのため現在は、証明できない構成では`conflict`の手前で止めている（ADR 0143 Decision 9）。
-**freezeできるのにあえてしない**——止まれない状態を作る方が危険だからである。早期警報が
-`finding_record`→`conflict`→`intake_frozen`まで到達すること自体は実runで確認済みで、
-止めているのはその1歩手前である。
+これで**警報からholdまでが実runで1本に繋がった**。検出は8,000 ms（worker完了待ち）から
+663 msへ縮んだ。従来値はworkerの実行時間そのものなので、長い作業ほど差が開く。
 
-埋めるには、scripted controllerがTODOごとに子processを起こして書き込ませ、supervisorがそれを
-停止する形にする。dispatch応答がworkerのpidを運ぶ必要があるので、`lattice.adapter_dispatch_response`
-の版上げを伴う。**これは早期警報だけの話ではない**——請求項7の「一方を停止して他方をcommitする」も
-静止の証明の上に立つので、実executorを持つ限り必ず要る面である。
-
-## 工程
-
-- [ ] dispatch応答がworker processを運ぶよう契約を版上げする
-- [ ] scripted controllerをworker process分離へ移す
-- [ ] 警報からholdまでを実runで通し、検出遅延を実測する
+配線の途中で、この経路のholdが一度も実行されていなかったために露出していなかった不整合が
+3件出た（artifact digestの取り違え、barrierが完走を待っていた、`process_children`欠落）。
+さらに、attestationの形が読んでいたcodeと実際に流れているものとで違った——`direct_process_
+observation`はv2、`direct_worktree_fingerprint`はv1である。**両側のdigestを出力させて初めて
+分かった。** 推測で形を合わせようとした時間が最も長かった。
 
 ---
 

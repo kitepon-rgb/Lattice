@@ -1,7 +1,7 @@
-# I/O sentinel: 実runで初めて発火した（2026-07-28）
+# I/O sentinel: 警報からholdまでが実runで通った（2026-07-28）
 
-`io-sentinel` planのst-004（worktree分離と実run発火）に対する受入証拠。
-**検証したことと、まだ通っていないことを分けて書く。**
+`io-sentinel` planのst-004（worktree分離と実run発火）以降、同じ流れでexecutorのprocess分離まで
+到達した記録。**検証したことと、この証拠が主張しないことを分けて書く。**
 
 ## 何が変わったか
 
@@ -41,41 +41,46 @@ TODOがterminalになった時点で外れるので、T1とT2を名指す警報�
 - workerの書き込みは各worktree内にとどまり、**canonical repoは触られない**
   （`src/alpha.mjs`が元の内容のまま、`git status --porcelain`が空）
 
-## まだ通っていないこと
+## 警報からholdまで通ること（実測）
 
-**警報からholdまでは実runで通っていない。**
-
-epoch駆動からの切り離しは済んでいる。駆動中の警報は積むだけにし、駆動側が
-`replaceEventsAtomically`の直後——diskとメモリのeventsが一致している唯一の点——で捌く形にした。
-これで走行中のworkerに対して`finding_record`→`conflict`→`intake_frozen`まで実runで到達することを
-確認している。
-
-残るのは**静止の証明**である。直接OS観測はexecutorのprocessが実際に停止していることを要求するが、
-scripted controllerは自分のprocessで作業するので、止めると制御そのものが止まる。`abandon`も同じ
-証明を要求するため、freezeだけ掛かった状態のrunは進むことも畳むこともできない。
-
-よって**証明できない構成ではconflictの手前で止める**（ADR 0143 Decision 9）。freezeできるのに
-あえてしない——止まれない状態を作る方が危険だからである。理由はcontrol journalへ残る:
+worker 2並列、T2が宣言scope外の`src/alpha.mjs`——T1の宣言scope——へ書く構成。
 
 ```
-io_escalation_decided | rejected |
-  executorがcontroller自身のprocessで走っており、静止を証明できない
-  （停止すると制御も止まる）。freezeさせるとrunを畳めなくなるので進めない
+io_escalation_decided | held | 早期警報からhold: io_scope_warning/src/alpha.mjs
+run events: … checkpoint_observed, conflict_found, intake_frozen,
+             checkpoint_observed ×2, hold_decided
+control    : executor_quiesced ×2
 ```
 
-埋めるにはexecutorを別processにする必要がある。dispatch応答がworkerのpidを運ぶので、契約の版上げを
-伴う。したがって**検出遅延の実測も未了**である。holdまで通らない状態で測れるのは警報が出るまでの
-時間だけであり、工程が求めている「早期検知から再開まで」ではない。
+| 段 | dispatchからの経過 |
+|---|---|
+| 実在警報（probeが`observed`と裁定） | **137 ms** |
+| `intake_frozen` | **662 ms** |
+| `hold_decided` | **663 ms** |
+| （従来）worker完了まで | **8,000 ms** |
+
+従来値は**workerの実行時間そのもの**であり、装置が決められない値だった。長い作業ほど差が開く。
+
+これを成立させたのが**workerのprocess分離**である。holdの静止証明は「名指しされたprocessが
+実際に停止していること」を要求するが、controller自身のprocessで作業していると、止めれば
+応答できず止めなければ証明できない。workerを別processへ出し、`detached`で独立process groupへ
+置き、barrierでSIGSTOPして止まった木を読む。**装置はprocessを止めない**——止めるのはexecutorの
+責務で、Latticeが行うのは検証だけである。
 
 ### 配線して見つけた実欠陥
 
-holdへ実際に到達したことで、この経路で一度も実行されていなかった3件が露出した。
+holdへ実際に到達したことで、この経路で一度も実行されていなかった不整合が露出した。
 
 | 症状 | 原因 |
 |---|---|
 | `INVALID_RUNTIME_CONTROL_REQUEST` | control operationはartifact**全体**のdigestを要求するが、candidateの自己digestを渡していた |
 | `barrier timeout` | barrierが作業の完走を待っていた。barrierは「いま静止せよ」であり、完走を待たせると止めたい時ほど止まらない |
-| `observation binding不正` | binding に`process_children`が無い。この経路のholdが一度も走っていなかったので欠落が見えなかった |
+| `observation binding不正` | bindingに`process_children`が無い |
+| `processがquiescedでない` | executorがcontroller自身のprocessだった（構成として証明不能） |
+| `直接再観測不一致` | attestationの形が違った。実際に流れているのは`direct_process_observation.v2`と`direct_worktree_fingerprint.v1` |
+
+最後の1件は、**両側のdigestを出力させて初めて分かった**。読んでいたcodeと流れているものが
+別だったので、推測で合わせようとした時間が最も長い。
 
 ## この証拠が主張しないこと
 
