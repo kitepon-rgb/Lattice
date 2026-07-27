@@ -520,12 +520,33 @@ scripted controllerの書き込みを一度も拾えていなかったからで�
 よって次の工程は「実測」ではなく**管理daemonをworktree分離dispatchへ広げること**とする。
 実測はその上でしか意味を持たない。
 
+## 発火させて分かったこと
+
+worktree分離とworkerの非同期化を入れて、**io-sentinelは実runで初めて発火した**
+（[受入証拠](evidence/2026-07-28-io-sentinel-live-run.md)）。そこで3つ分かった。
+
+**1. probeは実装以来一度も動いていなかった。** `captureWorktreeDiff`をimportせずに呼んでおり、
+観測失敗を丸めるための`.catch(() => null)`が`ReferenceError`ごと握り潰していた。返る値は
+常に「観測できなかった（`unprobed`）」——**正常系の値**である。syntax checkもlintもtestも緑だった。
+握り潰す範囲が広すぎると、壊れていることが正常系と区別できなくなる。再発は受入条件側で塞ぐ。
+
+**2. 宣言と実writeが食い違わない限り、実行時競合は原理的に一度も起きない。** worktreeを分ければ
+物理的な衝突は消えるので、残るのは論理的な重なり——宣言scope外への書き込みだけである。検知経路を
+実runで通すには、それを意図して作れる必要がある（scripted controllerの`extra_writes`）。
+
+**3. 警報からholdまでは、まだ通らない。** `run activate`がepoch全体をlifecycle lockを握ったまま
+同期駆動するので、escalationがlockを取れるのはactivate完了後——その時workerは既にterminalであり、
+`observed`と裁定しても`skipped`で終わる。これはescalationの不備ではなく、**epoch駆動が
+control operationの中に閉じ込められている**ことの帰結である。切り離しは管理runtimeの構造変更に
+あたるので、次の工程として独立させる。
+
 ## 工程
 
 - [x] 書き込み観測から警報を出すsentinel coreを作る
 - [x] supervisor daemonへsentinelを配線し警報を耐久化する
 - [x] 警報からprobeを経て自動holdへ繋ぐ
-- [ ] 管理daemonのdispatchをworktree分離へ広げ、早期検知から再開までを実測する
+- [x] 管理daemonのdispatchをworktree分離へ広げ、実runで早期検知を発火させる
+- [ ] epoch駆動をactivateから切り離し、警報からholdまでを実runで通して遅延を実測する
 - [ ] 設計をADRへ残しreleaseまで通す
 
 ---
