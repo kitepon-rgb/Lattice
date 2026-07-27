@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.27.0 — 2026-07-27
+
+- **実行時変換レーンに本番の入口を作った**（`lattice run seam resolve --run <ref> --finding <digest>
+  --input <request.json>`）。変換の中身は動くのに、実運転からそこへ行く道が無かった——実運転側が使う
+  `routeConflictTreatment`は事前宣言済みtreatmentがpathを覆う時しか`seam_transform`を返さないので、
+  **予期しなかった競合は変換にかからず直列へ退化していた**。壊れて止まらず緑のまま進むので、
+  欠落が表に出なかった。
+- 入力へ書くのは、係争fileの中で各TODOが触るsymbol、新しい面の名前、task migrationのdigestだけ。
+  どれもAIが既に持っている情報であり、Latticeは推定しない。実CLI・実sensor・実repositoryで、
+  事前宣言のない競合が変換され、返った`successor_base_sha`へworktreeを張ると宣言した面が実在し、
+  canonical branchとHEADは動いていないことまで通した。
+- **`mode: 'seam_split'`の再計画で、後継baseが本当に変換を含むかを検証する。** これまでは変換を
+  含まないbaseを指していても通った。baseが前進し旧baseの子孫であること、splitが消えると述べた
+  競合辺が後継planに実際に無いこと、新たに所有すると述べた資源がcreationとして宣言されていない
+  ことを見て、満たさなければ`SEAM_SPLIT_UNPROVEN`で止める。
+- **CLI表面の機能確認gateを足した**（`npm run check:cli-surface`）。出荷54コマンドについて、
+  `--help`が本文を返すかと、CLI入口を通るtestが実際にそのコマンドを走らせているかを見る。初回は
+  **未収載10件・未確認5件**。`run activate`／`conflict`／`hold`／`recompile`／`reprocess`／
+  `finding record`／`seam resolve`、`todo migrate`、`status`、`session-context`は存在するのに
+  使い方を知る手段が無かった。`runtime-errors resolve`／`reopen`／`compact`、`todo bindings`、
+  `bridge register`は一度もCLIから走らせていなかった。すべて埋めて54/54 green。
+- **sourceの生NULバイトを拒む。** `seam-apply.mjs`と`seam-commit.mjs`が区切り文字として生の
+  NULバイトを含み、`git diff`が`Binary files differ`、`grep`がfileを黙ってskipする状態でcommitされて
+  いた（実際に到達可能性の監査が誤った結論を出した）。escapeへ直し、`check-syntax`でgateする。
+- `recompileNextEpochPlan`の`successorBaseSha`を除去した。管理runtimeでは後継planを実repositoryから
+  compileし`repo HEAD`との一致を要求するので、baseを決めるのは後継requestであり、この引数は
+  呼び出し元もtestもゼロの死んだ引数だった。
+
 ## 0.26.0 — 2026-07-27
 
 - **実行時変換の再開先を実在させた**（ADR 0141）。実行時のseam_transformレーンは、競合を観測し
