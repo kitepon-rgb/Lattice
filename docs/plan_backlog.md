@@ -436,3 +436,29 @@ ADRのOpen questionsは25件ある。読み直すと3種類が混ざっている
 - [x] 変換が連鎖した時のbase管理を決めて実装する
 - [x] 未配線moduleの配布物での扱いを裁定する
 - [x] 未決に発火条件を必須にするgateを足す
+
+---
+
+# 宣言道具と創作境界の噛み合わせ
+
+工程状態の正本はLattice storeの`scaffold-creation` plan。
+
+**2つの機能が組み合わさっていない。** [ADR 0136](adr/0136-declared-creation-boundary.md)は、まだ
+存在しないpathの所有を`creates: true`の宣言で裏付けありにする。0.25.0で足した
+`todo independence witness scaffold`は、宣言を書く摩擦（fresh観測・provenance配線・canonical bytes）を
+引き受ける。だが**下書き契約に`creates`が無い**ため、新規fileを作るToDoの宣言を道具で作れない。
+
+実害は測ってある。`closing-questions`工程で、新しいgate scriptを作るcq-005の宣言が
+`affected_tests_unobserved`で断られ、既存file 2件だけで工程を進めた。新module・新doc・新testの
+追加は実開発ToDoのかなりの割合を占めるので、道具が使える範囲が実際の作業から外れている。
+
+自動導出にはしない（ADR 0135 Decision 3）。観測から機械的に創作境界と読むと、pathのtypoが
+「必ず止まるエラー」から「黙って通る創作境界」へ変わる。下書きへ書く欄を足し、**道具は宣言が
+実態と合っているかを確かめる側**を持つ——fresh absentであること、blast radiusが空であること、
+front endが要求する形（`changedFiles`が対象1件）であること。
+
+## 工程
+
+- [ ] 下書き契約へ創作宣言を足す
+- [ ] 観測の三値を保って創作境界を検証する
+- [ ] 新規fileを含む宣言を実データで作り、compileまで通す
