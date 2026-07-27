@@ -159,12 +159,17 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 Latticeのプロセス境界へ引くのも誤りである**——操作するAIも装置の一部であり、推定部はすでに
 「AI＋sensor＋witness契約＋検証」として実現している。ここへ「推定入口」を新設するのは過剰設計になる。
 
-**この断線は解消していない。** 実変換campaignは`bounded-seam.mjs`の4ゲートを配線するのでなく、
-`seam-derivation`／`seam-rewrite`／`seam-verification`／`seam-apply`という別経路を作り、五条件
-（ADR 0138）で受入を決めた。結果として`bounded-seam.mjs`は依然として自分のtestからしか呼ばれず、
-`rc2-campaign.mjs`と`rc2-delivery-policy-transform.mjs`は研究campaign（`rc3-scripted-campaign.mjs`）
-からしか参照されない。`npm run check`は全src fileを走査するようになったので構文は見ているが、
-**製品経路から呼ばれていないことに変わりはない。** 配布物に残す／退避する／消すの裁定は未了である。
+**裁定済み（2026-07-27・[ADR 0142](adr/0142-adjudicating-every-open-question.md)）。**
+実変換campaignは`bounded-seam.mjs`の4ゲートを配線するのでなく、`seam-derivation`／`seam-rewrite`／
+`seam-verification`／`seam-apply`という別経路を作り、五条件（ADR 0138）で受入を決めた。よって
+`bounded-seam.mjs`とRC1〜RC3の実験moduleは**研究成果物であって製品ではない**。消さずに残すが、
+製品と区別する——`npm run check:reachability`が入口から辿れる集合を機械的に出し、辿れないものは
+理由つきで宣言されている場合だけ通す。現在、製品79 module・研究33 module。
+
+この裁定で、名前だけ中核に見えるものも整理された。`boundary-compiler.mjs`（製品は
+`runtime-front-end`の`compileRuntimePlanV1`）、`runtime-worktree-executor.mjs`（製品の隔離実行は
+`isolation-runner`）など5本が、製品経路から一度も呼ばれていないことが分かった。
+充足表の根拠へ研究moduleを挙げる事故は、以後gateが防ぐ。
 
 ---
 
