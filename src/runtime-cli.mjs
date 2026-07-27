@@ -1823,7 +1823,7 @@ export async function runManagedSupervisorDaemon({
    * 事後に再読して再導出できる主張であることの担保である。fs eventは取りこぼすし再読もできない。
    * ここで残すのは「機械が気づいた」という事実だけで、判定の正本はcheckpointのままである。
    *
-   * 記録しない選択肢は無い。気づいたのに黙っている状態を残さない（ADR 0130）。
+   * 記録しない選択肢は無い。気づいたのに黙っている状態を残さない。
    */
   const warningDigestOf = (warning) => digestArtifact({
     warning_kind: warning.kind, todo_ids: [...warning.todo_ids].sort(), path: warning.path,

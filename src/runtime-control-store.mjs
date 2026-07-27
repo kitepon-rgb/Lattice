@@ -158,7 +158,7 @@ export function validateRuntimeControlEventPayload(kind, value) {
   }
   // I/O sentinelの早期警報（ADR 0143）。**findingではない**——検知の正本はcheckpointのままで、
   // これは「早くcheckpointを撮って確かめろ」という引き金の記録である。記録しない選択肢は無い:
-  // 機械が何かに気づいたのに黙っている状態を残さない（ADR 0130）。
+  // 機械が何かに気づいたのに黙っている状態を残さない。
   if (kind === 'io_warning_observed') {
     return exact(value, ['warning_kind', 'todo_ids', 'path', 'probe_outcome', 'warning_digest'])
       && ['io_overlap_warning', 'io_scope_warning'].includes(value.warning_kind)

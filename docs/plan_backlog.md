@@ -471,7 +471,8 @@ front endが要求する形（`changedFiles`が対象1件）であること。
 
 # 実行時競合の早期警報（I/O sentinel）
 
-工程状態の正本はLattice storeの`io-sentinel` plan。
+工程状態の正本はLattice storeの`io-sentinel` plan。設計は
+[ADR 0143](adr/0143-io-sentinel-is-an-early-warning-not-a-finding.md)。
 
 **現在、競合はcheckpointを撮った瞬間にしか見つからない。** checkpointに周期は無く、timerも監視も
 存在しない。hostがCLIを叩いた時——実質、workerが完了した時——とhold barrierの時だけ観測される。
