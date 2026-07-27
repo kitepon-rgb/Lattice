@@ -52,6 +52,19 @@ const COMMANDS = [
 /** argvを受けるCLI入口。ここを通らないtestは、引数解析とexit契約を確かめていない。 */
 const CLI_ENTRY = /lattice\.mjs|invokeSensorCli|LATTICE_BIN|latticeBin|run(?:Todo|Runtime|Bridge|Project|Sensor)Cli|renderCliHelp/u;
 
+/**
+ * group CLIの入口関数は、group tokenを落としたargvを受ける（`runBridgeCli(['status','--json'])`）。
+ * 完全なtoken列だけを探すと、実際には確かめているコマンドを未確認と誤判定する。
+ */
+const GROUP_ENTRY = Object.freeze({
+  bridge: /runBridgeCli/u,
+  todo: /runTodoCli/u,
+  run: /runRuntimeCli/u,
+  plan: /runRuntimeCli/u,
+  event: /runRuntimeCli/u,
+  sensor: /invokeSensorCli/u,
+});
+
 /** CLI入口を通るtestだけを、実行到達の証拠として集める。 */
 async function spawningTestSources() {
   const files = [];
@@ -86,7 +99,11 @@ const undocumented = [];
 const unexercised = [];
 for (const tokens of COMMANDS) {
   if (renderCliHelp([...tokens, '--help']) === null) undocumented.push(tokens.join(' '));
-  if (!sources.some(({ text }) => invokesCommand(text, tokens))) unexercised.push(tokens.join(' '));
+  const groupEntry = GROUP_ENTRY[tokens[0]];
+  const exercised = sources.some(({ text }) => invokesCommand(text, tokens)
+    || (tokens.length > 1 && groupEntry !== undefined && groupEntry.test(text)
+      && invokesCommand(text, tokens.slice(1))));
+  if (!exercised) unexercised.push(tokens.join(' '));
 }
 
 const report = {

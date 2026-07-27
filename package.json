@@ -60,7 +60,8 @@
     "test": "node scripts/run-product-tests.mjs",
     "test:sensor": "npm --prefix sensor test",
     "check": "node scripts/check-syntax.mjs",
-    "ci": "npm run test && npm run test:sensor && npm run check && npm run verify:todo-store",
-    "verify:todo-store": "node bin/lattice.mjs todo verify --json"
+    "ci": "npm run test && npm run test:sensor && npm run check && npm run check:cli-surface && npm run verify:todo-store",
+    "verify:todo-store": "node bin/lattice.mjs todo verify --json",
+    "check:cli-surface": "node scripts/verify-cli-surface.mjs"
   }
 }

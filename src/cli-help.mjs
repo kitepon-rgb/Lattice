@@ -123,6 +123,8 @@ registerはLATTICE_BRIDGE_REGISTRAR_SSH_HOSTとLATTICE_BRIDGE_REGISTRAR_SCRIPT�
 });
 
 const SUBCOMMAND_USAGE = Object.freeze({
+  status: 'status --json',
+  'session-context': 'session-context --json',
   'plan create': 'plan create --input <file> | --schema --json | --schema-version <2|3> --json',
   'plan compile': 'plan compile --request <request.json> | --schema --json',
   'plan verify': 'plan verify --request <request.json> --plan <plan.json>',
@@ -135,6 +137,13 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'run close': 'run close --run .lattice/runs/<id>',
   'run abandon': 'run abandon --run .lattice/runs/<id> --reason <reason>',
   'run list': 'run list --json',
+  'run activate': 'run activate --run .lattice/runs/<id>',
+  'run conflict': 'run conflict --run .lattice/runs/<id> --finding <digest>',
+  'run hold': 'run hold --run .lattice/runs/<id> --finding <digest>',
+  'run recompile': 'run recompile --run .lattice/runs/<id> --input <recompile-request.json>',
+  'run reprocess': 'run reprocess --run .lattice/runs/<id>',
+  'run finding record': 'run finding record --run .lattice/runs/<id> --checkpoint <digest> --input <candidate.json>',
+  'run seam resolve': 'run seam resolve --run .lattice/runs/<id> --finding <digest> --input <seam-request.json>',
   'event verify': 'event verify --run .lattice/runs/<id>',
   'todo status': 'todo status [--json]',
   'todo bindings': 'todo bindings [--plan <key>] [--json]',
@@ -159,6 +168,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo revise': 'todo revise --plan <key> --input <file>',
   'todo revise-phase': 'todo revise-phase --plan <key> --input <file>',
   'todo revise-set': 'todo revise-set --input <file>',
+  'todo migrate': 'todo migrate --input <extraction.json>',
   'sensor init': 'sensor init [path] --json',
   'sensor sync': 'sensor sync [path] --json',
   'runtime-errors snapshot': 'runtime-errors snapshot [--after-cursor <n>] [--limit <n>] --json',
@@ -196,5 +206,10 @@ export function renderCliHelp(argv) {
     return usage === undefined ? null : `Usage: lattice ${usage}\n`;
   }
   const namespace = requestedNamespace(argv);
-  return namespace === null ? null : NAMESPACE_HELP[namespace] ?? null;
+  if (namespace === null) return null;
+  // namespaceを持たない1語コマンド（status等）は、SUBCOMMAND_USAGEへ落ちる。
+  // 落とさないと「存在するのに使い方を知る手段が無い」コマンドになる。
+  if (NAMESPACE_HELP[namespace] !== undefined) return NAMESPACE_HELP[namespace];
+  const usage = SUBCOMMAND_USAGE[namespace];
+  return usage === undefined ? null : `Usage: lattice ${usage}\n`;
 }

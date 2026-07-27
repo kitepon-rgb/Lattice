@@ -58,6 +58,36 @@ test('bridge CLIはsetup/status/reconfigure/disableをJSON契約で提供する'
   assert.deepEqual(calls, ['install:58742', 'install:58742', 'disable']);
 });
 
+test('bridge registerはbridge無効なら拒否し、registrar未設定ならnot_configuredを返す', async (context) => {
+  // 出荷しているのにCLIから一度も走らせていないコマンドを残さない。
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-register-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_CONFIG_DIR: root };
+  const daemon = { ensure: async () => {}, stop: async () => {} };
+  const launchAgent = launchAgentDouble();
+  const invoke = async (argv) => {
+    const stdout = output(); const stderr = output();
+    const code = await runBridgeCli({ argv, stdout: stdout.stream, stderr: stderr.stream,
+      env, daemon, launchAgent });
+    return { code, stdout: stdout.read(), stderr: stderr.read() };
+  };
+
+  // bridgeが無効なうちは登録するものが無い。黙って成功扱いしない。
+  const disabled = await invoke(['register', '--json']);
+  assert.notEqual(disabled.code, 0);
+  assert.equal(JSON.parse(disabled.stderr).code, 'BRIDGE_DISABLED');
+
+  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58761',
+    '--dashboard', '--json'])).code, 0);
+
+  // registrarのssh設定が無い環境では、失敗ではなくnot_configuredとして返す。
+  const registered = await invoke(['register', '--json']);
+  assert.equal(registered.code, 0, registered.stderr);
+  const result = JSON.parse(registered.stdout);
+  assert.equal(result.state, 'not_configured');
+  assert.equal(result.port, 58_761);
+});
+
 test('bridge CLIは非JSON・低port・未知flagをtyped errorにする', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-cli-fail-'));
   context.after(() => rm(root, { recursive: true, force: true }));

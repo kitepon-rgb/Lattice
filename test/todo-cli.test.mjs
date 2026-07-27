@@ -291,6 +291,19 @@ test('todo status/verifyは末尾--jsonをflag無しJSON wireの互換aliasと�
     successJson(runCli(root, ['todo', 'verify', '--plan', 'main'])));
 });
 
+test('todo bindingsはcompile_binding付きTaskをTODO identityつきで投影する', async (context) => {
+  // 出荷しているのにCLIから一度も走らせていないコマンドを残さない。
+  const root = await workspace(context);
+  const withFlag = successJson(runCli(root, ['todo', 'bindings', '--json']));
+  assert.equal(typeof withFlag.schema, 'string');
+  assert.match(withFlag.schema, /^lattice\.todo_/u);
+  // 末尾--jsonはflag無しJSON wireの互換aliasである。
+  assert.deepEqual(successJson(runCli(root, ['todo', 'bindings'])), withFlag);
+  // plan絞り込みも同じ契約で応える。
+  const scoped = successJson(runCli(root, ['todo', 'bindings', '--plan', 'main', '--json']));
+  assert.equal(scoped.schema, withFlag.schema);
+});
+
 test('todo reviseはcanonical revisionだけを発行しstatus/verifyへreconciled identityを公開する', async (context) => {
   const root = await workspace(context);
   const revision = await revisionInput(root);

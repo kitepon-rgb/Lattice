@@ -11,7 +11,9 @@ import { promisify } from 'node:util';
 import {
   acknowledgeRuntimeErrors,
   compactRuntimeErrors,
+  defaultFactoryReporterConfigPath,
   recordRuntimeError,
+  runtimeErrorsStatePath,
   runtimeCollectionEnabled,
   runtimeErrorsDiagnostics,
   runtimeErrorsSnapshot,
@@ -173,6 +175,39 @@ test('CLI runtime-errorsはsnapshot/ack/diagnosticsをJSON 1行で返しusage違
     );
     await assert.rejects(
       execFileAsync(process.execPath, [cliPath, 'runtime-errors', 'ack', 'abc', '--json'], { env }),
+      (error) => error.code === 2,
+    );
+
+    // resolve／reopen／compactも同じJSON 1行契約で応える。出荷しているのに
+    // CLIから一度も走らせていないコマンドを残さない。
+    const recorded = recordRuntimeError('LATTICE.RUN_STORE_IO_FAILED', {
+      version: '0.1.0',
+      configPath: defaultFactoryReporterConfigPath(env),
+      storePath: runtimeErrorsStatePath(env),
+      now: '2026-07-27T00:00:00.000Z',
+    });
+    assert.equal(typeof recorded.fingerprint, 'string');
+    const fingerprint = recorded.fingerprint;
+    const resolved = await execFileAsync(process.execPath,
+      [cliPath, 'runtime-errors', 'resolve', fingerprint, '--json'], { env });
+    assert.equal(typeof JSON.parse(resolved.stdout.trim()).schema, 'string');
+
+    const reopened = await execFileAsync(process.execPath,
+      [cliPath, 'runtime-errors', 'reopen', fingerprint, '--json'], { env });
+    assert.equal(typeof JSON.parse(reopened.stdout.trim()).schema, 'string');
+
+    const compacted = await execFileAsync(process.execPath,
+      [cliPath, 'runtime-errors', 'compact', '--json'], { env });
+    assert.equal(typeof JSON.parse(compacted.stdout.trim()).schema, 'string');
+
+    // fingerprintの形が違えばtyped errorで落ちる。黙って成功扱いしない。
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'runtime-errors', 'resolve', 'nope', '--json'], { env }),
+      (error) => error.code === 1,
+    );
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'runtime-errors', 'compact', 'extra', '--json'], { env }),
       (error) => error.code === 2,
     );
   } finally {
