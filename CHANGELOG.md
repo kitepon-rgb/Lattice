@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.31.0 — 2026-07-28
+
+- **実行時競合の早期警報が、実runで初めて発火した**
+  （[ADR 0143](docs/adr/0143-io-sentinel-is-an-early-warning-not-a-finding.md)・
+  [受入証拠](docs/evidence/2026-07-28-io-sentinel-live-run.md)）。
+  実daemon・実worktree・実gitで、宣言scope外への書き込みを**走行中に**観測し、probeが実在と
+  裁定するところまで通る。一時fileには`transient`と裁定し、書いて消したもので全workerを止めない。
+- **probeは実装以来一度も動いていなかった。** `captureWorktreeDiff`をimportせずに呼んでおり、
+  観測失敗を丸めるための`.catch(() => null)`が`ReferenceError`ごと握り潰していた。返る値は常に
+  「観測できなかった」という**正常系の値**で、syntax checkもlintも1080件のtestも緑だった。
+  握り潰す範囲が広すぎると、壊れていることが正常系と区別できなくなる。
+- **workerをTODOごとの実worktreeへ分離し、非同期に走らせるようにした。** 以前は全TODOのbindingが
+  同じrepo rootを指し、dispatchの中で作業が終わっていた。前者では書き込みの帰属をrootから
+  決められず、後者では走行中のTODOが1つも存在しないので、実行時の観測が原理的に成立しなかった。
+  結果として、runはユーザーのtreeを直接書き換えなくなった。
+- **probeのcheckpointをreceipt裁定のbinding基準から外した。** probeはexecutorの申告境界ではないので、
+  混ぜると走行中に書き続けた正当なreceiptが`checkpoint_mismatch`で落ちる。
+- **まだ通っていないこと:** 警報からholdまでは実runで通っていない。`run activate`がepoch全体を
+  lifecycle lockを握ったまま同期駆動するため、escalationがlockを取れる頃にはworkerが完了している。
+  検出遅延の実測も未了である。切り離しは次の工程が持つ。
+
 ## 0.30.1 — 2026-07-28
 
 - **npmのauthorを設定した。** 未設定だったので、公開面に作者が出ていなかった。
