@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.28.0 — 2026-07-27
+
+**Latticeが自分の閉じ作業をLatticeで組んだ版。** 実際に使ったことで、使わなければ出なかった
+欠陥が7件出た。うち3件は、それが直るまで**変換が一度も受理されない**ものだった。
+
+- **symbol範囲の取得が既定limitで打ち切られていた。** witness evidenceの共通経路がsensor CLIの
+  既定`--limit 10`で名前を引くため、同名symbolが多いprojectでは対象fileの定義が窓の外へ落ちる。
+  実測で`GIT_SHA1`は17 fileにあり、**実在するsymbolを「範囲なし」と誤報して正当な変換を棄却して
+  いた**。専用経路で明示limitを渡し、打ち切りは`symbol_lookup_truncated`として区別する。
+- **隔離worktreeにbuild成果物（`sensor/dist`）が無く**、同梱sensorを起動するfocused testが全部
+  ENOENTで落ちていた。`focused_tests_passed`が原理的に満たせない状態だった。存在する時だけmountする。
+- **残余面が移動した公開symbolを再exportしていなかった。** 原pathをimportしている全fileが壊れ、
+  外部挙動同等性が原理的に満たせなかった。移動先を指すexport文を残余面へ足す。
+- **案内の不具合も直した。** verifierの失敗がどのtestのなぜか返らない、入力契約違反が期待する形を
+  言わない（`schema_invalid`だけ）、cleanliness拒否が汚染pathを言わない——いずれも「動かない理由を
+  追う手段が無い」不具合である。
+- **未決25件をすべて裁定した**（ADR 0142）。既に裁定済みなのに印が無いもの7件、いま裁定できるのに
+  保留していたもの6件、実データ待ち7件。`npm run check:open-questions`が、発火条件も移譲先も
+  裁定先も持たない未決を落とす。
+- **seam refの寿命と変換の連鎖**を決めた。refは自動では消さない（受理された変換の実体を辿れる唯一の
+  資源である）。同じcandidateへの2回目は、前の変換を含むbaseの上でのみ確定できる。
+- **未配線moduleを研究成果物として裁定した。** `npm run check:reachability`が入口から辿れる集合を
+  機械的に出し、辿れないものは理由つき宣言だけ通す。製品79 module・研究33 module。
+  `boundary-compiler.mjs`など、名前は中核に見えるが製品経路から一度も呼ばれていない5本が出た。
+
 ## 0.27.0 — 2026-07-27
 
 - **実行時変換レーンに本番の入口を作った**（`lattice run seam resolve --run <ref> --finding <digest>
