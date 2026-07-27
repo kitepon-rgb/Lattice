@@ -21,7 +21,7 @@ import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { detectCheckpointFindings } from './runtime-diff-observer.mjs';
 import {
-  createRunSentinel, probeIoWarning, syncSentinelWatches,
+  buildIoEscalation, createRunSentinel, probeIoWarning, syncSentinelWatches,
 } from './runtime-io-sentinel.mjs';
 import {
   buildRuntimeSeamResolution, readRuntimeFindingRecord, resolveRuntimeSeam,
@@ -129,6 +129,15 @@ const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const RUN_STORE_ROOT = ['.lattice', 'runs'];
 const RUN_REF = /^\.lattice\/runs\/([0-9A-Za-z](?:[0-9A-Za-z._-]{0,127}))$/u;
 const KNOWN_ADAPTERS = Object.freeze(['scripted', 'isolated-worktree', 'actual-agent']);
+/**
+ * 自動escalationがlifecycle lockを待つ上限（ADR 0143）。
+ *
+ * 待つのは、警報が飛んだ瞬間にactivateやrecompileが走っていることが普通にあるからである。
+ * 待たずに諦めると、早期警報がいちばん効く場面——複数TODOが同時に動いている最中——で
+ * 必ず取り逃す。上限を置くのは、待ち続けてdaemonの他の仕事を止めないため。
+ * 超えたら`rejected`として理由ごとjournalへ残す（黙って見送らない）。
+ */
+const IO_ESCALATION_LOCK_TIMEOUT_MS = 15_000;
 
 class CliContractError extends Error {
   constructor(code, message, detail) {
@@ -1711,15 +1720,6 @@ export async function runManagedSupervisorDaemon({
   let gateWriter = null;
 
   /**
-   * I/O sentinelの早期警報を耐久化する（ADR 0143）。
-   *
-   * **findingにはしない。** findingの契約はcheckpoint digestを必須にしており、それはfindingが
-   * 事後に再読して再導出できる主張であることの担保である。fs eventは取りこぼすし再読もできない。
-   * ここで残すのは「機械が気づいた」という事実だけで、判定の正本はcheckpointのままである。
-   *
-   * 記録しない選択肢は無い。気づいたのに黙っている状態を残さない（ADR 0130）。
-   */
-  /**
    * 警報を無停止のcheckpointで確かめる（ADR 0143の二段目）。
    *
    * probeが撮るのはgitから読んだ本物のdiffなので、そのままfindingの証拠になる。
@@ -1728,13 +1728,17 @@ export async function runManagedSupervisorDaemon({
   const probeWarning = async (warning) => {
     const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events')
       .catch(() => null);
-    if (!Array.isArray(events)) return { outcome: 'unprobed', writers: [], checkpoints: {} };
+    if (!Array.isArray(events)) {
+      return { outcome: 'unprobed', writers: [], checkpoints: {}, roots: {} };
+    }
     const checkpoints = {};
+    const roots = {};
     for (const todoId of warning.todo_ids) {
       const dispatch = events.findLast((event) => event.kind === 'executor_dispatched'
         && event.subject?.kind === 'todo' && event.subject.ref === todoId);
       const binding = dispatch?.payload?.direct_os_observation_binding;
       if (typeof binding?.worktree_path !== 'string' || typeof binding?.base_sha !== 'string') continue;
+      roots[todoId] = binding.worktree_path;
       // 観測できないTODOは「書いていない」へ丸めない。probeIoWarningが未観測として扱う。
       const captured = await captureWorktreeDiff({
         worktreePath: binding.worktree_path, baseSha: binding.base_sha,
@@ -1742,10 +1746,40 @@ export async function runManagedSupervisorDaemon({
       if (captured !== null) checkpoints[todoId] = captured;
     }
     if (Object.keys(checkpoints).length === 0) {
-      return { outcome: 'unprobed', writers: [], checkpoints };
+      return { outcome: 'unprobed', writers: [], checkpoints, roots };
     }
-    return { ...probeIoWarning({ warning, checkpointsByTodo: checkpoints }), checkpoints };
+    return { ...probeIoWarning({ warning, checkpointsByTodo: checkpoints }), checkpoints, roots };
   };
+
+  /**
+   * 書き手を特定できる構成かを確かめる。
+   *
+   * sentinelの帰属はworktree rootだけで決まる（プロセス帰属を持たない）。だから
+   * **複数TODOが同じrootを共有している構成では、誰が書いたかを観測から言えない**。
+   * 実際、管理daemonのscripted構成は全TODOのbindingが同じrepo rootを指す。
+   *
+   * そこでは警報も、probeが撮るcheckpointも、TODO間で区別が付かない——同じ木を2回読んで
+   * 「両方が書いた」と読めてしまう。これをholdへ繋ぐと、無実のTODOを止める。
+   * 帰属が立たないならescalationへ進めない。警報と実在の記録はそのまま残す。
+   */
+  const attributionIsDistinct = (warning, roots) => {
+    const paths = warning.todo_ids.map((todoId) => roots[todoId]);
+    if (paths.some((value) => typeof value !== 'string')) return false;
+    return new Set(paths).size === paths.length;
+  };
+
+  /**
+   * I/O sentinelの早期警報を耐久化する（ADR 0143）。
+   *
+   * **findingにはしない。** findingの契約はcheckpoint digestを必須にしており、それはfindingが
+   * 事後に再読して再導出できる主張であることの担保である。fs eventは取りこぼすし再読もできない。
+   * ここで残すのは「機械が気づいた」という事実だけで、判定の正本はcheckpointのままである。
+   *
+   * 記録しない選択肢は無い。気づいたのに黙っている状態を残さない（ADR 0130）。
+   */
+  const warningDigestOf = (warning) => digestArtifact({
+    warning_kind: warning.kind, todo_ids: [...warning.todo_ids].sort(), path: warning.path,
+  });
 
   const recordIoWarning = async (warning, probeOutcome) => {
     const payload = {
@@ -1753,13 +1787,157 @@ export async function runManagedSupervisorDaemon({
       todo_ids: [...warning.todo_ids].sort(),
       path: warning.path,
       probe_outcome: probeOutcome,
-      warning_digest: digestArtifact({
-        warning_kind: warning.kind, todo_ids: [...warning.todo_ids].sort(), path: warning.path,
-      }),
+      warning_digest: warningDigestOf(warning),
     };
     await appendControl({ run_id: request.request_id, kind: 'io_warning_observed',
       session_nonce_digest: digestArtifact(sessionNonce), payload });
   };
+
+  /**
+   * probeが撮ったcheckpointをrun eventへ耐久化する（ADR 0143の三段目・前段）。
+   *
+   * `finding_record`はcheckpointがactive epochのevent prefixから解決できることを要求する。
+   * probeのcheckpointは他のcheckpointと同じくgitから読んだ実diffなので、ここで印を足さない
+   * ——由来はcontrol journalの`io_escalation_decided`が持ち、run eventには「観測した木」
+   * だけを置く。events.jsonは全体置換なので、lifecycle lockの内側でだけ触る。
+   *
+   * @returns {{ok: true, expected_epoch: number}|{ok: false, outcome: string, detail: string}}
+   */
+  const durablyRecordProbeCheckpoints = async (escalation, checkpointsByTodo) => {
+    let lock;
+    try {
+      lock = await acquireRuntimeLifecycleLock({ runDir,
+        sessionNonceDigest: digestArtifact(sessionNonce), operation: 'finding_record',
+        requestId: `${escalation.escalation_id}.checkpoint`,
+        timeoutMs: IO_ESCALATION_LOCK_TIMEOUT_MS, retryIntervalMs: 25 });
+    } catch (error) {
+      return { ok: false, outcome: 'rejected',
+        detail: `lifecycle lockを取れない: ${error?.code ?? 'RUN_BUSY'}` };
+    }
+    try {
+      const active = await readCommittedEpochStore(runDir);
+      if (active === null) return { ok: false, outcome: 'skipped', detail: 'managed epochが未commit' };
+      const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+      const state = projectRuntimeState({ events });
+      // 既にfreeze済みなら、この警報が指す競合はもう止まっている。二重にholdを掛けない。
+      if (state.freeze !== null) {
+        return { ok: false, outcome: 'skipped', detail: 'runは既にfreeze済み' };
+      }
+      // 走り終わったTODOはcheckpoint findingが従来どおり捕まえる。早期警報の出番ではない。
+      const running = new Set(state.running);
+      if (!escalation.writers.every((todoId) => running.has(todoId))) {
+        return { ok: false, outcome: 'skipped', detail: '観測したTODOが既にrunningでない' };
+      }
+      let next = events;
+      for (const todoId of escalation.writers) {
+        const checkpoint = checkpointsByTodo[todoId];
+        if (next.some((event) => event.kind === 'checkpoint_observed'
+          && event.payload?.checkpoint_digest === checkpoint.checkpoint_digest)) continue;
+        next = [...next, buildNextRunEvent({ events: next, runId: request.request_id,
+          kind: 'checkpoint_observed', planEpoch: active.pointer.plan_epoch,
+          subject: { kind: 'todo', ref: todoId },
+          payload: structuredClone(checkpoint), recordedAt: canonicalNow() })];
+      }
+      if (next !== events) await replaceEventsAtomically(runDir, next);
+      return { ok: true, expected_epoch: active.pointer.plan_epoch };
+    } catch (error) {
+      return { ok: false, outcome: 'rejected',
+        detail: `probe checkpointを耐久化できない: ${error?.code ?? String(error?.message ?? error)}` };
+    } finally {
+      await lock.release();
+    }
+  };
+
+  /**
+   * probeが実在と判定した警報を、既存のhold経路へ入れる（ADR 0143の三段目）。
+   *
+   * **新しい停止経路を作らない。** daemon自身が、hostが叩くのとまったく同じ
+   * `finding_record`→`conflict`→`hold`をcontrol requestとして発行する。findingの再導出も、
+   * epoch束縛も、durable evidenceの照合も、既存handlerがそのまま行う——早期警報が短くするのは
+   * **気づくまでの時間**だけで、通す関門は1つも減らない。
+   *
+   * 途中で断られたらそこで止め、理由をjournalへ残す。静かに別経路へ逃げない。
+   */
+  const escalateIoWarning = async (warning, probed, packets) => {
+    const built = buildIoEscalation({ warning, probe: probed,
+      checkpointsByTodo: probed.checkpoints, packets });
+    if (built === null) return null;
+    const escalation = { ...built, escalation_id: `io-esc-${randomUUID()}` };
+    const decide = async (outcome, detail, findingDigest = null) => {
+      await appendControl({ run_id: request.request_id, kind: 'io_escalation_decided',
+        session_nonce_digest: digestArtifact(sessionNonce), payload: {
+          warning_digest: warningDigestOf(warning),
+          anchor_todo_id: escalation.anchor_todo_id,
+          checkpoint_digest: escalation.checkpoint_digest,
+          finding_digest: findingDigest, outcome, detail,
+        } });
+      return { outcome, detail, finding_digest: findingDigest };
+    };
+    if (!attributionIsDistinct(warning, probed.roots)) {
+      return decide('skipped',
+        'worktree rootを共有する構成では書き手を特定できない（帰属はrootだけで決まる）');
+    }
+    const recorded = await durablyRecordProbeCheckpoints(escalation, probed.checkpoints);
+    if (!recorded.ok) return decide(recorded.outcome, recorded.detail);
+
+    const submit = async (operation, { artifact = null, artifactDigest = null,
+      checkpointDigest = null } = {}) => {
+      const controlRequest = createRuntimeControlRequest({
+        requestId: `${escalation.escalation_id}.${operation.replace(/_/gu, '-')}`,
+        runId: request.request_id, operation, sessionNonce,
+        payload: controlOperationPayload({ operation, runRef: request.request_id,
+          artifact, artifactDigest, checkpointDigest,
+          expectedEpoch: recorded.expected_epoch, expectedQueueDigest: null }),
+      });
+      return handler(controlRequest);
+    };
+    const unmetOf = (response) => (response?.result?.unmet ?? []).join('/')
+      || String(response?.outcome ?? 'unknown');
+
+    const findingResponse = await submit('finding_record', {
+      artifact: escalation.candidate, artifactDigest: escalation.candidate.candidate_digest,
+      checkpointDigest: escalation.checkpoint_digest,
+    }).catch((error) => ({ outcome: 'rejected',
+      result: { unmet: [String(error?.code ?? error?.message ?? error)] } }));
+    const findingDigest = findingResponse?.result?.finding_digest ?? null;
+    if (findingResponse?.outcome !== 'completed' || !/^[0-9a-f]{64}$/u.test(findingDigest ?? '')) {
+      return decide('rejected', `finding_recordが通らない: ${unmetOf(findingResponse)}`);
+    }
+
+    const conflictResponse = await submit('conflict', { artifactDigest: findingDigest })
+      .catch((error) => ({ outcome: 'rejected',
+        result: { unmet: [String(error?.code ?? error?.message ?? error)] } }));
+    if (conflictResponse?.outcome !== 'completed') {
+      return decide('rejected', `conflictが通らない: ${unmetOf(conflictResponse)}`, findingDigest);
+    }
+
+    const holdResponse = await submit('hold').catch((error) => ({ outcome: 'rejected',
+      result: { unmet: [String(error?.code ?? error?.message ?? error)] } }));
+    if (holdResponse?.outcome !== 'completed') {
+      return decide('rejected', `holdが通らない: ${unmetOf(holdResponse)}`, findingDigest);
+    }
+    return decide('held', `早期警報からhold: ${warning.kind}/${warning.path}`, findingDigest);
+  };
+
+  /**
+   * 警報1件の全行程（probe → 記録 → escalation）。
+   *
+   * probeが`observed`でも、escalationは走らないことがある（既にfreeze済み、当該TODOが
+   * 走り終わっている）。その差を`probe_outcome`で区別する——`escalated`はhold経路へ
+   * 渡したことまでを言い、渡さなかったなら`observed`のまま残す。
+   */
+  const handleIoWarning = async (warning, packets) => {
+    const probed = await probeWarning(warning).catch(() => (
+      { outcome: 'unprobed', writers: [], checkpoints: {} }));
+    const decided = probed.outcome === 'observed'
+      ? await escalateIoWarning(warning, probed, packets).catch(() => null)
+      : null;
+    await recordIoWarning(warning,
+      decided === null || decided.outcome === 'skipped' ? probed.outcome : 'escalated');
+  };
+
+  /** 警報の処理を直列化する鎖。`onWarning`はここへ繋ぐだけにする。 */
+  let escalationChain = Promise.resolve();
 
   const resolveObservationBinding = async ({ binding }) => {
     const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
@@ -1874,11 +2052,16 @@ export async function runManagedSupervisorDaemon({
         if (!restarting && isDistributedScriptedControllerActivation(activation)) {
           sentinel = createRunSentinel({
             packets: committed.bundle.executor_packets,
-            onWarning: async (warning) => {
-              // 警報だけで止めない。無停止のprobeで実在を確かめてから記録する。
-              const probed = await probeWarning(warning).catch(() => (
-                { outcome: 'unprobed', writers: [] }));
-              await recordIoWarning(warning, probed.outcome);
+            onWarning: (warning) => {
+              // escalationはrun全体の状態（events.json・lifecycle lock・freeze）を触るので、
+              // 警報が同時に何本飛んでも1本ずつ処理する。並べると、同じcheckpointを二重に
+              // 積んだり、holdが掛かった後の警報でもう一度holdを試したりする。
+              const settled = escalationChain.then(() => handleIoWarning(warning,
+                committed.bundle.executor_packets));
+              // 鎖自体は必ずresolvedへ戻す（1件の失敗で以後の警報を止めない）。
+              // 失敗そのものは呼び出し側へ返す方を残し、握り潰さない。
+              escalationChain = settled.catch(() => {});
+              return settled;
             },
           });
           await driveInitialScriptedManagedEpoch({
