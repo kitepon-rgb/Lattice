@@ -166,6 +166,18 @@ test('実runで、宣言scope外の書き込みを走行中に観測して警報
       JSON.stringify(event.payload));
   }
 
+  // **escalationはholdの手前で止まる。** 直接OS観測はexecutorのprocessが停止している
+  // ことを要求するが、scripted controllerは自分のprocessで作業するので証明できない。
+  // freezeさせてholdが通らない状態を作るとrunを畳めなくなるため、freezeさせない。
+  // 早期警報が「早めるためだけに在る」という原則は、ここでも守られている。
+  const rejected = decided.find((event) => event.payload.outcome === 'rejected');
+  assert.notEqual(rejected, undefined, JSON.stringify(decided.map((e) => e.payload)));
+  assert.match(rejected.payload.detail, /静止を証明できない/u);
+
+  const runEvents = JSON.parse(await readFile(path.join(runDir, 'events.json'), 'utf8'));
+  const kinds = runEvents.map((event) => event.kind);
+  assert.equal(kinds.includes('intake_frozen'), false, kinds.join(','));
+
   // 実writeは各workerの木の中だけで起きる。canonical repoは触られない。
   assert.equal(await readFile(path.join(repoRoot, 'src', 'alpha.mjs'), 'utf8'),
     'export const alpha = 1;\n');
