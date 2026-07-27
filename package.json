@@ -1,6 +1,6 @@
 {
   "name": "@quolu/lattice",
-  "version": "0.20.1",
+  "version": "0.21.0",
   "description": "Lattice — phase-aware TODO graph compiler and conflict-aware orchestration runtime",
   "type": "module",
   "license": "MIT",

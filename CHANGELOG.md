@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.21.0 — 2026-07-27
+
+**Latticeが初めて、競合を提案でなく実際の変換で解消した。** これまでは「こう切れば競合が
+消える」と提案するだけで、提案surfaceはディスク上に存在せず、artifact自身が
+`hypothetical_new_surfaces`とラベルしていた。
+
+- **記録済みseam提案を隔離worktreeで適用し、五条件で採否を決める入口**を足した
+  （`lattice todo seam-proposal apply --plan <key>`、[ADR 0137](docs/adr/0137-real-transform-acceptance-contract.md)・
+  [ADR 0138](docs/adr/0138-transform-acceptance-five-conditions.md)）。五条件は外部挙動同等性・
+  focused test通過・再index・重複解消（**対象競合の消滅とplan全体の競合対が増えないこと**）・
+  **実行段階数または最長経路の改善**。1つでも欠けたら棄却であり、欠けた条件を名指しする。
+- **採用された変換を本ツリーへ着地させる入口**を足した（`seam-proposal land --plan <key> --names <file>`）。
+  着地は記録された採用結果を信用せず、五条件をもう一度全部回してから書き込む。
+  surface名は呼び出し側が与える——**名前を付けるのは判断なので製品が発明しない**。
+- 適用可能な候補は**所有・共有・残余の三面**をすべて挙げる。宣言symbolを移すだけでは、
+  誰も宣言していない依存先が宙に浮き、原fileと新fileが循環importになり、原pathに何が残るかが
+  決まらない。依存は「所有→共有」「残余→所有」の一方向に固定し、共有面から所有面へ辺が入る
+  候補は棄却する。
+- 依存の推移閉包で、**calleeを照会していないsymbolを「calleeが無い」と同一視しない**ようにした。
+  同一視すると閉包が黙って浅くなり、移動先で参照だけが宙に浮く——構文は通るので実行するまで
+  壊れたと分からない。実データで踏んだ欠陥である。
+- 隔離runnerが**mountを所有する**ようにした。verifierへ依存を渡す手段が無く、呼び出し側が
+  symlinkを張るとallowed path外の変更として弾かれていた。gitignore対象も含めてsnapshotを取る
+  規律は緩めず、runnerが自分で張ったentryだけを外す。`src`／`test`へのmountは拒否する。
+- 計画段階の限界と、解決不能問題へ突入しない規律を規約へ書いた。静的側で完全な分断は
+  原理的に得られず、埋め合わせは実行段階の境界検知が持つ。**二段構えが設計であって、
+  静的側の不備ではない。**
+
+**実測**（[実行記録](docs/evidence/2026-07-27-rt-005-closed-loop-accepted.md)・
+[着地](docs/evidence/2026-07-27-rt-006-landed.md)・[競合消滅](docs/evidence/2026-07-27-rt-007-version-barrier.md)）:
+このrepoの実conflictで`src/todo-gantt-html.mjs`（626行）が四面へ分かれ、五条件をすべて満たして
+着地した。再indexして再compileすると**競合は1件から0件へ**、提案対象そのものが消えた。
+
 ## 0.20.1 — 2026-07-27
 
 - 0.20.0で基底run request契約を`lattice.run_request.v2`へ上げたが、その名前は
