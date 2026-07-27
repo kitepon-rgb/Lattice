@@ -478,7 +478,7 @@ front endが要求する形（`changedFiles`が対象1件）であること。
 つまり2つのworkerが同じfileを触っても、**片方が完了するまで誰も気づかない**。holdで捨てる作業量の
 正体はこの窓である。
 
-判定に要る材料は既にある。worktreeとTODOは1対1なので、書き込みイベントのpathからworktree rootを
+判定に要る材料は既にある。worktreeとTODOが1対1なら、書き込みイベントのpathからworktree rootを
 剥がせばrepo相対pathになり、**そのpathが他のrunning TODOの宣言scopeに入るか**を見るだけでよい。
 checkpoint findingとまったく同じ述語である。プロセス帰属は要らない——rootがそのまま帰属になる。
 
@@ -497,12 +497,35 @@ hold経路へ入る。消えていれば警報を記録して終わり。停止�
 「I/O検知はやらない」は、worktree**内**の早期警報について狭く上書きする。worktree**外**
 （`/tmp`、home、ネットワーク）は引き続き見えず、`write-coverage`の発火条件つき保留のまま残す。
 
+## 帰属はrootに預けてある——だから共有rootでは成立しない
+
+配線して分かったこと。**管理daemonのscripted構成は、全TODOのbindingが同じrepo rootを指す**
+（`runtime-cli.mjs`のdispatch応答が`worktree_path: repoRoot`を返す）。sentinelの帰属はrootだけで
+決まりプロセス帰属を持たないので、この構成では1件の書き込みが全watcherへ配られ、**誰が書いたかを
+観測から言えない**。無実のTODOへ「他人のscopeへ書いた」と主張することになる。probeも助けにならない
+——同じ木を2回読むので、両方が書いたように見える。
+
+今日まで実害が出ていないのは、警報が拘束力を持たず、かつ監視をdispatch**後**に張るので
+scripted controllerの書き込みを一度も拾えていなかったからである。**io-sentinelはまだ一度も
+発火していない。** holdへ繋ぐ以上、ここを塞がずには進められない。
+
+対処として、rootを共有して走っているTODOは監視しない。共有rootでも走っているのが1つなら帰属は
+立つので見る。escalation側にも同じ確認を置く。見えないものを見えるふりにしないだけで、競合の判定は
+従来どおりcheckpointが完全に担う——保証は1つも減らない。
+
+**残る穴は早期警報に閉じない。** 並列workerが別々の木で作業し、実際に触った資源の観測から競合を
+捕まえるのが装置の中核である。共有rootではcheckpointも「誰が書いたか」をrootから決められない。
+`createWorktreeExecutorAdapter`（TODOごとに実worktreeを切る実装）は既にあるが、使っているのは
+`rc3-scripted-campaign.mjs`という研究用ハーネスだけで、管理daemonからは呼ばれていない。
+よって次の工程は「実測」ではなく**管理daemonをworktree分離dispatchへ広げること**とする。
+実測はその上でしか意味を持たない。
+
 ## 工程
 
-- [ ] 書き込み観測から警報を出すsentinel coreを作る
-- [ ] supervisor daemonへsentinelを配線し警報を耐久化する
-- [ ] 警報からprobeを経て自動holdへ繋ぐ
-- [ ] 実repoで早期検知から再開までを通し検出遅延を実測する
+- [x] 書き込み観測から警報を出すsentinel coreを作る
+- [x] supervisor daemonへsentinelを配線し警報を耐久化する
+- [x] 警報からprobeを経て自動holdへ繋ぐ
+- [ ] 管理daemonのdispatchをworktree分離へ広げ、早期検知から再開までを実測する
 - [ ] 設計をADRへ残しreleaseまで通す
 
 ---
