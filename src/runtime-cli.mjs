@@ -1810,9 +1810,11 @@ export async function runManagedSupervisorDaemon({
    * probeが撮ったcheckpointをrun eventへ耐久化する（ADR 0143の三段目・前段）。
    *
    * `finding_record`はcheckpointがactive epochのevent prefixから解決できることを要求する。
-   * probeのcheckpointは他のcheckpointと同じくgitから読んだ実diffなので、ここで印を足さない
-   * ——由来はcontrol journalの`io_escalation_decided`が持ち、run eventには「観測した木」
-   * だけを置く。events.jsonは全体置換なので、lifecycle lockの内側でだけ触る。
+   * probeのcheckpointは他のcheckpointと同じくgitから読んだ実diffなので、findingの証拠に
+   * そのまま使える。ただし**由来は印として残す**——これはexecutorの申告境界ではなく
+   * supervisorが選んだ走行中の一点であり、receipt裁定のbinding基準に混ぜると、
+   * probe後も書き続けた正当なreceiptがcheckpoint_mismatchで落ちる。
+   * events.jsonは全体置換なので、lifecycle lockの内側でだけ触る。
    *
    * @returns {{ok: true, expected_epoch: number}|{ok: false, outcome: string, detail: string}}
    */
@@ -1849,7 +1851,8 @@ export async function runManagedSupervisorDaemon({
         next = [...next, buildNextRunEvent({ events: next, runId: request.request_id,
           kind: 'checkpoint_observed', planEpoch: active.pointer.plan_epoch,
           subject: { kind: 'todo', ref: todoId },
-          payload: structuredClone(checkpoint), recordedAt: canonicalNow() })];
+          payload: { ...structuredClone(checkpoint), observed_by: 'supervisor_probe' },
+          recordedAt: canonicalNow() })];
       }
       if (next !== events) await replaceEventsAtomically(runDir, next);
       return { ok: true, expected_epoch: active.pointer.plan_epoch };

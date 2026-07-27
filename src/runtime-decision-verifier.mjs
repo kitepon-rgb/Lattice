@@ -487,6 +487,9 @@ export function recomputeReceiptDecisions(options = {}) {
       entry.todo_id === receipt.todo_id
       && entry.sequence > dispatch.sequence
       && entry.sequence < receipt.sequence
+      // supervisorがI/O警報を確かめるために撮ったcheckpointはexecutorの申告境界では
+      // ないので、bindingの基準にしない（ADR 0143。engine側と同一規則）。
+      && entry.payload?.observed_by !== 'supervisor_probe'
     ));
     if (observedCheckpoints.length > 0) {
       const last = observedCheckpoints[observedCheckpoints.length - 1].payload;

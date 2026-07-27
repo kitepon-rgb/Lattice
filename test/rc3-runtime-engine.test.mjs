@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   adjudicatePendingReceipts,
   buildExecutorPackets,
+  buildNextRunEvent,
   closeRunIfComplete,
   dispatchReadyFrontier,
   initializeRunEvents,
@@ -476,4 +477,48 @@ test('packet contractを満たさないdispatchとplan外scriptはTypeErrorでfa
   await assert.rejects(dispatchReadyFrontier({
     runId: RUN_ID, plan, events, packets: { TA: { schema: 'bogus' } }, manifests, adapter, recordedAt: AT,
   }), TypeError);
+});
+
+// ADR 0143。I/O警報のprobeは走行中の任意の一点を撮る。executorの申告境界ではないので、
+// receiptのbinding基準に混ぜてはならない——混ぜると、probe後も書き続けた正当なreceiptが
+// checkpoint_mismatchで落ちる。証拠としては残し、findingの導出には使う。
+test('supervisorのprobe checkpointは、receiptのbinding基準にしない', async () => {
+  const fixture = buildFixture({ todos: ['TA'], capacity: 1 });
+  const executorCheckpoint = { checkpoint_digest: '1'.repeat(64),
+    diff: { entries: [{ path: 'src/ta.mjs', change: 'modified' }] } };
+  const adapter = createScriptedExecutorAdapter({
+    script: { TA: [{ kind: 'checkpoint', checkpoint: executorCheckpoint }, { kind: 'terminal' }] },
+  });
+  const { request, plan, manifests } = fixture;
+  const packets = buildExecutorPackets({ plan, manifests });
+  let events = initializeRunEvents({ runId: RUN_ID, request, plan, manifests, recordedAt: AT });
+  events = (await dispatchReadyFrontier({ runId: RUN_ID, plan, events, packets, manifests,
+    adapter, recordedAt: AT })).events;
+  // executorが申告したcheckpoint。receiptはこれへ縛られる。
+  events = (await observeExecutor({ runId: RUN_ID, plan, events, adapter, todoId: 'TA',
+    recordedAt: AT })).events;
+
+  // その後、supervisorが警報を確かめるために走行中の一点を撮る。
+  const probed = { checkpoint_digest: '2'.repeat(64), observed_by: 'supervisor_probe',
+    diff: { entries: [{ path: 'src/ta.mjs', change: 'modified' },
+      { path: 'src/other.mjs', change: 'added' }] } };
+  events = [...events, buildNextRunEvent({ events, runId: RUN_ID, kind: 'checkpoint_observed',
+    planEpoch: plan.plan_epoch, subject: { kind: 'todo', ref: 'TA' }, payload: probed,
+    recordedAt: AT })];
+
+  events = (await observeExecutor({ runId: RUN_ID, plan, events, adapter, todoId: 'TA',
+    recordedAt: AT })).events;
+  const adjudicated = adjudicatePendingReceipts({ runId: RUN_ID, plan, events, recordedAt: AT });
+  assert.deepEqual(adjudicated.decisions.map(({ decision }) => decision), ['accepted']);
+  // producerとverifierは独立実装だが、同じ規則でなければどちらが正しいか分からなくなる。
+  assert.deepEqual(recomputeReceiptDecisions({ plan, events: adjudicated.events })
+    .decisions.map(({ decision }) => decision), ['accepted']);
+
+  // probeを印無しで積むと、正当なreceiptがcheckpoint_mismatchで落ちる——それが
+  // 印を残す理由である。証拠そのものはeventへ残っている。
+  const unmarked = events.map((event) => (event.payload?.observed_by === 'supervisor_probe'
+    ? { ...event, payload: { ...event.payload, observed_by: undefined } } : event));
+  const poisoned = adjudicatePendingReceipts({ runId: RUN_ID, plan, events: unmarked,
+    recordedAt: AT });
+  assert.equal(poisoned.decisions[0].detail, 'checkpoint_mismatch');
 });

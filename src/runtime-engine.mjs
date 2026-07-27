@@ -619,6 +619,11 @@ export function adjudicatePendingReceipts(options = {}) {
         entry.todo_id === receipt.todo_id
         && entry.sequence > attemptStart
         && entry.sequence < receipt.sequence
+        // supervisorが自分の判断で撮ったcheckpoint（I/O警報のprobe）は、executorの
+        // 申告境界ではない。走行中の任意の一点なので、その後も書き続けたexecutorの
+        // receiptと一致しないのが正常である。ここへ混ぜると、正当なreceiptが
+        // checkpoint_mismatchで落ちる。証拠としては残り、findingの導出には使われる。
+        && entry.payload?.observed_by !== 'supervisor_probe'
       ));
       if (observedCheckpoints.length === 0) return false;
       const last = observedCheckpoints[observedCheckpoints.length - 1].payload;
