@@ -549,9 +549,37 @@ workerのpidを運ぶので契約の版上げを伴う。
 - [x] supervisor daemonへsentinelを配線し警報を耐久化する
 - [x] 警報からprobeを経て自動holdへ繋ぐ
 - [x] 管理daemonのdispatchをworktree分離へ広げ、実runで早期検知を発火させる
-- [x] epoch駆動をactivateから切り離し、走行中のworkerへescalationを届ける
-- [ ] executorを別processにして静止を証明可能にし、警報からholdまでを通して遅延を実測する
-- [ ] 設計をADRへ残しreleaseまで通す
+- [x] 設計をADRへ残しreleaseまで通す
+
+epoch駆動の切り離しは、st-005を閉じた後に同じ流れで済ませた（[ADR 0143](adr/0143-io-sentinel-is-an-early-warning-not-a-finding.md)
+Decision 8）。残りは下記の独立課題が持つ。
+
+---
+
+# executorのprocess分離（静止の証明）
+
+工程状態の正本はLattice storeの`executor-process-isolation` plan（未起票。着手時に起こす）。
+
+**holdは静止の証明を要求する。** 直接OS観測はexecutorのprocessが実際に停止していることまで
+確かめるが、scripted controllerは自分のprocessで作業するので証明できない——止めると制御そのものが
+止まり、止めなければ証明できない。`abandon`も同じ証明を要求するため、freezeだけ掛かった状態のrunは
+進むことも畳むこともできなくなる。
+
+そのため現在は、証明できない構成では`conflict`の手前で止めている（ADR 0143 Decision 9）。
+**freezeできるのにあえてしない**——止まれない状態を作る方が危険だからである。早期警報が
+`finding_record`→`conflict`→`intake_frozen`まで到達すること自体は実runで確認済みで、
+止めているのはその1歩手前である。
+
+埋めるには、scripted controllerがTODOごとに子processを起こして書き込ませ、supervisorがそれを
+停止する形にする。dispatch応答がworkerのpidを運ぶ必要があるので、`lattice.adapter_dispatch_response`
+の版上げを伴う。**これは早期警報だけの話ではない**——請求項7の「一方を停止して他方をcommitする」も
+静止の証明の上に立つので、実executorを持つ限り必ず要る面である。
+
+## 工程
+
+- [ ] dispatch応答がworker processを運ぶよう契約を版上げする
+- [ ] scripted controllerをworker process分離へ移す
+- [ ] 警報からholdまでを実runで通し、検出遅延を実測する
 
 ---
 
