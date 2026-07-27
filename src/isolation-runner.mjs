@@ -349,7 +349,13 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
         verifications.push(verificationReceipt(verifier, verification, 'passed'));
       } catch (error) {
         verifications.push(verificationReceipt(verifier, error, 'failed'));
-        throw new Error(`verifier failed (${error.signal ?? error.code}): ${verifier.command}`);
+        // どのverifierがなぜ落ちたかを載せる。commandだけ返すと、五条件の棄却理由が
+        // 「focused testが落ちた」で止まり、原因を追う手段が無くなる。
+        const detail = String(error?.stderr || error?.stdout || '')
+          .split('\n').filter((line) => line.trim().length > 0).slice(-6).join(' | ').slice(0, 600);
+        throw new Error(`verifier failed (${error.signal ?? error.code}):`
+          + ` ${[verifier.command, ...verifier.args].join(' ')}`
+          + (detail.length > 0 ? ` :: ${detail}` : ''));
       }
       await assertSnapshotUnchanged(worktreePath, baseSha, allowedPaths, snapshot, 'verifier', mountedEntries);
     }
