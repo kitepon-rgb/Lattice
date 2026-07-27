@@ -65,6 +65,7 @@ function sha16(value) {
 
 const WITNESS_KINDS = Object.freeze(['state', 'schema', 'invariant', 'effect', 'external_effect']);
 const HEX_DIGEST = /^[0-9a-f]{64}$/u;
+const HEX_SHA1 = /^[0-9a-f]{40}$/u;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/u;
 const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 
@@ -620,12 +621,19 @@ export function recompileNextEpochPlan(options = {}) {
   if (!exactRecord(options, [
     'runId', 'request', 'plan', 'manifests', 'packets', 'events', 'holdDecision',
     'additionalConflicts', 'recordedAt',
+  ]) && !exactRecord(options, [
+    'runId', 'request', 'plan', 'manifests', 'packets', 'events', 'holdDecision',
+    'additionalConflicts', 'recordedAt', 'successorBaseSha',
   ])) {
     fail('recompileNextEpochPlan optionsがexact shapeでない');
   }
   const {
     runId, request, plan, manifests, packets, events, holdDecision, additionalConflicts, recordedAt,
+    successorBaseSha = null,
   } = options;
+  if (successorBaseSha !== null && !HEX_SHA1.test(successorBaseSha)) {
+    fail('successorBaseShaがgit shaでない');
+  }
   if (!validateRuntimePlan(plan)) fail('planがruntime_plan.v1 contractを満たさない');
   if (!validateHoldDecision(holdDecision)) fail('holdDecisionがcontractを満たさない');
   if (!Array.isArray(additionalConflicts)) fail('additionalConflictsがarrayではない');
@@ -673,7 +681,11 @@ export function recompileNextEpochPlan(options = {}) {
     plan_ref: newPlanRef,
     plan_epoch: newEpoch,
     request_digest: request.request_digest,
-    base_sha: plan.base_sha,
+    // 変換でsourceの構造が変わったなら、再開先は変換を含むbaseでなければならない。
+    // 旧baseのまま再開させると、splitが所有を宣言した新pathがworktreeに存在しない（ADR 0141）。
+    // carry-over側のrebind packetはcontent不変が要件なので、そちらは触らない——
+    // 継続する作業は自分のworktreeで走り続けており、baseを付け替える対象ではない。
+    base_sha: successorBaseSha ?? plan.base_sha,
     nodes: structuredClone(plan.nodes),
     precedence: structuredClone(plan.precedence),
     conflicts: mergedConflicts,
