@@ -84,6 +84,7 @@ import {
   validateSeamProposalProjection,
 } from './seam-proposal-contracts.mjs';
 import { compileSeamProposalArtifact, declaredConcernSymbols } from './seam-proposal.mjs';
+import { applySeamProposal } from './seam-apply.mjs';
 import {
   parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
   validateTodoRevision, validateTodoRevisionSet,
@@ -936,6 +937,57 @@ async function seamProposalCompile({ repoRoot, planKey }) {
   return result;
 }
 
+/**
+ * 記録済みseam提案を隔離worktreeで適用し、五条件で採否を決める（ADR 0137・0138）。
+ *
+ * 本repositoryは変更しない。採用された変換の着地は別入口が持つ——検証と着地を同じ操作に
+ * すると、五条件を満たさない変換が「途中まで着地した」状態を作りうる。
+ */
+async function seamProposalApply({ repoRoot, planKey }) {
+  const store = await readTodoStore({ repoRoot });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (!member) {
+    throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, { plan_key: planKey });
+  }
+  const artifact = await readTodoSeamProposalArtifact({ repoRoot, store, planKey });
+  if (artifact === null) {
+    throw new TodoStoreError('SEAM_PROPOSAL_COMPILE_UNAVAILABLE', 'seam_proposal_absent', undefined, {
+      plan_key: planKey, next_action: 'compile_seam_proposal',
+    });
+  }
+  const witnessSet = await readTodoWitnessSet({ repoRoot, planKey });
+  if (witnessSet === null) {
+    throw new TodoStoreError('SEAM_PROPOSAL_COMPILE_UNAVAILABLE', 'witness_set_absent', undefined, {
+      plan_key: planKey, next_action: 'declare_witness_set_then_compile_independence',
+    });
+  }
+  const baseArtifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+  const result = await applySeamProposal({
+    repoRoot,
+    planKey,
+    sourceProposal: artifact,
+    witnessSet,
+    latticeBin: path.join(repoRoot, 'bin', 'lattice.mjs'),
+    sharedPathFor: (sourcePath) => sourcePath.replace(/(\.[^./]+)$/u, '.seam-shared$1'),
+    executors: witnessSet.capacity.executors,
+    compileIndependence: {
+      baseArtifact,
+      // 変換後のworktreeで、写した宣言と再indexした索引から実compileする。
+      // 仮想再compileの再実行では、実ソースで残余0である証拠にならない（ADR 0137 Decision 4）。
+      inWorktree: async ({ worktreePath, witnessSet: postWitness }) => compileTodoIndependence({
+        witnessSet: postWitness,
+        plan: member.plan,
+        baseSha: artifact.source_binding.base_sha,
+        compiledAt: new Date().toISOString(),
+        sensorEvidence: await collectWitnessSensorEvidence({
+          cwd: worktreePath, witnessSet: postWitness,
+        }),
+      }),
+    },
+  });
+  return result;
+}
+
 function summarizeSeamProposalDecision(decision) {
   return {
     component_id: decision.component_id,
@@ -1637,6 +1689,9 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
   && (argv.length === 3 || argv[3] === '--json')) {
     action = (repoRoot) => independence({ repoRoot, requestedPlanKey: argv[2] });
+  } else if (argv.length === 4 && argv[0] === 'seam-proposal' && argv[1] === 'apply'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
+    action = (repoRoot) => seamProposalApply({ repoRoot, planKey: argv[3] });
   } else if (argv.length === 4 && argv[0] === 'seam-proposal' && argv[1] === 'compile'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
     action = (repoRoot) => seamProposalCompile({ repoRoot, planKey: argv[3] });
