@@ -98,7 +98,8 @@ export function buildRuntimeSeamSplit({
 export async function resolveRuntimeSeamTreatment(options = {}) {
   const {
     finding, witnessSet, pathNames = {}, predeclaredTreatments = [],
-    applyConflict, baseSha, manifestDigest, affectedTests = [], taskMigrationDigest,
+    applyConflict, commitTransform, baseSha, manifestDigest, affectedTests = [],
+    taskMigrationDigest,
   } = options;
 
   if (finding?.kind === 'observed_write_conflict' && typeof finding.path === 'string') {
@@ -122,6 +123,13 @@ export async function resolveRuntimeSeamTreatment(options = {}) {
   }
 
   const applied = await applyConflict({ conflict });
+  if (applied?.outcome?.decision === 'accepted' && typeof commitTransform !== 'function') {
+    // 確定する手段が無いまま採用すると、splitは所有を宣言するのに再開先へその成果が無い。
+    // 「変換した」と言いながら再開できない状態を作らない（ADR 0141）。
+    return {
+      lane: 'intentional_serial', treatment: null, split: null, reasons: ['committer_absent'],
+    };
+  }
   if (applied?.outcome?.decision !== 'accepted') {
     return {
       lane: 'intentional_serial',
@@ -140,6 +148,15 @@ export async function resolveRuntimeSeamTreatment(options = {}) {
   if (built.split === null) {
     return { lane: 'intentional_serial', treatment: null, split: null, reasons: built.reasons };
   }
+  // 再開先が実在するbaseを要る。branchを動かさずcommitとして確定し、そのshaを後継planへ渡す。
+  const committed = await commitTransform({
+    conflict, files: applied.files ?? {}, candidateId: conflict.candidateId,
+  });
+  if (!/^[0-9a-f]{40}$/u.test(committed?.commitSha ?? '')) {
+    return {
+      lane: 'intentional_serial', treatment: null, split: null, reasons: ['transform_not_committed'],
+    };
+  }
   return {
     lane: 'seam_transform',
     treatment: {
@@ -148,6 +165,8 @@ export async function resolveRuntimeSeamTreatment(options = {}) {
     },
     split: built.split,
     files: applied.files ?? null,
+    successor_base_sha: committed.commitSha,
+    successor_base_ref: committed.ref ?? null,
     reasons: [],
   };
 }

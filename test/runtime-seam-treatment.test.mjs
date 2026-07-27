@@ -45,6 +45,7 @@ const base = (overrides = {}) => ({
   witnessSet,
   pathNames,
   applyConflict: accept,
+  commitTransform: async () => ({ commitSha: 'f'.repeat(40), ref: 'refs/lattice/seam/x' }),
   baseSha: BASE_SHA,
   manifestDigest: DIGEST('1'),
   affectedTests: ['test/page.test.mjs'],
@@ -85,6 +86,23 @@ test('事前宣言が無ければその場で変換し、seam splitを組む', a
     [{ from_todo_id: 'T1', to_todo_id: 'T2', kind: 'conflict' }]);
   assert.deepEqual(result.split.edge_diff.added, []);
   assert.deepEqual(result.split.verifier_refs, ['test/page.test.mjs']);
+  // 再開先が実在するbaseを持つ。後継planはここへ前進する。
+  assert.match(result.successor_base_sha, /^[0-9a-f]{40}$/u);
+});
+
+test('確定する手段が無いまま採用しない', async () => {
+  // splitは所有を宣言するのに再開先へその成果が無い、という状態を作らない。
+  const result = await resolveRuntimeSeamTreatment(base({ commitTransform: undefined }));
+  assert.equal(result.lane, 'intentional_serial');
+  assert.deepEqual(result.reasons, ['committer_absent']);
+});
+
+test('確定できなければseam splitを返さない', async () => {
+  const result = await resolveRuntimeSeamTreatment(base({
+    commitTransform: async () => ({ commitSha: null }),
+  }));
+  assert.equal(result.lane, 'intentional_serial');
+  assert.deepEqual(result.reasons, ['transform_not_committed']);
 });
 
 test('変換が五条件を満たさなければ意図的直列へ送り、欠けた条件を残す', async () => {
