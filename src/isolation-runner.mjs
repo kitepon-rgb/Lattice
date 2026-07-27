@@ -351,7 +351,12 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
         verifications.push(verificationReceipt(verifier, error, 'failed'));
         // どのverifierがなぜ落ちたかを載せる。commandだけ返すと、五条件の棄却理由が
         // 「focused testが落ちた」で止まり、原因を追う手段が無くなる。
-        const detail = String(error?.stderr || error?.stdout || '')
+        // stdout/stderrはBufferで、空でもtruthyになる。`||`で繋ぐとstdoutへ落ちない。
+        // node --testは失敗をstdoutへ書くので、それを取り落とすと理由が消える。
+        const streams = [error?.stderr, error?.stdout]
+          .map((value) => (value === undefined ? '' : String(value)))
+          .filter((value) => value.trim().length > 0);
+        const detail = (streams[0] ?? '')
           .split('\n').filter((line) => line.trim().length > 0).slice(-6).join(' | ').slice(0, 600);
         throw new Error(`verifier failed (${error.signal ?? error.code}):`
           + ` ${[verifier.command, ...verifier.args].join(' ')}`
