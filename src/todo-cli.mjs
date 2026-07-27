@@ -276,7 +276,7 @@ async function readEvidenceInput(repoRoot, inputRef) {
   });
 }
 
-async function readJsonInput(repoRoot, inputRef, { validate, invalidCode }) {
+async function readJsonInput(repoRoot, inputRef, { validate, invalidCode, expected = null }) {
   if (!isTodoRef(inputRef)) {
     throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo', undefined, { input_ref: inputRef });
   }
@@ -321,7 +321,10 @@ async function readJsonInput(repoRoot, inputRef, { validate, invalidCode }) {
     throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
   }
   if (!validate(descriptor)) {
-    throw new TodoStoreError(invalidCode, 'schema_invalid');
+    // 「schema_invalid」だけを返すと、呼び出したAIは何をどう直せばよいか分からない。
+    // 期待する形を渡されている入口は、それをそのまま返す（ADR 0130の案内規律）。
+    throw new TodoStoreError(invalidCode, 'schema_invalid', undefined,
+      expected === null ? undefined : { expected });
   }
   return descriptor;
 }
@@ -1006,6 +1009,11 @@ async function readSeamPathNames(repoRoot, inputRef) {
       && Object.entries(candidate.names)
         .every(([key, target]) => isTodoIdentifier(key) && isTodoRef(target)),
     invalidCode: 'SEAM_PATH_NAMES_INVALID',
+    expected: {
+      schema: 'lattice.seam_path_names.v1',
+      shape: '{ "schema": "lattice.seam_path_names.v1", "names": { "<task_id>": "<repo相対path>" } }',
+      note: '所有面はtask_idごとに、共有面は"shared"というkeyで名前を与える',
+    },
   });
   return value.names;
 }
