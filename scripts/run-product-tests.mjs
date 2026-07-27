@@ -9,6 +9,12 @@ const testRoot = path.join(repoRoot, 'test');
 // These suites replay immutable RC1/RC2 research artifacts. They remain available
 // for historical forensics, but cannot decide the current Lattice product gate.
 const retiredArtifactReplaySuites = new Set([
+  // RC1期のcontrol compilerはproduct経路から到達しない（check:reachabilityが宣言済み）。
+  // これらは固定commitのtreeを再生する記録であり、shallow cloneではそのrefが無いので
+  // 環境によっては再生できない。製品の判定に使わない。
+  'integration/control-compiler.integration.mjs',
+  'integration/control-portability.integration.mjs',
+  'control-compiler.test.mjs',
   'integration/rc1-v4-campaign.integration.mjs',
   'integration/rc2-sensor-artifact-scope.integration.mjs',
   'integration/rc3-actual-dogfood.integration.mjs',

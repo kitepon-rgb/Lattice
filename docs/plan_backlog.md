@@ -504,3 +504,30 @@ hold経路へ入る。消えていれば警報を記録して終わり。停止�
 - [ ] 警報からprobeを経て自動holdへ繋ぐ
 - [ ] 実repoで早期検知から再開までを通し検出遅延を実測する
 - [ ] 設計をADRへ残しreleaseまで通す
+
+---
+
+# 管理runtimeのLinux検証
+
+工程状態の正本はLattice storeの`runtime-linux-parity` plan（未起票。着手時に起こす）。
+
+**管理runtimeのdaemon lifecycleは、いまmacOSでだけ検証している。** 公開CI（ubuntu）で
+実daemonを起こす統合testを走らせると通らない。これは`process.platform === 'darwin'`の
+gateで**skipしているが、skipは「Linuxで動く」という主張ではない**——未検証であることを
+明示する印である。
+
+分かっている不通過要因:
+
+- `observeMacosBinaryIdentity`が`/usr/bin/codesign`に依存する。macOSにしか無い。
+  署名済みhost binaryの同一性照合はmacOS固有の機能であり、Linuxでは別の手段が要る。
+- 残りの不通過箇所は未特定。socket所有の観測は移植済み（`runtime-socket-owner.mjs`）で、
+  そこを直したら失敗は`RUN_NOT_MANAGED`から`RUN_OUTCOME_UNKNOWN`へ進んだ。daemonが
+  起動後に落ちているが、原因はまだ切っていない。
+
+**発火条件:** Linuxで管理runtimeを実際に使う必要が出た時、またはLinux利用者からの報告が
+1件出た時に着手する。それまではmacOS検証済みとして扱い、READMEにもそう書く。
+
+## 工程
+
+- [ ] 管理runtime daemonがLinuxで通らない原因を特定する
+- [ ] codesign依存をplatform非依存の同一性照合へ置き換えるか、macOS限定として契約へ書く
