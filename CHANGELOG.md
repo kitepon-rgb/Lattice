@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.29.0 — 2026-07-27
+
+- **宣言道具が創作境界に対応した**（`lattice.todo_witness_draft.v2`）。ADR 0136の`creates: true`は
+  `run_request`と`witness_set`にあったが、**下書き契約に無かった**ため、新規fileを作るToDoの宣言を
+  `witness scaffold`で作れなかった。新module・新doc・新testの追加は実開発ToDoのかなりの割合を
+  占めるので、道具が使える範囲が実際の作業から外れていた。`owns`の1件を
+  `{ "path": "...", "creates": true }`と書けるようにした。
+- **自動導出にはしない。** 観測から機械的に創作境界と読むと、pathのtypoが「必ず止まるエラー」から
+  「黙って通る創作境界」へ変わる。宣言する欄を足し、道具は**宣言が実態と合っているか**を確かめる
+  側を持つ——fresh absentであること、blast radiusが空であること、front endが要求する形
+  （`changedFiles`が対象1件）であること。
+- **観測の三値を保つようにした。** 不存在は「観測できていない」ではなく「不在と観測できた」で
+  あり、fsのlstat結果である。混ぜると創作境界を宣言したToDoが未観測側へ落ちる。
+- 不在なのに創作を宣言していないpathへ、`path_absent_declare_creates`で**次の一手を返す**。
+  以前は`affected_tests_unobserved`——観測できていないと言っていたが、実際には観測できていた。
+
 ## 0.28.0 — 2026-07-27
 
 **Latticeが自分の閉じ作業をLatticeで組んだ版。** 実際に使ったことで、使わなければ出なかった
