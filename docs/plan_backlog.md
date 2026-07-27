@@ -284,6 +284,11 @@ worktree外書き込みを塞ぐ必要が出た時に着手する。
 
 工程状態の正本はLattice storeの`write-coverage` plan。
 
+**裁定・実施済み（2026-07-27・[ADR 0140](adr/0140-canonical-write-observation-is-recorded-not-assumed.md)）。**
+実hostを駆動するmanaged supervisorが本repositoryの不変を検査していなかった穴を塞ぎ、
+検査していない場合はそれを記録へ残すようにした。worktree外の一般的な書き込み（`/tmp`、home、
+ネットワーク）は引き続き見えず、塞ぐならI/O検知かhost側のsandboxが要る。
+
 **請求項9が主張する性質が、worktreeの外について成立していない。** 請求項9は「実際に変更された
 資源の範囲を観測し、当該範囲が当該作業に対応する変更影響範囲の外に及ぶ場合…実行時競合を検出する」
 と述べる。現在の観測は`git status`（＋`base..HEAD`）であり、worktree内は`--ignored=matching`で
@@ -299,5 +304,5 @@ I/O検知（FSEvents／inotify／FUSE／eBPF）で遅延を縮める話は別件
 
 ## 工程
 
-- [ ] worktree外への書き込みを検出する
+- [x] worktree外への書き込みを検出する
 - [ ] I/O検知の採否を、捨てた作業量の実測で裁定する

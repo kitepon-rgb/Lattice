@@ -92,6 +92,27 @@ export async function observeMacosBinaryIdentity(binaryPath) {
 }
 
 /** storeが解決したimmutable bindingからprocess/worktree/checkpointをDirect OSで再観測する。 */
+/**
+ * 本repositoryの現在状態を1つのdigestへ畳む。
+ *
+ * HEAD・作業ツリー状態（untracked／ignoredを含む）・全refを見る。workerがworktreeの外へ
+ * 書いてもworktreeのdiffには映らないので、ここだけが本repositoryへの書き込みを捕まえる。
+ */
+export async function canonicalRepositoryFingerprint(repoRoot) {
+  const parts = [];
+  for (const args of [
+    ['rev-parse', 'HEAD'],
+    ['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching'],
+    ['for-each-ref', '--format=%(refname) %(objectname)'],
+  ]) {
+    const { stdout } = await execFileAsync('git', args, {
+      cwd: repoRoot, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+    });
+    parts.push(stdout);
+  }
+  return createHash('sha256').update(parts.join('\u0000'), 'utf8').digest('hex');
+}
+
 export function createDirectOsProcessObserver({ resolveObservationBinding }) {
   if (typeof resolveObservationBinding !== 'function') fail('SUPERVISOR_CONFIGURATION_INVALID', 'observation binding resolverなし');
   return async ({ kind, binding, ack }) => {
@@ -104,6 +125,15 @@ export function createDirectOsProcessObserver({ resolveObservationBinding }) {
       || typeof resolved.base_sha !== 'string' || !/^[0-9a-f]{40}$/.test(resolved.base_sha)
       || !validateProcessStartIdentity(resolved.process_start_identity)
       || resolved.process_start_identity.pid !== resolved.process_pid) fail('HOLD_ACKS_INCOMPLETE', 'observation binding不正');
+    // 本repositoryを見る材料は対で渡す。片方だけでは照合できず、片方だけを受けると
+    // 「検査した」と読める記録が検査なしで作れてしまう。
+    const canonicalRoot = resolved.canonical_root ?? null;
+    const canonicalBaseline = resolved.canonical_fingerprint_digest ?? null;
+    if ((canonicalRoot === null) !== (canonicalBaseline === null)
+      || (canonicalRoot !== null && !path.isAbsolute(canonicalRoot))
+      || (canonicalBaseline !== null && !/^[0-9a-f]{64}$/u.test(canonicalBaseline))) {
+      fail('HOLD_ACKS_INCOMPLETE', 'canonical repository観測bindingが不正');
+    }
     let processState = 'exited';
     let observedIdentity = resolved.process_start_identity;
     let processGroupId = resolved.process_group_id;
@@ -145,7 +175,17 @@ export function createDirectOsProcessObserver({ resolveObservationBinding }) {
     const checkpoint = await captureWorktreeDiff({ worktreePath: worktreeRealpath, baseSha: resolved.base_sha });
     const processObservation = { schema: 'lattice.direct_process_observation.v1', pid: resolved.process_pid, process_start_identity_digest: observedIdentity.identity_digest, process_group_id: processGroupId, state: processState };
     const processObservationDigest = digestArtifact(processObservation);
-    const worktreeFingerprint = { schema: 'lattice.direct_worktree_fingerprint.v1', worktree_id: binding?.worktree_id ?? ack.worktree_id, worktree_realpath: worktreeRealpath, checkpoint_digest: checkpoint.checkpoint_digest };
+    // worktreeの外——本repository——への書き込みは、worktreeのdiffにはまったく映らない。
+    // 見ていないことを「変更が無かった」と読ませないため、検査したかどうかを記録へ残す
+    // （ADR 0140）。渡されていなければ`null`＝未検査であり、無変更の主張ではない。
+    let canonicalDigest = null;
+    if (canonicalRoot !== null) {
+      canonicalDigest = await canonicalRepositoryFingerprint(canonicalRoot);
+      if (canonicalDigest !== canonicalBaseline) {
+        fail('HOLD_ACKS_INCOMPLETE', 'canonical repositoryがworker実行中に変化した');
+      }
+    }
+    const worktreeFingerprint = { schema: 'lattice.direct_worktree_fingerprint.v2', worktree_id: binding?.worktree_id ?? ack.worktree_id, worktree_realpath: worktreeRealpath, checkpoint_digest: checkpoint.checkpoint_digest, canonical_fingerprint_digest: canonicalDigest };
     const worktreeFingerprintDigest = digestArtifact(worktreeFingerprint);
     return {
       quiesced: true,
