@@ -18,6 +18,34 @@ const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 const sortedUnique = (values) => [...new Set(values)].sort(compareText);
 
 export const WITNESS_DRAFT_SCHEMA = 'lattice.todo_witness_draft.v1';
+/** 創作宣言を書ける版。v1はstringのownsだけを受け、`creates`を表現できない。 */
+export const WITNESS_DRAFT_SCHEMA_V2 = 'lattice.todo_witness_draft.v2';
+const DRAFT_SCHEMAS = Object.freeze([WITNESS_DRAFT_SCHEMA, WITNESS_DRAFT_SCHEMA_V2]);
+
+/**
+ * ownsの1件を正規化する。
+ *
+ * v2では`{ path, creates: true }`を書ける。まだ存在しないpathを所有するToDo——新module・
+ * 新doc・新testの追加——は、これが無いと道具で宣言を作れない（ADR 0136）。
+ */
+function ownEntry(value, { allowCreates }) {
+  if (typeof value === 'string') return isTodoRef(value) ? { target: value, creates: false } : null;
+  if (!allowCreates || value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const keys = Object.keys(value).sort();
+  if (keys.length !== 2 || keys[0] !== 'creates' || keys[1] !== 'path') return null;
+  if (!isTodoRef(value.path) || value.creates !== true) return null;
+  // prefix形（末尾/）はaffectedがunresolvedを返すので、file単位に限る（ADR 0136）。
+  if (value.path.endsWith('/')) return null;
+  return { target: value.path, creates: true };
+}
+
+/** 下書きの1 taskが宣言する所有を正規化する。1件でも形が壊れていればnull。 */
+export function draftOwnEntries(task, schema) {
+  const allowCreates = schema === WITNESS_DRAFT_SCHEMA_V2;
+  if (!Array.isArray(task?.owns)) return null;
+  const entries = task.owns.map((own) => ownEntry(own, { allowCreates }));
+  return entries.some((entry) => entry === null) ? null : entries;
+}
 
 function reject(reasons) {
   return { witnessSet: null, queries: [], reasons: sortedUnique(reasons) };
@@ -26,7 +54,7 @@ function reject(reasons) {
 /** 下書きの形。AIが書く欄だけを持ち、観測で埋まる欄は持たない。 */
 export function validateWitnessDraft(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  if (value.schema !== WITNESS_DRAFT_SCHEMA) return false;
+  if (!DRAFT_SCHEMAS.includes(value.schema)) return false;
   if (!isTodoIdentifier(value.project_id) || !isTodoIdentifier(value.plan_key)) return false;
   if (value.capacity === null || typeof value.capacity !== 'object'
     || !Number.isSafeInteger(value.capacity.executors) || value.capacity.executors < 1) return false;
@@ -35,7 +63,7 @@ export function validateWitnessDraft(value) {
   if (entries.length === 0) return false;
   return entries.every(([taskId, task]) => isTodoIdentifier(taskId)
     && task !== null && typeof task === 'object' && !Array.isArray(task)
-    && Array.isArray(task.owns) && task.owns.every(isTodoRef)
+    && draftOwnEntries(task, value.schema) !== null
     && (task.reads === undefined || (Array.isArray(task.reads) && task.reads.every(isTodoRef)))
     && (task.unknowns === undefined || (Array.isArray(task.unknowns)
       && task.unknowns.every((entry) => entry !== null && typeof entry === 'object'
@@ -52,7 +80,8 @@ function queryIdFor(index) {
 
 /** 下書きから、観測に要るquery setを組む。所有pathごとに1つのaffected queryを引く。 */
 export function buildWitnessObservationQuerySet(draft) {
-  const paths = sortedUnique(Object.values(draft.tasks).flatMap(({ owns }) => owns));
+  const paths = sortedUnique(Object.values(draft.tasks)
+    .flatMap((task) => (draftOwnEntries(task, draft.schema) ?? []).map(({ target }) => target)));
   return {
     queries: [
       { id: 'witness-status', operation: 'status' },
@@ -69,9 +98,11 @@ export function buildWitnessObservationQuerySet(draft) {
  *
  * @param {object} options
  * @param {object} options.draft `lattice.todo_witness_draft.v1`
- * @param {object} options.affectedTestsByPath 所有pathごとのfresh観測
+ * @param {object} options.observationByPath 所有pathごとのfresh観測
+ *   `{ state: 'absent'|'present', affectedTests: string[], changedFiles: string[] }`。
+ *   観測できていないpathは**欄そのものを置かない**——空で置くと不在と区別できない。
  */
-export function buildWitnessSet({ draft, affectedTestsByPath } = {}) {
+export function buildWitnessSet({ draft, observationByPath } = {}) {
   if (!validateWitnessDraft(draft)) return reject(['draft_invalid']);
   const { paths } = buildWitnessObservationQuerySet(draft);
   const queryIdByPath = new Map(paths.map((target, index) => [target, queryIdFor(index)]));
@@ -79,21 +110,39 @@ export function buildWitnessSet({ draft, affectedTestsByPath } = {}) {
   const reasons = [];
   const manualWitness = {};
   for (const [taskId, task] of Object.entries(draft.tasks).sort(([left], [right]) => compareText(left, right))) {
-    const owns = sortedUnique(task.owns);
+    const entries = draftOwnEntries(task, draft.schema) ?? [];
+    const owns = [...new Map(entries.map((entry) => [entry.target, entry])).values()]
+      .sort((left, right) => compareText(left.target, right.target));
     if (owns.length === 0) { reasons.push(`owns_empty:${taskId}`); continue; }
     // affected_testsは宣言とfresh観測をbinding単位でexact比較する。複数pathを所有すると
     // 観測集合が一致しない限り必ず落ちるので、今の契約では表現できない（2026-07-27の実測）。
     if (owns.length > 1) { reasons.push(`multiple_owned_paths_unsupported:${taskId}`); continue; }
-    const [target] = owns;
-    const affected = affectedTestsByPath?.[target];
+    const [own] = owns;
+    const target = own.target;
+    const observed = observationByPath?.[target];
     // 観測できていないことを空配列へ丸めない。丸めるとdriftでcompileが落ちる。
-    if (!Array.isArray(affected)) { reasons.push(`affected_tests_unobserved:${target}`); continue; }
+    if (observed === undefined) { reasons.push(`affected_tests_unobserved:${target}`); continue; }
+    if (own.creates) {
+      // 宣言が実態と合っているかを確かめるのが道具の役目である。front endが要求する形
+      // （fresh absent・blast radiusが空・changedFilesが対象1件）をここで満たしておかないと、
+      // 通る宣言を作ったつもりでcompileで落ちる（ADR 0136）。
+      if (observed.state !== 'absent') { reasons.push(`creates_path_present:${target}`); continue; }
+      if (observed.affectedTests.length !== 0
+        || observed.changedFiles.length !== 1
+        || observed.changedFiles[0] !== target) {
+        reasons.push(`creates_unverified:${target}`); continue;
+      }
+    } else if (observed.state === 'absent') {
+      // 不存在のpathを黙って通さない。作るつもりならそう宣言する、が次の一手である。
+      reasons.push(`path_absent_declare_creates:${target}`); continue;
+    }
+    const affected = own.creates ? [] : observed.affectedTests;
     for (const anchor of task.concern_anchors ?? []) {
       // `within`は自分が所有している資源に限る。所有していない資源の内側に担当を主張させない。
-      if (!owns.includes(anchor.within)) reasons.push(`anchor_outside_owned:${taskId}:${anchor.within}`);
+      if (anchor.within !== target) reasons.push(`anchor_outside_owned:${taskId}:${anchor.within}`);
     }
     manualWitness[taskId] = {
-      owns: [{ kind: 'path', target }],
+      owns: [own.creates ? { kind: 'path', target, creates: true } : { kind: 'path', target }],
       reads: sortedUnique(task.reads ?? []),
       writes: [target],
       resources: [],

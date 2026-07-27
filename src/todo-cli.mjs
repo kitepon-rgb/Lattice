@@ -964,15 +964,21 @@ async function witnessScaffold({ repoRoot, planKey, inputRef }) {
   }
   const { queries, paths } = buildWitnessObservationQuerySet(draft);
   const collected = await collectSensorEvidence({ cwd: repoRoot, querySet: { queries } });
-  const affectedTestsByPath = {};
+  const observationByPath = {};
   queries.forEach((query, index) => {
     if (query.operation !== 'affected') return;
     const entry = collected.outcomes[index]?.targets?.[0];
     // 観測できていないものを空配列へ丸めない。丸めるとdriftでcompileが落ちる。
-    if (entry?.path_state === 'absent' || !Array.isArray(entry?.data?.affectedTests)) return;
-    affectedTestsByPath[query.target] = [...entry.data.affectedTests];
+    // 不存在（absent）は観測**できている**——fsのlstat結果である。未観測と混ぜると、
+    // 創作境界を宣言したToDoが「まだ確かめていない」側へ落ちる（ADR 0136）。
+    if (!Array.isArray(entry?.data?.affectedTests) || !Array.isArray(entry?.data?.changedFiles)) return;
+    observationByPath[query.target] = {
+      state: entry.path_state === 'absent' ? 'absent' : 'present',
+      affectedTests: [...entry.data.affectedTests],
+      changedFiles: [...entry.data.changedFiles],
+    };
   });
-  const { witnessSet, reasons } = buildWitnessSet({ draft, affectedTestsByPath });
+  const { witnessSet, reasons } = buildWitnessSet({ draft, observationByPath });
   if (witnessSet === null) {
     throw new TodoStoreError('WITNESS_SCAFFOLD_INCOMPLETE', 'witness_scaffold_incomplete', undefined, {
       reasons, next_action: 'resolve_declaration_then_retry',
