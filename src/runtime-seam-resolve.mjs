@@ -12,6 +12,7 @@
  */
 
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 import { digestArtifact } from './artifact-contracts.mjs';
@@ -31,6 +32,9 @@ const REPO_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[\w./-]+$/u;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/u;
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+
+/** 資源idはruntime front-endと同じ合成形にする（`own-<kind>-<sha16>`）。 */
+const sha16 = (value) => createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 16);
 
 function plainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -218,6 +222,50 @@ export function buildRuntimeSeamResolution({ runId, findingDigest, resolved }) {
   };
   resolution.resolution_digest = todoSelfDigest(resolution, 'resolution_digest');
   return resolution;
+}
+
+/**
+ * seam_split再計画で、後継baseが本当に変換を含むかを検査する（ADR 0141）。
+ *
+ * これが無い間、`mode: 'seam_split'`の再計画requestは**変換を含まないbaseを指していても通った**。
+ * splitは新しい面の所有を宣言するのに、compileされる後継treeにそのfileが無い——rb工程で
+ * 直したのと同じ欠陥が、管理runtimeの層に残っていた。
+ *
+ * 検査するのは3つ。どれもLatticeが既に持っているartifactだけで判定でき、推定を含まない。
+ *
+ * 1. baseが前進し、かつ旧baseの子孫であること。変換が着地していなければ前進しない。
+ * 2. splitが「消える」と述べた競合辺が、後継planに実際に無いこと。後継treeに変換が
+ *    載っていなければ両TODOは同じfileを書き続けるので、この辺は消えない。
+ * 3. splitが新たに所有すると述べた資源が、後継requestで**creationとして宣言されていない**こと。
+ *    seam splitは既存codeを新しい面へ移す操作であり、変換が既に作っている。これから作る、
+ *    と宣言されているなら、指しているbaseは変換前である。
+ */
+export function verifySeamSplitSuccessor({
+  split, predecessorBaseSha, successorBaseSha, successorIsDescendant,
+  successorConflicts = [], successorWitness = {},
+} = {}) {
+  const reasons = [];
+  if (successorBaseSha === predecessorBaseSha) reasons.push('successor_base_not_advanced');
+  else if (successorIsDescendant !== true) reasons.push('successor_base_not_descendant');
+
+  const removedEdges = split?.edge_diff?.removed ?? [];
+  const remaining = new Set(successorConflicts
+    .map(({ todo_ids: ids }) => [...ids].sort(compareText).join('\0')));
+  for (const edge of removedEdges) {
+    const key = [edge.from_todo_id, edge.to_todo_id].sort(compareText).join('\0');
+    if (remaining.has(key)) reasons.push(`declared_removed_conflict_persists:${key.replace('\0', ',')}`);
+  }
+
+  for (const added of split?.ownership_diff?.added ?? []) {
+    const owns = successorWitness[added.owner_todo_id]?.owns ?? [];
+    for (const own of owns) {
+      const resourceId = `own-${own.kind}-${sha16(own.target)}`;
+      if (resourceId === added.resource_id && own.creates === true) {
+        reasons.push(`declared_owned_surface_is_creation:${added.owner_todo_id}`);
+      }
+    }
+  }
+  return { ok: reasons.length === 0, reasons: [...new Set(reasons)].sort(compareText) };
 }
 
 /** `<runDir>/findings/<digest>.json`を読む。存在しない／別epochのfindingは受けない。 */

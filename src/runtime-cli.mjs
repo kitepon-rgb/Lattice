@@ -22,7 +22,7 @@ import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { detectCheckpointFindings } from './runtime-diff-observer.mjs';
 import {
   buildRuntimeSeamResolution, readRuntimeFindingRecord, resolveRuntimeSeam,
-  validateRuntimeSeamRequest,
+  validateRuntimeSeamRequest, verifySeamSplitSuccessor,
 } from './runtime-seam-resolve.mjs';
 import {
   compileRuntimePlanV1,
@@ -2117,6 +2117,27 @@ export async function runManagedSupervisorDaemon({
           if (!exists) newPlan.conflicts.push({ todo_ids: [...serial.todo_ids], resource_id: serial.resource_id });
           newPlan.conflicts.sort((left, right) => `${left.todo_ids.join('\0')}\0${left.resource_id}`
             .localeCompare(`${right.todo_ids.join('\0')}\0${right.resource_id}`));
+        }
+        if (recompileRequest.mode === 'seam_split') {
+          // 変換を含まないbaseを指したseam_splitを通さない（ADR 0141）。splitが新しい面の
+          // 所有を宣言するのに後継treeにそのfileが無い、という状態を作らせない。
+          const predecessorBaseSha = active.bundle.request.repo.base_sha;
+          const successorBaseSha = recompileRequest.successor_request.repo.base_sha;
+          const ancestry = await runGit(
+            ['merge-base', '--is-ancestor', predecessorBaseSha, successorBaseSha], repoRoot,
+          );
+          const verdict = verifySeamSplitSuccessor({
+            split: recompileRequest.seam_split,
+            predecessorBaseSha,
+            successorBaseSha,
+            successorIsDescendant: ancestry.code === 0,
+            successorConflicts: newPlan.conflicts,
+            successorWitness: recompileRequest.successor_request.manual_witness,
+          });
+          if (!verdict.ok) {
+            throw new ManagedRuntimeError('SEAM_SPLIT_UNPROVEN',
+              `後継baseがseam splitの主張を満たさない: ${verdict.reasons.join(', ')}`);
+          }
         }
         newPlan.plan_digest = selfDigest(newPlan, 'plan_digest');
         const executorPackets = buildExecutorPackets({ plan: newPlan, manifests: compiled.manifests });
