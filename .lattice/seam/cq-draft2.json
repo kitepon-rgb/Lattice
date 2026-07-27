@@ -1,0 +1,16 @@
+{
+ "schema": "lattice.todo_witness_draft.v1",
+ "project_id": "lattice",
+ "plan_key": "closing-questions",
+ "capacity": { "executors": 2 },
+ "tasks": {
+  "cq-002": {
+   "owns": ["src/seam-ref.mjs"],
+   "concern_anchors": [{ "within": "src/seam-ref.mjs", "symbols": ["seamRefFor"] }]
+  },
+  "cq-003": {
+   "owns": ["src/seam-commit-transform.mjs"],
+   "concern_anchors": [{ "within": "src/seam-commit-transform.mjs", "symbols": ["commitSeamTransform"] }]
+  }
+ }
+}
