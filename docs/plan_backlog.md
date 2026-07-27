@@ -142,13 +142,13 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 | 項 | 状況 | 根拠 |
 |---:|---|---|
 | 1(a) 影響範囲の推定 | **成立** | 項2と同じ |
-| 1(b) 変換後に並行配置 | **未実装** | 提案（`seam_candidate`）で止まる。提案surfaceはディスク上に存在せず、artifact自身が`hypothetical_new_surfaces`とラベルする |
+| 1(b) 変換後に並行配置 | **実装済み** | `seam-proposal apply`／`land`が隔離worktreeで実変換し、五条件を満たした変換だけを着地させる。実データで`src/todo-gantt-html.mjs`が四面へ分かれ、再compileで競合1→0（[記録](evidence/2026-07-27-rt-007-version-barrier.md)） |
 | 1(c) 並行実行制御 | 実装済み | `runtime-engine.mjs`が`capacity.executors`まで同時dispatchし、eventごとにready frontierを再評価 |
 | 2 AIへの入力と出力 | **成立** | 装置の境界はLatticeのプロセス境界ではない。操作するAIも装置の一部であり、推定部は「AI＋sensor＋witness契約＋検証」として実現している。`todo status`が自然言語の作業仕様を渡し、MCPの`lattice_sensor_explore`が解析情報を渡し、advisoryの`declare_witness_set_then_compile`が出力を促し、compileがsensor再観測でexact照合する |
 | 3 構造グラフ | 物は在る | sensorのnode／edge知識グラフ。ただし項2従属 |
 | 4 読取り／書込みからの競合判定 | 実装済み | `runtime-front-end.mjs`のwrite×read/write交差 |
-| 5 競合時のリファクタリング | **未実装** | 切り方を決めて仮想検証するところまで。ソースは書き換えない |
-| 6 前後比較と再推定 | 半分 | 仮想再compileで残余conflict 0は確認する。実変換していないので外部挙動の前後比較は走らない |
+| 5 競合時のリファクタリング | **実装済み** | 宣言anchorのsymbolを所有面へ移し、未宣言の依存先を共有面へ、残りを残余面へ分ける。公開ビルドが他所のprojectでも実行できることを確認済み |
+| 6 前後比較と再推定 | **実装済み** | 五条件が外部挙動同等性（原pathの公開面）・focused test・再index・重複解消（対象競合の消滅とplan全体の競合対の非増加）・実行段階数の改善を測る。1つでも欠けたら棄却 |
 | 7 一方停止・他方commit・再開 | **確定の手段だけが違う** | 停止と再開は実装済み。各TODOは隔離worktreeで走り、freeze後は影響閉包内だけhold、閉包外は`carry_over_witness`（`todo_input`／`boundary_manifest`／`validator`／`context_content`のdigest＋非重複証拠＋receipt binding）を実証できた場合だけ継続する。請求項が版管理commitで果たす「他方の確定」を、隔離worktree＋暗号学的witnessで果たしている。`commit`が`FORBIDDEN_OPERATIONS`なのは公開契約の「承認なしに外部effectを行わない」に由来するので、明示承認付きのcommit経路を足せば思想と衝突しない |
 | 8 双方停止・限定変換・双方再開 | 半分 | `seam_transform`／`intentional_serial`への振り分けは在る。限定変換の実施が無い |
 | 9 実変更観測による実行時競合検出 | 実装済み | `detectCheckpointFindings`が`scope_violation`と`observed_write_conflict`を返す |
@@ -193,7 +193,7 @@ focused test・sensor鮮度・重複解消）、本repo不変のassertまで持�
 - [x] 隔離worktreeで変換を実行する公開CLI面を足す
 - [x] 採用した変換を本ツリーへ着地させ、再indexして残余conflict 0を実測する
 - [x] accepted artifactをpredecessorにした新plan versionへ再コンパイルする
-- [ ] このrepoの実conflictで閉ループを1周させ、releaseまで通す
+- [x] このrepoの実conflictで閉ループを1周させ、releaseまで通す
 
 ---
 
