@@ -202,9 +202,9 @@ covered by a patent application and commercial rights are retained.
 **Want to use Lattice commercially?** Open an
 [issue](https://github.com/kitepon-rgb/Lattice/issues) — commercial licensing is available.
 
-The bundled structure sensor in [`sensor/`](sensor/) is derived from
-[CodeGraph](https://github.com/colbymchenry/codegraph) and remains under the **MIT License**
-([`sensor/LICENSE`](sensor/LICENSE), [`sensor/NOTICE`](sensor/NOTICE)). The terms above do not
-modify it.
+The bundled structure sensor in [`sensor/`](sensor/) is third-party work absorbed into this
+repository and remains under the **MIT License**. Its upstream origin and attribution are
+recorded in [`sensor/NOTICE`](sensor/NOTICE); the license text is
+[`sensor/LICENSE`](sensor/LICENSE). The terms above do not modify it.
 
 © 2026 quolu (kitepon-rgb)

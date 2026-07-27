@@ -243,8 +243,8 @@ error detailの`missing_environment`／`invalid_environment`と
 **商用で使いたい場合**は[issue](https://github.com/kitepon-rgb/Lattice/issues)を立ててください。
 商用licenseを用意します。
 
-同梱の構造sensor（[`sensor/`](sensor/)）は[CodeGraph](https://github.com/colbymchenry/codegraph)
-由来で、**MIT License**のままです（[`sensor/LICENSE`](sensor/LICENSE)・
-[`sensor/NOTICE`](sensor/NOTICE)）。上記の条件はこれを変更しません。
+同梱の構造sensor（[`sensor/`](sensor/)）は本repositoryへ吸収した第三者成果物で、
+**MIT License**のままです。upstreamの出自と帰属表示は[`sensor/NOTICE`](sensor/NOTICE)、
+license本文は[`sensor/LICENSE`](sensor/LICENSE)が持ちます。上記の条件はこれを変更しません。
 
 © 2026 quolu (kitepon-rgb)

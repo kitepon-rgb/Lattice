@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { selfDigest } from './runtime-contracts.mjs';
 import { captureWorktreeDiff } from './runtime-diff-observer.mjs';
+import { pidsOwningSocketPath, socketPathsOwnedByPid } from './runtime-socket-owner.mjs';
 import { createDirectOsProcessObserver as createDirectOsProcessObserverV2 } from './runtime-direct-os-observer.mjs';
 import {
   armStagedWriteLease,
@@ -877,10 +878,10 @@ async function activateManagedSupervisorController({ repoRoot, runDir, runId, ad
       }
       const endpointInfo = await lstat(handshakeSocket);
       if (!endpointInfo.isSocket() || endpointInfo.isSymbolicLink()) fail('ADAPTER_LAUNCH_INVALID', 'existing endpointがsocketでない');
-      let ownerOutput;
-      try { ({ stdout: ownerOutput } = await execFileAsync('/usr/sbin/lsof', ['-t', handshakeSocket], { encoding: 'utf8' })); }
+      let ownerPids;
+      try { ownerPids = await pidsOwningSocketPath(handshakeSocket); }
       catch { fail('ADAPTER_LAUNCH_INVALID', 'existing endpoint ownerを観測できない'); }
-      endpointOwnerPids = new Set(ownerOutput.trim().split(/\s+/u).filter(Boolean).map(Number));
+      endpointOwnerPids = new Set(ownerPids);
       if (endpointOwnerPids.size !== 1 || [...endpointOwnerPids].some((pid) => !Number.isSafeInteger(pid) || pid < 1)) {
         fail('ADAPTER_LAUNCH_INVALID', 'existing endpoint ownerが一意でない');
       }
@@ -900,10 +901,10 @@ async function activateManagedSupervisorController({ repoRoot, runDir, runId, ad
         try { if ((await lstat(controllerSocketPath)).isSocket()) break; } catch (error) { if (error?.code !== 'ENOENT') throw error; }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
-      let controllerOwnerOutput;
-      try { ({ stdout: controllerOwnerOutput } = await execFileAsync('/usr/sbin/lsof', ['-t', controllerSocketPath], { encoding: 'utf8' })); }
+      let controllerOwnerPids;
+      try { controllerOwnerPids = await pidsOwningSocketPath(controllerSocketPath); }
       catch { fail('ADAPTER_CONTROLLER_UNAVAILABLE', 'existing controller socket ownerを観測できない'); }
-      const persistentOwners = new Set(controllerOwnerOutput.trim().split(/\s+/u).filter(Boolean).map(Number));
+      const persistentOwners = new Set(controllerOwnerPids);
       if (persistentOwners.size !== 1 || !persistentOwners.has(controllerDescriptor.pid)) {
         fail('ADAPTER_CONTROLLER_UNAVAILABLE', 'persistent controller socket ownerとdescriptor PID不一致');
       }
@@ -1019,12 +1020,10 @@ export async function sendRuntimeControlRequest({ socketPath, request, timeoutMs
   try { observedSupervisor = await observeManagedProcessStartIdentity(descriptor.pid); }
   catch { fail('RUN_NOT_MANAGED', 'supervisor process不在'); }
   if (canonicalizeArtifact(observedSupervisor) !== canonicalizeArtifact(descriptor.process_start_identity)) fail('RUN_NOT_MANAGED', 'supervisor PID/start identity不一致');
-  let lsofOutput;
-  try {
-    ({ stdout: lsofOutput } = await execFileAsync('/usr/sbin/lsof', ['-a', '-p', String(descriptor.pid), '-U', '-F', 'fn'], { encoding: 'utf8' }));
-  } catch { fail('RUN_NOT_MANAGED', 'supervisor socket owner観測失敗'); }
-  const ownsExactSocket = lsofOutput.split('\n')
-    .filter((line) => line.startsWith('n')).map((line) => line.slice(1))
+  let ownedSocketPaths;
+  try { ownedSocketPaths = await socketPathsOwnedByPid(descriptor.pid); }
+  catch { fail('RUN_NOT_MANAGED', 'supervisor socket owner観測失敗'); }
+  const ownsExactSocket = ownedSocketPaths
     .some((name) => name === absoluteSocket || name === socketRef);
   if (!ownsExactSocket) fail('RUN_NOT_MANAGED', 'supervisor PIDがcontrol socket inodeを所有しない');
   return new Promise((resolve, reject) => {
@@ -1088,10 +1087,10 @@ export async function sendRuntimeActivationRequest({ socketPath, request, expect
   try { observedBootstrapIdentity = await observeManagedProcessStartIdentity(expectedPid); }
   catch { fail('RUN_NOT_MANAGED', 'activation bootstrap process不在'); }
   if (canonicalizeArtifact(observedBootstrapIdentity) !== canonicalizeArtifact(expectedProcessStartIdentity)) fail('RUN_NOT_MANAGED', 'activation bootstrap PID/start identity不一致');
-  let lsofOutput;
-  try { ({ stdout: lsofOutput } = await execFileAsync('/usr/sbin/lsof', ['-a', '-p', String(expectedPid), '-U', '-F', 'fn'], { encoding: 'utf8' })); }
+  let bootstrapSocketPaths;
+  try { bootstrapSocketPaths = await socketPathsOwnedByPid(expectedPid); }
   catch { fail('RUN_NOT_MANAGED', 'activation socket owner観測失敗'); }
-  if (!lsofOutput.split('\n').filter((line) => line.startsWith('n')).map((line) => line.slice(1))
+  if (!bootstrapSocketPaths
     .some((name) => name === absoluteSocket || name === socketRef)) fail('RUN_NOT_MANAGED', 'bootstrap PIDがcontrol socketを所有しない');
   const originalCwd = process.cwd();
   process.chdir(runDir);
@@ -1143,13 +1142,15 @@ export async function prepareManagedSupervisorRestart({ runDir }) {
   const socketInfo = await lstat(socketPath).catch(() => null);
   if (socketInfo !== null) {
     if (!socketInfo.isSocket() || socketInfo.isSymbolicLink()) fail('RUN_NOT_MANAGED', 'stale socket path差替え');
-    try {
-      const { stdout } = await execFileAsync('/usr/sbin/lsof', [socketPath], { encoding: 'utf8' });
-      if (stdout.trim().length > 0) fail('RUN_BUSY', 'control socketは別processが所有中');
-    } catch (error) {
+    // 所有者が居るなら消さない。観測できなければ「誰も居ない」へ丸めず観測失敗として止める
+    // （lsofはヒット無しでexit 1を返すので、この2つを区別する必要がある）。
+    let staleOwners;
+    try { staleOwners = await pidsOwningSocketPath(socketPath); }
+    catch (error) {
       if (error instanceof ManagedRuntimeError) throw error;
-      if (!(error?.code === 1 && String(error?.stdout ?? '').trim() === '')) fail('RUN_NOT_MANAGED', 'stale socket owner観測失敗');
+      fail('RUN_NOT_MANAGED', 'stale socket owner観測失敗');
     }
+    if (staleOwners.length > 0) fail('RUN_BUSY', 'control socketは別processが所有中');
     await rm(socketPath, { force: true });
   }
   return { previousDescriptorDigest: descriptor.descriptor_digest };
@@ -1220,13 +1221,13 @@ export async function serveRuntimeControlSocket({ socketPath, handler }) {
   try {
     const existing = await lstat(socketPath);
     if (!existing.isSocket()) fail('RUN_NOT_MANAGED', 'control.sockがsocketでない');
-    try {
-      const { stdout } = await execFileAsync('/usr/sbin/lsof', [socketPath], { encoding: 'utf8' });
-      if (stdout.trim().length > 0) fail('RUN_BUSY', 'control.sockはlive processが所有する');
-    } catch (error) {
+    let liveOwners;
+    try { liveOwners = await pidsOwningSocketPath(socketPath); }
+    catch (error) {
       if (error instanceof ManagedRuntimeError) throw error;
-      if (!(error?.code === 1 && String(error?.stdout ?? '').trim() === '')) fail('RUN_NOT_MANAGED', 'control.sock owner観測失敗');
+      fail('RUN_NOT_MANAGED', 'control.sock owner観測失敗');
     }
+    if (liveOwners.length > 0) fail('RUN_BUSY', 'control.sockはlive processが所有する');
     await rm(socketPath, { force: true });
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error;

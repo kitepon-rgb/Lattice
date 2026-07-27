@@ -141,6 +141,7 @@ licensed above for permitted (noncommercial) purposes.
 Commercial licensing: commercial use is not granted by these terms. To obtain a
 commercial license, open an issue at https://github.com/kitepon-rgb/Lattice/issues.
 
-Third-party components: the bundled structure sensor in `sensor/` is derived from
-CodeGraph and remains under the MIT License. See `sensor/LICENSE` and `sensor/NOTICE`.
+Third-party components: the bundled structure sensor in `sensor/` is third-party work
+absorbed into this repository and remains under the MIT License. Its upstream origin and
+attribution are recorded in `sensor/NOTICE`; the license text is `sensor/LICENSE`.
 These terms do not modify that license.
