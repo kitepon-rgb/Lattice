@@ -149,7 +149,7 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 | 4 読取り／書込みからの競合判定 | 実装済み | `runtime-front-end.mjs`のwrite×read/write交差 |
 | 5 競合時のリファクタリング | **実装済み** | 宣言anchorのsymbolを所有面へ移し、未宣言の依存先を共有面へ、残りを残余面へ分ける。公開ビルドが他所のprojectでも実行できることを確認済み |
 | 6 前後比較と再推定 | **実装済み** | 五条件が外部挙動同等性（原pathの公開面）・focused test・再index・重複解消（対象競合の消滅とplan全体の競合対の非増加）・実行段階数の改善を測る。1つでも欠けたら棄却 |
-| 7 一方停止・他方commit・再開 | **確定の手段だけが違う** | 停止と再開は実装済み。各TODOは隔離worktreeで走り、freeze後は影響閉包内だけhold、閉包外は`carry_over_witness`（`todo_input`／`boundary_manifest`／`validator`／`context_content`のdigest＋非重複証拠＋receipt binding）を実証できた場合だけ継続する。請求項が版管理commitで果たす「他方の確定」を、隔離worktree＋暗号学的witnessで果たしている。`commit`が`FORBIDDEN_OPERATIONS`なのは公開契約の「承認なしに外部effectを行わない」に由来するので、明示承認付きのcommit経路を足せば思想と衝突しない |
+| 7 一方停止・他方commit・再開 | **確定の手段が入った** | 停止と再開は実装済み。各TODOは隔離worktreeで走り、freeze後は影響閉包内だけhold、閉包外は`carry_over_witness`（`todo_input`／`boundary_manifest`／`validator`／`context_content`のdigest＋非重複証拠＋receipt binding）を実証できた場合だけ継続する。請求項が版管理commitで果たす「他方の確定」を、隔離worktree＋暗号学的witnessで果たしている。`commit`が`FORBIDDEN_OPERATIONS`なのは公開契約の「承認なしに外部effectを行わない」に由来するので、明示承認付きのcommit経路を足せば思想と衝突しない |
 | 8 双方停止・限定変換・双方再開 | 半分 | `seam_transform`／`intentional_serial`への振り分けは在る。限定変換の実施が無い |
 | 9 実変更観測による実行時競合検出 | 実装済み | `detectCheckpointFindings`が`scope_violation`と`observed_write_conflict`を返す |
 | 10 対象作業群だけ停止して再計画 | 実装済み | `computeAffectedClosure`＋`recompileNextEpochPlan` |
@@ -230,4 +230,4 @@ carry-overで走り続ける作業が隔離worktreeへ変更を積んでいる�
 ## 工程
 
 - [ ] 宣言を書く道具（観測済みaffected testの取得とcanonical書き出し）を足す
-- [ ] 明示承認付きの版管理commit経路を裁定して足す
+- [x] 明示承認付きの版管理commit経路を裁定して足す

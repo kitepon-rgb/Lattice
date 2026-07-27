@@ -45,7 +45,7 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-function run(command, args, cwd) {
+function run(command, args, cwd, { allowExitCodes = [0] } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
     const stdout = [];
@@ -54,7 +54,9 @@ function run(command, args, cwd) {
     child.stderr.on('data', (chunk) => stderr.push(chunk));
     child.once('error', reject);
     child.once('close', (code, signal) => {
-      if (code === 0 && signal === null) resolve(Buffer.concat(stdout));
+      if (allowExitCodes.includes(code) && signal === null) {
+        resolve(Object.assign(Buffer.concat(stdout), { code }));
+      }
       else {
         reject(new TypeError(
           `${command} ${args[0]} failed (${signal ?? code}): ${Buffer.concat(stderr).toString('utf8').trim()}`,
@@ -144,7 +146,13 @@ async function entryRecord(worktreePath, baseSha, entry) {
 
 /**
  * worktreeの実diffをbounded canonical recordへ変換する。
- * HEADがbase_shaから動いていた場合（commit等の禁止操作）はfail loud。
+ *
+ * HEADはbaseの子孫へ進んでよい（＝workerが自分のworktreeでcommitしてよい）。進んだ分は
+ * `base..HEAD`として観測へ含める。子孫でない位置へ動いた場合——reset、branch切替、rebase——は
+ * 観測の前提が壊れるのでfail loudする（ADR 0139）。
+ *
+ * commitを一律禁止していた頃は、進行中の成果が未commitのままworktreeにしか存在せず、
+ * 再計画がその変更を含まないsourceに対して行われていた。
  */
 export async function captureWorktreeDiff(options = {}) {
   if (!exactRecord(options, ['worktreePath', 'baseSha'])) {
@@ -156,7 +164,12 @@ export async function captureWorktreeDiff(options = {}) {
   }
   const head = (await run('git', ['rev-parse', 'HEAD'], worktreePath)).toString('utf8').trim();
   if (head !== baseSha) {
-    fail(`worktree HEADがbaseから動いている（commit等の禁止操作）: ${head}`);
+    const descendant = await run('git', ['merge-base', '--is-ancestor', baseSha, head], worktreePath, {
+      allowExitCodes: [0, 1],
+    });
+    if (descendant.code !== 0) {
+      fail(`worktree HEADがbaseの子孫でない（reset・branch切替・rebase）: ${head}`);
+    }
   }
   // ignored fileへのwriteもwrite sensorの対象にする（gitignore経由の
   // scope violation迂回を塞ぐ。isolation-runnerと同じ--ignored=matching）。
@@ -164,6 +177,17 @@ export async function captureWorktreeDiff(options = {}) {
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
   ], worktreePath);
   const entries = statusEntries(statusBytes);
+  // commit済みの変更はstatusへ出ない。base..HEADの範囲も観測へ入れないと、
+  // commitした瞬間に変更が観測から消える。
+  if (head !== baseSha) {
+    const committed = await run('git', [
+      'diff', '--name-status', '--no-renames', '-z', `${baseSha}..${head}`,
+    ], worktreePath);
+    const fields = committed.toString('utf8').split('\0').filter((field) => field.length > 0);
+    for (let index = 0; index + 1 < fields.length; index += 2) {
+      entries.push({ path: fields[index + 1], code: `${fields[index][0]} ` });
+    }
+  }
   if (entries.length > MAX_DIFF_ENTRIES) {
     fail(`diff entry数が上限を超える: ${entries.length}`);
   }
@@ -197,12 +221,15 @@ export async function captureWorktreeDiff(options = {}) {
   records.sort((left, right) => (left.path < right.path ? -1 : 1));
   // 観測中のHEAD移動（TOCTOU）を閉じる: 収集後に再確認する。
   const headAfter = (await run('git', ['rev-parse', 'HEAD'], worktreePath)).toString('utf8').trim();
-  if (headAfter !== baseSha) {
+  if (headAfter !== head) {
     fail(`観測中にworktree HEADが動いた: ${headAfter}`);
   }
   const record = {
-    schema: 'lattice.checkpoint_diff.v1',
+    schema: 'lattice.checkpoint_diff.v2',
     base_sha: baseSha,
+    // 生み出した木そのものを記録へ縛る。入力側のdigestだけでは、進行中の成果が
+    // どの状態だったかを後から指せない。
+    head_sha: head,
     entries: records,
   };
   return {

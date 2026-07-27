@@ -410,7 +410,9 @@ test('git mvはrename分解（added＋deleted）としてcanonical recordにな�
   await observeExecutor({ runId: RUN_ID, plan, events, adapter, todoId: 'R1', recordedAt: AT });
 });
 
-test('work関数がcommitする禁止操作はHEAD driftとしてfail loudする', async () => {
+test('自分のworktreeでのcommitは許され、commit済みの変更も観測へ入る', async () => {
+  // ADR 0139。commitを一律禁止していた頃は、進行中の成果が未commitのままworktreeにしか
+  // 存在せず、再計画がその変更を含まないsourceに対して行われていた。
   const fixture = buildFixture({
     todos: [{ id: 'X1', writes: ['src/one.mjs'] }],
     capacity: 1,
@@ -421,7 +423,46 @@ test('work関数がcommitする禁止操作はHEAD driftとしてfail loudする
       X1: async ({ worktreePath }) => {
         await writeFile(path.join(worktreePath, 'src', 'one.mjs'), 'export const one = 111;\n');
         run('git', ['-c', 'user.email=x@example.invalid', '-c', 'user.name=x', 'add', '.'], worktreePath);
-        run('git', ['-c', 'user.email=x@example.invalid', '-c', 'user.name=x', 'commit', '--quiet', '-m', 'forbidden'], worktreePath);
+        run('git', ['-c', 'user.email=x@example.invalid', '-c', 'user.name=x', 'commit', '--quiet', '-m', 'in-flight'], worktreePath);
+      },
+    },
+  });
+  const { request, plan, manifests } = fixture;
+  const packets = buildExecutorPackets({ plan, manifests });
+  let events = initializeRunEvents({ runId: RUN_ID, request, plan, manifests, recordedAt: AT });
+  const dispatched = await dispatchReadyFrontier({ runId: RUN_ID, plan, events, packets, manifests, adapter, recordedAt: AT });
+  events = dispatched.events;
+  const observed = await observeExecutor({
+    runId: RUN_ID, plan, events, adapter, todoId: 'X1', recordedAt: AT,
+  });
+  const checkpoint = observed.events.find(({ kind }) => kind === 'checkpoint_observed');
+  assert.notEqual(checkpoint, undefined);
+  // commitした瞬間に変更が観測から消えない。
+  const diff = adapter.lastCheckpoint?.diff ?? checkpoint.payload?.diff ?? null;
+  if (diff !== null) {
+    assert.equal(diff.schema, 'lattice.checkpoint_diff.v2');
+    assert.notEqual(diff.head_sha, diff.base_sha);
+    assert.deepEqual(diff.entries.map(({ path: target }) => target), ['src/one.mjs']);
+  }
+});
+
+test('HEADをbaseの子孫から外す操作は観測の前提を壊すのでfail loudする', async () => {
+  const fixture = buildFixture({
+    todos: [{ id: 'X1', writes: ['src/one.mjs'] }],
+    capacity: 1,
+  });
+  const adapter = createWorktreeExecutorAdapter({
+    repoRoot,
+    work: {
+      X1: async ({ worktreePath }) => {
+        await writeFile(path.join(worktreePath, 'src', 'one.mjs'), 'export const one = 111;\n');
+        // baseと系譜の繋がらないrootへ移る。commitと違い、進んだのでなく別の位置へ移った。
+        const tree = run('git', ['write-tree'], worktreePath).trim();
+        const orphan = run('git', [
+          '-c', 'user.email=x@example.invalid', '-c', 'user.name=x',
+          'commit-tree', tree, '-m', 'orphan',
+        ], worktreePath).trim();
+        run('git', ['checkout', '--quiet', '--detach', orphan], worktreePath);
       },
     },
   });
@@ -432,6 +473,6 @@ test('work関数がcommitする禁止操作はHEAD driftとしてfail loudする
   events = dispatched.events;
   await assert.rejects(
     observeExecutor({ runId: RUN_ID, plan, events, adapter, todoId: 'X1', recordedAt: AT }),
-    /HEADがbaseから動いている/u,
+    /HEADがbaseの子孫でない/u,
   );
 });
