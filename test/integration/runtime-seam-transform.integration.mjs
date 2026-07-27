@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { captureWorktreeDiff, detectCheckpointFindings } from '../../src/runtime-diff-observer.mjs';
 import { resolveRuntimeSeamTreatment } from '../../src/runtime-seam-treatment.mjs';
+import { commitSeamTransform } from '../../src/seam-commit.mjs';
 import { applySeamConflict } from '../../src/seam-apply.mjs';
 import { collectWitnessSensorEvidence, compileTodoIndependence } from '../../src/todo-independence.mjs';
 import { todoSelfDigest } from '../../src/todo-contracts.mjs';
@@ -145,6 +146,9 @@ test('実行時に観測した競合を、その場の変換で解消してseam 
     manifestDigest: baseArtifact.result_digest,
     affectedTests: ['test/page.test.mjs'],
     taskMigrationDigest: DIGEST('2'),
+    commitTransform: async ({ files, candidateId }) => commitSeamTransform({
+      repoRoot: root, baseSha, files, candidateId,
+    }),
     applyConflict: async ({ conflict }) => {
       const applied = await applySeamConflict({
         repoRoot: root,
@@ -183,4 +187,17 @@ test('実行時に観測した競合を、その場の変換で解消してseam 
   assert.equal(resolved.split.ownership_diff.removed.length, 2);
   // 本repositoryは変換で変わらない。
   assert.equal(run('git', ['status', '--porcelain=v1'], root).trim(), '');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), baseSha);
+
+  // --- 再開: 後継baseへworktreeを張ると、所有を宣言した新pathが実在する
+  assert.match(resolved.successor_base_sha, /^[0-9a-f]{40}$/u);
+  assert.equal(spawnSync('git', ['merge-base', '--is-ancestor', baseSha, resolved.successor_base_sha], { cwd: root }).status, 0);
+  const resumed = path.join(root, 'resumed');
+  run('git', ['worktree', 'add', '--detach', '--quiet', resumed, resolved.successor_base_sha], root);
+  context.after(() => spawnSync('git', ['worktree', 'remove', '--force', resumed], { cwd: root }));
+  for (const owned of ['src/page-left.mjs', 'src/page-style.mjs']) {
+    assert.equal(spawnSync('test', ['-f', path.join(resumed, owned)]).status, 0, owned);
+  }
+  // 旧base——直す前の再開先——には無い。
+  assert.equal(spawnSync('test', ['-f', path.join(root, 'src/page-left.mjs')]).status !== 0, true);
 });
