@@ -6,7 +6,7 @@
 
 [![npm](https://img.shields.io/npm/v/@quolu/lattice?color=cb3837&logo=npm)](https://www.npmjs.com/package/@quolu/lattice)
 [![CI](https://github.com/kitepon-rgb/Lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/kitepon-rgb/Lattice/actions/workflows/ci.yml)
-[![license](https://img.shields.io/npm/l/@quolu/lattice?color=blue)](LICENSE)
+[![license](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)
 [![node](https://img.shields.io/node/v/@quolu/lattice?color=339933&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![patent](https://img.shields.io/badge/patent-pending%20JP%202026--178950-6366f1)](#patent)
 
@@ -150,9 +150,10 @@ The design in this repository is the subject of a Japanese patent application:
 | Title | 情報処理装置、ソフトウェア開発制御方法及びプログラム<br>(Information processing apparatus, software development control method, and program) |
 | Claims | 12 |
 
-**Patent rights are reserved.** The licensing terms for this repository are being finalized;
-see [License](#license) below. The application is disclosed here so that the origin and the
-rights position of the design are visible up front.
+**Patent rights are reserved.** Noncommercial use is licensed together with the software (see
+[License](#license)). Commercial use is not granted — neither the copyright license nor the
+patent license extends to it. The application is disclosed here so the rights position is
+visible up front rather than discovered later.
 
 ## Factory role
 
@@ -188,7 +189,22 @@ Detailed operational notes (dashboard, bridge, actor environment, store transact
 
 ## License
 
-> **Notice:** the license for this repository is under review and may change. Do not assume a
-> grant of patent rights. If you intend to depend on Lattice, please open an issue first.
+**[PolyForm Noncommercial License 1.0.0](LICENSE)** — free for noncommercial use.
 
-© quolu (kitepon-rgb). See [LICENSE](LICENSE).
+- **Free:** personal projects, study and research, hobby and amateur work, charities,
+  educational institutions, public research organizations, and government institutions.
+- **Not granted:** commercial use. That includes use inside a company's paid work or products,
+  regardless of whether Lattice itself is redistributed.
+
+This is **not** an OSI-approved open source license, and that is deliberate: the design is
+covered by a patent application and commercial rights are retained.
+
+**Want to use Lattice commercially?** Open an
+[issue](https://github.com/kitepon-rgb/Lattice/issues) — commercial licensing is available.
+
+The bundled structure sensor in [`sensor/`](sensor/) is derived from
+[CodeGraph](https://github.com/colbymchenry/codegraph) and remains under the **MIT License**
+([`sensor/LICENSE`](sensor/LICENSE), [`sensor/NOTICE`](sensor/NOTICE)). The terms above do not
+modify it.
+
+© 2026 quolu (kitepon-rgb)

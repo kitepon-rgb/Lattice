@@ -6,7 +6,7 @@
 
 [![npm](https://img.shields.io/npm/v/@quolu/lattice?color=cb3837&logo=npm)](https://www.npmjs.com/package/@quolu/lattice)
 [![CI](https://github.com/kitepon-rgb/Lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/kitepon-rgb/Lattice/actions/workflows/ci.yml)
-[![license](https://img.shields.io/npm/l/@quolu/lattice?color=blue)](LICENSE)
+[![license](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)
 [![node](https://img.shields.io/node/v/@quolu/lattice?color=339933&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![patent](https://img.shields.io/badge/patent-pending%20JP%202026--178950-6366f1)](#特許)
 
@@ -224,5 +224,27 @@ error detailの`missing_environment`／`invalid_environment`と
 | 発明の名称 | 情報処理装置、ソフトウェア開発制御方法及びプログラム |
 | 請求項 | 12項 |
 
-**特許権は留保します。** 本repositoryのlicense条件は現在確定作業中です。
-出願の記載は、設計の出所と権利の所在を最初に明示するためのものです。
+**特許権は留保します。** 非商用利用についてはsoftwareと一緒に許諾します（下記License参照）。
+**商用利用は許諾しません**——著作権のlicenseも特許のlicenseも商用へは及びません。
+出願を明記するのは、権利の所在を後から知るのでなく最初に見えるようにするためです。
+
+## License
+
+**[PolyForm Noncommercial License 1.0.0](LICENSE)** — 非商用利用は無償です。
+
+- **無償:** 個人のproject、学習・研究、趣味やアマチュアの制作、慈善団体、教育機関、
+  公的研究機関、政府機関
+- **許諾しません:** 商用利用。Lattice自体を再配布するかどうかに関わらず、企業の業務や製品の
+  中で使う場合を含みます
+
+これはOSI承認のオープンソースライセンス**ではありません**。設計が特許出願の対象であり、
+商用の権利を留保しているので、意図してそうしています。
+
+**商用で使いたい場合**は[issue](https://github.com/kitepon-rgb/Lattice/issues)を立ててください。
+商用licenseを用意します。
+
+同梱の構造sensor（[`sensor/`](sensor/)）は[CodeGraph](https://github.com/colbymchenry/codegraph)
+由来で、**MIT License**のままです（[`sensor/LICENSE`](sensor/LICENSE)・
+[`sensor/NOTICE`](sensor/NOTICE)）。上記の条件はこれを変更しません。
+
+© 2026 quolu (kitepon-rgb)

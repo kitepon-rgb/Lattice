@@ -106,5 +106,10 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 - sensorはLatticeが所有し、配布物内の`./sensor/dist`からのみ起動する。PATH上の独立CLI、
   npx配布物、外部SDKへfallbackしない。MIT attributionは`./sensor/LICENSE`と
   `./sensor/NOTICE`で維持する。
+- **licenseは二層である。** 製品本体は`PolyForm-Noncommercial-1.0.0`（非商用は無償、商用は
+  別途許諾）で、`sensor/`はupstream由来のMITのまま。**`sensor/`のlicenseを書き換えない**——
+  第三者コードは再ライセンスできず、帰属表示の保持義務がある。製品をOSI承認licenseへ
+  変える提案をしない。特許を留保して商用を有償にする方針であり、OSIの定義は利用分野の
+  制限を許さないので両立しない（特にApache-2.0は第3条で特許を明示許諾するため意図と逆行する）。
 - dotagentsは将来の導入、更新、host配線、BugHub、互換性、rollbackを所有する。Latticeの研究思想を
   dotagentsの工場規則へ直接書き戻さない。
