@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.23.0 — 2026-07-27
+
+- **worktree外への書き込みを、検査した範囲として記録するようにした**
+  （[ADR 0140](docs/adr/0140-canonical-write-observation-is-recorded-not-assumed.md)）。
+  実行時の観測はworktree内しか見ておらず、**実hostのprocessを駆動するmanaged supervisorだけは
+  本repositoryの不変検査も無かった**。findingが空であることが「範囲外への書き込みが無かった」と
+  読めてしまう状態だった。
+- observation bindingが`canonical_root`とその指紋を**対で**渡した場合、観測時に取り直して
+  一致しなければfail closedにする。対を要求するのは、片方だけを受けると照合せずに「検査した」と
+  読める記録が作れるからである。渡されていなければ記録は`null`＝**未検査**であり、無変更の主張では
+  ない。判定していないものを競合が無いと読ませない規律（ADR 0127）を、観測の空白へも適用した。
+- 指紋はHEAD・作業ツリー状態（untracked／ignoredを含む）・全refを畳む。gitignore対象を見落とすと
+  ignore経由で外から触れてしまう。
+
+worktree外の一般的な書き込み（`/tmp`、home、ネットワーク）は引き続き観測できない。これは速度の
+問題ではなく、checkpoint間隔を詰めても永久に見えない。塞ぐならI/O検知かprocess sandboxであり、
+実dispatchの所有者はhostなので後者はhostの持ち物である。
+
 ## 0.22.0 — 2026-07-27
 
 **実行時に観測した競合を、その場の変換で解消できるようになった。** これまでは事前宣言された
