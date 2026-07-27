@@ -639,6 +639,7 @@ export async function createScriptedAdapterController({
         state: 'running',
         failure: null,
         settled: null,
+        releaseHold: null,
       };
       tasks.set(executorHandle, task);
       todoToHandle.set(packet.todo_id, executorHandle);
@@ -649,8 +650,14 @@ export async function createScriptedAdapterController({
             packet, repoRoot: worktreeReal, extraWrites: behavior.extra_writes,
           });
           // 書いた後も走り続ける。これが実行時観測の窓であり、0ならば窓は存在しない。
+          // barrierが掛かったら**そこで止まる**。barrierは「いま静止せよ」であって
+          // 「終わってから静止せよ」ではない——完走を待たせると、止めたい時ほど止まらない。
           if (behavior.hold_ms > 0) {
-            await new Promise((resolve) => { setTimeout(resolve, behavior.hold_ms); });
+            await new Promise((resolve) => {
+              const timer = setTimeout(resolve, behavior.hold_ms);
+              task.releaseHold = () => { clearTimeout(timer); resolve(); };
+            });
+            task.releaseHold = null;
           }
           const receipt = sign({
             schema: 'lattice.executor_receipt.v1',
@@ -743,7 +750,9 @@ export async function createScriptedAdapterController({
           fail('SCRIPTED_BARRIER_REJECTED', 'barrierが未知のrunning bindingを含む');
         }
         // barrierは静止の宣言である。走行中の作業を残したままackを返すと、
-        // 「止まった」と言いながらworktreeが動き続ける。settleを待ってから答える。
+        // 「止まった」と言いながらworktreeが動き続ける。走っている分を中断させ、
+        // 静止したことを確かめてから答える。
+        task.releaseHold?.();
         if (task.settled !== null) await task.settled;
         if (task.failure !== null) {
           fail('SCRIPTED_BARRIER_REJECTED', 'barrier対象のworker実行が失敗している', {
