@@ -8,7 +8,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -37,13 +37,33 @@ async function collect() {
   return [...files.sort(), ...EXTRA_FILES];
 }
 
+/**
+ * git・grepがtextとして扱えないbyteを拒む。
+ *
+ * 生のNULバイトを1つ含むだけで、gitのdiffは`Binary files differ`になり、grepはそのfileを
+ * 黙ってskipする。実際にこれを踏んだ——sourceは正しく動くのにreviewもcodebase検索も
+ * できない状態でcommitされていた。区切り文字が要るならescape sequence（\\0）で書く。
+ */
+const FORBIDDEN_BYTES = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/u;
+
 const files = await collect();
 const failures = [];
 for (const file of files) {
   const result = spawnSync(process.execPath, ['--check', path.join(ROOT, file)], {
     encoding: 'utf8',
   });
-  if (result.status !== 0) failures.push({ file, stderr: result.stderr.trim() });
+  if (result.status !== 0) { failures.push({ file, stderr: result.stderr.trim() }); continue; }
+  const text = await readFile(path.join(ROOT, file), 'utf8');
+  const found = FORBIDDEN_BYTES.exec(text);
+  if (found !== null) {
+    const line = text.slice(0, found.index).split('\n').length;
+    failures.push({
+      file,
+      stderr: `line ${line}: 制御文字 U+${found[0].codePointAt(0).toString(16).padStart(4, '0').toUpperCase()}`
+        + ' がsourceに直接入っている。git diffがbinary扱いになり、grepがfileをskipする。'
+        + ' escape sequenceで書くこと。',
+    });
+  }
 }
 
 if (failures.length > 0) {
