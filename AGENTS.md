@@ -47,6 +47,15 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 - 初回scaffoldだけはindexがまだ存在しないためbootstrap例外とする。bootstrap sourceを作った直後、
   初期環境commitより前に`lattice sensor init . --json`を実行し、以後のsource TODOへ例外を持ち越さない。
 - sensor結果は構造証拠であり、semantic independenceやbehavior preservationの単独証明ではない。
+- **計画段階で完全な分断は原理的に得られない。** 動的dispatch、実行時に決まるpath、reflection、
+  外部状態は、宣言と構造観測をどこまで詰めても残る。埋め合わせは実行段階の境界検知が持つ——
+  実際に変更された資源を観測し、宣言scopeの外への変更と、他の実行中作業のscopeとの重なりを
+  実行時競合として捕まえる。二段構えが設計であって、静的側の不備ではない。
+- **計画時は今ある材料の工夫で判断し、解決不能問題へ突入しない。** 判定の厳密さを上げる方向で
+  次を追わない: 意味的同等性の証明、依存閉包の完全性の証明、動的dispatchの完全解決、
+  unknownを無くすこと。どれも計画段階では決定不能であり、追えば製品が止まる。
+  代わりに、持っている材料——宣言、構造観測、実行した検査、変換前後の再compile——を組み合わせて
+  「今の材料で言えること」を述べ、言えない分はunknownとして残し、実行段階へ渡す。
 - `lattice_sensor_status`のcomplete／pending changes 0だけで新規fileのindex収載を仮定しない。`lattice_sensor_files`でcoverageを照合し、
   欠落時は明示`lattice sensor sync . --json`後にsearch／caller／callee／impactを取り直す。
 - sensorのsymbol lookupは、存在しない要求名を近い別symbolへfuzzy解決する場合がある。返却されたsymbol名とpathのexact一致を
