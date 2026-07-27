@@ -4,6 +4,7 @@ import {
   lstat, mkdir, open, readFile, realpath, rename, rm, writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseTree } from 'jsonc-parser';
 
 import {
@@ -988,7 +989,9 @@ async function seamProposalApply({ repoRoot, planKey, pathNames = {}, land = fal
     pathNames,
     sourceProposal: artifact,
     witnessSet,
-    latticeBin: path.join(repoRoot, 'bin', 'lattice.mjs'),
+    // 配布物内の自分自身を指す。repoRoot配下を指すと、Lattice自身のrepositoryでしか動かない
+    // ——消費側のprojectに`bin/lattice.mjs`は存在しない。
+    latticeBin: fileURLToPath(new URL('../bin/lattice.mjs', import.meta.url)),
     sharedPathFor: (sourcePath) => sourcePath.replace(/(\.[^./]+)$/u, '.seam-shared$1'),
     executors: witnessSet.capacity.executors,
     compileIndependence: {
