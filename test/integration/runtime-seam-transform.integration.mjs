@@ -1,0 +1,186 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { captureWorktreeDiff, detectCheckpointFindings } from '../../src/runtime-diff-observer.mjs';
+import { resolveRuntimeSeamTreatment } from '../../src/runtime-seam-treatment.mjs';
+import { applySeamConflict } from '../../src/seam-apply.mjs';
+import { collectWitnessSensorEvidence, compileTodoIndependence } from '../../src/todo-independence.mjs';
+import { todoSelfDigest } from '../../src/todo-contracts.mjs';
+
+// 請求項8。実行時に観測した競合を、その場の変換で解消する。実git repositoryと実sensorで通す。
+
+const LATTICE_BIN = fileURLToPath(new URL('../../bin/lattice.mjs', import.meta.url));
+const DIGEST = (character) => character.repeat(64);
+
+function run(command, args, cwd) {
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
+  assert.equal(result.status, 0, `${command} ${args.join(' ')}: ${result.stderr}`);
+  return result.stdout;
+}
+
+const SOURCE = [
+  'const CSS = \'body { color: red; }\';',
+  '',
+  'function escapeText(value) {',
+  '  return String(value).replaceAll(\'&\', \'&amp;\');',
+  '}',
+  '',
+  'function renderLeft(value) {',
+  '  return `<div>${escapeText(value)}</div>`;',
+  '}',
+  '',
+  'export function renderPage(value) {',
+  '  return `<style>${CSS}</style>${renderLeft(value)}`;',
+  '}',
+  '',
+].join('\n');
+
+const PAGE_TEST = [
+  "import test from 'node:test';",
+  "import assert from 'node:assert/strict';",
+  "import { renderPage } from '../src/page.mjs';",
+  "test('render', () => { assert.match(renderPage('a'), /<div>a<\\/div>/); });",
+  '',
+].join('\n');
+
+function witnessFor(projectId, planKey) {
+  const witness = (symbol) => ({
+    owns: [{ kind: 'path', target: 'src/page.mjs' }],
+    reads: [],
+    writes: ['src/page.mjs'],
+    resources: [],
+    state_effects: [],
+    sensor_provenance: {
+      queries: [{ query_id: 'q-page', expect: { kind: 'affected', path: 'src/page.mjs' } }],
+    },
+    affected_tests: ['test/page.test.mjs'],
+    unknowns: [],
+    concern_anchors: [{ within: { kind: 'path', target: 'src/page.mjs' }, symbols: [symbol] }],
+  });
+  const set = {
+    schema: 'lattice.todo_witness_set.v3',
+    project_id: projectId,
+    plan_key: planKey,
+    capacity: { executors: 2 },
+    sensor_query_set: {
+      queries: [
+        { id: 'q-page', operation: 'affected', target: 'src/page.mjs' },
+        { id: 'q-status', operation: 'status' },
+      ],
+    },
+    manual_witness: { T1: witness('renderLeft'), T2: witness('CSS') },
+    witness_set_digest: '',
+  };
+  set.witness_set_digest = todoSelfDigest(set, 'witness_set_digest');
+  return set;
+}
+
+test('実行時に観測した競合を、その場の変換で解消してseam splitへ落とす', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-runtime-seam-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await mkdir(path.join(root, 'test'), { recursive: true });
+  await writeFile(path.join(root, 'src/page.mjs'), SOURCE);
+  await writeFile(path.join(root, 'test/page.test.mjs'), PAGE_TEST);
+  await writeFile(path.join(root, '.gitignore'), '.lattice/\nnode_modules/\n');
+  run('git', ['init', '--quiet'], root);
+  run('git', ['config', 'user.email', 'fixture@example.invalid'], root);
+  run('git', ['config', 'user.name', 'fixture'], root);
+  run('git', ['add', '-A'], root);
+  run('git', ['commit', '--quiet', '-m', 'fixture'], root);
+  const baseSha = run('git', ['rev-parse', 'HEAD'], root).trim();
+  run(process.execPath, [LATTICE_BIN, 'sensor', 'init', '.', '--json'], root);
+
+  // --- 実行時の観測: T2が自分のscope外、かつT1のscope内であるpathへ書いた
+  const workerRoot = await mkdtemp(path.join(tmpdir(), 'lattice-runtime-worker-'));
+  context.after(async () => {
+    spawnSync('git', ['worktree', 'remove', '--force', workerRoot], { cwd: root });
+    await rm(workerRoot, { recursive: true, force: true });
+  });
+  run('git', ['worktree', 'add', '--detach', workerRoot, baseSha], root);
+  await writeFile(path.join(workerRoot, 'src/page.mjs'), `${SOURCE}\n// touched by T2\n`);
+  const checkpoint = await captureWorktreeDiff({ worktreePath: workerRoot, baseSha });
+
+  const packets = {
+    T1: { todo_id: 'T1', scope: { writes: ['src/page.mjs'] } },
+    T2: { todo_id: 'T2', scope: { writes: ['src/other.mjs'] } },
+  };
+  const { findings } = detectCheckpointFindings({
+    todoId: 'T2', checkpoint, packets, runningTodoIds: ['T1', 'T2'],
+  });
+  const conflictFinding = findings.find(({ kind }) => kind === 'observed_write_conflict');
+  assert.notEqual(conflictFinding, undefined, JSON.stringify(findings));
+  assert.equal(conflictFinding.path, 'src/page.mjs');
+  assert.deepEqual(conflictFinding.todo_ids, ['T1', 'T2']);
+
+  // --- その場の変換: 観測したfindingから候補を導出し、五条件で採否を決める
+  const witnessSet = witnessFor('runtime-seam', 'main');
+  const plan = {
+    schema: 'lattice.todo_plan.v2',
+    project_id: 'runtime-seam',
+    plan_key: 'main',
+    plan_version: 'v1',
+    topology_digest: DIGEST('7'),
+    tasks: [{ task_id: 'T1' }, { task_id: 'T2' }],
+  };
+  const baseArtifact = compileTodoIndependence({
+    witnessSet,
+    plan,
+    baseSha,
+    compiledAt: '2026-07-27T00:00:00.000Z',
+    sensorEvidence: await collectWitnessSensorEvidence({ cwd: root, witnessSet }),
+  });
+  assert.equal(baseArtifact.conflicts.length, 1);
+
+  const resolved = await resolveRuntimeSeamTreatment({
+    finding: conflictFinding,
+    witnessSet,
+    pathNames: { T1: 'src/page-left.mjs', T2: 'src/page-style.mjs', shared: 'src/page-shared.mjs' },
+    baseSha,
+    manifestDigest: baseArtifact.result_digest,
+    affectedTests: ['test/page.test.mjs'],
+    taskMigrationDigest: DIGEST('2'),
+    applyConflict: async ({ conflict }) => {
+      const applied = await applySeamConflict({
+        repoRoot: root,
+        planKey: 'main',
+        conflict,
+        witnessSet,
+        latticeBin: LATTICE_BIN,
+        sharedPathFor: (target) => target.replace(/(\.[^./]+)$/u, '.seam-shared$1'),
+        executors: witnessSet.capacity.executors,
+        pathNames: { shared: 'src/page-shared.mjs' },
+        compileIndependence: {
+          baseArtifact,
+          inWorktree: async ({ worktreePath, witnessSet: postWitness }) => compileTodoIndependence({
+            witnessSet: postWitness,
+            plan,
+            baseSha,
+            compiledAt: '2026-07-27T00:00:00.000Z',
+            sensorEvidence: await collectWitnessSensorEvidence({
+              cwd: worktreePath, witnessSet: postWitness,
+            }),
+          }),
+        },
+      });
+      return { ...applied, candidate: null };
+    },
+  });
+
+  assert.equal(resolved.lane, 'seam_transform', JSON.stringify(resolved.reasons));
+  assert.deepEqual(resolved.treatment.covered_paths, ['src/page.mjs']);
+  assert.equal(resolved.split.schema, 'lattice.runtime_seam_split.v1');
+  assert.deepEqual(resolved.split.predecessor_task_ids, ['T1', 'T2']);
+  // 競合辺は消える側だけを載せる。所有はそれぞれの新資源へ移る。
+  assert.deepEqual(resolved.split.edge_diff.removed,
+    [{ from_todo_id: 'T1', to_todo_id: 'T2', kind: 'conflict' }]);
+  assert.equal(resolved.split.ownership_diff.added.length, 2);
+  assert.equal(resolved.split.ownership_diff.removed.length, 2);
+  // 本repositoryは変換で変わらない。
+  assert.equal(run('git', ['status', '--porcelain=v1'], root).trim(), '');
+});
