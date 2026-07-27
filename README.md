@@ -150,8 +150,9 @@ The design in this repository is the subject of a Japanese patent application:
 | Title | 情報処理装置、ソフトウェア開発制御方法及びプログラム<br>(Information processing apparatus, software development control method, and program) |
 | Claims | 12 |
 
-The source code is released under the [MIT License](LICENSE). The application is disclosed here
-for transparency about the origin of the design; it does not alter the software license terms.
+**Patent rights are reserved.** The licensing terms for this repository are being finalized;
+see [License](#license) below. The application is disclosed here so that the origin and the
+rights position of the design are visible up front.
 
 ## Factory role
 
@@ -187,4 +188,7 @@ Detailed operational notes (dashboard, bridge, actor environment, store transact
 
 ## License
 
-[MIT](LICENSE) © quolu (kitepon-rgb)
+> **Notice:** the license for this repository is under review and may change. Do not assume a
+> grant of patent rights. If you intend to depend on Lattice, please open an issue first.
+
+© quolu (kitepon-rgb). See [LICENSE](LICENSE).

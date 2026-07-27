@@ -224,5 +224,5 @@ error detailの`missing_environment`／`invalid_environment`と
 | 発明の名称 | 情報処理装置、ソフトウェア開発制御方法及びプログラム |
 | 請求項 | 12項 |
 
-sourceは[MIT License](LICENSE)で公開しています。特許出願の記載は設計の出所を明らかにするための
-ものであり、softwareのlicense条件を変えるものではありません。
+**特許権は留保します。** 本repositoryのlicense条件は現在確定作業中です。
+出願の記載は、設計の出所と権利の所在を最初に明示するためのものです。
