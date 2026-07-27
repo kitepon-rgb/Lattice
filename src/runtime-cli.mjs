@@ -15,10 +15,15 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { detectCheckpointFindings } from './runtime-diff-observer.mjs';
+import {
+  buildRuntimeSeamResolution, readRuntimeFindingRecord, resolveRuntimeSeam,
+  validateRuntimeSeamRequest,
+} from './runtime-seam-resolve.mjs';
 import {
   compileRuntimePlanV1,
   evidenceFromCollectedOutcomes,
@@ -993,6 +998,51 @@ async function runStart({ requestPath, executorAdapter, cwd, stdout }) {
   output.result_digest = digestArtifact(output);
   stdout.write(`${JSON.stringify(output)}\n`);
   return 0;
+}
+
+/**
+ * 記録済み競合findingを、実際の変換で解消する（請求項8・ADR 0137〜0141）。
+ *
+ * 事前宣言されたtreatmentが無い競合は、これが無い間ずっと意図的直列へ退化していた。
+ * 隔離worktreeで変換し、五条件（ADR 0138）を通り、確定できた時だけseam splitを返す。
+ *
+ * branchは動かさない。返す`successor_base_sha`へ進めるかどうかは操作するAIが決める——
+ * 静的側の`land`と同じ責務分担であり、Latticeは変換・検証・記録と、後継baseの検査を持つ。
+ */
+async function runSeamResolve({ runDir, repoRoot, findingDigest, requestPath, stdout }) {
+  const committed = await readCommittedEpochStore(runDir);
+  if (committed === null) {
+    throw new CliContractError('RUN_NOT_MANAGED', 'runがmanaged storeへactivateされていない');
+  }
+  const declaration = await readBoundedJson(requestPath, 'runtime seam request');
+  if (!validateRuntimeSeamRequest(declaration)) {
+    throw new CliContractError('INVALID_SEAM_REQUEST', 'lattice.runtime_seam_request.v1として不正');
+  }
+  if (declaration.run_id !== committed.meta.run_id) {
+    throw new CliContractError('INVALID_SEAM_REQUEST', '宣言のrun_idがrun storeと一致しない');
+  }
+  if (declaration.finding_digest !== findingDigest) {
+    throw new CliContractError('INVALID_SEAM_REQUEST', '宣言のfinding_digestが--findingと一致しない');
+  }
+  const found = await readRuntimeFindingRecord({
+    runDir, findingDigest, planEpoch: committed.pointer.plan_epoch,
+  });
+  if (found.record === null) throw new CliContractError('STALE_FINDING', found.reason);
+
+  const resolved = await resolveRuntimeSeam({
+    repoRoot,
+    runDir,
+    findingRecord: found.record,
+    bundle: committed.bundle,
+    declaration,
+    latticeBin: fileURLToPath(new URL('../bin/lattice.mjs', import.meta.url)),
+    compiledAt: canonicalNow(),
+  });
+  const resolution = buildRuntimeSeamResolution({
+    runId: committed.meta.run_id, findingDigest, resolved,
+  });
+  stdout.write(`${JSON.stringify(resolution)}\n`);
+  return resolution.lane === 'seam_transform' ? 0 : 1;
 }
 
 async function runObserve({ runDir, stdout }) {
@@ -3188,6 +3238,16 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
         runDir, runRef, operation: 'conflict', artifactDigest: argv[5], stdout,
         requestId: requestIdOverride,
       });
+    };
+  } else if (argv.length === 9
+    && argv[0] === 'run' && argv[1] === 'seam' && argv[2] === 'resolve'
+    && argv[3] === '--run' && typeof argv[4] === 'string' && argv[4].length > 0
+    && argv[5] === '--finding' && /^[0-9a-f]{64}$/u.test(argv[6])
+    && argv[7] === '--input' && typeof argv[8] === 'string' && argv[8].length > 0) {
+    action = async () => {
+      const { repoRoot, runDir } = await resolveRunStore(cwd, argv[4]);
+      return runSeamResolve({ runDir, repoRoot, findingDigest: argv[6],
+        requestPath: path.resolve(cwd, argv[8]), stdout });
     };
   } else if (argv.length === 8
     && argv[0] === 'run' && argv[1] === 'finding' && argv[2] === 'record'

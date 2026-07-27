@@ -44,6 +44,10 @@ Commands:
   close --run .lattice/runs/<id>
   abandon --run .lattice/runs/<id> --reason <reason>
   list --json
+  seam resolve --run .lattice/runs/<id> --finding <digest> --input <request.json>
+      # 記録済み競合を隔離worktreeで実際に変換し、五条件を通ればseam splitと後継baseを返す。
+      # 入力(lattice.runtime_seam_request.v1)へ書くのは、係争fileの中で各TODOが触るsymbolと
+      # 新しい面の名前だけ。branchは動かさないので、後継baseへ進めるかは呼び出し側が決める。
 `,
   event: `Usage: lattice event verify --run .lattice/runs/<id>
 `,
