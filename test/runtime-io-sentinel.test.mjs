@@ -3,8 +3,8 @@ import test from 'node:test';
 import path from 'node:path';
 
 import {
-  DEFAULT_IO_EXCLUDES, classifyIoObservation, createIoSentinel, isExcludedPath, probeIoWarning,
-  relativeToRoot,
+  DEFAULT_IO_EXCLUDES, classifyIoObservation, createIoSentinel, isExcludedPath,
+  probeIoWarning, relativeToRoot, syncSentinelWatches,
 } from '../src/runtime-io-sentinel.mjs';
 
 // ADR 0143。警報はfindingではない——正本はcheckpointのままで、ここは早めるためだけに在る。
@@ -281,4 +281,67 @@ test('checkpointが取れていないTODOを書き手と数えない', () => {
   });
   assert.equal(probed.outcome, 'transient');
   assert.deepEqual(probed.writers, ['T1']);
+});
+
+// --- 監視の張り方。帰属が立たない構成では、そもそも警報を作らない。
+
+test('rootを共有して走っているTODOは監視しない', () => {
+  // 帰属はrootだけで決まる。同じrootで2つ走っていると、1件の書き込みが両方のwatcherへ
+  // 配られ、無実のTODOへ「他人のscopeへ書いた」と主張してしまう。
+  const registry = [];
+  const sentinel = createIoSentinel({
+    packets, onWarning: () => {}, watchFactory: fakeWatchFactory(registry),
+  });
+  const shared = { T1: '/repo', T2: '/repo' };
+  syncSentinelWatches({ sentinel, runningTodoIds: ['T1', 'T2'], rootOf: (id) => shared[id] });
+  assert.deepEqual(sentinel.watchedTodoIds(), []);
+
+  // 分離されていれば見る。同じcodeがそのまま効く。
+  const isolated = { T1: '/wt/T1', T2: '/wt/T2' };
+  syncSentinelWatches({ sentinel, runningTodoIds: ['T1', 'T2'], rootOf: (id) => isolated[id] });
+  assert.deepEqual(sentinel.watchedTodoIds(), ['T1', 'T2']);
+  sentinel.close();
+});
+
+test('共有rootでも1つだけ走っているなら帰属は立つ', () => {
+  const registry = [];
+  const sentinel = createIoSentinel({
+    packets, onWarning: () => {}, watchFactory: fakeWatchFactory(registry),
+  });
+  syncSentinelWatches({ sentinel, runningTodoIds: ['T1'], rootOf: () => '/repo' });
+  assert.deepEqual(sentinel.watchedTodoIds(), ['T1']);
+  sentinel.close();
+});
+
+test('走り終わったTODOの監視は外し、走り続けている監視は張り替えない', () => {
+  const registry = [];
+  const sentinel = createIoSentinel({
+    packets, onWarning: () => {}, watchFactory: fakeWatchFactory(registry),
+  });
+  const roots = { T1: '/wt/T1', T2: '/wt/T2' };
+  syncSentinelWatches({ sentinel, runningTodoIds: ['T1', 'T2'], rootOf: (id) => roots[id] });
+  assert.equal(registry.length, 2);
+
+  syncSentinelWatches({ sentinel, runningTodoIds: ['T1'], rootOf: (id) => roots[id] });
+  assert.deepEqual(sentinel.watchedTodoIds(), ['T1']);
+  // 張り替えは監視を一度落とす。走り続けているTODOで落とすと、その隙の書き込みを取り逃す。
+  assert.equal(registry.length, 2);
+  assert.equal(registry.find(({ root }) => root === '/wt/T2').closed, true);
+  assert.equal(registry.find(({ root }) => root === '/wt/T1').closed, false);
+  sentinel.close();
+});
+
+test('bindingを持たないTODOは監視対象にしない', () => {
+  const registry = [];
+  const sentinel = createIoSentinel({
+    packets, onWarning: () => {}, watchFactory: fakeWatchFactory(registry),
+  });
+  syncSentinelWatches({ sentinel, runningTodoIds: ['T1'], rootOf: () => undefined });
+  assert.deepEqual(sentinel.watchedTodoIds(), []);
+  sentinel.close();
+});
+
+test('sentinelが無い構成でも呼べる', () => {
+  assert.equal(syncSentinelWatches({ sentinel: null, runningTodoIds: ['T1'], rootOf: () => '/w' }),
+    undefined);
 });

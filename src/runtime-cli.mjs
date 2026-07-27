@@ -20,7 +20,9 @@ import { fileURLToPath } from 'node:url';
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { detectCheckpointFindings } from './runtime-diff-observer.mjs';
-import { createRunSentinel, probeIoWarning } from './runtime-io-sentinel.mjs';
+import {
+  createRunSentinel, probeIoWarning, syncSentinelWatches,
+} from './runtime-io-sentinel.mjs';
 import {
   buildRuntimeSeamResolution, readRuntimeFindingRecord, resolveRuntimeSeam,
   validateRuntimeSeamRequest, verifySeamSplitSuccessor,
@@ -728,29 +730,6 @@ async function readScriptedControllerReceipt({
   return receipt;
 }
 
-/**
- * running中のTODOだけを監視するようsentinelを合わせる（ADR 0143）。
- *
- * 監視rootは`executor_dispatched`の`direct_os_observation_binding.worktree_path`から取る。
- * これがTODO→絶対pathの唯一の耐久carrierである。workerがまだworktree分離されていない
- * 構成では全TODOが同じrootを指すが、判定はroot剥がし後の相対pathで行うので、
- * 分離されたときも同じcodeがそのまま効く。
- */
-function syncSentinelWatches({ sentinel, events }) {
-  if (sentinel === null) return;
-  const running = new Set(projectRuntimeState({ events }).running);
-  for (const todoId of sentinel.watchedTodoIds()) {
-    if (!running.has(todoId)) sentinel.unwatchBinding(todoId);
-  }
-  for (const todoId of running) {
-    const dispatch = events.findLast((event) => event.kind === 'executor_dispatched'
-      && event.subject?.kind === 'todo' && event.subject.ref === todoId);
-    const worktreePath = dispatch?.payload?.direct_os_observation_binding?.worktree_path;
-    if (typeof worktreePath !== 'string' || worktreePath.length === 0) continue;
-    sentinel.watchBinding({ todoId, worktreePath });
-  }
-}
-
 async function driveInitialScriptedManagedEpoch({
   runDir,
   repoRoot,
@@ -906,7 +885,10 @@ async function driveInitialScriptedManagedEpoch({
     await replaceEventsAtomically(runDir, events);
     // 走り出した瞬間から見る。checkpointは完了時まで撮られないので、ここを逃すと
     // 早期警報の意味が無くなる。
-    syncSentinelWatches({ sentinel, events });
+    syncSentinelWatches({ sentinel, runningTodoIds: projectRuntimeState({ events }).running,
+      rootOf: (todoId) => events.findLast((event) => event.kind === 'executor_dispatched'
+        && event.subject?.kind === 'todo' && event.subject.ref === todoId)
+        ?.payload?.direct_os_observation_binding?.worktree_path });
     for (const todoId of dispatched.dispatched) {
       const observed = await observeExecutor({
         runId: request.request_id,
@@ -918,7 +900,10 @@ async function driveInitialScriptedManagedEpoch({
       });
       events = observed.events;
       await replaceEventsAtomically(runDir, events);
-      syncSentinelWatches({ sentinel, events });
+      syncSentinelWatches({ sentinel, runningTodoIds: projectRuntimeState({ events }).running,
+        rootOf: (todoId) => events.findLast((event) => event.kind === 'executor_dispatched'
+          && event.subject?.kind === 'todo' && event.subject.ref === todoId)
+          ?.payload?.direct_os_observation_binding?.worktree_path });
     }
     const adjudicated = adjudicatePendingReceipts({
       runId: request.request_id,

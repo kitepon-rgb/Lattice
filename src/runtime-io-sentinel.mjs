@@ -12,9 +12,12 @@
  * この非対称が安全性の根拠になる。警報は**何かを抑制することが無く、早める方向にしか働かない**。
  * 取りこぼしても、今日と同じタイミング（完了時・hold時）で必ず捕まる——保証は一切緩まない。
  *
- * 判定述語はcheckpoint findingと同一（`coveredBy`を共有する）。worktreeとTODOは1対1なので、
- * 書き込みイベントのpathからworktree rootを剥がせばrepo相対pathになり、誰がやったかはrootが
- * 決める。プロセス帰属は要らない。
+ * 判定述語はcheckpoint findingと同一（`coveredBy`を共有する）。書き込みイベントのpathから
+ * worktree rootを剥がせばrepo相対pathになり、誰がやったかはrootが決める。プロセス帰属は要らない。
+ *
+ * **ただしそれはworktreeとTODOが1対1の時だけ成り立つ。** 帰属をrootだけに預けているので、
+ * 複数TODOが同じrootを共有する構成では書き手を特定できない。そこでは監視を張らない
+ * （`syncSentinelWatches`）——見えないものを見えるふりにしない。
  */
 
 import { watch } from 'node:fs';
@@ -199,6 +202,48 @@ export function createIoSentinel(options = {}) {
       reported.clear();
     },
   };
+}
+
+/**
+ * running中で、かつ**書き手を特定できる**TODOだけを監視するようsentinelを合わせる（ADR 0143）。
+ *
+ * 監視rootは`executor_dispatched`の`direct_os_observation_binding.worktree_path`から取る。
+ * これがTODO→絶対pathの唯一の耐久carrierである。
+ *
+ * **rootを共有しているTODOは監視しない。** sentinelの帰属はrootだけで決まり、プロセス帰属を
+ * 持たない。同じrootで2つ以上が走っている構成では、1件の書き込みが両方のwatcherへ配られ、
+ * どちらが書いたか観測から言えない——それを警報にすると、無実のTODOへ「他人のscopeへ書いた」
+ * と主張することになる。管理daemonのscripted構成が実際にこれで、全TODOが同じrepo rootを指す。
+ *
+ * 見えないものを見えるふりにしない。共有rootでは早期警報が成立しないというだけであり、
+ * 競合の判定は従来どおりcheckpointが完全に担う——保証は1つも減らない。
+ *
+ * @param {object} options
+ * @param {object|null} options.sentinel `createRunSentinel`の戻り値
+ * @param {string[]} options.runningTodoIds いまrunningのTODO
+ * @param {Function} options.rootOf todo_id -> worktree root（未束縛はundefined）
+ */
+export function syncSentinelWatches({ sentinel, runningTodoIds, rootOf } = {}) {
+  if (sentinel === null || sentinel === undefined) return;
+  if (!Array.isArray(runningTodoIds) || typeof rootOf !== 'function') {
+    throw new TypeError('syncSentinelWatches optionsが不正');
+  }
+  const occupants = new Map();
+  for (const todoId of runningTodoIds) {
+    const root = rootOf(todoId);
+    if (typeof root !== 'string' || root.length === 0) continue;
+    occupants.set(root, (occupants.get(root) ?? 0) + 1);
+  }
+  const attributable = runningTodoIds.filter((todoId) => occupants.get(rootOf(todoId)) === 1);
+  const watched = new Set(sentinel.watchedTodoIds());
+  for (const todoId of watched) {
+    if (!attributable.includes(todoId)) sentinel.unwatchBinding(todoId);
+  }
+  for (const todoId of attributable) {
+    // 張り替えは監視を一度落とすので、既に見ているものへは触らない。
+    if (watched.has(todoId)) continue;
+    sentinel.watchBinding({ todoId, worktreePath: rootOf(todoId) });
+  }
 }
 
 /** `LATTICE_IO_SENTINEL`の解釈。既定は警報を出す。`off`で完全に無効。 */
