@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.22.0 — 2026-07-27
+
+**実行時に観測した競合を、その場の変換で解消できるようになった。** これまでは事前宣言された
+処置が競合pathを覆う場合だけ`seam_transform`レーンへ送り、無ければすべて意図的直列へ倒していた。
+
+- 実行時競合のfindingから変換候補を導出し、隔離worktreeで五条件を通し、再計画が読む
+  `lattice.runtime_seam_split.v1`を組む経路を足した。実git repository・実sensorで、
+  workerが自分のscope外かつ他者のscope内へ書いた事実をdiff観測から検出し、変換して
+  splitを組むところまでを1本で通している（[実行記録](docs/evidence/2026-07-27-xf-003-runtime-transform-loop.md)）。
+- 静的側と実行時側で変換の芯を共有し、入力の口だけを分けた。実行時は提案artifactが無いので
+  **観測したfindingそのものを出所として縛る**。所有面の名前は与えられなければ候補を作らない——
+  製品が名前を発明しない線は実行時でも同じである。
+- **実行時だからといって条件を緩めない。** 五条件のうち1つでも欠けたら意図的直列へ送り、欠けた
+  条件を残す。緩めると外部挙動を変えうる変更が便益の証明なしに実行中のrunへ入る。
+- **自分の隔離worktree内のcommitを許した**（[ADR 0139](docs/adr/0139-worktree-local-commit-is-permitted.md)）。
+  commitを一律禁止していたため進行中の成果が未commitのままworktreeにしか存在せず、
+  再計画がその変更を含まないsourceに対して行われていた。observerはHEADが`base`の子孫であることを
+  確かめ、`base..HEAD`の範囲も観測へ入れる——**commit済みの変更は`git status`へ出ないので、
+  範囲を加えないとcommitした瞬間に変更が観測から消える**。checkpoint diffへ`head_sha`を足し、
+  生み出した木そのものを記録へ縛れるようにした。
+- 隔離の保証は緩めていない。禁じる対象が「HEADが動くこと」から「HEADが`base`の子孫から外れること」
+  （reset・branch切替・rebase）へ変わっただけである。
+
 ## 0.21.2 — 2026-07-27
 
 - 変換適用時の再indexが、配布物内の自分自身でなく対象project配下の`bin/lattice.mjs`を
