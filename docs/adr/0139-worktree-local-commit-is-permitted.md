@@ -60,8 +60,8 @@ diff observerの検査は緩んでいない。禁じる対象が「HEADが動く
 
 ## Open questions
 
-1. **後継planのbaseを前進させる配線。** 本ADRはcommitを可能にし木を記録へ縛るところまでで、
+1. **後継planのbaseを前進させる配線。** 裁定済み（ADR 0141）——後継requestが決め、Latticeが検証する。 本ADRはcommitを可能にし木を記録へ縛るところまでで、
    `recompileNextEpochPlan`が`head_sha`を新しいbaseとして採る配線は行っていない。
    採るべきは受理済みcheckpointのheadか、carry-over witnessが指すheadかを裁定する必要がある。
-2. **canonical branchへの着地。** worktree内commitはcanonical branchへ出ない。出す段は
+2. **canonical branchへの着地。** 裁定済み（ADR 0141 Decision 4）——branchを進めるのは操作するAI。 worktree内commitはcanonical branchへ出ない。出す段は
    引き続き承認を要する操作であり、本ADRは触れていない。

@@ -63,8 +63,8 @@ worktree外の一般的な書き込みは引き続き見えない。これは速
 
 ## Open questions
 
-1. **packetによる封じ込め境界の宣言。** 現在`executor_packet`は`scope.writes`と
+1. **packetによる封じ込め境界の宣言。** 裁定済み（ADR 0142 B）——足さない。担保は宣言でなく観測側にある。 現在`executor_packet`は`scope.writes`と
    `forbidden_operations`を配るが、「書いてよいのはこのworktreeの中だけ」という封じ込め境界を
    明示していない。hostが何を守るべきかを契約として述べる余地がある。
-2. **他workerのworktreeへの書き込み。** worker Aがworker Bのworktreeへ書くと、Bのdiffに現れて
+2. **他workerのworktreeへの書き込み。** 発火条件: `write-coverage` planのwc-002と同根であり、その発火条件（holdで捨てた作業量の実測）に従う（ADR 0142）。 worker Aがworker Bのworktreeへ書くと、Bのdiffに現れて
    **Bのscope violationとして誤帰属**する。帰属にはI/O水準の情報が要り、diffだけでは決まらない。

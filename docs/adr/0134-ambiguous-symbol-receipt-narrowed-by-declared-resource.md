@@ -80,7 +80,7 @@ receiptが「決まらなかった」と言う場面が減る一方、`ambiguous
 
 ## Open questions
 
-1. **conflict resource側の同名解決。** `currentSurfaces`はconflict symbolのexact surfaceを
+1. **conflict resource側の同名解決。** 発火条件: `exact_surface_evidence_missing`が同名衝突を理由に実データで1件出たら着手する（ADR 0142）。 `currentSurfaces`はconflict symbolのexact surfaceを
    単数`resolved`のreceiptからしか作れない。conflict symbolには`within`に当たる外側の資源が
    宣言されていないため、本ADRの絞り込みは効かない。同名のsymbolがconflict resourceになった場合は
    依然として`exact_surface_evidence_missing`で止まる。

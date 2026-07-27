@@ -118,17 +118,17 @@ witness setと記録から再生成できるhost localの投影として扱う�
 
 以下は本ADRでは裁定せず、実データの蓄積後に別途裁定する。
 
-1. **task intent bindingを持つか。** witnessのclosed fieldにはconcern・outcome・case IDが無い。
+1. **task intent bindingを持つか。** 発火条件: 宣言からの割り当てが実データで2件以上失敗したら着手する（ADR 0142）。 witnessのclosed fieldにはconcern・outcome・case IDが無い。
    typedな`task_intent_binding`を足せば今回のケースは`seam_candidate`へ到達しうるが、宣言の手間が
    増え、「宣言の誠実さが判定の上限」という性質がさらに前面に出る。足さない場合、割り当ては
    RC1/RC2と同じく人がcandidate specで与える運用になる。
-2. **複数の非劣位候補をどう持つか。** v1はdecisionあたり`seam_candidate`が単数で、incomparableな
+2. **複数の非劣位候補をどう持つか。** 発火条件: `multiple_incomparable_candidates`が実データで1件出たら着手する（ADR 0142）。 v1はdecisionあたり`seam_candidate`が単数で、incomparableな
    候補集合を表現できない。当面は該当時にunknownへ落として候補本体を失う。実データで該当ケースが
    出てから`candidate_set`を持つv2を起こす。
-3. **`verification`のdigestを契約側で締めるか。** producerは再導出可能な値を入れて照合関数を
+3. **`verification`のdigestを契約側で締めるか。** 裁定済み（ADR 0142 A）——締めた。`verificationEntry`がexact検査する。 producerは再導出可能な値を入れて照合関数を
    提供するが、契約自体は任意のdigestを受理する。`bounded-seam.mjs`のcaller assertion問題と同型で、
    受け皿を締めるか、検証済みであることを別のtyped fieldで表すかを裁定する必要がある。
-4. **新規fileだけを作るToDoの独立性をどう判定するか。** 存在しないpathのownsはsensor unbound／
+4. **新規fileだけを作るToDoの独立性をどう判定するか。** 裁定済み（ADR 0136 創作境界の宣言）。 存在しないpathのownsはsensor unbound／
    path_absentのdynamic unknownになり、graph全体が`BOUNDARY_UNKNOWN`へ落ちる。実測では
    `affected docs/evidence/`が`unresolved`を返し、末尾`/`のprefix形でも束縛されない。新module追加・
    新doc作成・新test追加といった実開発ToDoのかなりの割合が判定対象外になる。AGENTS.mdのbootstrap

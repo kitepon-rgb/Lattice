@@ -81,9 +81,9 @@ planが`outcome: compiled` / `conflict_count: 1` / `unknown_count: 0`でcompile�
 
 ## Open questions
 
-1. **依存するものが無い既存fileの扱い。** 存在するがaffected testを持たないpath（docや葉のtest）は
+1. **依存するものが無い既存fileの扱い。** 発火条件: 実データで1件出たら裁定する（ADR 0142）。 存在するがaffected testを持たないpath（docや葉のtest）は
    今も`empty` statusでunknownへ落ちる。創作境界と同じ「blast radiusが空」という状況だが、
    本ADRは宣言があるabsent pathだけを扱っており、こちらは触っていない。
-2. **1 ToDoが複数pathを所有する場合。** `affected_tests`は宣言とfresh観測をbinding単位で
+2. **1 ToDoが複数pathを所有する場合。** 発火条件: 実データで2件以上詰まったら着手する（ADR 0142）。 `affected_tests`は宣言とfresh観測をbinding単位で
    exact比較するため、affected集合の異なる複数pathを1 ToDoが所有すると宣言できない。
    創作境界とは独立の制約であり、本ADRでは解いていない。

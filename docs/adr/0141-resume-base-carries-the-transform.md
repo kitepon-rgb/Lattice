@@ -86,7 +86,7 @@ baseへworktreeを張ると`src/page-left.mjs`／`src/page-style.mjs`が存在�
 
 ## Open questions
 
-1. **確定したseam commitの寿命。** `refs/lattice/seam/*`をいつ掃除するかを決めていない。
+1. **確定したseam commitの寿命。** 裁定済み（ADR 0142 B）——自動では消さない。`listSeamRefs`で在庫を見せる。 `refs/lattice/seam/*`をいつ掃除するかを決めていない。
    runが閉じた後も残り続ける。
-2. **複数の変換が連続した場合の連鎖。** 2回目の変換は1回目のcommitをbaseにすべきだが、
+2. **複数の変換が連続した場合の連鎖。** 裁定済み（ADR 0142 B）——前の変換を含むbaseの上でのみ確定できる。 2回目の変換は1回目のcommitをbaseにすべきだが、
    現在は呼び出し側が`baseSha`を渡す形なので、連鎖の管理は呼び出し側にある。

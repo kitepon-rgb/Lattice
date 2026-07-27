@@ -85,11 +85,11 @@ componentの全taskがそのpath内でsymbolを名指ししている時だけske
 
 ## Open questions
 
-1. **evidence receiptが候補pathを保持するか。** `lattice.seam_proposal.v1`の
+1. **evidence receiptが候補pathを保持するか。** 裁定済み（ADR 0134 `candidate_paths`）。 `lattice.seam_proposal.v1`の
    `evidence.queries[]`は`resolved_path`を単数しか持てず、同名で複数pathの解決は`unknown`へ潰れる。
    `within`が指す資源で絞れば決まるのに、受け皿にその余地が無い。解くにはevidence契約の版上げが要る。
    実データで該当したのは現時点で1件であり、頻度を見てから裁定する。
-2. **宣言が資源の一部しか覆わない時にどう扱うか。** 現行は宣言されたsymbolだけでpartitionを作り、
+2. **宣言が資源の一部しか覆わない時にどう扱うか。** 裁定済み（ADR 0137 残余面）。 現行は宣言されたsymbolだけでpartitionを作り、
    誰も宣言していない残余は候補のsurface差分に現れない。残余を明示的に「facadeへ残す」と
    宣言させるか、暗黙のままにするかを裁定していない。
 3. ADR 0132のOpen questions 2〜4（複数候補のv2、`verification` digestの締め、新規fileだけを
