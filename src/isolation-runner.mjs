@@ -3,6 +3,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  mkdir,
   readlink,
   rm,
   symlink,
@@ -131,7 +132,10 @@ async function captureSnapshot(worktreePath, baseSha, allowedPaths, mountedEntri
   ], { cwd: worktreePath })).stdout)
     // runnerが張ったmountだけを外す。それ以外は無視しない——gitignore対象であっても、
     // allowed pathの外に現れたものは変更である。
-    .filter((changedPath) => !mounted.has(changedPath.replace(/\/$/u, '').split('/')[0]));
+    .filter((changedPath) => {
+      const normalized = changedPath.replace(/\/$/u, '');
+      return ![...mounted].some((entry) => normalized === entry || normalized.startsWith(`${entry}/`));
+    });
   for (const changedPath of changedPaths) {
     if (!safeRelativePath(changedPath) || !isAllowed(changedPath, allowedPaths)) {
       throw new Error(`change outside allowed paths: ${changedPath}`);
@@ -269,7 +273,7 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
     || (observe !== undefined && typeof observe !== 'function')
     || !Array.isArray(mounts)
     || mounts.some(({ entry, target } = {}) => typeof entry !== 'string'
-      || !/^[A-Za-z0-9._-]+$/u.test(entry) || typeof target !== 'string' || !path.isAbsolute(target))) {
+      || !safeRelativePath(entry) || typeof target !== 'string' || !path.isAbsolute(target))) {
     throw new TypeError('invalid isolated transform arguments');
   }
   // mountはrunnerが自分で張り、自分が張ったentryだけをsnapshotから外す。呼び出し側が
@@ -290,6 +294,7 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
     await run('git', ['worktree', 'add', '--detach', worktreePath, baseSha], { cwd: repoRoot });
     added = true;
     for (const { entry, target } of mounts) {
+      await mkdir(path.dirname(path.join(worktreePath, entry)), { recursive: true });
       await symlink(target, path.join(worktreePath, entry));
     }
     await transform({ worktreePath });
