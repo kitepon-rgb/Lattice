@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { detectCheckpointFindings } from './runtime-diff-observer.mjs';
-import { createRunSentinel } from './runtime-io-sentinel.mjs';
+import { createRunSentinel, probeIoWarning } from './runtime-io-sentinel.mjs';
 import {
   buildRuntimeSeamResolution, readRuntimeFindingRecord, resolveRuntimeSeam,
   validateRuntimeSeamRequest, verifySeamSplitSuccessor,
@@ -1734,6 +1734,34 @@ export async function runManagedSupervisorDaemon({
    *
    * 記録しない選択肢は無い。気づいたのに黙っている状態を残さない（ADR 0130）。
    */
+  /**
+   * 警報を無停止のcheckpointで確かめる（ADR 0143の二段目）。
+   *
+   * probeが撮るのはgitから読んだ本物のdiffなので、そのままfindingの証拠になる。
+   * fs eventをfindingへ昇格させる必要が無く、契約を1つも緩めずに済む。
+   */
+  const probeWarning = async (warning) => {
+    const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events')
+      .catch(() => null);
+    if (!Array.isArray(events)) return { outcome: 'unprobed', writers: [], checkpoints: {} };
+    const checkpoints = {};
+    for (const todoId of warning.todo_ids) {
+      const dispatch = events.findLast((event) => event.kind === 'executor_dispatched'
+        && event.subject?.kind === 'todo' && event.subject.ref === todoId);
+      const binding = dispatch?.payload?.direct_os_observation_binding;
+      if (typeof binding?.worktree_path !== 'string' || typeof binding?.base_sha !== 'string') continue;
+      // 観測できないTODOは「書いていない」へ丸めない。probeIoWarningが未観測として扱う。
+      const captured = await captureWorktreeDiff({
+        worktreePath: binding.worktree_path, baseSha: binding.base_sha,
+      }).catch(() => null);
+      if (captured !== null) checkpoints[todoId] = captured;
+    }
+    if (Object.keys(checkpoints).length === 0) {
+      return { outcome: 'unprobed', writers: [], checkpoints };
+    }
+    return { ...probeIoWarning({ warning, checkpointsByTodo: checkpoints }), checkpoints };
+  };
+
   const recordIoWarning = async (warning, probeOutcome) => {
     const payload = {
       warning_kind: warning.kind,
@@ -1861,7 +1889,12 @@ export async function runManagedSupervisorDaemon({
         if (!restarting && isDistributedScriptedControllerActivation(activation)) {
           sentinel = createRunSentinel({
             packets: committed.bundle.executor_packets,
-            onWarning: (warning) => recordIoWarning(warning, 'unprobed'),
+            onWarning: async (warning) => {
+              // 警報だけで止めない。無停止のprobeで実在を確かめてから記録する。
+              const probed = await probeWarning(warning).catch(() => (
+                { outcome: 'unprobed', writers: [] }));
+              await recordIoWarning(warning, probed.outcome);
+            },
           });
           await driveInitialScriptedManagedEpoch({
             runDir,

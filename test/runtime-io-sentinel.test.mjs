@@ -3,7 +3,8 @@ import test from 'node:test';
 import path from 'node:path';
 
 import {
-  DEFAULT_IO_EXCLUDES, classifyIoObservation, createIoSentinel, isExcludedPath, relativeToRoot,
+  DEFAULT_IO_EXCLUDES, classifyIoObservation, createIoSentinel, isExcludedPath, probeIoWarning,
+  relativeToRoot,
 } from '../src/runtime-io-sentinel.mjs';
 
 // ADR 0143。警報はfindingではない——正本はcheckpointのままで、ここは早めるためだけに在る。
@@ -224,4 +225,60 @@ test('実fs.watchで書き込みを拾える', async (context) => {
   // 拾えた場合、directoryや幽霊entryの警報が混ざっていないことも確かめる。
   if (!hit()) return;
   assert.equal(seen.every(({ path: target }) => target.includes('/')), true, JSON.stringify(seen));
+});
+
+// --- probe（ADR 0143の二段目）。警報だけで止めない。
+
+const checkpoint = (paths) => ({
+  checkpoint_digest: 'a'.repeat(64),
+  diff: { entries: paths.map((target) => ({ path: target, change: 'modified' })) },
+});
+
+test('重なり警報は、両者のdiffに残っていて初めて実在とする', () => {
+  const warning = { kind: 'io_overlap_warning', todo_ids: ['T1', 'T2'], path: 'src/page.mjs' };
+  const observed = probeIoWarning({
+    warning,
+    checkpointsByTodo: { T1: checkpoint(['src/page.mjs']), T2: checkpoint(['src/page.mjs']) },
+  });
+  assert.deepEqual(observed, { outcome: 'observed', writers: ['T1', 'T2'] });
+});
+
+test('書いて消したtempで全workerを止めない', () => {
+  // 警報は出るが、checkpointに残っていない。これがprobeを挟む理由そのもの。
+  const warning = { kind: 'io_overlap_warning', todo_ids: ['T1', 'T2'], path: 'src/page.mjs.tmp' };
+  const probed = probeIoWarning({
+    warning,
+    checkpointsByTodo: { T1: checkpoint(['src/page.mjs']), T2: checkpoint([]) },
+  });
+  assert.equal(probed.outcome, 'transient');
+});
+
+test('片方しか書いていない重なりは、まだ重なりではない', () => {
+  const warning = { kind: 'io_overlap_warning', todo_ids: ['T1', 'T2'], path: 'src/page.mjs' };
+  const probed = probeIoWarning({
+    warning,
+    checkpointsByTodo: { T1: checkpoint(['src/page.mjs']), T2: checkpoint(['src/style.mjs']) },
+  });
+  assert.equal(probed.outcome, 'transient');
+  assert.deepEqual(probed.writers, ['T1']);
+});
+
+test('scope警報は自分のdiffに残っていれば実在である', () => {
+  const warning = { kind: 'io_scope_warning', todo_ids: ['T2'], path: 'src/page.mjs' };
+  assert.equal(probeIoWarning({
+    warning, checkpointsByTodo: { T2: checkpoint(['src/page.mjs']) },
+  }).outcome, 'observed');
+  assert.equal(probeIoWarning({
+    warning, checkpointsByTodo: { T2: checkpoint([]) },
+  }).outcome, 'transient');
+});
+
+test('checkpointが取れていないTODOを書き手と数えない', () => {
+  // 観測できていないことを「書いていない」へも「書いた」へも丸めない。
+  const warning = { kind: 'io_overlap_warning', todo_ids: ['T1', 'T2'], path: 'src/page.mjs' };
+  const probed = probeIoWarning({
+    warning, checkpointsByTodo: { T1: checkpoint(['src/page.mjs']) },
+  });
+  assert.equal(probed.outcome, 'transient');
+  assert.deepEqual(probed.writers, ['T1']);
 });

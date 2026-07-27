@@ -217,3 +217,36 @@ export function createRunSentinel({ packets, onWarning, env = process.env } = {}
   if (ioSentinelMode(env) === 'off') return null;
   return createIoSentinel({ packets, onWarning });
 }
+
+/**
+ * 警報が実在の重なりだったかをcheckpointで確かめる（ADR 0143の二段目）。
+ *
+ * 警報だけで止めると、書いて消したtempでも全workerを止めてしまう。かといって警報を
+ * findingへ昇格させることもできない——findingは事後に再読して再導出できる主張でなければ
+ * ならず、fs eventはそれを満たさない。
+ *
+ * よって間に**probe**を挟む。関与worktreeを無停止でcheckpointし、当該pathがdiffに
+ * 残っていれば実在、消えていればtransientとする。probeが撮ったcheckpointはgitから読んだ
+ * 本物のdiffなので、そのままfindingの証拠になる——契約を1つも緩めずに済む。
+ *
+ * @param {object} options
+ * @param {object} options.warning `classifyIoObservation`が返した警報
+ * @param {object} options.checkpointsByTodo todo_id -> `captureWorktreeDiff`の戻り値
+ * @returns {{outcome: 'observed'|'transient', writers: string[]}}
+ */
+export function probeIoWarning({ warning, checkpointsByTodo } = {}) {
+  if (!plainRecord(warning) || typeof warning.path !== 'string'
+    || !Array.isArray(warning.todo_ids) || !plainRecord(checkpointsByTodo)) {
+    throw new TypeError('probeIoWarning optionsが不正');
+  }
+  const writers = [];
+  for (const todoId of [...warning.todo_ids].sort(compareText)) {
+    const entries = checkpointsByTodo[todoId]?.diff?.entries;
+    if (!Array.isArray(entries)) continue;
+    if (entries.some((entry) => entry?.path === warning.path)) writers.push(todoId);
+  }
+  // 重なりを主張する警報は、当該pathが**実際に変更として残っている**ことを要件にする。
+  // scope警報は自分1人の話なので、自分のdiffに残っていれば実在である。
+  const required = warning.kind === 'io_overlap_warning' ? 2 : 1;
+  return { outcome: writers.length >= required ? 'observed' : 'transient', writers };
+}
