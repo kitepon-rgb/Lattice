@@ -327,3 +327,28 @@ test('I/O早期警報のcontrol eventは、警報digestと結果を必ず持つ'
   assert.equal(validateRuntimeControlEventPayload('io_warning_observed',
     { ...payload, extra: true }), false);
 });
+
+test('自動escalationの顛末は、成否どちらも記録できる', () => {
+  // ADR 0143の三段目。警報が出たのにholdが掛かっていない状態を、後から説明できるようにする。
+  const payload = {
+    warning_digest: 'a'.repeat(64), anchor_todo_id: 'T1', checkpoint_digest: 'b'.repeat(64),
+    finding_digest: 'c'.repeat(64), outcome: 'held', detail: '早期警報からhold',
+  };
+  assert.equal(validateRuntimeControlEventPayload('io_escalation_decided', payload), true);
+
+  // 断られた記録は、理由を必ず持つ。「通らなかった」だけを残さない。
+  assert.equal(validateRuntimeControlEventPayload('io_escalation_decided',
+    { ...payload, finding_digest: null, outcome: 'rejected', detail: 'finding_recordが通らない' }), true);
+  assert.equal(validateRuntimeControlEventPayload('io_escalation_decided',
+    { ...payload, outcome: 'rejected', detail: '' }), false);
+
+  // holdまで通ったなら、どのfindingで止めたかを必ず指す。
+  assert.equal(validateRuntimeControlEventPayload('io_escalation_decided',
+    { ...payload, finding_digest: null }), false);
+
+  // 結果はclosed set。未知の語で「実は止まっていない」を紛れ込ませない。
+  assert.equal(validateRuntimeControlEventPayload('io_escalation_decided',
+    { ...payload, outcome: 'maybe' }), false);
+  assert.equal(validateRuntimeControlEventPayload('io_escalation_decided',
+    { ...payload, extra: true }), false);
+});

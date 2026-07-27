@@ -171,6 +171,21 @@ export function validateRuntimeControlEventPayload(kind, value) {
         warning_kind: value.warning_kind, todo_ids: value.todo_ids, path: value.path,
       });
   }
+  // probeを通った警報を既存hold経路へ入れた顛末（ADR 0143の三段目）。
+  // 成否どちらも残す。自動escalationが黙って失敗する状態を作らない——失敗の理由は
+  // `detail`が持ち、これが無いと「警報は出たのにholdが掛かっていない」を後から説明できない。
+  if (kind === 'io_escalation_decided') {
+    return exact(value, ['warning_digest', 'anchor_todo_id', 'checkpoint_digest',
+      'finding_digest', 'outcome', 'detail'])
+      && digest(value.warning_digest) && identifier(value.anchor_todo_id)
+      && digest(value.checkpoint_digest)
+      && (value.finding_digest === null || digest(value.finding_digest))
+      && ['held', 'rejected', 'skipped'].includes(value.outcome)
+      // holdまで通ったなら、どのfindingで止めたかを必ず指す。途中で落ちた時は
+      // 記録済みfindingがあればそれを残す（無ければnull）——後追いの手掛かりを捨てない。
+      && (value.outcome !== 'held' || digest(value.finding_digest))
+      && typeof value.detail === 'string' && value.detail.length > 0 && value.detail.length <= 4096;
+  }
   return false;
 }
 
