@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.26.0 — 2026-07-27
+
+- **実行時変換の再開先を実在させた**（ADR 0141）。実行時のseam_transformレーンは、競合を観測し
+  隔離worktreeで変換し五条件を通して`runtime_seam_split`を組むところまで動いていたが、その成果を
+  **どこにも着地させず**、後継planの`base_sha`も前進させていなかった。splitが「このTODOは
+  `src/page-left.mjs`を所有する」と宣言するのに、再開したworkerのworktreeにそのfileが無かった。
+- `commitSeamTransform`が、使い捨てworktreeをbaseへ張り、変換後のfileをdetached HEADでcommitし、
+  `refs/lattice/seam/<id>`へ繋ぐ。**canonical branchは動かない。** refはGC対策であって、
+  branch名前空間へは出さない。変換で1 byteも変わらなければ確定しない。
+- `recompileNextEpochPlan`が任意の`successorBaseSha`を受け、後継planのbaseだけを前進させる。
+  carry-over側のrebind packetは触らない——content digest不変が要件であり、継続している作業は
+  自分のworktreeで走り続けているため。
+- **確定できないなら採用しない。** 確定手段が無ければ`committer_absent`、確定に失敗すれば
+  `transform_not_committed`で意図的直列へ送る。「変換した」と言いながら再開できない状態を作らない。
+- **syntax gateの穴を塞いだ。** `npm run check`は`package.json`へfile名を手で並べる形で、実測で
+  src配下108本のうち**53本が未収載**だった。`scripts/check-syntax.mjs`でdirectoryを走査する形へ
+  変え、62本 → 119本。fileを足せばgateが自動で広がる。
+
 ## 0.25.0 — 2026-07-27
 
 - **宣言を書く道具を足した**（`lattice todo independence witness scaffold --plan <key> --input <draft>`）。
