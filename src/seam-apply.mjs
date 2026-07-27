@@ -5,13 +5,14 @@
  * その理由である。採用された変換を本ツリーへ着地させるのは別工程が持つ。
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { runIsolatedTransform } from './isolation-runner.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
+import { invokeSensorCli } from './sensor-runtime.mjs';
 import { buildSeamDerivationQuerySet, deriveBoundedSeamCandidate } from './seam-derivation.mjs';
 import { planSeamRewrite } from './seam-rewrite.mjs';
 import {
@@ -68,27 +69,41 @@ async function deriveWithClosure({ cwd, deriveOnce }) {
 }
 
 /** 宣言symbolの行範囲。移す範囲を決めるので、原path上のexact一致だけを採る。 */
+const SYMBOL_LOOKUP_LIMIT = 500;
+
+/**
+ * 変換対象symbolの行範囲を、対象file限定で読む。
+ *
+ * witness evidenceの共通経路（`collectSensorEvidence`）で名前を引くと、sensor CLIの既定
+ * `--limit 10`で打ち切られる。同名symbolが多いprojectでは対象fileの定義が窓の外へ落ち、
+ * **実在するsymbolを「範囲なし」と誤報して正当な変換を棄却する**。実測では`GIT_SHA1`が
+ * 17 fileにあり、名前順で先頭10件に入らなかった`src/seam-commit.mjs`の定義が返らなかった。
+ *
+ * よってここは共通経路を使わず、明示limitで引く。limitに達した結果は打ち切りの疑いがある
+ * ので、`missing`ではなく`truncated`として区別して返す——観測の欠落を「無い」へ丸めない。
+ */
 export async function readSymbolExtents({ cwd, sourcePath, symbols }) {
-  const querySet = {
-    queries: [
-      { id: 'seam-extent-status', operation: 'status' },
-      ...symbols.map((symbol, index) => ({
-        id: `seam-extent-${String(index).padStart(3, '0')}`, operation: 'query', target: symbol,
-      })),
-    ],
-  };
-  const collected = await collectSensorEvidence({ cwd, querySet });
   const extents = {};
-  querySet.queries.forEach((query, index) => {
-    if (query.operation !== 'query') return;
-    for (const entry of collected.outcomes[index]?.data ?? []) {
+  const truncated = [];
+  for (const symbol of [...new Set(symbols)]) {
+    const result = invokeSensorCli(
+      (command, args, options) => spawnSync(command, args, options),
+      ['query', symbol, '--path', '.', '--limit', String(SYMBOL_LOOKUP_LIMIT), '--json'],
+      { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    );
+    if (result.status !== 0) continue;
+    let parsed;
+    try { parsed = JSON.parse(result.stdout); } catch { continue; }
+    const entries = Array.isArray(parsed) ? parsed : parsed?.data ?? parsed?.results ?? [];
+    for (const entry of entries) {
       const node = nodeOf(entry);
-      if (node === null || node.name !== query.target || node.filePath !== sourcePath) continue;
+      if (node === null || node.name !== symbol || node.filePath !== sourcePath) continue;
       if (!Number.isSafeInteger(node.startLine) || !Number.isSafeInteger(node.endLine)) continue;
-      extents[query.target] = { startLine: node.startLine, endLine: node.endLine };
+      extents[symbol] = { startLine: node.startLine, endLine: node.endLine };
     }
-  });
-  return extents;
+    if (extents[symbol] === undefined && entries.length >= SYMBOL_LOOKUP_LIMIT) truncated.push(symbol);
+  }
+  return { extents, truncated: [...new Set(truncated)].sort(compareText) };
 }
 
 async function runIn(worktreePath, command, args) {
@@ -272,11 +287,21 @@ export async function applySeamConflict({
 
   const { readFile } = await import('node:fs/promises');
   const beforeText = await readFile(path.join(repoRoot, sourcePath), 'utf8');
-  const extents = await readSymbolExtents({
+  const lookup = await readSymbolExtents({
     cwd: repoRoot, sourcePath,
     symbols: candidate.surfaces.flatMap(({ symbols }) => symbols),
   });
-  const rewritten = planSeamRewrite({ sourceText: beforeText, candidate, symbolExtents: extents });
+  if (lookup.truncated.length > 0) {
+    // 打ち切りは「範囲が無い」ではない。誤った理由で棄却して原因を隠さない。
+    return {
+      outcome: outcome({ planKey, decision: 'rejected', candidate,
+        reasons: lookup.truncated.map((symbol) => `symbol_lookup_truncated:${symbol}`) }),
+      files: null,
+    };
+  }
+  const rewritten = planSeamRewrite({
+    sourceText: beforeText, candidate, symbolExtents: lookup.extents,
+  });
   if (rewritten.files === null) {
     return { outcome: outcome({ planKey, decision: 'rejected', reasons: rewritten.reasons, candidate }), files: null };
   }
