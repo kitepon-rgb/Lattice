@@ -231,3 +231,26 @@ carry-overで走り続ける作業が隔離worktreeへ変更を積んでいる�
 
 - [ ] 宣言を書く道具（観測済みaffected testの取得とcanonical書き出し）を足す
 - [x] 明示承認付きの版管理commit経路を裁定して足す
+
+---
+
+# 実行時の限定変換（請求項8）
+
+工程状態の正本はLattice storeの`runtime-transform` plan。
+
+実行時競合の検出（`detectCheckpointFindings`）と処置レーンの振り分け（`routeConflictTreatment`）は
+実装済みで、静的側の変換一式（導出・書き換え・五条件検証・隔離適用）も揃った。
+
+足りないのは接続である。`routeConflictTreatment`は**事前宣言された処置**が競合pathを覆う場合だけ
+`seam_transform`レーンへ送り、無ければ`intentional_serial`へ倒れる。実行時に競合を見てから
+変換候補を導出し、隔離worktreeで五条件を通し、双方を再開させる経路が無い。
+
+静的側との違いは入力だけである。静的側は記録済みseam提案を読むが、実行時は
+finding（競合path＋2つのtask）と実行中requestの宣言を持つ。導出の芯は同じなので、
+入力の口を分けて共有する。
+
+## 工程
+
+- [ ] 競合findingと宣言から変換候補を導出する口を切り出す
+- [ ] 導出した変換を隔離worktreeで適用し、双方停止から双方再開へ繋ぐ
+- [ ] 実データで実行時競合から変換までを1周させ、releaseまで通す
