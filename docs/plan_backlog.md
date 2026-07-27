@@ -188,7 +188,7 @@ focused test・sensor鮮度・重複解消）、本repo不変のassertまで持�
 ## 工程
 
 - [x] 実変換の受入契約とrc2断線の扱いを裁定する
-- [ ] seam_candidateからbounded seam candidateを導出する
+- [x] seam_candidateからbounded seam candidateを導出する
 - [ ] 宣言anchorのsymbolを新surfaceへ移す変換器を実装する
 - [ ] 外部挙動同等性・focused test・再index・重複解消の検証器を実装する
 - [ ] 隔離worktreeで変換を実行する公開CLI面を足す

@@ -14,8 +14,94 @@ function sortedUniqueRefs(value, { nonempty = false } = {}) {
     && value.every((entry, index) => index === 0 || value[index - 1] < entry);
 }
 
+/**
+ * v2の三面surface（ADR 0137 Decision 1）。所有だけがtaskへ紐づく。
+ *
+ * 残余はsymbolを列挙しない。移らなかったものすべてという補集合であり、列挙を要求すると
+ * 原fileの全symbol目録が契約の一部になる。
+ */
+function seamSurface(value, taskIds) {
+  if (!exactRecord(value, ['role', 'path', 'owner_task_ids', 'symbols'])
+    || !['task_owned', 'shared', 'residual'].includes(value.role)
+    || !isTodoRef(value.path)
+    || !Array.isArray(value.owner_task_ids)
+    || !sortedUniqueSymbols(value.symbols)) return false;
+  if (value.role === 'task_owned') {
+    return value.owner_task_ids.length === 1 && taskIds.has(value.owner_task_ids[0])
+      && value.symbols.length > 0;
+  }
+  if (value.owner_task_ids.length !== 0) return false;
+  return value.role === 'shared' ? value.symbols.length > 0 : value.symbols.length === 0;
+}
+
+function sortedUniqueSymbols(value) {
+  return Array.isArray(value) && value.every(isTodoIdentifier)
+    && value.every((entry, index) => index === 0 || value[index - 1] < entry);
+}
+
+function validateBoundedSeamCandidateV2(value) {
+  if (!exactRecord(value, [
+    'schema', 'candidate_id', 'base_sha', 'manifest_digest', 'finding_digest',
+    'source_path', 'todo_refs', 'surfaces', 'allowed_paths', 'required_paths',
+    'verification_policy', 'candidate_digest',
+  ])
+    || !isTodoIdentifier(value.candidate_id) || !GIT_OID.test(value.base_sha)
+    || !isTodoDigest(value.manifest_digest) || !isTodoDigest(value.finding_digest)
+    || !isTodoRef(value.source_path)
+    || !Array.isArray(value.todo_refs) || value.todo_refs.length < 2
+    || !value.todo_refs.every((entry) => exactRecord(entry, ['plan_key', 'task_id'])
+      && isTodoIdentifier(entry.plan_key) && isTodoIdentifier(entry.task_id))
+    || !value.todo_refs.every((entry, index) => index === 0
+      || `${value.todo_refs[index - 1].plan_key}\0${value.todo_refs[index - 1].task_id}`
+        < `${entry.plan_key}\0${entry.task_id}`)) return false;
+
+  const taskIds = new Set(value.todo_refs.map(({ task_id: taskId }) => taskId));
+  if (!Array.isArray(value.surfaces)
+    || !value.surfaces.every((surface) => seamSurface(surface, taskIds))
+    || !value.surfaces.every((surface, index) => index === 0
+      || value.surfaces[index - 1].path < surface.path)) return false;
+
+  // 所有面は全taskへ1つずつ。残余は原path上に必ず1つ。共有面は0または1（粒度は未裁定）。
+  const owned = value.surfaces.filter(({ role }) => role === 'task_owned');
+  const shared = value.surfaces.filter(({ role }) => role === 'shared');
+  const residual = value.surfaces.filter(({ role }) => role === 'residual');
+  const ownerIds = new Set(owned.flatMap(({ owner_task_ids: ids }) => ids));
+  if (owned.length !== taskIds.size || ownerIds.size !== taskIds.size
+    || shared.length > 1 || residual.length !== 1
+    || residual[0].path !== value.source_path) return false;
+
+  // symbolは1面にしか属せない。二重所有は移動先が決まらない。
+  const symbols = value.surfaces.flatMap(({ symbols: list }) => list);
+  if (new Set(symbols).size !== symbols.length) return false;
+
+  if (!sortedUniqueRefs(value.allowed_paths, { nonempty: true })
+    || !sortedUniqueRefs(value.required_paths, { nonempty: true })
+    || !value.required_paths.every((entry) => value.allowed_paths.includes(entry))
+    || !value.surfaces.every(({ path }) => value.allowed_paths.includes(path))
+    || !value.required_paths.includes(value.source_path)
+    || !owned.every(({ path }) => value.required_paths.includes(path))) return false;
+
+  // ADR 0138の五条件。1つでもfalseなら、その候補は採用条件を緩めた別物である。
+  return exactRecord(value.verification_policy, [
+    'focused_test_refs', 'require_behavior_equivalence', 'require_fresh_sensor',
+    'require_overlap_reduction', 'require_no_new_conflict_pairs',
+    'require_parallelism_improvement',
+  ])
+    && sortedUniqueRefs(value.verification_policy.focused_test_refs, { nonempty: true })
+    && value.verification_policy.require_behavior_equivalence === true
+    && value.verification_policy.require_fresh_sensor === true
+    && value.verification_policy.require_overlap_reduction === true
+    && value.verification_policy.require_no_new_conflict_pairs === true
+    && value.verification_policy.require_parallelism_improvement === true
+    && isTodoDigest(value.candidate_digest)
+    && value.candidate_digest === todoSelfDigest(value, 'candidate_digest');
+}
+
 export function validateBoundedSeamCandidate(value) {
   try {
+    if (value?.schema === 'lattice.bounded_seam_candidate.v2') {
+      return validateBoundedSeamCandidateV2(value);
+    }
     return exactRecord(value, [
       'schema', 'candidate_id', 'base_sha', 'manifest_digest', 'finding_digest',
       'todo_refs', 'anchor', 'allowed_paths', 'required_paths', 'verification_policy',
