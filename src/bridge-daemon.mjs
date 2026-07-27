@@ -92,9 +92,18 @@ async function readStrictJsonOnce(ref, label) {
       throw controlReadRace(`${label} changed during validation`);
     }
     const text = await handle.readFile('utf8');
-    const after = await lstat(ref);
-    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size) {
-      throw controlReadRace(`${label} changed during read`);
+    // `open`が成功した時点で、このfdは検証済みinodeを指している。書き手はtemp fileへ
+    // 書き切ってからrenameするので、そのinodeの内容は完結していて後から変わらない。
+    // つまり**読んでいる最中にpathが差し替わっても、読み取った内容は正しいsnapshotである**。
+    // ここでinodeの差し替えを失敗にすると、正しい読みを競合として捨てることになり、
+    // 書き手が連続publishしている間は何度再試行しても抜けられない（Linux CIで実測）。
+    //
+    // 一方、**同じinodeのまま**sizeが変わったのは、atomicでない書き込みか改変であり、
+    // 完結した内容を読んだ保証が無い。こちらは競合として再読する。
+    const after = await lstat(ref).catch(() => null);
+    if (after !== null && after.dev === opened.dev && after.ino === opened.ino
+      && after.size !== opened.size) {
+      throw controlReadRace(`${label} mutated in place during read`);
     }
     const errors = [];
     const tree = parseTree(text, errors, { allowTrailingComma: false, disallowComments: true });
@@ -117,8 +126,9 @@ async function readStrictJsonOnce(ref, label) {
  * 内容の異常ではなく再読で解ける競合であり、壊れたcontrol fileと同じerrorにしてはならない。
  *
  * 再試行するのは`CONTROL_READ_RACE`が付いた3条件だけである——検証中のinode／size変化、
- * 読み取り中のinode／size変化、最初のlstat後の消失。最大`CONTROL_READ_RETRY_LIMIT`回、
- * 間隔`CONTROL_READ_RETRY_DELAY_MS`で再読し、超えたら他と同じtyped errorで落とす。
+ * 読み取り中の同一inode内でのsize変化、最初のlstat後の消失。最大`CONTROL_READ_RETRY_LIMIT`回、
+ * `CONTROL_READ_RETRY_DELAY_MS`基準のjitter付きbackoffで再読し、超えたらtyped errorで落とす。
+ * **読み終えた後のinode差し替えは競合ではない**——読んだ内容は完結したsnapshotだからである。
  * JSON不正・schema不正・mode不正は競合ではないので一度も再試行せず即fail closedにする。
  */
 async function readStrictJson(ref, code, label) {
@@ -129,7 +139,9 @@ async function readStrictJson(ref, code, label) {
       if (error?.[CONTROL_READ_RACE] !== true || attempt >= CONTROL_READ_RETRY_LIMIT) {
         throw new BridgeConfigError(code, `${label} invalid`, undefined, error);
       }
-      await new Promise((resolve) => setTimeout(resolve, CONTROL_READ_RETRY_DELAY_MS));
+      // 固定間隔だと、周期的に書き換える相手と歩調が揃って毎回衝突しうる。ばらつかせる。
+      const backoff = CONTROL_READ_RETRY_DELAY_MS * (attempt + 1) * (1 + Math.random());
+      await new Promise((resolve) => setTimeout(resolve, backoff));
     }
   }
 }

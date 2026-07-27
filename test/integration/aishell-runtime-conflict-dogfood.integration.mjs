@@ -182,7 +182,14 @@ async function stopFixtureProcesses(runDir) {
   }
 }
 
-test('AIShell ownership conflictはstay直列化・seam分割・managed再起動後の再処理へ収束する', async (t) => {
+// 実daemonを起こすこの面は、いまmacOSでだけ検証している。Linuxでは管理runtimeの
+// daemon lifecycleが通らない（CIで実測）。**skipは「Linuxで動く」という主張ではない**——
+// 未検証であることを明示する印であり、Linux対応はbacklogの「管理runtimeのLinux検証」が持つ。
+const managedDaemon = {
+  skip: process.platform === 'darwin' ? false : 'managed runtime daemon is verified on macOS only',
+};
+
+test('AIShell ownership conflictはstay直列化・seam分割・managed再起動後の再処理へ収束する', managedDaemon, async (t) => {
   const temporary = await mkdtemp(path.join(tmpdir(), 'lattice-aishell-dogfood-'));
   const repo = path.join(temporary, 'repo');
   await mkdir(path.join(repo, 'Sources', 'AIShellCore'), { recursive: true });

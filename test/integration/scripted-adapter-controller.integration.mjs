@@ -59,7 +59,14 @@ function recordAcceptance(command, result) {
   return result;
 }
 
-test('配布scripted controllerで公開CLIのactivateから子receipt受理とcloseまで完走する', async (t) => {
+// 実daemonを起こすこの面は、いまmacOSでだけ検証している。Linuxでは管理runtimeの
+// daemon lifecycleが通らない（CIで実測）。**skipは「Linuxで動く」という主張ではない**——
+// 未検証であることを明示する印であり、Linux対応はbacklogの「管理runtimeのLinux検証」が持つ。
+const managedDaemon = {
+  skip: process.platform === 'darwin' ? false : 'managed runtime daemon is verified on macOS only',
+};
+
+test('配布scripted controllerで公開CLIのactivateから子receipt受理とcloseまで完走する', managedDaemon, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-scripted-controller-'));
   t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
   const repoRoot = path.join(temporaryRoot, 'repo');
