@@ -85,6 +85,13 @@ function exportedBlock(raw) {
   return parts.join('\n');
 }
 
+/** 原pathでexport宣言だったか。移動先でexportを足したかではなく、元の姿を見る。 */
+function wasExported(raw) {
+  const declaration = raw.split('\n')
+    .find((line) => !COMMENT_LINE.test(line) && line.trim() !== '');
+  return declaration !== undefined && /^\s*export\s/u.test(declaration);
+}
+
 function relativeSpecifier(fromPath, toPath) {
   const fromDir = fromPath.slice(0, fromPath.lastIndexOf('/') + 1);
   return toPath.startsWith(fromDir) ? `./${toPath.slice(fromDir.length)}` : `./${toPath}`;
@@ -138,10 +145,17 @@ export function planSeamRewrite({ sourceText, candidate, symbolExtents } = {}) {
 
   const bodyByPath = new Map();
   const removal = new Set();
+  // 原pathでexportされていたsymbolは、移した先から残余面が再exportする。
+  // しないと原pathをimportしている全fileが壊れ、外部挙動同等性が原理的に満たせない。
+  const reExportByPath = new Map();
   for (const block of blocks) {
     const raw = lines.slice(block.start - 1, block.end).join('\n');
     if (!bodyByPath.has(block.path)) bodyByPath.set(block.path, []);
     bodyByPath.get(block.path).push(exportedBlock(raw));
+    if (wasExported(raw)) {
+      if (!reExportByPath.has(block.path)) reExportByPath.set(block.path, []);
+      reExportByPath.get(block.path).push(block.symbol);
+    }
     for (let line = block.start; line <= block.end; line += 1) removal.add(line);
   }
 
@@ -175,7 +189,11 @@ export function planSeamRewrite({ sourceText, candidate, symbolExtents } = {}) {
   const residualBody = keptBody.join('\n').replace(/\n{3,}/gu, '\n\n').replace(/\n+$/u, '');
   const residualCross = importsFor(residual.path, residualBody)
     .filter((statement) => !keptHeader.join('\n').includes(statement));
-  files[residual.path] = `${[...keptHeader, ...residualCross].join('\n')}\n${residualBody}\n`
+  const reExports = [...reExportByPath.entries()]
+    .sort(([left], [right]) => compareText(left, right))
+    .map(([targetPath, names]) => `export { ${[...names].sort(compareText).join(', ')} }`
+      + ` from '${relativeSpecifier(residual.path, targetPath)}';`);
+  files[residual.path] = `${[...keptHeader, ...residualCross, ...reExports].join('\n')}\n${residualBody}\n`
     .replace(/^\n+/u, '');
 
   return { files, reasons: [] };
