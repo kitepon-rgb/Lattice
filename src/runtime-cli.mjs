@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { detectCheckpointFindings } from './runtime-diff-observer.mjs';
+import { createRunSentinel } from './runtime-io-sentinel.mjs';
 import {
   buildRuntimeSeamResolution, readRuntimeFindingRecord, resolveRuntimeSeam,
   validateRuntimeSeamRequest, verifySeamSplitSuccessor,
@@ -727,6 +728,29 @@ async function readScriptedControllerReceipt({
   return receipt;
 }
 
+/**
+ * running中のTODOだけを監視するようsentinelを合わせる（ADR 0143）。
+ *
+ * 監視rootは`executor_dispatched`の`direct_os_observation_binding.worktree_path`から取る。
+ * これがTODO→絶対pathの唯一の耐久carrierである。workerがまだworktree分離されていない
+ * 構成では全TODOが同じrootを指すが、判定はroot剥がし後の相対pathで行うので、
+ * 分離されたときも同じcodeがそのまま効く。
+ */
+function syncSentinelWatches({ sentinel, events }) {
+  if (sentinel === null) return;
+  const running = new Set(projectRuntimeState({ events }).running);
+  for (const todoId of sentinel.watchedTodoIds()) {
+    if (!running.has(todoId)) sentinel.unwatchBinding(todoId);
+  }
+  for (const todoId of running) {
+    const dispatch = events.findLast((event) => event.kind === 'executor_dispatched'
+      && event.subject?.kind === 'todo' && event.subject.ref === todoId);
+    const worktreePath = dispatch?.payload?.direct_os_observation_binding?.worktree_path;
+    if (typeof worktreePath !== 'string' || worktreePath.length === 0) continue;
+    sentinel.watchBinding({ todoId, worktreePath });
+  }
+}
+
 async function driveInitialScriptedManagedEpoch({
   runDir,
   repoRoot,
@@ -736,6 +760,7 @@ async function driveInitialScriptedManagedEpoch({
   managedSupervisor,
   initialEvents,
   controlEvents,
+  sentinel = null,
 }) {
   let events = [...initialEvents];
   const { plan, manifests, executor_packets: packets } = committed.bundle;
@@ -879,6 +904,9 @@ async function driveInitialScriptedManagedEpoch({
     }
     events = dispatched.events;
     await replaceEventsAtomically(runDir, events);
+    // 走り出した瞬間から見る。checkpointは完了時まで撮られないので、ここを逃すと
+    // 早期警報の意味が無くなる。
+    syncSentinelWatches({ sentinel, events });
     for (const todoId of dispatched.dispatched) {
       const observed = await observeExecutor({
         runId: request.request_id,
@@ -890,6 +918,7 @@ async function driveInitialScriptedManagedEpoch({
       });
       events = observed.events;
       await replaceEventsAtomically(runDir, events);
+      syncSentinelWatches({ sentinel, events });
     }
     const adjudicated = adjudicatePendingReceipts({
       runId: request.request_id,
@@ -1686,6 +1715,7 @@ export async function runManagedSupervisorDaemon({
     clock: canonicalNow });
   let eventStore = requestStore;
   let server;
+  let sentinel = null;
 
   const appendControl = async ({ run_id: runId, kind, session_nonce_digest: sessionDigest, payload }) => {
     const eventDigest = await eventStore.append({ run_id: runId, kind,
@@ -1694,6 +1724,30 @@ export async function runManagedSupervisorDaemon({
     return eventDigest;
   };
   let gateWriter = null;
+
+  /**
+   * I/O sentinelの早期警報を耐久化する（ADR 0143）。
+   *
+   * **findingにはしない。** findingの契約はcheckpoint digestを必須にしており、それはfindingが
+   * 事後に再読して再導出できる主張であることの担保である。fs eventは取りこぼすし再読もできない。
+   * ここで残すのは「機械が気づいた」という事実だけで、判定の正本はcheckpointのままである。
+   *
+   * 記録しない選択肢は無い。気づいたのに黙っている状態を残さない（ADR 0130）。
+   */
+  const recordIoWarning = async (warning, probeOutcome) => {
+    const payload = {
+      warning_kind: warning.kind,
+      todo_ids: [...warning.todo_ids].sort(),
+      path: warning.path,
+      probe_outcome: probeOutcome,
+      warning_digest: digestArtifact({
+        warning_kind: warning.kind, todo_ids: [...warning.todo_ids].sort(), path: warning.path,
+      }),
+    };
+    await appendControl({ run_id: request.request_id, kind: 'io_warning_observed',
+      session_nonce_digest: digestArtifact(sessionNonce), payload });
+  };
+
   const resolveObservationBinding = async ({ binding }) => {
     const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
     const dispatch = events.findLast((event) => event.kind === 'executor_dispatched'
@@ -1805,6 +1859,10 @@ export async function runManagedSupervisorDaemon({
           await extra.registerWithManagedSupervisor(managedSupervisor);
         }
         if (!restarting && isDistributedScriptedControllerActivation(activation)) {
+          sentinel = createRunSentinel({
+            packets: committed.bundle.executor_packets,
+            onWarning: (warning) => recordIoWarning(warning, 'unprobed'),
+          });
           await driveInitialScriptedManagedEpoch({
             runDir,
             repoRoot,
@@ -1812,6 +1870,7 @@ export async function runManagedSupervisorDaemon({
             committed,
             activation,
             managedSupervisor,
+            sentinel,
             initialEvents: events,
             controlEvents: () => controlEvents,
           });
@@ -3095,6 +3154,9 @@ export async function runManagedSupervisorDaemon({
   };
   server = await serveRuntimeControlSocket({ socketPath, handler });
   registerDaemonCleanup(async (signal) => {
+    // 監視fdを残さない。取り残すとtest fixtureの後片付けが重くなる。
+    sentinel?.close();
+    sentinel = null;
     if (activationCommitted && activation !== null) {
       await appendControl({ run_id: request.request_id, kind: 'supervisor_stopped',
         session_nonce_digest: digestArtifact(sessionNonce), payload: { signal } });

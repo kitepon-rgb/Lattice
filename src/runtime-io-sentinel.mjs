@@ -200,3 +200,20 @@ export function createIoSentinel(options = {}) {
     },
   };
 }
+
+/** `LATTICE_IO_SENTINEL`の解釈。既定は警報を出す。`off`で完全に無効。 */
+export function ioSentinelMode(env = process.env) {
+  const raw = String(env.LATTICE_IO_SENTINEL ?? '').trim().toLowerCase();
+  return ['off', 'warn'].includes(raw) ? raw : 'warn';
+}
+
+/**
+ * run用のsentinelを作る。無効なら`null`を返す——呼び出し側は分岐を1つ持つだけでよい。
+ *
+ * 監視を張れない環境でrunを止めないのと同じ理由で、ここで例外を投げない。sentinelは
+ * 速さのための付加物であり、これが無くてもrunの判定は今までどおり成立する。
+ */
+export function createRunSentinel({ packets, onWarning, env = process.env } = {}) {
+  if (ioSentinelMode(env) === 'off') return null;
+  return createIoSentinel({ packets, onWarning });
+}

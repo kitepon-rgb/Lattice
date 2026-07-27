@@ -304,3 +304,26 @@ for (const crashPoint of [
         'in_progress'));
   });
 }
+
+test('I/O早期警報のcontrol eventは、警報digestと結果を必ず持つ', () => {
+  // ADR 0143。findingではないが、記録は残す——気づいたのに黙っている状態を作らない。
+  const body = { warning_kind: 'io_overlap_warning', todo_ids: ['T1', 'T2'], path: 'src/page.mjs' };
+  const payload = { ...body, probe_outcome: 'observed', warning_digest: digestArtifact(body) };
+  assert.equal(validateRuntimeControlEventPayload('io_warning_observed', payload), true);
+
+  // digestが本文と合わないものを受けない。記録が主張と食い違う状態を残さない。
+  assert.equal(validateRuntimeControlEventPayload('io_warning_observed',
+    { ...payload, path: 'src/other.mjs' }), false);
+
+  // probeの結果はclosed setにする。「確かめていない」と「確かめて消えていた」を混ぜない。
+  assert.equal(validateRuntimeControlEventPayload('io_warning_observed',
+    { ...payload, probe_outcome: 'maybe' }), false);
+
+  // todo_idsは昇順一意。順序が揺れると同じ事実が別の記録になる。
+  const swapped = { ...body, todo_ids: ['T2', 'T1'] };
+  assert.equal(validateRuntimeControlEventPayload('io_warning_observed',
+    { ...swapped, probe_outcome: 'observed', warning_digest: digestArtifact(swapped) }), false);
+
+  assert.equal(validateRuntimeControlEventPayload('io_warning_observed',
+    { ...payload, extra: true }), false);
+});

@@ -156,6 +156,21 @@ export function validateRuntimeControlEventPayload(kind, value) {
   if (kind === 'supervisor_recovery_barrier') {
     return exact(value, ['barrier_id']) && identifier(value.barrier_id);
   }
+  // I/O sentinelの早期警報（ADR 0143）。**findingではない**——検知の正本はcheckpointのままで、
+  // これは「早くcheckpointを撮って確かめろ」という引き金の記録である。記録しない選択肢は無い:
+  // 機械が何かに気づいたのに黙っている状態を残さない（ADR 0130）。
+  if (kind === 'io_warning_observed') {
+    return exact(value, ['warning_kind', 'todo_ids', 'path', 'probe_outcome', 'warning_digest'])
+      && ['io_overlap_warning', 'io_scope_warning'].includes(value.warning_kind)
+      && Array.isArray(value.todo_ids) && value.todo_ids.length >= 1 && value.todo_ids.length <= 256
+      && value.todo_ids.every(identifier)
+      && value.todo_ids.every((id, index) => index === 0 || value.todo_ids[index - 1] < id)
+      && typeof value.path === 'string' && value.path.length > 0 && value.path.length <= 4096
+      && ['observed', 'transient', 'escalated', 'unprobed'].includes(value.probe_outcome)
+      && value.warning_digest === canonicalDigest({
+        warning_kind: value.warning_kind, todo_ids: value.todo_ids, path: value.path,
+      });
+  }
   return false;
 }
 
