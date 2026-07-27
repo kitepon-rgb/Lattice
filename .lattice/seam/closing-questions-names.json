@@ -1,0 +1,8 @@
+{
+ "schema": "lattice.seam_path_names.v1",
+ "names": {
+  "cq-002": "src/seam-ref.mjs",
+  "cq-003": "src/seam-commit-transform.mjs",
+  "shared": "src/seam-commit-shared.mjs"
+ }
+}
