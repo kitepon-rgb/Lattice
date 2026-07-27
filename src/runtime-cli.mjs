@@ -754,6 +754,7 @@ async function driveInitialScriptedManagedEpoch({
   controlEvents,
   sentinel = null,
   preDispatchBindings = null,
+  drainEscalations = null,
 }) {
   let events = [...initialEvents];
   const { plan, manifests, executor_packets: packets } = committed.bundle;
@@ -866,8 +867,13 @@ async function driveInitialScriptedManagedEpoch({
             process_group_id: processGroupId,
             process_start_identity:
               structuredClone(activation.controllerDescriptor.process_start_identity),
+            // scripted controllerは自分のprocessで実行するので、別processの子は存在しない。
+            // 空配列は「子が居ない」という主張であり、直接OS観測はこれを実測と突き合わせて
+            // 未記録のchildが居ないことまで確かめる——省略すると照合そのものが成立しない。
+            process_children: [],
             // TODOごとの木を指す。ここがrepo rootだった頃、帰属はrootから決まらなかった。
             worktree_path: worktreeByTodo.get(packet.todo_id),
+            worktree_realpath: worktreeByTodo.get(packet.todo_id),
             base_sha: packet.base_sha,
           },
         };
@@ -877,37 +883,27 @@ async function driveInitialScriptedManagedEpoch({
           event.kind === 'executor_dispatched'
           && event.payload?.executor_handle === executorHandle
         ));
-        // workerはdispatchで終わらない。走り続けている間はrunningが返るので、
-        // 完了まで待つ。ここが待てないと、走行中の観測が成立する構成を持てない。
-        const deadline = Date.now() + SCRIPTED_OBSERVE_TIMEOUT_MS;
-        for (;;) {
-          const response = await managedSupervisor.route('observe', controllerId, {
-            executor_handle: executorHandle,
-            expected_epoch: dispatch.plan_epoch,
-            expected_lease_digest: dispatch.payload.write_lease_digest,
-          });
-          if (response.observation.state === 'terminal') {
-            const receipt = await readScriptedControllerReceipt({
-              runDir,
-              controllerId,
-              payloadDigest: response.observation.payload_digest,
-            });
-            return { state: 'terminal', receipt };
-          }
-          if (response.observation.state !== 'running') {
-            throw new ManagedRuntimeError(
-              'ADAPTER_CONTROLLER_UNAVAILABLE',
-              `scripted controllerが未知のstateを返した: ${response.observation.state}`,
-            );
-          }
-          if (Date.now() >= deadline) {
-            throw new ManagedRuntimeError(
-              'ADAPTER_CONTROLLER_UNAVAILABLE',
-              `scripted workerが時間内に終わらない: ${executorHandle}`,
-            );
-          }
-          await new Promise((resolve) => { setTimeout(resolve, SCRIPTED_OBSERVE_POLL_MS); });
+        // **ここでpollしない。** 待つのは駆動側の仕事である——workerが走っている間が
+        // 実行時競合を掴める唯一の窓であり、その窓は駆動側がeventsを手元に持っている時
+        // にしか安全に触れない。ここで待つと、窓の間ずっと駆動側が止まる。
+        const response = await managedSupervisor.route('observe', controllerId, {
+          executor_handle: executorHandle,
+          expected_epoch: dispatch.plan_epoch,
+          expected_lease_digest: dispatch.payload.write_lease_digest,
+        });
+        if (response.observation.state === 'running') return { state: 'running' };
+        if (response.observation.state !== 'terminal') {
+          throw new ManagedRuntimeError(
+            'ADAPTER_CONTROLLER_UNAVAILABLE',
+            `scripted controllerが未知のstateを返した: ${response.observation.state}`,
+          );
         }
+        const receipt = await readScriptedControllerReceipt({
+          runDir,
+          controllerId,
+          payloadDigest: response.observation.payload_digest,
+        });
+        return { state: 'terminal', receipt };
       },
     };
     const dispatched = await dispatchReadyFrontier({
@@ -933,22 +929,52 @@ async function driveInitialScriptedManagedEpoch({
       rootOf: (todoId) => events.findLast((event) => event.kind === 'executor_dispatched'
         && event.subject?.kind === 'todo' && event.subject.ref === todoId)
         ?.payload?.direct_os_observation_binding?.worktree_path });
-    for (const todoId of dispatched.dispatched) {
-      const observed = await observeExecutor({
-        runId: request.request_id,
-        todoId,
-        plan,
-        events,
-        adapter: managedAdapter,
-        recordedAt: canonicalNow(),
-      });
-      events = observed.events;
-      await replaceEventsAtomically(runDir, events);
-      syncSentinelWatches({ sentinel, runningTodoIds: projectRuntimeState({ events }).running,
-        rootOf: (todoId) => events.findLast((event) => event.kind === 'executor_dispatched'
-          && event.subject?.kind === 'todo' && event.subject.ref === todoId)
-          ?.payload?.direct_os_observation_binding?.worktree_path });
+    // **workerが走っている間だけが、実行時競合を掴める窓である。** 観測を1件ずつ待たずに
+    // 回し、その合間に早期警報のescalationを捌く。捌くのは`replaceEventsAtomically`の
+    // 直後だけ——そこでしかdiskとメモリのeventsが一致していない。
+    const awaiting = new Set(dispatched.dispatched);
+    const observeDeadline = Date.now() + SCRIPTED_OBSERVE_TIMEOUT_MS;
+    let frozen = false;
+    while (awaiting.size > 0) {
+      const drained = await drainEscalations?.(events) ?? null;
+      if (drained !== null) {
+        events = drained;
+        if (projectRuntimeState({ events }).freeze !== null) { frozen = true; break; }
+      }
+      let progressed = false;
+      for (const todoId of [...awaiting]) {
+        const observed = await observeExecutor({
+          runId: request.request_id,
+          todoId,
+          plan,
+          events,
+          adapter: managedAdapter,
+          recordedAt: canonicalNow(),
+        });
+        if (observed.observation.state === 'running') continue;
+        events = observed.events;
+        await replaceEventsAtomically(runDir, events);
+        syncSentinelWatches({ sentinel, runningTodoIds: projectRuntimeState({ events }).running,
+          rootOf: (id) => events.findLast((event) => event.kind === 'executor_dispatched'
+            && event.subject?.kind === 'todo' && event.subject.ref === id)
+            ?.payload?.direct_os_observation_binding?.worktree_path });
+        awaiting.delete(todoId);
+        progressed = true;
+      }
+      if (awaiting.size === 0) break;
+      if (Date.now() >= observeDeadline) {
+        throw new ManagedRuntimeError(
+          'ADAPTER_CONTROLLER_UNAVAILABLE',
+          `scripted workerが時間内に終わらない: ${[...awaiting].join(',')}`,
+        );
+      }
+      if (!progressed) {
+        await new Promise((resolve) => { setTimeout(resolve, SCRIPTED_OBSERVE_POLL_MS); });
+      }
     }
+    // holdが掛かったらdispatchを進めない。freeze後のreceiptはstaleとして拒否されるので、
+    // 裁定へ進むと「受理されなかった」で落ちるだけである。
+    if (frozen) return events;
     const adjudicated = adjudicatePendingReceipts({
       runId: request.request_id,
       plan,
@@ -1810,6 +1836,15 @@ export async function runManagedSupervisorDaemon({
    * 「両方が書いた」と読めてしまう。これをholdへ繋ぐと、無実のTODOを止める。
    * 帰属が立たないならescalationへ進めない。警報と実在の記録はそのまま残す。
    */
+  /**
+   * holdが要求する静止を、この構成で証明できるか。
+   *
+   * 直接OS観測はexecutorのprocessが停止していることを実測する。scripted controllerは
+   * 自分のprocessで作業するので、そのprocessを止めると制御そのものが止まる——止めない限り
+   * 証明できず、止めれば応答できない。**別processのexecutorを持つまでこの穴は埋まらない。**
+   */
+  const canProveQuiescence = () => activation?.controllerDescriptor?.adapter_kind !== 'scripted';
+
   const attributionIsDistinct = (warning, roots) => {
     const paths = warning.todo_ids.map((todoId) => roots[todoId]);
     if (paths.some((value) => typeof value !== 'string')) return false;
@@ -1853,17 +1888,7 @@ export async function runManagedSupervisorDaemon({
    *
    * @returns {{ok: true, expected_epoch: number}|{ok: false, outcome: string, detail: string}}
    */
-  const durablyRecordProbeCheckpoints = async (escalation, checkpointsByTodo) => {
-    let lock;
-    try {
-      lock = await acquireRuntimeLifecycleLock({ runDir,
-        sessionNonceDigest: digestArtifact(sessionNonce), operation: 'finding_record',
-        requestId: `${escalation.escalation_id}.checkpoint`,
-        timeoutMs: IO_ESCALATION_LOCK_TIMEOUT_MS, retryIntervalMs: 25 });
-    } catch (error) {
-      return { ok: false, outcome: 'rejected',
-        detail: `lifecycle lockを取れない: ${error?.code ?? 'RUN_BUSY'}` };
-    }
+  const recordProbeCheckpointsUnlocked = async (escalation, checkpointsByTodo) => {
     try {
       const active = await readCommittedEpochStore(runDir);
       if (active === null) return { ok: false, outcome: 'skipped', detail: 'managed epochが未commit' };
@@ -1894,6 +1919,23 @@ export async function runManagedSupervisorDaemon({
     } catch (error) {
       return { ok: false, outcome: 'rejected',
         detail: `probe checkpointを耐久化できない: ${error?.code ?? String(error?.message ?? error)}` };
+    }
+  };
+
+  /** lifecycle lockを自分で取ってから耐久化する版（epoch駆動の外から呼ぶ時）。 */
+  const durablyRecordProbeCheckpoints = async (escalation, checkpointsByTodo) => {
+    let lock;
+    try {
+      lock = await acquireRuntimeLifecycleLock({ runDir,
+        sessionNonceDigest: digestArtifact(sessionNonce), operation: 'finding_record',
+        requestId: `${escalation.escalation_id}.checkpoint`,
+        timeoutMs: IO_ESCALATION_LOCK_TIMEOUT_MS, retryIntervalMs: 25 });
+    } catch (error) {
+      return { ok: false, outcome: 'rejected',
+        detail: `lifecycle lockを取れない: ${error?.code ?? 'RUN_BUSY'}` };
+    }
+    try {
+      return await recordProbeCheckpointsUnlocked(escalation, checkpointsByTodo);
     } finally {
       await lock.release();
     }
@@ -1909,7 +1951,10 @@ export async function runManagedSupervisorDaemon({
    *
    * 途中で断られたらそこで止め、理由をjournalへ残す。静かに別経路へ逃げない。
    */
-  const escalateIoWarning = async (warning, probed, packets) => {
+  const escalateIoWarning = async (warning, probed, packets, options = {}) => {
+    // 耐久化と送信の経路だけを差し替える。判断そのものはどちらの文脈でも同一にする——
+    // 分けると「epoch駆動の中と外で違う止め方をする」ことになり、記録が読めなくなる。
+    const { recordCheckpoints = durablyRecordProbeCheckpoints, dispatchControl = null } = options;
     const built = buildIoEscalation({ warning, probe: probed,
       checkpointsByTodo: probed.checkpoints, packets });
     if (built === null) return null;
@@ -1928,7 +1973,20 @@ export async function runManagedSupervisorDaemon({
       return decide('skipped',
         'worktree rootを共有する構成では書き手を特定できない（帰属はrootだけで決まる）');
     }
-    const recorded = await durablyRecordProbeCheckpoints(escalation, probed.checkpoints);
+    // **holdは静止の証明を要求する。** 直接OS観測はexecutorのprocessが実際に停止している
+    // ことまで確かめるが、executorがcontroller自身のprocessである構成では、止めると
+    // 制御そのものが止まるので証明できない。
+    //
+    // ここで止めるのは、conflictがintakeをfreezeするからである。freezeしてholdが通らない
+    // 状態を作ると、runは進むことも畳むこともできなくなる（abandonも静止を要求する）。
+    // 止められないと分かっているなら、freezeさせない方が安全側である。判定はcheckpointが
+    // 従来どおり担う——早期警報は早めるためだけに在るという原則どおり。
+    if (!canProveQuiescence()) {
+      return decide('rejected',
+        'executorがcontroller自身のprocessで走っており、静止を証明できない'
+        + '（停止すると制御も止まる）。freezeさせるとrunを畳めなくなるので進めない');
+    }
+    const recorded = await recordCheckpoints(escalation, probed.checkpoints);
     if (!recorded.ok) return decide(recorded.outcome, recorded.detail);
 
     const submit = async (operation, { artifact = null, artifactDigest = null,
@@ -1940,13 +1998,15 @@ export async function runManagedSupervisorDaemon({
           artifact, artifactDigest, checkpointDigest,
           expectedEpoch: recorded.expected_epoch, expectedQueueDigest: null }),
       });
-      return handler(controlRequest);
+      return dispatchControl === null ? handler(controlRequest) : dispatchControl(controlRequest);
     };
     const unmetOf = (response) => (response?.result?.unmet ?? []).join('/')
       || String(response?.outcome ?? 'unknown');
 
     const findingResponse = await submit('finding_record', {
-      artifact: escalation.candidate, artifactDigest: escalation.candidate.candidate_digest,
+      // control operationが要求するのはartifact全体のdigestである。`candidate_digest`は
+      // 自分の欄を除いた自己digestなので、そのまま渡すとbindingが合わず必ず弾かれる。
+      artifact: escalation.candidate, artifactDigest: digestArtifact(escalation.candidate),
       checkpointDigest: escalation.checkpoint_digest,
     }).catch((error) => ({ outcome: 'rejected',
       result: { unmet: [String(error?.code ?? error?.message ?? error)] } }));
@@ -1971,6 +2031,17 @@ export async function runManagedSupervisorDaemon({
   };
 
   /**
+   * epoch駆動中に届いた、実在確認済みの警報。
+   *
+   * **駆動中はここへ積むだけにする。** epoch駆動はrun eventsをメモリに抱えたままawaitを
+   * またぎ、節目ごとに全体を置換する。その最中に横から追記すると、次の置換で消える——
+   * 静かに記録を失う方向に壊れる。捌くのは駆動側の安全点（disk とメモリが一致している点）
+   * であり、そこはworkerがまだ走っている最中なのでholdが成立する。
+   */
+  const pendingEscalations = [];
+  let epochDriveActive = false;
+
+  /**
    * 警報1件の全行程（probe → 記録 → escalation）。
    *
    * probeが`observed`でも、escalationは走らないことがある（既にfreeze済み、当該TODOが
@@ -1980,11 +2051,46 @@ export async function runManagedSupervisorDaemon({
   const handleIoWarning = async (warning, packets) => {
     const probed = await probeWarning(warning).catch(() => (
       { outcome: 'unprobed', writers: [], checkpoints: {} }));
+    if (probed.outcome === 'observed' && epochDriveActive) {
+      pendingEscalations.push({ warning, probed, packets });
+      await recordIoWarning(warning, 'observed');
+      return;
+    }
     const decided = probed.outcome === 'observed'
       ? await escalateIoWarning(warning, probed, packets).catch(() => null)
       : null;
     await recordIoWarning(warning,
       decided === null || decided.outcome === 'skipped' ? probed.outcome : 'escalated');
+  };
+
+  /**
+   * epoch駆動の安全点でescalationを捌く（ADR 0143）。
+   *
+   * 呼ぶのは`replaceEventsAtomically`の直後だけとする。そこではdiskとメモリのeventsが
+   * 一致しているので、control operationがdiskを読み書きしても駆動側の像とずれない。
+   * 捌いた後はdiskを読み直して返す——`conflict`と`hold`はevents.jsonを書き換えるため。
+   *
+   * lifecycle lockは取らない。既に駆動側（activate）が握っている内側であり、ここで
+   * 取り直すと自分自身を待つ。同じ理由で`handler`ではなく`executeControl`を直接使う。
+   *
+   * @returns {Promise<Array|null>} 捌いた結果のevents。何も捌かなければnull。
+   */
+  const drainPendingEscalations = async (events) => {
+    if (pendingEscalations.length === 0) return null;
+    let current = events;
+    while (pendingEscalations.length > 0) {
+      const { warning, probed, packets } = pendingEscalations.shift();
+      const decided = await escalateIoWarning(warning, probed, packets, {
+        recordCheckpoints: recordProbeCheckpointsUnlocked,
+        dispatchControl: (controlRequest) => executeControl(controlRequest),
+      }).catch((error) => ({ outcome: 'rejected',
+        detail: String(error?.message ?? error), finding_digest: null }));
+      if (decided === null) continue;
+      current = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+      // holdが掛かったら、残りの警報は同じfreezeの下にある。二重にholdを試みない。
+      if (projectRuntimeState({ events: current }).freeze !== null) break;
+    }
+    return current;
   };
 
   /** 警報の処理を直列化する鎖。`onWarning`はここへ繋ぐだけにする。 */
@@ -2115,18 +2221,24 @@ export async function runManagedSupervisorDaemon({
               return settled;
             },
           });
-          await driveInitialScriptedManagedEpoch({
-            runDir,
-            repoRoot,
-            request,
-            committed,
-            activation,
-            managedSupervisor,
-            sentinel,
-            initialEvents: events,
-            controlEvents: () => controlEvents,
-            preDispatchBindings,
-          });
+          epochDriveActive = true;
+          try {
+            await driveInitialScriptedManagedEpoch({
+              runDir,
+              repoRoot,
+              request,
+              committed,
+              activation,
+              managedSupervisor,
+              sentinel,
+              initialEvents: events,
+              controlEvents: () => controlEvents,
+              preDispatchBindings,
+              drainEscalations: drainPendingEscalations,
+            });
+          } finally {
+            epochDriveActive = false;
+          }
         }
         if (restarting) {
           await managedSupervisor.recoveryBarrier({ barrierId: `recovery-${randomUUID()}`,
