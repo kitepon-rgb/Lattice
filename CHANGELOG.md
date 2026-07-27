@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.30.0 — 2026-07-28
+
+- **npmのlicense表記を訂正した。** 0.29.0までの公開版はpackage.jsonが`MIT`のままで、registryは
+  この製品をMITとして配っていた。本体のlicenseは`PolyForm-Noncommercial-1.0.0`（非商用は無償、
+  商用は別途許諾）である。**既にMIT版を取得した利用者は、そのコピーについてMITの許諾を持ち続ける**
+  ——後からの公開で取り消せる性質のものではない。止められるのは以降の取得だけである。
+  同梱する`sensor/`はupstream由来のMITのままで、これは変更しない（第三者コードは再ライセンス
+  できず、帰属表示の保持義務がある）。
+- **workerをTODOごとの実worktreeへ分離した。** 管理daemonのdispatchは全TODOのbindingへ同じ
+  repo rootを入れており、書き込みの帰属をrootから決められなかった。supervisorがdispatchの前に
+  worktreeを切って監視を張る。結果として、runはユーザーのtreeを直接書き換えなくなった。
+- **実行時競合の早期警報を、警報からholdまで繋いだ**（I/O sentinel）。書き込み観測→probeで
+  実在確認→既存の`finding_record`→`conflict`→`hold`をdaemon自身が発行する。新しい停止経路は
+  作らないので、findingの再導出もepoch束縛も既存handlerがそのまま行う。
+- **帰属が立たない構成では警報を出さない。** rootを共有して走っているTODOは監視しない——
+  1件の書き込みが両方のwatcherへ配られ、無実のTODOへ「他人のscopeへ書いた」と主張してしまう。
+- **probeのcheckpointをreceipt裁定のbinding基準から外した。** probeはexecutorの申告境界では
+  ないので、混ぜると走行中に書き続けた正当なreceiptが`checkpoint_mismatch`で落ちる。
+
 ## 0.29.0 — 2026-07-27
 
 - **宣言道具が創作境界に対応した**（`lattice.todo_witness_draft.v2`）。ADR 0136の`creates: true`は
