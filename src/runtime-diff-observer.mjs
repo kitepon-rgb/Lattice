@@ -238,7 +238,14 @@ export async function captureWorktreeDiff(options = {}) {
   };
 }
 
-function coveredBy(declaredWrites, observedPath) {
+/**
+ * 宣言writeがobserved pathを覆うか。末尾`/`はprefixとして読む。
+ *
+ * I/O sentinelの早期警報も同じ述語を使う（ADR 0143）。警報とcheckpoint findingで
+ * 述語が分かれると、「警報は出たがcheckpointでは競合にならない」種類のずれが生まれ、
+ * どちらが正しいのか誰にも分からなくなる。
+ */
+export function coveredBy(declaredWrites, observedPath) {
   return declaredWrites.some((declared) => (
     declared === observedPath
     || (declared.endsWith('/') && observedPath.startsWith(declared))
