@@ -1,0 +1,9 @@
+{
+  "anchor_digest": null,
+  "content_digest": "a7f9cb89efc598280a42d7e8600d0cabd7c72824e37ae1ed4f8258b0f0c74c25",
+  "evidence_id": "io-sentinel-adr-0143-20260728",
+  "git_blob_oid": "d9256df9765970763e5e69efa1373591b2436891",
+  "media_type": "text/markdown",
+  "path": "docs/adr/0143-io-sentinel-is-an-early-warning-not-a-finding.md",
+  "repo_id": "self"
+}
