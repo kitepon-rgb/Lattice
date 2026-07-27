@@ -66,6 +66,7 @@ function sha16(value) {
 const WITNESS_KINDS = Object.freeze(['state', 'schema', 'invariant', 'effect', 'external_effect']);
 const HEX_DIGEST = /^[0-9a-f]{64}$/u;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/u;
+const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 
 function selfDigestValid(value, field) {
   return plainRecord(value) && HEX_DIGEST.test(value[field] ?? '')
@@ -532,6 +533,67 @@ export function decideHoldAndCarryOver(options = {}) {
  * predeclared treatmentがfindingのpath集合を覆う場合だけseam laneを返し、
  * それ以外（shared state/effect・未宣言path競合）はintentional serialにする。
  */
+/**
+ * 同じ競合が何epochにわたって観測されたかを数える。
+ *
+ * 過去epochのconflictを再seedしないguardは既に在るが、**新しく観測された同じ競合**は毎epoch
+ * seedされる。原因が続く限り「hold→再計画→再開→また同じ競合」が繰り返せる。
+ * 誤帰属でも、scope違反を繰り返すworkerでも、変換で解けない競合でも同じことが起きる。
+ *
+ * 鍵は種別・資源・関与task対である。plan_epochで数えるのは、同一epoch内の複数回観測を
+ * 繰り返しと数えないためで、再計画を1回挟んで再び現れたことだけを繰り返しとする。
+ */
+export function countConflictRecurrence(events = []) {
+  const epochsByKey = new Map();
+  for (const event of events) {
+    if (event?.kind !== 'conflict_found') continue;
+    const finding = event.payload ?? {};
+    if (typeof finding.kind !== 'string' || !Array.isArray(finding.todo_ids)) continue;
+    const key = [
+      finding.kind,
+      typeof finding.path === 'string' ? finding.path : '',
+      [...finding.todo_ids].sort(compareText).join(','),
+    ].join('\u0000');
+    if (!epochsByKey.has(key)) epochsByKey.set(key, new Set());
+    epochsByKey.get(key).add(event.plan_epoch);
+  }
+  return epochsByKey;
+}
+
+/**
+ * 再計画で解けていない競合。1つでもあれば、もう一度同じ処置を試しても収束しない。
+ *
+ * 既定の閾値を3とするのは、1回目は通常の競合、2回目は再計画が効かなかった可能性（順序の綾を
+ * 含む）、3回目で「同じことが繰り返されている」と言えるためである。直列化で誤魔化さない——
+ * 誤帰属が原因なら直列化しても解けず、解けないことを解けたように見せることになる。
+ */
+export const NON_CONVERGENT_EPOCH_THRESHOLD = 3;
+
+export function detectNonConvergentConflicts(options = {}) {
+  if (!exactRecord(options, ['events']) && !exactRecord(options, ['events', 'threshold'])) {
+    fail('detectNonConvergentConflicts optionsがexact shapeでない');
+  }
+  const { events, threshold = NON_CONVERGENT_EPOCH_THRESHOLD } = options;
+  if (!Array.isArray(events)) fail('eventsがarrayでない');
+  if (!Number.isSafeInteger(threshold) || threshold < 2) fail('thresholdが2以上の整数でない');
+  const recurrence = countConflictRecurrence(events);
+  const entries = [];
+  for (const [key, epochs] of recurrence) {
+    if (epochs.size < threshold) continue;
+    const [kind, resource, todoIds] = key.split('\u0000');
+    entries.push({
+      kind,
+      resource,
+      todo_ids: todoIds === '' ? [] : todoIds.split(','),
+      epochs: [...epochs].sort((left, right) => left - right),
+    });
+  }
+  return entries.sort((left, right) => compareText(
+    `${left.kind}\u0000${left.resource}\u0000${left.todo_ids.join(',')}`,
+    `${right.kind}\u0000${right.resource}\u0000${right.todo_ids.join(',')}`,
+  ));
+}
+
 export function routeConflictTreatment(options = {}) {
   if (!exactRecord(options, ['finding', 'predeclaredTreatments'])) {
     fail('routeConflictTreatment optionsがexact shapeでない');
@@ -567,6 +629,14 @@ export function recompileNextEpochPlan(options = {}) {
   if (!validateRuntimePlan(plan)) fail('planがruntime_plan.v1 contractを満たさない');
   if (!validateHoldDecision(holdDecision)) fail('holdDecisionがcontractを満たさない');
   if (!Array.isArray(additionalConflicts)) fail('additionalConflictsがarrayではない');
+  // 同じ競合が閾値のepoch数だけ繰り返しているなら、もう一度同じ処置を試しても収束しない。
+  // 直列化やもう1周で誤魔化さず、解けていないことをtypedに述べて止める。
+  const nonConvergent = detectNonConvergentConflicts({ events });
+  if (nonConvergent.length > 0) {
+    fail(`再計画で解けていない競合がある（非収束）: ${nonConvergent
+      .map((entry) => `${entry.kind}:${entry.resource}:${entry.todo_ids.join(',')}@${entry.epochs.join('/')}`)
+      .join(' ')}`);
+  }
 
   const state = projectRuntimeState({ events });
   if (state.freeze === null) fail('freeze中でないprefixからrecompileできない');
