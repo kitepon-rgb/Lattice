@@ -65,7 +65,6 @@ function sha16(value) {
 
 const WITNESS_KINDS = Object.freeze(['state', 'schema', 'invariant', 'effect', 'external_effect']);
 const HEX_DIGEST = /^[0-9a-f]{64}$/u;
-const HEX_SHA1 = /^[0-9a-f]{40}$/u;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/u;
 const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 
@@ -616,24 +615,20 @@ export function routeConflictTreatment(options = {}) {
  * （content不変・epoch/plan refのみ更新）、hold TODOへは新plan_ref由来の
  * 新context packetを発行し、旧contextを失効する。rebind／prepare ack、epoch pointer、
  * controller ready/release ack、中央gate commit前にはepoch_rebound/intake_resumedを発行しない。
+ *
+ * baseはここでは動かさない。変換で構造が変わった時に後継baseを決めるのは後継run requestで
+ * あり、それが本当に変換を含むかは`verifySeamSplitSuccessor`が見る（ADR 0141）。
  */
 export function recompileNextEpochPlan(options = {}) {
   if (!exactRecord(options, [
     'runId', 'request', 'plan', 'manifests', 'packets', 'events', 'holdDecision',
     'additionalConflicts', 'recordedAt',
-  ]) && !exactRecord(options, [
-    'runId', 'request', 'plan', 'manifests', 'packets', 'events', 'holdDecision',
-    'additionalConflicts', 'recordedAt', 'successorBaseSha',
   ])) {
     fail('recompileNextEpochPlan optionsがexact shapeでない');
   }
   const {
     runId, request, plan, manifests, packets, events, holdDecision, additionalConflicts, recordedAt,
-    successorBaseSha = null,
   } = options;
-  if (successorBaseSha !== null && !HEX_SHA1.test(successorBaseSha)) {
-    fail('successorBaseShaがgit shaでない');
-  }
   if (!validateRuntimePlan(plan)) fail('planがruntime_plan.v1 contractを満たさない');
   if (!validateHoldDecision(holdDecision)) fail('holdDecisionがcontractを満たさない');
   if (!Array.isArray(additionalConflicts)) fail('additionalConflictsがarrayではない');
@@ -681,11 +676,7 @@ export function recompileNextEpochPlan(options = {}) {
     plan_ref: newPlanRef,
     plan_epoch: newEpoch,
     request_digest: request.request_digest,
-    // 変換でsourceの構造が変わったなら、再開先は変換を含むbaseでなければならない。
-    // 旧baseのまま再開させると、splitが所有を宣言した新pathがworktreeに存在しない（ADR 0141）。
-    // carry-over側のrebind packetはcontent不変が要件なので、そちらは触らない——
-    // 継続する作業は自分のworktreeで走り続けており、baseを付け替える対象ではない。
-    base_sha: successorBaseSha ?? plan.base_sha,
+    base_sha: plan.base_sha,
     nodes: structuredClone(plan.nodes),
     precedence: structuredClone(plan.precedence),
     conflicts: mergedConflicts,

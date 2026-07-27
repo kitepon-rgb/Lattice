@@ -37,10 +37,23 @@ branchは動かず外部へ効果を出さないまま、worktreeを張れる実
 
 **変換で1 byteも変わらなかったなら確定しない。** 空commitで「進んだ」ように見せない。
 
-### 2. 後継planのbaseだけを前進させる
+### 2. 後継baseは後継requestが決め、Latticeはそれを検証する
 
-`recompileNextEpochPlan`は任意の`successorBaseSha`を受け、新planの`base_sha`をそこへ進める。
-redispatch packetは新planから作られるので自動で追従する。
+当初は`recompileNextEpochPlan`へ`successorBaseSha`を渡して新planの`base_sha`を進める形にした。
+**これは管理runtimeでは効かない。** 後継planは`compileFromRepo`が実repositoryから作り、
+`resolveRepoBinding`が`repo HEAD === request.repo.base_sha`を要求する。baseを決めているのは
+後継run requestであって、pure coreの引数ではない。渡された`successorBaseSha`は誰にも使われず、
+testも無い死んだ引数として残っていたので除去した。
+
+したがって責務はこう分かれる。branchを確定commitへ進めるのは操作するAI——静的側の`land`と
+同じ分担である。Latticeが持つのは、**後継baseが本当に変換を含むかの検査**である
+（`verifySeamSplitSuccessor`）。`mode: 'seam_split'`の再計画requestに対して3つを見る:
+
+1. baseが前進し、かつ旧baseの子孫であること。変換が着地していなければ前進しない。
+2. splitが「消える」と述べた競合辺が、後継planに実際に無いこと。後継treeに変換が載って
+   いなければ両TODOは同じfileを書き続けるので、この辺は消えない。
+3. splitが新たに所有すると述べた資源が、後継requestで**creationとして宣言されていない**こと。
+   seam splitは既存codeを移す操作であり、変換が既にfileを作っている。
 
 **carry-over側のrebind packetは触らない。** rebindはcontent不変が要件であり、継続する作業は
 自分のworktreeで走り続けている。baseを付け替える対象ではない。
@@ -50,10 +63,22 @@ redispatch packetは新planから作られるので自動で追従する。
 実行時の処置決定は、確定する手段が渡されていない場合と、確定に失敗した場合を意図的直列へ送る。
 「変換した」と言いながら再開できない状態を作らない。
 
+### 4. 変換へ行く道を製品の表面に出す
+
+確定と検証が揃っても、**実運転からそこへ行く入口が無ければ何も起きない。** 実運転側は
+`routeConflictTreatment`を使い、これは事前宣言済みtreatmentがpathを覆う時だけ`seam_transform`を
+返すので、予期しなかった競合は変換にかからず直列へ退化していた。
+
+`lattice run seam resolve --run <ref> --finding <digest> --input <request.json>`を入口とする。
+入力（`lattice.runtime_seam_request.v1`）へ書くのは、係争fileの中で各TODOが触るsymbol、
+新しい面の名前、後継planへ渡すtask migrationのdigestだけである。どれもAIが既に持っている情報で
+あり、Latticeはそれを推定しない（AGENTS.md「装置の境界にAIを含める」）。
+
 ## Consequences
 
 再開したworkerは、所有すると宣言されたfileが実在するworktreeで作業を始める。実測では、確定した
 baseへworktreeを張ると`src/page-left.mjs`／`src/page-style.mjs`が存在し、旧baseには存在しない。
+実CLI・実sensor・実repositoryで、事前宣言のない競合が変換され再開baseが返るところまで通る。
 
 `refs/lattice/seam/*`が増える。branch一覧には出ないが、`for-each-ref`には出るので、
 本repositoryのfingerprint（ADR 0140）は変換の確定を「変化」として観測する。確定は隔離実行の
