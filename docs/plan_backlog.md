@@ -462,3 +462,41 @@ front endが要求する形（`changedFiles`が対象1件）であること。
 - [x] 下書き契約へ創作宣言を足す
 - [x] 観測の三値を保って創作境界を検証する
 - [x] 新規fileを含む宣言を実データで作り、compileまで通す
+
+---
+
+# 実行時競合の早期警報（I/O sentinel）
+
+工程状態の正本はLattice storeの`io-sentinel` plan。
+
+**現在、競合はcheckpointを撮った瞬間にしか見つからない。** checkpointに周期は無く、timerも監視も
+存在しない。hostがCLIを叩いた時——実質、workerが完了した時——とhold barrierの時だけ観測される。
+つまり2つのworkerが同じfileを触っても、**片方が完了するまで誰も気づかない**。holdで捨てる作業量の
+正体はこの窓である。
+
+判定に要る材料は既にある。worktreeとTODOは1対1なので、書き込みイベントのpathからworktree rootを
+剥がせばrepo相対pathになり、**そのpathが他のrunning TODOの宣言scopeに入るか**を見るだけでよい。
+checkpoint findingとまったく同じ述語である。プロセス帰属は要らない——rootがそのまま帰属になる。
+
+**ただしI/Oイベントをfindingにはしない。** findingの契約はcheckpoint digestを3箇所で必須にしており、
+それはfindingが「事後に再読して再導出できる主張」であることを担保している。fs eventは取りこぼす
+（FSEventsのcoalesce、inotifyのキュー溢れ）し、事後再読もできない。よってI/O検知は**早期警報**で
+あり、判定の正本は今までどおりcheckpointとする。警報は「早くbarrierを張る引き金」にしかならず、
+取りこぼしても今日と同じタイミングで必ず捕まる——**保証を一切緩めずに遅延だけを縮める**。
+
+警報だけで止めると、書いて消したtempでも止めてしまう。二段にする。警報を受けたら無停止で
+`captureWorktreeDiff`をprobeとして撮り、当該pathが**残っていれば**実在の重なりとして既存の
+hold経路へ入る。消えていれば警報を記録して終わり。停止したあとは既存の処置がそのまま使える——
+片方以外を止めてcommitして再開（請求項7）か、リファクタして解決して再開（請求項8）。
+
+[ADR 0140](adr/0140-canonical-write-observation-is-recorded-not-assumed.md) Decision 3の
+「I/O検知はやらない」は、worktree**内**の早期警報について狭く上書きする。worktree**外**
+（`/tmp`、home、ネットワーク）は引き続き見えず、`write-coverage`の発火条件つき保留のまま残す。
+
+## 工程
+
+- [ ] 書き込み観測から警報を出すsentinel coreを作る
+- [ ] supervisor daemonへsentinelを配線し警報を耐久化する
+- [ ] 警報からprobeを経て自動holdへ繋ぐ
+- [ ] 実repoで早期検知から再開までを通し検出遅延を実測する
+- [ ] 設計をADRへ残しreleaseまで通す
