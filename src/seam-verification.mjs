@@ -9,6 +9,7 @@
  */
 
 import { compileSchedulabilityGraphV2 } from './schedulability-compiler-v2.mjs';
+import { todoSelfDigest } from './todo-contracts.mjs';
 
 const GRAPH_SCHEMA = 'lattice.normalized_boundary_graph.v2';
 const EXPORT_NAMED = /^\s*export\s+(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/u;
@@ -64,7 +65,7 @@ export function buildPostTransformWitnessSet({ witnessSet, candidate, affectedTe
   if (owned.length === 0) return { witnessSet: null, reasons: ['no_owned_surface'] };
   const next = structuredClone(witnessSet);
   const reasons = [];
-  for (const surface of owned) {
+  for (const [index, surface] of owned.entries()) {
     const taskId = surface.owner_task_ids[0];
     const witness = next?.manual_witness?.[taskId];
     if (witness === undefined) { reasons.push(`witness_missing:${taskId}`); continue; }
@@ -78,9 +79,26 @@ export function buildPostTransformWitnessSet({ witnessSet, candidate, affectedTe
         .filter((entry) => entry.within.target === candidate.source_path)
         .map((entry) => ({ ...entry, within: { kind: 'path', target: surface.path } }));
     }
+    // 宣言だけ移して観測の裏付けを旧pathに残すと、宣言と証拠が別の資源を指す。
+    // query setとprovenanceも移動先へ揃える。
+    const queryId = `seam-post-${String(index).padStart(3, '0')}`;
+    witness.sensor_provenance = {
+      queries: [{ query_id: queryId, expect: { kind: 'affected', path: surface.path } }],
+    };
+    if (Array.isArray(next.sensor_query_set?.queries)) {
+      next.sensor_query_set.queries = next.sensor_query_set.queries
+        .filter((query) => query.id !== queryId)
+        .concat([{ id: queryId, operation: 'affected', target: surface.path }]);
+    }
   }
-  return reasons.length > 0 ? { witnessSet: null, reasons: sortedUnique(reasons) }
-    : { witnessSet: next, reasons: [] };
+  if (reasons.length > 0) return { witnessSet: null, reasons: sortedUnique(reasons) };
+  if (Array.isArray(next.sensor_query_set?.queries)) {
+    next.sensor_query_set.queries.sort((left, right) => compareText(left.id, right.id));
+  }
+  // 宣言を書き換えた以上、自己digestを取り直す。古いまま出すと契約が拒否する。
+  next.witness_set_digest = '';
+  next.witness_set_digest = todoSelfDigest(next, 'witness_set_digest');
+  return { witnessSet: next, reasons: [] };
 }
 
 /**
