@@ -232,3 +232,65 @@ export const TODO_INDEPENDENCE_WORKFLOW = Object.freeze([
   '3. 読む: lattice todo independence --plan <key> --json（sensorを引かず、記録とHEAD照合だけで返る）',
   '4. 追従する: plan改訂後は lattice todo independence witness migrate --plan <key> で宣言を写してから再compileする',
 ]);
+
+/**
+ * 宣言の下書きが受理されなかった時の案内（`witness scaffold`）。
+ *
+ * 理由コードは具体的なのに次の一手が「宣言を直して再実行」のままだと、何をどう直すのかが
+ * 伝わらない。一番必要な瞬間——機械が「作れませんでした」と言った瞬間——に解決法を知らせない
+ * のは、ADR 0130が禁じたものそのものである。
+ */
+const SCAFFOLD_CATALOG = Object.freeze({
+  path_absent_declare_creates: {
+    message: '宣言したpathは不在と観測できている。そのToDoが作るなら、owns entryを{ path, creates: true }（下書きv2）にして再実行する。作らないなら、宣言しているpathが正しいか確かめる。',
+    next_action: 'declare_creates_then_retry',
+  },
+  creates_path_present: {
+    message: '創作を宣言したpathは既に存在する。作るのでなく変更するなら、creates宣言を外してpath名だけにする。',
+    next_action: 'drop_creates_then_retry',
+  },
+  creates_unverified: {
+    message: '創作宣言の裏付けが取れない。sensorの観測が「対象1件・依存test無し」の形になっていない。sensor syncで索引を取り直してから再実行する。',
+    next_action: 'sync_sensor_then_retry',
+  },
+  affected_tests_unobserved: {
+    message: '所有pathのaffected観測が取れていない。sensor syncで索引へ収載してから再実行する。',
+    next_action: 'sync_sensor_then_retry',
+  },
+  multiple_owned_paths_unsupported: {
+    message: 'affected_testsは宣言とfresh観測をbinding単位でexact比較するため、1 ToDoが複数pathを所有する宣言は今の契約で表現できない。ToDoを分けるか、所有を1 pathに絞る。',
+    next_action: 'split_todo_or_narrow_owns',
+  },
+  anchor_outside_owned: {
+    message: 'concern_anchorのwithinが、自分の所有pathを指していない。所有していない資源の内側に担当を主張できない。',
+    next_action: 'align_anchor_with_owns',
+  },
+  owns_empty: {
+    message: 'ownsが空のToDoがある。何を所有するかは判定の起点なので、道具が補わない。',
+    next_action: 'declare_owns_then_retry',
+  },
+  draft_invalid: {
+    message: '下書きがlattice.todo_witness_draft契約を満たしていない。creates宣言を使うならschemaをv2にする。',
+    next_action: 'fix_draft_schema_then_retry',
+  },
+});
+
+/**
+ * 理由の集合から、最も行動を要する案内を1つ選ぶ。
+ *
+ * 並べると読み手はどれから手を付けるか決められない。「形が壊れている」を最優先にし、
+ * 以下、宣言の直し方が具体的なものほど上へ置く。
+ */
+export function selectWitnessScaffoldGuidance(reasons = []) {
+  const codes = reasons.map((reason) => String(reason).split(':')[0]);
+  const order = [
+    'draft_invalid', 'owns_empty', 'multiple_owned_paths_unsupported', 'anchor_outside_owned',
+    'path_absent_declare_creates', 'creates_path_present', 'creates_unverified',
+    'affected_tests_unobserved',
+  ];
+  const code = order.find((candidate) => codes.includes(candidate));
+  if (code === undefined) {
+    return { code: 'witness_scaffold_incomplete', message: '下書きから宣言を組めなかった。', next_action: 'resolve_declaration_then_retry' };
+  }
+  return { code, ...SCAFFOLD_CATALOG[code] };
+}

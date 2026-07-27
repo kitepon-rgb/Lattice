@@ -74,6 +74,7 @@ import {
 } from './todo-independence.mjs';
 import {
   selectIndependenceGuidance,
+  selectWitnessScaffoldGuidance,
   selectSeamProposalGuidance,
 } from './todo-independence-guidance.mjs';
 import {
@@ -980,8 +981,10 @@ async function witnessScaffold({ repoRoot, planKey, inputRef }) {
   });
   const { witnessSet, reasons } = buildWitnessSet({ draft, observationByPath });
   if (witnessSet === null) {
+    // 理由コードは具体的なのに次の一手が汎用だと、何をどう直すのかが伝わらない。
+    const guidance = selectWitnessScaffoldGuidance(reasons);
     throw new TodoStoreError('WITNESS_SCAFFOLD_INCOMPLETE', 'witness_scaffold_incomplete', undefined, {
-      reasons, next_action: 'resolve_declaration_then_retry',
+      reasons, guidance, next_action: guidance.next_action,
     });
   }
   const ref = todoWitnessRef(planKey);

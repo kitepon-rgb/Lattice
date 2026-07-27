@@ -8,6 +8,7 @@ import {
   selectIndependenceGuidance,
   selectSeamProposalGuidance,
   todoIndependenceGuidance,
+  selectWitnessScaffoldGuidance,
 } from '../src/todo-independence-guidance.mjs';
 
 // ADR 0130。案内の単一正本。事実と次の一歩だけを述べ、指示しない。
@@ -203,4 +204,42 @@ test('宣言の手順はconcern_anchorsを宣言できる欄として挙げる',
   assert.match(TODO_INDEPENDENCE_WORKFLOW[anchorAt], /係争資源/u);
   // 判定へ写らないことまで述べる。並列可否の入力と誤読されると、宣言が判定を動かすと思われる。
   assert.match(TODO_INDEPENDENCE_WORKFLOW[anchorAt], /判定には写らず/u);
+});
+
+test('下書きが受理されない時、理由ごとに具体的な次の一手を返す', () => {
+  // 理由コードは具体的なのに次の一手が汎用だと、何をどう直すのかが伝わらない。
+  assert.equal(selectWitnessScaffoldGuidance(['path_absent_declare_creates:src/x.mjs']).next_action,
+    'declare_creates_then_retry');
+  assert.equal(selectWitnessScaffoldGuidance(['creates_path_present:src/x.mjs']).next_action,
+    'drop_creates_then_retry');
+  assert.equal(selectWitnessScaffoldGuidance(['affected_tests_unobserved:src/x.mjs']).next_action,
+    'sync_sensor_then_retry');
+  assert.equal(selectWitnessScaffoldGuidance(['multiple_owned_paths_unsupported:T1']).next_action,
+    'split_todo_or_narrow_owns');
+});
+
+test('理由が重なったら、形の壊れている側を先に述べる', () => {
+  // 並べると読み手はどれから手を付けるか決められない。1つだけ選ぶ。
+  const guidance = selectWitnessScaffoldGuidance([
+    'affected_tests_unobserved:src/x.mjs', 'draft_invalid',
+  ]);
+  assert.equal(guidance.code, 'draft_invalid');
+});
+
+test('知らない理由でも汎用の案内へ落とし、投げない', () => {
+  const guidance = selectWitnessScaffoldGuidance(['something_new:x']);
+  assert.equal(guidance.next_action, 'resolve_declaration_then_retry');
+});
+
+test('scaffold案内はすべてmessageとnext_actionを持つ', () => {
+  // 案内の口が空だと、機械が黙っているのと同じである（ADR 0130）。
+  for (const reason of ['draft_invalid', 'owns_empty:T1', 'multiple_owned_paths_unsupported:T1',
+    'anchor_outside_owned:T1:src/x.mjs', 'path_absent_declare_creates:src/x.mjs',
+    'creates_path_present:src/x.mjs', 'creates_unverified:src/x.mjs',
+    'affected_tests_unobserved:src/x.mjs']) {
+    const guidance = selectWitnessScaffoldGuidance([reason]);
+    assert.equal(typeof guidance.message, 'string', reason);
+    assert.notEqual(guidance.message.length, 0, reason);
+    assert.notEqual(guidance.next_action, 'resolve_declaration_then_retry', reason);
+  }
 });
