@@ -1,0 +1,183 @@
+/**
+ * 変換の受入判定（ADR 0137 Decision 4・ADR 0138）。
+ *
+ * 五条件をすべて満たしたときだけ採用する。1つでも欠けたら棄却であり、どれが欠けたかを残す。
+ * 「だいたい良さそう」で通す経路を作らない——外部挙動を変えうる変更を、便益の証明なしに
+ * 受け入れないための面である。
+ *
+ * 実行を伴う観測（focused test、再index）は呼び出し側が行い、ここは観測から判定だけを作る。
+ */
+
+import { compileSchedulabilityGraphV2 } from './schedulability-compiler-v2.mjs';
+
+const GRAPH_SCHEMA = 'lattice.normalized_boundary_graph.v2';
+const EXPORT_NAMED = /^\s*export\s+(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/u;
+const EXPORT_LIST = /^\s*export\s*\{([^}]*)\}/u;
+const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+const sortedUnique = (values) => [...new Set(values)].sort(compareText);
+
+/**
+ * moduleが外へ出している名前を読む。
+ *
+ * 分割で外部の消費者が影響を受けるかは、原pathの公開面が変わったかで決まる。原pathが
+ * 同じ名前を同じだけ出し続けるなら、原pathをimportしている側は一行も変わらない
+ * （ADR 0137 Decision 3）。
+ */
+export function readExportSurface(text) {
+  if (typeof text !== 'string') return [];
+  const names = [];
+  for (const line of text.split('\n')) {
+    const named = EXPORT_NAMED.exec(line);
+    if (named) { names.push(named[1]); continue; }
+    const list = EXPORT_LIST.exec(line);
+    if (!list) continue;
+    for (const entry of list[1].split(',')) {
+      const parts = entry.split(/\s+as\s+/u).map((part) => part.trim());
+      const name = parts.length > 1 ? parts[1] : parts[0];
+      if (/^[A-Za-z_$][\w$]*$/u.test(name)) names.push(name);
+    }
+  }
+  return sortedUnique(names);
+}
+
+/**
+ * 外部挙動同等性を、原pathの公開面が保たれたかで判定する。
+ *
+ * 名前が欠ければ、その原pathをimportしている外部が壊れる。増えるだけなら既存の消費者は
+ * 影響を受けないので、欠落だけを違反とする。
+ */
+export function compareExportSurface({ before, after } = {}) {
+  const original = readExportSurface(before);
+  const residual = new Set(readExportSurface(after));
+  const missing = original.filter((name) => !residual.has(name));
+  return { preserved: missing.length === 0, missing };
+}
+
+/**
+ * 変換後のwitness setを作る。
+ *
+ * 所有面へ移ったtaskは、その新pathを所有し書き込む。宣言は移動先を指すよう写し、
+ * 中身の意味は変えない——ここで新しい所有を発明すると、判定が実態から外れる。
+ */
+export function buildPostTransformWitnessSet({ witnessSet, candidate, affectedTestsByPath } = {}) {
+  const owned = (candidate?.surfaces ?? []).filter(({ role }) => role === 'task_owned');
+  if (owned.length === 0) return { witnessSet: null, reasons: ['no_owned_surface'] };
+  const next = structuredClone(witnessSet);
+  const reasons = [];
+  for (const surface of owned) {
+    const taskId = surface.owner_task_ids[0];
+    const witness = next?.manual_witness?.[taskId];
+    if (witness === undefined) { reasons.push(`witness_missing:${taskId}`); continue; }
+    const affected = affectedTestsByPath?.[surface.path];
+    if (!Array.isArray(affected)) { reasons.push(`affected_tests_missing:${surface.path}`); continue; }
+    witness.owns = [{ kind: 'path', target: surface.path }];
+    witness.writes = [surface.path];
+    witness.affected_tests = sortedUnique(affected);
+    if (Array.isArray(witness.concern_anchors)) {
+      witness.concern_anchors = witness.concern_anchors
+        .filter((entry) => entry.within.target === candidate.source_path)
+        .map((entry) => ({ ...entry, within: { kind: 'path', target: surface.path } }));
+    }
+  }
+  return reasons.length > 0 ? { witnessSet: null, reasons: sortedUnique(reasons) }
+    : { witnessSet: next, reasons: [] };
+}
+
+/**
+ * 競合graphから最小実行段階数を求める。既存のschedulability compilerへ載せる。
+ *
+ * 独自の近似を持たない。変換前後を同じ規則で測らないと、改善したという主張が
+ * 測り方の差で出てしまう。
+ */
+export function measureWaveCount({ taskIds, conflictPairs, executors } = {}) {
+  const todos = sortedUnique(taskIds ?? []);
+  if (todos.length === 0) return { waves: null, reason: 'no_todos' };
+  const seen = new Set();
+  const conflicts = [];
+  for (const pair of conflictPairs ?? []) {
+    const [left, right] = [...pair].sort(compareText);
+    if (left === right || !todos.includes(left) || !todos.includes(right)) continue;
+    const key = `${left}\u0000${right}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    conflicts.push({ todo_ids: [left, right], resource_id: `pair-${conflicts.length}` });
+  }
+  const compiled = compileSchedulabilityGraphV2({
+    schema_version: GRAPH_SCHEMA,
+    todos,
+    conflicts,
+    precedences: [],
+    unknowns: [],
+    capacity: Number.isSafeInteger(executors) && executors >= 1 ? executors : 1,
+  });
+  if (compiled.outcome !== 'compiled') {
+    return { waves: null, reason: compiled.code ?? compiled.outcome };
+  }
+  return { waves: compiled.plan.minimum_feasible_waves, reason: null };
+}
+
+const CONDITIONS = Object.freeze([
+  'behavior_equivalent',
+  'focused_tests_passed',
+  'sensor_fresh',
+  'overlap_reduced',
+  'parallelism_improved',
+]);
+
+/**
+ * 五条件を判定する。1つでも欠けたら`rejected`で、欠けた条件を残す。
+ *
+ * @param {object} options
+ * @param {{preserved: boolean, missing: string[]}} options.exportSurface 公開面の比較
+ * @param {boolean} options.focusedTestsPassed 変換後worktreeでのfocused test結果
+ * @param {boolean} options.sensorFresh 変換後の再indexが新pathを収載したか
+ * @param {{targetResolved: boolean, before: number, after: number}} options.conflictPairs 競合対の増減
+ * @param {{before: number|null, after: number|null}} options.waves 実行段階数の増減
+ */
+export function evaluateSeamVerification(options = {}) {
+  const {
+    exportSurface, focusedTestsPassed, sensorFresh, conflictPairs, waves,
+  } = options;
+  const detail = {};
+  const failures = [];
+
+  detail.behavior_equivalent = exportSurface?.preserved === true;
+  if (!detail.behavior_equivalent) {
+    failures.push(`behavior_equivalent:${(exportSurface?.missing ?? []).join(',') || 'unknown'}`);
+  }
+
+  detail.focused_tests_passed = focusedTestsPassed === true;
+  if (!detail.focused_tests_passed) failures.push('focused_tests_passed');
+
+  detail.sensor_fresh = sensorFresh === true;
+  if (!detail.sensor_fresh) failures.push('sensor_fresh');
+
+  // 対象競合が消えたことと、plan全体の競合対が増えていないことの両方を見る（ADR 0138）。
+  // componentだけを見ると、切った先で作った共有面が別の作業対の係争資源になっても通る。
+  const targetResolved = conflictPairs?.targetResolved === true;
+  const before = conflictPairs?.before;
+  const after = conflictPairs?.after;
+  const counted = Number.isSafeInteger(before) && Number.isSafeInteger(after);
+  detail.overlap_reduced = targetResolved && counted && after <= before;
+  if (!detail.overlap_reduced) {
+    failures.push(!targetResolved ? 'overlap_reduced:target_conflict_remains'
+      : !counted ? 'overlap_reduced:pair_count_unknown'
+        : `overlap_reduced:pairs_increased:${before}->${after}`);
+  }
+
+  // 競合が消えても波数が変わらないなら、その変換は並列化を解放していない。
+  const wavesBefore = waves?.before;
+  const wavesAfter = waves?.after;
+  const measured = Number.isSafeInteger(wavesBefore) && Number.isSafeInteger(wavesAfter);
+  detail.parallelism_improved = measured && wavesAfter < wavesBefore;
+  if (!detail.parallelism_improved) {
+    failures.push(measured ? `parallelism_improved:no_gain:${wavesBefore}->${wavesAfter}`
+      : 'parallelism_improved:waves_unknown');
+  }
+
+  return {
+    decision: failures.length === 0 ? 'accepted' : 'rejected',
+    conditions: Object.fromEntries(CONDITIONS.map((name) => [name, detail[name] === true])),
+    failures: sortedUnique(failures),
+  };
+}
