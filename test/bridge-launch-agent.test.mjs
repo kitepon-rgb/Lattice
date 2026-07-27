@@ -4,6 +4,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+// launchdはmacOS専用である。LinuxでこのtestをまわしてもLaunchAgentという概念が無く、
+// 失敗はhostのnode配置（group-writableなruntime）を反映しているだけで製品の欠陥ではない。
+// 実測: ubuntu runnerで7件が`node executable is unsafe`になっていた。
+const macOnly = { skip: process.platform === 'darwin' ? false : 'launchd is macOS only' };
+
 import {
   BRIDGE_LAUNCH_AGENT_LABEL, bridgeLaunchAgentPaths, disableBridgeLaunchAgent,
   installBridgeLaunchAgent, restoreBridgeLaunchAgent, snapshotBridgeLaunchAgent,
@@ -40,7 +45,7 @@ function config(port, updatedAt = '2026-07-21T00:00:00.000Z') {
   return { enabled: true, listen: { address: '127.0.0.1', port }, updated_at: updatedAt };
 }
 
-test('LaunchAgentは引数分離した絶対pathとKeepAlive/RunAtLoadを0600 plistへatomic installする',
+test('LaunchAgentは引数分離した絶対pathとKeepAlive/RunAtLoadを0600 plistへatomic installする', macOnly,
   async (context) => {
     const { env } = await fixture(context, 'lattice-launch-agent-install-');
     const control = launchctlDouble();
@@ -63,7 +68,7 @@ test('LaunchAgentは引数分離した絶対pathとKeepAlive/RunAtLoadを0600 pl
     assert.equal(control.calls.at(-1)[0], 'bootstrap');
   });
 
-test('reconfigureは旧service停止確認後にplistを置換し、新しいserviceのreadyを待つ', async (context) => {
+test('reconfigureは旧service停止確認後にplistを置換し、新しいserviceのreadyを待つ', macOnly, async (context) => {
   const { env } = await fixture(context, 'lattice-launch-agent-reconfigure-');
   const control = launchctlDouble();
   const stopped = [];
@@ -82,7 +87,7 @@ test('reconfigureは旧service停止確認後にplistを置換し、新しいser
   assert.ok(control.calls.some((args) => args[0] === 'bootout'));
 });
 
-test('disableはbootoutとsocket停止確認の後だけplistを除去し、snapshotから復旧できる',
+test('disableはbootoutとsocket停止確認の後だけplistを除去し、snapshotから復旧できる', macOnly,
   async (context) => {
     const { env } = await fixture(context, 'lattice-launch-agent-disable-');
     const control = launchctlDouble();
@@ -101,7 +106,7 @@ test('disableはbootoutとsocket停止確認の後だけplistを除去し、snap
     assert.equal(control.isLoaded(), true);
   });
 
-test('再起動後も永続plistから同じProgramArguments/environmentでbootstrapできる', async (context) => {
+test('再起動後も永続plistから同じProgramArguments/environmentでbootstrapできる', macOnly, async (context) => {
   const { env } = await fixture(context, 'lattice-launch-agent-reboot-');
   const control = launchctlDouble();
   await installBridgeLaunchAgent({ config: config(58_764), env, runner: control.runner,
@@ -117,7 +122,7 @@ test('再起動後も永続plistから同じProgramArguments/environmentでboots
   assert.equal(await readFile(bridgeLaunchAgentPaths(env).plist, 'utf8'), before);
 });
 
-test('launchctl bootstrap失敗はtyped errorで、symlink/緩いmode plistは変更前に拒否する',
+test('launchctl bootstrap失敗はtyped errorで、symlink/緩いmode plistは変更前に拒否する', macOnly,
   async (context) => {
     const { root, env } = await fixture(context, 'lattice-launch-agent-fail-');
     const control = launchctlDouble();
@@ -139,7 +144,7 @@ test('launchctl bootstrap失敗はtyped errorで、symlink/緩いmode plistは�
       { code: 'BRIDGE_LAUNCH_AGENT_PLIST_UNSAFE' });
   });
 
-test('registrar設定はplistへ焼き込まれる（launchdはshell環境を継承しない）', async (context) => {
+test('registrar設定はplistへ焼き込まれる（launchdはshell環境を継承しない）', macOnly, async (context) => {
   const { env } = await fixture(context, 'lattice-launch-agent-registrar-');
   const control = launchctlDouble();
   await installBridgeLaunchAgent({
@@ -155,7 +160,7 @@ test('registrar設定はplistへ焼き込まれる（launchdはshell環境を継
   assert.match(content, /<key>LATTICE_BRIDGE_REGISTRAR_SCRIPT<\/key>\s*<string>\/home\/kite\/license-server\/bin\/lattice-bridge-register\.sh<\/string>/u);
 });
 
-test('registrar未設定のplistには登録用の環境変数を入れない', async (context) => {
+test('registrar未設定のplistには登録用の環境変数を入れない', macOnly, async (context) => {
   const { env } = await fixture(context, 'lattice-launch-agent-no-registrar-');
   const control = launchctlDouble();
   await installBridgeLaunchAgent({ config: config(58_762), env, runner: control.runner,
@@ -164,7 +169,7 @@ test('registrar未設定のplistには登録用の環境変数を入れない', 
   assert.doesNotMatch(content, /LATTICE_BRIDGE_REGISTRAR/u);
 });
 
-test('registrarが片側だけの環境ではLaunchAgentを入れずtypedに落とす', async (context) => {
+test('registrarが片側だけの環境ではLaunchAgentを入れずtypedに落とす', macOnly, async (context) => {
   const { env } = await fixture(context, 'lattice-launch-agent-partial-registrar-');
   const control = launchctlDouble();
   await assert.rejects(

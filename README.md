@@ -1,164 +1,190 @@
+<p align="center">
+  <img src=".github/og.png" alt="Lattice — stop serializing work that only looks like it conflicts" width="100%">
+</p>
+
 # Lattice
 
-Latticeは、codebaseの境界を観測・変換し、multi-agent開発の並列TODO graphを生成する
-schedulability compilerです。
+[![npm](https://img.shields.io/npm/v/@quolu/lattice?color=cb3837&logo=npm)](https://www.npmjs.com/package/@quolu/lattice)
+[![CI](https://github.com/kitepon-rgb/Lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/kitepon-rgb/Lattice/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/@quolu/lattice?color=blue)](LICENSE)
+[![node](https://img.shields.io/node/v/@quolu/lattice?color=339933&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![patent](https://img.shields.io/badge/patent-pending%20JP%202026--178950-6366f1)](#patent)
 
-## 開発工場での位置づけ
+**English** · [日本語](README.ja.md)
 
-Latticeは[dotagents開発工場](https://github.com/kitepon-rgb/dotagents)が管理する
-自作コア10製品の一つです。本repoはplan／ToDo／run store、sensor、schema、migration、
-release、diagnosticsを所有し、dotagentsは製品横断の工程利用・導入・host統合を所有します。
-廃止済みの前身sensorは独立製品として配線せず、Lattice sensorだけを現役面とします。
-MarkItDownは別区分の第三者CLIです。
+> **Stop serializing work that only looks like it conflicts.**
+> Lattice is a schedulability compiler for multi-agent development. It observes the real
+> boundaries of your codebase, proves which tasks can run in parallel, and — when two tasks
+> genuinely collide — **refactors the seam between them and recompiles the plan** so they can
+> run in parallel after all.
 
-現在の工程状態と完了証拠の正本は、このrepoのLattice storeです。文書の役割と現行導線は
-[docs/README.md](docs/README.md)、製品思想は[PLAN.md](PLAN.md)、公開contractは
-[docs/00_product-contract.md](docs/00_product-contract.md)を参照してください。
+## Why
 
-CLIの全体像は`lattice --help`、各公開namespaceの正規構文は
-`lattice <plan|run|event|todo|sensor|factory-diagnostics|runtime-errors|bridge> --help`で確認できます。
-個別操作は`lattice <namespace> <subcommand> --help`または`lattice help <namespace> <subcommand>`で
-正規optionをstore非依存に確認できます。
+Give three coding agents three tasks and the usual outcome is one of two failures:
 
-## 開発
+- **You serialize too much.** "These both touch `renderer.ts`, so run them one at a time."
+  Often they touch *different symbols* in that file and could have run together.
+- **You serialize too little.** Nothing declared a dependency, so you run them in parallel and
+  discover the collision after both have written conflicting code.
 
-```bash
-npm test
-npm run check
-npm run ci
-node scripts/reap-orphan-test-daemons.mjs
-lattice sensor sync . --json
-spotter doctor
-codex-sidecar diagnostics --project . --preset auditor --json
+Both failures come from the same gap: *nobody actually measured the boundary.* Dependency
+arrows in a task list are a claim about intent, not evidence about code.
+
+Lattice closes that gap with a different move. It does not just **detect** the conflict — it
+**removes** it. When two tasks contend for one file, Lattice derives a cut, applies it in an
+isolated worktree, verifies the transform against five acceptance conditions, and recompiles the
+plan against the transformed source. The conflict edge disappears because the shared surface
+stopped being shared.
+
+## What it actually does
+
+```
+declare boundaries → compile independence → conflict?
+                                              ├─ no  → run in parallel
+                                              └─ yes → propose a seam
+                                                       → transform in an isolated worktree
+                                                       → verify (5 conditions)
+                                                       → land + recompile → run in parallel
 ```
 
-`reap-orphan-test-daemons.mjs`は、実daemonを起動するtestが取り残したprocessを一覧します。既定は表示
-だけで何も停めません。停めるのは`--reap`を付けた時に限り、対象はargvが指すfixtureのdirectoryが既に
-存在しないものだけです。実行中のtestを巻き込まないための条件なので、fixtureが残ったまま死んだ実行を
-含めたい場合だけ`--older-than-hours=<n>`で起動時刻による許可を明示します。
+**A real example, from this repository.** Two tasks both needed to change
+`src/seam-commit.mjs`. Lattice compiled the declarations, reported `conflict_count: 1` with
+`severability: code_seam`, proposed a cut, and applied it in an isolated worktree. After all
+five acceptance conditions passed, the file was split into one owned surface per task plus a
+shared and a residual surface. Recompiling reported `conflict_count: 0` and placed both tasks in
+the same parallel group.
 
-未初期化projectで`sensor sync`した場合は`LATTICE_SENSOR_NOT_INITIALIZED`と正規`next_action`を返します。
-その他のsensor失敗もexit code、signal、bounded stderrをtyped detailへ残し、原因を隠しません。
+Nobody hand-refactored that file. The product cut it so the work could parallelize.
 
-Node.js 22.13以上を使用します。境界観測は配布物に同梱したLattice sensorだけを使い、PATH上の
-廃止済みruntimeや旧cache/dataへfallbackしません。Spotterはproject単位で生成stateの所有境界を守ります。
+### The five acceptance conditions
 
-どのrepoでも、Latticeの導入状態はdirectoryの有無を推測せず、最初に次のtyped discoveryで判定します。
+A transform is adopted only when **all five** hold. One missing condition rejects it:
+
+| Condition | Meaning |
+|---|---|
+| `behavior_equivalent` | The original path's public export surface is preserved |
+| `focused_tests_passed` | The affected tests actually pass against the transformed source |
+| `sensor_fresh` | The structure index was rebuilt and covers the new surfaces |
+| `overlap_reduced` | The target conflict is gone **and** plan-wide conflict pairs did not increase |
+| `parallelism_improved` | The number of execution waves went down |
+
+### Runtime, not just planning
+
+Complete separation is not obtainable at planning time — dynamic dispatch, runtime-resolved
+paths, and external state always leave residue. That is the design, not a deficiency: Lattice
+carries a second stage at runtime.
+
+While work executes, Lattice observes **what was actually changed**, not what was declared. When
+it sees a task writing outside its declared scope, or into another running task's scope, it
+raises a runtime conflict — and can either hold one side while the other commits, or transform
+the seam and resume both.
+
+## Install
+
+```bash
+npm install -g @quolu/lattice
+```
+
+Requires **Node.js 22.13+**. The structure sensor ships inside the package — there is nothing
+else to install, and Lattice never falls back to a sensor on your `PATH`.
+
+## Quick start
+
+Every project begins with typed discovery. Never guess from directory layout:
 
 ```bash
 lattice status --json
 ```
 
-`state`は`uninitialized | ready | active_run | invalid`のいずれかです。`uninitialized`は
-正常な未初期化状態で、`next_action`が正規の初期authoring入口を返します。初回planは
-新規planはPhase監査とToDo schedulingを分離する`lattice.plan_create_input.v3`のcanonical
-JSON+LFを用意し、次で作成します。既存v2/v4は互換契約として維持されます。
+`state` is one of `uninitialized | ready | active_run | invalid`, and `next_action` gives the
+canonical next command. Then index the codebase and declare boundaries:
 
 ```bash
-lattice plan create --schema-version 3 --json
+lattice sensor init . --json
 ```
+
+Write a draft declaring what each task owns, then let the tool supply the parts you cannot
+hand-write — fresh observations, provenance wiring, canonical bytes:
 
 ```bash
-lattice plan create --input .lattice/plan-create.json
+lattice todo independence witness scaffold --plan <key> --input draft.json
+lattice todo independence compile --plan <key> --input .lattice/todo/witness/<key>.json
+lattice todo independence --plan <key> --json
 ```
 
-`invalid`をMarkdown fallbackへ丸めず、`next_action`に従ってstoreを診断してください。
-discoveryと初期transactionの不変条件は
-[ADR 0058](docs/adr/0058-project-discovery-and-initial-authoring.md)が正です。
-
-## 実行runを端から端まで動かす
-
-compileしたrunを実際にdispatchするには、executor adapterを登録してからactivateします。
-参照実装の`lattice-scripted-adapter`を配布しているため、公開CLIと配布binだけで
-実write・receipt受理・closeまで到達できます。
+If the verdict reports a conflict with `severability: code_seam`, ask for a cut and apply it:
 
 ```bash
-lattice run adapter register --schema --json     # 登録入力のJSON Schema
-lattice run adapter register --input adapter.json
-lattice run adapter list --json
-lattice run activate --run .lattice/runs/<id>
-lattice run status --run .lattice/runs/<id>      # accepted に子が入る
-lattice event verify --run .lattice/runs/<id>
-lattice run close --run .lattice/runs/<id>
+lattice todo seam-proposal compile --plan <key>
+lattice todo seam-proposal apply   --plan <key>               # isolated worktree, five conditions
+lattice todo seam-proposal land    --plan <key> --names names.json
 ```
 
-digestは手で計算しません。binary・config・capabilities・自己digestは登録時にCLIが導出します。
+Full CLI surface: `lattice --help`, then
+`lattice <plan|run|event|todo|sensor|bridge|runtime-errors> --help`.
 
-`plan compile`が`BOUNDARY_UNKNOWN`を返す場合は、まず`git status --short`が空かを確認してください。
-未追跡ファイルがあるとsensor statusが`stale`になり、witnessが未解決unknownへ落ちます。
-作業ツリーをcleanにすると同じrequestがそのまま通ります。
+## Design principles
 
-TODO工程storeの読取は`lattice todo status`、`compile_binding`付きTaskの投影は
-`lattice todo bindings`、検証は`lattice todo verify`、表示生成は
-`lattice todo gantt`を使います。topology/source reconciliationは
-`lattice todo revise --plan <key> --input <canonical-revision.json>`、Phase付きplanは
-`lattice todo revise-phase --plan <key> --input <canonical-phase-revision.json>`でsuccessor発行します。
-cross-plan topologyを同時に切り替える場合は
-`lattice todo revise-set --input <canonical-revision-set.json>`を使い、Phase revisionを含む集合は
-`lattice.todo_revision_set.v3`で通常revisionと混在できます。
-Phase付きv5 planでは、通常ToDoの開始順はToDo DAGだけで決まり、Phase前後関係は重監査の順序だけを
-制御します。特定ToDoがPhase受理を本当に必要とする場合だけ`phase_accept_dependencies`で明示します。
-`lattice todo status --json`の`dispatch_frontier`はready全件を同時dispatchする既定を示します。
-readyが複数なら最初のstartに`--parallel-frontier`を付け、subsetだけを直列着手する場合は
-`--override-reason <reason>`で理由を残します。
+**The operating AI is part of the apparatus.** Lattice is driven by an AI agent, and that agent
+is not outside the system — it is a component of it. So Lattice supplies only what the AI
+*cannot* produce for itself: structure observation, contracts, verification, records, and
+version boundaries. Estimation, judgment, and naming remain the AI's job. You will not find an
+LLM call inside this product; adding one would duplicate a capability already present at the
+point of use.
+
+**Unknown is never rounded to "no conflict."** If a boundary was not verified, the verdict says
+`missing`, not "independent." The absence of a dependency edge is not evidence of independence.
+
+**Fail closed, and say why.** Every rejection carries a typed reason and a next action. A
+transform that cannot be verified is not adopted. A finding that cannot be independently
+re-derived is not recorded.
+
+## Patent
+
+The design in this repository is the subject of a Japanese patent application:
+
+| | |
+|---|---|
+| Application number | 特願2026-178950 (JP 2026-178950) |
+| Filing date | 2026-07-27 |
+| Title | 情報処理装置、ソフトウェア開発制御方法及びプログラム<br>(Information processing apparatus, software development control method, and program) |
+| Claims | 12 |
+
+The source code is released under the [MIT License](LICENSE). The application is disclosed here
+for transparency about the origin of the design; it does not alter the software license terms.
+
+## Factory role
+
+Lattice is one of the ten self-owned core products managed by the
+[dotagents development factory](https://github.com/kitepon-rgb/dotagents). This repository owns
+the plan/ToDo/run store, the bundled sensor, schemas, migrations, releases, and diagnostics;
+dotagents owns cross-product installation and host integration.
+
+- Product philosophy: [PLAN.md](PLAN.md)
+- Public contract: [docs/00_product-contract.md](docs/00_product-contract.md)
+- Immutable decisions: [docs/adr/](docs/adr/)
+- Document map: [docs/README.md](docs/README.md)
+
+## Development
 
 ```bash
-lattice todo start --plan <key> --task <id> --parallel-frontier
-lattice todo start --plan <key> --task <id> --override-reason <reason>
+npm test        # product test gate
+npm run check   # syntax + control-character gate
+npm run ci      # full gate
 ```
 
-`--parallel-frontier`はhostへ並列dispatch方針を宣言する開始gateです。Lattice自身がAI hostのagentを
-起動するものではなく、実際のdispatchはhostが行います。宣言後もready全件が着手されたかは
-`active_set`と`next_ready`で観測できます。
-ToDo完了は軽量確認までで、所属ToDoが全てdoneになったPhaseは`gate_ready`となり、`todo phase review`後に
-required evidenceを束縛した`todo phase accept`で重監査の判断を記録します。監査回数やPhase数を自動追加する
-機能ではありません。Phase状態は
-`lattice todo phase status --plan <key>`、閲覧中に進捗が更新される工程表は
-`lattice todo gantt serve --port 0`で確認できます。live viewerはloopback-only、read-onlyで、
-`/projects/<project_id>/`というproject固有URLを返します。別projectからそれぞれ起動すれば、独立port・独立SSE経路で同時表示できます。
-session開始時のtyped discoveryで使う`lattice status --json`と、actor環境変数を持つ通常のTODO操作は
-active projectを自動登録し、一つのloopback dashboard daemonを再利用します。
-`/projects/`の一覧からproject固有の工程図を開け、各projectのSSE更新は互いに分離されます。
-dashboardはmanifestのfile identityが変わらない間のstable store readを再利用します。
-巨大工程図のrender中にhealth応答が遅れても、生存中dashboardを新daemonで置き換えず
-`DASHBOARD_DAEMON_UNRESPONSIVE`としてtyped拒否します。
-最近のsession activityが期限切れでも、Lattice storeの`active_set`が非空なprojectは一覧へ残ります。
-長時間の外部処理中にCLI呼出しが途切れても進行中projectを休眠扱いしません。
-LANや外部reverse proxyから閲覧するoptional bridgeは既定で無効です。明示したIPにだけbindする初回設定、
-再設定、停止方法は[bridge setup](docs/bridge-setup.md)を参照してください。reverse proxy hostへsshで
-到達できる場合は、LANへbindせずloopbackだけを逆トンネルで公開する構成も選べます。
-工程図の既定表示は、後続に作業中・未着手が残っていない完了工程を図から除きます。まとめnodeも置かないため、
-完走したplanは図の場所を取りません。除いた工程は凡例の件数、右ペインの「全工程」一覧、各工程の詳細から
-辿れ、詳細の前提・後続は除外前の依存関係を示します。総数・進捗・最長依存鎖は除外前の全工程で数えます。
-凡例の件数バッジを押すと全工程を描いた図へ切り替わり、`lattice todo gantt --scope all`は最初から全件を
-描きます。表示規約は[ADR 0066](docs/adr/0066-gantt-live-scope-drops-finished-work.md)が正です。
+The full gate includes checks that are unusual and deliberate:
 
-右ペインは概要・選択工程・全工程の3面で、いずれもToDo storeを表示します（元plan Markdown本文は
-再表示しません。元文書へは各工程の詳細が持つ行対応から辿ります）。全工程一覧は動いているplanを
-最終活動の新しい順で上に、全工程が図から外れた完走planを古い順で下にまとめ、plan内は登録順です。
-決着済みPhaseと図から外した工程は既定で畳み、開けば読めます。規約は
-[ADR 0067](docs/adr/0067-right-pane-shows-the-store-and-orders-by-activity.md)が正です。
+- **`check:cli-surface`** — every shipped command must have help text *and* be exercised through
+  a CLI entry point by a test. Shipping a command nobody ever ran is treated as a defect.
+- **`check:open-questions`** — every unresolved question in an ADR must carry an explicit firing
+  condition, so "deferred" is never indistinguishable from "forgotten."
+- **`check:reachability`** — every module must be reachable from a product entry point, or be
+  declared a research artifact with a reason.
 
-静的工程表は`lattice todo gantt status`で`current / stale / missing`を確認でき、HTMLまたは
-digest付きsidecarの欠落・改ざんはtyped failureになります。
-dashboard daemonは起動時に読み込んだ版数をhealthで名乗り、installされた版と食い違えば`lattice status`の
-たびに新版daemonへ置き換わります。publishしただけで配信面が古いまま残ることはありません。
-入れ替えは新daemonが登録済み全projectのstoreを読み終えるまで待つため、`lattice status`の応答が
-その間伸びます（実測: 8 project登録で約50秒台）。待ち時間は固定秒数ではなく、spawnした子が生きている
-間だけ待ち、子が死ねば即座に`DASHBOARD_DAEMON_UNAVAILABLE`を返します。既定120秒の上限は、応答を
-返さない子に対するbackstopであって正常な起動時間の見積りではありません。
-状態を書き込む`start / block / unblock / done / evidence promote / reopen / revise / revise-phase / revise-set`
-では、監査actorとして次の3環境変数をすべて設定してください。
+Detailed operational notes (dashboard, bridge, actor environment, store transactions) are in
+[README.ja.md](README.ja.md) and [docs/](docs/).
 
-```bash
-export LATTICE_TODO_ACTOR_HOST=<host-id>
-export LATTICE_TODO_ACTOR_SESSION=<session-id>
-export LATTICE_TODO_ACTOR_AGENT=<agent-id>
-```
+## License
 
-不足またはidentifierとして不正な値がある場合、mutationはstoreを変更せず`ACTOR_UNRESOLVED`を返します。
-error detailの`missing_environment`／`invalid_environment`と
-`next_action: set_required_actor_environment_and_retry`を確認し、正規値を設定して同じ操作を再試行してください。
-
-正確なargv、evidence descriptor、result wireは
-[ADR 0056](docs/adr/0056-todo-authoring-transitions.md)を参照してください。
+[MIT](LICENSE) © quolu (kitepon-rgb)

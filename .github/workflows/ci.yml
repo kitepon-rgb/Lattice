@@ -8,10 +8,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
       - run: npm ci
+      # sensor/dist is a build output and gitignored, so a fresh checkout has no bundled
+      # sensor. Without this, every sensor-backed test fails with ENOENT (measured: 66
+      # failures). `prepack` builds it for publish; CI needs the same build.
+      - run: npm --prefix sensor ci
+      - run: npm --prefix sensor run build
       - run: npm run ci
