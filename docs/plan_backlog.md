@@ -363,6 +363,37 @@ typed signalが無いので、機械は延々と同じ処置を試み続ける�
 
 ## 工程
 
-- [ ] 採用された実行時変換をcommitとして確定しshaを返す
-- [ ] 後継planとpacketのbaseを前進させる
-- [ ] 再開先のworktreeに変換が載っていることを実データで確かめる
+- [x] 採用された実行時変換をcommitとして確定しshaを返す
+- [x] 後継planとpacketのbaseを前進させる
+- [x] 再開先のworktreeに変換が載っていることを実データで確かめる
+
+---
+
+# 実行時変換レーンを本番から到達可能にする
+
+工程状態の正本はLattice storeの`functional-parity` plan。
+
+**変換の中身は動くが、実運転からそこへ行く道が無い。** `resolveRuntimeSeamTreatment`——観測した
+競合をその場で変換して解消する、請求項8の一手——の呼び出し元はtestだけである。実運転側が使う
+`routeConflictTreatment`は「事前宣言済みtreatmentがそのpathを覆う時だけ`seam_transform`、それ以外は
+常に`intentional_serial`」なので、**予期しなかった競合は変換にかからない**。壊れて止まるのではなく
+直列へ退化するだけなので、runは緑のまま進み、欠落が表に出ない。
+
+管理runtimeでの再開baseは、後継run requestの`repo.base_sha`が決める。`resolveRepoBinding`が
+`repo HEAD === request.repo.base_sha`を要求し、後継planは`compileFromRepo`でそのtreeから
+compileされる。したがって`refs/lattice/seam/<id>`へ確定しただけでは後継treeに載らない。
+**branchをそのcommitへ進めるのは操作するAIの仕事**であり、静的側の`land`と同じ責務分担である。
+Latticeが持つのは、変換・検証・記録と、**後継baseが本当に変換を含むかの検査**である。
+
+裏返すと、いまは`mode: 'seam_split'`の再計画requestが、変換を含まないbaseを指していても通る。
+splitは新pathの所有を宣言するのに、compileされる後継treeにそのfileが無い——rb工程で直したのと
+同じ欠陥が、管理runtimeの層に残っている。これはLatticeが検証すべき契約であって、推定ではない。
+
+## 工程
+
+- [ ] 実行時変換レーンに本番の入口を作る
+- [ ] seam_split再計画で後継baseが変換を含むことを検証する
+- [ ] 事前宣言なしの競合から再開までを実CLIで通す
+- [ ] CLI表面の機能確認試験を棚卸しする
+- [ ] 未確認だったCLI機能の確認試験を足す
+- [ ] 確認試験で見つかった問題を直す
