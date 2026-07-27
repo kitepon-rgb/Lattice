@@ -53,11 +53,16 @@ function verificationReceipt(verifier, result, outcome) {
   };
 }
 
-function verifierEnvironment() {
-  const env = { ...process.env, NO_COLOR: '1' };
+function verifierEnvironment(extra = {}) {
+  const env = { ...process.env, NO_COLOR: '1', ...extra };
   delete env.NODE_TEST_CONTEXT;
   delete env.FORCE_COLOR;
   return env;
+}
+
+function isPlainStringRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.values(value).every((entry) => typeof entry === 'string');
 }
 
 function safeRelativePath(value) {
@@ -266,11 +271,12 @@ async function assertSourceUnchanged(repoRoot, sourceState) {
   return receipt;
 }
 
-export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, transform, verifyCommands, observe, mounts = [] } = {}) {
+export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, transform, verifyCommands, observe, mounts = [], verifierEnv = {} } = {}) {
   if (!safeRelativePath('.') || typeof repoRoot !== 'string' || typeof baseRef !== 'string'
     || !Array.isArray(allowedPaths) || allowedPaths.some((entry) => !safeRelativePath(entry))
     || typeof transform !== 'function' || !Array.isArray(verifyCommands)
     || (observe !== undefined && typeof observe !== 'function')
+    || !isPlainStringRecord(verifierEnv)
     || !Array.isArray(mounts)
     || mounts.some(({ entry, target } = {}) => typeof entry !== 'string'
       || !safeRelativePath(entry) || typeof target !== 'string' || !path.isAbsolute(target))) {
@@ -306,7 +312,7 @@ export async function runIsolatedTransform({ repoRoot, baseRef, allowedPaths, tr
       try {
         const verification = await run(verifier.command, verifier.args, {
           cwd: worktreePath,
-          env: verifierEnvironment(),
+          env: verifierEnvironment(verifierEnv),
         });
         verifications.push(verificationReceipt(verifier, verification, 'passed'));
       } catch (error) {
