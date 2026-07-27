@@ -94,15 +94,33 @@ dispatchの中で作業を終えてterminalを返すと、走行中のTODOが1�
 ackを返す前にsettleを待つ——走行中の作業を残したままackすると、止まったと言いながらworktreeが動き
 続ける。
 
+### 8. escalationはepoch駆動の安全点で捌く
+
+epoch駆動はrun eventsをメモリに抱えたままawaitをまたぎ、節目ごとに全体を置換する。
+その最中に横から追記すると次の置換で消えるので、**lockを取れるようにするだけでは静かに
+記録を失う**。駆動中の警報は積むだけにし、駆動側が`replaceEventsAtomically`の直後——diskと
+メモリのeventsが一致している唯一の点——で捌く。そこはworkerがまだ走っている最中でもある。
+
+### 9. 静止を証明できない構成では、freezeさせない
+
+holdは静止の証明を要求する。直接OS観測はexecutorのprocessが実際に停止していることまで
+確かめるが、**executorがcontroller自身のprocessである構成では証明できない**——止めると制御
+そのものが止まり、止めなければ証明できない。
+
+`conflict`はintakeをfreezeするので、freezeが掛かってholdが通らない状態を作ると、runは進むことも
+畳むこともできなくなる（`abandon`も同じ静止証明を要求する）。よって**証明できないと分かって
+いる構成では、conflictの手前で止める**。freezeできるのにあえてしない——止まれない状態を作る方が
+危険だからである。理由はcontrol journalへ残す。判定は従来どおりcheckpointが担う。
+
 ## Consequences
 
 - 早期警報は**実runで発火する**ようになった（[受入証拠](../evidence/2026-07-28-io-sentinel-live-run.md)）。
   一時fileに対しては`transient`、宣言scope外の実書き込みに対しては`observed`と裁定される。
-- **警報からholdまでは、まだ通らない。** `run activate`がepoch全体をlifecycle lockを握ったまま
-  同期駆動するので、escalationがlockを取れるのはactivate完了後——その時workerは既にterminalであり、
-  `observed`と裁定しても`skipped`で終わる。これはescalationの不備ではなく、epoch駆動がcontrol
-  operationの中に閉じ込められていることの帰結である。切り離しは管理runtimeの構造変更にあたるため、
-  独立した工程として`plan_backlog.md`が持つ。したがって**検出遅延の実測も未了**である。
+- **警報からholdまでは、まだ通らない。** epoch駆動からの切り離しは済み、走行中のworkerに対して
+  `finding_record`→`conflict`→`intake_frozen`まで実runで到達することは確認した。残るのは静止の
+  証明であり、**executorを別processにするまで埋まらない**（Decision 9）。scripted controllerが
+  TODOごとに子processを起こし、supervisorがそれを停止する形になる。dispatch応答がworkerのpidを
+  運ぶ必要があるので、契約の版上げを伴う。したがって**検出遅延の実測も未了**である。
 - runはユーザーのtreeを直接書き換えなくなった。workerの成果は`<runDir>/worktrees/`の中にあり、
   `close`では畳まない（木そのものがrunの成果である）。`abandon`は成果を捨てる決定なので畳む。
 - `LATTICE_IO_SENTINEL=off`で警報を完全に無効化できる。無効でもrunの判定は従来どおり成立する。

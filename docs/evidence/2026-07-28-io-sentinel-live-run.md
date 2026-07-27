@@ -45,15 +45,37 @@ TODOがterminalになった時点で外れるので、T1とT2を名指す警報�
 
 **警報からholdまでは実runで通っていない。**
 
-`run activate`がepoch全体をlifecycle lockを握ったまま同期駆動するため、escalationがlockを
-取れるのはactivate完了後である。その時点でworkerは既にterminalなので、probeが`observed`と
-裁定しても、escalationは`skipped`（観測したTODOが既にrunningでない）で終わる。
+epoch駆動からの切り離しは済んでいる。駆動中の警報は積むだけにし、駆動側が
+`replaceEventsAtomically`の直後——diskとメモリのeventsが一致している唯一の点——で捌く形にした。
+これで走行中のworkerに対して`finding_record`→`conflict`→`intake_frozen`まで実runで到達することを
+確認している。
 
-これはescalationの不備ではなく、**epoch駆動がcontrol operationの中に閉じ込められている**ことの
-帰結である。切り離しは管理runtimeの構造変更にあたるため、次の工程として独立させた。
+残るのは**静止の証明**である。直接OS観測はexecutorのprocessが実際に停止していることを要求するが、
+scripted controllerは自分のprocessで作業するので、止めると制御そのものが止まる。`abandon`も同じ
+証明を要求するため、freezeだけ掛かった状態のrunは進むことも畳むこともできない。
 
-したがって**検出遅延の実測もまだ行っていない**。holdまで通らない状態で測っても、測っているのは
-警報が出るまでの時間だけであり、工程が求めている「早期検知から再開まで」ではない。
+よって**証明できない構成ではconflictの手前で止める**（ADR 0143 Decision 9）。freezeできるのに
+あえてしない——止まれない状態を作る方が危険だからである。理由はcontrol journalへ残る:
+
+```
+io_escalation_decided | rejected |
+  executorがcontroller自身のprocessで走っており、静止を証明できない
+  （停止すると制御も止まる）。freezeさせるとrunを畳めなくなるので進めない
+```
+
+埋めるにはexecutorを別processにする必要がある。dispatch応答がworkerのpidを運ぶので、契約の版上げを
+伴う。したがって**検出遅延の実測も未了**である。holdまで通らない状態で測れるのは警報が出るまでの
+時間だけであり、工程が求めている「早期検知から再開まで」ではない。
+
+### 配線して見つけた実欠陥
+
+holdへ実際に到達したことで、この経路で一度も実行されていなかった3件が露出した。
+
+| 症状 | 原因 |
+|---|---|
+| `INVALID_RUNTIME_CONTROL_REQUEST` | control operationはartifact**全体**のdigestを要求するが、candidateの自己digestを渡していた |
+| `barrier timeout` | barrierが作業の完走を待っていた。barrierは「いま静止せよ」であり、完走を待たせると止めたい時ほど止まらない |
+| `observation binding不正` | binding に`process_children`が無い。この経路のholdが一度も走っていなかったので欠落が見えなかった |
 
 ## この証拠が主張しないこと
 

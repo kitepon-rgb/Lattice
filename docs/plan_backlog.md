@@ -535,11 +535,13 @@ worktree分離とworkerの非同期化を入れて、**io-sentinelは実runで�
 物理的な衝突は消えるので、残るのは論理的な重なり——宣言scope外への書き込みだけである。検知経路を
 実runで通すには、それを意図して作れる必要がある（scripted controllerの`extra_writes`）。
 
-**3. 警報からholdまでは、まだ通らない。** `run activate`がepoch全体をlifecycle lockを握ったまま
-同期駆動するので、escalationがlockを取れるのはactivate完了後——その時workerは既にterminalであり、
-`observed`と裁定しても`skipped`で終わる。これはescalationの不備ではなく、**epoch駆動が
-control operationの中に閉じ込められている**ことの帰結である。切り離しは管理runtimeの構造変更に
-あたるので、次の工程として独立させる。
+**3. 警報からholdまでは、まだ通らない。** epoch駆動からの切り離しは済み、走行中のworkerに対して
+`finding_record`→`conflict`→`intake_frozen`まで実runで到達する。残るのは**静止の証明**である。
+直接OS観測はexecutorのprocessが実際に停止していることを要求するが、scripted controllerは自分の
+processで作業するので、止めると制御そのものが止まる。`abandon`も同じ証明を要求するため、freezeだけ
+掛かった状態のrunは進むことも畳むこともできない。よって**証明できない構成ではfreezeさせない**——
+止まれない状態を作る方が危険である。埋めるにはexecutorを別processにする必要があり、dispatch応答が
+workerのpidを運ぶので契約の版上げを伴う。
 
 ## 工程
 
@@ -547,7 +549,8 @@ control operationの中に閉じ込められている**ことの帰結である�
 - [x] supervisor daemonへsentinelを配線し警報を耐久化する
 - [x] 警報からprobeを経て自動holdへ繋ぐ
 - [x] 管理daemonのdispatchをworktree分離へ広げ、実runで早期検知を発火させる
-- [ ] epoch駆動をactivateから切り離し、警報からholdまでを実runで通して遅延を実測する
+- [x] epoch駆動をactivateから切り離し、走行中のworkerへescalationを届ける
+- [ ] executorを別processにして静止を証明可能にし、警報からholdまでを通して遅延を実測する
 - [ ] 設計をADRへ残しreleaseまで通す
 
 ---
