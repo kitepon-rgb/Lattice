@@ -31,8 +31,8 @@ const WIRES = Object.freeze({
   dispatch: {
     request: ['schema', 'request_id', 'registration_digest', 'packet', 'write_lease', 'request_digest'],
     requestSchema: 'lattice.adapter_dispatch_request.v1',
-    response: ['schema', 'request_id', 'executor_handle', 'worktree_id', 'packet_digest', 'lease_digest', 'response_digest'],
-    responseSchema: 'lattice.adapter_dispatch_response.v1',
+    response: ['schema', 'request_id', 'executor_handle', 'worktree_id', 'packet_digest', 'lease_digest', 'worker_process', 'response_digest'],
+    responseSchema: 'lattice.adapter_dispatch_response.v2',
   },
   observe: {
     request: ['schema', 'request_id', 'registration_digest', 'executor_handle', 'expected_epoch', 'expected_lease_digest', 'request_digest'],
@@ -338,8 +338,12 @@ export function validateControllerResponse(operation, value, expectedRequestId =
   if (!(Boolean(wire) && exact(value, wire.response) && value.schema === wire.responseSchema
     && identifier(value.request_id) && (expectedRequestId === null || value.request_id === expectedRequestId)
     && selfValid(value, 'response_digest'))) return false;
+  // v2で`worker_process`を必須にした。executorがcontroller自身のprocessだと、holdが
+  // 要求する静止を証明できない（止めれば応答できず、止めなければ証明できない）。
+  // 誰を止めればよいかをdispatchの時点で名指しさせる。
   if (operation === 'dispatch') return identifier(value.executor_handle) && identifier(value.worktree_id)
-    && digest(value.packet_digest) && digest(value.lease_digest);
+    && digest(value.packet_digest) && digest(value.lease_digest)
+    && validateExpectedWorkerProcess(value.worker_process);
   if (operation === 'observe') return exact(value.observation, ['schema', 'state', 'executor_handle', 'plan_epoch', 'lease_digest', 'payload_digest', 'observation_digest'])
     && value.observation.schema === 'lattice.adapter_observation.v1'
     && ['running', 'checkpoint_ready', 'terminal', 'held'].includes(value.observation.state)
@@ -395,6 +399,20 @@ function validateProtocolRunningBinding(value) {
     && identifier(value.todo_id) && identifier(value.executor_handle) && identifier(value.worktree_id)
     && Number.isSafeInteger(value.plan_epoch) && value.plan_epoch > 0 && digest(value.packet_digest)
     && identifier(value.write_lease_id) && digest(value.controller_registration_digest);
+}
+
+/**
+ * dispatchが名指しするworker process。直接OS観測が期待するchild processと同じ形にする
+ * ——照合先の形が分かれると、supervisorとcontrollerが別のものを見ていても気づけない。
+ */
+export function validateExpectedWorkerProcess(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).sort().join('\0')
+      === ['pid', 'process_group_id', 'process_start_identity'].sort().join('\0')
+    && Number.isSafeInteger(value.pid) && value.pid > 0
+    && Number.isSafeInteger(value.process_group_id) && value.process_group_id > 0
+    && validateProcessStartIdentity(value.process_start_identity)
+    && value.process_start_identity.pid === value.pid;
 }
 
 export function validateQuiescenceAck(value) {
