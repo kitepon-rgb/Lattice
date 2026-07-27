@@ -166,17 +166,24 @@ test('実runで、宣言scope外の書き込みを走行中に観測して警報
       JSON.stringify(event.payload));
   }
 
-  // **escalationはholdの手前で止まる。** 直接OS観測はexecutorのprocessが停止している
-  // ことを要求するが、scripted controllerは自分のprocessで作業するので証明できない。
-  // freezeさせてholdが通らない状態を作るとrunを畳めなくなるため、freezeさせない。
-  // 早期警報が「早めるためだけに在る」という原則は、ここでも守られている。
-  const rejected = decided.find((event) => event.payload.outcome === 'rejected');
-  assert.notEqual(rejected, undefined, JSON.stringify(decided.map((e) => e.payload)));
-  assert.match(rejected.payload.detail, /静止を証明できない/u);
+  // **早期警報からholdまで通ること。** probeのcheckpointがfindingの証拠になり、
+  // findingがconflictへ、conflictがintake freezeへ、freezeがworkerの静止証明を経て
+  // holdへ繋がる。事後のcheckpointを待たずに、走行中の作業がここで止まっている。
+  const held = decided.find((event) => event.payload.outcome === 'held');
+  assert.notEqual(held, undefined, JSON.stringify(decided.map((e) => e.payload)));
+  assert.match(held.payload.finding_digest, /^[0-9a-f]{64}$/u);
 
   const runEvents = JSON.parse(await readFile(path.join(runDir, 'events.json'), 'utf8'));
   const kinds = runEvents.map((event) => event.kind);
-  assert.equal(kinds.includes('intake_frozen'), false, kinds.join(','));
+  for (const kind of ['checkpoint_observed', 'conflict_found', 'intake_frozen', 'hold_decided']) {
+    assert.ok(kinds.includes(kind), `${kind}が無い: ${kinds.join(',')}`);
+  }
+  // probeのcheckpointは由来の印を持つ。executorの申告境界と混ぜない。
+  assert.notEqual(runEvents.find((event) => event.kind === 'checkpoint_observed'
+    && event.payload?.observed_by === 'supervisor_probe'), undefined, '由来の印が無い');
+  // workerは実際に止まった。静止の証明は「止まっているprocessを見た」ことである。
+  assert.notEqual(control.find((event) => event.kind === 'executor_quiesced'), undefined,
+    'executor_quiescedが無い');
 
   // 実writeは各workerの木の中だけで起きる。canonical repoは触られない。
   assert.equal(await readFile(path.join(repoRoot, 'src', 'alpha.mjs'), 'utf8'),

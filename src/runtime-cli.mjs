@@ -761,7 +761,6 @@ async function driveInitialScriptedManagedEpoch({
   const controllerId = activation.controllerDescriptor.controller_id;
   const registrationDigest = activation.registration.registration_digest;
   const sessionNonceDigest = digestArtifact(activation.sessionNonce);
-  const processGroupId = activation.childPid;
   for (;;) {
     const frontier = computeReadyFrontier({ plan, events }).dispatchable;
     if (frontier.length === 0) break;
@@ -863,13 +862,15 @@ async function driveInitialScriptedManagedEpoch({
           controller_session_nonce_digest:
             activation.controllerDescriptor.controller_session_nonce_digest,
           direct_os_observation_binding: {
-            process_pid: activation.childPid,
-            process_group_id: processGroupId,
+            // **controllerではなくworker processを指す。** holdは静止の証明を要求し、
+            // 直接OS観測はここで名指しされたprocessが実際に停止していることを確かめる。
+            // controllerを指していた頃は、止めれば応答できず止めなければ証明できなかった。
+            process_pid: response.worker_process.pid,
+            process_group_id: response.worker_process.process_group_id,
             process_start_identity:
-              structuredClone(activation.controllerDescriptor.process_start_identity),
-            // scripted controllerは自分のprocessで実行するので、別processの子は存在しない。
-            // 空配列は「子が居ない」という主張であり、直接OS観測はこれを実測と突き合わせて
-            // 未記録のchildが居ないことまで確かめる——省略すると照合そのものが成立しない。
+              structuredClone(response.worker_process.process_start_identity),
+            // workerはさらに子を持たない。空配列は「子が居ない」という主張であり、
+            // 直接OS観測は実測と突き合わせて未記録のchildが居ないことまで確かめる。
             process_children: [],
             // TODOごとの木を指す。ここがrepo rootだった頃、帰属はrootから決まらなかった。
             worktree_path: worktreeByTodo.get(packet.todo_id),
@@ -1843,7 +1844,7 @@ export async function runManagedSupervisorDaemon({
    * 自分のprocessで作業するので、そのprocessを止めると制御そのものが止まる——止めない限り
    * 証明できず、止めれば応答できない。**別processのexecutorを持つまでこの穴は埋まらない。**
    */
-  const canProveQuiescence = () => activation?.controllerDescriptor?.adapter_kind !== 'scripted';
+  const canProveQuiescence = () => true;
 
   const attributionIsDistinct = (warning, roots) => {
     const paths = warning.todo_ids.map((todoId) => roots[todoId]);
