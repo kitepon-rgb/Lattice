@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { commitSeamTransform, seamRefFor } from '../src/seam-commit.mjs';
+import { listSeamRefs } from '../src/seam-ref.mjs';
 
 // ADR 0141。再開先は実在するbaseを要る。canonical branchへは出さず、detached commitとして確定する。
 
@@ -76,4 +77,54 @@ test('repo相対規律を満たさないpathを確定しない', async (context)
       repoRoot: root, baseSha, files: { [target]: 'x\n' }, candidateId: 'seam-runtime-bad',
     }), /変換後pathがrepo相対規律を満たさない/u);
   }
+});
+
+test('同じcandidateへ、前の変換を含まないbaseで確定し直さない', async (context) => {
+  // 黙って上書きすると1回目の証跡が消える。連鎖は前の変換を含むbaseの上でしか正しくない。
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-seam-chain-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(path.join(root, 'a.mjs'), 'export const a = 1;\n');
+  run('git', ['init', '--quiet'], root);
+  run('git', ['config', 'user.email', 'f@example.invalid'], root);
+  run('git', ['config', 'user.name', 'f'], root);
+  run('git', ['add', '-A'], root);
+  run('git', ['commit', '--quiet', '-m', 'base'], root);
+  const baseSha = run('git', ['rev-parse', 'HEAD'], root).trim();
+
+  const first = await commitSeamTransform({
+    repoRoot: root, baseSha, files: { 'a.mjs': 'export const a = 2;\n' }, candidateId: 'chain-1',
+  });
+  assert.match(first.commitSha, /^[0-9a-f]{40}$/u);
+
+  await assert.rejects(
+    commitSeamTransform({
+      repoRoot: root, baseSha, files: { 'a.mjs': 'export const a = 3;\n' }, candidateId: 'chain-1',
+    }),
+    (error) => /今回のbaseはその子孫でない/u.test(error.message),
+  );
+
+  // 1回目を含むbaseの上でなら通る。
+  const chained = await commitSeamTransform({
+    repoRoot: root, baseSha: first.commitSha,
+    files: { 'a.mjs': 'export const a = 3;\n' }, candidateId: 'chain-1',
+  });
+  assert.notEqual(chained.commitSha, first.commitSha);
+});
+
+test('確定済みseam refを列挙できる', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-seam-list-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(path.join(root, 'a.mjs'), 'export const a = 1;\n');
+  run('git', ['init', '--quiet'], root);
+  run('git', ['config', 'user.email', 'f@example.invalid'], root);
+  run('git', ['config', 'user.name', 'f'], root);
+  run('git', ['add', '-A'], root);
+  run('git', ['commit', '--quiet', '-m', 'base'], root);
+  const baseSha = run('git', ['rev-parse', 'HEAD'], root).trim();
+  assert.deepEqual(await listSeamRefs({ repoRoot: root }), []);
+  const made = await commitSeamTransform({
+    repoRoot: root, baseSha, files: { 'a.mjs': 'export const a = 2;\n' }, candidateId: 'listed-1',
+  });
+  const refs = await listSeamRefs({ repoRoot: root });
+  assert.deepEqual(refs, [{ ref: made.ref, candidate_id: 'listed-1', commit_sha: made.commitSha }]);
 });

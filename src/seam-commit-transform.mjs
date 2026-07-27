@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { GIT_SHA1, git, safeRelative } from './seam-commit-shared.mjs';
+import { GIT_SHA1, execFileAsync, git, safeRelative } from './seam-commit-shared.mjs';
 import { seamRefFor } from './seam-ref.mjs';
 
 /**
@@ -61,6 +61,21 @@ export async function commitSeamTransform({
   // worktreeを畳んだ後にrefを張る。object DBは共有なのでshaは生きているが、
   // refが無いとGCの対象になる。
   const ref = seamRefFor(candidateId);
+  // 同じcandidateへ2回目の変換が来た時、黙って上書きすると1回目の証跡が消える。
+  // 連鎖は「前の変換を含むbaseの上で次を確定する」形でしか正しくならないので、
+  // 既存refが今回のbaseの祖先を指していなければ拒む（ADR 0142 / ADR 0141 OQ2）。
+  const existing = await git(['for-each-ref', '--format=%(objectname)', ref], repoRoot)
+    .then((stdout) => stdout.trim())
+    .catch(() => '');
+  if (GIT_SHA1.test(existing) && existing !== commitSha) {
+    const chained = await execFileAsync('git', ['merge-base', '--is-ancestor', existing, baseSha], {
+      cwd: repoRoot, encoding: 'utf8',
+    }).then(() => true).catch(() => false);
+    if (!chained) {
+      throw new Error(`seam ref ${ref} は既に ${existing} を指しており、今回のbaseはその子孫でない`
+        + '。前の変換を含むbaseの上で確定するか、別のcandidate idを使う');
+    }
+  }
   await git(['update-ref', ref, commitSha], repoRoot);
   return { commitSha, ref };
 }
