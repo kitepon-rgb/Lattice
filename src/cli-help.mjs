@@ -72,6 +72,7 @@ Write commands:
   independence witness migrate --plan <key>  # revision後の宣言をtask migrationで写す
   seam-proposal compile --plan <key>  # 並列可否記録と実sensorからseam提案を記録する
   seam-proposal apply --plan <key>  # 記録済み提案を隔離worktreeで適用し五条件で採否を決める
+  seam-proposal land --plan <key> --names <file>  # 採用された変換を本ツリーへ着地させる
   revise --plan <key> --input <file>
   revise-phase --plan <key> --input <file>
   revise-set --input <file>

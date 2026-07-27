@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  lstat, mkdir, open, readFile, realpath, rename, rm,
+  lstat, mkdir, open, readFile, realpath, rename, rm, writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { parseTree } from 'jsonc-parser';
@@ -938,12 +938,32 @@ async function seamProposalCompile({ repoRoot, planKey }) {
 }
 
 /**
+ * 着地時に使うsurface名。提案が出すhash由来の仮名を、人が読む名前へ置き換える。
+ *
+ * 名前を付けるのは判断なので製品が発明しない（AGENTS.md「装置の境界」）。与えられた名前は
+ * 導出の入力として最初から使う——後から改名すると、生成済みのimport指定子が旧名を指す。
+ */
+async function readSeamPathNames(repoRoot, inputRef) {
+  const value = await readJsonInput(repoRoot, inputRef, {
+    validate: (candidate) => candidate !== null && typeof candidate === 'object'
+      && !Array.isArray(candidate)
+      && candidate.schema === 'lattice.seam_path_names.v1'
+      && typeof candidate.names === 'object' && candidate.names !== null
+      && !Array.isArray(candidate.names)
+      && Object.entries(candidate.names)
+        .every(([key, target]) => isTodoIdentifier(key) && isTodoRef(target)),
+    invalidCode: 'SEAM_PATH_NAMES_INVALID',
+  });
+  return value.names;
+}
+
+/**
  * 記録済みseam提案を隔離worktreeで適用し、五条件で採否を決める（ADR 0137・0138）。
  *
  * 本repositoryは変更しない。採用された変換の着地は別入口が持つ——検証と着地を同じ操作に
  * すると、五条件を満たさない変換が「途中まで着地した」状態を作りうる。
  */
-async function seamProposalApply({ repoRoot, planKey }) {
+async function seamProposalApply({ repoRoot, planKey, pathNames = {}, land = false }) {
   const store = await readTodoStore({ repoRoot });
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
   if (!member) {
@@ -962,9 +982,10 @@ async function seamProposalApply({ repoRoot, planKey }) {
     });
   }
   const baseArtifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
-  const result = await applySeamProposal({
+  const { outcome: result, files } = await applySeamProposal({
     repoRoot,
     planKey,
+    pathNames,
     sourceProposal: artifact,
     witnessSet,
     latticeBin: path.join(repoRoot, 'bin', 'lattice.mjs'),
@@ -985,7 +1006,20 @@ async function seamProposalApply({ repoRoot, planKey }) {
       }),
     },
   });
-  return result;
+  if (!land) return result;
+  // 着地は採用された変換だけへ。検証と着地を同じ操作にしないのは、五条件を満たさない変換が
+  // 途中まで着地した状態を作らないためである（ADR 0137）。
+  if (result.decision !== 'accepted' || files === null) {
+    return { ...result, landed: false, landed_paths: [] };
+  }
+  const landed = [];
+  for (const [target, text] of Object.entries(files)) {
+    const absolute = path.join(repoRoot, target);
+    await mkdir(path.dirname(absolute), { recursive: true });
+    await writeFile(absolute, text);
+    landed.push(target);
+  }
+  return { ...result, landed: true, landed_paths: landed.sort() };
 }
 
 function summarizeSeamProposalDecision(decision) {
@@ -1692,6 +1726,15 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   } else if (argv.length === 4 && argv[0] === 'seam-proposal' && argv[1] === 'apply'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
     action = (repoRoot) => seamProposalApply({ repoRoot, planKey: argv[3] });
+  } else if (argv.length === 6 && argv[0] === 'seam-proposal' && argv[1] === 'land'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--names' && isTodoRef(argv[5])) {
+    action = async (repoRoot) => seamProposalApply({
+      repoRoot,
+      planKey: argv[3],
+      pathNames: await readSeamPathNames(repoRoot, argv[5]),
+      land: true,
+    });
   } else if (argv.length === 4 && argv[0] === 'seam-proposal' && argv[1] === 'compile'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
     action = (repoRoot) => seamProposalCompile({ repoRoot, planKey: argv[3] });
