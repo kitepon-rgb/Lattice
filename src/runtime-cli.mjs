@@ -23,6 +23,7 @@ import { detectCheckpointFindings } from './runtime-diff-observer.mjs';
 import {
   buildIoEscalation, createRunSentinel, probeIoWarning, syncSentinelWatches,
 } from './runtime-io-sentinel.mjs';
+import { ensureScriptedWorktree, removeScriptedWorktrees } from './runtime-scripted-worktree.mjs';
 import {
   buildRuntimeSeamResolution, readRuntimeFindingRecord, resolveRuntimeSeam,
   validateRuntimeSeamRequest, verifySeamSplitSuccessor,
@@ -771,6 +772,17 @@ async function driveInitialScriptedManagedEpoch({
         'initial dispatch leaseのcontrol bindingが無い',
       );
     }
+    // workerの木を先に用意し、**dispatchの前から**監視を張る。dispatch応答を待つと、
+    // 応答の中で書き込みが終わっている構成では観測対象のイベントが一度も起きない。
+    // 木がTODOごとに分かれて初めて、書き込みの帰属をrootから決められる。
+    const worktreeByTodo = new Map();
+    for (const todoId of frontier) {
+      worktreeByTodo.set(todoId, await ensureScriptedWorktree({
+        repoRoot, runDir, packet: packets[todoId],
+      }));
+    }
+    syncSentinelWatches({ sentinel, runningTodoIds: [...frontier],
+      rootOf: (todoId) => worktreeByTodo.get(todoId) });
     const stagedLeases = [];
     for (const todoId of frontier) {
       const packet = packets[todoId];
@@ -846,7 +858,8 @@ async function driveInitialScriptedManagedEpoch({
             process_group_id: processGroupId,
             process_start_identity:
               structuredClone(activation.controllerDescriptor.process_start_identity),
-            worktree_path: repoRoot,
+            // TODOごとの木を指す。ここがrepo rootだった頃、帰属はrootから決まらなかった。
+            worktree_path: worktreeByTodo.get(packet.todo_id),
             base_sha: packet.base_sha,
           },
         };
@@ -2837,6 +2850,11 @@ export async function runManagedSupervisorDaemon({
             recordedAt: canonicalNow() })];
         }
         await replaceEventsAtomically(runDir, events);
+        // abandonは成果を捨てる決定なので、workerの木も畳む。closeでは畳まない——
+        // 木そのものがrunの成果であり、着地させる前に消したら受理した内容が残らない。
+        if (controlRequest.operation === 'abandon') {
+          await removeScriptedWorktrees({ repoRoot, runDir }).catch(() => null);
+        }
         await appendControl({ run_id: request.request_id, kind: 'supervisor_stopped',
           session_nonce_digest: digestArtifact(sessionNonce),
           payload: { shutdown_result_digest: shutdown.result_digest } });

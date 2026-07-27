@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   lstat,
+  realpath,
   readFile,
   readdir,
   rm,
@@ -209,12 +210,23 @@ test('配布scripted controllerで公開CLIのactivateから子receipt受理とc
   assert.deepEqual(JSON.parse(status.stdout).accepted, ['T1']);
   assert.deepEqual(JSON.parse(status.stdout).running, []);
 
-  const written = JSON.parse(await readFile(path.join(repoRoot, 'src', 'alpha.mjs'), 'utf8'));
-  assert.equal(written.schema, 'lattice.scripted_adapter_write.v1');
-  assert.equal(written.todo_id, 'T1');
   const runDir = path.join(repoRoot, ...runRef.split('/'));
   const events = JSON.parse(await readFile(path.join(runDir, 'events.json'), 'utf8'));
   const dispatch = events.find((event) => event.kind === 'executor_dispatched');
+
+  // workerは自分の木へ書く。canonical repoは触られない——共有rootでは書き込みの帰属を
+  // rootから決められず、早期警報もcheckpoint判定も成立しないからである。
+  const worktreePath = dispatch.payload.direct_os_observation_binding.worktree_path;
+  assert.equal(worktreePath.startsWith(path.join(await realpath(runDir), 'worktrees')), true,
+    worktreePath);
+  assert.notEqual(worktreePath, await realpath(repoRoot));
+  const written = JSON.parse(await readFile(path.join(worktreePath, 'src', 'alpha.mjs'), 'utf8'));
+  assert.equal(written.schema, 'lattice.scripted_adapter_write.v1');
+  assert.equal(written.todo_id, 'T1');
+  assert.equal(await readFile(path.join(repoRoot, 'src', 'alpha.mjs'), 'utf8'),
+    'export const alpha = 1;\n');
+  // run store配下なのでcanonical repoのstatusも汚れない。
+  assert.equal(invoke('git', ['status', '--porcelain'], repoRoot).stdout, '');
   const receiptEvent = events.find((event) => event.kind === 'receipt_recorded');
   assert.equal(validateExecutorReceipt(receiptEvent.payload), true);
   assert.equal(receiptEvent.payload.packet_digest, dispatch.payload.packet_digest);

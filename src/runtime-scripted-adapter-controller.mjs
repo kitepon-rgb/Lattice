@@ -31,6 +31,7 @@ import {
 } from './runtime-contracts.mjs';
 import { validateSupervisorWriteGate } from './runtime-gate-store.mjs';
 import { observeManagedProcessStartIdentity } from './runtime-managed-supervisor.mjs';
+import { scriptedWorktreeId, scriptedWorktreePath } from './runtime-scripted-worktree.mjs';
 
 const MAX_DOCUMENT_BYTES = 8_388_608;
 const SHA256 = /^[0-9a-f]{64}$/u;
@@ -538,12 +539,24 @@ export async function createScriptedAdapterController({
         }, 'response_digest');
       }
       await readAndValidateGate(canonicalRunDir, writeLease);
+      // canonical repoではなく自分の木へ書く。共有rootでは、書き込みの帰属をrootから
+      // 決められないので早期警報もcheckpoint判定も成立しない。木はsupervisorが
+      // dispatch前に用意する（監視を張るのがdispatchより前でなければ観測を取り逃す）。
+      const worktreePath = scriptedWorktreePath({ runDir: canonicalRunDir, packet });
+      try {
+        const info = await lstat(worktreePath);
+        if (!info.isDirectory()) throw new TypeError('not a directory');
+      } catch {
+        fail('SCRIPTED_EXECUTION_FAILED', 'supervisorが用意したworktreeが無い', {
+          worktree_path: worktreePath,
+        });
+      }
       const { observedDiff, checkpointDigest } = await executePacket({
         packet,
-        repoRoot: canonicalRepoRoot,
+        repoRoot: await realpath(worktreePath),
       });
       const executorHandle = `scripted-${packet.packet_digest.slice(0, 24)}`;
-      const worktreeId = `scripted-wt-${packet.packet_digest.slice(0, 24)}`;
+      const worktreeId = scriptedWorktreeId(packet);
       const receipt = sign({
         schema: 'lattice.executor_receipt.v1',
         receipt_id: `receipt-${packet.packet_digest.slice(0, 24)}`,
