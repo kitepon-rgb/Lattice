@@ -3,9 +3,12 @@ import test from 'node:test';
 import path from 'node:path';
 
 import {
-  DEFAULT_IO_EXCLUDES, classifyIoObservation, createIoSentinel, isExcludedPath,
+  DEFAULT_IO_EXCLUDES, buildIoEscalation, classifyIoObservation, createIoSentinel, isExcludedPath,
   probeIoWarning, relativeToRoot, syncSentinelWatches,
 } from '../src/runtime-io-sentinel.mjs';
+import { detectCheckpointFindings } from '../src/runtime-diff-observer.mjs';
+import { selfDigest } from '../src/runtime-contracts.mjs';
+import { validateRuntimeFindingCandidate } from '../src/runtime-multi-epoch-store.mjs';
 
 // ADR 0143。警報はfindingではない——正本はcheckpointのままで、ここは早めるためだけに在る。
 // 判定述語はcheckpoint findingと同一である必要がある（分かれるとどちらが正しいか分からなくなる）。
@@ -344,4 +347,78 @@ test('bindingを持たないTODOは監視対象にしない', () => {
 test('sentinelが無い構成でも呼べる', () => {
   assert.equal(syncSentinelWatches({ sentinel: null, runningTodoIds: ['T1'], rootOf: () => '/w' }),
     undefined);
+});
+
+// --- escalation（ADR 0143の三段目）。probeを通った警報を既存hold経路の入力へ写す。
+
+const overlapWarning = { kind: 'io_overlap_warning', todo_ids: ['T1', 'T2'], path: 'src/page.mjs' };
+const bothWrote = { T1: checkpoint(['src/page.mjs']), T2: checkpoint(['src/page.mjs', 'src/style.mjs']) };
+
+test('probeを通った重なりは、そのままfinding candidateになる', () => {
+  const probe = probeIoWarning({ warning: overlapWarning, checkpointsByTodo: bothWrote });
+  const escalation = buildIoEscalation({ warning: overlapWarning, probe, checkpointsByTodo: bothWrote, packets });
+  // 契約を満たさないcandidateを作ったら、既存のfinding_recordが受け取れない。
+  assert.equal(validateRuntimeFindingCandidate(escalation.candidate), true);
+  assert.equal(escalation.candidate.proposed_kind, 'observed_write_conflict');
+  assert.deepEqual(escalation.candidate.todo_ids, ['T1', 'T2']);
+  assert.equal(escalation.candidate.path, 'src/page.mjs');
+  assert.equal(escalation.candidate.resource_id, null);
+  // 証拠はprobeが撮ったcheckpointそのもの。fs eventをfindingの証拠にしない。
+  // anchorは**他人の宣言scopeへ書いた側**——T1は自分のscope内に書いただけなので、
+  // T1のcheckpointへ縛るとproducerが同じfindingを再導出できない。
+  assert.equal(escalation.anchor_todo_id, 'T2');
+  assert.equal(escalation.checkpoint_digest, bothWrote.T2.checkpoint_digest);
+  assert.deepEqual(escalation.candidate.evidence_digests, [bothWrote.T2.checkpoint_digest]);
+});
+
+test('candidateは、anchorのcheckpointからproducerが再導出できる形である', () => {
+  // finding_recordは`detectCheckpointFindings`での再導出一致を要求する。ここが揃っていないと、
+  // 正しい警報が形式の都合で落ちる。producer側の判定をそのまま突き合わせる。
+  const probe = probeIoWarning({ warning: overlapWarning, checkpointsByTodo: bothWrote });
+  const escalation = buildIoEscalation({ warning: overlapWarning, probe, checkpointsByTodo: bothWrote, packets });
+  const { findings } = detectCheckpointFindings({
+    todoId: escalation.anchor_todo_id, checkpoint: bothWrote[escalation.anchor_todo_id],
+    packets, runningTodoIds: ['T1', 'T2'],
+  });
+  const match = findings.find((finding) => finding.kind === escalation.candidate.proposed_kind
+    && finding.path === escalation.candidate.path);
+  assert.notEqual(match, undefined);
+  assert.deepEqual(match.todo_ids, escalation.candidate.todo_ids);
+});
+
+test('scope警報はscope_violationへ写す', () => {
+  const warning = { kind: 'io_scope_warning', todo_ids: ['T2'], path: 'src/page.mjs' };
+  const checkpointsByTodo = { T2: checkpoint(['src/page.mjs']) };
+  const probe = probeIoWarning({ warning, checkpointsByTodo });
+  const escalation = buildIoEscalation({ warning, probe, checkpointsByTodo, packets });
+  assert.equal(escalation.candidate.proposed_kind, 'scope_violation');
+  assert.deepEqual(escalation.candidate.todo_ids, ['T2']);
+  assert.equal(escalation.anchor_todo_id, 'T2');
+});
+
+test('probeが実在と言っていない警報はescalationへ進めない', () => {
+  const transient = { T1: checkpoint(['src/page.mjs']), T2: checkpoint([]) };
+  const probe = probeIoWarning({ warning: overlapWarning, checkpointsByTodo: transient });
+  assert.equal(buildIoEscalation({ warning: overlapWarning, probe, checkpointsByTodo: transient, packets }), null);
+  assert.equal(buildIoEscalation({
+    warning: overlapWarning, probe: { outcome: 'unprobed', writers: [] },
+    checkpointsByTodo: transient, packets,
+  }), null);
+});
+
+test('anchorのcheckpoint digestが無ければescalationを組まない', () => {
+  // 証拠を指せないcandidateを作らない。作れば、finding_recordがdurable evidenceへ
+  // 解決できずに落ちるだけで、失敗の原因がここから遠ざかる。
+  const broken = { T1: { diff: { entries: [{ path: 'src/page.mjs' }] } },
+    T2: { diff: { entries: [{ path: 'src/page.mjs' }] } } };
+  const probe = probeIoWarning({ warning: overlapWarning, checkpointsByTodo: broken });
+  assert.equal(probe.outcome, 'observed');
+  assert.equal(buildIoEscalation({ warning: overlapWarning, probe, checkpointsByTodo: broken, packets }), null);
+});
+
+test('candidate digestは本文へ束縛される', () => {
+  const probe = probeIoWarning({ warning: overlapWarning, checkpointsByTodo: bothWrote });
+  const { candidate } = buildIoEscalation({ warning: overlapWarning, probe, checkpointsByTodo: bothWrote, packets });
+  assert.equal(candidate.candidate_digest, selfDigest(candidate, 'candidate_digest'));
+  assert.equal(validateRuntimeFindingCandidate({ ...candidate, path: 'src/other.mjs' }), false);
 });

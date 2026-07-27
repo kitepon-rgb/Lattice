@@ -24,6 +24,7 @@ import { watch } from 'node:fs';
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';
 
+import { selfDigest } from './runtime-contracts.mjs';
 import { coveredBy } from './runtime-diff-observer.mjs';
 
 /** 警報の種別。findingのkindとは別空間にする——findingへ昇格するのはprobeを通った後だけである。 */
@@ -294,4 +295,90 @@ export function probeIoWarning({ warning, checkpointsByTodo } = {}) {
   // scope警報は自分1人の話なので、自分のdiffに残っていれば実在である。
   const required = warning.kind === 'io_overlap_warning' ? 2 : 1;
   return { outcome: writers.length >= required ? 'observed' : 'transient', writers };
+}
+
+/**
+ * 警報kind → finding kind。probeを通った警報だけがこの写像に乗る。
+ *
+ * 述語が同一（`coveredBy`）なので、写像は1対1に決まる。ここで新しい種類を発明しない——
+ * 発明すると、警報経由のfindingだけ既存の処置（請求項7の直列化、請求項8のseam変換）が
+ * 効かない種類になってしまう。
+ */
+const WARNING_FINDING_KIND = Object.freeze({
+  io_overlap_warning: 'observed_write_conflict',
+  io_scope_warning: 'scope_violation',
+});
+
+/**
+ * findingを縛るcheckpointの持ち主を選ぶ。
+ *
+ * scope警報は自分1人の話なので当人。重なりは**他人の宣言scopeへ書いた側**——producerの
+ * 述語がそう定義されているからで、ここで別の選び方をすると再導出が一致しない。
+ * 双方が同じpathを宣言している場合は両方が資格を持つので、昇順で決めて揺らさない。
+ */
+function selectEscalationAnchor({ warning, writers, packets }) {
+  const wrote = new Set(writers);
+  const qualified = [...warning.todo_ids].sort(compareText).filter((todoId) => {
+    if (!wrote.has(todoId)) return false;
+    if (warning.kind === 'io_scope_warning') return true;
+    return warning.todo_ids.some((otherId) => {
+      if (otherId === todoId) return false;
+      const other = packets[otherId];
+      return plainRecord(other) && plainRecord(other.scope) && Array.isArray(other.scope.writes)
+        && coveredBy(other.scope.writes, warning.path);
+    });
+  });
+  return qualified[0] ?? null;
+}
+
+/**
+ * probeを通った警報を、既存のhold経路が受け取れるfinding candidateへ写す（ADR 0143の三段目）。
+ *
+ * **新しい判定はここに1つも無い。** 出すのはcandidate——つまり「主張」だけであり、それを
+ * findingへ昇格させてよいかは既存の`finding_record`が再導出して決める。だから早期警報が
+ * 短くするのは気づくまでの時間だけで、通す関門は1つも減らない。
+ *
+ * findingは1つのcheckpointへ縛られるので、**anchorの選び方が効く**。`detectCheckpointFindings`は
+ * anchorのdiffと「他TODOの宣言write」からしか重なりを導かないので、anchorは
+ * **他人の宣言scopeへ書いた側（offender）**でなければならない。警報自身は`todo_ids`を
+ * 昇順一意で持つ設計上どちらがofferedかを覚えていないので、ここで宣言から選び直す。
+ * 選び間違えるとproducerが同じfindingを再導出できず、正しい警報が形式の都合で落ちる。
+ *
+ * @param {object} options
+ * @param {object} options.warning `classifyIoObservation`が返した警報
+ * @param {object} options.probe `probeIoWarning`が返した判定
+ * @param {object} options.checkpointsByTodo todo_id -> `captureWorktreeDiff`の戻り値
+ * @param {object} options.packets todo_id -> executor packet（宣言scopeの出所）
+ * @returns {null|{anchor_todo_id: string, checkpoint_digest: string, writers: string[], candidate: object}}
+ */
+export function buildIoEscalation({ warning, probe, checkpointsByTodo, packets } = {}) {
+  if (!plainRecord(warning) || !plainRecord(probe) || !plainRecord(checkpointsByTodo)
+    || !plainRecord(packets) || !Array.isArray(probe.writers)) {
+    throw new TypeError('buildIoEscalation optionsが不正');
+  }
+  if (probe.outcome !== 'observed') return null;
+  const proposedKind = WARNING_FINDING_KIND[warning.kind];
+  if (proposedKind === undefined) return null;
+  const anchorTodoId = selectEscalationAnchor({ warning, writers: probe.writers, packets });
+  if (anchorTodoId === null) return null;
+  const checkpoint = checkpointsByTodo[anchorTodoId];
+  if (!plainRecord(checkpoint) || !/^[0-9a-f]{64}$/u.test(checkpoint.checkpoint_digest ?? '')) {
+    return null;
+  }
+  const candidate = {
+    schema: 'lattice.runtime_finding_candidate.v1',
+    proposed_kind: proposedKind,
+    todo_ids: [...warning.todo_ids].sort(compareText),
+    path: warning.path,
+    resource_id: null,
+    evidence_digests: [checkpoint.checkpoint_digest],
+    candidate_digest: '',
+  };
+  candidate.candidate_digest = selfDigest(candidate, 'candidate_digest');
+  return {
+    anchor_todo_id: anchorTodoId,
+    checkpoint_digest: checkpoint.checkpoint_digest,
+    writers: [...probe.writers].sort(compareText),
+    candidate,
+  };
 }
