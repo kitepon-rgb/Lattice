@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.2 — 2026-07-27
+
+- 変換適用時の再indexが、配布物内の自分自身でなく対象project配下の`bin/lattice.mjs`を
+  起動しようとしていた。**Lattice自身のrepositoryでしか動かない**欠陥で、消費側projectでは
+  `sensor_fresh`が必ず落ちる。実機smokeで見つけた。
+
 ## 0.21.1 — 2026-07-27
 
 - 隔離runnerで、mountのために作った親ディレクトリがgit statusへ1エントリで報告されると
