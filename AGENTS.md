@@ -81,6 +81,14 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 
 - Latticeはgoal decomposition、boundary manifest、conflict model、seam transformation、plan compile、
   version barrier、実験記録を所有する。
+- **装置の境界にAIを含める。** Latticeを操作するのはAIであり、そのAIは装置の外に居るのではなく
+  装置の一部である。したがってLatticeが供給するのは、AIが自分で作れないもの——構造観測、契約、
+  検証、記録、版の境界——に限る。推定、判断、文章生成をLatticeの中へ実装しない。それは操作している
+  AIが既に行っている。
+- **AIが既にできることを、製品コードやサブエージェント呼び出しとして足さない。** 「装置がやる」形へ
+  寄せようとして製品内からAIを呼ぶ設計は、AIが操作している場に同じ能力を二重化するだけである。
+  設計が「ここでAIに出力させたい」へ向かったら、そこは既に満たされている面であり、要るのは
+  能力ではなくAIの出力を受け止める契約と検証である。
 - sensorはLatticeが所有し、配布物内の`./sensor/dist`からのみ起動する。PATH上の独立CLI、
   npx配布物、外部SDKへfallbackしない。MIT attributionは`./sensor/LICENSE`と
   `./sensor/NOTICE`で維持する。
