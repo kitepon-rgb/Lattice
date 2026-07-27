@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.1 — 2026-07-28
+
+- **npmのauthorを設定した。** 未設定だったので、公開面に作者が出ていなかった。
+  name側に丸括弧を使わない——npmのlegacy author parserが丸括弧をURL記法として
+  再解釈し、明示したURLを潰す（aiterm-mcpがv0.20.1で被弾した既知の罠）。
+- 0.29.0以前のMIT表示へ、deprecateで訂正を載せた。公開済みversionのmetadataは
+  書き換えられないので、非破壊で訂正を届けられる唯一の手段である。
+
 ## 0.30.0 — 2026-07-28
 
 - **npmのlicense表記を訂正した。** 0.29.0までの公開版はpackage.jsonが`MIT`のままで、registryは
