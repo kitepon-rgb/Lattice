@@ -334,3 +334,35 @@ typed signalが無いので、機械は延々と同じ処置を試み続ける�
 
 - [x] 同じ競合の再出現を検出して非収束をtypedに述べる
 - [x] 非収束の再計画をfail closedにする
+
+---
+
+# 再開先へ変換を載せる（請求項8の未配線部）
+
+工程状態の正本はLattice storeの`resume-base` plan。
+
+**実行時のseam_transformレーンが整合していない。** 競合を観測し、隔離worktreeで変換し、五条件を
+通して`runtime_seam_split`を組むところまでは動く。しかし：
+
+- 変換した成果を**どこにも着地させていない**。静的側は`land`が本ツリーへ書くが、実行時側は
+  `files`を返すだけで誰も使っていない。
+- **後継planとpacketのbaseが前進しない**。`recompileNextEpochPlan`は`base_sha: plan.base_sha`を
+  渡し、packetも`packet.base_sha`を引き継ぐ。`head_sha`は記録できるようにしたのに読んでいない。
+
+結果、splitは「T1は`src/page-left.mjs`を所有する」と述べるのに、再開したworkerのworktreeは
+変換前のbaseであり、**そのfileが存在しない**。請求項8は「競合の解消後に二つの作業を再開させる」
+まで述べており、再開が成立していない。
+
+素のhold／carry-overレーンは機能不全ではない。carry-over witnessが非重複を証明しているので、
+止めた側と継続する側の成果は互いに素なdiffとして合成でき、baseが前進しなくても壊れない。
+壊れるのは**変換でsourceの構造が変わる**seam_transformレーンだけである。
+
+着地先はcanonical branchではない。変換をdetached commitとして確定し、`refs/lattice/seam/<id>`へ
+繋いでGCから守る。branchは動かさず外部へ効果を出さないまま、後継が使える実在のbaseになる
+（ADR 0139と同じ理由）。
+
+## 工程
+
+- [ ] 採用された実行時変換をcommitとして確定しshaを返す
+- [ ] 後継planとpacketのbaseを前進させる
+- [ ] 再開先のworktreeに変換が載っていることを実データで確かめる
