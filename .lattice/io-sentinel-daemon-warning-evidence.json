@@ -1,0 +1,9 @@
+{
+  "anchor_digest": null,
+  "content_digest": "abe3d588ada1410218ccdfed30697256368bcb92da7d5d58025525709209cb78",
+  "evidence_id": "io-sentinel-daemon-warning-20260728",
+  "git_blob_oid": "a65725cf116dad5929f19954d428a0125be30059",
+  "media_type": "text/plain",
+  "path": "test/runtime-control-store.test.mjs",
+  "repo_id": "self"
+}

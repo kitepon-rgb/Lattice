@@ -1,0 +1,9 @@
+{
+  "anchor_digest": null,
+  "content_digest": "e8418d562e1ae0cf83603c11f5b9fb745be128e27f56b3991580c40a6bb944b3",
+  "evidence_id": "io-sentinel-core-20260728",
+  "git_blob_oid": "b101fb55c49d06bdb1026acc13c40bf1b09b861a",
+  "media_type": "text/plain",
+  "path": "test/runtime-io-sentinel.test.mjs",
+  "repo_id": "self"
+}
