@@ -64,3 +64,19 @@ describe('import binding metadata', () => {
     });
   });
 });
+
+describe('EXTENSION_RESOLUTION export (reverse-direction material)', () => {
+  it('exposes per-language suffix omission rules, read-only shape', async () => {
+    const { EXTENSION_RESOLUTION } = await import('../src/resolution/import-resolver');
+    // The reverse mapping (file → specifier) needs exactly what resolution
+    // omits. Pin the invariants rewrite tooling depends on.
+    expect(EXTENSION_RESOLUTION.javascript).toContain('.mjs');
+    expect(EXTENSION_RESOLUTION.typescript).toContain('/index.ts');
+    expect(EXTENSION_RESOLUTION.python).toEqual(['.py', '/__init__.py']);
+    expect(EXTENSION_RESOLUTION.rust).toEqual(['.rs', '/mod.rs']);
+    for (const suffixes of Object.values(EXTENSION_RESOLUTION)) {
+      expect(Array.isArray(suffixes)).toBe(true);
+      expect(suffixes.length).toBeGreaterThan(0);
+    }
+  });
+});

@@ -19,7 +19,14 @@ import {
 /**
  * Extension resolution order by language
  */
-const EXTENSION_RESOLUTION: Record<string, string[]> = {
+/**
+ * Exported for the reverse direction (file path → import specifier): the same
+ * table that says which suffixes a language OMITS when resolving is the table
+ * that says which suffixes a generated specifier may DROP. Rewrite tooling
+ * derives specifiers from it instead of hardcoding per-language shortening
+ * rules. Read-only — mutating it would corrupt resolution.
+ */
+export const EXTENSION_RESOLUTION: Record<string, string[]> = {
   typescript: ['.ts', '.tsx', '.d.ts', '.js', '.jsx', '/index.ts', '/index.tsx', '/index.js'],
   // ArkTS imports both `.ets` components and plain `.ts` logic modules —
   // HarmonyOS projects are always a mix. `/Index.ets` (capital I) is ohpm's
