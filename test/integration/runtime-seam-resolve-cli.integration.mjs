@@ -20,6 +20,10 @@ import { todoSelfDigest } from '../../src/todo-contracts.mjs';
 // 変換して解消し、再開できるbaseを返すところまでを、実git repositoryと実sensorで確かめる。
 //
 // これが通らない間、変換の中身は動くのに実運転からそこへ行く道が無かった。
+//
+// 2つ通す。所有が対称な形（planが既に競合を知っている）と、非対称な形——**片方が係争資源を
+// 所有していない**、実行時にしか現れない形である。後者は宣言のままでは変換の入力が組めないので、
+// 観測へ宣言を合わせる翻訳段を通る。
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
@@ -46,6 +50,21 @@ const PAGE_TEST = [
   '',
 ].join('\n');
 
+const WIDGET = [
+  'export function renderWidget(value) {',
+  '  return `<span>${String(value)}</span>`;',
+  '}',
+  '',
+].join('\n');
+
+const WIDGET_TEST = [
+  "import test from 'node:test';",
+  "import assert from 'node:assert/strict';",
+  "import { renderWidget } from '../src/widget.mjs';",
+  "test('widget', () => { assert.match(renderWidget('a'), /<span>a<\\/span>/); });",
+  '',
+].join('\n');
+
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}: ${result.stderr}`);
@@ -58,22 +77,29 @@ function runCli(args, cwd) {
   });
 }
 
-function witness() {
+/** 1 pathだけを所有し、そのaffectedを裏取りするwitness。 */
+function witnessFor(target, queryId, tests) {
   return {
-    owns: [{ kind: 'path', target: 'src/page.mjs' }],
+    owns: [{ kind: 'path', target }],
     reads: [],
-    writes: ['src/page.mjs'],
+    writes: [target],
     resources: [],
     state_effects: [],
-    sensor_provenance: {
-      queries: [{ query_id: 'q-page-aff', expect: { kind: 'affected', path: 'src/page.mjs' } }],
-    },
-    affected_tests: ['test/page.test.mjs'],
+    sensor_provenance: { queries: [{ query_id: queryId, expect: { kind: 'affected', path: target } }] },
+    affected_tests: tests,
     unknowns: [],
   };
 }
 
-test('事前宣言なしの競合を、実CLIが変換して解消し再開できるbaseを返す', async (context) => {
+const pageWitness = () => witnessFor('src/page.mjs', 'q-page-aff', ['test/page.test.mjs']);
+const widgetWitness = () => witnessFor('src/widget.mjs', 'q-widget-aff', ['test/widget.test.mjs']);
+
+/**
+ * 実repositoryを立て、T2が`src/page.mjs`へ書いた実行時観測から製品CLIのseam resolveまでを通す。
+ *
+ * 変えるのはT2の宣言だけとする。対称・非対称の差がどこから来るかを、他を固定して見せるため。
+ */
+async function resolveScenario(context, { t2Witness }) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-seam-resolve-cli-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   const repoRoot = path.join(root, 'repo');
@@ -81,6 +107,8 @@ test('事前宣言なしの競合を、実CLIが変換して解消し再開で�
   await mkdir(path.join(repoRoot, 'test'), { recursive: true });
   await writeFile(path.join(repoRoot, 'src/page.mjs'), SOURCE);
   await writeFile(path.join(repoRoot, 'test/page.test.mjs'), PAGE_TEST);
+  await writeFile(path.join(repoRoot, 'src/widget.mjs'), WIDGET);
+  await writeFile(path.join(repoRoot, 'test/widget.test.mjs'), WIDGET_TEST);
   await writeFile(path.join(repoRoot, '.gitignore'), '.lattice/\nnode_modules/\n');
   run('git', ['init', '--quiet', '--initial-branch=main'], repoRoot);
   run('git', ['config', 'user.email', 'fixture@example.invalid'], repoRoot);
@@ -90,18 +118,18 @@ test('事前宣言なしの競合を、実CLIが変換して解消し再開で�
   const baseSha = run('git', ['rev-parse', 'HEAD'], repoRoot).trim();
   invokeSensorCli(run, ['init', '.'], repoRoot);
 
-  // --- 同じfileを書く2 TODO。plan時点では直列にしかできない。
   const request = {
     schema: 'lattice.run_request.v1',
     request_id: RUN_ID,
     repo: { base_sha: baseSha, root_kind: 'git-worktree' },
     capacity: { executors: 2 },
     todos: [{ todo_id: 'T1' }, { todo_id: 'T2' }],
-    manual_witness: { T1: witness(), T2: witness() },
+    manual_witness: { T1: pageWitness(), T2: t2Witness },
     sensor_query_set: {
       queries: [
         { id: 'q-status', operation: 'status' },
         { id: 'q-page-aff', operation: 'affected', target: 'src/page.mjs' },
+        { id: 'q-widget-aff', operation: 'affected', target: 'src/widget.mjs' },
       ],
     },
     executor_capability: { adapters: ['scripted'] },
@@ -115,6 +143,10 @@ test('事前宣言なしの競合を、実CLIが変換して解消し再開で�
   assert.equal(started.status, 0, started.stderr);
   const runDir = path.join(repoRoot, '.lattice', 'runs', RUN_ID);
   const runRef = `.lattice/runs/${RUN_ID}`;
+  const compileResult = JSON.parse(
+    await readFile(path.join(runDir, 'plan-compile-result.json'), 'utf8'),
+  );
+  const plan = compileResult.plan;
 
   // --- managed epochへactivateする（storeの正規経路）。
   const runEvents = JSON.parse(await readFile(path.join(runDir, 'events.json'), 'utf8'));
@@ -141,7 +173,7 @@ test('事前宣言なしの競合を、実CLIが変換して解消し再開で�
   await writeFile(path.join(workerRoot, 'src/page.mjs'), `${SOURCE}\n// touched by T2\n`);
   const checkpoint = await captureWorktreeDiff({ worktreePath: workerRoot, baseSha });
 
-  let events = [...runEvents];
+  const events = [...runEvents];
   events.push(buildNextRunEvent({
     events, runId: RUN_ID, kind: 'checkpoint_observed', planEpoch: 1,
     subject: { kind: 'todo', ref: 'T2' }, payload: structuredClone(checkpoint),
@@ -192,14 +224,11 @@ test('事前宣言なしの競合を、実CLIが変換して解消し再開で�
     repoRoot,
   );
   assert.equal(resolved.status, 0, `${resolved.stdout}\n${resolved.stderr}`);
-  const resolution = JSON.parse(resolved.stdout);
-  assert.equal(resolution.schema, 'lattice.runtime_seam_resolution.v1');
-  assert.equal(resolution.lane, 'seam_transform', JSON.stringify(resolution.reasons));
-  assert.deepEqual(resolution.split.predecessor_task_ids, ['T1', 'T2']);
-  assert.deepEqual(resolution.split.edge_diff.removed,
-    [{ from_todo_id: 'T1', to_todo_id: 'T2', kind: 'conflict' }]);
+  return { root, repoRoot, baseSha, plan, resolution: JSON.parse(resolved.stdout), context };
+}
 
-  // --- 再開: 返ってきたbaseへworktreeを張ると、所有を宣言した新pathが実在する。
+/** 返ってきたbaseが実際に再開できること——所有を宣言した新pathが実在すること——を見る。 */
+function assertResumable({ repoRoot, baseSha, resolution, root, context }) {
   assert.match(resolution.successor_base_sha, /^[0-9a-f]{40}$/u);
   assert.equal(spawnSync('git',
     ['merge-base', '--is-ancestor', baseSha, resolution.successor_base_sha],
@@ -210,9 +239,52 @@ test('事前宣言なしの競合を、実CLIが変換して解消し再開で�
   for (const owned of ['src/page-left.mjs', 'src/page-style.mjs']) {
     assert.equal(spawnSync('test', ['-f', path.join(resumed, owned)]).status, 0, owned);
   }
-
-  // --- branchは動いていない。着地させるかは呼び出し側が決める。
+  // branchは動いていない。着地させるかは呼び出し側が決める。
   assert.equal(run('git', ['rev-parse', 'HEAD'], repoRoot).trim(), baseSha);
   assert.equal(run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot).trim(), 'main');
   assert.equal(spawnSync('test', ['-f', path.join(repoRoot, 'src/page-left.mjs')]).status !== 0, true);
+}
+
+test('事前宣言なしの競合を、実CLIが変換して解消し再開できるbaseを返す', async (context) => {
+  const scenario = await resolveScenario(context, { t2Witness: pageWitness() });
+  const { plan, resolution } = scenario;
+
+  // 両者が同じpathを宣言しているので、planは最初から競合を知っている。
+  assert.equal(plan.conflicts.length, 1, JSON.stringify(plan.conflicts));
+  assert.deepEqual(plan.conflicts[0].todo_ids, ['T1', 'T2']);
+
+  assert.equal(resolution.schema, 'lattice.runtime_seam_resolution.v2');
+  assert.equal(resolution.lane, 'seam_transform', JSON.stringify(resolution.reasons));
+  // 予測が実態を覆っていたので、合わせるものが無い。
+  assert.deepEqual(resolution.reconciled, []);
+  assert.deepEqual(resolution.split.predecessor_task_ids, ['T1', 'T2']);
+  assert.deepEqual(resolution.split.edge_diff.removed,
+    [{ from_todo_id: 'T1', to_todo_id: 'T2', kind: 'conflict' }]);
+
+  assertResumable(scenario);
+});
+
+test('係争資源を所有していない側がいる実行時競合を、宣言を観測へ合わせて変換まで通す', async (context) => {
+  const scenario = await resolveScenario(context, { t2Witness: widgetWitness() });
+  const { plan, resolution } = scenario;
+
+  // planは競合を知らない。T2は別fileを所有すると宣言しており、実際に触ったのはsrc/page.mjsだった。
+  // 予測が狭かっただけで作業は不正ではない——だから捨てず、宣言を観測へ合わせる。
+  assert.deepEqual(plan.conflicts, []);
+
+  assert.equal(resolution.schema, 'lattice.runtime_seam_resolution.v2');
+  assert.equal(resolution.lane, 'seam_transform', JSON.stringify(resolution.reasons));
+  // 合わせたのは観測が示した資源だけで、対象は所有していなかった側だけになる。
+  assert.deepEqual(resolution.reconciled, [{
+    todo_id: 'T2',
+    resource: { kind: 'path', target: 'src/page.mjs' },
+    // 所有だけ広げても足りない。裏取りのqueryとその面のaffected testまで揃って初めて、
+    // 宣言が観測に裏付けられた形になる。
+    fields: ['affected_tests', 'owns', 'sensor_provenance', 'writes'],
+  }]);
+  assert.deepEqual(resolution.split.predecessor_task_ids, ['T1', 'T2']);
+  assert.deepEqual(resolution.split.edge_diff.removed,
+    [{ from_todo_id: 'T1', to_todo_id: 'T2', kind: 'conflict' }]);
+
+  assertResumable(scenario);
 });

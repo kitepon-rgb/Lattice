@@ -8,7 +8,9 @@ import path from 'node:path';
 import {
   RUNTIME_SEAM_REQUEST_SCHEMA, buildRuntimeSeamResolution, buildRuntimeSeamWitnessSet,
   readRuntimeFindingRecord, validateRuntimeSeamRequest, verifySeamSplitSuccessor,
+  reconcileWitnessToObservation,
 } from '../src/runtime-seam-resolve.mjs';
+import { explainTodoWitnessSet } from '../src/todo-independence-contracts.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 
 // 請求項8の入口。AIが宣言できるのは「係争fileの中で自分が触るsymbol」と「新しい面の名前」だけで、
@@ -191,5 +193,107 @@ test('拒否された処置は後継baseを持たない決着になる', () => {
   assert.equal(resolution.lane, 'intentional_serial');
   assert.equal(resolution.successor_base_sha, null);
   assert.equal(resolution.split, null);
+  assert.deepEqual(resolution.reconciled, []);
   assert.equal(resolution.resolution_digest, todoSelfDigest(resolution, 'resolution_digest'));
+});
+
+test('翻訳で広げた宣言は決着に残る', () => {
+  const resolution = buildRuntimeSeamResolution({
+    runId: 'run-1', findingDigest: DIGEST('a'),
+    resolved: {
+      lane: 'intentional_serial', reasons: [], split: null,
+      widened: [{
+        todo_id: 'T2', resource: { kind: 'path', target: 'src/page.mjs' },
+        fields: ['writes', 'owns'],
+      }],
+    },
+  });
+  assert.deepEqual(resolution.reconciled, [{
+    todo_id: 'T2', resource: { kind: 'path', target: 'src/page.mjs' }, fields: ['owns', 'writes'],
+  }]);
+  assert.equal(resolution.resolution_digest, todoSelfDigest(resolution, 'resolution_digest'));
+});
+
+test('係争資源を所有していない側の宣言を、観測が示した資源だけ広げる', () => {
+  const witness = (owns) => ({
+    owns, reads: [], writes: owns.map(({ target }) => target), resources: [], state_effects: [],
+    sensor_provenance: { queries: [] }, affected_tests: [], unknowns: [],
+  });
+  const { manualWitness, widened, reasons } = reconcileWitnessToObservation({
+    manualWitness: {
+      T1: witness([{ kind: 'path', target: 'src/page.mjs' }]),
+      T2: witness([{ kind: 'path', target: 'src/widget.mjs' }]),
+    },
+    contestedPath: 'src/page.mjs',
+    todoIds: ['T1', 'T2'],
+    sensorQuerySet: { queries: [{ id: 'q-page-aff', operation: 'affected', target: 'src/page.mjs' }] },
+    observedAffectedTests: ['test/page.test.mjs'],
+  });
+  assert.deepEqual(reasons, []);
+  // 予測が実態を覆っていた側は触らない。操作は対称でも、結果は観測が決める。
+  assert.deepEqual(manualWitness.T1.owns, [{ kind: 'path', target: 'src/page.mjs' }]);
+  assert.deepEqual(manualWitness.T2.owns, [
+    { kind: 'path', target: 'src/page.mjs' },
+    { kind: 'path', target: 'src/widget.mjs' },
+  ]);
+  assert.deepEqual(manualWitness.T2.writes, ['src/page.mjs', 'src/widget.mjs']);
+  assert.deepEqual(widened, [{
+    todo_id: 'T2',
+    resource: { kind: 'path', target: 'src/page.mjs' },
+    fields: ['affected_tests', 'owns', 'sensor_provenance', 'writes'],
+  }]);
+  // 面を引き受けたので、その面の裏取りとaffected testも引き受ける。所有だけ広げると
+  // `sensor_unbound`になり、compileが競合を投影しなくなる。
+  assert.deepEqual(manualWitness.T2.sensor_provenance.queries, [
+    { query_id: 'q-page-aff', expect: { kind: 'affected', path: 'src/page.mjs' } },
+  ]);
+  assert.deepEqual(manualWitness.T2.affected_tests, ['test/page.test.mjs']);
+  // 観測が示していない資源は増やさない。
+  assert.equal(manualWitness.T2.owns.some(({ target }) => target === 'src/other.mjs'), false);
+});
+
+test('裏取りに使えるqueryが無ければ、広げずに理由を返す', () => {
+  const witness = (owns) => ({
+    owns, reads: [], writes: owns.map(({ target }) => target), resources: [], state_effects: [],
+    sensor_provenance: { queries: [] }, affected_tests: [], unknowns: [],
+  });
+  const result = reconcileWitnessToObservation({
+    manualWitness: {
+      T1: witness([{ kind: 'path', target: 'src/page.mjs' }]),
+      T2: witness([{ kind: 'path', target: 'src/widget.mjs' }]),
+    },
+    contestedPath: 'src/page.mjs',
+    todoIds: ['T1', 'T2'],
+    sensorQuerySet: { queries: [{ id: 'q-status', operation: 'status' }] },
+    observedAffectedTests: ['test/page.test.mjs'],
+  });
+  // 証明できない宣言を作らない。広げたことにして先へ進むと、compileが非dispatchableへ落ちて
+  // 競合が投影されず、「翻訳したのに変換の便益が測れない」状態になる。
+  assert.equal(result.manualWitness, null);
+  assert.deepEqual(result.reasons, ['observation_unbacked:T2:src/page.mjs']);
+});
+
+test('係争資源を所有していないTODOの宣言でも、変換の入力として組める', () => {
+  const witness = (owns) => ({
+    owns, reads: [], writes: owns.map(({ target }) => target), resources: [], state_effects: [],
+    sensor_provenance: { queries: [] }, affected_tests: ['test/a.test.mjs'], unknowns: [],
+  });
+  const built = buildRuntimeSeamWitnessSet({
+    request: {
+      manual_witness: {
+        T1: witness([{ kind: 'path', target: 'src/page.mjs' }]),
+        T2: witness([{ kind: 'path', target: 'src/widget.mjs' }]),
+      },
+      sensor_query_set: {
+        queries: [{ id: 'q-page-aff', operation: 'affected', target: 'src/page.mjs' }],
+      },
+    },
+    declaration: sealedRequest(),
+    contestedPath: 'src/page.mjs',
+    executors: 2,
+    observedAffectedTests: ['test/a.test.mjs'],
+  });
+  // 翻訳を通さないと、所有していない資源の内側にanchorを立てることになり必ず不正になる。
+  assert.deepEqual(explainTodoWitnessSet(built.witnessSet), { valid: true });
+  assert.deepEqual(built.widened.map(({ todo_id: id }) => id), ['T2']);
 });
