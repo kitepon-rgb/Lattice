@@ -77,8 +77,8 @@ sensor は材料を既に持っている。「関数 → module 変数」の辺�
 
 ## 工程
 
-- [ ] 検証網——未解決参照の集合差分で変換の静かな破壊を捕まえる
-- [ ] 親ディレクトリへの移動で import 指定子が壊れる bug を直す
+- [x] 検証網——変換の静かな破壊を捕まえる（実験でprimitiveを訂正: unresolved_refsでなく切断参照の計数。ADR 0145）
+- [x] 親ディレクトリへの移動で import 指定子が壊れる bug を直す
 - [ ] sensor の callers/callees へ辺種別と valueRef を出す
 - [ ] 切断コストの内訳を計算する seam-cost module を作る
 - [ ] seam profile コマンドを作る（plan/run の両モード・投影のみ）
