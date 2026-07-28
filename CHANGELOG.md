@@ -2,6 +2,19 @@
 
 ## 未リリース
 
+- **変換の検証へ、切断参照の網を張った**（[ADR 0145](docs/adr/0145-the-verification-net-is-a-gate-not-a-cage.md)）。
+  移した先のcodeが残余面のsymbol（module変数・非公開関数）へ束縛なしで言及していれば、
+  `behavior_equivalent:severed_reference:<file>:<name>`で不認定にする。moduleの読み込みは
+  通るのでfocused testが当該経路を通らない限り露見しない——**壊れた変換が「同等」の記録つきで
+  採用される穴**を受入の一点で塞ぐ。網は成果物だけを見るので、装置の変換でもAIの変換でも
+  同じにかかる。過程は監視せず、失敗は採点されない。
+
+  当初はsensorの`unresolved_refs`の集合差分を予定していたが、**bare参照の切断はそこに記録
+  されないことを実測で確認し**、fresh indexのsymbol一覧（新設`lattice-sensor file-nodes`）と
+  本文言及の突き合わせへ組み替えた。
+- **export面の比較がJS/TS限定であることを明示した。** ESM構文を正規表現で読む検査であり、
+  他言語では実質空になる。黙って「検証済み」と言わない。
+
 - **破壊的変更: 予測超過を表すfindingの種別名を改めた。** `scope_violation` →
   `undeclared_write`、`io_scope_warning` → `io_undeclared_write_warning`。
   宣言境界は計画時の**予測**であってworkerを閉じ込める制約ではないので、超えたことは違反では

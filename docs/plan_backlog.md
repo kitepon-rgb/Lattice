@@ -928,6 +928,18 @@ observation`はv2、`direct_worktree_fingerprint`はv1である。**両側のdig
 
 ---
 
+# seam検証網の残課題
+
+`docs/plan_seam-cost.md`のsc-001で張った網（ADR 0145）が覆っていない経路:
+
+- **手動変換＋recompile（seam_split）の経路。** 五条件は`run seam resolve`の隔離変換で走る。
+  AIが自分で変換して着地させ、直接recompileへ出すと、`verifySeamSplitSuccessor`の構造検査
+  （base前進・祖先・宣言した競合辺の消滅・創作宣言の不在）だけが見る。切断参照の網をこの
+  経路へも張るには、後継baseに対して同じ計数を行う口が要る。実runでこの経路を使う頻度を
+  見てから起票する。
+- **sensorが抽出しない依存。** 動的参照、別repositoryへの依存、実行時に決まるpathは
+  fresh indexに映らないので網にも映らない。計画段階の宣言と実行段階の境界検知が引き続き持つ。
+
 # 管理runtimeのLinux検証
 
 工程状態の正本はLattice storeの`runtime-linux-parity` plan。
