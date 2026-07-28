@@ -201,3 +201,128 @@ test('実行時に観測した競合を、その場の変換で解消してseam 
   // 旧base——直す前の再開先——には無い。
   assert.equal(spawnSync('test', ['-f', path.join(root, 'src/page-left.mjs')]).status !== 0, true);
 });
+
+// 検証網（ADR 0145）の受入。**focused testが通ってしまう形の静かな破壊**を、網だけが捕まえる。
+//
+// 移すsymbolが全小文字のmodule変数を参照している。value-ref辺の名前フィルタでグラフからは
+// 見えないので閉包は拾わず、変数は残余面に残る。移した先の参照は束縛を失うが、moduleの
+// 読み込みは通り、壊れた関数を呼ばないtestは緑のまま——変更前の装置はこれを採用していた。
+const SEVERED_SOURCE = [
+  'const counter = 1;',
+  'const CSS = \'body { color: red; }\';',
+  '',
+  'function renderLeft(value) {',
+  '  return `<div>${counter + value}</div>`;',
+  '}',
+  '',
+  'export function renderPage(value) {',
+  '  return `<style>${CSS}</style>${renderLeft(value)}`;',
+  '}',
+  '',
+].join('\n');
+
+// 壊れた経路（renderLeft）を実行しないtest。読み込みだけなら通る、が要点である。
+const SEVERED_PAGE_TEST = [
+  "import test from 'node:test';",
+  "import assert from 'node:assert/strict';",
+  "import { renderPage } from '../src/page.mjs';",
+  "test('page module loads', () => { assert.equal(typeof renderPage, 'function'); });",
+  '',
+].join('\n');
+
+test('切断された参照は、focused testが黙っていても網が落とす', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-seam-net-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await mkdir(path.join(root, 'test'), { recursive: true });
+  await writeFile(path.join(root, 'src/page.mjs'), SEVERED_SOURCE);
+  await writeFile(path.join(root, 'test/page.test.mjs'), SEVERED_PAGE_TEST);
+  await writeFile(path.join(root, '.gitignore'), '.lattice/\nnode_modules/\n');
+  run('git', ['init', '--quiet'], root);
+  run('git', ['config', 'user.email', 'fixture@example.invalid'], root);
+  run('git', ['config', 'user.name', 'fixture'], root);
+  run('git', ['add', '-A'], root);
+  run('git', ['commit', '--quiet', '-m', 'fixture'], root);
+  const baseSha = run('git', ['rev-parse', 'HEAD'], root).trim();
+  run(process.execPath, [LATTICE_BIN, 'sensor', 'init', '.', '--json'], root);
+
+  const workerRoot = await mkdtemp(path.join(tmpdir(), 'lattice-seam-net-worker-'));
+  context.after(async () => {
+    spawnSync('git', ['worktree', 'remove', '--force', workerRoot], { cwd: root });
+    await rm(workerRoot, { recursive: true, force: true });
+  });
+  run('git', ['worktree', 'add', '--detach', workerRoot, baseSha], root);
+  await writeFile(path.join(workerRoot, 'src/page.mjs'), `${SEVERED_SOURCE}\n// touched by T2\n`);
+  const checkpoint = await captureWorktreeDiff({ worktreePath: workerRoot, baseSha });
+  const { findings } = detectCheckpointFindings({
+    todoId: 'T2', checkpoint,
+    packets: {
+      T1: { todo_id: 'T1', scope: { writes: ['src/page.mjs'] } },
+      T2: { todo_id: 'T2', scope: { writes: ['src/other.mjs'] } },
+    },
+    runningTodoIds: ['T1', 'T2'],
+  });
+  const conflictFinding = findings.find(({ kind }) => kind === 'observed_write_conflict');
+  assert.notEqual(conflictFinding, undefined, JSON.stringify(findings));
+
+  const witnessSet = witnessFor('runtime-seam-net', 'main');
+  const plan = {
+    schema: 'lattice.todo_plan.v2',
+    project_id: 'runtime-seam-net',
+    plan_key: 'main',
+    plan_version: 'v1',
+    topology_digest: DIGEST('7'),
+    tasks: [{ task_id: 'T1' }, { task_id: 'T2' }],
+  };
+  const baseArtifact = compileTodoIndependence({
+    witnessSet,
+    plan,
+    baseSha,
+    compiledAt: '2026-07-27T00:00:00.000Z',
+    sensorEvidence: await collectWitnessSensorEvidence({ cwd: root, witnessSet }),
+  });
+
+  const resolved = await resolveRuntimeSeamTreatment({
+    finding: conflictFinding,
+    witnessSet,
+    pathNames: { T1: 'src/page-left.mjs', T2: 'src/page-style.mjs', shared: 'src/page-shared.mjs' },
+    baseSha,
+    manifestDigest: baseArtifact.result_digest,
+    affectedTests: ['test/page.test.mjs'],
+    taskMigrationDigest: DIGEST('2'),
+    commitTransform: async ({ files, candidateId }) => commitSeamTransform({
+      repoRoot: root, baseSha, files, candidateId,
+    }),
+    applyConflict: async ({ conflict }) => {
+      const applied = await applySeamConflict({
+        repoRoot: root,
+        planKey: 'main',
+        conflict,
+        witnessSet,
+        latticeBin: LATTICE_BIN,
+        sharedPathFor: (target) => target.replace(/(\.[^./]+)$/u, '.seam-shared$1'),
+        executors: witnessSet.capacity.executors,
+        pathNames: { shared: 'src/page-shared.mjs' },
+        compileIndependence: {
+          baseArtifact,
+          inWorktree: async ({ worktreePath, witnessSet: postWitness }) => compileTodoIndependence({
+            witnessSet: postWitness,
+            plan,
+            baseSha,
+            compiledAt: '2026-07-27T00:00:00.000Z',
+            sensorEvidence: await collectWitnessSensorEvidence({
+              cwd: worktreePath, witnessSet: postWitness,
+            }),
+          }),
+        },
+      });
+      return { ...applied, candidate: null };
+    },
+  });
+
+  // 網だけが落とした、を理由の全量一致で主張する。focused testも他の四条件も通っていた
+  // ——つまり変更前の装置はこの変換を採用していた（現状再現が理由の不在として埋まっている）。
+  assert.equal(resolved.lane, 'intentional_serial');
+  assert.deepEqual(resolved.reasons,
+    ['behavior_equivalent:severed_reference:src/page-left.mjs:counter']);
+});

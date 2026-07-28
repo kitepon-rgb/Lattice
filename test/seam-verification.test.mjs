@@ -153,3 +153,42 @@ test('観測できていないaffected testを空配列へ丸めない', () => {
   assert.equal(witnessSet, null);
   assert.deepEqual(reasons, ['affected_tests_missing:src/page.seam-left.mjs']);
 });
+
+// 検証網（ADR 0145）。切断参照はbehavior_equivalentの中身として数える。
+
+test('切断された参照が1つでもあれば外部挙動同等を落とし、fileとsymbolを名指しする', () => {
+  const result = evaluateSeamVerification({
+    ...passing(),
+    severed: {
+      observed: true,
+      entries: [
+        { file: 'src/page-left.mjs', name: 'counter' },
+        { file: 'src/page-style.mjs', name: 'styleCache' },
+      ],
+    },
+  });
+  assert.equal(result.decision, 'rejected');
+  assert.equal(result.conditions.behavior_equivalent, false);
+  assert.deepEqual(result.failures, [
+    'behavior_equivalent:severed_reference:src/page-left.mjs:counter',
+    'behavior_equivalent:severed_reference:src/page-style.mjs:styleCache',
+  ]);
+});
+
+test('切断参照の観測が組めなかったことを「切断なし」へ丸めない', () => {
+  const result = evaluateSeamVerification({
+    ...passing(),
+    severed: { observed: false, entries: [] },
+  });
+  assert.equal(result.decision, 'rejected');
+  assert.deepEqual(result.failures, ['behavior_equivalent:severed_observation_missing']);
+});
+
+test('切断参照が無ければ網は沈黙し、採用は五条件のまま決まる', () => {
+  const result = evaluateSeamVerification({
+    ...passing(),
+    severed: { observed: true, entries: [] },
+  });
+  assert.equal(result.decision, 'accepted');
+  assert.deepEqual(result.failures, []);
+});
