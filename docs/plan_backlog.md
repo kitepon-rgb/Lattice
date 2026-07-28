@@ -164,6 +164,37 @@ acceptedを要求するため、held workerが居ればcloseへ来ない）。da
 再開に要るもの: SIGCONT、`epoch_rebound`との接続（rebind operationはcontrollerに在る）、
 carry-over witnessとの整合、再開後のwrite lease再発行。
 
+## path競合には直列化の道が無い（2026-07-28に判明）
+
+**実行時に観測されるpath競合は、再計画できない。** `routeConflictTreatment`はpath findingを
+既定で`intentional_serial`へ振るのに、そのtreatmentが受け付けない。
+
+| 面 | 事実 |
+|---|---|
+| routing | path findingを`intentional_serial`へ振る（実測） |
+| treatment契約 | `resource_id`に識別子を要求する。`null`は受けない（同一requestで変数1つだけ変えて実測） |
+| recompile handler | `finding.resource_id === treatment.resource_id`を要求する |
+| path finding | `resource_id`は**必ずnull**（finding契約が、path形はresource_id nullと定めている） |
+
+したがってpath競合の行き先は`seam_transform`だけで、それも事前宣言済みtreatmentがpathを
+覆う時にしか選ばれない。**請求項7の「一方を停止し、他方を確定し、停止した方を再開する」は、
+実行時に見つかるpath競合に対して現状たどれない。**
+
+**設計は存在していて、繋がれていない。** `runtime-hold-recompile.mjs`にpathを受け取って
+資源idを作る`sha16`が定義されているが、どこからも呼ばれていない。動いている版は
+`runtime-seam-resolve.mjs`にあり、資源idの形は`own-<kind>-<sha16(target)>`である。
+front-endも同じ形を使う（実データで`own-path-f613918e7d7e237c`）。
+
+解き方は2つあり、どちらを採るかは裁定が要る。
+
+1. **handlerがpathから資源idを導出して照合する。** path findingの時だけ
+   `own-path-<sha16(path)>`と比べる。finding契約（path形はresource_id null）を変えずに済む。
+   後継planの直列化資源が実ownershipから再導出できることも満たす。
+2. **`intentional_serial`がpathを運べるようにする。** treatment契約の版上げ。
+
+io-sentinelが作るfindingは必ずpath形なので、この面が塞がっている限り、早期警報からholdまで
+通しても**その先へ進めない**。
+
 ## rebindは実runで一度も通っていない（2026-07-28に判明）
 
 **`epoch_rebind`——走っているworkerを後継epochへ繋ぎ直す面——には実runの被覆がゼロである。**
