@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import {
   lstat,
@@ -139,6 +139,16 @@ const KNOWN_ADAPTERS = Object.freeze(['scripted', 'isolated-worktree', 'actual-a
  * 超えたら`rejected`として理由ごとjournalへ残す（黙って見送らない）。
  */
 const IO_ESCALATION_LOCK_TIMEOUT_MS = 15_000;
+/**
+ * 係争pathから資源idを導出する（front-endと同じ形）。
+ *
+ * front-endは`owns`から`own-<kind>-<sha256(target)先頭16>`を作る。path競合の直列化資源は
+ * その形でなければ、後継planの競合辺が実ownershipの資源と別物になってしまう。
+ * **形を1箇所で決める。** 別の形で作ると、同じpathが別の資源に見える。
+ */
+function ownedPathResourceId(pathValue) {
+  return `own-path-${createHash('sha256').update(pathValue, 'utf8').digest('hex').slice(0, 16)}`;
+}
 /** 走行中workerの完了を待つ上限と間隔。待てないと走行中の観測が成立しない。 */
 const SCRIPTED_OBSERVE_TIMEOUT_MS = 120_000;
 const SCRIPTED_OBSERVE_POLL_MS = 20;
@@ -2706,17 +2716,30 @@ export async function runManagedSupervisorDaemon({
             !== canonicalizeArtifact(treatment.todo_ids ?? treatment.predecessor_task_ids)) {
           throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST', 'treatmentがhold finding/todo集合と一致しない');
         }
-        if (recompileRequest.mode === 'intentional_serial'
-          && treatmentFinding.finding.resource_id !== treatment.resource_id) {
-          throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST', 'serial resourceがfinding resourceと一致しない');
-        }
-        if (recompileRequest.mode === 'intentional_serial'
-          && !treatment.todo_ids.every((todoId) => {
-            const manifest = active.bundle.manifests[todoId];
-            return manifest?.resources?.includes(treatment.resource_id)
-              || manifest?.state_effects?.some((effect) => effect.resource_id === treatment.resource_id);
-          })) {
-          throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST', 'serial resourceをfresh ownershipから再導出できない');
+        if (recompileRequest.mode === 'intentional_serial') {
+          // **path競合には資源idが無い。** finding契約はpath形の`resource_id`をnullと定めており、
+          // path由来の資源idはmanifestの`resources`にも載らない（載るのは宣言したbare資源だけ）。
+          // それでもrouteConflictTreatmentはpath競合を直列化レーンへ振る——請求項7の
+          // 「一方を停止し、他方を確定し、停止した方を再開する」がその経路だからである。
+          //
+          // よってpath findingの時は、係争pathからfront-endと同じ形で資源idを導出して照合する。
+          // 導出値との一致を要求するので、資源idを捏造できないという元の保証は保たれる
+          // ——照合先がfindingそのものへ固定されるため、manifest所属を見る必要が無い。
+          const expectedResource = treatmentFinding.finding.path === null
+            ? treatmentFinding.finding.resource_id
+            : ownedPathResourceId(treatmentFinding.finding.path);
+          if (expectedResource !== treatment.resource_id) {
+            throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST', 'serial resourceがfinding resourceと一致しない');
+          }
+          // 宣言済み資源の競合は、従来どおり実ownershipから再導出できることまで要求する。
+          if (treatmentFinding.finding.path === null
+            && !treatment.todo_ids.every((todoId) => {
+              const manifest = active.bundle.manifests[todoId];
+              return manifest?.resources?.includes(treatment.resource_id)
+                || manifest?.state_effects?.some((effect) => effect.resource_id === treatment.resource_id);
+            })) {
+            throw new ManagedRuntimeError('INVALID_RECOMPILE_REQUEST', 'serial resourceをfresh ownershipから再導出できない');
+          }
         }
         if (recompileRequest.mode === 'seam_split') {
           const ownership = (manifests) => Object.entries(manifests).flatMap(([todoId, manifest]) => [
