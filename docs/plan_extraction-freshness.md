@@ -43,6 +43,6 @@ sensorの変更検出は`content_hash`（fileが変わったか）だけで、**
 
 ## 工程
 
-- [ ] per-file抽出版数と自動heal（migration v12・sync判定・global stamp自動前進・test）
-- [ ] EXTRACTION_VERSIONのbump遡及と実repoでのheal実測
+- [x] per-file抽出版数と自動heal（migration v12・sync判定・global stamp自動前進・test）
+- [x] EXTRACTION_VERSIONのbump遡及と実repoでのheal実測（678 file全快が約9秒・stamp自動前進・推奨消灯）
 - [ ] 届ける（release・install・daemon載せ替え・実機確認）
