@@ -744,6 +744,46 @@ async function readScriptedControllerReceipt({
 }
 
 /**
+ * hold裁定をworker processへ反映する（請求項7・8の再開側）。
+ *
+ * **barrierは全workerを止める。** 静止の証明はrun全体に対して要るからである。しかし
+ * hold裁定は止めた相手を`hold_set`と`continue_set`へ分ける——`continue_set`は
+ * 「影響閉包の外なので、そのまま続けてよい」と判定された作業である。
+ *
+ * 裁定を出しただけでプロセスへ反映しなければ、続けてよいと判定した作業も止まったままになる。
+ * **判定と実行が食い違っている状態を残さない。**
+ *
+ * `hold_set`側はここでは触らない。止まったまま置くのが正しく、その行き先——後継epochでの
+ * 再dispatchか、破棄——は再計画が決める。
+ */
+async function resumeContinuedWorkers({ events }) {
+  const decided = events.findLast((event) => event.kind === 'hold_decided');
+  const continueSet = decided?.payload?.continue_set;
+  if (!Array.isArray(continueSet) || continueSet.length === 0) return { resumed: [], skipped: [] };
+  const resumed = [];
+  const skipped = [];
+  for (const todoId of continueSet) {
+    const dispatch = events.findLast((event) => event.kind === 'executor_dispatched'
+      && event.subject?.kind === 'todo' && event.subject.ref === todoId);
+    const binding = dispatch?.payload?.direct_os_observation_binding;
+    const pid = binding?.process_pid;
+    const recorded = binding?.process_start_identity?.identity_digest;
+    if (!Number.isSafeInteger(pid) || typeof recorded !== 'string') continue;
+    // pidは再利用される。記録と同じprocessであることを確かめてから再開する——
+    // 別のprocessをSIGCONTするのは、止めるのと同じくらい危険である。
+    const observed = await observeManagedProcessStartIdentity(pid).catch(() => null);
+    if (observed === null || observed.identity_digest !== recorded) {
+      skipped.push({ todo_id: todoId, reason: observed === null ? 'process不在' : 'start identity不一致' });
+      continue;
+    }
+    try { process.kill(pid, 'SIGCONT'); resumed.push(todoId); } catch {
+      skipped.push({ todo_id: todoId, reason: 'SIGCONT失敗' });
+    }
+  }
+  return { resumed, skipped };
+}
+
+/**
  * runが起こしたworker processを、耐久記録から回収する。
  *
  * **記録が正本である。** 誰を起こしたかは`executor_dispatched`の
@@ -2500,6 +2540,16 @@ export async function runManagedSupervisorDaemon({
           events, recordedAt: holdRecordedAt });
         events = decided.events;
         await replaceEventsAtomically(runDir, events);
+        // 裁定をprocessへ反映する。continue_setは「影響閉包の外なので続けてよい」と
+        // 判定された作業であり、止めたままにすると判定と実行が食い違う。
+        const resumed = await resumeContinuedWorkers({ events });
+        if (resumed.resumed.length > 0 || resumed.skipped.length > 0) {
+          await appendControl({ run_id: request.request_id, kind: 'workers_resumed',
+            session_nonce_digest: digestArtifact(sessionNonce), payload: {
+              resumed_todo_ids: [...resumed.resumed].sort(),
+              skipped_count: resumed.skipped.length,
+            } });
+        }
         if (typeof crashInjector === 'function') await crashInjector('after_hold_effect', {
           request_id: controlRequest.request_id, hold_result_digest: held.result_digest,
         });
@@ -3209,6 +3259,8 @@ export async function runManagedSupervisorDaemon({
             events, recordedAt: canonicalNow() });
           events = decided.events;
           await replaceEventsAtomically(runDir, events);
+          // 復旧経路でも裁定をprocessへ反映する（同じ食い違いを残さない）。
+          await resumeContinuedWorkers({ events }).catch(() => null);
         }
         const found = controlRequest.operation === 'conflict'
           && events.some((event) => event.kind === 'conflict_found'

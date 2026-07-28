@@ -171,6 +171,17 @@ export function validateRuntimeControlEventPayload(kind, value) {
         warning_kind: value.warning_kind, todo_ids: value.todo_ids, path: value.path,
       });
   }
+  // hold裁定のcontinue_setをprocessへ反映した記録（請求項7・8の再開側）。
+  // barrierは全workerを止めるので、続けてよいと判定した作業を再開しなければ、
+  // 判定と実行が食い違ったままになる。
+  if (kind === 'workers_resumed') {
+    return exact(value, ['resumed_todo_ids', 'skipped_count'])
+      && Array.isArray(value.resumed_todo_ids) && value.resumed_todo_ids.length <= 4096
+      && value.resumed_todo_ids.every(identifier)
+      && value.resumed_todo_ids.every((id, index) => index === 0
+        || value.resumed_todo_ids[index - 1] < id)
+      && Number.isSafeInteger(value.skipped_count) && value.skipped_count >= 0;
+  }
   // 破棄の決定としてworker processを終了した記録。**cleanupではない。**
   // 停止したworkerの行き先は「再開」か「破棄」の二択であり、破棄を選んだなら
   // 誰を止めたかが残っていなければ、後から何が捨てられたか説明できない。
