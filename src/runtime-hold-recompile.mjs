@@ -1,4 +1,7 @@
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
+// 切断可能性の写像はtodo側と同じ正本を使う。計画時と実行時で「切れる種類」の定義が
+// 分かれると、同じ資源が段によって別の答えを持つ。
+import { severabilityOfConflictKind } from './todo-independence-contracts.mjs';
 import { buildNextRunEvent, buildExecutorPackets } from './runtime-engine.mjs';
 import { projectRuntimeState } from './runtime-projection.mjs';
 import {
@@ -594,20 +597,46 @@ export function detectNonConvergentConflicts(options = {}) {
   ));
 }
 
+/**
+ * 係争資源が構造的に切れる種類かを返す（ADR 0144の続き、請求項8の入口判定）。
+ *
+ * pathやsymbolは面を分ければ別々に所有できる。共有stateや外部effectは分けられない——
+ * 変換をどれだけ工夫しても同じ資源に触り続ける。**これは「切れる」ではなく「切れる種類だ」で
+ * あって、実際に切れるかは試して初めて分かる。**
+ */
+export function severabilityOfRuntimeFinding(finding) {
+  return severabilityOfConflictKind(typeof finding?.path === 'string' ? 'path' : 'state');
+}
+
+/**
+ * 競合をどちらの処置へ運ぶか（請求項7＝直列化／請求項8＝変換）。
+ *
+ * `seam_transform`を返すのは事前宣言済みtreatmentが係争pathを覆っている時だけである。
+ * それ以外の既定は直列化だが、**それは「変換が不可能」という意味ではない**。実行時に初めて
+ * 見つかった競合には事前宣言が無いので、既定だけを見ると請求項8へ行く道が無いように見える。
+ *
+ * そこで`severability`と`transform_attemptable`を併せて返す。装置が言えるのは「切れる種類の
+ * 資源か」までで、**実際の難しさは変換を試して五条件で測る**（`run seam resolve`）。試すかどうかは
+ * 費用のかかる判断なので装置が決めない——隔離worktreeでの変換、focused test、再indexを毎回
+ * 走らせるかは、操作するAIが持つ文脈で決める（AGENTS.md「装置の境界にAIを含める」）。
+ */
 export function routeConflictTreatment(options = {}) {
   if (!exactRecord(options, ['finding', 'predeclaredTreatments'])) {
     fail('routeConflictTreatment optionsがexact shapeでない');
   }
   const { finding, predeclaredTreatments } = options;
   if (!plainRecord(finding) || typeof finding.kind !== 'string') fail('findingが不正');
+  const severability = severabilityOfRuntimeFinding(finding);
   if (finding.kind === 'observed_write_conflict' && typeof finding.path === 'string') {
     for (const treatment of predeclaredTreatments) {
       if (Array.isArray(treatment.covered_paths) && treatment.covered_paths.includes(finding.path)) {
-        return { lane: 'seam_transform', treatment: structuredClone(treatment) };
+        return { lane: 'seam_transform', treatment: structuredClone(treatment),
+          severability, transform_attemptable: true };
       }
     }
   }
-  return { lane: 'intentional_serial', treatment: null };
+  return { lane: 'intentional_serial', treatment: null,
+    severability, transform_attemptable: severability === 'code_seam' };
 }
 
 /**
