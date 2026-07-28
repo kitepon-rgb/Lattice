@@ -85,7 +85,7 @@ sensor は材料を既に持っている。「関数 → module 変数」の辺�
 - [x] valueRef へ read/write の区別を足す（TS/JS 先行。kernel経路は未配線でconfidence申告、ミラーはsc-007=要Rust toolchain）
 - [ ] read/write の区別を go/python/java のミラーへ広げる
 - [x] sensor の名前フィルタを緩めて実測する（+232本/+8.8%、時間・DB差なし。sc-001のfixtureは死角=3文字未満へ移し、counterは正の対照へ）
-- [ ] import 束縛の区別（default/named/namespace）を保持する
+- [x] import 束縛の区別（default/named/namespace）を保持する（schema v10。migration記録の冪等性bugも発見・修正）
 - [ ] 装飾込みの開始行を出す
 - [ ] 拡張子省略テーブルを export する
 - [ ] 確実の門——ESM 変換の暗黙前提を明示的な事前条件にする
