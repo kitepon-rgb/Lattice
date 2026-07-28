@@ -129,6 +129,40 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 
 ---
 
+# holdからの再開（請求項7・8の後半）
+
+工程状態の正本はLattice storeの`hold-resume` plan（未起票。着手時に起こす）。
+
+**停止は作ったが、再開が無い。** holdはworkerをSIGSTOPして静止を証明するところまで通る
+（[ADR 0143](adr/0143-io-sentinel-is-an-early-warning-not-a-finding.md) Decision 9）。だが
+**止めたworkerの行き先が「破棄」しかない**。請求項7は「一方を停止し、他方を確定し、停止した方を
+再開する」、請求項8は「双方を停止し、限定的な変換を施し、双方を再開する」と述べており、
+再開はどちらの構成要件でもある。
+
+これに気づいたのは、run終了時に停止済みworkerが残留したためである。**そこを「終了時に殺す」で
+塞ごうとしたのが誤りだった**——殺すのはcleanupであって、閉じ方ではない。停止したworkerの
+正しい行き先は次の二択であり、cleanupはそのどちらでもない。
+
+| 行き先 | 意味 | 現状 |
+|---|---|---|
+| 再開 | 競合を解いた後、SIGCONTして続きを走らせる | **無い** |
+| 破棄 | 成果を捨てる決定として終了させ、そう記録する | abandonで実装済み |
+
+`close`は完走したrunの終了なので、そこにworkerは生きていない（`closeRunIfComplete`が全TODO
+acceptedを要求するため、held workerが居ればcloseへ来ない）。daemonがsignalで落ちる経路の回収は
+**事故処理であって正しい閉じ方ではない**。
+
+再開に要るもの: SIGCONT、`epoch_rebound`との接続（rebind operationはcontrollerに在る）、
+carry-over witnessとの整合、再開後のwrite lease再発行。
+
+## 工程
+
+- [ ] holdしたworkerをSIGCONTで再開する経路を作る
+- [ ] 再開をepoch rebindとwrite lease再発行へ接続する
+- [ ] 停止→変換→再開を実runで通す（請求項8）
+
+---
+
 # 請求項の充足状況
 
 製品目標は特許請求の範囲12項の体現である（正本は`AGENTS.md`が指すPatent repo。請求項本文はここへ複製しない）。
