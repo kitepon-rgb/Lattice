@@ -189,73 +189,52 @@ front-endも同じ形を使う（実データで`own-path-f613918e7d7e237c`）�
 資源idを導出して照合するようにした。導出値との一致を要求するので、資源idを捏造できないという
 元の保証は保たれる。finding契約（path形はresource_id null）は変えていない。
 
-## しかしscope違反には、まだ処置が無い
+## scope違反は、そもそも止める事象ではなかった（2026-07-28に裁定）
 
-**より強い制約が残っている。** `scope_violation`——workerが自分の宣言scopeの外へ書いた——の
-findingは`todo_ids`が**1件**である。`intentional_serial`は2件以上を要求するので、こちらは
-資源idを直しても通らない。`routeConflictTreatment`はscope違反も既定で直列化レーンへ振るため、
-**行き先が無い。**
+**宣言境界は計画時の予測であって、workerを閉じ込める制約ではない。** 範囲内へ無理に押し込めると
+workerの自由度が落ち、成果の品質が下がる。だから自由に書かせ、**実際の足跡が他の走行中TODOと
+ぶつかった時にだけ**止めて処置する——請求項7と請求項8はそのための構成である。
 
-そして次が効く。
+よって単独のscope警報——誰の領分とも重なっていない宣言外の書き込み——はhold経路へ運ばない。
+競合ではなく、**予測が実態より狭かったという情報**である。記録は残るので再計画の材料としては
+失われない。
 
-> **正しくコンパイルされた並列planでは、overlapは必ずscope違反を伴う。**
+**scope違反に処置が無いのは欠落ではなく、止めるべき事象ではないことの現れだった。**
+止めるべきでないものを止めていたので、当てる処置が無かった。第三のmodeを足そうとしていたのは
+逆方向である。
 
-宣言が互いに素だからこそ並列に走れる。他人のscopeへ書くなら必ず自分のscopeの外であり、
-scope違反も同時に立つ。しかもscope述語が先に評価されるので、**先に発火するのは常にscope違反**
-である。実測でも、早期警報からholdまで通ったrunを凍結させたのは`scope_violation`（todo_ids 1件）
-だった。
+なお、正しくコンパイルされた並列planではoverlapは必ずscope違反を伴う（宣言が互いに素だから
+こそ並列に走れるので、他人のscopeへ書くなら必ず自分のscopeの外になる）。両方立つ時、処置が
+あるのはoverlapの側である。
 
-したがって**scope違反に処置が無い限り、実行時競合からの再開経路は開かない。** path競合側を
-直しただけでは詰まりは解けない。
+## rebindを実runで通した（2026-07-28）
 
-### 裁定が要ること
+`epoch_rebind`——走っているworkerを後継epochへ繋ぎ直す面——には実runの被覆がゼロだった。
+契約もcodeも揃っていたが、通した実績が無かった。通そうとして、いずれも一度も実行されて
+いなかったために露出していなかった欠陥が2件出た。
 
-scope違反の処置は何であるべきか。直列化ではない——相手が居ない。
+| 症状 | 原因 |
+|---|---|
+| `Cannot read properties of null (reading 'packet_digest')` | rebind ackが`task.receipt`を読んでいた。**holdされたworkerにreceiptは無い**——作業を終えていないから止められている |
+| `durable Direct OS binding不足: unknown` | `resolveObservationBinding`がrunning bindingしか受けなかった。rebind経路は`kind: 'rebind'`でackだけを渡す |
 
-| | 処置 | 意味 |
-|---|---|---|
-| A | 違反TODOをretire／replaceして再計画 | 宣言と実態が食い違った作業は、宣言を直して出し直す |
-| B | 宣言を実態へ広げて再計画 | 実際に触った範囲を宣言へ含める。他人のscopeを侵すなら競合が残る |
-| C | 直列化の`todo_ids >= 2`を緩める | 意味的に苦しい |
+実runの結果（[受入test](../test/integration/hold-resume.integration.mjs)）:
 
-Aが素直だが、`task_migration`の`replace`／`retire`を使う経路であり、`intentional_serial`でも
-`seam_split`でもない**第三のmode**が要る可能性がある。実装前に確認する。
+```
+finding: observed_write_conflict | T1,T2 | src/alpha.mjs
+epoch_rebind_acknowledged
+workers_resumed: {"resumed_todo_ids": ["T3"]}
+epoch_rebound, intake_resumed
 
-## rebindは実runで一度も通っていない（2026-07-28に判明）
+T1 Ts（停止のまま）  T2 Ts（停止のまま）  T3 消滅（再開して完走）
+```
 
-**`epoch_rebind`——走っているworkerを後継epochへ繋ぎ直す面——には実runの被覆がゼロである。**
-契約もcodeも揃っているが、通した実績が無い。被覆はunitのmockだけで、
-`test/runtime-managed-supervisor.test.mjs`がfixtureのackを組んでいる。実daemonを起こす
-`aishell-runtime-conflict-dogfood`はkill→restartの`controller_recovery_rebound`を通るだけで、
-per-TODOのrebindは0件だった（実測）。
-
-再開をrebindへ接続する以上、**接続先そのものを先に実runで通す**必要がある。
-
-### 次に取りかかる時の足場
-
-分かっていることを残す。再発見に時間を使わない。
-
-- **rebindは静止を要求する。** `runtime-managed-supervisor.mjs`の`rebindController`が
-  直接再観測で`write_enabled === false`を要求する。走っているworkerは繋ぎ直せない。
-  carry-overは「作業を捨てない」であって「一度も止まらない」ではない。
-- **正しい順序**は barrier で全員停止 → hold裁定 → 停止したままrebind → そこで再開。
-  再開の呼び出し（`resumeContinuedWorkers`）は既にrebind完了後へ置いてある。
-- **要るのは実runでのrecompile駆動**。`lattice.runtime_recompile_request.v1`を組む:
-  `successor_request`（`run_request.v2` = v1の全欄 + `predecessor_request_digest` +
-  `task_migration_digest`）、`task_migration`（全TODO分のstay／carry entry）、
-  `intentional_serial`（`finding_digest`／`todo_ids`／`resource_id`／`stay_todo_id`）、
-  `frozen_event_digest`（`intake_frozen`のevent digest）、`hold_decision_digest`
-  （`hold_decided`の`payload.decision_digest`）。組み方の実例は
-  `test/integration/aishell-runtime-conflict-dogfood.integration.mjs`が持つ。
-- **土台になる構成**は`test/integration/hold-resume.integration.mjs`。3 worker（T1・T2が
-  hold_set、T3がcontinue_set）で、holdまでは実runで通っている。ここへrecompileを足す。
-- 受入条件: rebind後にT3が動き出し（`workers_resumed`が出る）、`epoch_rebind_acknowledged`が
-  実runのcontrol journalへ残ること。
+**請求項7の「一方を停止し、他方を確定し、停止した方を再開する」が実runで成立した。**
 
 ## 工程
 
 - [x] holdしたworkerをSIGCONTで再開する経路を作る
-- [ ] rebindを実runで通し、その後にcarry-over workerが再開することを確かめる
+- [x] rebindを実runで通し、その後にcarry-over workerが再開することを確かめる
 - [ ] 停止→変換→再開を実runで通す（請求項8）
 
 ---
