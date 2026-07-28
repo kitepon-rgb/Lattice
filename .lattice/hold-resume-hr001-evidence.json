@@ -1,0 +1,9 @@
+{
+  "anchor_digest": null,
+  "content_digest": "78ac5fe9c3fc872fb43eb5f7358dcf3e9d158ca905d445517389346244c5ab36",
+  "evidence_id": "hold-resume-continue-set-20260728",
+  "git_blob_oid": "fbc190a4fea51f73f911dddabd8831fe0507f1e6",
+  "media_type": "text/plain",
+  "path": "test/integration/hold-resume.integration.mjs",
+  "repo_id": "self"
+}
