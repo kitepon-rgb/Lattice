@@ -418,6 +418,14 @@ test('実controller daemonはholdからsuccessor prepare/release/中央gate/inta
   exec(process.execPath, [CLI, 'run', 'conflict', '--run', fixture.runRef,
     '--finding', finding.finding_digest], fixture.repo);
   exec(process.execPath, [CLI, 'run', 'hold', '--run', fixture.runRef], fixture.repo);
+  // 共有effectは面を分けても同じ資源に触り続けるので、切れる種類ではない。装置は変換を
+  // 試せるとは言わない——path競合と違い、ここは既定の直列化しか無い（ct-003）。
+  assert.deepEqual(JSON.parse(exec(process.execPath, [CLI, 'run', 'status', '--run',
+    fixture.runRef], fixture.repo).stdout).runtime_projection.treatment_advice, {
+    finding_digest: finding.finding_digest,
+    severability: 'serial',
+    transform_attemptable: false,
+  });
   const queued = { schema: 'lattice.runtime_queue.v1', run_id: fixture.request.request_id,
     frozen_epoch: 1, entries: [{ sequence: 1, kind: 'finding',
       subject_digest: finding.finding.finding_digest, artifact_digest: finding.finding_digest }],
@@ -719,9 +727,16 @@ test('activate後もdaemonが生存しfinding→conflict→hold receiptとdispat
   assert.equal(status.schema, 'lattice.managed_run_status.v1');
   assert.deepEqual(Object.keys(status.runtime_projection).sort(), [
     'carry_over', 'held', 'intake_frozen', 'projection_digest', 'redispatch',
-    'runtime_frozen', 'schema',
+    'runtime_frozen', 'schema', 'treatment_advice',
   ]);
-  assert.equal(status.runtime_projection.schema, 'lattice.runtime_status_projection.v1');
+  assert.equal(status.runtime_projection.schema, 'lattice.runtime_status_projection.v2');
+  // 既定の再計画modeは直列化だが、係争資源がpathなら変換を試せる。装置は「切れる種類か」まで
+  // しか言わず、実際の難しさは試して五条件で測る（ct-003）。
+  assert.deepEqual(status.runtime_projection.treatment_advice, {
+    finding_digest: finding.finding_digest,
+    severability: 'code_seam',
+    transform_attemptable: true,
+  });
   // 2者の競合なので双方がhold_setへ入る。
   assert.deepEqual(status.runtime_projection.held, ['T1', 'T2']);
   assert.deepEqual(status.runtime_projection.carry_over, []);

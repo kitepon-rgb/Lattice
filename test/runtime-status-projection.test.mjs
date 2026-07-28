@@ -24,6 +24,8 @@ test('hold決定をheldとcarry-overへ相互排他的に投影する', () => {
     carry_over: ['T3'],
     redispatch: [],
     intake_frozen: true,
+    // conflict_foundが無いので助言の材料が無い。「切れない」ではなく「まだ言えない」。
+    treatment_advice: null,
   });
 });
 
@@ -46,6 +48,7 @@ test('epoch移行後はcontext dispositionをcarry-overとredispatchへ投影す
     carry_over: ['T3'],
     redispatch: ['T1', 'T2'],
     intake_frozen: false,
+    treatment_advice: null,
   });
 });
 
@@ -66,5 +69,7 @@ test('accepted taskの一時overlayだけを除き後続epochの再分類を反�
     carry_over: [],
     redispatch: [],
     intake_frozen: true,
+    // conflict_foundが無いので助言の材料が無い。「切れない」ではなく「まだ言えない」。
+    treatment_advice: null,
   });
 });
