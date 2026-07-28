@@ -164,10 +164,41 @@ acceptedを要求するため、held workerが居ればcloseへ来ない）。da
 再開に要るもの: SIGCONT、`epoch_rebound`との接続（rebind operationはcontrollerに在る）、
 carry-over witnessとの整合、再開後のwrite lease再発行。
 
+## rebindは実runで一度も通っていない（2026-07-28に判明）
+
+**`epoch_rebind`——走っているworkerを後継epochへ繋ぎ直す面——には実runの被覆がゼロである。**
+契約もcodeも揃っているが、通した実績が無い。被覆はunitのmockだけで、
+`test/runtime-managed-supervisor.test.mjs`がfixtureのackを組んでいる。実daemonを起こす
+`aishell-runtime-conflict-dogfood`はkill→restartの`controller_recovery_rebound`を通るだけで、
+per-TODOのrebindは0件だった（実測）。
+
+再開をrebindへ接続する以上、**接続先そのものを先に実runで通す**必要がある。
+
+### 次に取りかかる時の足場
+
+分かっていることを残す。再発見に時間を使わない。
+
+- **rebindは静止を要求する。** `runtime-managed-supervisor.mjs`の`rebindController`が
+  直接再観測で`write_enabled === false`を要求する。走っているworkerは繋ぎ直せない。
+  carry-overは「作業を捨てない」であって「一度も止まらない」ではない。
+- **正しい順序**は barrier で全員停止 → hold裁定 → 停止したままrebind → そこで再開。
+  再開の呼び出し（`resumeContinuedWorkers`）は既にrebind完了後へ置いてある。
+- **要るのは実runでのrecompile駆動**。`lattice.runtime_recompile_request.v1`を組む:
+  `successor_request`（`run_request.v2` = v1の全欄 + `predecessor_request_digest` +
+  `task_migration_digest`）、`task_migration`（全TODO分のstay／carry entry）、
+  `intentional_serial`（`finding_digest`／`todo_ids`／`resource_id`／`stay_todo_id`）、
+  `frozen_event_digest`（`intake_frozen`のevent digest）、`hold_decision_digest`
+  （`hold_decided`の`payload.decision_digest`）。組み方の実例は
+  `test/integration/aishell-runtime-conflict-dogfood.integration.mjs`が持つ。
+- **土台になる構成**は`test/integration/hold-resume.integration.mjs`。3 worker（T1・T2が
+  hold_set、T3がcontinue_set）で、holdまでは実runで通っている。ここへrecompileを足す。
+- 受入条件: rebind後にT3が動き出し（`workers_resumed`が出る）、`epoch_rebind_acknowledged`が
+  実runのcontrol journalへ残ること。
+
 ## 工程
 
-- [ ] holdしたworkerをSIGCONTで再開する経路を作る
-- [ ] 再開をepoch rebindとwrite lease再発行へ接続する
+- [x] holdしたworkerをSIGCONTで再開する経路を作る
+- [ ] rebindを実runで通し、その後にcarry-over workerが再開することを確かめる
 - [ ] 停止→変換→再開を実runで通す（請求項8）
 
 ---
