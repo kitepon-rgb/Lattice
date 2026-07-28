@@ -386,14 +386,16 @@ test('candidateは、anchorのcheckpointからproducerが再導出できる形�
   assert.deepEqual(match.todo_ids, escalation.candidate.todo_ids);
 });
 
-test('scope警報はscope_violationへ写す', () => {
+test('単独のscope警報はhold経路へ運ばない', () => {
+  // 宣言境界は計画時の**予測**であって、workerを閉じ込める制約ではない。範囲内へ無理に
+  // 押し込めるとworkerの自由度が落ち、成果の品質が下がる。誰の領分とも重なっていない
+  // 宣言外の書き込みは競合ではなく、予測が実態より狭かったという情報である。止めない。
   const warning = { kind: 'io_scope_warning', todo_ids: ['T2'], path: 'src/page.mjs' };
   const checkpointsByTodo = { T2: checkpoint(['src/page.mjs']) };
   const probe = probeIoWarning({ warning, checkpointsByTodo });
-  const escalation = buildIoEscalation({ warning, probe, checkpointsByTodo, packets });
-  assert.equal(escalation.candidate.proposed_kind, 'scope_violation');
-  assert.deepEqual(escalation.candidate.todo_ids, ['T2']);
-  assert.equal(escalation.anchor_todo_id, 'T2');
+  assert.equal(probe.outcome, 'observed');
+  // 実在と裁定されてもescalationは組まない。記録（io_warning_observed）だけが残る。
+  assert.equal(buildIoEscalation({ warning, probe, checkpointsByTodo, packets }), null);
 });
 
 test('probeが実在と言っていない警報はescalationへ進めない', () => {

@@ -298,15 +298,22 @@ export function probeIoWarning({ warning, checkpointsByTodo } = {}) {
 }
 
 /**
- * 警報kind → finding kind。probeを通った警報だけがこの写像に乗る。
+ * 警報kind → finding kind。**重なりだけがhold経路へ乗る。**
  *
- * 述語が同一（`coveredBy`）なので、写像は1対1に決まる。ここで新しい種類を発明しない——
- * 発明すると、警報経由のfindingだけ既存の処置（請求項7の直列化、請求項8のseam変換）が
- * 効かない種類になってしまう。
+ * 宣言境界は計画時の**予測**であって、workerを閉じ込める制約ではない。範囲内へ無理に
+ * 押し込めるとworkerの自由度が落ち、成果の品質が下がる。だから自由に書かせ、**実際の足跡が
+ * 他の走行中TODOとぶつかった時にだけ**止めて処置する——請求項7（片方を停止し他方を確定して
+ * 再開する）と請求項8（限定的な変換を施して双方再開する）はそのための構成である。
+ *
+ * よって単独のscope警報——誰の領分とも重なっていない宣言外の書き込み——はhold経路へ運ばない。
+ * それは競合ではなく、**予測が実態より狭かったという情報**であり、止める理由が無い。記録は
+ * 残る（`io_warning_observed`）ので、再計画の材料としては失われない。
+ *
+ * 止めるべきでないものを止めると、処置の当てようが無い停止が生まれる。scope違反に処置が
+ * 無いのは欠落ではなく、処置すべき事象ではないことの現れである。
  */
 const WARNING_FINDING_KIND = Object.freeze({
   io_overlap_warning: 'observed_write_conflict',
-  io_scope_warning: 'scope_violation',
 });
 
 /**
