@@ -90,7 +90,18 @@ if (help !== null) {
     // typed契約（cli_error.v2＋exit 1/2）の外へ漏れた例外＝内部故障。opt-in時のみ観測を残す。
     const { observeRuntimeError } = await import('../src/runtime-errors.mjs');
     observeRuntimeError('LATTICE.CLI_INTERNAL_FAILED', { version: packageJson.version });
-    process.stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v2', code: 'INTERNAL_FAILURE', message: error?.constructor?.name ?? 'Error' })}\n`);
+    // **理由を捨てない。** 型名だけでは、何が起きたかを追う手段が無い——実際、seam解決の
+    // `witness_set_invalid`はAPIを直接叩くまで見えなかった。typed契約の外へ漏れたこと自体は
+    // 内部故障だが、漏れた中身は残す。
+    process.stderr.write(`${JSON.stringify({
+      schema: 'lattice.cli_error.v2', code: 'INTERNAL_FAILURE',
+      message: error?.constructor?.name ?? 'Error',
+      detail: {
+        reason: typeof error?.message === 'string' && error.message.length > 0
+          ? error.message.slice(0, 2_048) : null,
+        error_detail: error?.detail ?? null,
+      },
+    })}\n`);
     process.exitCode = 1;
   }
 }
