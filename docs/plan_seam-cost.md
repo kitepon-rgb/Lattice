@@ -79,9 +79,9 @@ sensor は材料を既に持っている。「関数 → module 変数」の辺�
 
 - [x] 検証網——変換の静かな破壊を捕まえる（実験でprimitiveを訂正: unresolved_refsでなく切断参照の計数。ADR 0145）
 - [x] 親ディレクトリへの移動で import 指定子が壊れる bug を直す
-- [ ] sensor の callers/callees へ辺種別と valueRef を出す
-- [ ] 切断コストの内訳を計算する seam-cost module を作る
-- [ ] seam profile コマンドを作る（plan/run の両モード・投影のみ）
+- [x] sensor の callers/callees へ辺種別と valueRef を出す（--limit 200も。既定20件で実際に3件切られていた）
+- [x] 切断コストの内訳を計算する seam-cost module を作る
+- [x] seam profile コマンドを作る（plan/run の両モード・投影のみ）
 - [ ] valueRef へ read/write の区別を足す（TS/JS 先行）
 - [ ] read/write の区別を go/python/java のミラーへ広げる
 - [ ] sensor の名前フィルタを緩めて実測する
