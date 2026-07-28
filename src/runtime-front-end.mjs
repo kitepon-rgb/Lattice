@@ -247,6 +247,25 @@ function affectedPayload(raw, expectPath) {
   return plainRecord(payload) ? payload : null;
 }
 
+/**
+ * 収集済みsensor evidenceから、あるpathのaffected testを読む。
+ *
+ * 実行時の翻訳段（宣言を観測へ合わせる）が同じ観測を必要とする。payloadの形の解釈をあちらへ
+ * 書き直すと、driftを判定する規則と、driftを起こさない宣言を作る規則が別々に育つ。
+ *
+ * @returns {string[]|null} 観測できなければnull（空配列と区別する）
+ */
+export function affectedTestsFromEvidence({ sensorEvidence, querySet, path: target } = {}) {
+  const queries = (querySet?.queries ?? [])
+    .filter((query) => query.operation === 'affected' && query.target === target);
+  if (queries.length !== 1) return null;
+  const outcome = (sensorEvidence?.outcomes ?? [])
+    .find((entry) => entry.query_id === queries[0].id);
+  if (!plainRecord(outcome) || outcome.status !== 'ready') return null;
+  const payload = affectedPayload(outcome.raw, target);
+  return Array.isArray(payload?.affectedTests) ? [...payload.affectedTests].sort(compareText) : null;
+}
+
 function affectedTarget(raw, expectPath) {
   if (!plainRecord(raw) || !Array.isArray(raw.targets)) return null;
   const entry = raw.targets.find((candidate) => (

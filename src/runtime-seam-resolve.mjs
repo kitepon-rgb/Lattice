@@ -19,11 +19,15 @@ import { digestArtifact } from './artifact-contracts.mjs';
 import { commitSeamTransform } from './seam-commit.mjs';
 import { applySeamConflict } from './seam-apply.mjs';
 import { resolveRuntimeSeamTreatment } from './runtime-seam-treatment.mjs';
+import { affectedTestsFromEvidence } from './runtime-front-end.mjs';
 import { collectWitnessSensorEvidence, compileTodoIndependence } from './todo-independence.mjs';
 import { todoSelfDigest } from './todo-contracts.mjs';
 
 export const RUNTIME_SEAM_REQUEST_SCHEMA = 'lattice.runtime_seam_request.v1';
-export const RUNTIME_SEAM_RESOLUTION_SCHEMA = 'lattice.runtime_seam_resolution.v1';
+// v2は翻訳段（`reconciled`）の追加である。宣言を観測へ合わせてから判定するようになったので、
+// どの宣言の上で五条件を見たかが決着の一部になった。v1の形のまま中身を変えると、記録が何に
+// ついてのものか確定しなくなる。
+export const RUNTIME_SEAM_RESOLUTION_SCHEMA = 'lattice.runtime_seam_resolution.v2';
 
 /** 合成するtodo planのkey。実行時planとは別空間なので固定でよい。 */
 const SYNTHETIC_PLAN_KEY = 'runtime';
@@ -78,20 +82,129 @@ export function validateRuntimeSeamRequest(value) {
 }
 
 /**
+ * 観測された実態へ宣言を合わせる（翻訳段）。
+ *
+ * 実行時のpath競合は、**片方がその資源を所有していないから起きる**。所有していない資源の内側に
+ * 担当は主張できない（`concern_anchor_resource_not_owned`）ので、宣言のままでは変換の入力が
+ * 組めない——請求項8は、実行時に見つかった競合の形をそのままでは受け取れなかった。
+ *
+ * 境界は計画時の**予測**であって、workerを閉じ込める制約ではない。予測を超えたのは予測が狭かった
+ * からであり、作業が不正だったからではない。したがって操作は「破った側を直す」ではなく、観測が
+ * 示した実態へ宣言を合わせることであり、**対称**である——どちらの足跡が予測を超えたかは観測が
+ * 決めるので、ここでは関与TODOを同じ規則で扱う。
+ *
+ * これは3つ目の処置ではない。翻訳を通ると計画時競合の形（`owns`の交差）になり、そこから先は
+ * 既存の請求項7／8がそのまま適用できる。競合辺が立つのは翻訳の副産物ではなく目的である——
+ * 立たないままだと`overlap_reduced`が最初から満たされたことになり、変換の検証が無意味になる。
+ *
+ * 広げるのは観測が示した資源だけとする。findingが持つ係争pathも関与TODOも観測であって推定では
+ * ない。広げた事実は呼び出し側へ返す。黙って広げると、予測が外れたことも、判定がどの宣言の上で
+ * 行われたかも残らない。
+ *
+ * **所有の宣言は裏取りと対で広げる。** `owns`だけ足すとその資源は`sensor_unbound`になり、compileは
+ * 非dispatchable（`BOUNDARY_UNKNOWN`）へ落ちる。そこでは競合が投影されないので、翻訳したのに
+ * 競合辺が立たず、変換の便益が測れない。裏取りに使えるqueryがrun のquery setに無ければ、
+ * 広げずに理由を返す——証明できない宣言を作らない。
+ */
+export function reconcileWitnessToObservation({
+  manualWitness, contestedPath, todoIds, sensorQuerySet = null, observedAffectedTests = null,
+} = {}) {
+  const reconciled = {};
+  const widened = [];
+  const reject = (reason) => ({ manualWitness: null, widened: [], reasons: [reason] });
+  // 係争pathを覆えるqueryを、run のquery setから拾う。無ければ翻訳しない。
+  //
+  // `affected`だけを見る。path所有を裏取りするのはこのoperationであり、構造query（query／callers／
+  // callees／impact）はsymbolを的にする。構造queryがたまたま同じ文字列をtargetに持つからといって
+  // 所有の裏取りへ流用すると、束縛の意味が変わる。
+  const covering = (sensorQuerySet?.queries ?? [])
+    .filter((query) => query.operation === 'affected' && query.target === contestedPath)
+    .map((query) => query.id)
+    .sort(compareText);
+
+  for (const todoId of todoIds) {
+    const witness = manualWitness?.[todoId];
+    if (!plainObject(witness)) return reject(`witness_absent:${todoId}`);
+    const next = structuredClone(witness);
+    const ownsPath = (next.owns ?? [])
+      .some((own) => own.kind === 'path' && own.target === contestedPath);
+    const writesPath = (next.writes ?? []).includes(contestedPath);
+    const boundPath = (next.sensor_provenance?.queries ?? [])
+      .some((entry) => (entry.expect?.kind === 'affected' || entry.expect?.kind === 'path')
+        && entry.expect?.path === contestedPath);
+    // 既に所有と書き込みを宣言しているなら、観測は予測の内側にある。合わせるものが無いので
+    // 触らない——裏取りが足りているかどうかは、その宣言を書いた側の問題であり、compileが見る。
+    // 翻訳が手を入れてよいのは、観測が予測を超えた分だけである。
+    if (ownsPath && writesPath) {
+      reconciled[todoId] = next;
+      continue;
+    }
+    if (!boundPath) {
+      if (covering.length === 0) return reject(`observation_unbacked:${todoId}:${contestedPath}`);
+      // 同じ資源は同じqueryで裏取りする。TODOごとに別のqueryを選ぶと、front-endが被覆の
+      // 曖昧さとして弾く。
+      if (covering.length > 1) return reject(`observation_binding_ambiguous:${contestedPath}`);
+      // 観測できていないaffectedを推測で埋めない。
+      if (!Array.isArray(observedAffectedTests)) {
+        return reject(`observation_affected_unread:${contestedPath}`);
+      }
+    }
+    // 所有・書き込み・裏取りをまとめて足す。観測されたのは「このpathへの書き込み」であり、
+    // 宣言の一部だけを合わせると、宣言が実態からずれたまま次の判定の前提になる。`creates`は
+    // 付けない——観測できたのはpathが既に在るからである。
+    if (!ownsPath) next.owns = [...next.owns, { kind: 'path', target: contestedPath }]
+      .sort((left, right) => compareText(`${left.kind}\0${left.target}`, `${right.kind}\0${right.target}`));
+    if (!writesPath) next.writes = [...next.writes, contestedPath].sort(compareText);
+    if (!boundPath) {
+      next.sensor_provenance = {
+        ...next.sensor_provenance,
+        queries: [...next.sensor_provenance.queries,
+          { query_id: covering[0], expect: { kind: 'affected', path: contestedPath } }],
+      };
+      // 面を1つ引き受けたら、その面のaffected testも引き受ける。宣言と観測はTODO単位で
+      // exact一致を要求されるので、片方だけ広げるとdriftになる。
+      next.affected_tests = [...new Set([...next.affected_tests, ...observedAffectedTests])]
+        .sort(compareText);
+    }
+    reconciled[todoId] = next;
+    widened.push({
+      todo_id: todoId,
+      resource: { kind: 'path', target: contestedPath },
+      fields: [
+        ...(ownsPath ? [] : ['owns']),
+        ...(writesPath ? [] : ['writes']),
+        ...(boundPath ? [] : ['affected_tests', 'sensor_provenance']),
+      ].sort(compareText),
+    });
+  }
+  return { manualWitness: reconciled, widened, reasons: [] };
+}
+
+/**
  * 実行時witnessへconcern anchorを足してtodo witness setにする。
  *
  * 実行時のmanual_witnessはconcern_anchorsを持たない（`lattice.run_request.v3`）。持たせるのでなく、
  * 宣言から足す——係争資源の中のどのsymbolを触るかは実行時に確定する情報であり、run開始時点の
  * 契約に書けるものではないからである。
+ *
+ * anchorを足す前に宣言を観測へ合わせる（`reconcileWitnessToObservation`）。この順序でないと、
+ * 係争資源を所有していないTODOのanchorが必ず不正になる。
  */
-export function buildRuntimeSeamWitnessSet({ request, declaration, contestedPath, executors }) {
+export function buildRuntimeSeamWitnessSet({
+  request, declaration, contestedPath, executors, observedAffectedTests = null,
+}) {
   const todoIds = Object.keys(declaration.concern_symbols).sort(compareText);
+  const translated = reconcileWitnessToObservation({
+    manualWitness: request.manual_witness, contestedPath, todoIds,
+    sensorQuerySet: request.sensor_query_set, observedAffectedTests,
+  });
+  if (translated.manualWitness === null) {
+    return { witnessSet: null, widened: [], reasons: translated.reasons };
+  }
   const manual = {};
   for (const todoId of todoIds) {
-    const witness = request.manual_witness?.[todoId];
-    if (!plainObject(witness)) return { witnessSet: null, reasons: [`witness_absent:${todoId}`] };
     manual[todoId] = {
-      ...structuredClone(witness),
+      ...translated.manualWitness[todoId],
       concern_anchors: [{
         within: { kind: 'path', target: contestedPath },
         symbols: [...declaration.concern_symbols[todoId]].sort(compareText),
@@ -108,7 +221,7 @@ export function buildRuntimeSeamWitnessSet({ request, declaration, contestedPath
     witness_set_digest: '',
   };
   witnessSet.witness_set_digest = todoSelfDigest(witnessSet, 'witness_set_digest');
-  return { witnessSet, reasons: [] };
+  return { witnessSet, widened: translated.widened, reasons: [] };
 }
 
 function syntheticTodoPlan(todoIds) {
@@ -137,7 +250,7 @@ export async function resolveRuntimeSeam({
   const todoIds = Object.keys(declaration.concern_symbols).sort(compareText);
 
   if (finding.kind !== 'observed_write_conflict' || typeof finding.path !== 'string') {
-    return { lane: 'intentional_serial', reasons: ['finding_not_write_conflict'], split: null };
+    return { lane: 'intentional_serial', reasons: ['finding_not_write_conflict'], split: null, widened: [] };
   }
   const findingTodoIds = [...finding.todo_ids].sort(compareText);
   if (findingTodoIds.join('\0') !== todoIds.join('\0')) {
@@ -145,30 +258,41 @@ export async function resolveRuntimeSeam({
       lane: 'intentional_serial',
       reasons: ['declared_todos_differ_from_finding'],
       split: null,
+      widened: [],
     };
   }
 
+  // sensorは1回だけ引く。翻訳（宣言を観測へ合わせる）とcompileは同じ観測の上で行う——
+  // 別々に引くと、翻訳が見た実態とcompileが見た実態がずれうる。
+  const sensorEvidence = await collectWitnessSensorEvidence({
+    cwd: repoRoot, witnessSet: { sensor_query_set: request.sensor_query_set },
+  });
   const built = buildRuntimeSeamWitnessSet({
     request, declaration, contestedPath: finding.path,
     executors: request.capacity.executors,
+    observedAffectedTests: affectedTestsFromEvidence({
+      sensorEvidence, querySet: request.sensor_query_set, path: finding.path,
+    }),
   });
   if (built.witnessSet === null) {
-    return { lane: 'intentional_serial', reasons: built.reasons, split: null };
+    return { lane: 'intentional_serial', reasons: built.reasons, split: null, widened: [] };
   }
   const witnessSet = built.witnessSet;
   const plan = syntheticTodoPlan(todoIds);
 
-  // 観測したaffected testsだけを検証に使う。宣言から発明しない。
+  // 観測したaffected testsだけを検証に使う。宣言から発明しない。翻訳後の宣言から採る——
+  // 所有が広がったTODOは、その面のtestも自分のaffectedとして引き受けている。
   const affectedTests = [...new Set(todoIds
-    .flatMap((todoId) => request.manual_witness[todoId].affected_tests))].sort(compareText);
+    .flatMap((todoId) => witnessSet.manual_witness[todoId].affected_tests))].sort(compareText);
 
   const baseArtifact = compileTodoIndependence({
-    witnessSet, plan, baseSha, compiledAt,
-    sensorEvidence: await collectWitnessSensorEvidence({ cwd: repoRoot, witnessSet }),
+    witnessSet, plan, baseSha, compiledAt, sensorEvidence,
   });
 
   const pathNames = { ...declaration.path_names };
-  return resolveRuntimeSeamTreatment({
+  // 翻訳で広げた宣言は決着へ載せる。どの宣言の上で五条件を判定したかが残らないと、
+  // 「変換して通った」という記録が何についてのものか確定しない。
+  const resolved = await resolveRuntimeSeamTreatment({
     finding,
     witnessSet,
     pathNames,
@@ -205,6 +329,7 @@ export async function resolveRuntimeSeam({
       return { ...applied, candidate: applied.candidate ?? null };
     },
   });
+  return { ...resolved, widened: built.widened };
 }
 
 /** 決着をartifactにする。branchを動かすのは操作するAIなので、行き先を明示して返す。 */
@@ -215,6 +340,18 @@ export function buildRuntimeSeamResolution({ runId, findingDigest, resolved }) {
     finding_digest: findingDigest,
     lane: resolved.lane,
     reasons: [...resolved.reasons].sort(compareText),
+    // 判定の前に宣言をどれだけ観測へ合わせたか。空配列は「予測が実態を覆っていた」という
+    // 意味であり、翻訳しなかったことと区別できる。
+    reconciled: [...(resolved.widened ?? [])]
+      .map((entry) => ({
+        todo_id: entry.todo_id,
+        resource: { kind: entry.resource.kind, target: entry.resource.target },
+        fields: [...entry.fields].sort(compareText),
+      }))
+      .sort((left, right) => compareText(
+        `${left.todo_id}\0${left.resource.kind}\0${left.resource.target}`,
+        `${right.todo_id}\0${right.resource.kind}\0${right.resource.target}`,
+      )),
     split: resolved.split ?? null,
     successor_base_sha: resolved.successor_base_sha ?? null,
     successor_base_ref: resolved.successor_base_ref ?? null,
