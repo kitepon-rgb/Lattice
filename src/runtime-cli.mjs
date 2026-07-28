@@ -1263,7 +1263,9 @@ async function runStatus({ runDir, stdout }) {
   if (managed !== null) {
     output.schema = 'lattice.managed_run_status.v1';
     const runtimeProjection = {
-      schema: 'lattice.runtime_status_projection.v1',
+      // v2は`treatment_advice`の追加。既定modeが直列化でも変換を試せる場合があることを、
+      // 運転側が見える形にした（ct-003）。
+      schema: 'lattice.runtime_status_projection.v2',
       ...projectRuntimeStatusOverlays({ events }),
       runtime_frozen: managedFrozen,
     };

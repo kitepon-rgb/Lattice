@@ -238,5 +238,32 @@ export function projectRuntimeStatusOverlays(options = {}) {
     carry_over: members('carry_over'),
     redispatch: members('redispatch'),
     intake_frozen: runtimeState.freeze !== null,
+    treatment_advice: treatmentAdvice(events),
+  };
+}
+
+/**
+ * 止まっているrunに対して、請求項8（変換）を試せるかを助言する。
+ *
+ * 拒否ではなく助言である（ADR 0128と同じ規律）。既定の再計画modeが`intentional_serial`だから
+ * といって「変換が不可能」ではない——事前宣言が無いだけである。実行時に初めて見つかった競合には
+ * 事前宣言が無いので、既定だけを見ると請求項8へ行く道が無いように見える。
+ *
+ * 装置が言えるのは**係争資源が切れる種類か**までとする。共有stateや外部effectは面を分けても
+ * 同じ資源に触り続けるので切れない。pathは分けられる**かもしれない**——実際に切れるかと、
+ * それが割に合うかは、隔離worktreeで変換して五条件で測って初めて分かる（`run seam resolve`）。
+ * 試すかどうかは費用のかかる判断なので、装置は決めずに材料だけ渡す。
+ */
+function treatmentAdvice(events) {
+  const conflict = [...events].reverse()
+    .find((event) => event.kind === 'conflict_found'
+      && event.payload !== null && typeof event.payload === 'object');
+  if (conflict === undefined) return null;
+  const severability = typeof conflict.payload.path === 'string' ? 'code_seam' : 'serial';
+  return {
+    finding_digest: typeof conflict.payload.finding_digest === 'string'
+      ? conflict.payload.finding_digest : null,
+    severability,
+    transform_attemptable: severability === 'code_seam',
   };
 }
