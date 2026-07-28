@@ -216,8 +216,14 @@ export function getCurrentVersion(db: SqliteDatabase): number {
  * Record a migration as applied
  */
 function recordMigration(db: SqliteDatabase, version: number, description: string): void {
+  // OR REPLACE: re-running from an older recorded version (a migration history
+  // restored from backup, or a partially-reverted history) re-applies every
+  // migration above the gap. Migrations themselves are idempotent by contract;
+  // the RECORD write must be too, or the first version above the gap that is
+  // still recorded blows up on the UNIQUE constraint — first reachable once a
+  // v(N+1) exists above a reverted v(N), so it stayed latent until v10.
   db.prepare(
-    'INSERT INTO schema_versions (version, applied_at, description) VALUES (?, ?, ?)'
+    'INSERT OR REPLACE INTO schema_versions (version, applied_at, description) VALUES (?, ?, ?)'
   ).run(version, Date.now(), description);
 }
 
