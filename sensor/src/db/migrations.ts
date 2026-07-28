@@ -9,7 +9,7 @@ import { SqliteDatabase } from './sqlite-adapter';
 /**
  * Current schema version
  */
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 /**
  * Migration definition
@@ -148,6 +148,17 @@ const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_unresolved_status ON unresolved_refs(status);
         CREATE INDEX IF NOT EXISTS idx_unresolved_failed_tail ON unresolved_refs(name_tail) WHERE status = 'failed';
       `);
+    },
+  },
+  {
+    version: 12,
+    description:
+      'files.extraction_version — EXTRACTION_VERSION of the engine that wrote each row (DEFAULT 0 = pre-stamp). Sync re-extracts rows whose stamp differs from the running engine, so extractor upgrades heal incrementally instead of relying on a manual full re-index that the status hint merely recommends',
+    up: (db) => {
+      const cols = db.prepare('PRAGMA table_info(files)').all() as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === 'extraction_version')) {
+        db.exec('ALTER TABLE files ADD COLUMN extraction_version INTEGER NOT NULL DEFAULT 0');
+      }
     },
   },
   {

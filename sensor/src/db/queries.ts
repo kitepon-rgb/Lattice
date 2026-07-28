@@ -99,6 +99,7 @@ interface FileRow {
   modified_at: number;
   indexed_at: number;
   node_count: number;
+  extraction_version: number;
   errors: string | null;
 }
 
@@ -253,6 +254,7 @@ function rowToFileRecord(row: FileRow): FileRecord {
     modifiedAt: row.modified_at,
     indexedAt: row.indexed_at,
     nodeCount: row.node_count,
+    extractionVersion: row.extraction_version ?? 0,
     errors: row.errors ? safeJsonParse(row.errors, undefined) : undefined,
   };
 }
@@ -1940,8 +1942,8 @@ export class QueryBuilder {
   upsertFile(file: FileRecord): void {
     if (!this.stmts.upsertFile) {
       this.stmts.upsertFile = this.db.prepare(`
-        INSERT INTO files (path, content_hash, language, size, modified_at, indexed_at, node_count, errors)
-        VALUES (@path, @contentHash, @language, @size, @modifiedAt, @indexedAt, @nodeCount, @errors)
+        INSERT INTO files (path, content_hash, language, size, modified_at, indexed_at, node_count, extraction_version, errors)
+        VALUES (@path, @contentHash, @language, @size, @modifiedAt, @indexedAt, @nodeCount, @extractionVersion, @errors)
         ON CONFLICT(path) DO UPDATE SET
           content_hash = @contentHash,
           language = @language,
@@ -1949,6 +1951,7 @@ export class QueryBuilder {
           modified_at = @modifiedAt,
           indexed_at = @indexedAt,
           node_count = @nodeCount,
+          extraction_version = @extractionVersion,
           errors = @errors
       `);
     }
@@ -1961,8 +1964,29 @@ export class QueryBuilder {
       modifiedAt: file.modifiedAt,
       indexedAt: file.indexedAt,
       nodeCount: file.nodeCount,
+      extractionVersion: file.extractionVersion,
       errors: file.errors ? JSON.stringify(file.errors) : null,
     });
+  }
+
+  /**
+   * Number of tracked files whose rows were written by an extractor other
+   * than the one now running. Zero means the whole index reflects current
+   * extraction semantics — the condition for advancing the global stamp.
+   */
+  /** Paths of tracked files whose rows were written by a different extractor. */
+  getExtractionStalePaths(currentVersion: number): string[] {
+    const rows = this.db
+      .prepare('SELECT path FROM files WHERE extraction_version != ? ORDER BY path')
+      .all(currentVersion) as Array<{ path: string }>;
+    return rows.map((row) => row.path);
+  }
+
+  getExtractionStaleFileCount(currentVersion: number): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS stale FROM files WHERE extraction_version != ?')
+      .get(currentVersion) as { stale: number };
+    return row.stale;
   }
 
   /**

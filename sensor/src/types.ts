@@ -265,6 +265,13 @@ export interface FileRecord {
   /** Number of nodes extracted */
   nodeCount: number;
 
+  /**
+   * EXTRACTION_VERSION of the engine that wrote this row. Sync treats a
+   * mismatch as a pending change, so extractor upgrades heal incrementally
+   * instead of requiring a manual full re-index.
+   */
+  extractionVersion: number;
+
   /** Any extraction errors */
   errors?: ExtractionError[];
 }

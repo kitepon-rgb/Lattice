@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS files (
     modified_at INTEGER NOT NULL,
     indexed_at INTEGER NOT NULL,
     node_count INTEGER DEFAULT 0,
+    -- EXTRACTION_VERSION of the engine that wrote this row. 0 = written before
+    -- the stamp existed; sync treats any mismatch with the running engine as a
+    -- pending change so extractor upgrades heal incrementally (v12).
+    extraction_version INTEGER NOT NULL DEFAULT 0,
     errors TEXT -- JSON array
 );
 

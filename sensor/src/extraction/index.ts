@@ -21,6 +21,7 @@ import {
   ReferenceKind,
 } from '../types';
 import { QueryBuilder } from '../db/queries';
+import { EXTRACTION_VERSION } from './extraction-version';
 import { extractFromSource } from './tree-sitter';
 import { ParseWorkerPool, resolveParsePoolSize, resolveParseTimeoutMs } from './parse-pool';
 import { StoreWriter, StoreBundle, finalizeStoreBundle } from './store-writer';
@@ -115,6 +116,8 @@ export interface SyncResult {
   nodesUpdated: number;
   durationMs: number;
   changedFilePaths?: string[];
+  /** Files re-extracted only because the extractor version advanced (content unchanged). */
+  extractionHealed?: number;
 }
 
 /**
@@ -2264,8 +2267,9 @@ export class ExtractionOrchestrator {
 
     // Check if file already exists and hasn't changed
     const existingFile = this.queries.getFileByPath(filePath);
-    if (existingFile && existingFile.contentHash === contentHash) {
-      return; // No changes
+    if (existingFile && existingFile.contentHash === contentHash
+      && existingFile.extractionVersion === EXTRACTION_VERSION) {
+      return; // No changes, and the row was written by this extractor
     }
 
     // Snapshot incoming cross-file edges BEFORE deleting this file's nodes.
@@ -2332,6 +2336,7 @@ export class ExtractionOrchestrator {
           modifiedAt: stats.mtimeMs,
           indexedAt: Date.now(),
           nodeCount: result.nodes.length,
+          extractionVersion: EXTRACTION_VERSION,
           errors: result.errors.length > 0 ? result.errors : undefined,
         },
       });
@@ -2392,6 +2397,7 @@ export class ExtractionOrchestrator {
       modifiedAt: stats.mtimeMs,
       indexedAt: Date.now(),
       nodeCount: result.nodes.length,
+      extractionVersion: EXTRACTION_VERSION,
       errors: result.errors.length > 0 ? result.errors : undefined,
     };
     this.queries.upsertFile(fileRecord);
@@ -2419,6 +2425,7 @@ export class ExtractionOrchestrator {
       modifiedAt: stats.mtimeMs,
       indexedAt: Date.now(),
       nodeCount,
+      extractionVersion: EXTRACTION_VERSION,
       errors: resultErrors.length > 0 ? resultErrors : undefined,
     };
   }
@@ -2487,6 +2494,7 @@ export class ExtractionOrchestrator {
     let filesAdded = 0;
     let filesModified = 0;
     let filesRemoved = 0;
+    let extractionHealed = 0;
     let nodesUpdated = 0;
     const changedFilePaths: string[] = [];
 
@@ -2563,6 +2571,16 @@ export class ExtractionOrchestrator {
       const fullPath = path.join(this.rootDir, filePath);
       const tracked = trackedMap.get(filePath);
 
+      // The observer changed, not the file: rows written by an older extractor
+      // are pending changes regardless of content. This must run BEFORE the
+      // size/mtime fast-path below, or unchanged files would never heal.
+      if (tracked && tracked.extractionVersion !== EXTRACTION_VERSION) {
+        filesToIndex.push(filePath);
+        changedFilePaths.push(filePath);
+        extractionHealed++;
+        continue;
+      }
+
       // Cheap pre-filter: an already-indexed file whose size AND mtime both match
       // the DB is unchanged — skip it without reading or hashing. (A content
       // change that preserves both exactly is the blind spot every mtime-based
@@ -2627,11 +2645,22 @@ export class ExtractionOrchestrator {
       nodesUpdated += result.nodes.length;
     }
 
+    // The sync pass above re-extracted every stale-stamp file it saw. When no
+    // stale rows remain, the whole index reflects current extraction semantics
+    // and the global stamp may advance — clearing the status re-index hint
+    // without anyone running a manual full re-index.
+    if (this.queries.getExtractionStaleFileCount(EXTRACTION_VERSION) === 0) {
+      try {
+        this.queries.setMetadata('indexed_with_extraction_version', String(EXTRACTION_VERSION));
+      } catch { /* metadata is advisory — never fail a sync over it */ }
+    }
+
     return {
       filesChecked,
       filesAdded,
       filesModified,
       filesRemoved,
+      extractionHealed,
       nodesUpdated,
       durationMs: Date.now() - startTime,
       changedFilePaths: changedFilePaths.length > 0 ? changedFilePaths : undefined,
@@ -2683,6 +2712,14 @@ export class ExtractionOrchestrator {
         }
       }
 
+      // Rows written by a different extractor are pending even though git sees
+      // no change — the observer moved, not the file. Without this, the git
+      // fast path would report "0 pending" while the index is semantically stale.
+      const seen = new Set([...added, ...modified, ...removed]);
+      for (const stalePath of this.queries.getExtractionStalePaths(EXTRACTION_VERSION)) {
+        if (!seen.has(stalePath)) modified.push(stalePath);
+      }
+
       return { added, modified, removed };
     }
 
@@ -2723,7 +2760,8 @@ export class ExtractionOrchestrator {
 
       if (!tracked) {
         added.push(filePath);
-      } else if (tracked.contentHash !== contentHash) {
+      } else if (tracked.contentHash !== contentHash
+        || tracked.extractionVersion !== EXTRACTION_VERSION) {
         modified.push(filePath);
       }
     }
