@@ -1,0 +1,27 @@
+{
+  "schema": "lattice.todo_witness_draft.v1",
+  "project_id": "lattice",
+  "plan_key": "runtime-linux-parity",
+  "capacity": {
+    "executors": 1
+  },
+  "tasks": {
+    "lp-002": {
+      "owns": [
+        "src/runtime-managed-supervisor.mjs"
+      ],
+      "reads": [
+        "src/runtime-adapter-registry.mjs",
+        "test/integration/scripted-adapter-controller.integration.mjs"
+      ],
+      "concern_anchors": [
+        {
+          "within": "src/runtime-managed-supervisor.mjs",
+          "symbols": [
+            "activateManagedSupervisorController"
+          ]
+        }
+      ]
+    }
+  }
+}
