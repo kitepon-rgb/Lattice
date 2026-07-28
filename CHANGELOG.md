@@ -12,6 +12,15 @@
   当初はsensorの`unresolved_refs`の集合差分を予定していたが、**bare参照の切断はそこに記録
   されないことを実測で確認し**、fresh indexのsymbol一覧（新設`lattice-sensor file-nodes`）と
   本文言及の突き合わせへ組み替えた。
+- **sensor の callers/callees が辺種別を返すようになった**（`edgeKind`・`valueRef`）。
+  traversal は元から `references` 辺を通しており、module 値への参照は結果に混ざって返って
+  いたが、JSON が node 情報だけを吐いて辺種別を捨てていた——「この隣接は関数呼び出しか、
+  module 値の参照か」を切断コストの内訳が区別するために出す。併せて Lattice 側の
+  callers/callees 照会へ `--limit 200` を明示した。CLI 既定の20件では fanout の大きい関数で
+  参照が黙って切られる（実測: `explainRunRequest` の callees は23件で、3件が窓の外だった）。
+
+  **破壊的変更**: callees/callers を含む sensor receipt の digest が変わる。host-local の
+  independence 記録・seam 提案は再 compile で再生成される（どちらも gitignore 済みの投影）。
 - **親・兄弟ディレクトリへ移す変換の import 指定子を直した。** 行き先が元 file の配下で
   ない時に `./<repo相対path>` という解決不能な specifier を生成していた。segment 単位で
   共通 prefix を外し `../` で組み立てる。

@@ -333,9 +333,14 @@ async function collectOne({ cwd, query, execute, inspectAffectedPath }) {
     operation,
     target,
     cwd,
+    // callers/calleesはCLI既定の20件で黙って切られる。fanoutの大きい関数では
+    // module値への参照（valueRef）が窓の外へ落ち、閉包が「完結した」と誤認する
+    // ——観測の打ち切りを「無い」へ丸めない。明示limitで引く。
     args: operation === 'status'
       ? ['status', '.', '--json']
-      : [operation, target, '--path', '.', '--json'],
+      : ['callers', 'callees'].includes(operation)
+        ? [operation, target, '--path', '.', '--limit', '200', '--json']
+        : [operation, target, '--path', '.', '--json'],
   };
   const result = await executeCommand(execute, command);
   if (result.code !== 0) {
