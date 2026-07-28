@@ -185,15 +185,41 @@ carry-over witnessとの整合、再開後のwrite lease再発行。
 `runtime-seam-resolve.mjs`にあり、資源idの形は`own-<kind>-<sha16(target)>`である。
 front-endも同じ形を使う（実データで`own-path-f613918e7d7e237c`）。
 
-解き方は2つあり、どちらを採るかは裁定が要る。
+**解決済み（2026-07-28）。** handlerがpath findingの時だけ、係争pathからfront-endと同じ形で
+資源idを導出して照合するようにした。導出値との一致を要求するので、資源idを捏造できないという
+元の保証は保たれる。finding契約（path形はresource_id null）は変えていない。
 
-1. **handlerがpathから資源idを導出して照合する。** path findingの時だけ
-   `own-path-<sha16(path)>`と比べる。finding契約（path形はresource_id null）を変えずに済む。
-   後継planの直列化資源が実ownershipから再導出できることも満たす。
-2. **`intentional_serial`がpathを運べるようにする。** treatment契約の版上げ。
+## しかしscope違反には、まだ処置が無い
 
-io-sentinelが作るfindingは必ずpath形なので、この面が塞がっている限り、早期警報からholdまで
-通しても**その先へ進めない**。
+**より強い制約が残っている。** `scope_violation`——workerが自分の宣言scopeの外へ書いた——の
+findingは`todo_ids`が**1件**である。`intentional_serial`は2件以上を要求するので、こちらは
+資源idを直しても通らない。`routeConflictTreatment`はscope違反も既定で直列化レーンへ振るため、
+**行き先が無い。**
+
+そして次が効く。
+
+> **正しくコンパイルされた並列planでは、overlapは必ずscope違反を伴う。**
+
+宣言が互いに素だからこそ並列に走れる。他人のscopeへ書くなら必ず自分のscopeの外であり、
+scope違反も同時に立つ。しかもscope述語が先に評価されるので、**先に発火するのは常にscope違反**
+である。実測でも、早期警報からholdまで通ったrunを凍結させたのは`scope_violation`（todo_ids 1件）
+だった。
+
+したがって**scope違反に処置が無い限り、実行時競合からの再開経路は開かない。** path競合側を
+直しただけでは詰まりは解けない。
+
+### 裁定が要ること
+
+scope違反の処置は何であるべきか。直列化ではない——相手が居ない。
+
+| | 処置 | 意味 |
+|---|---|---|
+| A | 違反TODOをretire／replaceして再計画 | 宣言と実態が食い違った作業は、宣言を直して出し直す |
+| B | 宣言を実態へ広げて再計画 | 実際に触った範囲を宣言へ含める。他人のscopeを侵すなら競合が残る |
+| C | 直列化の`todo_ids >= 2`を緩める | 意味的に苦しい |
+
+Aが素直だが、`task_migration`の`replace`／`retire`を使う経路であり、`intentional_serial`でも
+`seam_split`でもない**第三のmode**が要る可能性がある。実装前に確認する。
 
 ## rebindは実runで一度も通っていない（2026-07-28に判明）
 
