@@ -44,6 +44,9 @@ Commands:
   close --run .lattice/runs/<id>
   abandon --run .lattice/runs/<id> --reason <reason>
   list --json
+  seam profile --run .lattice/runs/<id> --finding <digest> --input <symbols.json>
+      # 記録済みfindingの切断コスト内訳を投影する（read-only）。変換を試す前の安い観測で、
+      # 入力は {"concern_symbols": {"T1": ["symbol"], ...}}。閾値も可否判定も返さない。
   seam resolve --run .lattice/runs/<id> --finding <digest> --input <request.json>
       # 記録済み競合を隔離worktreeで実際に変換し、五条件を通ればseam splitと後継baseを返す。
       # 入力(lattice.runtime_seam_request.v1)へ書くのは、係争fileの中で各TODOが触るsymbolと
@@ -57,6 +60,7 @@ Read commands:
   status [--json]
   bindings [--plan <key>] [--json]   # compile_binding付きTaskをTODO identityつきで投影する
   independence [--plan <key>] [--json]  # readyを検証済み並列・要直列・未検査へ分けて投影する
+  seam-profile --plan <key> --file <path> [--json]  # 係争fileの切断コスト内訳を投影する（read-only）
   seam-proposal [--plan <key>] [--json]  # 記録済みseam提案をsensor無しで投影する
   verify [--plan <key>] [--json]
   snapshot --rebuild --plan <key>
@@ -143,11 +147,13 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'run recompile': 'run recompile --run .lattice/runs/<id> --input <recompile-request.json>',
   'run reprocess': 'run reprocess --run .lattice/runs/<id>',
   'run finding record': 'run finding record --run .lattice/runs/<id> --checkpoint <digest> --input <candidate.json>',
+  'run seam profile': 'run seam profile --run .lattice/runs/<id> --finding <digest> --input <symbols.json>',
   'run seam resolve': 'run seam resolve --run .lattice/runs/<id> --finding <digest> --input <seam-request.json>',
   'event verify': 'event verify --run .lattice/runs/<id>',
   'todo status': 'todo status [--json]',
   'todo bindings': 'todo bindings [--plan <key>] [--json]',
   'todo independence': 'todo independence [--plan <key>] [--json] | compile --plan <key> --input <file> | witness migrate --plan <key>',
+  'todo seam-profile': 'todo seam-profile --plan <key> --file <path> [--json]',
   'todo seam-proposal': 'todo seam-proposal [--plan <key>] [--json] | compile --plan <key>',
   'todo verify': 'todo verify [--plan <key>] [--json]',
   'todo snapshot': 'todo snapshot --rebuild --plan <key>',

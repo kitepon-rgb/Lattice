@@ -1218,6 +1218,64 @@ async function runSeamResolve({ runDir, repoRoot, findingDigest, requestPath, st
   return resolution.lane === 'seam_transform' ? 0 : 1;
 }
 
+/**
+ * 切断コストの内訳を、記録済みfindingについて投影する（read-only、docs/plan_seam-cost.md）。
+ *
+ * `seam resolve`が隔離worktreeで実変換まで行うのに対し、これは**変換を試す前の安い観測**である。
+ * 「何を共有しているから単純に切れないのか」を数えられる事実として返し、試すかどうかの判断は
+ * 操作するAIに残す。閾値も可否判定も返さない。投影であって記録ではないので、runへ何も書かない。
+ *
+ * symbolの帰属（concern_symbols）は入力で受ける。実行時のwitnessはpath単位の宣言しか持たず、
+ * 係争fileの中で誰がどのsymbolを触るかはAIだけが知っている——ここで推定しない。
+ */
+async function runSeamProfile({ runDir, repoRoot, findingDigest, inputPath, stdout }) {
+  const committed = await readCommittedEpochStore(runDir);
+  if (committed === null) {
+    throw new CliContractError('RUN_NOT_MANAGED', 'runがmanaged storeへactivateされていない');
+  }
+  const found = await readRuntimeFindingRecord({
+    runDir, findingDigest, planEpoch: committed.pointer.plan_epoch,
+  });
+  if (found.record === null) throw new CliContractError('STALE_FINDING', found.reason);
+  const finding = found.record.finding;
+  if (typeof finding.path !== 'string') {
+    throw new CliContractError('SEAM_PROFILE_UNAVAILABLE',
+      'path findingではない競合に切断コストの内訳は立たない');
+  }
+
+  const declaration = await readBoundedJson(inputPath, 'seam profile input');
+  const identifier = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/u;
+  const symbols = declaration?.concern_symbols;
+  const todoIds = [...finding.todo_ids].sort();
+  const declaredIds = symbols === null || typeof symbols !== 'object' || Array.isArray(symbols)
+    ? null : Object.keys(symbols).sort();
+  if (declaredIds === null
+    || declaredIds.join('\0') !== todoIds.join('\0')
+    || declaredIds.some((todoId) => !Array.isArray(symbols[todoId])
+      || symbols[todoId].length === 0
+      || !symbols[todoId].every((name) => identifier.test(name)))) {
+    throw new CliContractError('SEAM_PROFILE_UNAVAILABLE',
+      'concern_symbolsがfindingのtodo集合と一致しない。'
+      + `{"concern_symbols": {${todoIds.map((id) => `"${id}": ["<symbol>"]`).join(', ')}}}の形で渡す`);
+  }
+
+  let sourceText;
+  try {
+    sourceText = await readFile(path.join(repoRoot, finding.path), 'utf8');
+  } catch {
+    throw new CliContractError('SEAM_PROFILE_UNAVAILABLE', `係争fileを読めない: ${finding.path}`);
+  }
+  const { computeSeamCostProfile } = await import('./seam-cost.mjs');
+  const { profile, reasons } = await computeSeamCostProfile({
+    repoRoot, sourcePath: finding.path, sourceText, ownedSymbolsByTask: symbols,
+  });
+  if (profile === null) {
+    throw new CliContractError('SEAM_PROFILE_UNAVAILABLE', reasons.join(',') || 'profile_unavailable');
+  }
+  stdout.write(`${JSON.stringify(profile)}\n`);
+  return 0;
+}
+
 async function runObserve({ runDir, stdout }) {
   const { events } = await readRunStore(runDir);
   const chain = verifyRunEventChain({ events });
@@ -3868,6 +3926,16 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
         runDir, runRef, operation: 'conflict', artifactDigest: argv[5], stdout,
         requestId: requestIdOverride,
       });
+    };
+  } else if (argv.length === 9
+    && argv[0] === 'run' && argv[1] === 'seam' && argv[2] === 'profile'
+    && argv[3] === '--run' && typeof argv[4] === 'string' && argv[4].length > 0
+    && argv[5] === '--finding' && /^[0-9a-f]{64}$/u.test(argv[6])
+    && argv[7] === '--input' && typeof argv[8] === 'string' && argv[8].length > 0) {
+    action = async () => {
+      const { repoRoot, runDir } = await resolveRunStore(cwd, argv[4]);
+      return runSeamProfile({ runDir, repoRoot, findingDigest: argv[6],
+        inputPath: path.resolve(cwd, argv[8]), stdout });
     };
   } else if (argv.length === 9
     && argv[0] === 'run' && argv[1] === 'seam' && argv[2] === 'resolve'

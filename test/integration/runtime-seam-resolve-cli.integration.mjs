@@ -264,6 +264,37 @@ test('事前宣言なしの競合を、実CLIが変換して解消し再開で�
   assertResumable(scenario);
 });
 
+test('切断コストの内訳を、変換を試す前の投影として返す', async (context) => {
+  const scenario = await resolveScenario(context, { t2Witness: pageWitness() });
+  const { repoRoot, resolution } = scenario;
+  const symbolsPath = path.join(scenario.root, 'profile-symbols.json');
+  await writeFile(symbolsPath, `${JSON.stringify({
+    concern_symbols: { T1: ['renderLeft'], T2: ['CSS'] },
+  })}\n`);
+  const profiled = ok(runCli(['run', 'seam', 'profile', '--run', `.lattice/runs/${RUN_ID}`,
+    '--finding', resolution.finding_digest, '--input', symbolsPath], repoRoot), 'seam profile');
+  const profile = JSON.parse(profiled.stdout);
+  assert.equal(profile.schema, 'lattice.seam_cost_profile.v1');
+  assert.equal(profile.source_path, 'src/page.mjs');
+  // 数えられる事実だけが載る。可否判定や閾値の欄は存在しない。
+  assert.deepEqual(Object.keys(profile.tasks).sort(), ['T1', 'T2']);
+  assert.equal(profile.tasks.T1.symbols[0].name, 'renderLeft');
+  assert.ok(Array.isArray(profile.shared_state));
+  assert.ok(profile.blast_by_depth.renderLeft !== undefined);
+  // 盲点の申告（write情報なし・辺フィルタ・ESM限定）が常に載る。
+  assert.equal(profile.confidence.write_distinction, 'unavailable');
+
+  // 投影であって記録ではない——runへ何も書かない。
+  const eventsAfter = JSON.parse(
+    await readFile(path.join(repoRoot, `.lattice/runs/${RUN_ID}`, 'events.json'), 'utf8'));
+  assert.equal(eventsAfter.some((event) => String(event.kind).includes('profile')), false);
+});
+
+function ok(result, label) {
+  assert.equal(result.status, 0, `${label}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  return result;
+}
+
 test('係争資源を所有していない側がいる実行時競合を、宣言を観測へ合わせて変換まで通す', async (context) => {
   const scenario = await resolveScenario(context, { t2Witness: widgetWitness() });
   const { plan, resolution } = scenario;

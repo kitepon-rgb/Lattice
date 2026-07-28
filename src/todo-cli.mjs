@@ -861,6 +861,56 @@ async function independence({ repoRoot, requestedPlanKey }) {
   return result;
 }
 
+/**
+ * 切断コストの内訳を投影する（read-only、docs/plan_seam-cost.md）。
+ *
+ * 係争fileについて「何を共有しているから単純に切れないのか」を数えられる事実として出す。
+ * task別のsymbol帰属はwitness setのconcern_anchorsから取る——係争資源に対する宣言は
+ * そこに既に在り、ここで発明しない。閾値も可否判定も返さない。
+ *
+ * 投影であって記録ではない。sensorが進めば変わる値なので、artifactへ焼き込まず
+ * stdoutへ返すだけにする（ADR 0127のindependence記録と同じ線）。
+ */
+async function seamProfile({ repoRoot, planKey, filePath }) {
+  const witnessSet = await readTodoWitnessSet({ repoRoot, planKey });
+  if (witnessSet === null) {
+    throw new TodoStoreError('SEAM_PROFILE_UNAVAILABLE', 'witness_set_absent', undefined, {
+      plan_key: planKey, next_action: 'declare_witness_set',
+    });
+  }
+  const ownedSymbolsByTask = {};
+  for (const [taskId, witness] of Object.entries(witnessSet.manual_witness ?? {})) {
+    const symbols = (witness.concern_anchors ?? [])
+      .filter((anchor) => anchor.within?.target === filePath)
+      .flatMap((anchor) => anchor.symbols);
+    if (symbols.length > 0) ownedSymbolsByTask[taskId] = [...symbols].sort();
+  }
+  if (Object.keys(ownedSymbolsByTask).length < 2) {
+    // 帰属が2 task未満なら「切断のコスト」という問いが立たない。宣言が無いことを
+    // 空の内訳へ丸めず、何を書けば観測できるかを返す（ADR 0130の案内規律）。
+    throw new TodoStoreError('SEAM_PROFILE_UNAVAILABLE', 'concern_anchors_below_two_tasks', undefined, {
+      plan_key: planKey, file: filePath,
+      next_action: 'declare_concern_anchors_for_contested_file',
+    });
+  }
+  let sourceText;
+  try {
+    sourceText = await readFile(path.join(repoRoot, filePath), 'utf8');
+  } catch {
+    throw new TodoStoreError('SEAM_PROFILE_UNAVAILABLE', 'contested_file_unreadable', undefined, {
+      file: filePath,
+    });
+  }
+  const { computeSeamCostProfile } = await import('./seam-cost.mjs');
+  const { profile, reasons } = await computeSeamCostProfile({
+    repoRoot, sourcePath: filePath, sourceText, ownedSymbolsByTask,
+  });
+  if (profile === null) {
+    throw new TodoStoreError('SEAM_PROFILE_UNAVAILABLE', reasons[0] ?? 'profile_unavailable');
+  }
+  return profile;
+}
+
 async function seamProposalCompile({ repoRoot, planKey }) {
   requireCleanWorktree(repoRoot);
   const currentBaseSha = currentHeadSha(repoRoot);
@@ -1811,6 +1861,11 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
       pathNames: await readSeamPathNames(repoRoot, argv[5]),
       land: true,
     });
+  } else if ((argv.length === 5 || argv.length === 6) && argv[0] === 'seam-profile'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--file' && isTodoRef(argv[4])
+    && (argv.length === 5 || argv[5] === '--json')) {
+    action = (repoRoot) => seamProfile({ repoRoot, planKey: argv[2], filePath: argv[4] });
   } else if (argv.length === 4 && argv[0] === 'seam-proposal' && argv[1] === 'compile'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
     action = (repoRoot) => seamProposalCompile({ repoRoot, planKey: argv[3] });
