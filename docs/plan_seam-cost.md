@@ -84,7 +84,7 @@ sensor は材料を既に持っている。「関数 → module 変数」の辺�
 - [x] seam profile コマンドを作る（plan/run の両モード・投影のみ）
 - [x] valueRef へ read/write の区別を足す（TS/JS 先行。kernel経路は未配線でconfidence申告、ミラーはsc-007=要Rust toolchain）
 - [ ] read/write の区別を go/python/java のミラーへ広げる
-- [ ] sensor の名前フィルタを緩めて実測する
+- [x] sensor の名前フィルタを緩めて実測する（+232本/+8.8%、時間・DB差なし。sc-001のfixtureは死角=3文字未満へ移し、counterは正の対照へ）
 - [ ] import 束縛の区別（default/named/namespace）を保持する
 - [ ] 装飾込みの開始行を出す
 - [ ] 拡張子省略テーブルを export する
