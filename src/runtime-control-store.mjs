@@ -161,7 +161,7 @@ export function validateRuntimeControlEventPayload(kind, value) {
   // 機械が何かに気づいたのに黙っている状態を残さない。
   if (kind === 'io_warning_observed') {
     return exact(value, ['warning_kind', 'todo_ids', 'path', 'probe_outcome', 'warning_digest'])
-      && ['io_overlap_warning', 'io_scope_warning'].includes(value.warning_kind)
+      && ['io_overlap_warning', 'io_undeclared_write_warning'].includes(value.warning_kind)
       && Array.isArray(value.todo_ids) && value.todo_ids.length >= 1 && value.todo_ids.length <= 256
       && value.todo_ids.every(identifier)
       && value.todo_ids.every((id, index) => index === 0 || value.todo_ids[index - 1] < id)

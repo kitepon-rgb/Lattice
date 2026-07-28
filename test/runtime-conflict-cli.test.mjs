@@ -300,7 +300,7 @@ test('public finding recordは保存checkpointから再導出できないcandida
   assert.equal(JSON.parse(rejected.stderr).code, 'FINDING_UNRESOLVED');
   assert.deepEqual(await readdir(path.join(runDir, 'findings')).catch(() => []), []);
 
-  candidate.proposed_kind = 'scope_violation';
+  candidate.proposed_kind = 'undeclared_write';
   candidate.candidate_digest = selfDigest(candidate, 'candidate_digest');
   await writeFile(input, `${canonicalizeArtifact(candidate)}\n`);
   const accepted = exec(process.execPath, [CLI, 'run', 'finding', 'record', '--run', fixture.runRef,

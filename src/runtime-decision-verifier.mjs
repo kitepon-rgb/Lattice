@@ -150,7 +150,7 @@ export function classifyObservedDiff(options = {}) {
     const declaredWrites = manifests[todoId].writes ?? [];
     for (const path of paths) {
       if (!declaredWriteCovers(declaredWrites, path)) {
-        findings.push({ kind: 'scope_violation', todo_ids: [todoId], path });
+        findings.push({ kind: 'undeclared_write', todo_ids: [todoId], path });
       }
     }
   }

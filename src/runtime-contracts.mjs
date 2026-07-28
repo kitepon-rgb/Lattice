@@ -53,7 +53,7 @@ export const RUNTIME_CONFLICT_KINDS = Object.freeze([
   'observed_write_conflict',
   'semantic_conflict_unknown',
   'effect_conflict_unknown',
-  'scope_violation',
+  'undeclared_write',
   'stale_context',
 ]);
 export const HOLD_REASON_KINDS = Object.freeze([

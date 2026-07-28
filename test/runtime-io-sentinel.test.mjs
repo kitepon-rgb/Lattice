@@ -24,7 +24,7 @@ test('他のrunning TODOの宣言scopeへ書いたら重なりを警報する', 
   });
   // 自分の宣言外でもあるので、scope警報も同時に立つ。
   assert.deepEqual(warnings.map(({ kind }) => kind).sort(),
-    ['io_overlap_warning', 'io_scope_warning']);
+    ['io_overlap_warning', 'io_undeclared_write_warning']);
   const overlap = warnings.find(({ kind }) => kind === 'io_overlap_warning');
   assert.deepEqual(overlap.todo_ids, ['T1', 'T2']);
   assert.equal(overlap.path, 'src/page.mjs');
@@ -53,7 +53,7 @@ test('走っていないTODOの宣言とは重ならない', () => {
   const { warnings } = classifyIoObservation({
     todoId: 'T2', relativePath: 'src/page.mjs', packets, runningTodoIds: ['T2'],
   });
-  assert.deepEqual(warnings.map(({ kind }) => kind), ['io_scope_warning']);
+  assert.deepEqual(warnings.map(({ kind }) => kind), ['io_undeclared_write_warning']);
 });
 
 test('宣言の無いTODOの観測でrunを止めない', () => {
@@ -267,7 +267,7 @@ test('片方しか書いていない重なりは、まだ重なりではない',
 });
 
 test('scope警報は自分のdiffに残っていれば実在である', () => {
-  const warning = { kind: 'io_scope_warning', todo_ids: ['T2'], path: 'src/page.mjs' };
+  const warning = { kind: 'io_undeclared_write_warning', todo_ids: ['T2'], path: 'src/page.mjs' };
   assert.equal(probeIoWarning({
     warning, checkpointsByTodo: { T2: checkpoint(['src/page.mjs']) },
   }).outcome, 'observed');
@@ -390,7 +390,7 @@ test('単独のscope警報はhold経路へ運ばない', () => {
   // 宣言境界は計画時の**予測**であって、workerを閉じ込める制約ではない。範囲内へ無理に
   // 押し込めるとworkerの自由度が落ち、成果の品質が下がる。誰の領分とも重なっていない
   // 宣言外の書き込みは競合ではなく、予測が実態より狭かったという情報である。止めない。
-  const warning = { kind: 'io_scope_warning', todo_ids: ['T2'], path: 'src/page.mjs' };
+  const warning = { kind: 'io_undeclared_write_warning', todo_ids: ['T2'], path: 'src/page.mjs' };
   const checkpointsByTodo = { T2: checkpoint(['src/page.mjs']) };
   const probe = probeIoWarning({ warning, checkpointsByTodo });
   assert.equal(probe.outcome, 'observed');

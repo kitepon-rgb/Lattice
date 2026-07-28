@@ -169,7 +169,7 @@ test('worktree executorは実diffをcheckpoint化しcleanupまで完遂する', 
   assert.equal(worktrees.split('\n').filter((line) => line.startsWith('worktree ')).length, 1);
 });
 
-test('宣言scope外writeはscope_violationとして検出されintakeがfreezeする', async () => {
+test('宣言scope外writeはundeclared_writeとして検出されintakeがfreezeする', async () => {
   const fixture = buildFixture({
     todos: [{ id: 'V1', writes: ['src/one.mjs'] }],
     capacity: 1,
@@ -196,7 +196,7 @@ test('宣言scope外writeはscope_violationとして検出されintakeがfreeze�
   events = classified.events;
 
   assert.equal(classified.findings.length, 1);
-  assert.equal(classified.findings[0].kind, 'scope_violation');
+  assert.equal(classified.findings[0].kind, 'undeclared_write');
   assert.equal(classified.findings[0].path, 'src/rogue.mjs');
 
   // 再分類はidempotent（同一findingを重複記録しない）。
@@ -222,7 +222,7 @@ test('宣言scope外writeはscope_violationとして検出されintakeがfreeze�
       paths: checkpointEvent.payload.diff.entries.map(({ path: p }) => p),
     }],
   });
-  assert.ok(recomputed.findings.some((finding) => finding.kind === 'scope_violation'));
+  assert.ok(recomputed.findings.some((finding) => finding.kind === 'undeclared_write'));
 });
 
 test('checkpoint観測と食い違うreceiptはcheckpoint_mismatchでrejectされる', async () => {
@@ -275,7 +275,7 @@ test('checkpoint観測と食い違うreceiptはcheckpoint_mismatchでrejectさ�
   assert.equal(recomputed.decisions[0].detail, 'checkpoint_mismatch');
 });
 
-test('gitignore済みpathへのwriteもdiff sensorが検出しscope violationになる', async () => {
+test('gitignore済みpathへのwriteもdiff sensorが検出しundeclared writeになる', async () => {
   // baseへ.gitignoreをcommitしたrepoを別に作る（既存fixtureを汚さない）。
   const ignRoot = path.join(temporaryRoot, 'repo-ignored');
   await mkdir(path.join(ignRoot, 'src'), { recursive: true });
@@ -312,7 +312,7 @@ test('gitignore済みpathへのwriteもdiff sensorが検出しscope violationに
       runId: RUN_ID, plan, events, packets, todoId: 'G1', detect: detectCheckpointFindings, recordedAt: AT,
     });
     assert.ok(classified.findings.some((finding) => (
-      finding.kind === 'scope_violation' && finding.path === 'ignored/rogue.txt'
+      finding.kind === 'undeclared_write' && finding.path === 'ignored/rogue.txt'
     )), JSON.stringify(classified.findings));
   } finally {
     baseSha = saved;

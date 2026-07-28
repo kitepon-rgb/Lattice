@@ -257,7 +257,7 @@ export function coveredBy(declaredWrites, observedPath) {
  * cross-bindし、closed conflict分類のfindingを返す（producer側の検出。独立再計算は
  * runtime-decision-verifierの`classifyObservedDiff`が行う）。
  *
- * - scope_violation: 宣言write scope外へのwrite（offender=当該TODO）。
+ * - undeclared_write: 宣言write scope外へのwrite（offender=当該TODO）。
  * - observed_write_conflict: 他のrunning TODOのdeclared writeとのpath overlap。
  */
 export function detectCheckpointFindings(options = {}) {
@@ -276,7 +276,7 @@ export function detectCheckpointFindings(options = {}) {
   const findings = [];
   for (const entry of [...checkpoint.diff.entries].sort((l, r) => (l.path < r.path ? -1 : 1))) {
     if (!coveredBy(packet.scope.writes, entry.path)) {
-      findings.push({ kind: 'scope_violation', todo_ids: [todoId], path: entry.path });
+      findings.push({ kind: 'undeclared_write', todo_ids: [todoId], path: entry.path });
     }
   }
   for (const otherId of [...runningTodoIds].sort()) {

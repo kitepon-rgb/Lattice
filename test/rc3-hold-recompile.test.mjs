@@ -148,7 +148,7 @@ async function runLateConflictScenario() {
   events = classified.events;
   assert.deepEqual(
     classified.findings.map(({ kind }) => kind).sort(),
-    ['observed_write_conflict', 'scope_violation'],
+    ['observed_write_conflict', 'undeclared_write'],
   );
 
   // hold裁定: affected {T1,T2}のみhold、T3はwitness付きでcontinue。

@@ -90,7 +90,7 @@ test('実行時でも名前は製品が発明しない', () => {
 
 test('書込み競合でないfindingと、2 taskに満たないfindingは対象にしない', () => {
   assert.deepEqual(seamConflictFromFinding({
-    finding: { kind: 'scope_violation', path: 'src/page.mjs', todo_ids: ['T1'] }, witnessSet,
+    finding: { kind: 'undeclared_write', path: 'src/page.mjs', todo_ids: ['T1'] }, witnessSet,
   }).reasons, ['finding_not_write_conflict']);
 
   assert.deepEqual(seamConflictFromFinding({

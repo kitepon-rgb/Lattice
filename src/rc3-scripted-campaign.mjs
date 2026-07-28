@@ -482,7 +482,7 @@ async function runScopeViolation({ scaffold }) {
       // offenderとそのaffected closure（ここではTAのみ）をhold。closure外のTBは
       // witnessを実証してcontinueする（plan条件表「offenderとaffected closure hold」）。
       expected: {
-        finding_kinds: ['scope_violation'],
+        finding_kinds: ['undeclared_write'],
         hold_includes_offender: true,
         hold: ['TA'],
         continue: ['TB'],
@@ -1333,6 +1333,8 @@ export async function runRc3ScriptedCampaign(options = {}) {
   };
   const clean = await timed('clean_parallel', () => runCleanParallel({ scaffold }));
   const late = await timed('late_path_conflict', () => runLateConflict({ scaffold }));
+  // 条件名`scope_violation`はRC3 manifestのdirectory名として凍結されているので動かさない。
+  // 中で期待するfinding種別だけが製品に追従して`undeclared_write`になる。
   const scope = await timed('scope_violation', () => runScopeViolation({ scaffold }));
   const semantic = await timed('semantic_unknown', () => runSemanticUnknown({ scaffold }));
   const stale = await timed('stale_receipt', () => runStaleReceipt({ scaffold }));

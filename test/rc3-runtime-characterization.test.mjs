@@ -203,11 +203,11 @@ test('capacity飽和中のnodeはhard predecessor充足でもdispatch不可で�
   assert.deepEqual(frontier.dispatchable, []);
 });
 
-test('宣言外writeと運転中overlapはscope violationとobserved write conflictの別findingになる', async () => {
+test('宣言外writeと運転中overlapはundeclared writeとobserved write conflictの別findingになる', async () => {
   const { classifyObservedDiff } = await import(DECISION_VERIFIER_MODULE);
   // ADR 0044 Decision 5.3 expected example: T1がsrc/a.mjs（declared）と
   // src/c.mjs（undeclared）を変更し、src/c.mjsがT2のdeclared writeである場合、
-  // scope_violation（T1）とobserved_write_conflict（T1×T2）を別findingで保存し、
+  // undeclared_write（T1）とobserved_write_conflict（T1×T2）を別findingで保存し、
   // silent mergeしない。
   const plan = runtimePlan({ nodes: ['T1', 'T2'] });
   const manifests = {
@@ -221,7 +221,7 @@ test('宣言外writeと運転中overlapはscope violationとobserved write confl
 
   const { findings } = classifyObservedDiff({ plan, manifests, observations });
   assert.ok(findings.some((finding) => (
-    finding.kind === 'scope_violation'
+    finding.kind === 'undeclared_write'
     && finding.todo_ids.includes('T1')
     && finding.path === 'src/c.mjs'
   )), JSON.stringify(findings));

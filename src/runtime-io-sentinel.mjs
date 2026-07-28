@@ -28,7 +28,7 @@ import { selfDigest } from './runtime-contracts.mjs';
 import { coveredBy } from './runtime-diff-observer.mjs';
 
 /** 警報の種別。findingのkindとは別空間にする——findingへ昇格するのはprobeを通った後だけである。 */
-export const IO_WARNING_KINDS = Object.freeze(['io_overlap_warning', 'io_scope_warning']);
+export const IO_WARNING_KINDS = Object.freeze(['io_overlap_warning', 'io_undeclared_write_warning']);
 
 /**
  * 監視から外すrepo相対prefix。
@@ -65,7 +65,7 @@ export function isExcludedPath(relativePath, excludes = DEFAULT_IO_EXCLUDES) {
  *
  * checkpoint findingの2述語をそのまま1 pathへ適用する:
  * - 他のrunning TODOの宣言scopeに入るpathへ書いた → `io_overlap_warning`
- * - 自分の宣言scopeの外へ書いた → `io_scope_warning`
+ * - 自分の宣言scopeの外へ書いた → `io_undeclared_write_warning`
  *
  * @returns {{warnings: Array<{kind: string, todo_ids: string[], path: string}>}}
  */
@@ -84,7 +84,7 @@ export function classifyIoObservation(options = {}) {
 
   const warnings = [];
   if (!coveredBy(packet.scope.writes, relativePath)) {
-    warnings.push({ kind: 'io_scope_warning', todo_ids: [todoId], path: relativePath });
+    warnings.push({ kind: 'io_undeclared_write_warning', todo_ids: [todoId], path: relativePath });
   }
   for (const otherId of [...runningTodoIds].sort(compareText)) {
     if (otherId === todoId) continue;
@@ -327,7 +327,7 @@ function selectEscalationAnchor({ warning, writers, packets }) {
   const wrote = new Set(writers);
   const qualified = [...warning.todo_ids].sort(compareText).filter((todoId) => {
     if (!wrote.has(todoId)) return false;
-    if (warning.kind === 'io_scope_warning') return true;
+    if (warning.kind === 'io_undeclared_write_warning') return true;
     return warning.todo_ids.some((otherId) => {
       if (otherId === todoId) return false;
       const other = packets[otherId];

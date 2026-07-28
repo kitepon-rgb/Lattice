@@ -81,6 +81,9 @@ const VERIFICATION_STATUSES = new Set(['passed', 'failed', 'not_run']);
 const RECEIPT_OUTCOMES = new Set(['passed', 'failed']);
 const CLEANUP_STATUSES = new Set(['passed', 'failed', 'unresolved']);
 const SOURCE_STATUSES = new Set(['unchanged', 'changed', 'unresolved']);
+// **これは製品のfinding種別ではない。** RC1/RC2の変換拒否理由であり、同名の
+// `undeclared_write`（実行時competitionの観測）とは別空間である。研究成果物へ
+// 焼き込まれているので、名前を動かすと当時の記録と食い違う。
 const TRANSFORM_REJECTION_KINDS = new Set([
   'scope_violation',
   'behavior_verification_failed',

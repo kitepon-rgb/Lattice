@@ -43,7 +43,7 @@ test('別の資源・別のtask対・別の種別は別の競合として数え�
     conflictEvent(1, 'src/a.mjs', ['T1', 'T2']),
     conflictEvent(2, 'src/b.mjs', ['T1', 'T2']),
     conflictEvent(3, 'src/a.mjs', ['T1', 'T3']),
-    conflictEvent(4, 'src/a.mjs', ['T1', 'T2'], 'scope_violation'),
+    conflictEvent(4, 'src/a.mjs', ['T1', 'T2'], 'undeclared_write'),
   ];
   assert.deepEqual(detectNonConvergentConflicts({ events }), []);
 });

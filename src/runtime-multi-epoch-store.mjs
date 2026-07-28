@@ -83,7 +83,7 @@ export function validateRuntimeFindingRecord(value) {
     || new Set(finding.evidence_digests).size !== finding.evidence_digests.length
     || finding.evidence_digests.some((entry, index) => index > 0 && finding.evidence_digests[index - 1] >= entry)
     || !selfDigestValid(finding, 'finding_digest')) return false;
-  const pathKind = ['observed_write_conflict', 'scope_violation', 'stale_context'].includes(finding.kind);
+  const pathKind = ['observed_write_conflict', 'undeclared_write', 'stale_context'].includes(finding.kind);
   if (pathKind !== (finding.path !== null) || pathKind === (finding.resource_id !== null)) return false;
   const observer = value.recorded_by;
   return exactRecord(observer, ['schema', 'kind', 'controller_registration_digest',
@@ -109,7 +109,7 @@ export function validateRuntimeFindingCandidate(value) {
     || value.evidence_digests.some((digest, index) => index > 0
       && value.evidence_digests[index - 1] >= digest)
     || !selfDigestValid(value, 'candidate_digest')) return false;
-  const pathKind = ['observed_write_conflict', 'scope_violation', 'stale_context']
+  const pathKind = ['observed_write_conflict', 'undeclared_write', 'stale_context']
     .includes(value.proposed_kind);
   return pathKind
     ? typeof value.path === 'string' && value.path.length > 0 && value.resource_id === null

@@ -128,7 +128,7 @@ test('宣言や名前が足りない競合は変換にかけない', async () =>
   assert.deepEqual(missingName.reasons, ['owned_path_name_missing:T2']);
 
   const notWriteConflict = await resolveRuntimeSeamTreatment(base({
-    finding: { kind: 'scope_violation', path: 'src/page.mjs', todo_ids: ['T1'] },
+    finding: { kind: 'undeclared_write', path: 'src/page.mjs', todo_ids: ['T1'] },
   }));
   assert.equal(notWriteConflict.lane, 'intentional_serial');
   assert.deepEqual(notWriteConflict.reasons, ['finding_not_write_conflict']);
