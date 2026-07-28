@@ -919,7 +919,9 @@ export async function createScriptedAdapterController({
         worktree_id: rebind.worktree_id,
         predecessor_epoch: rebind.new_plan_epoch - 1,
         successor_epoch: rebind.new_plan_epoch,
-        predecessor_packet_digest: task.receipt.packet_digest,
+        // **holdされたworkerにreceiptは無い。** 作業を終えていないから止められているので、
+        // 完了の記録を前提にできない。前任packetのdigestはdispatch時のpacketが持っている。
+        predecessor_packet_digest: task.packet.packet_digest,
         rebind_packet_digest: rebind.packet_digest,
         new_write_lease_id: staged.lease_id,
         supervisor_session_nonce_digest: sessionNonceDigest,

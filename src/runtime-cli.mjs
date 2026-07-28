@@ -2166,14 +2166,18 @@ export async function runManagedSupervisorDaemon({
   /** 警報の処理を直列化する鎖。`onWarning`はここへ繋ぐだけにする。 */
   let escalationChain = Promise.resolve();
 
-  const resolveObservationBinding = async ({ binding }) => {
+  const resolveObservationBinding = async ({ binding, ack }) => {
+    // rebind経路はrunning bindingを持たず、ackだけで来る（`kind: 'rebind'`）。どちらから来ても
+    // 同じdispatch記録へ辿り着けなければ、繋ぎ直す相手を特定できない。
+    const todoId = binding?.todo_id ?? ack?.todo_id;
+    const executorHandle = binding?.executor_handle ?? ack?.executor_handle;
     const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
     const dispatch = events.findLast((event) => event.kind === 'executor_dispatched'
-      && event.subject?.kind === 'todo' && event.subject.ref === binding?.todo_id
-      && event.payload?.executor_handle === binding?.executor_handle);
+      && event.subject?.kind === 'todo' && event.subject.ref === todoId
+      && event.payload?.executor_handle === executorHandle);
     const observation = dispatch?.payload?.direct_os_observation_binding;
     if (observation === null || typeof observation !== 'object' || Array.isArray(observation)) {
-      throw new ManagedRuntimeError('HOLD_ACKS_INCOMPLETE', `durable Direct OS binding不足: ${binding?.todo_id ?? 'unknown'}`);
+      throw new ManagedRuntimeError('HOLD_ACKS_INCOMPLETE', `durable Direct OS binding不足: ${todoId ?? 'unknown'}`);
     }
     return structuredClone(observation);
   };
