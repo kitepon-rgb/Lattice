@@ -459,6 +459,16 @@ runtimeはそれをprojectのLattice TODO storeへcommitする（`applyPhaseTodo
 - [x] 観測された実態へ宣言を合わせる翻訳段を作る
 - [x] 実行時競合で請求項8を選ぶ条件を決める
 
+## 確実の門の計画時展開は起票条件つきで見送り（2026-07-29に裁定）
+
+gate分類（ADR 0146）は実行時resolve面だけが返し、計画時`seam-proposal apply`は
+typed理由のみ返す。非対称は欠陥ではなく必要の輪郭——分類は理由から操作AIが導ける。
+engine手前の理由`no_seam_candidate`／`finding_not_write_conflict`は門の正典に無く
+`unrecognized`＝hand_to_aiへ倒れるが、これは設計どおりの安全側である。
+**起票条件**: 計画時applyの拒否理由が操作AIを実際に迷わせた事例が1件出たら、
+gateの計画時展開（`seam_apply_outcome.v1`はreleased schemaなのでCHANGELOG明記か版上げ）と
+上記2語の分類（第3のhandoffが要るか）を同時に裁定する。
+
 ---
 
 # 請求項の充足状況
