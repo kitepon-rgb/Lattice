@@ -1,0 +1,9 @@
+{
+  "anchor_digest": null,
+  "content_digest": "9cf6f14fd51e277e1bcc5328d6c1c29c2cd09035178e9d6141fb347d7a2ce6a1",
+  "evidence_id": "hold-resume-rebind-20260728",
+  "git_blob_oid": "c6581b3098cca8e1266f3fbbe2c99fe4f5fc75ee",
+  "media_type": "text/plain",
+  "path": "test/integration/hold-resume.integration.mjs",
+  "repo_id": "self"
+}
