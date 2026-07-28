@@ -82,7 +82,7 @@ sensor は材料を既に持っている。「関数 → module 変数」の辺�
 - [x] sensor の callers/callees へ辺種別と valueRef を出す（--limit 200も。既定20件で実際に3件切られていた）
 - [x] 切断コストの内訳を計算する seam-cost module を作る
 - [x] seam profile コマンドを作る（plan/run の両モード・投影のみ）
-- [ ] valueRef へ read/write の区別を足す（TS/JS 先行）
+- [x] valueRef へ read/write の区別を足す（TS/JS 先行。kernel経路は未配線でconfidence申告、ミラーはsc-007=要Rust toolchain）
 - [ ] read/write の区別を go/python/java のミラーへ広げる
 - [ ] sensor の名前フィルタを緩めて実測する
 - [ ] import 束縛の区別（default/named/namespace）を保持する
