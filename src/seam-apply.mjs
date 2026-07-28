@@ -230,6 +230,7 @@ export function seamConflictFromProposal({ proposal, witnessSet, pathNames = {} 
  */
 export function seamConflictFromFinding({
   finding, witnessSet, pathNames = {}, affectedTests = [], baseSha, manifestDigest,
+  recordedFindingDigest = null,
 } = {}) {
   if (finding?.kind !== 'observed_write_conflict' || typeof finding.path !== 'string') {
     return { conflict: null, reasons: ['finding_not_write_conflict'] };
@@ -250,7 +251,11 @@ export function seamConflictFromFinding({
       baseSha,
       manifestDigest,
       // 実行時は提案artifactが無い。観測したfindingそのものを出所として縛る。
-      findingDigest: digestArtifact({
+      //
+      // **記録済みfindingのdigestがあるなら、それを使う。** 内容から再導出したdigestで縛ると、
+      // 「この変換はあのfindingへの答えだ」という記録が、storeに実在しないidを指す。実際、
+      // 再計画側は`findings/<digest>.json`を読むので、再導出値では必ず読めない。
+      findingDigest: recordedFindingDigest ?? digestArtifact({
         kind: finding.kind, path: finding.path, todo_ids: taskIds,
       }),
       candidateId: `seam-runtime-${sha16(`${finding.path}\0${taskIds.join(',')}`)}`,

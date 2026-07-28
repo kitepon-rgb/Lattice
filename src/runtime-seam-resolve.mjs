@@ -300,6 +300,8 @@ export async function resolveRuntimeSeam({
     manifestDigest: baseArtifact.result_digest,
     affectedTests,
     taskMigrationDigest: declaration.task_migration_digest,
+    // storeへ記録されたfindingのidで縛る。再計画側はこのidでfinding recordを読む。
+    recordedFindingDigest: findingRecord.finding_digest,
     commitTransform: async ({ files, candidateId }) => commitSeamTransform({
       repoRoot, baseSha, files, candidateId,
     }),

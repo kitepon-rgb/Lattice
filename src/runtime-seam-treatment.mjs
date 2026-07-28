@@ -99,7 +99,7 @@ export async function resolveRuntimeSeamTreatment(options = {}) {
   const {
     finding, witnessSet, pathNames = {}, predeclaredTreatments = [],
     applyConflict, commitTransform, baseSha, manifestDigest, affectedTests = [],
-    taskMigrationDigest,
+    taskMigrationDigest, recordedFindingDigest = null,
   } = options;
 
   if (finding?.kind === 'observed_write_conflict' && typeof finding.path === 'string') {
@@ -112,6 +112,7 @@ export async function resolveRuntimeSeamTreatment(options = {}) {
 
   const { conflict, reasons } = seamConflictFromFinding({
     finding, witnessSet, pathNames, affectedTests, baseSha, manifestDigest,
+    recordedFindingDigest,
   });
   if (conflict === null) {
     return { lane: 'intentional_serial', treatment: null, split: null, reasons };
