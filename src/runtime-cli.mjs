@@ -2502,6 +2502,19 @@ export async function runManagedSupervisorDaemon({
         if (finding.plan_epoch !== active.pointer.plan_epoch) {
           throw new ManagedRuntimeError('STALE_FINDING', 'findingはactive epochに属さない');
         }
+        // 競合は2者以上いて初めて競合である。1者しか名指していない観測——誰の領分とも
+        // 重なっていない予測超過——でfreezeすると、抜け道が無い。処置は2つとも2者を要求する
+        // （直列化は`todo_ids.length >= 2`、seam変換は2つの面へ切る）ので、legalなrecompileが
+        // 作れないまま止まる。予測が狭かっただけなので、記録して次のcompileで宣言を実態へ
+        // 合わせるのが正しい応答である。
+        if ((finding.finding?.todo_ids ?? []).length < 2) {
+          throw new ManagedRuntimeError('FINDING_NOT_A_CONFLICT',
+            '1 TODOしか名指していない観測はfreezeへ運べない。'
+            + '予測超過は競合ではないので、記録のまま次のcompileで宣言を観測へ合わせる', {
+              finding_kind: finding.finding?.kind ?? null,
+              todo_ids: [...(finding.finding?.todo_ids ?? [])],
+            });
+        }
         let events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
         const todoId = finding.finding?.todo_ids?.[0] ?? active.bundle.plan.nodes[0].todo_id;
         events.push(buildNextRunEvent({ events, runId: request.request_id, kind: 'conflict_found', planEpoch: active.pointer.plan_epoch,
