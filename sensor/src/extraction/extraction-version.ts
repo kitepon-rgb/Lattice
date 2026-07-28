@@ -21,4 +21,8 @@
  * turns the re-index hint into noise — keep it honest (see CLAUDE.md, "Honesty
  * in the product is load-bearing").
  */
-export const EXTRACTION_VERSION = 24;
+// 25 (2026-07-29): value-ref write distinction (TS/JS), name-filter relaxation
+// (+8.8% value-ref edges), import binding metadata (default/named/namespace +
+// alias), decorator/attribute-inclusive extents (extent_start_line), Rust
+// attribute_item collection — all change extraction output for unchanged text.
+export const EXTRACTION_VERSION = 25;
