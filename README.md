@@ -62,7 +62,7 @@ A transform is adopted only when **all five** hold. One missing condition reject
 
 | Condition | Meaning |
 |---|---|
-| `behavior_equivalent` | The original path's public export surface is preserved |
+| `behavior_equivalent` | The original path's public export surface is preserved, and no moved code references a symbol that stayed behind without a binding (severed-reference net) |
 | `focused_tests_passed` | The affected tests actually pass against the transformed source |
 | `sensor_fresh` | The structure index was rebuilt and covers the new surfaces |
 | `overlap_reduced` | The target conflict is gone **and** plan-wide conflict pairs did not increase |
@@ -77,7 +77,16 @@ carries a second stage at runtime.
 While work executes, Lattice observes **what was actually changed**, not what was declared. When
 it sees a task writing outside its declared scope, or into another running task's scope, it
 raises a runtime conflict — and can either hold one side while the other commits, or transform
-the seam and resume both.
+the seam and resume both. Both treatments are exercised end-to-end against a live store in the
+integration suite.
+
+Two projection surfaces support that decision without scoring anyone. `lattice run seam profile`
+(and `todo seam-profile` at plan time) reports the countable anatomy of a cut — cross references,
+shared module state with read/write distinction, shared imports, cycles — with declared blind
+spots, and never persists into any digested artifact. And every machine-transform rejection is
+classified by a **certainty gate**: the machine only transforms what it can do with certainty,
+and each refusal says whether fixing the declaration suffices or the seam should be handed to
+the operating AI.
 
 ## Install
 

@@ -1,4 +1,4 @@
-# Lattice 製品契約（0.12.25）
+# Lattice 製品契約（0.33.0）
 
 ## Product outcome
 
@@ -34,7 +34,9 @@ node更新時刻をplan identityへ混ぜない。除外fieldはprojection versi
 現役run storeは対象Git rootの`.lattice/runs/<run-id>/`だけに置き、target repoが`.lattice/runs/`を
 git ignoreしていることを作成前に検証する。run refはrepo相対の同形式だけを受理し、旧実験rootや任意pathへfallbackしない。
 
-公開CLIは`run start`、`list --json`、`observe`、`status`、`resume`、`close`、`abandon`と`event verify`を持つ。
+公開CLIは`run start`、`list --json`、`observe`、`status`、`resume`、`close`、`abandon`、`activate`、
+`conflict`、`hold`、`recompile`、`reprocess`、`finding record`、`seam resolve`、`seam profile`と
+`event verify`を持つ。
 
 実dispatchへ到達する経路も公開面で閉じている（ADR 0125・0126）。executor adapterの登録は
 `run adapter register --input <file>`／`run adapter list --json`であり、入力schemaは
@@ -46,6 +48,34 @@ binary／config／capabilities／自己digestはCLIが導出する。
 `resume`と正常`close`は保存requestのbase SHAへbindし、stale baseを拒否する。`abandon`だけがstale runを
 明示退役でき、理由を`run_closed` eventへ記録する。lifecycle writeは排他・atomicである。
 runtimeのtimestampは実在する暦日のcanonical UTC millisecondsだけを受理する。
+
+## 実行時競合とseam処置面（ADR 0138・0143〜0146）
+
+実行中は宣言でなく実変更を観測する。書き込み観測はfindingとして記録し、独立に再導出できない
+findingは記録しない。宣言超過だけで他の進行中作業と重ならない観測はconflictにしない
+（ADR 0144——境界は予測であって制約ではない）。1 taskしか名指さないfindingをconflict操作へ
+渡した場合は`FINDING_NOT_A_CONFLICT`で拒否する。
+
+conflictの処置は2系統である。直列化（一方をholdし他方の確定後に再開）と、変換
+（双方を止め、`run seam resolve`で観測由来のseam変換を隔離worktree・受入五条件で通し、
+phase revisionの`runtime_seam_split`で再コンパイルして双方を再開する）。振り分けの材料として
+statusの投影は`treatment_advice`（finding digest・severability・transform可否）を機械可読で返す。
+`run seam resolve`は宣言witnessを観測へ整合させる翻訳段（`reconciled`）を持ち、観測に裏づけの
+ない拡幅は`observation_unbacked`系のtyped理由で拒否する。
+
+受入五条件（ADR 0138）の`behavior_equivalent`は公開export面の保存に加えて切断参照の網
+（ADR 0145）を含む——移した先が残余面のsymbolへ束縛なしで言及していれば不認定にする。網は
+受入の一点だけで過程を監視せず、失敗は理由と次の一歩を返す不認定であって、回数・失敗を誰にも
+記録しない。
+
+機械変換は確実にできる内容だけ行う。前提の正典は`SEAM_GATE_PRECONDITIONS`で、resolutionの
+`gate`が拒否理由を`fix_declaration`（宣言修正で機械再試行可）と`hand_to_ai`（機械の変換能力の
+外＝操作AIが変換すべき）へ分類する。未知の理由は確実側へ丸めず安全側の手渡しにする（ADR 0146）。
+
+切断コストの内訳は投影であって記録ではない。`run seam profile`（run-time）と
+`todo seam-profile --plan <key> --file <path>`（plan-time）が、数えられる事実——相互参照、
+read/write区別つき共有module状態、共有関数、共有import、循環、symbol行数、深さ別影響——を
+盲点のconfidence申告つきで返す。閾値・採点・履歴台帳を持たず、digest済みartifactへ焼き込まない。
 
 ## Transformation boundary
 

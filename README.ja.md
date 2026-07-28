@@ -47,11 +47,21 @@ planを再コンパイルします。共有面が共有でなくなるので、�
 
 | 条件 | 意味 |
 |---|---|
-| `behavior_equivalent` | 原pathの公開export面が保たれている |
+| `behavior_equivalent` | 原pathの公開export面が保たれ、移した先が残余面のsymbolへ束縛なしで言及していない（切断参照の網） |
 | `focused_tests_passed` | 影響testが変換後のsourceで実際に通る |
 | `sensor_fresh` | 構造索引を取り直し、新しい面を収載している |
 | `overlap_reduced` | 対象の競合が消え、**かつ**plan全体の競合対が増えていない |
 | `parallelism_improved` | 実行段階数が減っている |
+
+### 実行段階の二段構え
+
+計画時に完全な分断は原理的に得られません（動的dispatch・実行時に決まるpath・外部状態）。
+そのため実行中は宣言でなく**実際に変更された資源**を観測し、宣言scope外への書き込みや
+進行中の他工程のscopeとの重なりを実行時競合として挙げます。処置は「一方をholdして他方を
+確定→再開」か「双方停止→seam変換→双方再開」の二択で、どちらも実storeに対する
+integration testで一気通貫に検証済みです。切断の重さは`lattice run seam profile`
+（計画時は`todo seam-profile`）が数えられる事実だけで投影し、機械変換の可否は「確実の門」が
+typed理由つきで分類します——宣言を直せば通るのか、操作AIへ渡すべきなのかまで返します。
 
 ## 開発工場での位置づけ
 

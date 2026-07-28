@@ -464,7 +464,7 @@ runtimeはそれをprojectのLattice TODO storeへcommitする（`applyPhaseTodo
 # 請求項の充足状況
 
 製品目標は特許請求の範囲12項の体現である（正本は`AGENTS.md`が指すPatent repo。請求項本文はここへ複製しない）。
-2026-07-27時点の実コード照合結果。
+2026-07-28時点の実コード照合結果。
 
 **出願済み: 2026-07-27・特願2026-178950「情報処理装置、ソフトウェア開発制御方法及びプログラム」・
 請求項12項。** 出願日が確保されたので、公開面へ出さないという制限は解けている。
@@ -484,9 +484,9 @@ runtimeはそれをprojectのLattice TODO storeへcommitする（`applyPhaseTodo
 | 3 構造グラフ | 物は在る | sensorのnode／edge知識グラフ。ただし項2従属 |
 | 4 読取り／書込みからの競合判定 | 実装済み | `runtime-front-end.mjs`のwrite×read/write交差 |
 | 5 競合時のリファクタリング | **実装済み** | 宣言anchorのsymbolを所有面へ移し、未宣言の依存先を共有面へ、残りを残余面へ分ける。公開ビルドが他所のprojectでも実行できることを確認済み |
-| 6 前後比較と再推定 | **実装済み** | 五条件が外部挙動同等性（原pathの公開面）・focused test・再index・重複解消（対象競合の消滅とplan全体の競合対の非増加）・実行段階数の改善を測る。1つでも欠けたら棄却 |
+| 6 前後比較と再推定 | **実装済み** | 五条件が外部挙動同等性（原pathの公開面＋切断参照の網、ADR 0145）・focused test・再index・重複解消（対象競合の消滅とplan全体の競合対の非増加）・実行段階数の改善を測る。1つでも欠けたら棄却 |
 | 7 一方停止・他方commit・再開 | **確定の手段が入った** | 停止と再開は実装済み。各TODOは隔離worktreeで走り、freeze後は影響閉包内だけhold、閉包外は`carry_over_witness`（`todo_input`／`boundary_manifest`／`validator`／`context_content`のdigest＋非重複証拠＋receipt binding）を実証できた場合だけ継続する。請求項が版管理commitで果たす「他方の確定」を、隔離worktree＋暗号学的witnessで果たしている。`commit`が`FORBIDDEN_OPERATIONS`なのは公開契約の「承認なしに外部effectを行わない」に由来するので、明示承認付きのcommit経路を足せば思想と衝突しない |
-| 8 双方停止・限定変換・双方再開 | **実装済み・製品面から到達可能** | 実行時に観測した競合から変換候補を導出し、隔離worktreeで五条件を通して`runtime_seam_split`を組む（[記録](evidence/2026-07-27-xf-003-runtime-transform-loop.md)）。入口は`lattice run seam resolve`で、事前宣言のない競合が実CLI・実sensor・実repoで変換され、返った後継baseに宣言した面が実在するところまで通る（[記録](evidence/2026-07-27-functional-parity.md)） |
+| 8 双方停止・限定変換・双方再開 | **実装済み・実runで一気通貫** | 実行時に観測した競合から変換候補を導出し、隔離worktreeで五条件を通して`runtime_seam_split`を組む（[記録](evidence/2026-07-27-xf-003-runtime-transform-loop.md)）。入口は`lattice run seam resolve`（宣言→観測の翻訳段`reconciled`つき）。双方hold→変換→land→phase revision再コンパイル→双方が同一waveでdispatchableまでを実store・実daemonで通した（`test/integration/hold-transform-resume.integration.mjs`）。「限定」は確実の門（ADR 0146）が正典化し、機械変換の外はtyped理由で操作AIへ渡す |
 | 9 実変更観測による実行時競合検出 | 実装済み | `detectCheckpointFindings`が`undeclared_write`と`observed_write_conflict`を返す |
 | 10 対象作業群だけ停止して再計画 | 実装済み | `computeAffectedClosure`＋`recompileNextEpochPlan` |
 | 11・12 | 1と同じ | |
