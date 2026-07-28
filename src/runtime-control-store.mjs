@@ -171,6 +171,18 @@ export function validateRuntimeControlEventPayload(kind, value) {
         warning_kind: value.warning_kind, todo_ids: value.todo_ids, path: value.path,
       });
   }
+  // 破棄の決定としてworker processを終了した記録。**cleanupではない。**
+  // 停止したworkerの行き先は「再開」か「破棄」の二択であり、破棄を選んだなら
+  // 誰を止めたかが残っていなければ、後から何が捨てられたか説明できない。
+  if (kind === 'worker_processes_terminated') {
+    return exact(value, ['reason', 'terminated_pids', 'skipped_count'])
+      && typeof value.reason === 'string' && value.reason.length > 0
+      && Array.isArray(value.terminated_pids) && value.terminated_pids.length <= 4096
+      && value.terminated_pids.every((pid) => Number.isSafeInteger(pid) && pid > 0)
+      && value.terminated_pids.every((pid, index) => index === 0
+        || value.terminated_pids[index - 1] < pid)
+      && Number.isSafeInteger(value.skipped_count) && value.skipped_count >= 0;
+  }
   // probeを通った警報を既存hold経路へ入れた顛末（ADR 0143の三段目）。
   // 成否どちらも残す。自動escalationが黙って失敗する状態を作らない——失敗の理由は
   // `detail`が持ち、これが無いと「警報は出たのにholdが掛かっていない」を後から説明できない。

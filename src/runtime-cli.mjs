@@ -743,6 +743,40 @@ async function readScriptedControllerReceipt({
   return receipt;
 }
 
+/**
+ * runが起こしたworker processを、耐久記録から回収する。
+ *
+ * **記録が正本である。** 誰を起こしたかは`executor_dispatched`の
+ * `direct_os_observation_binding`が持っており、controllerが落ちていても残る。
+ *
+ * pidだけで殺さない。pidは再利用されるので、start identityを取り直して記録と一致した
+ * ものだけを止める——一致しなければ、それは別のprocessである。
+ *
+ * SIGKILLで送る。holdで止めたworkerはSIGSTOP状態にあり、SIGTERMは継続されるまで
+ * 配送されない。停止したまま放置されたprocessは自分では終われない。
+ */
+async function reapRunWorkerProcesses({ events }) {
+  const reaped = [];
+  const skipped = [];
+  const seen = new Set();
+  for (const event of events) {
+    if (event.kind !== 'executor_dispatched') continue;
+    const binding = event.payload?.direct_os_observation_binding;
+    const pid = binding?.process_pid;
+    const recorded = binding?.process_start_identity?.identity_digest;
+    if (!Number.isSafeInteger(pid) || typeof recorded !== 'string' || seen.has(pid)) continue;
+    seen.add(pid);
+    const observed = await observeManagedProcessStartIdentity(pid).catch(() => null);
+    if (observed === null) continue; // 既に居ない
+    if (observed.identity_digest !== recorded) {
+      skipped.push({ pid, reason: 'start identity不一致（pid再利用）' });
+      continue;
+    }
+    try { process.kill(pid, 'SIGKILL'); reaped.push(pid); } catch { /* 競合で既に消えた */ }
+  }
+  return { reaped, skipped };
+}
+
 async function driveInitialScriptedManagedEpoch({
   runDir,
   repoRoot,
@@ -1844,8 +1878,6 @@ export async function runManagedSupervisorDaemon({
    * 自分のprocessで作業するので、そのprocessを止めると制御そのものが止まる——止めない限り
    * 証明できず、止めれば応答できない。**別processのexecutorを持つまでこの穴は埋まらない。**
    */
-  const canProveQuiescence = () => true;
-
   const attributionIsDistinct = (warning, roots) => {
     const paths = warning.todo_ids.map((todoId) => roots[todoId]);
     if (paths.some((value) => typeof value !== 'string')) return false;
@@ -1973,19 +2005,6 @@ export async function runManagedSupervisorDaemon({
     if (!attributionIsDistinct(warning, probed.roots)) {
       return decide('skipped',
         'worktree rootを共有する構成では書き手を特定できない（帰属はrootだけで決まる）');
-    }
-    // **holdは静止の証明を要求する。** 直接OS観測はexecutorのprocessが実際に停止している
-    // ことまで確かめるが、executorがcontroller自身のprocessである構成では、止めると
-    // 制御そのものが止まるので証明できない。
-    //
-    // ここで止めるのは、conflictがintakeをfreezeするからである。freezeしてholdが通らない
-    // 状態を作ると、runは進むことも畳むこともできなくなる（abandonも静止を要求する）。
-    // 止められないと分かっているなら、freezeさせない方が安全側である。判定はcheckpointが
-    // 従来どおり担う——早期警報は早めるためだけに在るという原則どおり。
-    if (!canProveQuiescence()) {
-      return decide('rejected',
-        'executorがcontroller自身のprocessで走っており、静止を証明できない'
-        + '（停止すると制御も止まる）。freezeさせるとrunを畳めなくなるので進めない');
     }
     const recorded = await recordCheckpoints(escalation, probed.checkpoints);
     if (!recorded.ok) return decide(recorded.outcome, recorded.detail);
@@ -3002,9 +3021,22 @@ export async function runManagedSupervisorDaemon({
             recordedAt: canonicalNow() })];
         }
         await replaceEventsAtomically(runDir, events);
-        // abandonは成果を捨てる決定なので、workerの木も畳む。closeでは畳まない——
-        // 木そのものがrunの成果であり、着地させる前に消したら受理した内容が残らない。
+        // **abandonは成果を捨てる決定である。** worker processの終了はcleanupではなく
+        // その決定の一部なので、誰を止めたかを記録へ残す。closeでは何もしない——
+        // 完走したrunのworkerは既にterminalであり、生きていればそれは欠陥である
+        // （`closeRunIfComplete`が全TODO accepted を要求するので、そもそもcloseへ来ない）。
         if (controlRequest.operation === 'abandon') {
+          const reaped = await reapRunWorkerProcesses({ events }).catch(() => null);
+          if (reaped !== null && (reaped.reaped.length > 0 || reaped.skipped.length > 0)) {
+            await appendControl({ run_id: request.request_id, kind: 'worker_processes_terminated',
+              session_nonce_digest: digestArtifact(sessionNonce), payload: {
+                reason: shutdownReason,
+                terminated_pids: [...reaped.reaped].sort((left, right) => left - right),
+                skipped_count: reaped.skipped.length,
+              } });
+          }
+          // 木も畳む。closeでは畳まない——木そのものがrunの成果であり、着地させる前に
+          // 消したら受理した内容が残らない。
           await removeScriptedWorktrees({ repoRoot, runDir }).catch(() => null);
         }
         await appendControl({ run_id: request.request_id, kind: 'supervisor_stopped',
@@ -3528,6 +3560,11 @@ export async function runManagedSupervisorDaemon({
     // 監視fdを残さない。取り残すとtest fixtureの後片付けが重くなる。
     sentinel?.close();
     sentinel = null;
+    // **これは事故処理であって、正しい閉じ方ではない。** 正規の終了はabandon（破棄の決定）か
+    // hold後の再開であり、そのどちらも通らずdaemonが落ちる時だけここへ来る。停止した
+    // workerは自分では終われないので、記録から辿って道連れにする。
+    await readBoundedJson(path.join(runDir, 'events.json'), 'run events')
+      .then((events) => reapRunWorkerProcesses({ events })).catch(() => null);
     if (activationCommitted && activation !== null) {
       await appendControl({ run_id: request.request_id, kind: 'supervisor_stopped',
         session_nonce_digest: digestArtifact(sessionNonce), payload: { signal } });

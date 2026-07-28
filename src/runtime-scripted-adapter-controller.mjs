@@ -511,6 +511,21 @@ export async function createScriptedAdapterController({
   let registrationDigest = null;
 
   /** dispatch応答が運ぶworker process。誰を止めればよいかをsupervisorへ名指しする。 */
+  /**
+   * 起こしたworker processを畳む。
+   *
+   * **SIGKILLでなければ届かない。** barrierで止めたworkerはSIGSTOP状態にあり、
+   * SIGTERMは継続されるまで配送されない。放置すると、runもcontrollerもrepoも消えた後まで
+   * 停止したままのprocessが残り続ける（自分では終われない）。
+   */
+  const reapWorkers = () => {
+    for (const task of tasks.values()) {
+      const pid = task.worker?.pid;
+      if (!Number.isSafeInteger(pid)) continue;
+      try { process.kill(pid, 'SIGKILL'); } catch { /* 既に終わっている */ }
+    }
+  };
+
   const workerProcessOf = (task) => ({
     pid: task.worker.pid,
     process_group_id: task.worker.process_group_id,
@@ -947,6 +962,7 @@ export async function createScriptedAdapterController({
     controllerSessionNonce,
     descriptor: structuredClone(descriptor),
     heartbeat,
+    reapWorkers,
     leaseSetDigest() {
       return digestArtifact([...stagedLeases.keys(), ...armedLeases.keys()].sort());
     },
@@ -1102,6 +1118,9 @@ export async function runScriptedAdapterController({
   const close = async () => {
     if (closed) return;
     closed = true;
+    // 起こしたworkerを道連れにする。停止中のworkerは自分では終われないので、
+    // ここで畳まないとrunもrepoも消えた後まで残り続ける。
+    controller.reapWorkers();
     clearInterval(heartbeatTimer);
     persistentSocket?.destroy();
     await new Promise((resolve) => server.close(resolve));
