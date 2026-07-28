@@ -743,7 +743,12 @@ export class TreeSitterExtractor {
     // `var` globals are the rare cost; the parameter/field noise dominates.)
     const targetKindOk =
       this.language === 'pascal' ? kind === 'constant' : kind === 'constant' || kind === 'variable';
-    if (targetKindOk && name.length >= 3 && /[A-Z_]/.test(name)) {
+    // Name gate: length only. The old extra requirement (/[A-Z_]/) dropped
+    // all-lowercase module values (`counter`, `cache`) from the edge set — a
+    // reader of such a value looked share-free to consumers (seam cost profiles
+    // reported "no shared state" where there was some). Length >= 3 stays: one-
+    // and two-letter names (`i`, `db`) are dominated by loop/parameter noise.
+    if (targetKindOk && name.length >= 3) {
       const parentId = this.nodeStack[this.nodeStack.length - 1];
       // file-scope OR class/module/struct/enum-scope constants are targets.
       // Class/module scope matters for languages (Ruby) that keep nearly all

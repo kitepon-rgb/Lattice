@@ -204,15 +204,16 @@ test('実行時に観測した競合を、その場の変換で解消してseam 
 
 // 検証網（ADR 0145）の受入。**focused testが通ってしまう形の静かな破壊**を、網だけが捕まえる。
 //
-// 移すsymbolが全小文字のmodule変数を参照している。value-ref辺の名前フィルタでグラフからは
-// 見えないので閉包は拾わず、変数は残余面に残る。移した先の参照は束縛を失うが、moduleの
-// 読み込みは通り、壊れた関数を呼ばないtestは緑のまま——変更前の装置はこれを採用していた。
+// 移すsymbolが、グラフの辺にならないmodule変数を参照している。名前フィルタの緩和（sc-008）で
+// 小文字名は辺に映るようになったので、残る死角は**3文字未満の名前**（`db`）である。辺が無い
+// ので閉包は拾わず、変数は残余面に残る。移した先の参照は束縛を失うが、moduleの読み込みは
+// 通り、壊れた関数を呼ばないtestは緑のまま——網が無ければこれが採用される。
 const SEVERED_SOURCE = [
-  'const counter = 1;',
+  'const db = { rows: 1 };',
   'const CSS = \'body { color: red; }\';',
   '',
   'function renderLeft(value) {',
-  '  return `<div>${counter + value}</div>`;',
+  '  return `<div>${db.rows + value}</div>`;',
   '}',
   '',
   'export function renderPage(value) {',
@@ -230,12 +231,12 @@ const SEVERED_PAGE_TEST = [
   '',
 ].join('\n');
 
-test('切断された参照は、focused testが黙っていても網が落とす', async (context) => {
+async function severedHarness(context, source) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-seam-net-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'src'), { recursive: true });
   await mkdir(path.join(root, 'test'), { recursive: true });
-  await writeFile(path.join(root, 'src/page.mjs'), SEVERED_SOURCE);
+  await writeFile(path.join(root, 'src/page.mjs'), source);
   await writeFile(path.join(root, 'test/page.test.mjs'), SEVERED_PAGE_TEST);
   await writeFile(path.join(root, '.gitignore'), '.lattice/\nnode_modules/\n');
   run('git', ['init', '--quiet'], root);
@@ -252,7 +253,7 @@ test('切断された参照は、focused testが黙っていても網が落と�
     await rm(workerRoot, { recursive: true, force: true });
   });
   run('git', ['worktree', 'add', '--detach', workerRoot, baseSha], root);
-  await writeFile(path.join(workerRoot, 'src/page.mjs'), `${SEVERED_SOURCE}\n// touched by T2\n`);
+  await writeFile(path.join(workerRoot, 'src/page.mjs'), `${source}\n// touched by T2\n`);
   const checkpoint = await captureWorktreeDiff({ worktreePath: workerRoot, baseSha });
   const { findings } = detectCheckpointFindings({
     todoId: 'T2', checkpoint,
@@ -320,9 +321,37 @@ test('切断された参照は、focused testが黙っていても網が落と�
     },
   });
 
+  return { resolved };
+}
+
+test('切断された参照は、focused testが黙っていても網が落とす', async (context) => {
+  const { resolved } = await severedHarness(context, SEVERED_SOURCE);
   // 網だけが落とした、を理由の全量一致で主張する。focused testも他の四条件も通っていた
-  // ——つまり変更前の装置はこの変換を採用していた（現状再現が理由の不在として埋まっている）。
+  // ——つまり網が無ければこの変換は採用されていた（現状再現が理由の不在として埋まっている）。
   assert.equal(resolved.lane, 'intentional_serial');
   assert.deepEqual(resolved.reasons,
-    ['behavior_equivalent:severed_reference:src/page-left.mjs:counter']);
+    ['behavior_equivalent:severed_reference:src/page-left.mjs:db']);
+});
+
+// 正の対照（sc-008の帰結）。**辺に映る**module変数の共有は、閉包が拾って共有面へ移すので
+// 切断がそもそも起きない——網が黙り、変換が正当に成立する。網は「見える共有」を装置が
+// 正しく処理することの代替ではなく、見えないものの最後の防壁である。
+const VISIBLE_SHARED_SOURCE = [
+  'const counter = 1;',
+  'const CSS = \'body { color: red; }\';',
+  '',
+  'function renderLeft(value) {',
+  '  return `<div>${counter + value}</div>`;',
+  '}',
+  '',
+  'export function renderPage(value) {',
+  '  return `<style>${CSS}</style>${renderLeft(value)}`;',
+  '}',
+  '',
+].join('\n');
+
+test('辺に映る共有module変数は閉包が拾い、変換が成立して網は黙る', async (context) => {
+  const { resolved } = await severedHarness(context, VISIBLE_SHARED_SOURCE);
+  assert.equal(resolved.lane, 'seam_transform', JSON.stringify(resolved.reasons));
+  assert.deepEqual(resolved.reasons, []);
 });

@@ -12,6 +12,12 @@
   当初はsensorの`unresolved_refs`の集合差分を予定していたが、**bare参照の切断はそこに記録
   されないことを実測で確認し**、fresh indexのsymbol一覧（新設`lattice-sensor file-nodes`）と
   本文言及の突き合わせへ組み替えた。
+- **value-ref 辺の名前フィルタを緩めた。** 従来は大文字か `_` を含む名前だけを辺の対象に
+  していたので、全小文字の module 変数（`counter`, `cache`）への参照が辺にならず、
+  切断コストの内訳が「共有なし」と偽陰性を返しえた。長さ3以上だけを残して緩和。
+  実測（本 repo・667 file）: valueRef 辺 2630→2862（+8.8%）、全辺 +0.35%、
+  index 時間・DB サイズは差なし。3文字未満の名前は引き続き辺にせず、confidence が
+  `names-under-3-chars-invisible-in-edges` として申告する。
 - **module 値への参照が read/write を区別するようになった（TS/JS）。** 再束縛
   （`X = v`）・member mutation（`X.n += 1`）・update（`X++`）を write として
   `references` 辺の metadata に立て、CLI は `valueWrite` で返す。読んだ後に書く形
