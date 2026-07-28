@@ -14,7 +14,7 @@ import { runIsolatedTransform } from './isolation-runner.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { invokeSensorCli } from './sensor-runtime.mjs';
 import { buildSeamDerivationQuerySet, deriveBoundedSeamCandidate } from './seam-derivation.mjs';
-import { mentions, planSeamRewrite, scanImportStatements } from './seam-rewrite.mjs';
+import { joinImportSurface, mentions, planSeamRewrite } from './seam-rewrite.mjs';
 import {
   buildPostTransformWitnessSet, compareExportSurface, evaluateSeamVerification, measureWaveCount,
 } from './seam-verification.mjs';
@@ -116,11 +116,32 @@ export async function readSymbolExtents({ cwd, sourcePath, symbols }) {
       // 宣言の外の行にあり、宣言行だけで切ると装飾が残余面へ取り残される。
       const start = Number.isSafeInteger(node.extentStartLine) && node.extentStartLine < node.startLine
         ? node.extentStartLine : node.startLine;
-      extents[symbol] = { startLine: start, endLine: node.endLine };
+      // export状態もAST事実として持ち帰る（sc-013）。書き換え側のtext走査を置き換える。
+      extents[symbol] = { startLine: start, endLine: node.endLine, isExported: node.isExported === true };
     }
     if (extents[symbol] === undefined && entries.length >= SYMBOL_LOOKUP_LIMIT) truncated.push(symbol);
   }
   return { extents, truncated: [...new Set(truncated)].sort(compareText) };
+}
+
+/**
+ * 対象fileのimport面をsensorの観測から読む（sc-013）。
+ *
+ * `file-nodes`の`imports`（文の行範囲）と`import_bindings`（AST由来の束縛）を
+ * `joinImportSurface`で文単位へ束ねる。観測が取れなければnullを返し、書き換え側が
+ * `import_surface_missing`のtyped理由で止める——正規表現の再解析へfallbackしない。
+ */
+export function readImportSurface({ cwd, sourcePath }) {
+  const result = invokeSensorCli(
+    (command, args, options) => spawnSync(command, args, options),
+    ['file-nodes', sourcePath, '--path', '.'],
+    { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+  );
+  if (result.status !== 0) return null;
+  let parsed;
+  try { parsed = JSON.parse(result.stdout); } catch { return null; }
+  if (!Array.isArray(parsed?.imports) || !Array.isArray(parsed?.import_bindings)) return null;
+  return joinImportSurface(parsed.imports, parsed.import_bindings);
 }
 
 async function runIn(worktreePath, command, args) {
@@ -153,28 +174,34 @@ async function runIn(worktreePath, command, args) {
  * 何度でも再提出できる。
  */
 async function detectSeveredReferences({ worktreePath, files, residualPath }) {
-  const readNodes = (target) => {
+  const readFileNodes = (target) => {
     const result = invokeSensorCli(
       (command, args, options) => spawnSync(command, args, options),
       ['file-nodes', target, '--path', '.'],
       { cwd: worktreePath, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
     );
     if (result.status !== 0) return null;
-    try { return JSON.parse(result.stdout)?.nodes ?? null; } catch { return null; }
+    let parsed;
+    try { parsed = JSON.parse(result.stdout); } catch { return null; }
+    if (!Array.isArray(parsed?.nodes)) return null;
+    return parsed;
   };
 
-  const residualNodes = readNodes(residualPath);
-  if (residualNodes === null) return { observed: false, entries: [] };
-  const residualNames = residualNodes.map(({ name }) => name);
+  const residual = readFileNodes(residualPath);
+  if (residual === null) return { observed: false, entries: [] };
+  const residualNames = residual.nodes.map(({ name }) => name);
 
   const entries = [];
   for (const [target, body] of Object.entries(files)) {
     if (target === residualPath) continue;
-    const ownNodes = readNodes(target);
-    if (ownNodes === null) return { observed: false, entries: [] };
-    const defined = new Set(ownNodes.map(({ name }) => name));
-    const imported = new Set(scanImportStatements(body.split('\n')).statements
-      .flatMap(({ bindings }) => bindings));
+    const own = readFileNodes(target);
+    if (own === null) return { observed: false, entries: [] };
+    const defined = new Set(own.nodes.map(({ name }) => name));
+    // import束縛はworktreeのfresh indexのAST観測から取る（sc-013）。text再解析をしない。
+    // 束縛が観測できないindexでは網の判定材料が欠けるので、unobservedへ倒す（fail closed）。
+    if (!Array.isArray(own.import_bindings)) return { observed: false, entries: [] };
+    const imported = new Set(own.import_bindings
+      .map(({ local }) => local).filter((name) => typeof name === 'string'));
     for (const name of residualNames) {
       if (defined.has(name) || imported.has(name)) continue;
       if (mentions(body, name)) entries.push({ file: target, name });
@@ -377,6 +404,7 @@ export async function applySeamConflict({
   }
   const rewritten = planSeamRewrite({
     sourceText: beforeText, candidate, symbolExtents: lookup.extents,
+    importSurface: readImportSurface({ cwd: repoRoot, sourcePath }),
   });
   if (rewritten.files === null) {
     return { outcome: outcome({ planKey, decision: 'rejected', reasons: rewritten.reasons, candidate }), files: null };

@@ -89,7 +89,7 @@ sensor は材料を既に持っている。「関数 → module 変数」の辺�
 - [x] 装飾込みの開始行を出す（v11。Rust attribute_itemが一度も拾えていなかった2欠陥も修正）
 - [x] 拡張子省略テーブルを export する
 - [x] 確実の門——ESM 変換の暗黙前提を明示的な事前条件にする（8条件を正典化、拒否理由をfix_declaration/hand_to_aiへ分類しresolution.gateで返す。未知理由は安全側。ADR 0146）
-- [ ] 書き換えの土台を sensor 実データへ置き換える
+- [x] 書き換えの土台を sensor 実データへ置き換える（import面=file-nodesのimports+import_bindings、export=isExported。builtin束縛がfailed parkで不可視になる穴も発見・修正。門へ第9条件）
 
 ## 主要な対象
 

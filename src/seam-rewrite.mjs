@@ -21,6 +21,10 @@ function fail(reasons) {
  *
  * 複数行importがあるので`from '...'`で終わる行までを1文とする。束縛名は、移した先で
  * どのimportが要るかを語単位で判定するために使う。
+ *
+ * **書き換え本体はこれを使わない（sc-013）。** planSeamRewriteのimport面はsensorの
+ * AST観測（`joinImportSurface`）から受け取る。この正規表現走査が残っているのは
+ * seam-costのprofile投影（ESM限定とconfidenceで申告済み）のためだけである。
  */
 export function scanImportStatements(lines) {
   const statements = [];
@@ -64,6 +68,35 @@ export function mentions(text, name) {
 }
 
 /**
+ * sensorの観測（`file-nodes`の`imports`と`import_bindings`）をimport文単位へ束ねる（sc-013）。
+ *
+ * importsは文の行範囲、import_bindingsは束縛ごとの`{local, form, imported, line}`で、
+ * 両者は行番号で結合できる（解決済み束縛はedge metadata、builtin等の未解決束縛は
+ * unresolved_refs由来——どちらもAST抽出であり、正規表現の再実装ではない）。
+ * どの文にも入らない束縛は`unassigned`として返し、黙って捨てない。
+ *
+ * @returns {{statements: Array<{startLine:number,endLine:number,bindings:string[]}>, unassigned: string[]}}
+ */
+export function joinImportSurface(importNodes = [], importBindings = []) {
+  const statements = importNodes
+    .filter((node) => Number.isSafeInteger(node?.startLine) && Number.isSafeInteger(node?.endLine)
+      && node.startLine >= 1 && node.endLine >= node.startLine)
+    .map((node) => ({ startLine: node.startLine, endLine: node.endLine, bindings: [] }))
+    .sort((left, right) => left.startLine - right.startLine);
+  const unassigned = [];
+  for (const binding of importBindings) {
+    if (typeof binding?.local !== 'string' || binding.local === '') continue;
+    const owner = Number.isSafeInteger(binding.line)
+      ? statements.find(({ startLine, endLine }) => binding.line >= startLine && binding.line <= endLine)
+      : undefined;
+    if (owner === undefined) { unassigned.push(binding.local); continue; }
+    if (!owner.bindings.includes(binding.local)) owner.bindings.push(binding.local);
+  }
+  for (const statement of statements) statement.bindings.sort(compareText);
+  return { statements, unassigned: [...new Set(unassigned)].sort(compareText) };
+}
+
+/**
  * 宣言の範囲を直前の連続コメント行まで広げる。
  *
  * JSDocを置き去りにすると、残余に持ち主のいない説明が残り、移した先が無説明になる。
@@ -85,12 +118,8 @@ function exportedBlock(raw) {
   return parts.join('\n');
 }
 
-/** 原pathでexport宣言だったか。移動先でexportを足したかではなく、元の姿を見る。 */
-function wasExported(raw) {
-  const declaration = raw.split('\n')
-    .find((line) => !COMMENT_LINE.test(line) && line.trim() !== '');
-  return declaration !== undefined && /^\s*export\s/u.test(declaration);
-}
+// 原pathでexport宣言だったかは、text走査でなくsensorのisExported（AST事実）で判定する
+// （sc-013）。extentと同じくfile-nodes由来で、symbolExtentsの各entryが持って来る。
 
 /**
  * repo相対path同士から、ESMが解決できる相対specifierを作る。
@@ -113,13 +142,20 @@ export function relativeSpecifier(fromPath, toPath) {
 /**
  * 三面の変換後textを作る。
  *
+ * import面と各symbolのexport状態はsensorの観測を入力として受け取る（sc-013）。
+ * ここで正規表現によるimport再解析を行わない——言語理解はsensorが所有し、
+ * ここは決まった移動のtext組み立てだけを持つ。観測が無ければtyped理由で止める。
+ * 唯一残るtext走査は直前コメント行の巻き込み（extendUpward）で、sensorはcomment行の
+ * 範囲を記録しないため、これはtext組み立ての一部として保持する。
+ *
  * @param {object} options
  * @param {string} options.sourceText 原pathの現在の内容
  * @param {object} options.candidate `lattice.bounded_seam_candidate.v2`
- * @param {object} options.symbolExtents symbol名 -> `{startLine, endLine}`（1始まり・両端含む）
+ * @param {object} options.symbolExtents symbol名 -> `{startLine, endLine, isExported}`（1始まり・両端含む）
+ * @param {object} options.importSurface `joinImportSurface`の結果（`{statements, unassigned}`）
  * @returns {{files: object|null, reasons: string[]}} pathごとの変換後text
  */
-export function planSeamRewrite({ sourceText, candidate, symbolExtents } = {}) {
+export function planSeamRewrite({ sourceText, candidate, symbolExtents, importSurface } = {}) {
   if (typeof sourceText !== 'string' || sourceText.length === 0) return fail(['empty_source']);
   const lines = sourceText.split('\n');
   const surfaces = candidate?.surfaces ?? [];
@@ -137,8 +173,12 @@ export function planSeamRewrite({ sourceText, candidate, symbolExtents } = {}) {
         || extent.endLine < extent.startLine) {
         return fail([`symbol_extent_missing:${symbol}`]);
       }
+      // export状態はAST事実として要求する。無ければ推測せず止める（確実の門）。
+      if (typeof extent.isExported !== 'boolean') {
+        return fail([`symbol_export_status_missing:${symbol}`]);
+      }
       blocks.push({
-        symbol, path: surface.path, end: extent.endLine,
+        symbol, path: surface.path, end: extent.endLine, exported: extent.isExported,
         start: extendUpward(lines, extent.startLine),
       });
     }
@@ -151,7 +191,40 @@ export function planSeamRewrite({ sourceText, candidate, symbolExtents } = {}) {
     }
   }
 
-  const { statements, endIndex } = scanImportStatements(lines);
+  // import面はsensorの観測から。観測が無い・束縛の帰属が決まらない・importが先頭block
+  // の外にある——いずれも「たぶん大丈夫」で進まず、typed理由でAIへ渡す。
+  if (importSurface === null || typeof importSurface !== 'object'
+    || !Array.isArray(importSurface.statements)) {
+    return fail(['import_surface_missing']);
+  }
+  if (Array.isArray(importSurface.unassigned) && importSurface.unassigned.length > 0) {
+    return fail(importSurface.unassigned.map((name) => `import_binding_unassigned:${name}`));
+  }
+  const statements = [];
+  let cursor = 1;
+  for (const entry of [...importSurface.statements]
+    .sort((left, right) => left.startLine - right.startLine)) {
+    if (!Number.isSafeInteger(entry.startLine) || !Number.isSafeInteger(entry.endLine)
+      || entry.startLine < 1 || entry.endLine > lines.length || entry.endLine < entry.startLine
+      || !Array.isArray(entry.bindings)) {
+      return fail(['import_surface_missing']);
+    }
+    if (entry.startLine < cursor) return fail([`import_statement_ambiguous:${entry.startLine}`]);
+    for (let line = cursor; line < entry.startLine; line += 1) {
+      const text = lines[line - 1];
+      if (text.trim() !== '' && !COMMENT_LINE.test(text)) {
+        // 先頭block外のimport（ESMでは合法）は、残余headerの組み立てが機械では確実に
+        // できない。整形で解こうとせず止める。
+        return fail([`import_below_header:${entry.startLine}`]);
+      }
+    }
+    statements.push({
+      text: lines.slice(entry.startLine - 1, entry.endLine).join('\n'),
+      bindings: entry.bindings.filter((name) => typeof name === 'string' && name !== ''),
+    });
+    cursor = entry.endLine + 1;
+  }
+  const endIndex = cursor - 2;
   if (blocks.some((block) => block.start <= endIndex + 1)) {
     return fail(['symbol_inside_import_block']);
   }
@@ -165,7 +238,7 @@ export function planSeamRewrite({ sourceText, candidate, symbolExtents } = {}) {
     const raw = lines.slice(block.start - 1, block.end).join('\n');
     if (!bodyByPath.has(block.path)) bodyByPath.set(block.path, []);
     bodyByPath.get(block.path).push(exportedBlock(raw));
-    if (wasExported(raw)) {
+    if (block.exported) {
       if (!reExportByPath.has(block.path)) reExportByPath.set(block.path, []);
       reExportByPath.get(block.path).push(block.symbol);
     }

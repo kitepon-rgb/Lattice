@@ -12,6 +12,17 @@
   当初はsensorの`unresolved_refs`の集合差分を予定していたが、**bare参照の切断はそこに記録
   されないことを実測で確認し**、fresh indexのsymbol一覧（新設`lattice-sensor file-nodes`）と
   本文言及の突き合わせへ組み替えた。
+- **書き換えの土台をsensorの実データへ置き換えた**（sc-013）。ESM変換のimport面は
+  `file-nodes`の新出力`imports`（文の行範囲）と`import_bindings`（AST由来の束縛
+  default/named/namespace＋別名）を行番号で束ねて受け取り、export状態はnodeの
+  `isExported`（AST事実）で判定する。書き換え経路から正規表現のimport再解析と
+  export判定を撤去した（`scanImportStatements`はprofile投影専用として残る）。
+  観測が無い・束縛の帰属が曖昧・importが先頭block外のときはtyped理由で不認定し、
+  正規表現へfallbackしない。確実の門へ第9条件「import面の観測確定」を追加。
+  切断参照の網のimport束縛判定も、生成textの再解析からworktree fresh indexの
+  AST観測へ替えた。sensor側: builtin等のresolution失敗で`failed`へparkされた
+  import束縛が読めるよう、status非依存の`getImportBindingRefsByFile`を追加
+  （束縛は抽出事実でありresolution状態と無関係）。
 - **確実の門を正典化した**（[ADR 0146](docs/adr/0146-the-certainty-gate-classifies-handoff.md)）。
   機械変換の前提8条件を `SEAM_GATE_PRECONDITIONS` として一覧化し、拒否理由を
   `fix_declaration`（宣言を直せば機械で通りうる）と `hand_to_ai`（機械の変換能力の外）へ

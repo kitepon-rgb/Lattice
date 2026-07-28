@@ -54,11 +54,20 @@ export const SEAM_GATE_PRECONDITIONS = Object.freeze([
   },
   {
     id: 'extents_resolved_and_disjoint',
-    holds: '全対象 symbol の行範囲が確定し、互いに重ならず、import block の外にある',
+    holds: '全対象 symbol の行範囲と export 状態が確定し、互いに重ならず、import block の外にある',
     handoff: 'hand_to_ai',
     reason_prefixes: [
       'symbol_extent_missing', 'symbol_extent_overlap', 'symbol_inside_import_block',
-      'symbol_lookup_truncated',
+      'symbol_lookup_truncated', 'symbol_export_status_missing',
+    ],
+  },
+  {
+    id: 'import_surface_observed',
+    holds: 'import 文の範囲と束縛が sensor 観測で確定している（先頭 block に収まり、帰属が一意）',
+    handoff: 'hand_to_ai',
+    reason_prefixes: [
+      'import_surface_missing', 'import_statement_ambiguous',
+      'import_binding_unassigned', 'import_below_header',
     ],
   },
   {

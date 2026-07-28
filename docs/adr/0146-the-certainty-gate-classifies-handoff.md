@@ -21,7 +21,8 @@ ESM 変換器は元から fail closed で、導出・照会・書き換え・五
 1. **前提の正典は `SEAM_GATE_PRECONDITIONS`**（`src/seam-gate.mjs`）。8条件——入力の形、
    所有の宣言と排他、閉包の観測完結、共有面の非逆依存、行範囲の確定と非重複、挙動保存
    （公開面＋切断参照）、test と index の通過、並列性の獲得。各段の typed 理由と prefix で
-   対応する。
+   対応する。（追補 sc-013: 書き換えの土台を sensor 観測へ置換した際、第9条件
+   「import 面の観測確定」と、行範囲条件への export 状態 prefix を追加した。）
 2. **門は手渡しを分類する。可否は決めない。** 拒否理由を `fix_declaration`（宣言を直して
    再提出すれば機械で通りうる）と `hand_to_ai`（機械の変換能力の外＝AI が変換すべき）へ
    分け、`lattice.runtime_seam_resolution.v2` の `gate` として返す。

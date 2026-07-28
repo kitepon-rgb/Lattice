@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { planSeamRewrite, relativeSpecifier, scanImportStatements } from '../src/seam-rewrite.mjs';
+import {
+  joinImportSurface, planSeamRewrite, relativeSpecifier, scanImportStatements,
+} from '../src/seam-rewrite.mjs';
 
 // ADR 0137。決まった移動を機械的に実行するだけの書き換え。整形の裁量を持ち込まない。
+// sc-013: import面とexport状態はsensorのAST観測を入力として受け取る。
 
 const SOURCE = [
   "import { createHash } from 'node:crypto';",
@@ -33,10 +36,22 @@ const SOURCE = [
 ].join('\n');
 
 const EXTENTS = {
-  escapeText: { startLine: 8, endLine: 10 },
-  renderLeft: { startLine: 15, endLine: 17 },
-  CSS: { startLine: 19, endLine: 19 },
+  escapeText: { startLine: 8, endLine: 10, isExported: false },
+  renderLeft: { startLine: 15, endLine: 17, isExported: false },
+  CSS: { startLine: 19, endLine: 19, isExported: false },
 };
+
+// sensorのfile-nodesが出す形（imports=文の行範囲、import_bindings=AST由来の束縛）を模す。
+const IMPORT_NODES = [
+  { name: 'node:crypto', startLine: 1, endLine: 1 },
+  { name: './other.mjs', startLine: 2, endLine: 5 },
+];
+const IMPORT_BINDINGS = [
+  { local: 'createHash', form: 'named', imported: null, line: 1 },
+  { local: 'helperA', form: 'named', imported: null, line: 2 },
+  { local: 'renamed', form: 'named', imported: 'helperB', line: 2 },
+];
+const SURFACE = joinImportSurface(IMPORT_NODES, IMPORT_BINDINGS);
 
 const candidate = (overrides = {}) => ({
   schema: 'lattice.bounded_seam_candidate.v2',
@@ -52,7 +67,7 @@ const candidate = (overrides = {}) => ({
 
 test('宣言はJSDocごと移り、移した先でexportされる', () => {
   const { files, reasons } = planSeamRewrite({
-    sourceText: SOURCE, candidate: candidate(), symbolExtents: EXTENTS,
+    sourceText: SOURCE, candidate: candidate(), symbolExtents: EXTENTS, importSurface: SURFACE,
   });
   assert.deepEqual(reasons, []);
 
@@ -69,7 +84,7 @@ test('宣言はJSDocごと移り、移した先でexportされる', () => {
 
 test('移した先は使うimportだけを持ち込み、使わないものは持ち込まない', () => {
   const { files } = planSeamRewrite({
-    sourceText: SOURCE, candidate: candidate(), symbolExtents: EXTENTS,
+    sourceText: SOURCE, candidate: candidate(), symbolExtents: EXTENTS, importSurface: SURFACE,
   });
   // renderLeftはcreateHashを使う。helperA/renamedは使わない。
   assert.match(files['src/page.seam-left.mjs'], /import \{ createHash \} from 'node:crypto';/u);
@@ -80,7 +95,7 @@ test('移した先は使うimportだけを持ち込み、使わないものは�
 
 test('面をまたぐ参照は相対importとして張られる', () => {
   const { files } = planSeamRewrite({
-    sourceText: SOURCE, candidate: candidate(), symbolExtents: EXTENTS,
+    sourceText: SOURCE, candidate: candidate(), symbolExtents: EXTENTS, importSurface: SURFACE,
   });
   // 所有面から共有面へ。向きは所有→共有だけ。
   assert.match(files['src/page.seam-left.mjs'],
@@ -94,11 +109,24 @@ test('面をまたぐ参照は相対importとして張られる', () => {
   assert.equal(residual.includes('page.seam-shared.mjs'), false);
 });
 
+test('原pathでexportされていたsymbolはAST事実に基づき残余から再exportされる', () => {
+  const { files, reasons } = planSeamRewrite({
+    sourceText: SOURCE, candidate: candidate(),
+    symbolExtents: { ...EXTENTS, CSS: { ...EXTENTS.CSS, isExported: true } },
+    importSurface: SURFACE,
+  });
+  assert.deepEqual(reasons, []);
+  // 原文が`const CSS`（export語なし）でも、sensorがexportedと観測していれば再exportする。
+  // text走査ではなくAST事実が判定を持つことの確認。
+  assert.match(files['src/page.mjs'], /export \{ CSS \} from '\.\/page\.seam-css\.mjs';/u);
+});
+
 test('範囲が重なる宣言は整形で解かずに止める', () => {
   const { files, reasons } = planSeamRewrite({
     sourceText: SOURCE,
     candidate: candidate(),
-    symbolExtents: { ...EXTENTS, renderLeft: { startLine: 8, endLine: 17 } },
+    symbolExtents: { ...EXTENTS, renderLeft: { startLine: 8, endLine: 17, isExported: false } },
+    importSurface: SURFACE,
   });
   assert.equal(files, null);
   assert.equal(reasons.some((reason) => reason.startsWith('symbol_extent_overlap:')), true);
@@ -109,12 +137,65 @@ test('行範囲の無いsymbolは黙って落とさない', () => {
     sourceText: SOURCE,
     candidate: candidate(),
     symbolExtents: { escapeText: EXTENTS.escapeText, renderLeft: EXTENTS.renderLeft },
+    importSurface: SURFACE,
   });
   assert.equal(files, null);
   assert.deepEqual(reasons, ['symbol_extent_missing:CSS']);
 });
 
-test('import文は複数行と別名束縛を1文として読む', () => {
+test('export状態の無いsymbolは推測せずに止める', () => {
+  const { files, reasons } = planSeamRewrite({
+    sourceText: SOURCE,
+    candidate: candidate(),
+    symbolExtents: { ...EXTENTS, CSS: { startLine: 19, endLine: 19 } },
+    importSurface: SURFACE,
+  });
+  assert.equal(files, null);
+  assert.deepEqual(reasons, ['symbol_export_status_missing:CSS']);
+});
+
+test('import面の観測が無ければ正規表現へfallbackせず止める', () => {
+  const { files, reasons } = planSeamRewrite({
+    sourceText: SOURCE, candidate: candidate(), symbolExtents: EXTENTS,
+  });
+  assert.equal(files, null);
+  assert.deepEqual(reasons, ['import_surface_missing']);
+});
+
+test('どの文にも帰属しない束縛は黙って捨てずに止める', () => {
+  const surface = joinImportSurface(IMPORT_NODES, [
+    ...IMPORT_BINDINGS, { local: 'stray', form: 'named', imported: null, line: 9 },
+  ]);
+  assert.deepEqual(surface.unassigned, ['stray']);
+  const { files, reasons } = planSeamRewrite({
+    sourceText: SOURCE, candidate: candidate(), symbolExtents: EXTENTS, importSurface: surface,
+  });
+  assert.equal(files, null);
+  assert.deepEqual(reasons, ['import_binding_unassigned:stray']);
+});
+
+test('先頭blockの外のimportは残余headerを確実に組めないので止める', () => {
+  // 行9（escapeTextの本文中の位置）にimport文があると観測された、という形。
+  const surface = joinImportSurface(
+    [...IMPORT_NODES, { name: './late.mjs', startLine: 9, endLine: 9 }],
+    IMPORT_BINDINGS,
+  );
+  const { files, reasons } = planSeamRewrite({
+    sourceText: SOURCE, candidate: candidate(), symbolExtents: EXTENTS, importSurface: surface,
+  });
+  assert.equal(files, null);
+  assert.deepEqual(reasons, ['import_below_header:9']);
+});
+
+test('joinImportSurfaceは行番号で束縛を文へ束ね、複数行importにも帰属できる', () => {
+  assert.deepEqual(SURFACE.unassigned, []);
+  assert.deepEqual(SURFACE.statements, [
+    { startLine: 1, endLine: 1, bindings: ['createHash'] },
+    { startLine: 2, endLine: 5, bindings: ['helperA', 'renamed'] },
+  ]);
+});
+
+test('import文は複数行と別名束縛を1文として読む（profile投影用の正規表現走査）', () => {
   const { statements, endIndex } = scanImportStatements(SOURCE.split('\n'));
   assert.equal(statements.length, 2);
   assert.equal(endIndex, 4);
