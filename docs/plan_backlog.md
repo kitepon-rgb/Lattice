@@ -131,7 +131,16 @@ pathだけを、fresh absentかつ`affectedTests`が空という条件の下で�
 
 # holdからの再開（請求項7・8の後半）
 
-工程状態の正本はLattice storeの`hold-resume` plan（未起票。着手時に起こす）。
+工程状態の正本はLattice storeの`hold-resume` plan。
+
+**この工程が独立して存在するのは、`io-sentinel`のst-004を定義を満たさないまま閉じたためである。**
+st-004のtask定義は「実repoで早期検知から**再開**までを通し検出遅延を実測する」であり、実際に
+行ったのは検知と実測だけで、再開は手つかずだった。しかも閉じた時点では実測も未了で、証拠文書
+自身がそう書いていた。
+
+差し戻そうとしたが、storeは`reopen_has_started_successor`で正しく拒否した——後継のst-005が既に
+走った以上、前提が完了しなかったことにはできない。**overrideで整合gateを潰さず、未達分を新しい
+工程として前へ運ぶ。** 記録された当時の判断を書き換えないのは、証拠blobの時と同じ規律である。
 
 **停止は作ったが、再開が無い。** holdはworkerをSIGSTOPして静止を証明するところまで通る
 （[ADR 0143](adr/0143-io-sentinel-is-an-early-warning-not-a-finding.md) Decision 9）。だが
@@ -615,7 +624,7 @@ observation`はv2、`direct_worktree_fingerprint`はv1である。**両側のdig
 
 # 管理runtimeのLinux検証
 
-工程状態の正本はLattice storeの`runtime-linux-parity` plan（未起票。着手時に起こす）。
+工程状態の正本はLattice storeの`runtime-linux-parity` plan。
 
 **管理runtimeのdaemon lifecycleは、いまmacOSでだけ検証している。** 公開CI（ubuntu）で
 実daemonを起こす統合testを走らせると通らない。これは`process.platform === 'darwin'`の
@@ -626,6 +635,9 @@ gateで**skipしているが、skipは「Linuxで動く」という主張では�
 
 - `observeMacosBinaryIdentity`が`/usr/bin/codesign`に依存する。macOSにしか無い。
   署名済みhost binaryの同一性照合はmacOS固有の機能であり、Linuxでは別の手段が要る。
+- **2026-07-28に依存が増えた。** worker processの分離で`detached` spawn・SIGSTOP・`/bin/ps`の
+  `lstart`解析（process start identity）を使うようになった。いずれもmacOSでのみ検証している。
+  `lstart`の書式はLinuxのpsと異なるため、静止の証明はそのままでは移らない。
 - 残りの不通過箇所は未特定。socket所有の観測は移植済み（`runtime-socket-owner.mjs`）で、
   そこを直したら失敗は`RUN_NOT_MANAGED`から`RUN_OUTCOME_UNKNOWN`へ進んだ。daemonが
   起動後に落ちているが、原因はまだ切っていない。
