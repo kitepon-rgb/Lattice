@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.34.0 — 2026-07-29
+
+- **抽出器の進化をsyncが自動で拾い、staleな抽出を増分healするようにした**（schema v12）。
+  filesの各行に、それを書いた抽出器の`extraction_version`を記録し、syncの「変更なし」判定を
+  content_hash一致**かつ**版数一致にした。抽出器が進化したら、内容不変のfileも通常の増分経路で
+  再抽出される。statusのpending changesも版数staleを数え、全fileが現行版へ達したsyncは
+  global stampを自動前進させて`reindexRecommended`を消す——従来は「手動full再indexの推奨」
+  止まりで、推奨は誰も実行しない。2026-07-28の実被弾（旧daemonのwatcher更新でtimestampは
+  新鮮・意味論は古いDBが恒久化し、束縛・装飾行が「無い」という偽の観測として読まれ続けた）の
+  再発防止であり、migrationのDEFAULT 0により導入それ自体が既存indexを初回syncで全快させる。
+  実measured: 本repo 678 fileの全快が約9秒。
+- **EXTRACTION_VERSIONを25へ遡及bump**。0.33.0の抽出変更（valueRef write区別・名前filter
+  緩和・import束縛metadata・装飾込みextent・Rust attribute収集）はいずれも同一textへの
+  抽出出力を変えるが、bumpされていなかった。
+
 ## 0.33.0 — 2026-07-28
 
 - **変換の検証へ、切断参照の網を張った**（[ADR 0145](docs/adr/0145-the-verification-net-is-a-gate-not-a-cage.md)）。
