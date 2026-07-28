@@ -1340,7 +1340,15 @@ if (isDirectDaemon) {
         commitPhaseRevision: (revision) => applyPhaseTodoRevision({
           repoRoot: path.resolve(runDir, '..', '..', '..'),
           writer: createTodoStoreWriter({ caller: 'g5-authoring' }), revision,
-          actor: 'lattice-runtime-supervisor', recordedAt: new Date().toISOString(),
+          // actorは`{host, session, agent}`のexact recordである（`lattice.todo_event.v4`）。
+          // 文字列を渡していた間、seam_splitの再計画はphase revisionをcommitできなかった
+          // ——工程storeへ書く直前で必ず落ちるので、請求項8の再開まで一度も届いていない。
+          actor: {
+            host: 'lattice-runtime',
+            session: sessionNonce.slice(0, 32),
+            agent: 'lattice-runtime-supervisor',
+          },
+          recordedAt: new Date().toISOString(),
         }),
       });
     })
