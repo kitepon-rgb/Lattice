@@ -879,8 +879,32 @@ export class TreeSitterExtractor {
       if (targets.size === 0) return;
     }
 
+    // Write detection is wired for the TS/JS family only (assignment/augmented/
+    // update, including member mutation like `cache.x = 1`). Other value-ref
+    // languages keep read-only edges until their grammars get the same wiring —
+    // consumers must not read an absent flag as "read-only" for those languages.
+    const writeAware = ['typescript', 'javascript', 'tsx', 'jsx', 'arkts'].includes(this.language);
+    const isWriteReference = (n: SyntaxNode): boolean => {
+      // Climb the leftmost object path: `cache.x.y = 1` / `cache[k] = 1` mutate
+      // the binding's value even though the identifier itself is not re-bound.
+      let node: SyntaxNode = n;
+      let parent = node.parent;
+      while (parent && (parent.type === 'member_expression' || parent.type === 'subscript_expression')) {
+        const object = getChildByField(parent, 'object');
+        if (!object || object.startIndex !== node.startIndex || object.endIndex !== node.endIndex) break;
+        node = parent;
+        parent = node.parent;
+      }
+      if (!parent) return false;
+      if (parent.type === 'assignment_expression' || parent.type === 'augmented_assignment_expression') {
+        const left = getChildByField(parent, 'left');
+        return left !== null && left.startIndex === node.startIndex && left.endIndex === node.endIndex;
+      }
+      return parent.type === 'update_expression';
+    };
+
     for (const scope of scopes) {
-      const seen = new Set<string>();
+      const seen = new Map<string, { write: boolean }>();
       const stack: SyntaxNode[] = [scope.node];
       // Dart and Pascal attach a function/method BODY as a *next sibling* of the
       // signature node that is stored as the reader scope (Dart `method_signature`
@@ -914,20 +938,26 @@ export class TreeSitterExtractor {
           // Skip self and same-name targets: a symbol referencing a file-scope
           // sibling of its own name (the two halves of a conditional `try: X=…;
           // except: X=…`) is never a meaningful value read.
-          if (targetId && targetId !== scope.id && refName !== scope.name && !seen.has(targetId)) {
-            seen.add(targetId);
-            this.edges.push({
-              source: scope.id,
-              target: targetId,
-              kind: 'references',
-              metadata: { valueRef: true },
-            });
+          if (targetId && targetId !== scope.id && refName !== scope.name) {
+            // Keep scanning after the first occurrence: the first read must not
+            // mask a later write (`const n = counter; counter = n + 1;`).
+            const entry = seen.get(targetId) ?? { write: false };
+            if (writeAware && !entry.write && isWriteReference(n)) entry.write = true;
+            seen.set(targetId, entry);
           }
         }
         for (let i = 0; i < n.namedChildCount; i++) {
           const c = n.namedChild(i);
           if (c) stack.push(c);
         }
+      }
+      for (const [targetId, entry] of seen) {
+        this.edges.push({
+          source: scope.id,
+          target: targetId,
+          kind: 'references',
+          metadata: writeAware ? { valueRef: true, write: entry.write } : { valueRef: true },
+        });
       }
     }
   }

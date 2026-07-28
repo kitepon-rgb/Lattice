@@ -722,3 +722,56 @@ describe('value-reference edges', () => {
     }
   });
 });
+
+describe('value-reference write flag (TS/JS)', () => {
+  let dir: string;
+  let cg: LatticeSensor | undefined;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-valuewrite-'));
+  });
+  afterEach(() => {
+    cg?.destroy();
+    cg = undefined;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  function writeFlags(g: LatticeSensor, constName: string): Record<string, boolean> {
+    const targets = g.searchNodes(constName).map((r) => r.node).filter((n) => n.name === constName);
+    const flags: Record<string, boolean> = {};
+    for (const t of targets) {
+      for (const e of g.getIncomingEdges(t.id)) {
+        const meta = e.metadata as { valueRef?: boolean; write?: boolean } | undefined;
+        if (e.kind === 'references' && meta?.valueRef) {
+          const reader = g.getNode(e.source)?.name;
+          if (reader) flags[reader] = meta.write === true;
+        }
+      }
+    }
+    return flags;
+  }
+
+  it('marks re-binding, member mutation, and update as writes; plain reads stay false', async () => {
+    fs.writeFileSync(
+      path.join(dir, 'state.ts'),
+      [
+        'export const HIT_TABLE = { n: 0 };',
+        'export let REBIND_TARGET = 0;',
+        'export function readOnly() { return HIT_TABLE.n + REBIND_TARGET; }',
+        'export function mutateMember() { HIT_TABLE.n += 1; }',
+        'export function rebind(value: number) { REBIND_TARGET = value; }',
+        'export function bump() { REBIND_TARGET++; }',
+        // A read before a later write must still count as a write.
+        'export function readThenWrite() { const n = REBIND_TARGET; REBIND_TARGET = n + 1; }',
+      ].join('\n'),
+    );
+    const g = LatticeSensor.initSync(dir, { config: { include: ['**/*.ts'], exclude: [] } });
+    cg = g;
+    await g.indexAll();
+
+    expect(writeFlags(g, 'HIT_TABLE')).toEqual({ readOnly: false, mutateMember: true });
+    expect(writeFlags(g, 'REBIND_TARGET')).toEqual({
+      readOnly: false, rebind: true, bump: true, readThenWrite: true,
+    });
+  });
+});

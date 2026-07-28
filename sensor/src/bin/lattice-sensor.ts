@@ -1880,7 +1880,7 @@ program
       }
 
       const seen = new Set<string>();
-      const allCallers: Array<{ name: string; kind: string; filePath: string; startLine?: number; edgeKind: string; valueRef: boolean }> = [];
+      const allCallers: Array<{ name: string; kind: string; filePath: string; startLine?: number; edgeKind: string; valueRef: boolean; valueWrite: boolean }> = [];
 
       for (const match of matches) {
         const exactMatch = match.node.name === symbol || match.node.name.endsWith(`.${symbol}`) || match.node.name.endsWith(`::${symbol}`);
@@ -1888,7 +1888,7 @@ program
         for (const c of cg.getCallers(match.node.id)) {
           if (!seen.has(c.node.id)) {
             seen.add(c.node.id);
-            allCallers.push({ name: c.node.name, kind: c.node.kind, filePath: c.node.filePath, startLine: c.node.startLine, edgeKind: c.edge.kind, valueRef: c.edge.metadata?.valueRef === true });
+            allCallers.push({ name: c.node.name, kind: c.node.kind, filePath: c.node.filePath, startLine: c.node.startLine, edgeKind: c.edge.kind, valueRef: c.edge.metadata?.valueRef === true, valueWrite: c.edge.metadata?.write === true });
           }
         }
       }
@@ -1898,7 +1898,7 @@ program
         for (const c of cg.getCallers(matches[0].node.id)) {
           if (!seen.has(c.node.id)) {
             seen.add(c.node.id);
-            allCallers.push({ name: c.node.name, kind: c.node.kind, filePath: c.node.filePath, startLine: c.node.startLine, edgeKind: c.edge.kind, valueRef: c.edge.metadata?.valueRef === true });
+            allCallers.push({ name: c.node.name, kind: c.node.kind, filePath: c.node.filePath, startLine: c.node.startLine, edgeKind: c.edge.kind, valueRef: c.edge.metadata?.valueRef === true, valueWrite: c.edge.metadata?.write === true });
           }
         }
       }
@@ -1959,7 +1959,7 @@ program
       }
 
       const seen = new Set<string>();
-      const allCallees: Array<{ name: string; kind: string; filePath: string; startLine?: number; edgeKind: string; valueRef: boolean }> = [];
+      const allCallees: Array<{ name: string; kind: string; filePath: string; startLine?: number; edgeKind: string; valueRef: boolean; valueWrite: boolean }> = [];
 
       for (const match of matches) {
         const exactMatch = match.node.name === symbol || match.node.name.endsWith(`.${symbol}`) || match.node.name.endsWith(`::${symbol}`);
@@ -1967,7 +1967,7 @@ program
         for (const c of cg.getCallees(match.node.id)) {
           if (!seen.has(c.node.id)) {
             seen.add(c.node.id);
-            allCallees.push({ name: c.node.name, kind: c.node.kind, filePath: c.node.filePath, startLine: c.node.startLine, edgeKind: c.edge.kind, valueRef: c.edge.metadata?.valueRef === true });
+            allCallees.push({ name: c.node.name, kind: c.node.kind, filePath: c.node.filePath, startLine: c.node.startLine, edgeKind: c.edge.kind, valueRef: c.edge.metadata?.valueRef === true, valueWrite: c.edge.metadata?.write === true });
           }
         }
       }
@@ -1976,7 +1976,7 @@ program
         for (const c of cg.getCallees(matches[0].node.id)) {
           if (!seen.has(c.node.id)) {
             seen.add(c.node.id);
-            allCallees.push({ name: c.node.name, kind: c.node.kind, filePath: c.node.filePath, startLine: c.node.startLine, edgeKind: c.edge.kind, valueRef: c.edge.metadata?.valueRef === true });
+            allCallees.push({ name: c.node.name, kind: c.node.kind, filePath: c.node.filePath, startLine: c.node.startLine, edgeKind: c.edge.kind, valueRef: c.edge.metadata?.valueRef === true, valueWrite: c.edge.metadata?.write === true });
           }
         }
       }

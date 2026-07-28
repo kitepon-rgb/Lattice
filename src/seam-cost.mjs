@@ -148,6 +148,7 @@ export function classifySeamCost({
       crossEdges.push({
         from_task: fromTask, from: symbol, to_task: toTask, to: callee.name,
         edge_kind: callee.edgeKind, value_ref: callee.valueRef === true,
+        value_write: callee.valueWrite === true,
       });
     }
   }
@@ -175,20 +176,32 @@ export function classifySeamCost({
     if (fromTask === undefined) continue;
     for (const callee of callees) {
       if (ownerOf.has(callee.name)) continue;
-      if (!reachedBy.has(callee.name)) reachedBy.set(callee.name, new Set());
-      reachedBy.get(callee.name).add(fromTask);
+      if (!reachedBy.has(callee.name)) {
+        reachedBy.set(callee.name, { tasks: new Set(), writers: new Set() });
+      }
+      const reach = reachedBy.get(callee.name);
+      reach.tasks.add(fromTask);
+      if (callee.valueWrite === true) reach.writers.add(fromTask);
     }
   }
   const sharedState = [];
   const sharedFunctions = [];
-  for (const [name, tasks] of reachedBy) {
+  for (const [name, reach] of reachedBy) {
     const kind = nodeByName.get(name)?.kind ?? 'unknown';
-    const entry = { name, kind, referenced_by: [...tasks].sort(compareText) };
-    if (STATE_KINDS.has(kind)) sharedState.push(entry);
-    else if (FUNCTION_KINDS.has(kind)) sharedFunctions.push(entry);
-    // それ以外（class等）は cross/cycle が拾う。分類できない共有を黙って捨てないため、
-    // state でも function でもない到達は shared_functions 側へ kind つきで載せる。
-    else sharedFunctions.push(entry);
+    const referencedBy = [...reach.tasks].sort(compareText);
+    if (STATE_KINDS.has(kind)) {
+      // 共有の重さは読むだけ/片方が書く/両方書くでほぼ決まる。誰が書くかまで数える。
+      sharedState.push({
+        name, kind, referenced_by: referencedBy,
+        written_by: [...reach.writers].sort(compareText),
+      });
+    } else if (FUNCTION_KINDS.has(kind)) {
+      sharedFunctions.push({ name, kind, referenced_by: referencedBy });
+    } else {
+      // それ以外（class等）は cross/cycle が拾う。分類できない共有を黙って捨てないため、
+      // state でも function でもない到達は shared_functions 側へ kind つきで載せる。
+      sharedFunctions.push({ name, kind, referenced_by: referencedBy });
+    }
   }
 
   // 4) import の共有。複製できるので安い——ESM の import 文束縛への言及で数える。
@@ -230,7 +243,9 @@ export function classifySeamCost({
     confidence: {
       // 盲点の申告（計画の不変条件4）。見えていないものを「共有なし」と言わない。
       value_ref_name_filter: 'lowercase-module-variables-invisible-in-edges',
-      write_distinction: 'unavailable',
+      // 書き込み判定はTS/JS族のwasm経路だけが持つ。kernel経路（Rust）は未配線で、
+      // その索引では書き込みが読みに見える——盲点として申告する（sc-007で解消）。
+      write_distinction: 'ts-js-wasm-pipeline-only',
       imports_analysis: 'esm-only',
       callees_truncated: [...new Set(truncatedSymbols)].sort(compareText),
       body_missing: [...new Set(bodyMissing)].sort(compareText),
@@ -278,6 +293,7 @@ export async function computeSeamCostProfile({
       .map((callee) => ({
         name: callee.name, path: callee.filePath,
         edgeKind: callee.edgeKind ?? 'calls', valueRef: callee.valueRef === true,
+        valueWrite: callee.valueWrite === true,
       }));
   }
 

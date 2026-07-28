@@ -57,7 +57,7 @@ test('task間の直接辺を、辺種別つきで数える', () => {
   const profile = classifySeamCost(base());
   assert.deepEqual(profile.cross_edges, [{
     from_task: 'T2', from: 'renderPage', to_task: 'T1', to: 'renderLeft',
-    edge_kind: 'calls', value_ref: false,
+    edge_kind: 'calls', value_ref: false, value_write: false,
   }]);
 });
 
@@ -77,7 +77,7 @@ test('共有を複製可能性で分ける——stateとfunctionとimport', () =
   });
   // 両taskが同じmodule定数へ届く=複製できない共有。
   assert.deepEqual(profile.shared_state, [
-    { name: 'styleCache', kind: 'constant', referenced_by: ['T1', 'T2'] },
+    { name: 'styleCache', kind: 'constant', referenced_by: ['T1', 'T2'], written_by: [] },
   ]);
   // 共有関数は共有面へ出せる側。
   assert.deepEqual(profile.shared_functions, [
@@ -92,8 +92,8 @@ test('共有を複製可能性で分ける——stateとfunctionとimport', () =
 test('片方しか届かない共有は、届いたtaskだけを記録する', () => {
   const profile = classifySeamCost(base());
   assert.deepEqual(profile.shared_state, [
-    { name: 'CSS', kind: 'constant', referenced_by: ['T2'] },
-    { name: 'styleCache', kind: 'constant', referenced_by: ['T1'] },
+    { name: 'CSS', kind: 'constant', referenced_by: ['T2'], written_by: [] },
+    { name: 'styleCache', kind: 'constant', referenced_by: ['T1'], written_by: [] },
   ]);
 });
 
@@ -130,8 +130,25 @@ test('盲点をconfidenceで申告する——打ち切り・本文不明・辺�
   assert.deepEqual(profile.confidence.body_missing, ['ghostSymbol']);
   assert.equal(profile.confidence.value_ref_name_filter,
     'lowercase-module-variables-invisible-in-edges');
-  assert.equal(profile.confidence.write_distinction, 'unavailable');
+  assert.equal(profile.confidence.write_distinction, 'ts-js-wasm-pipeline-only');
   assert.equal(profile.confidence.imports_analysis, 'esm-only');
+});
+
+test('書く側と読むだけの側を、共有stateのwritten_byで区別する', () => {
+  const profile = classifySeamCost({
+    ...base(),
+    calleesBySymbol: {
+      renderLeft: [
+        { name: 'styleCache', path: 'src/page.mjs', edgeKind: 'references', valueRef: true, valueWrite: true },
+      ],
+      renderPage: [
+        { name: 'styleCache', path: 'src/page.mjs', edgeKind: 'references', valueRef: true, valueWrite: false },
+      ],
+    },
+  });
+  assert.deepEqual(profile.shared_state, [
+    { name: 'styleCache', kind: 'constant', referenced_by: ['T1', 'T2'], written_by: ['T1'] },
+  ]);
 });
 
 test('fileCyclesは相互再帰を見つけ、自己再帰だけの成分は返さない', () => {

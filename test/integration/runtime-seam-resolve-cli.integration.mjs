@@ -282,7 +282,7 @@ test('切断コストの内訳を、変換を試す前の投影として返す',
   assert.ok(Array.isArray(profile.shared_state));
   assert.ok(profile.blast_by_depth.renderLeft !== undefined);
   // 盲点の申告（write情報なし・辺フィルタ・ESM限定）が常に載る。
-  assert.equal(profile.confidence.write_distinction, 'unavailable');
+  assert.equal(profile.confidence.write_distinction, 'ts-js-wasm-pipeline-only');
 
   // 投影であって記録ではない——runへ何も書かない。
   const eventsAfter = JSON.parse(

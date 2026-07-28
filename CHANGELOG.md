@@ -12,6 +12,17 @@
   当初はsensorの`unresolved_refs`の集合差分を予定していたが、**bare参照の切断はそこに記録
   されないことを実測で確認し**、fresh indexのsymbol一覧（新設`lattice-sensor file-nodes`）と
   本文言及の突き合わせへ組み替えた。
+- **module 値への参照が read/write を区別するようになった（TS/JS）。** 再束縛
+  （`X = v`）・member mutation（`X.n += 1`）・update（`X++`）を write として
+  `references` 辺の metadata に立て、CLI は `valueWrite` で返す。読んだ後に書く形
+  （`const n = X; X = n + 1`）も write に数える——最初の読みが後の書きを隠さない。
+  共有の重さは「読むだけ／片方が書く／両方書く」でほぼ決まるので、切断コストの内訳
+  （`shared_state.written_by`）が誰が書くかまで数えられるようになった。
+
+  **配線は TS/JS 族の wasm 経路だけ**である。kernel 経路（Rust、この host では未 build）は
+  未配線で、その索引では書き込みが読みに見える——profile の confidence が
+  `ts-js-wasm-pipeline-only` として申告する。kernel と他言語のミラーは Rust toolchain を
+  前提に別課題（sc-007）。
 - **sensor の callers/callees が辺種別を返すようになった**（`edgeKind`・`valueRef`）。
   traversal は元から `references` 辺を通しており、module 値への参照は結果に混ざって返って
   いたが、JSON が node 情報だけを吐いて辺種別を捨てていた——「この隣接は関数呼び出しか、

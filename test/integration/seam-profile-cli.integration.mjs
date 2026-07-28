@@ -120,7 +120,7 @@ test('witness宣言から係争fileの内訳を投影し、storeへ何も書か�
   // 実sensorの辺から: T2(renderPage)→T1(renderLeft)の直接辺、共有module状態、共有関数。
   assert.deepEqual(profile.cross_edges, [{
     from_task: 'T2', from: 'renderPage', to_task: 'T1', to: 'renderLeft',
-    edge_kind: 'calls', value_ref: false,
+    edge_kind: 'calls', value_ref: false, value_write: false,
   }]);
   assert.deepEqual(profile.shared_state.map(({ name, referenced_by: by }) => [name, by]),
     [['CSS', ['T2']], ['styleCache', ['T1', 'T2']]]);
