@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { planSeamRewrite, scanImportStatements } from '../src/seam-rewrite.mjs';
+import { planSeamRewrite, relativeSpecifier, scanImportStatements } from '../src/seam-rewrite.mjs';
 
 // ADR 0137。決まった移動を機械的に実行するだけの書き換え。整形の裁量を持ち込まない。
 
@@ -120,4 +120,14 @@ test('import文は複数行と別名束縛を1文として読む', () => {
   assert.equal(endIndex, 4);
   assert.deepEqual(statements[0].bindings, ['createHash']);
   assert.deepEqual(statements[1].bindings, ['helperA', 'renamed']);
+});
+
+// 親・兄弟ディレクトリへの移動で解決不能なspecifierを作らない（sc-002）。
+// 以前は行き先がfromの配下でない時に`./<repo相対>`を返し、ESMが解決できなかった。
+test('相対specifierは親・兄弟ディレクトリへの移動でも解決できる形になる', () => {
+  assert.equal(relativeSpecifier('src/page.mjs', 'src/page-left.mjs'), './page-left.mjs');
+  assert.equal(relativeSpecifier('src/a/x.mjs', 'src/b/y.mjs'), '../b/y.mjs');
+  assert.equal(relativeSpecifier('src/a/x.mjs', 'src/y.mjs'), '../y.mjs');
+  assert.equal(relativeSpecifier('src/x.mjs', 'src/a/y.mjs'), './a/y.mjs');
+  assert.equal(relativeSpecifier('src/a/b/x.mjs', 'lib/y.mjs'), '../../../lib/y.mjs');
 });

@@ -12,6 +12,9 @@
   当初はsensorの`unresolved_refs`の集合差分を予定していたが、**bare参照の切断はそこに記録
   されないことを実測で確認し**、fresh indexのsymbol一覧（新設`lattice-sensor file-nodes`）と
   本文言及の突き合わせへ組み替えた。
+- **親・兄弟ディレクトリへ移す変換の import 指定子を直した。** 行き先が元 file の配下で
+  ない時に `./<repo相対path>` という解決不能な specifier を生成していた。segment 単位で
+  共通 prefix を外し `../` で組み立てる。
 - **export面の比較がJS/TS限定であることを明示した。** ESM構文を正規表現で読む検査であり、
   他言語では実質空になる。黙って「検証済み」と言わない。
 

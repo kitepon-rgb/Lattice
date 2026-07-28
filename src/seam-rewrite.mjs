@@ -92,9 +92,22 @@ function wasExported(raw) {
   return declaration !== undefined && /^\s*export\s/u.test(declaration);
 }
 
-function relativeSpecifier(fromPath, toPath) {
-  const fromDir = fromPath.slice(0, fromPath.lastIndexOf('/') + 1);
-  return toPath.startsWith(fromDir) ? `./${toPath.slice(fromDir.length)}` : `./${toPath}`;
+/**
+ * repo相対path同士から、ESMが解決できる相対specifierを作る。
+ *
+ * 以前は行き先がfromの配下でない時に`./<repo相対>`を返しており、親ディレクトリや兄弟
+ * ディレクトリへの移動で**解決不能なspecifier**を生成していた（`src/a/x.mjs`→`src/b/y.mjs`で
+ * `./src/b/y.mjs`）。segment単位で共通prefixを外し、残りを`../`で遡って組み立てる。
+ */
+export function relativeSpecifier(fromPath, toPath) {
+  const fromSegments = fromPath.split('/').slice(0, -1);
+  const toSegments = toPath.split('/');
+  let shared = 0;
+  while (shared < fromSegments.length && shared < toSegments.length - 1
+    && fromSegments[shared] === toSegments[shared]) shared += 1;
+  const ascent = '../'.repeat(fromSegments.length - shared);
+  const descent = toSegments.slice(shared).join('/');
+  return ascent === '' ? `./${descent}` : `${ascent}${descent}`;
 }
 
 /**
