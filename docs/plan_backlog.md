@@ -419,6 +419,40 @@ AIが持つ文脈——残り時間、そのfileの重要度、他に走って�
 **切れる種類だ、は切れる、ではない。** 段1が`code_seam`と言っても、実際に縫い目があるかは
 段3まで分からない。段1で言えるのは「試す価値がある」までである。
 
+## 請求項8が実runで通った（2026-07-28）
+
+双方停止→変換→双方再開が実daemonで1本に繋がった。請求項7との違いは再開の形である
+——請求項7はcarry-overした片方を繋ぎ直す（`epoch_rebind_acknowledged`→`workers_resumed`）が、
+請求項8は双方を止めるので繋ぎ直す相手がおらず、双方の`context_invalidated`（redispatch）を経て
+**双方が同じ波でdispatchableになる**。変換が係争を消したので直列化する理由が無い。
+
+**直列に並んだ4つの欠陥を直して初めて届いた。** どれも契約・コード・green testが揃っていて、
+一度も実行されていなかった。
+
+| 欠陥 | 影響 |
+|---|---|
+| splitが再導出digestでfindingを縛る | 再計画が`findings/<digest>.json`を読めない |
+| 再計画の比較起点が翻訳前 | 実行時競合のsplitが永久に不一致 |
+| 所有の導出が`owns`を数えない | **path競合を切るsplitが原理的に検証不能** |
+| supervisorの`actor`が文字列 | phase revisionを一度もcommitできない |
+
+**受入testを書く時は、請求項7の形を請求項8へ流用しない。** 最初`workers_resumed`をassertして
+落ちた。carry-overが空なのだから出ないのが正しく、testの主張が間違っていた。
+
+## 請求項8の実行時経路は、Lattice工程管理を前提にする
+
+`recompile --mode seam_split`は**phase revisionを必須にする**。契約が`phase_revision === null`の
+seam splitで`ownership_diff`／`edge_diff`が空でないものを弾くので、実際のsplitは必ず改訂を伴う。
+runtimeはそれをprojectのLattice TODO storeへcommitする（`applyPhaseTodoRevision`）。
+
+**所有が変わるのはplan overlayではなく工程の改訂だからである。** 請求項7（`intentional_serial`）は
+競合辺を足すだけのoverlayなので改訂が要らない。請求項8は誰が何を持つかを変える。
+
+したがって**Lattice工程管理を使っていないprojectでは、実行時に見つかった競合へ請求項8を
+適用できない**。直列化（請求項7）は使える。制約として妥当だが、製品の適用範囲を決める事実
+なので明示しておく。緩める提案はしない——storeを持たないまま所有を変えると、変更後の工程が
+どこにも記録されない。
+
 ## 工程
 
 - [x] 予測超過の語彙を裁定して直す

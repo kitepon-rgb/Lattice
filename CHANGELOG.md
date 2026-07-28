@@ -11,6 +11,20 @@
   改名は**製品のfinding種別だけ**である。同じ`scope_violation`という文字列がRC1/RC2の変換拒否
   理由とRC3 campaignの条件名にもあるが、どちらも別空間なので旧名のまま残る。前者は
   `research/campaigns/`の成果物へ、後者はRC3 manifestのdirectory名として凍結されている。
+- **請求項8が実runで通った。** 実行時に観測した競合に対して、双方停止→変換→双方再開が
+  実daemon・実repository・実sensorで1本に繋がった
+  （[受入](test/integration/hold-transform-resume.integration.mjs)）。請求項7との違いは
+  再開の形である——請求項7は片方を繋ぎ直し、請求項8は**双方が新しい面を所有して同じ波で動く**。
+
+  そこへ届くまでに、直列に並んだ4つの欠陥を直した。どれも契約もコードもgreenなtestも揃って
+  いたが、**一度も実行されていなかった**。1つでも残っていれば実runでは成立しない。
+
+  | 欠陥 | 影響 |
+  |---|---|
+  | seam splitが再導出digestでfindingを縛っていた | 再計画がfinding recordを読めない |
+  | 再計画の比較起点が翻訳前のpredecessorだった | 実行時競合のsplitが永久に不一致 |
+  | 所有の導出が`owns`（宣言された面）を数えていなかった | **path競合を切るsplitが原理的に検証不能** |
+  | supervisorが`actor`へ文字列を渡していた | phase revisionを一度もcommitできない |
 - **実行時にしか現れない形の競合が、請求項8へ届くようになった。** 実行時のpath競合は片方が
   その資源を所有していないから起きるが、変換の宣言（`concern_anchors`）は自分の所有内にしか
   書けない。宣言が原理的に書けず、**変換の中身は動くのに実運転からそこへ行けなかった**。
