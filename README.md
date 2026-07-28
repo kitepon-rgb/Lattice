@@ -18,6 +18,8 @@
 > genuinely collide — **refactors the seam between them and recompiles the plan** so they can
 > run in parallel after all.
 
+Built and maintained by [Quo](https://x.com/QLyun35332) at [kitepon.dev](https://kitepon.dev/en).
+
 ## Why
 
 Give three coding agents three tasks and the usual outcome is one of two failures:
@@ -164,12 +166,11 @@ The design in this repository is the subject of a Japanese patent application:
 patent license extends to it. The application is disclosed here so the rights position is
 visible up front rather than discovered later.
 
-## Factory role
+## Ownership boundary
 
-Lattice is one of the ten self-owned core products managed by the
-[dotagents development factory](https://github.com/kitepon-rgb/dotagents). This repository owns
-the plan/ToDo/run store, the bundled sensor, schemas, migrations, releases, and diagnostics;
-dotagents owns cross-product installation and host integration.
+This repository owns the plan/ToDo/run store, the bundled sensor, schemas, migrations,
+releases, and diagnostics. [dotagents](https://github.com/kitepon-rgb/dotagents) is the
+internal toolchain behind kitepon.dev and owns cross-product installation and host integration.
 
 - Product philosophy: [PLAN.md](PLAN.md)
 - Public contract: [docs/00_product-contract.md](docs/00_product-contract.md)

@@ -4,6 +4,8 @@
 
 # Lattice
 
+[kitepon.dev](https://kitepon.dev/)を運営する[クオ（@QLyun35332）](https://x.com/QLyun35332)が開発・メンテナンスしています。
+
 [![npm](https://img.shields.io/npm/v/@quolu/lattice?color=cb3837&logo=npm)](https://www.npmjs.com/package/@quolu/lattice)
 [![CI](https://github.com/kitepon-rgb/Lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/kitepon-rgb/Lattice/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)
@@ -63,11 +65,11 @@ integration testで一気通貫に検証済みです。切断の重さは`lattic
 （計画時は`todo seam-profile`）が数えられる事実だけで投影し、機械変換の可否は「確実の門」が
 typed理由つきで分類します——宣言を直せば通るのか、操作AIへ渡すべきなのかまで返します。
 
-## 開発工場での位置づけ
+## 所有境界
 
-Latticeは[dotagents開発工場](https://github.com/kitepon-rgb/dotagents)が管理する
-自作コア10製品の一つです。本repoはplan／ToDo／run store、sensor、schema、migration、
-release、diagnosticsを所有し、dotagentsは製品横断の工程利用・導入・host統合を所有します。
+本repoはplan／ToDo／run store、Lattice sensor、schema、migration、release、diagnosticsを
+所有します。[dotagents](https://github.com/kitepon-rgb/dotagents)はkitepon.devを支える内部
+toolchainであり、製品横断の工程利用・導入・host統合を所有します。
 廃止済みの前身sensorは独立製品として配線せず、Lattice sensorだけを現役面とします。
 MarkItDownは別区分の第三者CLIです。
 
