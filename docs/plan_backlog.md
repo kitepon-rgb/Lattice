@@ -345,6 +345,32 @@ evidence・ADR）は追従させない。書き換えると当時の記録が嘘
 名前は直したが、種別の所属は直していない。ct-002で翻訳段を入れる時に、単独の予測超過を
 conflictとして受理しない形まで持っていく。
 
+## 翻訳段（2026-07-28に実装・実CLIで通過）
+
+`reconcileWitnessToObservation`。観測された係争pathを、関与TODOの宣言へ足す。操作は対称で、
+広げる対象は観測が示した資源だけである。合わせた内容は`lattice.runtime_seam_resolution.v2`の
+`reconciled`に残す。
+
+**宣言は3つ同時に広げる。** 実装の途中で2回、半分だけ広げて詰まった。
+
+| 広げたもの | 足りないと何が起きるか |
+|---|---|
+| `owns`・`writes` | （これだけだと）`sensor_unbound`でcompileが`BOUNDARY_UNKNOWN`へ落ちる |
+| `sensor_provenance`の束縛 | 同上。所有の主張に裏取りが無い |
+| `affected_tests` | `AFFECTED_TEST_DRIFT`。宣言と観測がTODO単位でexact一致を要求される |
+
+非dispatchableだと競合が投影されないので、**翻訳したのに競合辺が立たず、変換の便益が測れない**
+（実測で`parallelism_improved:no_gain:1->1`に当たった）。装置が「証明できない宣言」を正しく
+拒否しているのであって、拒否を回さずに通す道を作ってはいけない。裏取りに使えるqueryがrunに
+無ければ、広げずに`observation_unbacked`を返す。
+
+**affected test driftの比較単位も変えた。** 束縛ごとに宣言全体とexact比較していたので、
+affectedの異なる2 pathを所有するTODOは原理的に成立しなかった。全affected束縛の観測の**和**と
+比較する。1面しか持たないTODOでは結果が変わらない。
+
+**既に所有と書き込みを宣言している側は触らない。** 観測が予測の内側にあるなら合わせるものが
+無い。翻訳が手を入れてよいのは、観測が予測を超えた分だけである。
+
 ## 請求項8を選ぶ条件が無い
 
 `routeConflictTreatment`は**事前宣言済みのtreatmentが係争pathを覆っている時だけ**
