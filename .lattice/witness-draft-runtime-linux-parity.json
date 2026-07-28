@@ -8,19 +8,11 @@
   "tasks": {
     "lp-002": {
       "owns": [
-        "src/runtime-managed-supervisor.mjs"
+        "test/integration/scripted-adapter-controller.integration.mjs"
       ],
       "reads": [
         "src/runtime-adapter-registry.mjs",
-        "test/integration/scripted-adapter-controller.integration.mjs"
-      ],
-      "concern_anchors": [
-        {
-          "within": "src/runtime-managed-supervisor.mjs",
-          "symbols": [
-            "activateManagedSupervisorController"
-          ]
-        }
+        "src/runtime-managed-supervisor.mjs"
       ]
     }
   }
