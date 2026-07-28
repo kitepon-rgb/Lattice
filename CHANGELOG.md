@@ -12,6 +12,11 @@
   当初はsensorの`unresolved_refs`の集合差分を予定していたが、**bare参照の切断はそこに記録
   されないことを実測で確認し**、fresh indexのsymbol一覧（新設`lattice-sensor file-nodes`）と
   本文言及の突き合わせへ組み替えた。
+- **確実の門を正典化した**（[ADR 0146](docs/adr/0146-the-certainty-gate-classifies-handoff.md)）。
+  機械変換の前提8条件を `SEAM_GATE_PRECONDITIONS` として一覧化し、拒否理由を
+  `fix_declaration`（宣言を直せば機械で通りうる）と `hand_to_ai`（機械の変換能力の外）へ
+  分類して `runtime_seam_resolution.v2` の `gate` で返す。未知の理由は確実側へ丸めず
+  安全側の手渡しにする。新しい拒否条件は増えていない——既存の fail-closed 挙動の読める面。
 - **装飾込みの開始行が取れるようになった**（`extentStartLine`、sensor schema v11）。
   extent は宣言だけを指し、Python の `@decorator` や Rust の `#[derive]` は外の行にある——
   宣言行だけで切り出すと装飾が残余面へ取り残され、挙動が黙って変わる。`startLine` は

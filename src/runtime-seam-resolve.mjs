@@ -20,6 +20,7 @@ import { commitSeamTransform } from './seam-commit.mjs';
 import { applySeamConflict } from './seam-apply.mjs';
 import { resolveRuntimeSeamTreatment } from './runtime-seam-treatment.mjs';
 import { affectedTestsFromEvidence } from './runtime-front-end.mjs';
+import { explainSeamGate } from './seam-gate.mjs';
 import { collectWitnessSensorEvidence, compileTodoIndependence } from './todo-independence.mjs';
 import { todoSelfDigest } from './todo-contracts.mjs';
 
@@ -342,6 +343,9 @@ export function buildRuntimeSeamResolution({ runId, findingDigest, resolved }) {
     finding_digest: findingDigest,
     lane: resolved.lane,
     reasons: [...resolved.reasons].sort(compareText),
+    // 確実の門（sc-012）。拒否理由を「宣言を直せば機械で通る」「AIが変換すべき」へ分類し、
+    // 次に誰が動くべきかを事実として返す。可否は決めない。
+    gate: explainSeamGate(resolved.reasons ?? []),
     // 判定の前に宣言をどれだけ観測へ合わせたか。空配列は「予測が実態を覆っていた」という
     // 意味であり、翻訳しなかったことと区別できる。
     reconciled: [...(resolved.widened ?? [])]
