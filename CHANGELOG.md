@@ -1,6 +1,6 @@
 # Changelog
 
-## 未リリース
+## 0.33.0 — 2026-07-28
 
 - **変換の検証へ、切断参照の網を張った**（[ADR 0145](docs/adr/0145-the-verification-net-is-a-gate-not-a-cage.md)）。
   移した先のcodeが残余面のsymbol（module変数・非公開関数）へ束縛なしで言及していれば、
