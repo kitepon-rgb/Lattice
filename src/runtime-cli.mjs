@@ -146,8 +146,12 @@ const IO_ESCALATION_LOCK_TIMEOUT_MS = 15_000;
  * その形でなければ、後継planの競合辺が実ownershipの資源と別物になってしまう。
  * **形を1箇所で決める。** 別の形で作ると、同じpathが別の資源に見える。
  */
+function ownedResourceId(kind, target) {
+  return `own-${kind}-${createHash('sha256').update(target, 'utf8').digest('hex').slice(0, 16)}`;
+}
+
 function ownedPathResourceId(pathValue) {
-  return `own-path-${createHash('sha256').update(pathValue, 'utf8').digest('hex').slice(0, 16)}`;
+  return ownedResourceId('path', pathValue);
 }
 /** 走行中workerの完了を待つ上限と間隔。待てないと走行中の観測が成立しない。 */
 const SCRIPTED_OBSERVE_TIMEOUT_MS = 120_000;
@@ -2761,7 +2765,14 @@ export async function runManagedSupervisorDaemon({
           }
         }
         if (recompileRequest.mode === 'seam_split') {
+          // **宣言された面の所有も数える。** `resources`／`state_effects`だけを見ていた間、
+          // path所有はbefore/afterのどちらにも現れず、seam splitが述べる`added`は常に空の
+          // 導出値と突き合わされていた——path競合を切るsplitは原理的に一致しなかった。
+          // 資源idの合成形は`verifySeamSplitSuccessor`と同じ`own-<kind>-<sha16>`にする。
           const ownership = (manifests) => Object.entries(manifests).flatMap(([todoId, manifest]) => [
+            ...(manifest.owns ?? []).map((own) => ({
+              resource_id: ownedResourceId(own.kind, own.target),
+              owner_todo_id: todoId, access_kind: 'own' })),
             ...manifest.resources.map((resourceId) => ({ resource_id: resourceId,
               owner_todo_id: todoId, access_kind: 'own' })),
             ...manifest.state_effects.map((effect) => ({ resource_id: effect.resource_id,
@@ -2775,9 +2786,41 @@ export async function runManagedSupervisorDaemon({
           ].sort((left, right) => canonicalizeArtifact(left).localeCompare(canonicalizeArtifact(right)));
           const difference = (left, right) => left.filter((entry) => !right.some((other) =>
             canonicalizeArtifact(entry) === canonicalizeArtifact(other)));
-          const beforeOwnership = ownership(active.bundle.manifests);
+          // **比較の起点は、観測へ合わせた後の宣言である。**
+          //
+          // 実行時に見つかった競合は、片方がその資源を所有していないから起きる。変換はその
+          // 宣言を観測へ合わせてから導出されるので（翻訳段）、splitが述べる遷移も合わせた後の
+          // 状態からのものになる。ここで記録のままのpredecessorと比べると、実行時に見つかった
+          // 競合から作ったsplitは永久に一致しない——請求項8が実行時に届かなくなる。
+          //
+          // 合わせる材料はfindingそのものであり、宣言でも入力でもない。再導出なので、
+          // 呼び出し側が何を主張しても結果は変わらない。
+          const contestedResource = treatmentFinding.finding.path === null
+            ? treatmentFinding.finding.resource_id
+            : ownedPathResourceId(treatmentFinding.finding.path);
+          const observedTodoIds = [...treatmentFinding.finding.todo_ids].sort();
+          const reconciledOwnership = [...ownership(active.bundle.manifests)];
+          for (const todoId of observedTodoIds) {
+            const entry = { resource_id: contestedResource, owner_todo_id: todoId, access_kind: 'own' };
+            if (!reconciledOwnership.some((other) => canonicalizeArtifact(other) === canonicalizeArtifact(entry))) {
+              reconciledOwnership.push(entry);
+            }
+          }
+          const reconciledEdges = [...edges(active.bundle.plan)];
+          for (let left = 0; left < observedTodoIds.length; left += 1) {
+            for (let right = left + 1; right < observedTodoIds.length; right += 1) {
+              const edge = { from_todo_id: observedTodoIds[left], to_todo_id: observedTodoIds[right],
+                kind: 'conflict' };
+              if (!reconciledEdges.some((other) => canonicalizeArtifact(other) === canonicalizeArtifact(edge))) {
+                reconciledEdges.push(edge);
+              }
+            }
+          }
+          const sortEntries = (entries) => [...entries]
+            .sort((left, right) => canonicalizeArtifact(left).localeCompare(canonicalizeArtifact(right)));
+          const beforeOwnership = sortEntries(reconciledOwnership);
           const afterOwnership = ownership(compiled.manifests);
-          const beforeEdges = edges(active.bundle.plan);
+          const beforeEdges = sortEntries(reconciledEdges);
           const afterEdges = edges(newPlan);
           const derivedOwnership = { added: difference(afterOwnership, beforeOwnership),
             removed: difference(beforeOwnership, afterOwnership) };
