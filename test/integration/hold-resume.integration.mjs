@@ -53,7 +53,7 @@ const unitTest = (symbol) => `import assert from 'node:assert/strict';\nimport t
 // 請求項7・8の再開側。**barrierは全workerを止める**——静止の証明はrun全体に対して要るからで
 // ある。だがhold裁定は止めた相手を`hold_set`と`continue_set`へ分ける。裁定を出しただけで
 // processへ反映しなければ、続けてよいと判定した作業も止まったままになる。
-test('hold裁定のcontinue_setだけがprocessとして再開する', managedDaemon, async (t) => {
+test('holdは全workerを止め、再開はrebindまで起きない', managedDaemon, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-hold-resume-'));
   t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
   const repoRoot = path.join(temporaryRoot, 'repo');
@@ -112,23 +112,20 @@ test('hold裁定のcontinue_setだけがprocessとして再開する', managedDa
   assert.notEqual(decided, undefined, runEvents.map((e) => e.kind).join(','));
   assert.ok(decided.payload.continue_set.length > 0, JSON.stringify(decided.payload));
 
-  const control = JSON.parse(await readFile(path.join(runDir, 'control-events.json'), 'utf8'));
-  const resumed = control.find((event) => event.kind === 'workers_resumed');
-  assert.notEqual(resumed, undefined, '再開の記録が無い');
-  assert.deepEqual(resumed.payload.resumed_todo_ids, [...decided.payload.continue_set].sort());
-
-  // **裁定がprocessへ届いていること。** continue_setは走り、hold_setは止まったまま。
+  // **holdの直後は、continue_setも止まったままが正しい。** rebindは静止を要求する
+  // （`write_enabled === false`）ので、ここで再開すると後継epochへ束ね直せない。
+  // carry-overは「作業を捨てない」であって「一度も止まらない」ではない。
   const pidOf = (todoId) => runEvents.findLast((event) => event.kind === 'executor_dispatched'
     && event.subject?.ref === todoId)?.payload?.direct_os_observation_binding?.process_pid;
   const stateOf = (pid) => invoke('ps', ['-o', 'stat=', '-p', String(pid)], repoRoot).stdout.trim();
-  for (const todoId of decided.payload.continue_set) {
-    assert.equal(stateOf(pidOf(todoId)).startsWith('T'), false,
-      `continue_setが止まったまま: ${todoId}`);
-  }
-  for (const todoId of decided.payload.hold_set) {
+  for (const todoId of [...decided.payload.hold_set, ...decided.payload.continue_set]) {
     assert.equal(stateOf(pidOf(todoId)).startsWith('T'), true,
-      `hold_setが止まっていない: ${todoId}`);
+      `hold後に止まっていない: ${todoId}`);
   }
+  // 再開はrebindの後にしか起きない。holdだけを通したこの時点では記録が無いのが正しい。
+  const control = JSON.parse(await readFile(path.join(runDir, 'control-events.json'), 'utf8'));
+  assert.equal(control.find((event) => event.kind === 'workers_resumed'), undefined,
+    'rebind前に再開している');
 
   ok(cli(['run', 'abandon', '--run', runRef, '--reason', 'acceptance'], repoRoot), 'run abandon');
   // 破棄の決定として終了が記録され、processが残らないこと。

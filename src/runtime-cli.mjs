@@ -746,23 +746,23 @@ async function readScriptedControllerReceipt({
 /**
  * hold裁定をworker processへ反映する（請求項7・8の再開側）。
  *
- * **barrierは全workerを止める。** 静止の証明はrun全体に対して要るからである。しかし
- * hold裁定は止めた相手を`hold_set`と`continue_set`へ分ける——`continue_set`は
- * 「影響閉包の外なので、そのまま続けてよい」と判定された作業である。
+ * **barrierは全workerを止める。** 静止の証明はrun全体に対して要るからである。hold裁定は
+ * 止めた相手を`hold_set`と`continue_set`へ分け、後者は「影響閉包の外なので作業を捨てない」
+ * と判定されたものである。
  *
- * 裁定を出しただけでプロセスへ反映しなければ、続けてよいと判定した作業も止まったままになる。
- * **判定と実行が食い違っている状態を残さない。**
+ * **carry-overは「一度も止まらない」ではない。** rebindは静止を要求する
+ * （`write_enabled === false`）ので、holdの直後に再開すると後継epochへ束ね直せず
+ * `EPOCH_REBIND_INCOMPLETE`で落ちる。止まり、繋がれ、そこで動き出すのが正しい順序である。
+ * よってこの関数を呼ぶのはrebindが済んだ後だけとする。
  *
- * `hold_set`側はここでは触らない。止まったまま置くのが正しく、その行き先——後継epochでの
- * 再dispatchか、破棄——は再計画が決める。
+ * pidだけで再開しない。pidは再利用されるので、start identityを照合して記録と同じprocessで
+ * あることを確かめる——別のprocessをSIGCONTするのは、止めるのと同じくらい危険である。
  */
-async function resumeContinuedWorkers({ events }) {
-  const decided = events.findLast((event) => event.kind === 'hold_decided');
-  const continueSet = decided?.payload?.continue_set;
-  if (!Array.isArray(continueSet) || continueSet.length === 0) return { resumed: [], skipped: [] };
+async function resumeContinuedWorkers({ events, todoIds }) {
+  if (!Array.isArray(todoIds) || todoIds.length === 0) return { resumed: [], skipped: [] };
   const resumed = [];
   const skipped = [];
-  for (const todoId of continueSet) {
+  for (const todoId of todoIds) {
     const dispatch = events.findLast((event) => event.kind === 'executor_dispatched'
       && event.subject?.kind === 'todo' && event.subject.ref === todoId);
     const binding = dispatch?.payload?.direct_os_observation_binding;
@@ -2540,16 +2540,6 @@ export async function runManagedSupervisorDaemon({
           events, recordedAt: holdRecordedAt });
         events = decided.events;
         await replaceEventsAtomically(runDir, events);
-        // 裁定をprocessへ反映する。continue_setは「影響閉包の外なので続けてよい」と
-        // 判定された作業であり、止めたままにすると判定と実行が食い違う。
-        const resumed = await resumeContinuedWorkers({ events });
-        if (resumed.resumed.length > 0 || resumed.skipped.length > 0) {
-          await appendControl({ run_id: request.request_id, kind: 'workers_resumed',
-            session_nonce_digest: digestArtifact(sessionNonce), payload: {
-              resumed_todo_ids: [...resumed.resumed].sort(),
-              skipped_count: resumed.skipped.length,
-            } });
-        }
         if (typeof crashInjector === 'function') await crashInjector('after_hold_effect', {
           request_id: controlRequest.request_id, hold_result_digest: held.result_digest,
         });
@@ -2893,6 +2883,20 @@ export async function runManagedSupervisorDaemon({
               rebind_packet_digest: packet.packet_digest } });
           rebindEvidence.set(todoId, { ...evidence,
             controller_registration_digest: owner.registration.registration_digest });
+        }
+        // **ここが再開の位置である。** rebindは静止を要求する（`write_enabled === false`）ので、
+        // holdの直後に再開すると後継epochへ束ね直せない。carry-overは「作業を捨てない」で
+        // あって「一度も止まらない」ではない——barrierで止まり、rebindで新epochへ繋がれ、
+        // そこで初めて動き出す。
+        if (rebound.size > 0) {
+          const resumed = await resumeContinuedWorkers({ events, todoIds: [...rebound] });
+          if (resumed.resumed.length > 0 || resumed.skipped.length > 0) {
+            await appendControl({ run_id: request.request_id, kind: 'workers_resumed',
+              session_nonce_digest: digestArtifact(sessionNonce), payload: {
+                resumed_todo_ids: [...resumed.resumed].sort(),
+                skipped_count: resumed.skipped.length,
+              } });
+          }
         }
         for (const todoId of core.planDiff.redispatched) {
           const successors = recompileRequest.task_migration.entries
@@ -3259,8 +3263,6 @@ export async function runManagedSupervisorDaemon({
             events, recordedAt: canonicalNow() });
           events = decided.events;
           await replaceEventsAtomically(runDir, events);
-          // 復旧経路でも裁定をprocessへ反映する（同じ食い違いを残さない）。
-          await resumeContinuedWorkers({ events }).catch(() => null);
         }
         const found = controlRequest.operation === 'conflict'
           && events.some((event) => event.kind === 'conflict_found'
