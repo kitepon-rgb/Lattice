@@ -1432,6 +1432,41 @@ program
   });
 
 /**
+ * lattice sensor file-nodes <file> — one file's indexed symbols, machine-readable.
+ *
+ * Lattice's seam verification needs "which top-level symbols does this file own"
+ * at extraction fidelity (module constants/variables included, regardless of the
+ * value-ref name filter). Reading the DB directly from Lattice would couple it to
+ * the schema, so the contract stays at this CLI boundary like every other read.
+ */
+program
+  .command('file-nodes <file>')
+  .description('List indexed symbols of one file (JSON only)')
+  .option('-p, --path <path>', 'Project path')
+  .action(async (file: string, options: { path?: string }) => {
+    const projectPath = resolveProjectPath(options.path);
+    try {
+      if (!isInitialized(projectPath)) {
+        error(`LatticeSensor not initialized in ${projectPath}`);
+        process.exit(1);
+      }
+      const { default: LatticeSensor } = await loadLatticeSensor();
+      const cg = await LatticeSensor.open(projectPath);
+      const nodes = cg.getNodesInFile(file)
+        .filter(n => n.kind !== 'file' && n.kind !== 'import')
+        .map(n => ({
+          name: n.name, kind: n.kind, startLine: n.startLine, endLine: n.endLine,
+          isExported: n.isExported === true,
+        }));
+      console.log(JSON.stringify({ filePath: file, nodes }));
+      cg.destroy();
+    } catch (err) {
+      error(`file-nodes failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  });
+
+/**
  * lattice sensor files [path]
  */
 program
