@@ -640,7 +640,9 @@ test('実controller daemonはholdからsuccessor prepare/release/中央gate/inta
 });
 
 test('activate後もdaemonが生存しfinding→conflict→hold receiptとdispatch freezeを維持する', managedDaemon, async (t) => {
-  const fixture = await createUnmanagedRun(t);
+  // 書き込み競合は2者いて初めて競合である（ADR 0144）。1者のfindingでfreezeすると
+  // legalな再計画が作れないので、この経路の生存確認も実態のある形で行う。
+  const fixture = await createUnmanagedRun(t, { twoTodos: true });
   let worker = null;
   await installManagedControllerFixture(fixture);
   const activate = exec(process.execPath, [CLI, 'run', 'activate', '--run', fixture.runRef],
@@ -677,7 +679,7 @@ test('activate後もdaemonが生存しfinding→conflict→hold receiptとdispat
     run_id: 'conflict-cli-fixture', plan_epoch: 1, source_checkpoint_digest: 'a'.repeat(64),
     observed_event_digest: events.at(-1).event_digest,
     finding: { schema: 'lattice.runtime_conflict_finding.v1', kind: 'observed_write_conflict',
-      todo_ids: ['T1'], path: 'src/alpha.mjs', resource_id: null, evidence_digests: ['b'.repeat(64)], finding_digest: '' },
+      todo_ids: ['T1', 'T2'], path: 'src/alpha.mjs', resource_id: null, evidence_digests: ['b'.repeat(64)], finding_digest: '' },
     recorded_by: { schema: 'lattice.runtime_observer_identity.v1', kind: 'supervisor',
       controller_registration_digest: null, executor_handle: null, identity_digest: '' }, finding_digest: '' };
   finding.finding.finding_digest = selfDigest(finding.finding, 'finding_digest');
@@ -720,7 +722,8 @@ test('activate後もdaemonが生存しfinding→conflict→hold receiptとdispat
     'runtime_frozen', 'schema',
   ]);
   assert.equal(status.runtime_projection.schema, 'lattice.runtime_status_projection.v1');
-  assert.deepEqual(status.runtime_projection.held, ['T1']);
+  // 2者の競合なので双方がhold_setへ入る。
+  assert.deepEqual(status.runtime_projection.held, ['T1', 'T2']);
   assert.deepEqual(status.runtime_projection.carry_over, []);
   assert.deepEqual(status.runtime_projection.redispatch, []);
   assert.equal(status.runtime_projection.intake_frozen, true);
