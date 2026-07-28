@@ -371,6 +371,30 @@ affectedの異なる2 pathを所有するTODOは原理的に成立しなかっ�
 **既に所有と書き込みを宣言している側は触らない。** 観測が予測の内側にあるなら合わせるものが
 無い。翻訳が手を入れてよいのは、観測が予測を超えた分だけである。
 
+## 予測超過はfreezeへ運べなくした（2026-07-28・実daemonで確認）
+
+`undeclared_write`は`RUNTIME_CONFLICT_KINDS`に属したまま`finding_record`が受理していたので、
+**hostが投げれば処置できないfreezeを作れた**。処置は2つとも2者を要求する——直列化は
+`todo_ids.length >= 2`（`validateRuntimeIntentionalSerial`）、seam変換は2つの面へ切る——ので、
+1者しか名指していないfindingでfreezeするとlegalなrecompileを作れないまま止まる。
+
+`conflict`操作が`todo_ids.length < 2`を`FINDING_NOT_A_CONFLICT`で拒否する。記録は残るので
+予測が外れた事実は捨てない。正しい応答は次のcompileで宣言を実態へ合わせることである。
+
+**ADR 0044を覆す**（[ADR 0144](adr/0144-prediction-excess-is-not-a-conflict.md)）。0044は
+「offender＋affected closure hold」と定めたが、その後に固まった再計画契約が2者を要求する
+ようになり、両立しなくなった。RC3 campaignの当該条件がhold止まりで再計画まで行っていないのは
+この壁の痕跡である。
+
+**区別しているのは書き込みの善し悪しではなく当事者の数である。** 受入testは1つの書き込みから
+出た2つのfinding——`observed_write_conflict`（T1×T2、freezeへ運ばれる）と`undeclared_write`
+（T2のみ、拒否される）——を同じrunで並べる。
+
+**managed control拒否の構造化detailが落ちる。** `ManagedRuntimeError`へ添えた`detail`は
+control responseの投影で捨てられ、operatorへ届くのは`code`と`message`だけである。今回は
+messageに次の一手を書いて運んだが、運搬路がprose1本なのは弱い。実害が出た事例は未観測。
+拒否のdetailを構造のまま届けたい要求が2件目に出たら着手する。
+
 ## 請求項8を選ぶ条件が無い
 
 `routeConflictTreatment`は**事前宣言済みのtreatmentが係争pathを覆っている時だけ**

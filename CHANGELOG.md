@@ -27,6 +27,12 @@
 - **単独の予測超過ではrunを止めなくなった。** 誰の領分とも重なっていない宣言外の書き込みは
   競合ではなく、予測が実態より狭かったという情報である。記録は残る。実際にぶつかった
   （他の走行中TODOの宣言scopeへ書いた）時だけholdへ運ぶ。
+
+  `conflict`操作も1者しか名指していないfindingを`FINDING_NOT_A_CONFLICT`で拒否する。
+  **hostが投げれば処置できないfreezeを作れた**——処置は2つとも2者を要求するので、
+  legalなrecompileが作れないまま止まる。区別しているのは書き込みの善し悪しではなく
+  当事者の数である（[ADR 0144](docs/adr/0144-prediction-excess-is-not-a-conflict.md)。
+  ADR 0044の「offender＋affected closure hold」を覆す）。
 - **請求項7が実runで通った。** 早期警報→probe→finding→conflict→freeze→静止証明→hold→
   後継epochへのrebind→再開まで、走行中のworkerに対して1本で繋がった
   （[ADR 0143](docs/adr/0143-io-sentinel-is-an-early-warning-not-a-finding.md)）。

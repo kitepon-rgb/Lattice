@@ -6,6 +6,9 @@
 - Predecessors: [ADR 0043](0043-rc2-v4-phase-gate-support.md)、[製品契約v0](../00_product-contract.md)
 - Plan: [RC3 runtime vertical slice計画](../archive/plan_lattice_rc3_runtime_vertical_slice.md)
 - Baseline evidence: [RC3 baseline](../evidence/2026-07-16-rc3-baseline.md)
+- Superseded in part: Decision 2の`scope_violation`行（現`undeclared_write`）は
+  [ADR 0144](0144-prediction-excess-is-not-a-conflict.md)が覆した。1者しか名指していない
+  観測はfreezeへ運ばない。**以下の本文は当時の裁定のまま残す**——記録を後から書き換えない。
 
 ## Context
 
