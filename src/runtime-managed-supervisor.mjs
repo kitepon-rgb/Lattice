@@ -92,6 +92,28 @@ export async function observeMacosBinaryIdentity(binaryPath) {
   return identity;
 }
 
+/**
+ * 起動済みprocessが実際に実行しているimageのcanonical pathをOSから観測する。
+ * bytesの同一性はcallerがlaunch descriptorのSHA-256と照合する。
+ */
+export async function observeProcessExecutablePath(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) {
+    fail('ADAPTER_BINARY_IDENTITY_MISMATCH', 'exec後image PID不正');
+  }
+  if (process.platform === 'linux') {
+    return realpath(`/proc/${pid}/exe`);
+  }
+  if (process.platform === 'darwin') {
+    const { stdout } = await execFileAsync(
+      '/bin/ps',
+      ['-o', 'comm=', '-p', String(pid)],
+      { encoding: 'utf8' },
+    );
+    return realpath(stdout.trim());
+  }
+  fail('ADAPTER_BINARY_IDENTITY_MISMATCH', `exec後image path観測未対応platform: ${process.platform}`);
+}
+
 /** storeが解決したimmutable bindingからprocess/worktree/checkpointをDirect OSで再観測する。 */
 /**
  * 本repositoryの現在状態を1つのdigestへ畳む。
@@ -862,8 +884,7 @@ async function activateManagedSupervisorController({ repoRoot, runDir, runId, ad
       try { process.kill(child.pid, 0); } catch { fail('ADAPTER_CONTROLLER_UNAVAILABLE', 'controller process不達'); }
       let executedImage;
       try {
-        const { stdout } = await execFileAsync('/bin/ps', ['-o', 'comm=', '-p', String(child.pid)], { encoding: 'utf8' });
-        executedImage = await realpath(stdout.trim());
+        executedImage = await observeProcessExecutablePath(child.pid);
       } catch { fail('ADAPTER_BINARY_IDENTITY_MISMATCH', 'exec後image path観測失敗'); }
       if (executedImage !== binaryReal || sha256Bytes(await readFile(executedImage)) !== launch.binary_digest) {
         fail('ADAPTER_BINARY_IDENTITY_MISMATCH', 'exec後image path/bytes不一致');
