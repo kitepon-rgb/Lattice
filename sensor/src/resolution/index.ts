@@ -648,6 +648,8 @@ export class ReferenceResolver {
       filePath: ref.filePath || this.getFilePathFromNodeId(ref.fromNodeId),
       language: ref.language || this.getLanguageFromNodeId(ref.fromNodeId),
       rowId: ref.rowId,
+      bindingForm: ref.bindingForm,
+      importedName: ref.importedName,
     }));
 
     const total = refs.length;
@@ -1064,6 +1066,11 @@ export class ReferenceResolver {
           // tooling label "callback registration" and lets validation diff
           // exactly the edges this feature added.
           ...(ref.original.referenceKind === 'function_ref' ? { fnRef: true } : {}),
+          // Import binding shape (v10) — lets rewrite tooling reproduce the
+          // binding (`default`/`named`/`namespace`, alias→source name) without
+          // re-parsing the import statement text.
+          ...(ref.original.bindingForm !== undefined ? { binding: ref.original.bindingForm } : {}),
+          ...(ref.original.importedName !== undefined ? { importedName: ref.original.importedName } : {}),
         },
       };
     });
@@ -1288,6 +1295,8 @@ export class ReferenceResolver {
         filePath: raw.filePath || this.getFilePathFromNodeId(raw.fromNodeId),
         language: raw.language || this.getLanguageFromNodeId(raw.fromNodeId),
         rowId: raw.rowId,
+        bindingForm: raw.bindingForm,
+        importedName: raw.importedName,
       };
       const result = this.resolveOne(ref);
       if (result) {
@@ -1343,6 +1352,8 @@ export class ReferenceResolver {
         filePath: raw.filePath || this.getFilePathFromNodeId(raw.fromNodeId),
         language: raw.language || this.getLanguageFromNodeId(raw.fromNodeId),
         rowId: raw.rowId,
+        bindingForm: raw.bindingForm,
+        importedName: raw.importedName,
       };
       const result = this.resolveOne(ref);
       if (result) {

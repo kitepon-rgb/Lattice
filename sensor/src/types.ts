@@ -360,6 +360,17 @@ export interface UnresolvedReference {
   candidates?: string[];
 
   /**
+   * How an `imports` reference is bound at the import site
+   * (`default` / `named` / `namespace`). Carried into the resolved edge's
+   * metadata so rewrite tooling can reproduce the binding shape without
+   * re-parsing the import text.
+   */
+  bindingForm?: 'default' | 'named' | 'namespace';
+
+  /** Source-side exported name when it differs from the local alias. */
+  importedName?: string;
+
+  /**
    * `unresolved_refs.id` when this ref was loaded from the database. Post-pass
    * cleanup (delete-on-resolve / park-as-failed) targets exactly this row.
    * Without it, cleanup falls back to deleting by (fromNodeId, referenceName,

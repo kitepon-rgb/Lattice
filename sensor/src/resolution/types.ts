@@ -29,6 +29,10 @@ export interface UnresolvedRef {
   /** `unresolved_refs.id` when loaded from the database — post-pass cleanup
    * targets exactly this row instead of every same-key sibling (#1269). */
   rowId?: number;
+  /** Import binding shape (v10) — carried into resolved edge metadata. */
+  bindingForm?: 'default' | 'named' | 'namespace';
+  /** Source-side exported name when it differs from the local alias. */
+  importedName?: string;
 }
 
 /**

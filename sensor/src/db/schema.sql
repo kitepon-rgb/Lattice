@@ -90,6 +90,9 @@ CREATE TABLE IF NOT EXISTS unresolved_refs (
     language TEXT NOT NULL DEFAULT 'unknown',
     status TEXT NOT NULL DEFAULT 'pending',
     name_tail TEXT NOT NULL DEFAULT '',
+    -- Import binding shape (v10): default/named/namespace + source-side name.
+    binding_form TEXT,
+    imported_name TEXT,
     FOREIGN KEY (from_node_id) REFERENCES nodes(id) ON DELETE CASCADE
 );
 

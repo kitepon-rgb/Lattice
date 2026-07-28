@@ -12,6 +12,12 @@
   当初はsensorの`unresolved_refs`の集合差分を予定していたが、**bare参照の切断はそこに記録
   されないことを実測で確認し**、fresh indexのsymbol一覧（新設`lattice-sensor file-nodes`）と
   本文言及の突き合わせへ組み替えた。
+- **import 束縛の形が resolved edge の metadata に残るようになった**（sensor schema v10）。
+  default / named / namespace の区別と、alias が改名した時の source 側の名前
+  （`import { renamed as alias }` → `importedName: 'renamed'`）を、抽出器が既に持っていた
+  AST 知識から搬送する。従来は3分岐で認識した直後に同じ形へ潰しており、書き換え側は
+  import 文の text を正規表現で再解析していた。搬送は unresolved_refs の新カラム
+  （`binding_form`/`imported_name`、migration v10）→ 解決 → edge metadata。
 - **value-ref 辺の名前フィルタを緩めた。** 従来は大文字か `_` を含む名前だけを辺の対象に
   していたので、全小文字の module 変数（`counter`, `cache`）への参照が辺にならず、
   切断コストの内訳が「共有なし」と偽陰性を返しえた。長さ3以上だけを残して緩和。

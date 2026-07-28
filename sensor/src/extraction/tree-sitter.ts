@@ -3416,7 +3416,14 @@ export class TreeSitterExtractor {
     const clause = node.namedChildren.find((c) => c.type === 'import_clause');
     if (!clause) return; // side-effect import (`import './x'`) — no bindings
 
-    const pushRef = (nameNode: SyntaxNode | null | undefined): void => {
+    // The binding shape is knowledge this walker already has in hand — the three
+    // branches below. Flattening them into indistinct refs made rewrite tooling
+    // re-parse import text with regexes downstream; carry the shape instead.
+    const pushRef = (
+      nameNode: SyntaxNode | null | undefined,
+      bindingForm: 'default' | 'named' | 'namespace',
+      importedName?: string,
+    ): void => {
       if (!nameNode) return;
       const name = getNodeText(nameNode, this.source);
       if (!name) return;
@@ -3426,23 +3433,30 @@ export class TreeSitterExtractor {
         referenceKind: 'imports',
         line: nameNode.startPosition.row + 1,
         column: nameNode.startPosition.column,
+        bindingForm,
+        ...(importedName !== undefined && importedName !== name ? { importedName } : {}),
       });
     };
 
     for (const child of clause.namedChildren) {
       if (child.type === 'identifier') {
         // default import: `import Foo from './x'`
-        pushRef(child);
+        pushRef(child, 'default');
       } else if (child.type === 'named_imports') {
-        // `import { A, B as C } from './x'` — link the LOCAL name (alias if any)
+        // `import { A, B as C } from './x'` — link the LOCAL name (alias if any),
+        // keep the source-side name so `C` can be traced back to `B`.
         for (const spec of child.namedChildren) {
           if (spec.type !== 'import_specifier') continue;
-          pushRef(getChildByField(spec, 'alias') ?? getChildByField(spec, 'name') ?? spec.namedChild(0));
+          const nameNode = getChildByField(spec, 'name') ?? spec.namedChild(0);
+          const aliasNode = getChildByField(spec, 'alias');
+          pushRef(aliasNode ?? nameNode, 'named',
+            nameNode ? getNodeText(nameNode, this.source) : undefined);
         }
       } else if (child.type === 'namespace_import') {
         // `import * as NS from './x'` — emit NS so the module-import backstop can
         // record the file dependency even if NS is only used by value-member read.
-        pushRef(child.namedChildren.find((c) => c.type === 'identifier') ?? child.namedChild(0));
+        pushRef(child.namedChildren.find((c) => c.type === 'identifier') ?? child.namedChild(0),
+          'namespace');
       }
     }
   }

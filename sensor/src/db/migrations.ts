@@ -9,7 +9,7 @@ import { SqliteDatabase } from './sqlite-adapter';
 /**
  * Current schema version
  */
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 /**
  * Migration definition
@@ -148,6 +148,21 @@ const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_unresolved_status ON unresolved_refs(status);
         CREATE INDEX IF NOT EXISTS idx_unresolved_failed_tail ON unresolved_refs(name_tail) WHERE status = 'failed';
       `);
+    },
+  },
+  {
+    version: 10,
+    description:
+      'Carry import binding shape (default/named/namespace + source-side name) on unresolved refs so resolved import edges can expose it — rewrite tooling reproduces the binding without re-parsing import text',
+    up: (db) => {
+      const cols = db.prepare('PRAGMA table_info(unresolved_refs)').all() as Array<{ name: string }>;
+      const hasColumn = (name: string) => cols.some((c) => c.name === name);
+      if (!hasColumn('binding_form')) {
+        db.exec('ALTER TABLE unresolved_refs ADD COLUMN binding_form TEXT');
+      }
+      if (!hasColumn('imported_name')) {
+        db.exec('ALTER TABLE unresolved_refs ADD COLUMN imported_name TEXT');
+      }
     },
   },
   {

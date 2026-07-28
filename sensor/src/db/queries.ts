@@ -113,6 +113,8 @@ interface UnresolvedRefRow {
   language: string;
   status: string;
   name_tail: string;
+  binding_form: string | null;
+  imported_name: string | null;
 }
 
 /**
@@ -2024,8 +2026,8 @@ export class QueryBuilder {
   insertUnresolvedRef(ref: UnresolvedReference): void {
     if (!this.stmts.insertUnresolved) {
       this.stmts.insertUnresolved = this.db.prepare(`
-        INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language)
-        VALUES (@fromNodeId, @referenceName, @referenceKind, @line, @col, @candidates, @filePath, @language)
+        INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, binding_form, imported_name)
+        VALUES (@fromNodeId, @referenceName, @referenceKind, @line, @col, @candidates, @filePath, @language, @bindingForm, @importedName)
       `);
     }
 
@@ -2038,6 +2040,8 @@ export class QueryBuilder {
       candidates: ref.candidates ? JSON.stringify(ref.candidates) : null,
       filePath: ref.filePath ?? '',
       language: ref.language ?? 'unknown',
+      bindingForm: ref.bindingForm ?? null,
+      importedName: ref.importedName ?? null,
     });
   }
 
@@ -2058,12 +2062,14 @@ export class QueryBuilder {
           ref.candidates ? JSON.stringify(ref.candidates) : null,
           ref.filePath ?? '',
           ref.language ?? 'unknown',
+          ref.bindingForm ?? null,
+          ref.importedName ?? null,
         ]);
       }
       this.runBatched(
         'insertUnresolvedRefs',
-        'INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language) VALUES ',
-        '(?,?,?,?,?,?,?,?)',
+        'INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, binding_form, imported_name) VALUES ',
+        '(?,?,?,?,?,?,?,?,?,?)',
         rows
       );
     });
@@ -2102,6 +2108,8 @@ export class QueryBuilder {
       filePath: row.file_path,
       language: row.language as Language,
       rowId: row.id,
+      bindingForm: (row.binding_form ?? undefined) as UnresolvedReference['bindingForm'],
+      importedName: row.imported_name ?? undefined,
     }));
   }
 
@@ -2120,6 +2128,8 @@ export class QueryBuilder {
       filePath: row.file_path,
       language: row.language as Language,
       rowId: row.id,
+      bindingForm: (row.binding_form ?? undefined) as UnresolvedReference['bindingForm'],
+      importedName: row.imported_name ?? undefined,
     }));
   }
 
@@ -2168,6 +2178,8 @@ export class QueryBuilder {
       filePath: row.file_path,
       language: row.language as Language,
       rowId: row.id,
+      bindingForm: (row.binding_form ?? undefined) as UnresolvedReference['bindingForm'],
+      importedName: row.imported_name ?? undefined,
     }));
   }
 
@@ -2237,6 +2249,8 @@ export class QueryBuilder {
       filePath: row.file_path,
       language: row.language as Language,
       rowId: row.id,
+      bindingForm: (row.binding_form ?? undefined) as UnresolvedReference['bindingForm'],
+      importedName: row.imported_name ?? undefined,
     }));
   }
 
@@ -2407,6 +2421,8 @@ export class QueryBuilder {
       filePath: row.file_path,
       language: row.language as Language,
       rowId: row.id,
+      bindingForm: (row.binding_form ?? undefined) as UnresolvedReference['bindingForm'],
+      importedName: row.imported_name ?? undefined,
     }));
   }
 
