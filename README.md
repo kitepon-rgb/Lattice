@@ -162,9 +162,7 @@ The design in this repository is the subject of a Japanese patent application:
 | Claims | 12 |
 
 **Patent rights are reserved.** Noncommercial use is licensed together with the software (see
-[License](#license)). Commercial use is not granted — neither the copyright license nor the
-patent license extends to it. The application is disclosed here so the rights position is
-visible up front rather than discovered later.
+[License](#license)). **Commercial use requires permission from the patent holder.**
 
 ## Ownership boundary
 
@@ -203,14 +201,11 @@ Detailed operational notes (dashboard, bridge, actor environment, store transact
 
 - **Free:** personal projects, study and research, hobby and amateur work, charities,
   educational institutions, public research organizations, and government institutions.
-- **Not granted:** commercial use. That includes use inside a company's paid work or products,
+- **Permission required:** commercial use. That includes use inside a company's paid work or products,
   regardless of whether Lattice itself is redistributed.
 
-This is **not** an OSI-approved open source license, and that is deliberate: the design is
-covered by a patent application and commercial rights are retained.
-
-**For commercial use**, a separate license from the copyright and patent holder is required.
-Enquiries can be made via [issues](https://github.com/kitepon-rgb/Lattice/issues). Whether a
+**For commercial use**, separate permission from the patent holder is required.
+Enquiries can be made by email at [kitepon@gmail.com](mailto:kitepon@gmail.com). Whether a
 license is granted, and on what terms, is decided case by case.
 
 The bundled structure sensor in [`sensor/`](sensor/) is third-party work absorbed into this

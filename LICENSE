@@ -138,8 +138,8 @@ Patent notice: this software implements the subject matter of Japanese patent
 application 特願2026-178950 (filed 2026-07-27). Patent rights are reserved except as
 licensed above for permitted (noncommercial) purposes.
 
-Commercial use: not granted by these terms. A separate license from the copyright and
-patent holder is required. Enquiries: https://github.com/kitepon-rgb/Lattice/issues
+Commercial use requires separate permission from the patent holder.
+Enquiries: kitepon@gmail.com
 Whether such a license is granted, and on what terms, is decided case by case.
 
 Third-party components: the bundled structure sensor in `sensor/` is third-party work
