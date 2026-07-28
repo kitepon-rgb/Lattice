@@ -486,28 +486,43 @@ export function compileRuntimePlanV1(options = {}) {
   }
 
   // affected test drift検査（witness宣言とfresh affected観測のexact比較）。
+  //
+  // 比較はTODO単位で、そのTODOが持つ**全affected束縛の観測の和**に対して行う。1面しか持たない
+  // TODOでは束縛ごとの比較と同じ結果になり、複数面を所有するTODOでも表現できる——束縛ごとに
+  // 宣言全体とexact比較すると、affectedの異なる2 pathを所有するTODOは原理的に成立せず、
+  // 実行時に所有が広がった宣言を受け取れなくなる。和なので緩みは入らない（余分な宣言も
+  // 足りない宣言もdriftのまま）。
   const affectedDrift = [];
   for (const todoId of todoIds) {
     const witness = request.manual_witness[todoId];
+    const declared = [...witness.affected_tests].sort(compareText);
+    const queryIds = [];
+    const observedUnion = new Set();
+    let unreadable = false;
     for (const binding of bindingsByTodo.get(todoId)) {
       if (binding.expect.kind !== 'affected') continue;
       const outcome = outcomeByQueryId.get(binding.query_id);
       if (resolveBindingStatus(binding, outcome) !== 'ready') continue;
+      queryIds.push(binding.query_id);
       const payload = affectedPayload(outcome.raw, binding.expect.path);
-      const observed = Array.isArray(payload?.affectedTests)
-        ? [...payload.affectedTests].sort(compareText)
-        : null;
-      const declared = [...witness.affected_tests].sort(compareText);
-      if (observed === null
-        || observed.length !== declared.length
-        || observed.some((test, index) => test !== declared[index])) {
-        affectedDrift.push({
-          todo_id: todoId,
-          query_id: binding.query_id,
-          declared,
-          observed,
-        });
+      if (!Array.isArray(payload?.affectedTests)) {
+        // 観測が読めないのは「一致しない」とは別の事象である。丸めずそのまま残す。
+        affectedDrift.push({ todo_id: todoId, query_id: binding.query_id, declared, observed: null });
+        unreadable = true;
+        continue;
       }
+      for (const test of payload.affectedTests) observedUnion.add(test);
+    }
+    if (unreadable || queryIds.length === 0) continue;
+    const observed = [...observedUnion].sort(compareText);
+    if (observed.length !== declared.length
+      || observed.some((test, index) => test !== declared[index])) {
+      affectedDrift.push({
+        todo_id: todoId,
+        query_id: queryIds.sort(compareText).join(','),
+        declared,
+        observed,
+      });
     }
   }
   if (affectedDrift.length > 0) {
