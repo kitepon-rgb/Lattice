@@ -41,7 +41,7 @@ export function scanImportStatements(lines) {
   return { statements, endIndex: statements.length === 0 ? -1 : statements.at(-1).end };
 }
 
-function importBindings(text) {
+export function importBindings(text) {
   const bindings = [];
   const namespace = /import\s+\*\s+as\s+([A-Za-z_$][\w$]*)/u.exec(text);
   if (namespace) bindings.push(namespace[1]);
@@ -59,7 +59,7 @@ function importBindings(text) {
 }
 
 /** 語として現れるか。string中やcomment中の一致も拾うが、余分なimportは害にならない。 */
-function mentions(text, name) {
+export function mentions(text, name) {
   return new RegExp(`(?<![\\w$])${name.replace(/[$]/gu, '\\$$')}(?![\\w$])`, 'u').test(text);
 }
 

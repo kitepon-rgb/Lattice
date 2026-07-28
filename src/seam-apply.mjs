@@ -14,7 +14,7 @@ import { runIsolatedTransform } from './isolation-runner.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { invokeSensorCli } from './sensor-runtime.mjs';
 import { buildSeamDerivationQuerySet, deriveBoundedSeamCandidate } from './seam-derivation.mjs';
-import { planSeamRewrite } from './seam-rewrite.mjs';
+import { mentions, planSeamRewrite, scanImportStatements } from './seam-rewrite.mjs';
 import {
   buildPostTransformWitnessSet, compareExportSurface, evaluateSeamVerification, measureWaveCount,
 } from './seam-verification.mjs';
@@ -128,6 +128,60 @@ async function runIn(worktreePath, command, args) {
   } catch (error) {
     return { ok: false, stdout: error?.stdout ?? '', stderr: error?.stderr ?? String(error) };
   }
+}
+
+/**
+ * 変換で切断された参照を数える（検証網、ADR 0145）。
+ *
+ * 移した先のcodeが、残余面に留まったsymbol（module変数・非公開関数）へ束縛なしで言及して
+ * いれば、その参照は切断されている——moduleの読み込みは通り、実行して初めてReferenceErrorに
+ * なるので、focused testが当該経路を通らなければ黙って壊れたまま採用される。これを受入の
+ * 一点で数える。
+ *
+ * 残余面のsymbol一覧は、変換後worktreeのfresh indexから抽出精度で取る（`file-nodes`）。
+ * value-ref辺の名前フィルタはノード生成に効かないので、全小文字のmodule変数もここには載る。
+ * `unresolved_refs`は使わない——bare参照の切断はそこに記録されないことを実測で確認した
+ * （builtin呼び出しは載るが、未束縛のidentifier読みは載らない）。
+ *
+ * 検査は保守的である。`mentions`はtext一致なので、文字列やcomment内の同名語も
+ * 「切断の疑い」として数える——見逃す方向ではなく誤検出の方向へ倒す（fail closed）。
+ * 網は受入の一点だけで、過程には触れない。不認定は拒否ではなく、理由を見て直せば
+ * 何度でも再提出できる。
+ */
+async function detectSeveredReferences({ worktreePath, files, residualPath }) {
+  const readNodes = (target) => {
+    const result = invokeSensorCli(
+      (command, args, options) => spawnSync(command, args, options),
+      ['file-nodes', target, '--path', '.'],
+      { cwd: worktreePath, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+    );
+    if (result.status !== 0) return null;
+    try { return JSON.parse(result.stdout)?.nodes ?? null; } catch { return null; }
+  };
+
+  const residualNodes = readNodes(residualPath);
+  if (residualNodes === null) return { observed: false, entries: [] };
+  const residualNames = residualNodes.map(({ name }) => name);
+
+  const entries = [];
+  for (const [target, body] of Object.entries(files)) {
+    if (target === residualPath) continue;
+    const ownNodes = readNodes(target);
+    if (ownNodes === null) return { observed: false, entries: [] };
+    const defined = new Set(ownNodes.map(({ name }) => name));
+    const imported = new Set(scanImportStatements(body.split('\n')).statements
+      .flatMap(({ bindings }) => bindings));
+    for (const name of residualNames) {
+      if (defined.has(name) || imported.has(name)) continue;
+      if (mentions(body, name)) entries.push({ file: target, name });
+    }
+  }
+  return {
+    observed: true,
+    entries: entries.sort((left, right) => compareText(
+      `${left.file}\0${left.name}`, `${right.file}\0${right.name}`,
+    )),
+  };
 }
 
 /**
@@ -366,9 +420,14 @@ export async function applySeamConflict({
         const owned = candidate.surfaces
           .filter(({ role }) => role === 'task_owned').map(({ path: target }) => target);
         const sensor = await observeFreshSensor({ worktreePath, latticeBin, paths: owned });
-        observation = { sensor, afterText: null, afterArtifact: null };
+        observation = { sensor, afterText: null, afterArtifact: null, severed: null };
         observation.afterText = await readFile(path.join(worktreePath, sourcePath), 'utf8');
         if (!sensor.fresh) return;
+        // 網は受入の一点だけ（ADR 0145）。fresh indexの上でしか意味を持たないので、
+        // sensorが新pathを見ていない時は数えず、observation欠落として別理由で落とす。
+        observation.severed = await detectSeveredReferences({
+          worktreePath, files: rewritten.files, residualPath: sourcePath,
+        });
         const post = buildPostTransformWitnessSet({
           witnessSet, candidate, affectedTestsByPath: sensor.affectedByPath,
         });
@@ -394,6 +453,7 @@ export async function applySeamConflict({
     exportSurface: observation?.afterText === null || observation?.afterText === undefined
       ? { preserved: false, missing: [] }
       : compareExportSurface({ before: beforeText, after: observation.afterText }),
+    severed: observation?.severed ?? null,
     focusedTestsPassed: verifierFailure === null,
     sensorFresh: observation?.sensor?.fresh === true,
     conflictPairs: afterPairs === null ? { targetResolved: false }

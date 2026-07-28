@@ -23,6 +23,10 @@ const sortedUnique = (values) => [...new Set(values)].sort(compareText);
  * 分割で外部の消費者が影響を受けるかは、原pathの公開面が変わったかで決まる。原pathが
  * 同じ名前を同じだけ出し続けるなら、原pathをimportしている側は一行も変わらない
  * （ADR 0137 Decision 3）。
+ *
+ * **ESM構文（`export function` / `export {}`）を正規表現で読むJS/TS限定の検査である。**
+ * 他言語のsourceに対しては公開名を1つも読めず、比較は実質空になる——「検証済み」を
+ * 主張しない（ADR 0145）。言語非依存の網は切断参照の計数（`severed`観測）が担う。
  */
 export function readExportSurface(text) {
   if (typeof text !== 'string') return [];
@@ -149,19 +153,38 @@ const CONDITIONS = Object.freeze([
  * @param {{preserved: boolean, missing: string[]}} options.exportSurface 公開面の比較
  * @param {boolean} options.focusedTestsPassed 変換後worktreeでのfocused test結果
  * @param {boolean} options.sensorFresh 変換後の再indexが新pathを収載したか
+ * @param {{observed: boolean, entries: Array<{file: string, name: string}>}|null} options.severed
+ *   切断参照の観測（ADR 0145）。`null`はfresh indexへ到達しなかった時で、その場合は
+ *   sensor_freshが先に落ちる。`observed: false`は観測の失敗であり「切断なし」へ丸めない。
  * @param {{targetResolved: boolean, before: number, after: number}} options.conflictPairs 競合対の増減
  * @param {{before: number|null, after: number|null}} options.waves 実行段階数の増減
+ *
+ * behavior_equivalentは2つの観測の合成である。(1) export面の比較——**ESM構文を正規表現で
+ * 読むのでJS/TS限定**。他言語のsourceに対しては常にpreservedを返す実質空の検査であり、
+ * 「検証済み」を主張しない。(2) 切断参照の計数——fresh indexのsymbol一覧に立つので、
+ * sensorが抽出できる言語なら効く。網の言語非依存部はこちらが担う。
  */
 export function evaluateSeamVerification(options = {}) {
   const {
-    exportSurface, focusedTestsPassed, sensorFresh, conflictPairs, waves,
+    exportSurface, focusedTestsPassed, sensorFresh, conflictPairs, waves, severed = null,
   } = options;
   const detail = {};
   const failures = [];
 
-  detail.behavior_equivalent = exportSurface?.preserved === true;
+  const surfacePreserved = exportSurface?.preserved === true;
+  // severedがnullのままここへ来るのはsensor_freshが落ちる経路だけ。fresh indexに到達したのに
+  // 観測が組めなかった（observed: false）は、切断なしではなく観測の欠落として落とす。
+  const severedObserved = severed === null || severed.observed === true;
+  const severedEntries = severed?.entries ?? [];
+  detail.behavior_equivalent = surfacePreserved && severedObserved && severedEntries.length === 0;
   if (!detail.behavior_equivalent) {
-    failures.push(`behavior_equivalent:${(exportSurface?.missing ?? []).join(',') || 'unknown'}`);
+    if (!surfacePreserved) {
+      failures.push(`behavior_equivalent:${(exportSurface?.missing ?? []).join(',') || 'unknown'}`);
+    }
+    if (!severedObserved) failures.push('behavior_equivalent:severed_observation_missing');
+    for (const entry of severedEntries) {
+      failures.push(`behavior_equivalent:severed_reference:${entry.file}:${entry.name}`);
+    }
   }
 
   detail.focused_tests_passed = focusedTestsPassed === true;
