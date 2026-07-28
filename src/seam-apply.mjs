@@ -112,7 +112,11 @@ export async function readSymbolExtents({ cwd, sourcePath, symbols }) {
       const node = nodeOf(entry);
       if (node === null || node.name !== symbol || node.filePath !== sourcePath) continue;
       if (!Number.isSafeInteger(node.startLine) || !Number.isSafeInteger(node.endLine)) continue;
-      extents[symbol] = { startLine: node.startLine, endLine: node.endLine };
+      // 装飾込みの開始行（sensor v11）を優先する。Pythonの@decoratorやRustの#[derive]は
+      // 宣言の外の行にあり、宣言行だけで切ると装飾が残余面へ取り残される。
+      const start = Number.isSafeInteger(node.extentStartLine) && node.extentStartLine < node.startLine
+        ? node.extentStartLine : node.startLine;
+      extents[symbol] = { startLine: start, endLine: node.endLine };
     }
     if (extents[symbol] === undefined && entries.length >= SYMBOL_LOOKUP_LIMIT) truncated.push(symbol);
   }

@@ -11309,3 +11309,33 @@ import DataStore from '../data/DataStore';
     });
   });
 });
+
+describe('decorator-inclusive extent (v11)', () => {
+  it('widens extentStartLine to preceding decorators without moving startLine', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-extent-'));
+    try {
+      fs.writeFileSync(
+        path.join(dir, 'deco.py'),
+        [
+          'import functools',
+          '',
+          '',
+          '@functools.lru_cache(maxsize=8)',
+          'def cached_fn(value):',
+          '    return value * 2',
+        ].join('\n'),
+      );
+      const g = LatticeSensor.initSync(dir, { config: { include: ['**/*.py'], exclude: [] } });
+      try {
+        await g.indexAll();
+        const fn = g.searchNodes('cached_fn').map((r) => r.node).find((n) => n.kind === 'function');
+        expect(fn?.startLine).toBe(5);
+        expect(fn?.extentStartLine).toBe(4);
+      } finally {
+        g.destroy();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

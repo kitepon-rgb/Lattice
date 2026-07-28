@@ -12,6 +12,13 @@
   当初はsensorの`unresolved_refs`の集合差分を予定していたが、**bare参照の切断はそこに記録
   されないことを実測で確認し**、fresh indexのsymbol一覧（新設`lattice-sensor file-nodes`）と
   本文言及の突き合わせへ組み替えた。
+- **装飾込みの開始行が取れるようになった**（`extentStartLine`、sensor schema v11）。
+  extent は宣言だけを指し、Python の `@decorator` や Rust の `#[derive]` は外の行にある——
+  宣言行だけで切り出すと装飾が残余面へ取り残され、挙動が黙って変わる。`startLine` は
+  node identity に参加するので動かさず、広い開始行を別 field で持つ。`file-nodes` と
+  seam 変換の切り出し（`readSymbolExtents`）が使う。Rust の `attribute_item` は
+  兄弟走査の停止条件に含まれておらず struct の `#[derive]` が一度も拾えていなかったので、
+  extent 計算に含めた（依存辺の意味論は変えない）。
 - **import 束縛の形が resolved edge の metadata に残るようになった**（sensor schema v10）。
   default / named / namespace の区別と、alias が改名した時の source 側の名前
   （`import { renamed as alias }` → `importedName: 'renamed'`）を、抽出器が既に持っていた

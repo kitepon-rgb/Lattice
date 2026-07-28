@@ -1924,6 +1924,11 @@ export class TreeSitterExtractor {
     });
     if (!structNode) return;
 
+    // Rust `#[derive]`/attributes precede the struct as siblings — without this
+    // the widened extent (v11) never covers them and a cut struct silently
+    // loses its derives.
+    this.extractDecoratorsFor(node, structNode.id);
+
     // Extract inheritance (e.g. Swift: struct HTTPMethod: RawRepresentable)
     this.extractInheritance(node, structNode.id);
 
@@ -5100,8 +5105,19 @@ export class TreeSitterExtractor {
    * (most non-decorator-using languages), the function is a no-op.
    */
   private extractDecoratorsFor(declNode: SyntaxNode, decoratedId: string): void {
+    // First line including decorators/attributes (v11). `startLine` stays the
+    // declaration — it participates in node identity — so the widened extent
+    // lives in its own field. Rust `attribute_item` is extent-only here: its
+    // dependency semantics are unmodeled, but cutting a struct without its
+    // `#[derive]` silently changes behavior, so the extent must cover it.
+    let extentRow: number | null = null;
+    const markExtent = (n: SyntaxNode): void => {
+      const row = n.startPosition.row + 1;
+      if (extentRow === null || row < extentRow) extentRow = row;
+    };
     const consider = (n: SyntaxNode | null): void => {
       if (!n) return;
+      if (n.type === 'attribute_item') { markExtent(n); return; }
       // Solidity `modifier_invocation` (unique to that grammar) sits
       // decorator-position in the function header — OUTSIDE the `body:` field
       // the call walker descends — but its body executes around the function
@@ -5136,6 +5152,7 @@ export class TreeSitterExtractor {
       ) {
         return;
       }
+      markExtent(n);
       // Find the leading identifier: skip the `@` punct, unwrap
       // a call_expression if the decorator is invoked with args.
       let target: SyntaxNode | null = null;
@@ -5219,11 +5236,20 @@ export class TreeSitterExtractor {
         for (let j = declIdx - 1; j >= 0; j--) {
           const sibling = parent.namedChild(j);
           if (!sibling) continue;
-          if (sibling.type !== 'decorator' && sibling.type !== 'annotation' && sibling.type !== 'marker_annotation') {
+          if (sibling.type !== 'decorator' && sibling.type !== 'annotation'
+            && sibling.type !== 'marker_annotation' && sibling.type !== 'attribute'
+            && sibling.type !== 'attribute_item') {
             break; // non-decorator separator → stop consuming
           }
           consider(sibling);
         }
+      }
+    }
+
+    if (extentRow !== null) {
+      const node = this.nodes.find((candidate) => candidate.id === decoratedId);
+      if (node && Number.isInteger(node.startLine) && extentRow < node.startLine!) {
+        node.extentStartLine = extentRow;
       }
     }
   }

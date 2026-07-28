@@ -1456,6 +1456,7 @@ program
         .filter(n => n.kind !== 'file' && n.kind !== 'import')
         .map(n => ({
           name: n.name, kind: n.kind, startLine: n.startLine, endLine: n.endLine,
+          extentStartLine: n.extentStartLine ?? n.startLine,
           isExported: n.isExported === true,
         }));
       console.log(JSON.stringify({ filePath: file, nodes }));

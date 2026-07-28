@@ -196,6 +196,14 @@ export interface Node {
    */
   returnType?: string;
 
+  /**
+   * First line of the declaration INCLUDING preceding decorators/attributes
+   * (Python `@decorator`, Rust `#[derive]`, TS `@Injectable`). `startLine`
+   * stays the declaration itself — it participates in node identity, so it
+   * must not move. Absent when there is nothing above the declaration.
+   */
+  extentStartLine?: number;
+
   /** When the node was last updated */
   updatedAt: number;
 }
