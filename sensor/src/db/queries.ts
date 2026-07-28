@@ -2261,6 +2261,34 @@ export class QueryBuilder {
   }
 
   /**
+   * Import-binding refs of one file, regardless of resolution status.
+   *
+   * Binding shape (default/named/namespace + alias source name) is an
+   * extraction fact. Resolution parks refs whose target never materializes
+   * (builtins, external packages) as `failed`, and the pending-only readers
+   * hide them — but the binding stays true. Rewrite tooling must see every
+   * bound local name, so this reader ignores `status` on purpose.
+   */
+  getImportBindingRefsByFile(filePath: string): UnresolvedReference[] {
+    const rows = this.db
+      .prepare("SELECT * FROM unresolved_refs WHERE file_path = ? AND reference_kind = 'imports' AND binding_form IS NOT NULL")
+      .all(filePath) as UnresolvedRefRow[];
+    return rows.map((row) => ({
+      fromNodeId: row.from_node_id,
+      referenceName: row.reference_name,
+      referenceKind: row.reference_kind as EdgeKind,
+      line: row.line,
+      column: row.col,
+      candidates: row.candidates ? safeJsonParse(row.candidates, undefined) : undefined,
+      filePath: row.file_path,
+      language: row.language as Language,
+      rowId: row.id,
+      bindingForm: (row.binding_form ?? undefined) as UnresolvedReference['bindingForm'],
+      importedName: row.imported_name ?? undefined,
+    }));
+  }
+
+  /**
    * Delete all unresolved references (after resolution)
    */
   clearUnresolvedReferences(): void {

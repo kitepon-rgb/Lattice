@@ -1438,6 +1438,12 @@ program
  * at extraction fidelity (module constants/variables included, regardless of the
  * value-ref name filter). Reading the DB directly from Lattice would couple it to
  * the schema, so the contract stays at this CLI boundary like every other read.
+ *
+ * `imports` lists the file's import statements (line extents), and
+ * `import_bindings` the locally bound names with their binding form —
+ * resolved bindings come from the import edges' metadata, unresolvable ones
+ * (builtins etc.) from unresolved_refs. Rewrite tooling joins them by line,
+ * so it never re-parses import text with its own grammar.
  */
 program
   .command('file-nodes <file>')
@@ -1452,14 +1458,39 @@ program
       }
       const { default: LatticeSensor } = await loadLatticeSensor();
       const cg = await LatticeSensor.open(projectPath);
-      const nodes = cg.getNodesInFile(file)
+      const all = cg.getNodesInFile(file);
+      const nodes = all
         .filter(n => n.kind !== 'file' && n.kind !== 'import')
         .map(n => ({
           name: n.name, kind: n.kind, startLine: n.startLine, endLine: n.endLine,
           extentStartLine: n.extentStartLine ?? n.startLine,
           isExported: n.isExported === true,
         }));
-      console.log(JSON.stringify({ filePath: file, nodes }));
+      const imports = all
+        .filter(n => n.kind === 'import')
+        .map(n => ({ name: n.name, startLine: n.startLine, endLine: n.endLine }));
+      const importBindings: Array<{
+        local: string; form: string; imported: string | null; line: number | null;
+      }> = [];
+      const fileNode = all.find(n => n.kind === 'file');
+      for (const edge of fileNode ? cg.getOutgoingEdges(fileNode.id) : []) {
+        if (edge.kind !== 'imports') continue;
+        const meta = edge.metadata as Record<string, unknown> | undefined;
+        if (typeof meta?.binding !== 'string' || typeof meta?.refName !== 'string') continue;
+        importBindings.push({
+          local: meta.refName, form: meta.binding,
+          imported: typeof meta.importedName === 'string' ? meta.importedName : null,
+          line: typeof edge.line === 'number' ? edge.line : null,
+        });
+      }
+      for (const ref of cg.getImportBindingRefsForFile(file)) {
+        if (ref.referenceKind !== 'imports' || typeof ref.bindingForm !== 'string') continue;
+        importBindings.push({
+          local: ref.referenceName, form: ref.bindingForm,
+          imported: ref.importedName ?? null, line: ref.line,
+        });
+      }
+      console.log(JSON.stringify({ filePath: file, nodes, imports, import_bindings: importBindings }));
       cg.destroy();
     } catch (err) {
       error(`file-nodes failed: ${err instanceof Error ? err.message : String(err)}`);

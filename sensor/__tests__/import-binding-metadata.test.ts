@@ -65,6 +65,78 @@ describe('import binding metadata', () => {
   });
 });
 
+describe('import surface for rewrite tooling (file-nodes contract)', () => {
+  let dir: string;
+  let cg: LatticeSensor | undefined;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-importsurface-'));
+  });
+  afterEach(() => {
+    cg?.destroy();
+    cg = undefined;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('joins statement extents with bindings by line, including multi-line and builtin imports', async () => {
+    fs.writeFileSync(
+      path.join(dir, 'lib.ts'),
+      ['export function one() { return 1; }', 'export function two() { return 2; }'].join('\n'),
+    );
+    fs.writeFileSync(
+      path.join(dir, 'user.ts'),
+      [
+        "import * as nodePath from 'path';",
+        'import {',
+        '  one,',
+        '  two as second,',
+        "} from './lib';",
+        'export function use() { return nodePath.join(String(one()), String(second())); }',
+      ].join('\n'),
+    );
+    const g = LatticeSensor.initSync(dir, { config: { include: ['**/*.ts'], exclude: [] } });
+    cg = g;
+    await g.indexAll();
+
+    // Statement extents: the multi-line import spans its full range.
+    const all = g.getNodesInFile('user.ts');
+    const imports = all
+      .filter((n) => n.kind === 'import')
+      .map((n) => ({ name: n.name, startLine: n.startLine, endLine: n.endLine }))
+      .sort((a, b) => a.startLine - b.startLine);
+    expect(imports).toEqual([
+      { name: 'path', startLine: 1, endLine: 1 },
+      { name: './lib', startLine: 2, endLine: 5 },
+    ]);
+
+    // Resolved bindings land on edges; the builtin ('path') has no resolvable
+    // target, so its binding is only recoverable from unresolved_refs. The
+    // file-nodes CLI reads both — pin that union here at the same API surface.
+    const fileNode = all.find((n) => n.kind === 'file');
+    const locals: Array<{ local: string; line: number | null }> = [];
+    for (const e of g.getOutgoingEdges(fileNode!.id)) {
+      if (e.kind !== 'imports') continue;
+      const meta = e.metadata as { refName?: string; binding?: string };
+      if (typeof meta?.refName !== 'string' || typeof meta?.binding !== 'string') continue;
+      locals.push({ local: meta.refName, line: typeof e.line === 'number' ? e.line : null });
+    }
+    for (const ref of g.getImportBindingRefsForFile('user.ts')) {
+      if (ref.referenceKind !== 'imports' || typeof ref.bindingForm !== 'string') continue;
+      locals.push({ local: ref.referenceName, line: ref.line });
+    }
+    locals.sort((a, b) => (a.local < b.local ? -1 : 1));
+    // Binding lines are the binding's own line (inside a multi-line statement,
+    // not its first line) — the join is by statement extent containment.
+    // 'nodePath' binds a builtin: resolution parks it as failed, and the
+    // status-agnostic reader must still see it.
+    expect(locals).toEqual([
+      { local: 'nodePath', line: 1 },
+      { local: 'one', line: 3 },
+      { local: 'second', line: 4 },
+    ]);
+  });
+});
+
 describe('EXTENSION_RESOLUTION export (reverse-direction material)', () => {
   it('exposes per-language suffix omission rules, read-only shape', async () => {
     const { EXTENSION_RESOLUTION } = await import('../src/resolution/import-resolver');

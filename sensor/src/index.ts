@@ -23,6 +23,7 @@ import {
   TaskContext,
   BuildContextOptions,
   FindRelevantContextOptions,
+  UnresolvedReference,
 } from './types';
 import { DatabaseConnection, getDatabasePath, removeDatabaseFiles } from './db';
 import { WalCheckpointValve } from './db/wal-valve';
@@ -1485,6 +1486,16 @@ export class LatticeSensor {
    */
   getOutgoingEdges(nodeId: string): Edge[] {
     return this.queries.getOutgoingEdges(nodeId);
+  }
+
+  /**
+   * Import-binding refs of one file, regardless of resolution status.
+   * Builtins and external packages are parked as `failed` after resolution,
+   * yet their binding shape stays an extraction fact — rewrite tooling reads
+   * it here alongside the resolved edges' metadata.
+   */
+  getImportBindingRefsForFile(filePath: string): UnresolvedReference[] {
+    return this.queries.getImportBindingRefsByFile(filePath);
   }
 
   /**
