@@ -20,6 +20,15 @@
   宣言は裏取りと対で広げる。所有だけ足すと`sensor_unbound`でcompileが非dispatchableへ落ち、
   競合が投影されないので変換の便益が測れない。裏取りに使えるqueryがrunに無ければ広げずに
   理由を返す——証明できない宣言を作らない。
+- **請求項8を試せる場面が運転側から見えるようになった。** `routeConflictTreatment`が
+  `intentional_serial`を返すのは「変換が不可能」ではなく**事前宣言が無いだけ**であり、
+  実行時に見つかった競合は既定だけ見ると請求項8への道が無いように見えた。
+  `severability`と`transform_attemptable`を返し、`run status`の`treatment_advice`
+  （`lattice.runtime_status_projection.v2`）として出す。拒否ではなく助言である。
+
+  装置が言うのは「切れる種類の資源か」までとする。path／symbolは面を分けられるが、共有state／
+  外部effectは分けても同じ資源に触り続ける。**実際の難しさは変換を試して五条件で測る**——
+  試すかどうかは費用のかかる判断なので装置が決めない。
 - **affected test driftの比較単位をTODOにした。** 束縛ごとに宣言全体とexact比較していたので、
   **affectedの異なる2 pathを所有するTODOは原理的に成立しなかった**——実行時に所有が広がった
   宣言を受け取れない。全affected束縛の観測の**和**と比較する。1面しか持たないTODOでは
