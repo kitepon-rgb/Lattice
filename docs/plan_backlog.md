@@ -304,14 +304,46 @@ Aが素直に見える。実際に触ったことは観測で裏付けられて�
 広げた結果、両者が同じ資源を宣言することになれば計画時競合になり、既存のseam変換／直列化が
 そのまま適用できる。
 
-## 語彙が枠組みを固定している
+## 語彙を改めた（2026-07-28に裁定・実施）
 
-findingの種別名が`scope_violation`、警報が`io_scope_warning`である。**codeが「違反」と言って
-いる。** 予測を超えた観測であって違反ではないので、語彙が誤解を再生産する。実際、この課題を
-起票する過程で「違反側」と書いてしまった。
+findingの種別名は`scope_violation`、警報は`io_scope_warning`だった。**codeが「違反」と言って
+いた。** 予測を超えた観測であって違反ではないので、語彙が誤解を再生産する。実際、この課題を
+起票する過程で自分でも「違反側の宣言を直す」と書き、指摘されるまで気づかなかった。
 
-改名は`lattice.runtime_conflict_finding.v1`の種別集合に触るので影響が広い。改名するか、
-語彙を残して散文で枠組みを正すかを裁定した上で直す。
+| 旧 | 新 |
+|---|---|
+| `scope_violation` | `undeclared_write` |
+| `io_scope_warning` | `io_undeclared_write_warning` |
+
+**破壊的変更である。** `lattice.runtime_conflict_finding.v1`の種別集合に触るので、旧名を持つ
+findingは検証を通らない。採った理由は、語彙が実際に設計判断を誤らせた実例があること。公開
+schema（`docs/schemas/*.json`）には出ておらず、run storeのfindingはrunごとの一時資産なので、
+移行の負担より誤解の再生産を止める利益が上回ると判断した。
+
+**同じ文字列が4つの別空間にあった。** 一括改名で全部巻き込んだ。
+
+| 空間 | 実体 | 扱い |
+|---|---|---|
+| 製品のfinding種別 | `RUNTIME_CONFLICT_KINDS` | 改名 |
+| RC1/RC2の変換拒否理由 | `TRANSFORM_REJECTION_KINDS`・`seam-transform.mjs` | **旧名**。`research/campaigns/`の成果物へ焼き込み済み |
+| RC3 campaignの条件名 | `rc3-scripted-campaign.mjs`の`condition` | **旧名**。凍結manifestの**directory名**でもある |
+| RC3 campaignの期待finding | 同ファイルの`expected.finding_kinds` | 改名（製品に追従） |
+
+同一ファイル内で条件名だけ据え置き、期待値だけ追従する箇所がある。**grepの単位と空間の
+単位が一致しない。**
+
+`src/seam-transform.mjs`はtestをすり抜けた。出力が`TRANSFORM_REJECTION_KINDS`で検証される
+のに新名を出すようになり、artifact検証が落ちる状態だったが、**unit testにscope拒否の経路が
+無く**、覆っているのは`test/integration/`だけだった。1082 greenは境界の正しさを意味しない。
+
+**改名の前に、同名が別空間に無いかを確かめる。** 不変記録（研究成果物・凍結manifest・
+evidence・ADR）は追従させない。書き換えると当時の記録が嘘になる。
+
+**残る category の問題。** `undeclared_write`は依然として`RUNTIME_CONFLICT_KINDS`に属する。
+だが予測超過は競合ではない——単独では処置できず（`intentional_serial`は2者以上を要求する）、
+`finding_record`はそれを候補として受理するので、**hostが投げれば処置できないfreezeを作れる**。
+名前は直したが、種別の所属は直していない。ct-002で翻訳段を入れる時に、単独の予測超過を
+conflictとして受理しない形まで持っていく。
 
 ## 請求項8を選ぶ条件が無い
 
@@ -325,7 +357,7 @@ findingの種別名が`scope_violation`、警報が`io_scope_warning`である�
 
 ## 工程
 
-- [ ] 予測超過の語彙を裁定して直す
+- [x] 予測超過の語彙を裁定して直す
 - [ ] 観測された実態へ宣言を合わせる翻訳段を作る
 - [ ] 実行時競合で請求項8を選ぶ条件を決める
 
@@ -357,7 +389,7 @@ findingの種別名が`scope_violation`、警報が`io_scope_warning`である�
 | 6 前後比較と再推定 | **実装済み** | 五条件が外部挙動同等性（原pathの公開面）・focused test・再index・重複解消（対象競合の消滅とplan全体の競合対の非増加）・実行段階数の改善を測る。1つでも欠けたら棄却 |
 | 7 一方停止・他方commit・再開 | **確定の手段が入った** | 停止と再開は実装済み。各TODOは隔離worktreeで走り、freeze後は影響閉包内だけhold、閉包外は`carry_over_witness`（`todo_input`／`boundary_manifest`／`validator`／`context_content`のdigest＋非重複証拠＋receipt binding）を実証できた場合だけ継続する。請求項が版管理commitで果たす「他方の確定」を、隔離worktree＋暗号学的witnessで果たしている。`commit`が`FORBIDDEN_OPERATIONS`なのは公開契約の「承認なしに外部effectを行わない」に由来するので、明示承認付きのcommit経路を足せば思想と衝突しない |
 | 8 双方停止・限定変換・双方再開 | **実装済み・製品面から到達可能** | 実行時に観測した競合から変換候補を導出し、隔離worktreeで五条件を通して`runtime_seam_split`を組む（[記録](evidence/2026-07-27-xf-003-runtime-transform-loop.md)）。入口は`lattice run seam resolve`で、事前宣言のない競合が実CLI・実sensor・実repoで変換され、返った後継baseに宣言した面が実在するところまで通る（[記録](evidence/2026-07-27-functional-parity.md)） |
-| 9 実変更観測による実行時競合検出 | 実装済み | `detectCheckpointFindings`が`scope_violation`と`observed_write_conflict`を返す |
+| 9 実変更観測による実行時競合検出 | 実装済み | `detectCheckpointFindings`が`undeclared_write`と`observed_write_conflict`を返す |
 | 10 対象作業群だけ停止して再計画 | 実装済み | `computeAffectedClosure`＋`recompileNextEpochPlan` |
 | 11・12 | 1と同じ | |
 

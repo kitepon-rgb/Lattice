@@ -1,5 +1,26 @@
 # Changelog
 
+## 未リリース
+
+- **破壊的変更: 予測超過を表すfindingの種別名を改めた。** `scope_violation` →
+  `undeclared_write`、`io_scope_warning` → `io_undeclared_write_warning`。
+  宣言境界は計画時の**予測**であってworkerを閉じ込める制約ではないので、超えたことは違反では
+  ない。code が「違反」と言っていると誤解を再生産する——実際、この改名を起票する過程で
+  「違反側の宣言を直す」と書いてしまった。旧名を持つfindingは検証を通らない。
+
+  改名は**製品のfinding種別だけ**である。同じ`scope_violation`という文字列がRC1/RC2の変換拒否
+  理由とRC3 campaignの条件名にもあるが、どちらも別空間なので旧名のまま残る。前者は
+  `research/campaigns/`の成果物へ、後者はRC3 manifestのdirectory名として凍結されている。
+- **単独の予測超過ではrunを止めなくなった。** 誰の領分とも重なっていない宣言外の書き込みは
+  競合ではなく、予測が実態より狭かったという情報である。記録は残る。実際にぶつかった
+  （他の走行中TODOの宣言scopeへ書いた）時だけholdへ運ぶ。
+- **請求項7が実runで通った。** 早期警報→probe→finding→conflict→freeze→静止証明→hold→
+  後継epochへのrebind→再開まで、走行中のworkerに対して1本で繋がった
+  （[ADR 0143](docs/adr/0143-io-sentinel-is-an-early-warning-not-a-finding.md)）。
+- **path競合の直列化資源を、係争pathから導出するようにした。** `routeConflictTreatment`は
+  path競合を直列化レーンへ振るのに、handlerがfindingの`resource_id`との一致を要求し、
+  path findingのそれは必ずnullだった——実行時に観測されるpath競合は再計画できなかった。
+
 ## 0.32.0 — 2026-07-28
 
 - **早期警報からholdまでが実runで通った。** 書き込み観測→probe→finding→conflict→freeze→
