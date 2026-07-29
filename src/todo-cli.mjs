@@ -55,6 +55,10 @@ import {
   validateTodoExtraction,
 } from './todo-migration.mjs';
 import {
+  assertTodoDispatchShapeReviewed,
+  computeTodoDispatchShapeForPlan,
+} from './todo-dispatch-shape.mjs';
+import {
   computeReadyFrontier,
   projectTodoBindings,
   projectTodoStatus,
@@ -638,10 +642,34 @@ async function phaseStatus({ repoRoot, planKey }) {
   return result;
 }
 
-async function migrate({ repoRoot, inputRef }) {
+async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
   const extraction = await readMigrationInput(repoRoot, inputRef);
-  const imported = await appendTodoExtraction({ repoRoot, extraction });
+  // dispatch_shapeのgateはappendTodoExtraction（store書込み）より前に判定する必要がある
+  // （拒否時にstoreへ何も書かないため、再考後の再実行がplan_key_already_existsで
+  // 詰まらない）。unresolved/空集合の2つの早期gateは、compileTodoExtraction内部の
+  // 同名gateをここでも先に通しておくことで、既存のエラー優先順位
+  // （unresolved・空集合を直列度より先に報告する）を変えない。
+  const unresolvedTaskIds = extraction.tasks
+    .filter(({ disposition }) => disposition === 'unknown_requires_evidence')
+    .map(({ task_id: taskId }) => taskId);
+  if (unresolvedTaskIds.length > 0) {
+    throw new TodoStoreError('MIGRATION_UNRESOLVED', 'unknown_requires_evidence', undefined, {
+      task_ids: unresolvedTaskIds,
+    });
+  }
   const registered = extraction.tasks.filter(({ disposition }) => disposition.startsWith('register_'));
+  if (registered.length === 0) throw new TodoStoreError('MIGRATION_EMPTY', 'no_registered_tasks');
+
+  const dispatchShape = computeTodoDispatchShapeForPlan({
+    projectId: extraction.project_id,
+    planKey: extraction.plan_key,
+    taskIds: registered.map(({ task_id: taskId }) => taskId),
+    hardDependencies: extraction.hard_dependencies,
+    joins: extraction.joins,
+  });
+  assertTodoDispatchShapeReviewed({ shape: dispatchShape, reviewed: serializationReviewed });
+
+  const imported = await appendTodoExtraction({ repoRoot, extraction });
   const result = {
     schema: 'lattice.todo_migrate_result.v1',
     project_id: imported.plan.project_id,
@@ -655,6 +683,12 @@ async function migrate({ repoRoot, inputRef }) {
     snapshot_ref: imported.descriptor.snapshot_ref,
     topology_digest: imported.plan.topology_digest,
     journal_head_digest: imported.events.at(-1).event_digest,
+    dispatch_shape: {
+      task_count: dispatchShape.task_count,
+      critical_path_length: dispatchShape.critical_path_length,
+      max_frontier_width: dispatchShape.max_frontier_width,
+      serialization_ratio: dispatchShape.serialization_ratio,
+    },
     result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
@@ -1982,9 +2016,11 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     action = (repoRoot) => serveGantt({
       repoRoot, port: Number(argv[3]), stdout, env, scope: argv[5],
     });
-  } else if (argv.length === 3 && argv[0] === 'migrate' && argv[1] === '--input'
-    && isTodoRef(argv[2])) {
-    action = (repoRoot) => migrate({ repoRoot, inputRef: argv[2] });
+  } else if ((argv.length === 3 || argv.length === 4) && argv[0] === 'migrate' && argv[1] === '--input'
+    && isTodoRef(argv[2]) && (argv.length === 3 || argv[3] === '--serialization-reviewed')) {
+    action = (repoRoot) => migrate({
+      repoRoot, inputRef: argv[2], serializationReviewed: argv.length === 4,
+    });
   } else if (argv.length === 5 && argv[0] === 'revise'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--input' && isTodoRef(argv[4])) {

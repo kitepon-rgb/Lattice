@@ -169,6 +169,14 @@ readyが複数ある状態での直列着手は、`--override-reason`の申告�
 外部資源の排他・順序依存だけである。既定が並列であることを規則として書くだけでは読み飛ばされる
 実例が出たため、再考をコマンドの往復で強制する。
 
+同じ検査をplan作成時点にも掛ける。`plan create`と`todo migrate`は依存グラフから
+`dispatch_shape`（`task_count`／`critical_path_length`／`max_frontier_width`／
+`serialization_ratio`）を計算して結果へ載せ、`serialization_ratio`が閾値を超えるplanを
+`PARALLEL_DISPATCH_RECONSIDER`で一度突き返す。再考後の`--serialization-reviewed`だけを受理し、
+6 task未満のplanは対象外とする。判定はstore書込みの前に行い、拒否時はstoreへ何も書かない。
+着手時のgateだけではplanが直列に組まれた時点で並列が生まれないため、同じ既定を計画時点へ
+前倒しする。
+
 切断可能と分類されたconflictについて、`todo seam-proposal compile --plan <key>`が独立性記録と実sensorから
 `lattice.seam_proposal.v2`を生成し、`todo seam-proposal [--plan <key>] --json`がsensorを引かずに
 `lattice.seam_proposal_projection.v1`として投影する（ADR 0132）。提案の単位はconflict pairではなく

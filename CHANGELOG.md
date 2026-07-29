@@ -13,6 +13,20 @@
   ないため。同一fileへの書込衝突など実際の干渉を書けば再確認を経て通る。
   エラーには`default_policy`と`ready_task_ids`を載せ、既定が全ready同時dispatchであることを
   その場で読めるようにした。
+- **計画時点でも、ほぼ一直線な依存グラフを突き返すようにした。** 着手時（`todo start`）だけを
+  締めても、planそのものが直列に組まれていれば並列は生まれない。`plan create`と`todo migrate`が
+  `dispatch_shape`（`task_count`／`critical_path_length`／`max_frontier_width`／
+  `serialization_ratio`）を計算して結果へ載せ、`serialization_ratio`が閾値0.5を超えたら
+  `PARALLEL_DISPATCH_RECONSIDER`で一度突き返す。再考した上でなお直列でよいなら
+  `--serialization-reviewed`を付けて再実行する。**6 task未満のplanは対象外**——
+  3〜5 taskの一直線を突き返しても再考の余地がないため。
+  判定はstore書込みの**前**に行うので、拒否された時にstoreへは何も書かれない。
+  - 副作用: 循環・自己辺を含む入力は、これまで`initializeAuthoredTodoStore`／`appendImportedPlan`
+    内部の`validateMergedGraph`が`STORE_INCONSISTENT`（`merged_cycle`／`self_edge`）で拒否していたが、
+    gateがstore書込み前に動くため`DISPATCH_SHAPE_INVALID`で止まるようになった。拒否される点は
+    変わらないが、エラーコードが変わる。
+  - `serialization_ratio`は固定小数4桁の**文字列**で返す。`todoSelfDigest`のcanonical化が
+    safe integer以外の数値を拒否するため、digest対象へ埋め込める形にした。
 - **`lattice todo --help`に`migrate`を追加した。** 既存storeへplanを追加する唯一の入口なのに
   Read/Write commandsのどちらにも載っておらず、`plan create`が空store初期化専用であることも
   ヘルプからは読めなかった（`plan create`は既存storeで`store_already_exists`を返す）。

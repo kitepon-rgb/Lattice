@@ -99,14 +99,43 @@ async function writeInput(root, name, value) {
   return ref;
 }
 
-function runCli(root, inputRef) {
-  const result = spawnSync(process.execPath, [CLI, 'todo', 'migrate', '--input', inputRef], {
+function runCli(root, inputRef, extraArgs = []) {
+  const result = spawnSync(process.execPath, [CLI, 'todo', 'migrate', '--input', inputRef, ...extraArgs], {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1' },
   });
   assert.equal(result.error, undefined);
   return result;
+}
+
+function chainExtraction({ projectId = 'chain-project', planKey = 'chain', taskCount = 6 } = {}) {
+  const taskIds = Array.from({ length: taskCount }, (_, index) => `S${index + 1}`);
+  const value = {
+    schema: 'lattice.todo_extraction.v1', project_id: projectId, plan_key: planKey, plan_version: 'v1',
+    actor: { host: 'host-1', session: 'session-1', agent: 'agent-1' },
+    recorded_at: '2026-07-18T00:00:00.000Z',
+    tasks: taskIds.map((taskId, index) => ({
+      task_id: taskId, title: taskId, lane: 'main', narrative_ref: null, compile_binding: null,
+      disposition: 'register_pending', completion: null,
+      source: {
+        origin_plan_ref: 'plan.md', origin_line: index + 2,
+        source_commit: '1111111111111111111111111111111111111111',
+        heading_path: ['Chain'], markdown_depth: 0, parent_task_id: null, checkbox_state: 'unchecked',
+      },
+      migration_context: {
+        external_canonical_ref: null, carry_over_ref: null, h_required: false, condition: null,
+        evidence_refs: [], notes: [],
+      },
+    })),
+    hard_dependencies: taskIds.slice(1).map((taskId, index) => ({
+      from: { project_id: projectId, plan_key: planKey, task_id: taskIds[index] },
+      to: { project_id: projectId, plan_key: planKey, task_id: taskId },
+    })),
+    joins: [], extraction_digest: '',
+  };
+  value.extraction_digest = todoSelfDigest(value, 'extraction_digest');
+  return value;
 }
 
 async function storeDigest(root) {
@@ -313,11 +342,14 @@ test('既存store経路のtodo migrateは検証済みJSONを一度だけ追加�
   assertExactKeys(result, [
     'schema', 'project_id', 'plan_key', 'plan_version', 'extraction_digest',
     'imported_task_count', 'completed_task_count', 'plan_ref', 'journal_ref', 'snapshot_ref',
-    'topology_digest', 'journal_head_digest', 'result_digest',
+    'topology_digest', 'journal_head_digest', 'dispatch_shape', 'result_digest',
   ]);
   assert.equal(result.schema, 'lattice.todo_migrate_result.v1');
   assert.equal(result.imported_task_count, 2);
   assert.equal(result.completed_task_count, 1);
+  assert.deepEqual(result.dispatch_shape, {
+    task_count: 2, critical_path_length: 2, max_frontier_width: 1, serialization_ratio: '1.0000',
+  });
   assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const archive = store.members.find(({ descriptor }) => descriptor.plan_key === 'archive');
@@ -350,6 +382,52 @@ test('既存store経路のtodo migrateは検証済みJSONを一度だけ追加�
   assert.equal(error.code, 'STORE_WRITE_CONFLICT');
   assert.equal(error.detail.reason, 'plan_key_already_imported');
   assert.equal(await storeDigest(root), beforeDuplicate);
+});
+
+test('critical pathがほぼ一直線のtodo migrateはdispatch_shapeで一度突き返され、'
+  + '--serialization-reviewedで通る', async (context) => {
+  const root = await workspace(context);
+  const input = bindCommit(
+    chainExtraction({ projectId: 'project-1', planKey: 'chain', taskCount: 6 }),
+    pinnedPlanCommit(root),
+  );
+  const inputRef = await writeInput(root, 'chain', input);
+  const before = await storeDigest(root);
+
+  const reconsider = runCli(root, inputRef);
+  assert.equal(reconsider.status, 1);
+  assert.equal(reconsider.stdout, '');
+  const reconsiderError = JSON.parse(reconsider.stderr);
+  assert.equal(reconsiderError.code, 'PARALLEL_DISPATCH_RECONSIDER');
+  assert.equal(reconsiderError.detail.reason, 'plan_shape_too_serial');
+  assert.equal(reconsiderError.detail.task_count, 6);
+  assert.equal(reconsiderError.detail.critical_path_length, 6);
+  assert.equal(reconsiderError.detail.max_frontier_width, 1);
+  assert.equal(reconsiderError.detail.serialization_ratio, '1.0000');
+  assert.deepEqual(reconsiderError.detail.critical_path_task_ids, ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
+  assert.equal(reconsiderError.detail.default_policy, 'all_ready_parallel_by_default');
+  assert.equal(reconsiderError.detail.serialization_reviewed_flag, '--serialization-reviewed');
+  assert.equal(await storeDigest(root), before);
+
+  const accepted = runCli(root, inputRef, ['--serialization-reviewed']);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  const result = JSON.parse(accepted.stdout);
+  assert.deepEqual(result.dispatch_shape, {
+    task_count: 6, critical_path_length: 6, max_frontier_width: 1, serialization_ratio: '1.0000',
+  });
+});
+
+test('task数が閾値未満の一直線todo migrateはdispatch_shape gateを素通りする', async (context) => {
+  const root = await workspace(context);
+  const input = bindCommit(
+    chainExtraction({ projectId: 'project-1', planKey: 'small-chain', taskCount: 3 }),
+    pinnedPlanCommit(root),
+  );
+  const result = runCli(root, await writeInput(root, 'small-chain', input));
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).dispatch_shape, {
+    task_count: 3, critical_path_length: 3, max_frontier_width: 1, serialization_ratio: '1.0000',
+  });
 });
 
 test('履歴時刻欠落は現在時刻で埋めずunknownのhistorical doneとして登録する', async (context) => {

@@ -278,7 +278,7 @@ test('進行中ToDoとの競合をconflicts_with_activeとして返す', async (
     LATTICE_TODO_ACTOR_AGENT: 'agent-1',
   };
   const started = spawnSync(process.execPath, [
-    CLI, 'todo', 'start', '--plan', 'main', '--task', 'T1', '--override-reason', 'fixture',
+    CLI, 'todo', 'start', '--plan', 'main', '--task', 'T1', '--override-reason', 'fixture', '--serial-confirmed',
   ], { cwd: root, encoding: 'utf8', env: { ...process.env, ...env, NO_COLOR: '1' } });
   assert.equal(started.status, 0, started.stderr);
 
@@ -387,7 +387,7 @@ test('着手時のadvisoryが進行中との競合と切断可能性を返す', 
     LATTICE_TODO_ACTOR_AGENT: 'agent-1',
   };
   const start = (taskId) => spawnSync(process.execPath, [
-    CLI, 'todo', 'start', '--plan', 'main', '--task', taskId, '--override-reason', 'fixture',
+    CLI, 'todo', 'start', '--plan', 'main', '--task', taskId, '--override-reason', 'fixture', '--serial-confirmed',
   ], { cwd: root, encoding: 'utf8', env: { ...process.env, ...actorEnv, NO_COLOR: '1' } });
 
   const first = start('T1');
@@ -593,7 +593,7 @@ test('進行中との競合では案内が切断可能性まで述べる', async
     LATTICE_TODO_ACTOR_AGENT: 'agent-1',
   };
   const start = (taskId) => spawnSync(process.execPath, [
-    CLI, 'todo', 'start', '--plan', 'main', '--task', taskId, '--override-reason', 'fixture',
+    CLI, 'todo', 'start', '--plan', 'main', '--task', taskId, '--override-reason', 'fixture', '--serial-confirmed',
   ], { cwd: root, encoding: 'utf8', env: { ...process.env, ...actorEnv, NO_COLOR: '1' } });
 
   assert.equal(start('T1').status, 0);

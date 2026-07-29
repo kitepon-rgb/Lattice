@@ -122,6 +122,9 @@ test('plan createはcanonical inputから初期storeを作りstatusをreadyへ�
   assert.equal(createResult.schema, 'lattice.plan_create_result.v1');
   assert.equal(createResult.project_id, 'sample-project');
   assert.equal(createResult.plan_key, 'main');
+  assert.deepEqual(createResult.dispatch_shape, {
+    task_count: 1, critical_path_length: 1, max_frontier_width: 1, serialization_ratio: '1.0000',
+  });
   assert.equal(createResult.result_digest, todoSelfDigest(createResult, 'result_digest'));
 
   const status = run(root, ['status', '--json']);
@@ -315,6 +318,69 @@ test('plan createはunsafe .latticeで失敗してもstagingを残さない', as
   assert.equal(failure.code, 'STORE_INCONSISTENT');
   assert.equal(failure.detail.reason, 'unsafe_lattice_root');
   assert.deepEqual((await readdir(root)).filter((name) => name.startsWith('.lattice-todo-authoring-')), []);
+});
+
+function chainInput({ projectId = 'chain-project', taskCount = 6 } = {}) {
+  const taskIds = Array.from({ length: taskCount }, (_, index) => `T${index + 1}`);
+  const value = {
+    schema: 'lattice.plan_create_input.v1', project_id: projectId,
+    plan_key: 'main', plan_version: 'v1',
+    actor: { host: 'host-1', session: 'session-1', agent: 'agent-1' },
+    recorded_at: new Date().toISOString(),
+    tasks: taskIds.map((taskId) => ({
+      task_id: taskId, title: taskId, lane: 'main', narrative_ref: null,
+      narrative_anchor: null, compile_binding: null, parent_task_id: null,
+    })),
+    hard_dependencies: taskIds.slice(1).map((taskId, index) => ({
+      from: { project_id: projectId, plan_key: 'main', task_id: taskIds[index] },
+      to: { project_id: projectId, plan_key: 'main', task_id: taskId },
+    })),
+    joins: [], input_digest: '',
+  };
+  value.input_digest = todoSelfDigest(value, 'input_digest');
+  return value;
+}
+
+test('critical pathがほぼ一直線のplan createはdispatch_shapeで一度突き返され、'
+  + '--serialization-reviewedで通る', async (context) => {
+  const root = await workspace(context);
+  const input = chainInput({ taskCount: 6 });
+  await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(input)}\n`);
+
+  const reconsider = run(root, ['plan', 'create', '--input', 'plan.json']);
+  assert.equal(reconsider.status, 1);
+  assert.equal(reconsider.stdout, '');
+  const reconsiderError = JSON.parse(reconsider.stderr);
+  assert.equal(reconsiderError.code, 'PARALLEL_DISPATCH_RECONSIDER');
+  assert.equal(reconsiderError.detail.reason, 'plan_shape_too_serial');
+  assert.equal(reconsiderError.detail.task_count, 6);
+  assert.equal(reconsiderError.detail.critical_path_length, 6);
+  assert.equal(reconsiderError.detail.serialization_ratio, '1.0000');
+  assert.deepEqual(reconsiderError.detail.critical_path_task_ids, ['T1', 'T2', 'T3', 'T4', 'T5', 'T6']);
+  assert.equal(reconsiderError.detail.serialization_reviewed_flag, '--serialization-reviewed');
+  const statusAfterReject = JSON.parse(run(root, ['status', '--json']).stdout);
+  assert.equal(statusAfterReject.state, 'uninitialized');
+
+  const created = run(root, ['plan', 'create', '--input', 'plan.json', '--serialization-reviewed']);
+  assert.equal(created.status, 0, created.stderr);
+  const createResult = JSON.parse(created.stdout);
+  assert.deepEqual(createResult.dispatch_shape, {
+    task_count: 6, critical_path_length: 6, max_frontier_width: 1, serialization_ratio: '1.0000',
+  });
+  const statusAfterCreate = JSON.parse(run(root, ['status', '--json']).stdout);
+  assert.equal(statusAfterCreate.state, 'ready');
+});
+
+test('task数が閾値未満の一直線plan createはdispatch_shape gateを素通りする', async (context) => {
+  const root = await workspace(context);
+  const input = chainInput({ projectId: 'small-chain-project', taskCount: 3 });
+  await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(input)}\n`);
+  const created = run(root, ['plan', 'create', '--input', 'plan.json']);
+  assert.equal(created.status, 0, created.stderr);
+  const createResult = JSON.parse(created.stdout);
+  assert.deepEqual(createResult.dispatch_shape, {
+    task_count: 3, critical_path_length: 3, max_frontier_width: 1, serialization_ratio: '1.0000',
+  });
 });
 
 test('status discoveryはactor環境がなくてもactive projectをdashboardへ登録する', async (context) => {

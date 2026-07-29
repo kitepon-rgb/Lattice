@@ -30,10 +30,14 @@ if (help !== null) {
       cwd: process.cwd(), stdout: process.stdout, cliVersion: packageJson.version, error,
     });
   }
-} else if (args.length === 4 && args[0] === 'plan' && args[1] === 'create' && args[2] === '--input') {
+} else if ((args.length === 4 || args.length === 5) && args[0] === 'plan' && args[1] === 'create'
+  && args[2] === '--input' && (args.length === 4 || args[4] === '--serialization-reviewed')) {
   const { projectCliFailure, runPlanCreate } = await import('../src/project-cli.mjs');
   try {
-    process.exitCode = await runPlanCreate({ cwd: process.cwd(), inputRef: args[3], stdout: process.stdout });
+    process.exitCode = await runPlanCreate({
+      cwd: process.cwd(), inputRef: args[3], stdout: process.stdout,
+      serializationReviewed: args.length === 5,
+    });
   } catch (error) {
     process.exitCode = projectCliFailure(process.stderr, error);
   }

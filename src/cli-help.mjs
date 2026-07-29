@@ -23,7 +23,9 @@ const NAMESPACE_HELP = Object.freeze({
   plan: `Usage: lattice plan <command> [options]
 
 Commands:
-  create --input <file>
+  create --input <file> [--serialization-reviewed]
+      # 依存グラフがほぼ一直線（serialization_ratioが閾値超）なら一度突き返す。
+      # 再考した上でなお直列でよいなら --serialization-reviewed を付けて再実行する
   create --schema --json
   create --schema-version <2|3> --json
   compile --request <request.json>
@@ -70,7 +72,9 @@ Read commands:
   phase status --plan <key>
 
 Write commands:
-  migrate --input <extraction.json>  # 既存storeへplanを追加する（plan createは空store初期化専用）
+  migrate --input <extraction.json> [--serialization-reviewed]
+      # 既存storeへplanを追加する（plan createは空store初期化専用）。
+      # 依存グラフがほぼ一直線なら一度突き返し、再考後の --serialization-reviewed で通す
   start --plan <key> --task <id> [--parallel-frontier|--override-reason <text> [--serial-confirmed]]
         # 既定は全ready同時dispatch。直列にするには理由の申告後、再考を経て --serial-confirmed が要る
   block --plan <key> --task <id> --reason <text>
@@ -131,7 +135,7 @@ registerはLATTICE_BRIDGE_REGISTRAR_SSH_HOSTとLATTICE_BRIDGE_REGISTRAR_SCRIPT�
 const SUBCOMMAND_USAGE = Object.freeze({
   status: 'status --json',
   'session-context': 'session-context --json',
-  'plan create': 'plan create --input <file> | --schema --json | --schema-version <2|3> --json',
+  'plan create': 'plan create --input <file> [--serialization-reviewed] | --schema --json | --schema-version <2|3> --json',
   'plan compile': 'plan compile --request <request.json> | --schema --json',
   'plan verify': 'plan verify --request <request.json> --plan <plan.json>',
   'run start': 'run start --request <request.json> --executor <adapter> | --schema --json',
@@ -176,7 +180,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo revise': 'todo revise --plan <key> --input <file>',
   'todo revise-phase': 'todo revise-phase --plan <key> --input <file>',
   'todo revise-set': 'todo revise-set --input <file>',
-  'todo migrate': 'todo migrate --input <extraction.json>',
+  'todo migrate': 'todo migrate --input <extraction.json> [--serialization-reviewed]',
   'sensor init': 'sensor init [path] --json',
   'sensor sync': 'sensor sync [path] --json',
   'runtime-errors snapshot': 'runtime-errors snapshot [--after-cursor <n>] [--limit <n>] --json',

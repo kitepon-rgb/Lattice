@@ -180,6 +180,18 @@ lattice todo start --plan <key> --task <id> --override-reason <reason> --serial-
 実行主体が1つしか無いことは並列にできない理由ではない（必要ならworkerを増やす）ためです。
 「両taskが同一fileへ書き込む」のような干渉を書けば、再確認を経て通ります。
 
+**同じ検査を計画時点にも掛けます。** 着手時だけを締めても、planそのものが直列に組まれていれば
+並列は生まれません。`lattice plan create`と`lattice todo migrate`は依存グラフから
+`dispatch_shape`（`task_count`／`critical_path_length`／`max_frontier_width`／
+`serialization_ratio`）を計算して結果へ載せ、直列度が閾値を超えるplanを一度突き返します。
+再考した上でなお直列でよいなら`--serialization-reviewed`を付けて再実行します
+（6 task未満のplanは対象外）。判定はstore書込みの前に行うので、拒否された時にstoreへは
+何も書かれません。
+
+```bash
+lattice todo migrate --input <extraction.json> --serialization-reviewed
+```
+
 `--parallel-frontier`はhostへ並列dispatch方針を宣言する開始gateです。Lattice自身がAI hostのagentを
 起動するものではなく、実際のdispatchはhostが行います。宣言後もready全件が着手されたかは
 `active_set`と`next_ready`で観測できます。

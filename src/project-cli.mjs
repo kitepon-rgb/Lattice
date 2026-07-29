@@ -26,6 +26,10 @@ import {
   readTodoStore,
   TodoStoreError,
 } from './todo-store.mjs';
+import {
+  assertTodoDispatchShapeReviewed,
+  computeTodoDispatchShapeForPlan,
+} from './todo-dispatch-shape.mjs';
 
 const STORE_REF = '.lattice/todo';
 const MANIFEST_REF = `${STORE_REF}/manifest.json`;
@@ -432,11 +436,21 @@ function validateCreateInput(value) {
   } catch { return false; }
 }
 
-export async function runPlanCreate({ cwd, inputRef, stdout }) {
+export async function runPlanCreate({ cwd, inputRef, stdout, serializationReviewed = false }) {
   const repoRoot = resolveRepoRoot(cwd);
   if (repoRoot === null) throw new TodoStoreError('REPO_UNRESOLVED', 'git_toplevel_unresolved');
   const input = await readCanonicalInput(repoRoot, inputRef);
   if (!validateCreateInput(input)) throw new TodoStoreError('INPUT_INVALID', 'plan_create_schema_invalid');
+  // dispatch_shapeのgateはstore初期化より前に判定する（拒否時にstoreへ何も書かないため、
+  // 再考後の再実行がplan_key_already_existsで詰まらない）。
+  const dispatchShape = computeTodoDispatchShapeForPlan({
+    projectId: input.project_id,
+    planKey: input.plan_key,
+    taskIds: input.tasks.map(({ task_id: taskId }) => taskId),
+    hardDependencies: input.hard_dependencies,
+    joins: input.joins,
+  });
+  assertTodoDispatchShapeReviewed({ shape: dispatchShape, reviewed: serializationReviewed });
   const store = await initializeAuthoredTodoStore({
     repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
     projectId: input.project_id, repositories: [{ repo_id: 'self', path: '.' }],
@@ -460,7 +474,14 @@ export async function runPlanCreate({ cwd, inputRef, stdout }) {
     plan_key: member.plan.plan_key, plan_version: member.plan.plan_version,
     store_ref: STORE_REF, plan_ref: member.descriptor.plan_ref,
     journal_ref: member.descriptor.journal_ref, snapshot_ref: member.descriptor.snapshot_ref,
-    plan_digest: member.plan.plan_digest, result_digest: '',
+    plan_digest: member.plan.plan_digest,
+    dispatch_shape: {
+      task_count: dispatchShape.task_count,
+      critical_path_length: dispatchShape.critical_path_length,
+      max_frontier_width: dispatchShape.max_frontier_width,
+      serialization_ratio: dispatchShape.serialization_ratio,
+    },
+    result_digest: '',
   };
   result.result_digest = resultDigest(result);
   stdout.write(`${JSON.stringify(result)}\n`);
