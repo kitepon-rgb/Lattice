@@ -977,3 +977,58 @@ gateで**skipしているが、skipは「Linuxで動く」という主張では�
 
 - [ ] 管理runtime daemonがLinuxで通らない原因を特定する
 - [ ] codesign依存をplatform非依存の同一性照合へ置き換えるか、macOS限定として契約へ書く
+
+## authoring CLIの発見可能性——正しい入口がヘルプに無い（2026-07-29・ServerManagerで実測）
+
+ServerManagerで2つ目の戦役plan（`parent-child-repair`、26 ToDo）を起票する際、
+0.34.2で以下に当たった。**いずれもstore・契約・digestのコアではなくCLIの案内の問題**であり、
+実装は正しく動く。詰まるのは「どう呼べばよいか」がCLIから読み取れない点にある。
+
+正しい手順（extraction v2 → `lattice todo migrate`）はcaveatに記録済みで、それを引いた後は
+26 task・27依存の移行が一度で通った。つまり**知っていれば数分、知らなければsrcを読む数十分**という
+差が出ている。既に踏んだ人間（AI）の記録が無ければ辿り着けない状態になっている。
+
+### 1. `lattice todo migrate` が `lattice todo --help` に載っていない
+
+既存storeへplanを追加する**唯一の入口**なのに、Read commands / Write commandsのどちらにも
+現れない。`lattice plan create`はstore初期化専用で、既存storeでは
+`{"code":"STORE_WRITE_CONFLICT","message":"store_already_exists"}`を返す。
+ヘルプだけを見ると「2つ目のplanは作れない」と読める。実際は`src/todo-cli.mjs`の
+`argv[0] === 'migrate'`分岐が入口。
+
+### 2. `lattice plan create --schema --json` が v1 を返す
+
+storeが実際に要求するのは v3。`--schema-version 3 --json` を明示しないと違う版のスキーマを掴み、
+`phases` / `phase_accept_dependencies` を欠いた入力を作ってしまう。既定を最新版にするか、
+少なくとも「これは最新ではない」と出力へ書く。
+
+### 3. revise / revise-set / revise-phase / migrate に `--schema` が無い
+
+authoring inputの形式をCLIから取得する手段がない。`PHASE_REVISION_V3_KEYS` は必須キー12個、
+`lattice.todo_extraction.v2` は task ごとに `source`（origin_line / source_commit /
+heading_path / markdown_depth / checkbox_state）と `migration_context` を要求するが、
+これらは `src/todo-revision.mjs` と `src/todo-migration.mjs` を読まないと分からない。
+`plan create` と同じく `--schema --json` を生やすのが最小の解。
+
+### 4. スキーマ違反が、どのフィールドかを示さない
+
+`phase_accept_dependencies` の配列ソート漏れで返るのは
+`{"code":"INPUT_INVALID","message":"plan_create_schema_invalid","detail":{"reason":"plan_create_schema_invalid"}}`
+のみで、**detailがmessageの反復**。特定に試行錯誤が要った。
+「tasks / phases / edges は id 順ソート」は既知だったが、`phase_accept_dependencies` も
+ソート必須である点はどこにも書かれていない。せめて違反した配列名を detail に載せる。
+
+### 5. `lattice plan show <key>` が無い
+
+planの内容を読む導線が分散している。`lattice todo bindings --plan <key>` は
+compile_binding付きtaskだけを投影するため、通常のplanでは `{"bindings": []}` を返し、
+**「planが空」と誤読させる**。実体を見るには `.lattice/todo/plans/<key>/<ver>/plan.json` を
+直接読むしかない。
+
+## 工程
+
+- [ ] `lattice todo --help` に migrate を載せ、既存storeへのplan追加が入口として読めるようにする
+- [ ] `plan create --schema --json` の既定を最新版にする（または非最新である旨を出力へ含める）
+- [ ] revise / revise-set / revise-phase / migrate に `--schema --json` を生やす
+- [ ] スキーマ違反時の detail に、違反したフィールド名（配列名・ソート違反の位置）を載せる
+- [ ] `lattice plan show <key>` を追加し、bindings が空を返すことでの誤読を解消する
