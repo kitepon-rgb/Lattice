@@ -127,6 +127,26 @@ test('dashboardは未知project・未知path・非GETをtyped HTTP errorにしsi
   }
 });
 
+test('dashboardはブラウザの未知GETだけを戻り先つきHTML 404にする', async (context) => {
+  const dashboard = await startTodoGanttDashboardServer({
+    registry: createTodoGanttProjectRegistry([]), port: 0,
+  });
+  context.after(() => dashboard.close());
+
+  for (const path of ['/unknown', '/projects/unknown/']) {
+    const response = await fetch(new URL(path, dashboard.url), {
+      headers: { accept: 'text/html,application/xhtml+xml' },
+    });
+    assert.equal(response.status, 404);
+    assert.match(response.headers.get('content-type'), /^text\/html/u);
+    const html = await response.text();
+    assert.match(html, /<title>ページが見つかりません — Lattice<\/title>/u);
+    assert.match(html, /name="robots" content="noindex, nofollow"/u);
+    assert.match(html, /href="\/projects\/">公開工程表の一覧へ/u);
+    assert.match(html, /href="https:\/\/kitepon\.dev\/">kitepon\.devへ/u);
+  }
+});
+
 test('dashboard registryは運転中にprojectを追加・除外できcloseは冪等', async () => {
   const registry = createTodoGanttProjectRegistry([]);
   const dashboard = await startTodoGanttDashboardServer({ registry, port: 0 });
