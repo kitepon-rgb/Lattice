@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.34.1 — 2026-07-29
+
+- 公開工程表のトップを`kitepon.dev / Lattice`のブランド接点として整えた。公開面の役割、
+  `kitepon.dev`とGitHubへの導線、検索除外metadataを追加し、表示名とproject IDが同じ場合の
+  重複表示を解消した。工程データと各projectの工程表は変更していない。
+
 ## 0.34.0 — 2026-07-29
 
 - **抽出器の進化をsyncが自動で拾い、staleな抽出を増分healするようにした**（schema v12）。
