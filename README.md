@@ -161,8 +161,8 @@ The design in this repository is the subject of a Japanese patent application:
 | Title | 情報処理装置、ソフトウェア開発制御方法及びプログラム<br>(Information processing apparatus, software development control method, and program) |
 | Claims | 12 |
 
-**Patent rights are reserved.** Noncommercial use is licensed together with the software (see
-[License](#license)). **Commercial use requires permission from the patent holder.**
+Noncommercial use is permitted under the [License](#license) below.
+**A separate commercial license is required for commercial use.**
 
 ## Ownership boundary
 
@@ -204,7 +204,7 @@ Detailed operational notes (dashboard, bridge, actor environment, store transact
 - **Permission required:** commercial use. That includes use inside a company's paid work or products,
   regardless of whether Lattice itself is redistributed.
 
-**For commercial use**, separate permission from the patent holder is required.
+**For commercial use**, a separate commercial license is required.
 Enquiries can be made by email at [kitepon@gmail.com](mailto:kitepon@gmail.com). Whether a
 license is granted, and on what terms, is decided case by case.
 

@@ -236,8 +236,8 @@ error detailの`missing_environment`／`invalid_environment`と
 | 発明の名称 | 情報処理装置、ソフトウェア開発制御方法及びプログラム |
 | 請求項 | 12項 |
 
-**特許権は留保します。** 非商用利用についてはsoftwareと一緒に許諾します（下記License参照）。
-**商用利用には特許権者の許諾が必要です。**
+非商用利用は下記Licenseの範囲で許諾します。
+**商用利用には別途の商用ライセンスが必要です。**
 
 ## License
 
@@ -248,7 +248,7 @@ error detailの`missing_environment`／`invalid_environment`と
 - **許諾が必要:** 商用利用。Lattice自体を再配布するかどうかに関わらず、企業の業務や製品の
   中で使う場合を含みます
 
-**商用利用には**、特許権者からの別途の許諾が必要です。
+**商用利用には**、別途の商用ライセンスが必要です。
 問い合わせは[kitepon@gmail.com](mailto:kitepon@gmail.com)へのメールで受け付けます。
 許諾するかどうか、どのような条件にするかは個別に判断します。
 
