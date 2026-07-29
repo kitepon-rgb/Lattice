@@ -70,7 +70,9 @@ Read commands:
   phase status --plan <key>
 
 Write commands:
-  start --plan <key> --task <id> [--parallel-frontier|--override-reason <text>]
+  migrate --input <extraction.json>  # 既存storeへplanを追加する（plan createは空store初期化専用）
+  start --plan <key> --task <id> [--parallel-frontier|--override-reason <text> [--serial-confirmed]]
+        # 既定は全ready同時dispatch。直列にするには理由の申告後、再考を経て --serial-confirmed が要る
   block --plan <key> --task <id> --reason <text>
   unblock --plan <key> --task <id>
   done --plan <key> --task <id> --evidence <file>

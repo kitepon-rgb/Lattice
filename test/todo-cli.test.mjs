@@ -553,13 +553,52 @@ test('複数readyの最初のstartは並列宣言または直列化理由を要�
   assert.equal(second.status, 'in-progress');
 
   const serialRoot = await parallelWorkspace(context);
-  const serialized = successJson(runCli(serialRoot, [
+  const serialBefore = await storeDigest(serialRoot);
+  // 直列の申告は一度突き返し、並列の再検討を経てからでないと通さない。
+  const reconsider = runCli(serialRoot, [
     'todo', 'start', '--plan', 'main', '--task', 'T1', '--override-reason',
     'single host capacity',
+  ]);
+  assert.equal(reconsider.status, 1);
+  const reconsiderError = JSON.parse(reconsider.stderr);
+  assert.equal(reconsiderError.code, 'PARALLEL_DISPATCH_RECONSIDER');
+  assert.equal(reconsiderError.detail.reason, 'consider_parallel_before_serial');
+  assert.deepEqual(reconsiderError.detail.ready_task_ids, ['T1', 'T2']);
+  assert.equal(reconsiderError.detail.default_policy, 'all_ready_parallel_by_default');
+  assert.equal(reconsiderError.detail.serial_confirm_flag, '--serial-confirmed');
+  assert.equal(await storeDigest(serialRoot), serialBefore);
+
+  const serialized = successJson(runCli(serialRoot, [
+    'todo', 'start', '--plan', 'main', '--task', 'T1', '--override-reason',
+    'single host capacity', '--serial-confirmed',
   ]));
   assert.equal(serialized.status, 'in-progress');
   const journal = (await readFile(path.join(serialRoot, journalRef), 'utf8')).trim().split('\n').map(JSON.parse);
   assert.equal(journal.at(-1).payload.override_reason, 'single host capacity');
+});
+
+test('worker数を述べただけの直列化理由は再確認しても拒否される', async (context) => {
+  const root = await parallelWorkspace(context);
+  const before = await storeDigest(root);
+  for (const reason of ['単一セッションでの逐次実行', 'single agent, sequential run']) {
+    for (const extra of [[], ['--serial-confirmed']]) {
+      const rejected = runCli(root, [
+        'todo', 'start', '--plan', 'main', '--task', 'T1', '--override-reason', reason, ...extra,
+      ]);
+      assert.equal(rejected.status, 1);
+      const error = JSON.parse(rejected.stderr);
+      assert.equal(error.code, 'PARALLEL_DISPATCH_INVALID');
+      assert.equal(error.detail.reason, 'serial_reason_is_not_an_interference');
+      assert.equal(error.detail.rejected_reason, reason);
+      assert.equal(await storeDigest(root), before);
+    }
+  }
+  // 実際の干渉を述べた理由は、再確認を経れば通る。
+  const accepted = successJson(runCli(root, [
+    'todo', 'start', '--plan', 'main', '--task', 'T1',
+    '--override-reason', '両taskが同一fileへ書き込むため衝突する', '--serial-confirmed',
+  ]));
+  assert.equal(accepted.status, 'in-progress');
 
   const singleRoot = await workspace(context);
   const acknowledgedSingleFrontier = successJson(runCli(singleRoot, [

@@ -477,7 +477,32 @@ async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
   };
 }
 
-async function startTask({ repoRoot, env, planKey, taskId, overrideReason, parallelFrontier }) {
+// 直列化の理由として認めない定型句。
+// worker数・セッション構成・作業者の都合は「並列にできない根拠」ではない。
+// 根拠になるのは実際の干渉だけ（同一fileへの書込衝突・外部資源の排他・順序依存）。
+// 単一プロセスのagentが「自分は1人だから」と直列へ逃げる事例が実運用で出たため、
+// frontierの既定（all_ready_parallel_by_default）を宣言だけでなく機構で守る。
+const SERIAL_NON_REASONS = [
+  /単一(?:の)?(?:セッション|エージェント|worker|ワーカー|プロセス|スレッド)/u,
+  /(?:逐次|順次|直列|シリアル)(?:実行|処理|化|に|で)/u,
+  /(?:一人|1人|ひとり|1名|単独)(?:で|の|しか)/u,
+  /(?:サブ)?エージェント(?:が|は)?(?:居ない|いない|使わない|使えない)/u,
+  /single[-\s]?(?:session|agent|worker|process|thread)/iu,
+  /\b(?:sequential|serial)(?:ly)?\s*(?:execution|processing|run|dispatch)?\b/iu,
+  /one[-\s]at[-\s]a[-\s]time|\bsolo\b|\bby myself\b/iu,
+];
+
+/**
+ * 直列化理由が「実際の干渉」を述べているかを検査する。
+ * worker数・セッション構成を述べただけの理由は根拠にならないので拒否する。
+ */
+function serialReasonNonInterference(reason) {
+  return SERIAL_NON_REASONS.find((pattern) => pattern.test(reason)) ?? null;
+}
+
+async function startTask({
+  repoRoot, env, planKey, taskId, overrideReason, parallelFrontier, serialConfirmed = false,
+}) {
   const store = await readTodoStore({ repoRoot });
   const projection = projectTodoStatus(store);
   const readyTask = projection.next_ready.find((task) => (
@@ -487,15 +512,59 @@ async function startTask({ repoRoot, env, planKey, taskId, overrideReason, paral
   if (parallelFrontier && !targetReady) {
     throw new TodoStoreError('PARALLEL_DISPATCH_INVALID', 'parallel_frontier_not_applicable');
   }
-  if (targetReady && projection.active_set.length === 0 && projection.next_ready.length > 1
-    && overrideReason === null && !parallelFrontier) {
+  const frontierContested = targetReady && projection.active_set.length === 0
+    && projection.next_ready.length > 1;
+  if (frontierContested && overrideReason === null && !parallelFrontier) {
     throw new TodoStoreError('PARALLEL_DISPATCH_REQUIRED', 'parallel_frontier_requires_declaration',
       undefined, {
         ready_count: projection.next_ready.length,
+        ready_task_ids: projection.next_ready.map((task) => task.task_id),
         frontier_digest: projection.dispatch_frontier.frontier_digest,
         parallel_start_flag: projection.dispatch_frontier.parallel_start_flag,
         serial_reason_flag: '--override-reason',
+        default_policy: projection.dispatch_frontier.policy,
+        guidance: '既定は全ready分の同時dispatch。並列で始めるなら --parallel-frontier を使う。'
+          + '--override-reason は「なぜ並列にできないか」を書く欄であり、'
+          + 'worker数・セッション構成・作業者の都合は根拠にならない'
+          + '（同一fileへの書込衝突・外部資源の排他・順序依存だけが根拠になる）。',
       });
+  }
+  if (frontierContested && overrideReason !== null) {
+    if (serialReasonNonInterference(overrideReason) !== null) {
+      throw new TodoStoreError('PARALLEL_DISPATCH_INVALID', 'serial_reason_is_not_an_interference',
+        undefined, {
+          ready_count: projection.next_ready.length,
+          ready_task_ids: projection.next_ready.map((task) => task.task_id),
+          rejected_reason: overrideReason,
+          default_policy: projection.dispatch_frontier.policy,
+          parallel_start_flag: projection.dispatch_frontier.parallel_start_flag,
+          guidance: 'worker数・セッション構成・作業者の都合は直列化の根拠にならない。'
+            + 'readyが複数あるなら既定は同時dispatchであり、実行主体が1つしか無いことは'
+            + '並列にできない理由ではない（必要ならworkerを増やす）。'
+            + '直列にするなら、並列で走らせたときに実際に起きる干渉'
+            + '（同一fileへの書込衝突・外部資源の排他・順序依存）を書く。',
+        });
+    }
+    // 直列の申告は一度突き返して並列を再検討させる。
+    // 規則を書くだけでは読み飛ばされるため、再考をコマンドの往復で強制する。
+    if (!serialConfirmed) {
+      throw new TodoStoreError('PARALLEL_DISPATCH_RECONSIDER', 'consider_parallel_before_serial',
+        undefined, {
+          ready_count: projection.next_ready.length,
+          ready_task_ids: projection.next_ready.map((task) => task.task_id),
+          declared_reason: overrideReason,
+          default_policy: projection.dispatch_frontier.policy,
+          parallel_start_flag: projection.dispatch_frontier.parallel_start_flag,
+          serial_confirm_flag: '--serial-confirmed',
+          guidance: `並列を検討しなさい。ready ${projection.next_ready.length} 件は同時に着手できる`
+            + '前提で並んでおり、既定は全件同時dispatchである。'
+            + `まず ${projection.dispatch_frontier.parallel_start_flag} で全readyを起こし、`
+            + 'それぞれ別のworkerへ渡すことを検討する'
+            + '（実行主体が足りないなら増やす。増やせないことは並列にできない理由ではない）。'
+            + '検討した上でなお直列にするなら、同じ --override-reason に'
+            + ' --serial-confirmed を付けて再実行する。',
+        });
+    }
   }
   const resolvedTaskId = readyTask?.task_id ?? taskId;
   // 助言はjournalへ書く前に確定させる。計算できないならstart自体を止める。
@@ -1950,14 +2019,18 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && (argv.length === 8 || (argv[8] === '--override-reason' && argv[9].length > 0))) {
     action = (repoRoot) => phaseMutation({ repoRoot, env, planKey: argv[3], phaseId: argv[5],
       kind: 'phase_reopen', payload: { reason: argv[7], override_reason: argv[9] ?? null } });
-  } else if ((argv.length === 5 || argv.length === 6 || argv.length === 7) && argv[0] === 'start'
+  } else if ((argv.length === 5 || argv.length === 6 || argv.length === 7 || argv.length === 8)
+    && argv[0] === 'start'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--task' && isTodoIdentifier(argv[4])
     && (argv.length === 5 || (argv.length === 6 && argv[5] === '--parallel-frontier')
-      || (argv.length === 7 && argv[5] === '--override-reason' && argv[6].length > 0))) {
-    const overrideReason = argv.length === 7 ? argv[6] : null;
+      || ((argv.length === 7 || argv.length === 8)
+        && argv[5] === '--override-reason' && argv[6].length > 0
+        && (argv.length === 7 || argv[7] === '--serial-confirmed')))) {
+    const overrideReason = argv.length >= 7 ? argv[6] : null;
     action = (repoRoot) => startTask({ repoRoot, env, planKey: argv[2], taskId: argv[4],
-      overrideReason, parallelFrontier: argv.length === 6 });
+      overrideReason, parallelFrontier: argv.length === 6,
+      serialConfirmed: argv.length === 8 });
   } else if (argv.length === 7 && argv[0] === 'block'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--task' && isTodoIdentifier(argv[4])
