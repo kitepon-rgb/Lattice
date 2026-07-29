@@ -4,7 +4,7 @@
   "description": "Schedulability compiler for multi-agent development: observe real code boundaries, refactor the conflicting seam, recompile the plan for parallel execution",
   "author": {
     "name": "Quo / クオ at kitepon.dev",
-    "url": "https://x.com/QLyun35332"
+    "url": "https://kitepon.dev/"
   },
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
