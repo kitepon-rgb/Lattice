@@ -161,13 +161,24 @@ cross-plan topologyを同時に切り替える場合は
 Phase付きv5 planでは、通常ToDoの開始順はToDo DAGだけで決まり、Phase前後関係は重監査の順序だけを
 制御します。特定ToDoがPhase受理を本当に必要とする場合だけ`phase_accept_dependencies`で明示します。
 `lattice todo status --json`の`dispatch_frontier`はready全件を同時dispatchする既定を示します。
-readyが複数なら最初のstartに`--parallel-frontier`を付け、subsetだけを直列着手する場合は
-`--override-reason <reason>`で理由を残します。
+readyが複数なら最初のstartに`--parallel-frontier`を付けます。subsetだけを直列着手する場合は
+`--override-reason <reason>`で理由を残しますが、**その申告は一度突き返されます**。
 
 ```bash
 lattice todo start --plan <key> --task <id> --parallel-frontier
-lattice todo start --plan <key> --task <id> --override-reason <reason>
+lattice todo start --plan <key> --task <id> --override-reason <reason> --serial-confirmed
 ```
+
+直列の申告に対して`PARALLEL_DISPATCH_RECONSIDER`を返し、並列の再検討を促してから、
+同じ理由に`--serial-confirmed`を付けた再実行だけを通します。規則を文書へ書くだけでは
+読み飛ばされるため、再考をコマンドの往復で強制する設計です。**足止めは一度だけで、
+再実行すれば直列で進みます。**
+
+ただし理由が**実際の干渉を述べていない**場合——「単一セッションだから」「逐次実行するので」
+のようにworker数・セッション構成・作業者の都合を述べただけの場合——は
+`PARALLEL_DISPATCH_INVALID`で拒否し、`--serial-confirmed`を付けても通しません。
+実行主体が1つしか無いことは並列にできない理由ではない（必要ならworkerを増やす）ためです。
+「両taskが同一fileへ書き込む」のような干渉を書けば、再確認を経て通ります。
 
 `--parallel-frontier`はhostへ並列dispatch方針を宣言する開始gateです。Lattice自身がAI hostのagentを
 起動するものではなく、実際のdispatchはhostが行います。宣言後もready全件が着手されたかは

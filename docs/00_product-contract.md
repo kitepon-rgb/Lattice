@@ -160,6 +160,15 @@ witness setは`concern_anchors`を任意で持てる。これは係争資源の�
 指していない記録をverified独立として読ませない。`dispatch_frontier`の
 `all_ready_parallel_by_default`は変更せず、independenceはhostがsubsetを選ぶ根拠を与える別面とする。
 
+readyが複数ある状態での直列着手は、`--override-reason`の申告だけでは通さない。一度
+`PARALLEL_DISPATCH_RECONSIDER`で突き返し、同じ理由に`--serial-confirmed`を付けた再実行だけを
+受理する。足止めは一度だけとし、再実行した直列着手は受理する。さらに、理由がworker数・
+セッション構成・作業者の都合を述べただけで実際の干渉を述べていない場合は
+`PARALLEL_DISPATCH_INVALID`で拒否し、`--serial-confirmed`があっても通さない——実行主体が
+1つしか無いことは並列にできない理由ではなく、直列化の根拠になるのは同一fileへの書込衝突・
+外部資源の排他・順序依存だけである。既定が並列であることを規則として書くだけでは読み飛ばされる
+実例が出たため、再考をコマンドの往復で強制する。
+
 切断可能と分類されたconflictについて、`todo seam-proposal compile --plan <key>`が独立性記録と実sensorから
 `lattice.seam_proposal.v2`を生成し、`todo seam-proposal [--plan <key>] --json`がsensorを引かずに
 `lattice.seam_proposal_projection.v1`として投影する（ADR 0132）。提案の単位はconflict pairではなく

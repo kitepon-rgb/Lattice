@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.35.0 — 2026-07-29
+
+- **直列dispatchの申告を一度突き返し、並列を再検討させるようにした。** readyが複数ある時、
+  `--override-reason`に理由を書けばそのまま直列で通っていた。実運用で「単一セッションだから
+  逐次実行」という、並列にできない根拠になっていない理由で直列化する事例が出たため、既定
+  （`all_ready_parallel_by_default`）を規則ではなく機構で守る。直列の申告には
+  `PARALLEL_DISPATCH_RECONSIDER`を返し、同じ理由に`--serial-confirmed`を付けた再実行だけを
+  受理する。**足止めは一度だけで、再実行すれば直列で進む。** さらに、理由がworker数・
+  セッション構成・作業者の都合を述べただけの場合は`PARALLEL_DISPATCH_INVALID`で拒否し、
+  `--serial-confirmed`があっても通さない——実行主体が1つしか無いことは並列にできない理由では
+  ないため。同一fileへの書込衝突など実際の干渉を書けば再確認を経て通る。
+  エラーには`default_policy`と`ready_task_ids`を載せ、既定が全ready同時dispatchであることを
+  その場で読めるようにした。
+- **`lattice todo --help`に`migrate`を追加した。** 既存storeへplanを追加する唯一の入口なのに
+  Read/Write commandsのどちらにも載っておらず、`plan create`が空store初期化専用であることも
+  ヘルプからは読めなかった（`plan create`は既存storeで`store_already_exists`を返す）。
+
 ## 0.34.2 — 2026-07-29
 
 - 公開工程表の詳細画面にも`kitepon.dev / Lattice`のブランドヘッダーと一覧へ戻る導線を追加した。
