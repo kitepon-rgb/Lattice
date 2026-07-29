@@ -13,8 +13,13 @@ function projectPath(projectId) {
 
 function liveHtml(html, headDigest, eventsPath) {
   const controller = `<script>(()=>{const badge=document.createElement('div');badge.setAttribute('role','status');badge.style.cssText='position:fixed;right:12px;bottom:12px;z-index:99;padding:6px 10px;border:1px solid #d9d8d4;border-radius:4px;background:#fcfcfb;font:600 12px system-ui';badge.textContent='進捗: 接続中';document.body.append(badge);let head=${JSON.stringify(headDigest)};const stream=new EventSource(${JSON.stringify(eventsPath)});stream.addEventListener('state',event=>{const next=JSON.parse(event.data);badge.textContent='進捗: 最新';if(next.head_digest!==head){badge.textContent='進捗: 更新を反映中';location.reload();}});stream.addEventListener('lattice-error',event=>{const detail=JSON.parse(event.data);badge.textContent='進捗: エラー '+detail.code;badge.style.borderColor='#d03b3b';});stream.onerror=()=>{badge.textContent='進捗: 再接続中';};})();</script>`;
+  const publicMetadata = '<meta name="description" content="Latticeで管理しているプロジェクトの依存工程と進捗を確認できます。"><meta name="robots" content="noindex, nofollow"><meta name="theme-color" content="#f7f3ea">';
+  const publicStyle = '<style>body[data-gantt-root]{grid-template-rows:auto minmax(0,1fr)}.lattice-live-brand{z-index:10;display:flex;align-items:center;gap:8px;min-width:0;padding:10px 16px;border-bottom:1px solid #d8d0c5;background:#f7f3ea;color:#6c655d;font:600 12px/1.5 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif}.lattice-live-brand a{color:#201d19;text-decoration:none}.lattice-live-brand a:hover{color:#315cbe}.lattice-live-brand strong{color:#201d19}.lattice-live-brand-note{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lattice-live-back{margin-left:auto!important;color:#315cbe!important;font-weight:750}@media(max-width:560px){.lattice-live-brand{padding:9px 12px}.lattice-live-brand-note{display:none}}</style>';
+  const publicHeader = '<header class="lattice-live-brand"><a href="https://kitepon.dev/">kitepon.dev</a><span aria-hidden="true">/</span><strong>Lattice</strong><span class="lattice-live-brand-note">公開工程表</span><a class="lattice-live-back" href="/projects/">一覧へ戻る</a></header>';
   return html
     .replace("default-src 'none';", "default-src 'none'; connect-src 'self';")
+    .replace('</head>', `${publicMetadata}${publicStyle}</head>`)
+    .replace(/<body([^>]*)>/u, `<body$1>${publicHeader}`)
     .replace('</body>', `${controller}</body>`);
 }
 

@@ -29,6 +29,11 @@ test('live ganttはloopback限定でHTMLを配信しhead変更をSSE通知する
   const html = await page.text();
   assert.match(html, /connect-src 'self'/u);
   assert.match(html, /EventSource\("\/projects\/fixture-project\/events"\)/u);
+  assert.match(html, /name="description" content="Latticeで管理しているプロジェクトの依存工程と進捗を確認できます。"/u);
+  assert.match(html, /name="robots" content="noindex, nofollow"/u);
+  assert.match(html, /class="lattice-live-brand"/u);
+  assert.match(html, /href="https:\/\/kitepon\.dev\/"/u);
+  assert.match(html, /href="\/projects\/">一覧へ戻る/u);
 
   const root = await fetch(`http://${live.host}:${live.port}/`, { redirect: 'manual' });
   assert.equal(root.status, 302);
