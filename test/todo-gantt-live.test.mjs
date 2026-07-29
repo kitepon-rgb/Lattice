@@ -91,6 +91,10 @@ test('dashboardはactive project一覧とproject別工程表を同じdisplay nam
     assert.match(html, /AIShell/u);
     assert.match(html, /Lattice/u);
     assert.match(html, /\/projects\/aishell\//u);
+    assert.match(html, /公開中の工程表/u);
+    assert.match(html, /https:\/\/kitepon\.dev\//u);
+    assert.match(html, /https:\/\/github\.com\/kitepon-rgb\/Lattice/u);
+    assert.match(html, /name="robots" content="noindex, nofollow"/u);
   }
   const project = await fetch(new URL('/projects/aishell/', dashboard.url));
   assert.equal(project.status, 200);
