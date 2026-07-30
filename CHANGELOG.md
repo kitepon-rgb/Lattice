@@ -2,6 +2,11 @@
 
 ## 0.35.0 — 2026-07-29
 
+- **公開工程表の未知URLを、ブラウザではLatticeのブランド404として返すようにした。**
+  `Accept`が`text/html`を含むrequestには、`kitepon.dev / Lattice`の帰属、一覧と
+  kitepon.devへの戻り先、`noindex, nofollow`を持つHTML 404を返す。API利用者などHTMLを
+  要求しないclientには、従来の`lattice.todo_gantt_http_error.v1` JSON 404を維持する。
+  見た目の改善で機械契約を黙って変えず、content negotiationで両立させた。
 - **直列dispatchの申告を一度突き返し、並列を再検討させるようにした。** readyが複数ある時、
   `--override-reason`に理由を書けばそのまま直列で通っていた。実運用で「単一セッションだから
   逐次実行」という、並列にできない根拠になっていない理由で直列化する事例が出たため、既定

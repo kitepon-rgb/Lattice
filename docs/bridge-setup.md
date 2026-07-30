@@ -107,6 +107,19 @@ public hostname `lattice.kitepon.dev` を次のoriginへ対応付ける。
 3. **Cloudflare public HTTPS**: `https://lattice.kitepon.dev/projects/`がredirectなしで200となり、一覧から開いた
    `/projects/<project_id>/`のHTML titleが`Lattice — <project名> 依存工程図`である。
 
+公開viewerの404も、ブラウザとAPIの両契約を別々に確認する。未知URLへ`Accept: text/html`を
+付けたrequestはHTTP 404かつ`Content-Type: text/html`で、`noindex, nofollow`と
+`/projects/`、`https://kitepon.dev/`への戻り先を持つ。`Accept: application/json`では
+HTTP 404かつ`Content-Type: application/json`で、既存の
+`lattice.todo_gantt_http_error.v1`を返す。
+
+```bash
+curl --silent --show-error --include --header 'Accept: text/html' \
+  https://lattice.kitepon.dev/unknown
+curl --silent --show-error --include --header 'Accept: application/json' \
+  https://lattice.kitepon.dev/unknown
+```
+
 外部gateはHTMLだけで閉じず、各projectの
 `https://lattice.kitepon.dev/projects/<project_id>/events`も確認する。応答は200かつ
 `Content-Type: text/event-stream`で、接続直後に`event: state`と現在の`head_digest`を返さなければならない。

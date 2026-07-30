@@ -50,3 +50,27 @@ proxied CNAME。
 6. 逆トンネルのsshを`kill -9`した後、LaunchAgentが張り直し、公開URLがHTTP 200へ復帰する。
 
 公開URLは `https://lattice.kitepon.dev/projects/lattice/`。
+
+## 2026-07-30 v0.35.0・ブランド404反映
+
+`@quolu/lattice@0.35.0`のglobal install後も、常駐bridgeは起動時に読み込んだ旧moduleを保持していた。
+配備経路や設定を変更せず、次の正規入口でbridgeだけを再起動した。
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/dev.kitepon.lattice.bridge"
+```
+
+再起動直後の最初のlocalhost probeはlisten前で接続に失敗し、その後のhealth確認で起動完了を確認した。
+ssh逆トンネル、Caddy、Cloudflare Tunnel、LaunchAgent plist、portは変更していない。
+
+反映後に次を確認した。
+
+1. `/`、`/projects/`、`/projects/lattice/`が公開HTTPSで200。
+2. 未知URLへ`Accept: text/html`を付けると、HTTP 404、`Content-Type: text/html`、
+   `kitepon.dev / Lattice`の帰属、`noindex, nofollow`、一覧とkitepon.devへの戻り先を返す。
+3. 同じURLへ`Accept: application/json`を付けると、HTTP 404と既存の
+   `lattice.todo_gantt_http_error.v1` JSONを返す。
+4. npm latest、GitHub Release、source tagがすべて`v0.35.0`へ揃う。
+
+GitHub Releaseは
+[`v0.35.0`](https://github.com/kitepon-rgb/Lattice/releases/tag/v0.35.0)。

@@ -265,6 +265,11 @@ dashboard daemonは起動時に読み込んだ版数をhealthで名乗り、inst
 置き換える。publishとinstallを終えた版が、古いdaemonの生存を理由に配信面へ届かないままになることを
 許さない。置き換えの待ち時間は固定秒数で打ち切らず、spawnした子が生きている間は待ち、子の死で即座に
 `DASHBOARD_DAEMON_UNAVAILABLE`を返す。
+公開viewerの未知GETで`Accept`が`text/html`を含む場合は、HTTP 404のままLatticeのブランド、
+`noindex, nofollow`、`/projects/`と`https://kitepon.dev/`への戻り先を持つHTMLを返す。
+HTMLを要求しないclientには、従来の`lattice.todo_gantt_http_error.v1` JSON 404を維持する。
+content negotiationは表示面だけの加算であり、未知URLを200へ丸めず、他methodや他errorの契約を
+暗黙に変更しない。
 静的生成時はHTMLと`<output_ref>.status.json` descriptorを発行する。`todo gantt status [--out <ref>]`は
 現在の決定的renderとdescriptor／HTML digestを照合し、`current / stale / missing`を返す。
 片側欠落、non-canonical descriptor、digest不一致、project不一致は`GANTT_ARTIFACT_INVALID`として失敗し、
