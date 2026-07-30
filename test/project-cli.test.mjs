@@ -137,6 +137,9 @@ test('plan createはcanonical inputから初期storeを作りstatusをreadyへ�
   assert.deepEqual(createResult.dispatch_shape, {
     task_count: 1, critical_path_length: 1, max_frontier_width: 1, serialization_ratio: '1.0000',
   });
+  // ADR 0147裁定3: phase無し(v1入力→todo_plan.v3)のplan createは拒否せず、終端監査が
+  // 要ることを結果へ明示するに留める。
+  assert.equal(createResult.terminal_audit_required, true);
   assert.equal(createResult.result_digest, todoSelfDigest(createResult, 'result_digest'));
 
   const status = run(root, ['status', '--json']);
@@ -187,6 +190,8 @@ test('plan create v2は第一級Phaseを作りlocked Phaseをnext_readyへ出さ
   await writeFile(path.join(root, '.lattice', 'phase-plan.json'), `${canonicalizeTodoArtifact(input)}\n`);
   const created = run(root, ['plan', 'create', '--input', '.lattice/phase-plan.json']);
   assert.equal(created.status, 0, created.stderr);
+  // Phaseを宣言したplanは既存のPhase gateが重監査を担うので、終端監査の追加通知は要らない。
+  assert.equal(JSON.parse(created.stdout).terminal_audit_required, false);
   const status = JSON.parse(run(root, ['todo', 'status', '--json']).stdout);
   assert.deepEqual(status.next_ready.map(({ task_id }) => task_id), ['T1']);
   const phases = run(root, ['todo', 'phase', 'status', '--plan', 'main']);

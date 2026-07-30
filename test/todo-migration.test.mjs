@@ -342,7 +342,8 @@ test('既存store経路のtodo migrateは検証済みJSONを一度だけ追加�
   assertExactKeys(result, [
     'schema', 'project_id', 'plan_key', 'plan_version', 'extraction_digest',
     'imported_task_count', 'completed_task_count', 'plan_ref', 'journal_ref', 'snapshot_ref',
-    'topology_digest', 'journal_head_digest', 'dispatch_shape', 'result_digest',
+    'topology_digest', 'journal_head_digest', 'dispatch_shape', 'terminal_audit_required',
+    'result_digest',
   ]);
   assert.equal(result.schema, 'lattice.todo_migrate_result.v1');
   assert.equal(result.imported_task_count, 2);
@@ -350,6 +351,8 @@ test('既存store経路のtodo migrateは検証済みJSONを一度だけ追加�
   assert.deepEqual(result.dispatch_shape, {
     task_count: 2, critical_path_length: 2, max_frontier_width: 1, serialization_ratio: '1.0000',
   });
+  // ADR 0147裁定3: migrateで作るplanは常にphase無しなので終端監査が要ることを結果へ明示する。
+  assert.equal(result.terminal_audit_required, true);
   assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const archive = store.members.find(({ descriptor }) => descriptor.plan_key === 'archive');

@@ -182,8 +182,10 @@ function buildTodoGraph(readModel) {
   const nodes = new Map();
   const incoming = new Map();
   const memberHeads = [];
+  // snapshot artifactの形式(v1にはphasesキーが無い)には縛られない導出ビューを読む
+  // (readTodoStoreが常にmember.phasesとして埋める。ADR 0147)。
   const phaseStatuses = new Map(readModel.members.flatMap((member) => (
-    (member.snapshot?.phases ?? []).map((phase) => [
+    (member.phases ?? []).map((phase) => [
       `${member.plan.project_id}\0${member.plan.plan_key}\0${phase.phase_id}`, phase.status,
     ])
   )));
@@ -224,7 +226,8 @@ function buildTodoGraph(readModel) {
         }),
     });
     const states = new Map(member.tasks.map((state) => [state.task_id, state]));
-    const phases = new Map((member.snapshot?.phases ?? []).map((state) => [state.phase_id, state]));
+    // snapshot artifactの形式には縛られない導出ビュー(member.phases)を読む(ADR 0147)。
+    const phases = new Map((member.phases ?? []).map((state) => [state.phase_id, state]));
     for (const task of member.plan.tasks) {
       const state = states.get(task.task_id);
       if (!plain(state) || !['pending', 'in-progress', 'blocked', 'done'].includes(state.status)) {

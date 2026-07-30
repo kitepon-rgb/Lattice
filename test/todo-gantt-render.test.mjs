@@ -193,6 +193,9 @@ test('決着済みPhaseは概要の先頭を占領しない', () => {
     { phase_id: 'phase-1', status: 'accepted' },
     { phase_id: 'phase-2', status: 'active' },
   ] };
+  // readTodoStoreはPhase状態をmember.phasesという導出ビューでも返す(ADR 0147。
+  // snapshot artifactの形式には縛られない)。renderPhaseProgress等の消費者はこちらを読む。
+  member.phases = member.snapshot.phases;
   const { html } = renderFixture(read);
   const overview = html.slice(html.indexOf('data-right-panel="overview"'), html.indexOf('data-right-panel="details"'));
   assert.match(overview, /決着済みPhase 1件/u, '受理済みは畳んだ群にまとめる');
@@ -222,6 +225,7 @@ test('v5 GanttはPhaseを通常ToDoのschedule gateとして説明しない', ()
     { phase_id: 'phase-1', status: 'active' },
     { phase_id: 'phase-2', status: 'locked' },
   ] };
+  member.phases = member.snapshot.phases;
   const { html } = renderFixture(read);
   assert.match(html, /Phaseは重監査の順序を表し、通常ToDoの開始順はToDo依存だけで決まります。/u);
   assert.doesNotMatch(html, /後続Phaseはまだ解放されません/u);

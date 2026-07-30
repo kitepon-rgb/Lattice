@@ -216,11 +216,19 @@ async function readJournal(repoRoot, journalRef) {
   const phaseRevisionSchema = events[0].schema === 'lattice.todo_event.v4';
   const phaseTail = (event) => event.schema === 'lattice.todo_event.v3';
   const legacyTail = (event) => event.schema === 'lattice.todo_event.v1';
+  // ADR 0147: genesisがv1/v2(phase無しplan)でも、暗黙のterminal-audit Phaseへの
+  // phase_review/phase_accept/phase_reject/phase_reopenだけはv3 tail eventとして
+  // 混在を許す。task側のevent(start/done/block/unblock/reopen)は従来どおりv1のまま
+  // ——既存planの既存event bytesは1つも変わらない。新しく増えるのは、これまで
+  // phase無しplanには存在し得なかったphase_*event kindの受け皿だけである。
+  const implicitTerminalAuditTail = (event) => phaseTail(event)
+    && ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen'].includes(event.kind);
+  const legacyOrImplicitPhaseTail = (event) => legacyTail(event) || implicitTerminalAuditTail(event);
   if ((phaseSchema && events.some(({ schema }, index) => index === 0
     ? !['lattice.todo_event.v3', 'lattice.todo_event.v4'].includes(schema) : !phaseTail(events[index])))
-    || (!phaseSchema && events.slice(1).some((event) => !legacyTail(event)))
+    || (!phaseSchema && events.slice(1).some((event) => !legacyOrImplicitPhaseTail(event)))
     || (!phaseSchema && !successorSchema && events.some((event, index) => index === 0
-      ? event.schema !== 'lattice.todo_event.v1' : !legacyTail(event)))) {
+      ? event.schema !== 'lattice.todo_event.v1' : !legacyOrImplicitPhaseTail(event)))) {
     fail('STORE_CORRUPT', 'journal_schema_sequence_invalid');
   }
   return { segments, events, activeBytes };
@@ -236,18 +244,46 @@ function emptyPhaseState(phaseId) {
     decision_event_digest: null, decision_evidence: null };
 }
 
+// phase無しplan(todo_plan.v1/v2/v3)の終端に暗黙で挿入する予約Phase(ADR 0147)。全taskが
+// doneになっても、この暗黙Phaseのaccept(review→evidence束縛accept)が記録されるまでplanを
+// 「閉じた」ことにさせない——既存のPhase gate機構(review/accept/evidence slot/journal event)を
+// そのまま再利用し、新しい状態機械を増やさない(ADR 0147裁定2)。phase_idはtask/plan由来の識別子
+// と衝突しない予約名として固定する。
+export const TERMINAL_AUDIT_PHASE_ID = 'terminal-audit';
+
+// CLI側(migrate/plan create/最後のdone)が「終端重監査が要る」ことを通知するために
+// 同じ判定を再利用する。判定基準を二重管理しないよう、ここから公開する。
+export function isPhaselessTodoPlanSchema(schema) {
+  return !['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(schema);
+}
+
+function terminalAuditPhase() {
+  return { phase_id: TERMINAL_AUDIT_PHASE_ID, title: '終端重監査', gate_policy: 'terminal-audit',
+    predecessor_phase_ids: [], required_evidence_slots: ['terminal-audit'] };
+}
+
+// v4/v5はplan.phasesをそのまま使う。phase無しplan(v1/v2/v3)は暗黙のterminal-audit Phase
+// 1つだけを持つものとして扱う(所属taskは常にそのplanの全task)。derivedPhaseStatus・
+// projectPhaseStates・replayのphase event検証が同じ一覧を見るよう、この関数だけに集約する。
+function phasesOf(plan) {
+  return isPhaselessTodoPlanSchema(plan.schema) ? [terminalAuditPhase()] : plan.phases;
+}
+
 function derivedPhaseStatus(plan, taskStates, phaseStates, phaseId) {
   const state = phaseStates.get(phaseId);
   if (['reviewing', 'accepted', 'rejected'].includes(state.status)) return state.status;
-  const phase = plan.phases.find((entry) => entry.phase_id === phaseId);
+  const phase = phasesOf(plan).find((entry) => entry.phase_id === phaseId);
   if (!phase.predecessor_phase_ids.every((id) => phaseStates.get(id)?.status === 'accepted')) return 'locked';
-  const tasks = plan.tasks.filter((entry) => entry.phase_id === phaseId);
+  // 暗黙のterminal-audit Phaseはtask側にphase_idフィールドが無い(v1/v2/v3にはそもそも
+  // 存在しない)ため、所属taskをフィルタで絞らずplan全taskとして扱う。
+  const tasks = phaseId === TERMINAL_AUDIT_PHASE_ID && isPhaselessTodoPlanSchema(plan.schema)
+    ? plan.tasks : plan.tasks.filter((entry) => entry.phase_id === phaseId);
   return tasks.every((entry) => taskStates.get(entry.task_id)?.status === 'done') ? 'gate_ready' : 'active';
 }
 
 function projectPhaseStates(plan, events, taskStates) {
-  if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema)) return [];
-  const states = new Map(plan.phases.map(({ phase_id }) => [phase_id, emptyPhaseState(phase_id)]));
+  const phases = phasesOf(plan);
+  const states = new Map(phases.map(({ phase_id }) => [phase_id, emptyPhaseState(phase_id)]));
   for (const event of events) {
     if (event.schema === 'lattice.todo_event.v4') {
       for (const migration of event.phase_state_migration) {
@@ -271,7 +307,7 @@ function projectPhaseStates(plan, events, taskStates) {
       Object.assign(states.get(event.phase_id), emptyPhaseState(event.phase_id));
     }
   }
-  for (const phase of plan.phases) {
+  for (const phase of phases) {
     const state = states.get(phase.phase_id);
     state.status = derivedPhaseStatus(plan, taskStates, states, phase.phase_id);
   }
@@ -298,7 +334,7 @@ function localSuccessors(plan, taskId) {
 
 function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSource } = {}) {
   const states = new Map(plan.tasks.map(({ task_id }) => [task_id, taskState(task_id)]));
-  const phaseStates = new Map((plan.phases ?? []).map(({ phase_id }) => [phase_id, emptyPhaseState(phase_id)]));
+  const phaseStates = new Map(phasesOf(plan).map(({ phase_id }) => [phase_id, emptyPhaseState(phase_id)]));
   const doneDigest = new Map();
   const completion = new Map();
   const importedGenesis = events[0]?.payload.historical_import === true;
@@ -331,7 +367,9 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           fail('STORE_INCONSISTENT', 'genesis_migration_target_invalid');
         }
         for (const migration of event.state_migration) {
-          if (!['carry', 'carry_reconciled_metadata'].includes(migration.state_policy)) continue;
+          // acquire_phaseもcarry系(状態を完全に持ち越す)。ADR 0147裁定4のPhase獲得はdoneを
+          // 保つことが目的であり、ここで除外するとreplayが状態を復元しない。
+          if (!['carry', 'carry_reconciled_metadata', 'acquire_phase'].includes(migration.state_policy)) continue;
           const state = states.get(migration.to_task_id);
           Object.assign(state, structuredClone(migration.state), { evidence_unverified: false });
           if (state.evidence !== null) {
@@ -357,7 +395,11 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
       continue;
     }
     if (event.kind.startsWith('phase_')) {
-      if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema) || !phaseStates.has(event.phase_id)) {
+      // phaseStatesはphasesOf(plan)から作られる(v4/v5なら実Phase、それ以外なら暗黙の
+      // terminal-audit Phaseだけ)。`has`判定だけで両方の場合を賄えるので、schemaでの
+      // 事前分岐は不要——phase無しplanは予約phase_id以外を宣言していないため、任意の
+      // phase_idを名乗るevent_phase_missingでの拒否は従来どおり効く。
+      if (!phaseStates.has(event.phase_id)) {
         fail('STORE_INCONSISTENT', 'event_phase_missing');
       }
       const state = phaseStates.get(event.phase_id);
@@ -367,7 +409,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         state.status = 'reviewing'; state.review_event_digest = event.event_digest;
         state.decision_event_digest = null; state.decision_evidence = null;
       } else if (event.kind === 'phase_accept') {
-        const phase = plan.phases.find(({ phase_id }) => phase_id === event.phase_id);
+        const phase = phasesOf(plan).find(({ phase_id }) => phase_id === event.phase_id);
         const slots = event.payload.evidence_slots.map(({ slot_id }) => slot_id);
         if (currentStatus !== 'reviewing' || state.review_event_digest !== event.payload.review_event_digest
           || canonicalizeTodoArtifact(slots) !== canonicalizeTodoArtifact(phase.required_evidence_slots)) {
@@ -391,17 +433,21 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           || state.decision_event_digest !== event.payload.target_decision_digest) {
           fail('STORE_INCONSISTENT', 'phase_reopen_binding_invalid');
         }
-        const successorStarted = currentStatus === 'accepted' && (plan.schema === 'lattice.todo_plan.v4'
-          ? plan.phases.some((phase) => phase.predecessor_phase_ids.includes(event.phase_id)
-            && (phaseStates.get(phase.phase_id).status !== 'locked'
-              || plan.tasks.some((task) => task.phase_id === phase.phase_id
-                && states.get(task.task_id).status !== 'pending')))
-          : plan.phases.some((phase) => phase.predecessor_phase_ids.includes(event.phase_id)
-              && phaseStates.get(phase.phase_id).status !== 'locked')
-            || plan.phase_accept_dependencies.some((edge) => edge.from.project_id === plan.project_id
-              && edge.from.plan_key === plan.plan_key && edge.from.phase_id === event.phase_id
-              && edge.to.project_id === plan.project_id && edge.to.plan_key === plan.plan_key
-              && states.get(edge.to.task_id)?.status !== 'pending'));
+        // phase無しplanの暗黙Phaseは唯一のPhaseであり、他Phaseの前提にも
+        // phase_accept_dependenciesにもなり得ない(v1/v2/v3にはそのフィールド自体が無い)ため、
+        // successorStartedは常にfalseでよい。v4/v5の既存判定には一切手を入れない。
+        const successorStarted = currentStatus === 'accepted' && !isPhaselessTodoPlanSchema(plan.schema)
+          && (plan.schema === 'lattice.todo_plan.v4'
+            ? plan.phases.some((phase) => phase.predecessor_phase_ids.includes(event.phase_id)
+              && (phaseStates.get(phase.phase_id).status !== 'locked'
+                || plan.tasks.some((task) => task.phase_id === phase.phase_id
+                  && states.get(task.task_id).status !== 'pending')))
+            : plan.phases.some((phase) => phase.predecessor_phase_ids.includes(event.phase_id)
+                && phaseStates.get(phase.phase_id).status !== 'locked')
+              || plan.phase_accept_dependencies.some((edge) => edge.from.project_id === plan.project_id
+                && edge.from.plan_key === plan.plan_key && edge.from.phase_id === event.phase_id
+                && edge.to.project_id === plan.project_id && edge.to.plan_key === plan.plan_key
+                && states.get(edge.to.task_id)?.status !== 'pending'));
         if (successorStarted && event.payload.override_reason === null) {
           fail('STORE_INCONSISTENT', 'phase_reopen_has_started_successor');
         }
@@ -469,8 +515,14 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
       if (state.status !== 'done' || doneDigest.get(event.task_id) !== event.payload.target_done_digest) {
         fail('STORE_INCONSISTENT', 'invalid_reopen_binding');
       }
-      if (['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema)) {
-        const phaseId = plan.tasks.find(({ task_id }) => task_id === event.task_id).phase_id;
+      {
+        // 暗黙のterminal-audit Phaseがacceptedの後にtaskだけを無警告でreopenできると、
+        // 監査済みのまま(gantt上も畳まれたまま)裏で作業が再開する抜け道になり、ADR 0147の
+        // 「監査の記録なしに閉じたことにさせない」を潜脱する。v4/v5の既存Phaseと同じ規律を
+        // 暗黙Phaseにも及ぼし、phase_reopenを先に通させる。
+        const phaseId = isPhaselessTodoPlanSchema(plan.schema)
+          ? TERMINAL_AUDIT_PHASE_ID
+          : plan.tasks.find(({ task_id }) => task_id === event.task_id).phase_id;
         if (derivedPhaseStatus(plan, states, phaseStates, phaseId) === 'accepted') {
           fail('STORE_INCONSISTENT', 'task_reopen_requires_phase_reopen');
         }
@@ -486,6 +538,11 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
 
 function snapshotFor(plan, events, tasks) {
   const head = events.at(-1);
+  // snapshot artifactの形式は変えない(store canonical形式の非目標)。既存on-disk snapshot
+  // (phase無しplanはv1・`phases`キー無し)との canonical比較がここで外れると、全既存storeが
+  // snapshot_staleになりforWrite(start/done/revise等)が丸ごとSTORE_WRITE_REFUSEDへ落ちる
+  // ——ADR 0147以降の暗黙terminal-audit Phaseの状態は、この関数の外(readTodoStore/
+  // appendTodoEventが返す`phases`という導出ビュー)で供給する。
   const phasePlan = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema);
   const snapshot = {
     schema: phasePlan ? 'lattice.todo_snapshot.v2' : 'lattice.todo_snapshot.v1',
@@ -1003,8 +1060,12 @@ export async function readTodoStore(options = {}) {
       else throw error;
     }
     if (options.forWrite === true && snapshotStale) fail('STORE_WRITE_REFUSED', 'snapshot_stale');
+    // 導出済みphase状態(ADR 0147)。snapshot artifactの形式(v1/v2)には縛られず、v4/v5・
+    // phase無しplanのどちらでも同じ形(暗黙のterminal-audit Phase込み)で常に埋める。
+    // 消費者はここを読み、snapshot.phases(v1には存在しない)を直接読まない。
+    const phases = projectPhaseStates(plan, journal.events, new Map(tasks.map((task) => [task.task_id, task])));
     loaded.push({ descriptor, plan, revision, journal, snapshot: snapshotStale ? expectedSnapshot : snapshot,
-      tasks, snapshot_stale: snapshotStale });
+      tasks, phases, snapshot_stale: snapshotStale });
   }
   validateMergedGraph(loaded);
   return {
@@ -1112,14 +1173,20 @@ function nextEvent(input, storeMember) {
   const payload = input.kind === 'done' && exactRecord(input.payload, ['evidence'])
     ? { done_mode: 'authored', imported: false, evidence: input.payload.evidence }
     : input.payload;
+  const phaseCapablePlan = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(storeMember.plan.schema);
+  const phaseKind = ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen'].includes(input.kind);
+  // ADR 0147: phase無しplanでも、暗黙のterminal-audit Phaseへのphase_*eventだけは
+  // v3 tail eventとして書く(readJournalのlegacyOrImplicitPhaseTailが同じ規則で受理する)。
+  // task側のevent(start/done等)はphase無しplanのままv1で書き続ける——既存の
+  // canonical形式を変えるのはphase_*eventの新設分だけに限る。
+  const usesPhaseEventShape = phaseCapablePlan || phaseKind;
   const event = {
-    schema: ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(storeMember.plan.schema)
-      ? 'lattice.todo_event.v3' : 'lattice.todo_event.v1', project_id: storeMember.plan.project_id,
+    schema: usesPhaseEventShape ? 'lattice.todo_event.v3' : 'lattice.todo_event.v1',
+    project_id: storeMember.plan.project_id,
     plan_key: storeMember.plan.plan_key, plan_version: storeMember.plan.plan_version,
     sequence: previous.sequence + 1, previous_digest: previous.event_digest,
     kind: input.kind, task_id: input.task_id ?? null,
-    ...(['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(storeMember.plan.schema)
-      ? { phase_id: input.phase_id ?? null } : {}),
+    ...(usesPhaseEventShape ? { phase_id: input.phase_id ?? null } : {}),
     actor: input.actor, recorded_at: input.recorded_at,
     provenance: input.provenance ?? null, payload, event_digest: '',
   };
@@ -1148,7 +1215,7 @@ function resolveDoneBindingDigest(storeMember, taskId) {
   const genesis = events[0];
   if (genesis?.kind !== 'plan_genesis' || !Array.isArray(genesis.state_migration)) return null;
   const carried = genesis.state_migration.some((migration) => (
-    ['carry', 'carry_reconciled_metadata'].includes(migration.state_policy)
+    ['carry', 'carry_reconciled_metadata', 'acquire_phase'].includes(migration.state_policy)
     && migration.to_task_id === taskId && migration.state?.status === 'done'
   ));
   return carried ? genesis.event_digest : null;
@@ -1252,7 +1319,12 @@ export async function appendTodoEvent(options = {}) {
     member.descriptor.journal_head_digest = event.event_digest;
     store.manifest.manifest_digest = todoSelfDigest(store.manifest, 'manifest_digest');
     await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(store.manifest));
-    return { event, snapshot };
+    // snapshot artifactの形式(v1/v2)はplanのschemaで決まったまま変えない。呼び出し側
+    // (todo-cli.mjsのphaseMutation・done advisory)がPhase状態(暗黙のterminal-audit含む)を
+    // 見るための導出ビューは、snapshotと分けてここで別途返す。
+    const phases = projectPhaseStates(member.plan, [...member.journal.events, event],
+      new Map(tasks.map((task) => [task.task_id, task])));
+    return { event, snapshot, plan: member.plan, phases };
   });
 }
 
@@ -1894,6 +1966,42 @@ function validatePhaseV3Carry(previous, revision, migration, idMap, state) {
   }
 }
 
+/**
+ * acquire_phase専用のcarry検証(ADR 0147裁定4)。既存carry/carry_reconciled_metadataの
+ * 分岐(validatePhaseV3Carry)には一切手を入れず、「Phase割当ての獲得だけ」を許す別分岐として
+ * 独立に置く——同じcarry比較へphase_idだけ除外する特例を混ぜると、以後の意味論比較すべてに
+ * 例外条件が混入する経路を開いてしまう(裁定4が名指しで禁じる形)。
+ *
+ * 獲得の定義: predecessor側がphase無し(phase_idがnullに正規化される)→successor側がphase有り、
+ * という向きだけを許す。既にphaseを持つtaskの付け替えは意味論の変更であり、acquire_phaseでは
+ * 許さない(carryへ回して従来どおりcarry_semantics_changedで拒否させる)。phase_id以外の
+ * 属性(title/lane/narrative_ref/narrative_anchor/compile_binding/parent_task_id)と
+ * 依存辺(incoming)は、phaseV3CarrySemanticsのtaskからphase_idだけを取り除いた上で
+ * carryと同じ完全一致を要求する。outgoingの扱い(successor側が上位集合であること)もcarryと同じ。
+ */
+function validateAcquirePhaseCarry(previous, revision, migration, idMap) {
+  const phaseIdMap = new Map(revision.phase_migration
+    .filter(({ from_phase_id, to_phase_id }) => from_phase_id !== null && to_phase_id !== 'removed')
+    .map(({ from_phase_id, to_phase_id }) => [from_phase_id, to_phase_id]));
+  const before = phaseV3CarrySemantics(previous.plan, migration.from_task_id, idMap, phaseIdMap);
+  const after = phaseV3CarrySemantics(revision.desired_plan, migration.to_task_id, new Map(), new Map());
+  if (before.task.phase_id !== null) {
+    fail('REVISION_INVALID', 'acquire_phase_requires_unassigned_predecessor', { from_task_id: migration.from_task_id });
+  }
+  if (after.task.phase_id === null) {
+    fail('REVISION_INVALID', 'acquire_phase_requires_assigned_successor', { from_task_id: migration.from_task_id });
+  }
+  const stripPhase = ({ phase_id, ...rest }) => rest;
+  if (canonicalizeTodoArtifact(stripPhase(before.task)) !== canonicalizeTodoArtifact(stripPhase(after.task))
+    || canonicalizeTodoArtifact(before.incoming) !== canonicalizeTodoArtifact(after.incoming)) {
+    fail('REVISION_INVALID', 'carry_semantics_changed', { from_task_id: migration.from_task_id });
+  }
+  const successorOutgoing = new Set(after.outgoing);
+  if (!before.outgoing.every((edge) => successorOutgoing.has(edge))) {
+    fail('REVISION_INVALID', 'carry_outgoing_edge_removed', { from_task_id: migration.from_task_id });
+  }
+}
+
 function stateMigrationFor(previous, revision) {
   const oldIds = previous.plan.tasks.map(({ task_id }) => task_id);
   const migrationIds = revision.task_migration.map(({ from_task_id }) => from_task_id);
@@ -1905,12 +2013,26 @@ function stateMigrationFor(previous, revision) {
     .map(({ from_task_id, to_task_id }) => [from_task_id, to_task_id]));
   const states = new Map(previous.tasks.map((state) => [state.task_id, state]));
   return revision.task_migration.map((migration) => {
-    const carriesState = ['carry', 'carry_reconciled_metadata'].includes(migration.state_policy);
+    const carriesState = ['carry', 'carry_reconciled_metadata', 'acquire_phase'].includes(migration.state_policy);
     if (!carriesState) return { ...migration, state: null };
     const reconciliationMetadata = migration.state_policy === 'carry_reconciled_metadata';
     const state = states.get(migration.from_task_id);
     if (!state) fail('STORE_INCONSISTENT', 'predecessor_task_state_missing');
-    if (revision.schema === 'lattice.phase_todo_revision.v3') {
+    if (migration.state_policy === 'acquire_phase') {
+      // acquire_phaseはv3 phase revision専用の獲得判定を持つ。v3以外(v1/v2 phase revisionや
+      // 平文todo_revision)ではtaskSemantics自体がphase_idを比較対象へ含めないため、carryと
+      // 同じ比較で意味論は保たれる——ここを別ロジックにする理由が無い(既知のv1/v2の緩さは
+      // ADR 0147の対象外であり、緩めも締めもしない)。
+      if (revision.schema === 'lattice.phase_todo_revision.v3') {
+        validateAcquirePhaseCarry(previous, revision, migration, idMap);
+      } else {
+        const before = taskSemantics(previous.plan, migration.from_task_id, idMap, {});
+        const after = taskSemantics(revision.desired_plan, migration.to_task_id, new Map(), {});
+        if (canonicalizeTodoArtifact(before) !== canonicalizeTodoArtifact(after)) {
+          fail('REVISION_INVALID', 'carry_semantics_changed', { from_task_id: migration.from_task_id });
+        }
+      }
+    } else if (revision.schema === 'lattice.phase_todo_revision.v3') {
       validatePhaseV3Carry(previous, revision, migration, idMap, state);
     } else {
       const before = taskSemantics(previous.plan, migration.from_task_id, idMap,

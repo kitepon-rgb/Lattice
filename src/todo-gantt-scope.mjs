@@ -39,9 +39,34 @@ function compareText(left, right) {
 }
 
 /**
+ * ADR 0147: phase無しplan(v1/v2/v3)は終端の暗黙Phase(terminal-audit)がacceptedになるまで
+ * 「閉じた」ことにならない。全taskがdoneでも監査未了なら、そのplanのToDoは生きた作業と同じ
+ * 扱い(distance 0)にして畳ませない——畳んでしまうと監査待ちであることが図から消え、
+ * ADR 0147が塞ごうとした「一度も重監査を通らず完走した」事故と外形が同じになる。
+ *
+ * v4/v5(phaseを宣言したplan)はこの判定の対象外にする——既存のPhase gateが重監査を担って
+ * おり、ここで同じ規律を足すとPhase単位の既存fold挙動を変えてしまう(非目標)。
+ * `phase_status`はレイアウト層(todo-gantt-layout.mjs)がplanの世代を問わず埋める。
+ * phase無しplanのtaskにはphase_idフィールド自体が無いため、そこでは暗黙Phaseの状態を
+ * 埋める。フィールドが無い/nullの入力(既存test・素のnode)は従来どおり対象外(false)になる。
+ *
+ * 対象は`gate_ready`(全task doneで監査待ち)・`reviewing`(監査中)・`rejected`
+ * (監査が通らず要フォロー)の3状態だけに絞る。`active`(一部taskがまだpending)は、
+ * 他のtaskが図に残っている限りplanが未完了だと分かるので対象にしない——ここまで
+ * 広げると、完走していない枝の通常foldまで止めてしまい既存挙動を変える。
+ */
+const AUDIT_PENDING_PHASE_STATUSES = new Set(['gate_ready', 'reviewing', 'rejected']);
+function auditPending(node) {
+  if (!AUDIT_PENDING_PHASE_STATUSES.has(node.phase_status ?? null)) return false;
+  const schema = node.plan_schema ?? null;
+  return schema !== 'lattice.todo_plan.v4' && schema !== 'lattice.todo_plan.v5';
+}
+
+/**
  * Forward distance from each node to the nearest live (non-done) node, over the
  * dependency DAG. A live node is at distance 0; a node with no live descendant
- * is at Infinity.
+ * is at Infinity. A done node whose plan's terminal audit (ADR 0147) has not
+ * been accepted is also pinned at distance 0 — it must not fold away silently.
  *
  * Edges always increase the wave (`assignWaves` is a longest-path layering), so
  * visiting nodes in descending wave order guarantees every successor is settled
@@ -54,7 +79,7 @@ function distanceToLive(nodes, edges, wave) {
   const ordered = [...nodes].sort((left, right) => wave.get(right.key) - wave.get(left.key)
     || compareText(right.key, left.key));
   for (const node of ordered) {
-    if (node.status !== 'done') {
+    if (node.status !== 'done' || auditPending(node)) {
       distance.set(node.key, 0);
       continue;
     }

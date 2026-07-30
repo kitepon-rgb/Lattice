@@ -117,7 +117,8 @@ export function renderPhaseProgress(readModel) {
   const settledRows = [];
   for (const member of readModel.members) {
     if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)) continue;
-    const phases = new Map(member.snapshot.phases.map((phase) => [phase.phase_id, phase]));
+    // snapshot artifactの形式には縛られない導出ビュー(member.phases)を読む(ADR 0147)。
+    const phases = new Map(member.phases.map((phase) => [phase.phase_id, phase]));
     for (const phase of member.plan.phases) {
       const tasks = member.plan.tasks.filter((task) => task.phase_id === phase.phase_id);
       const states = new Map(member.tasks.map((task) => [task.task_id, task.status]));

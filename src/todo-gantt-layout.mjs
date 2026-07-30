@@ -153,7 +153,9 @@ function normalizeInput(readModel, chainProjection) {
     }
     const { plan } = member;
     const statusByTask = new Map(member.tasks.map((task) => [task.task_id, task]));
-    const statusByPhase = new Map((member.snapshot?.phases ?? [])
+    // snapshot artifactの形式(v1にはphasesキーが無い)には縛られない導出ビューを読む
+    // (readTodoStoreが常にmember.phasesとして埋める。ADR 0147)。
+    const statusByPhase = new Map((member.phases ?? [])
       .map((phase) => [phase.phase_id, phase.status]));
     for (const task of plan.tasks) {
       if (!plain(task) || typeof task.task_id !== 'string' || typeof task.lane !== 'string') {
@@ -174,7 +176,14 @@ function normalizeInput(readModel, chainProjection) {
         status: state.status,
         plan_schema: plan.schema ?? null,
         phase_id: task.phase_id ?? null,
-        phase_status: task.phase_id === undefined ? null : statusByPhase.get(task.phase_id) ?? null,
+        // ADR 0147: phase無しplan(task.phase_idが無い世代)も、終端に暗黙のterminal-audit
+        // Phaseを1つ持つ(todo-store.mjsのphasesOf/TERMINAL_AUDIT_PHASE_ID)。ここで素通しせず
+        // nullのままにすると、gantt scope側(todo-gantt-scope.mjs)が「監査未了のplanを畳まない」
+        // 判定に使える材料を一切受け取れない。'terminal-audit'はTERMINAL_AUDIT_PHASE_IDと同じ
+        // 予約IDで、phase_readyの判定(v4だけを見る既存分岐)には影響しない。
+        phase_status: task.phase_id === undefined
+          ? statusByPhase.get('terminal-audit') ?? null
+          : statusByPhase.get(task.phase_id) ?? null,
         phase_ready: plan.schema !== 'lattice.todo_plan.v4'
           || statusByPhase.get(task.phase_id) === 'active',
       });
@@ -236,7 +245,8 @@ function readyTaskKeys(readModel, nodes, nodesByKey, incoming) {
   const phaseStatuses = new Map();
   const phaseAcceptIncoming = new Map(nodes.map(({ key }) => [key, new Set()]));
   for (const member of readModel.members) {
-    for (const phase of member.snapshot?.phases ?? []) {
+    // snapshot artifactの形式には縛られない導出ビュー(member.phases)を読む(ADR 0147)。
+    for (const phase of member.phases ?? []) {
       phaseStatuses.set(JSON.stringify([
         member.plan.project_id, member.plan.plan_key, phase.phase_id,
       ]), phase.status);

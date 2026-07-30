@@ -37,6 +37,8 @@ import {
   applyTodoRevisionSet,
   createTodoStoreWriter,
   TodoStoreError,
+  isPhaselessTodoPlanSchema,
+  TERMINAL_AUDIT_PHASE_ID,
   readTodoIndependenceArtifact,
   readTodoSeamProposalArtifact,
   readTodoStore,
@@ -414,6 +416,25 @@ function mutationActor(env) {
   return { host: entries[0].value, session: entries[1].value, agent: entries[2].value };
 }
 
+/**
+ * phase無しplanで、この変異の結果terminal-audit Phaseがgate_ready(全task done・未監査)に
+ * なっていれば助言を返す(ADR 0147)。doneの結果だけを見て機械的に判定するので、既にreview
+ * まで進んでいれば`gate_ready`ではなくなり、二重に案内しない。phase付きplanや、まだ
+ * pending taskが残っているplanではterminal-audit Phase自体が無い/gate_readyでないので、
+ * このヘルパはnullを返し既存の`advisory: null`の挙動を変えない。
+ */
+function terminalAuditDoneAdvisory(plan, phases) {
+  if (!isPhaselessTodoPlanSchema(plan.schema)) return null;
+  const phase = phases.find(({ phase_id }) => phase_id === TERMINAL_AUDIT_PHASE_ID);
+  if (phase?.status !== 'gate_ready') return null;
+  return {
+    terminal_audit_required: true, phase_id: TERMINAL_AUDIT_PHASE_ID, status: phase.status,
+    guidance: '全taskがdoneになった。このplanはphaseを持たないため、終端の重監査'
+      + '(todo phase review --plan <key> --phase terminal-audit → todo phase accept)を'
+      + '経るまで「閉じた」ことにはならない。',
+  };
+}
+
 async function mutate({
   repoRoot, env, planKey, taskId, kind, payload, evidenceRef, advisory = null,
 }) {
@@ -424,13 +445,18 @@ async function mutate({
   if (kind === 'done' && payload === 'evidence_promotion') {
     eventPayload = { done_mode: 'evidence_promotion', imported: true, evidence };
   }
-  const { event, snapshot } = await appendTodoEvent({
+  const { event, snapshot, plan, phases } = await appendTodoEvent({
     repoRoot,
     writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
     planKey,
     event: { kind, task_id: taskId, actor, payload: eventPayload },
   });
   const task = snapshot.tasks.find(({ task_id: current }) => current === event.task_id);
+  // advisoryは呼び出し側(startTask)がstart用に既に組んでいればそれを尊重し、無ければ
+  // done時だけ終端監査の要否を調べる。block/unblock/reopenはnullのまま(既存挙動を変えない)。
+  // Phase状態はsnapshot(v1にはphasesキーが無い)でなく、appendTodoEventが別途返す
+  // 導出ビュー`phases`から読む。
+  const resolvedAdvisory = advisory ?? (kind === 'done' ? terminalAuditDoneAdvisory(plan, phases) : null);
   const result = {
     schema: 'lattice.todo_mutation_result.v2',
     project_id: event.project_id,
@@ -443,7 +469,7 @@ async function mutate({
     journal_head_digest: event.event_digest,
     snapshot_digest: snapshot.snapshot_digest,
     status: task.status,
-    advisory,
+    advisory: resolvedAdvisory,
     result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
@@ -652,11 +678,13 @@ async function phaseDecision({ repoRoot, env, planKey, phaseId, outcome, inputRe
 }
 
 async function phaseMutation({ repoRoot, env, planKey, phaseId, kind, payload }) {
-  const { event, snapshot } = await appendTodoEvent({
+  const { event, snapshot, phases } = await appendTodoEvent({
     repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), planKey,
     event: { kind, phase_id: phaseId, actor: mutationActor(env), payload },
   });
-  const phase = snapshot.phases?.find(({ phase_id: current }) => current === phaseId);
+  // snapshot.phasesはv1(phase無しplan)には存在しない。導出ビュー`phases`を見る
+  // (これは暗黙のterminal-audit Phaseにも常に埋まっている)。
+  const phase = phases.find(({ phase_id: current }) => current === phaseId);
   if (phase === undefined) throw new TodoStoreError('STORE_INCONSISTENT', 'phase_not_active');
   const result = {
     schema: 'lattice.phase_mutation_result.v1', project_id: event.project_id,
@@ -672,14 +700,16 @@ async function phaseMutation({ repoRoot, env, planKey, phaseId, kind, payload })
 async function phaseStatus({ repoRoot, planKey }) {
   const store = await readTodoStore({ repoRoot });
   const [member] = selectMembers(store, planKey);
-  if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)) {
-    throw new TodoStoreError('PHASE_UNAVAILABLE', 'plan_has_no_phase_contract');
-  }
+  // ADR 0147以降、phase無しplan(v1/v2/v3)もreadTodoStoreが導出済みの暗黙terminal-audit
+  // Phaseをmember.phasesへ積んでいる(snapshot artifactの形式は変えない・v1にはphasesキーが
+  // 無いのでsnapshot.phasesは直接読まない)。ここでPHASE_UNAVAILABLEへ拒否せず、その暗黙Phase
+  // をそのまま返す——`implicit`で機械可読に「宣言されたPhaseではない」ことを示す。
+  const implicit = isPhaselessTodoPlanSchema(member.plan.schema);
   const result = {
     schema: 'lattice.phase_status_result.v1', project_id: store.project_id,
     plan_key: member.plan.plan_key, plan_version: member.plan.plan_version,
     journal_head_digest: member.journal.events.at(-1).event_digest,
-    phases: member.snapshot.phases, result_digest: '',
+    implicit, phases: member.phases, result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
@@ -732,6 +762,10 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
       max_frontier_width: dispatchShape.max_frontier_width,
       serialization_ratio: dispatchShape.serialization_ratio,
     },
+    // ADR 0147裁定3: phase無しplanの作成は拒否せず、終端監査が要ることを結果へ明示するに
+    // 留める。extraction経由のmigrateは常にphase無しplan(todo_plan.v2)を作るが、将来の
+    // 拡張に備えisPhaselessTodoPlanSchemaで動的に判定する。
+    terminal_audit_required: isPhaselessTodoPlanSchema(imported.plan.schema),
     result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');

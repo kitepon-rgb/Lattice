@@ -22,6 +22,7 @@ import {
   buildTodoPlan,
   createTodoStoreWriter,
   initializeAuthoredTodoStore,
+  isPhaselessTodoPlanSchema,
   readTodoIndependenceArtifact,
   readTodoStore,
   TodoStoreError,
@@ -481,6 +482,9 @@ export async function runPlanCreate({ cwd, inputRef, stdout, serializationReview
       max_frontier_width: dispatchShape.max_frontier_width,
       serialization_ratio: dispatchShape.serialization_ratio,
     },
+    // ADR 0147裁定3: phase無し(v3)のplan createは拒否せず、終端監査が要ることを結果へ
+    // 明示するに留める。phase入力(v4/v5)ならfalse——既存のPhase gateがそのまま重監査を担う。
+    terminal_audit_required: isPhaselessTodoPlanSchema(member.plan.schema),
     result_digest: '',
   };
   result.result_digest = resultDigest(result);
@@ -534,10 +538,12 @@ export async function runPlanShow({ cwd, planKey, stdout }) {
       plan_key: planKey, next_action: 'check_active_plans_via_status',
     });
   }
-  const { plan, snapshot, tasks } = member;
+  const { plan, tasks, phases } = member;
   const phaseInput = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema);
   const stateByTaskId = new Map(tasks.map((state) => [state.task_id, state]));
-  const phaseStatusById = new Map((snapshot?.phases ?? []).map((phase) => [phase.phase_id, phase.status]));
+  // snapshot artifactの形式(v1にはphasesキーが無い)には縛られない導出ビューを読む
+  // (readTodoStoreが常に member.phases として埋める。ADR 0147)。
+  const phaseStatusById = new Map((phases ?? []).map((phase) => [phase.phase_id, phase.status]));
 
   // 依存の本数: このplanの中でそのtaskへ入ってくるhard_dependencies辺と、joinで
   // 合流するafter辺の合計。cross-plan参照は数えない（plan showは単一planの投影のため）。
