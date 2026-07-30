@@ -33,8 +33,10 @@ ServerManager 1 plan / 26 ToDo）。何が起きたかも、何をすればよ�
   既に accept 済みの Phase は `already_accepted` として書き換えていない
 - 工程図の fold: **53 → 164 件**。監査待ちの札が外れ、過去の完了分が畳まれた
 - 最終状態: 監査待ち **0**、監査なしで閉じた **23**、監査済み **6**
-- **ServerManager の 26 ToDo は監査対象として残した**。最終 done が 2026-07-29 でコードも生きており、
-  基準線で流すのは誤りである（`--except` を設けた理由そのもの）
+- **ServerManager の 26 ToDo は基準線で流さなかった**。最終 done が 2026-07-29 でコードも生きており、
+  一律免除は誤りである（`--except` を設けた理由そのもの）。ただしその Phase は ServerManager 自身の
+  store にあり、扱いを決めるのは ServerManager project である——**Lattice の工程ではない**
+  （オーナー裁定 2026-07-30）。Lattice 側で追跡しない
 
 ## 重監査が捕まえたこと
 
