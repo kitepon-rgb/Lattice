@@ -417,6 +417,26 @@ function mutationActor(env) {
 }
 
 /**
+ * gate_readyの札が出た理由と次の一歩をtypedに言う(ADR 0148裁定8)。
+ *
+ * 0.36.0で入れた終端監査gate(ADR 0147)は、これから終わる工程だけでなく過去に完了した
+ * 工程まで監査待ちにしてしまっていた——原因を言わないgateは、なぜ止まっているかを
+ * 説明しないのと同じなので、ここでその経緯を明示する。次の一歩は2択で書く:
+ * 今から監査する(review→accept)か、監査せず歴史として閉じる(close-unaudited、
+ * 複数plan一括ならbaseline)か。
+ */
+function auditGateGuidance(planKey, phaseId) {
+  return '全ToDoがdoneになり監査待ち(gate_ready)。0.36.0で入れた終端監査gateは、'
+    + 'これから終わる工程だけでなく過去に完了した工程まで監査待ちにしてしまっていた'
+    + '(ADR 0148で修正)。今から監査するなら: '
+    + `todo phase review --plan ${planKey} --phase ${phaseId} --reason <text> → `
+    + `todo phase accept --plan ${planKey} --phase ${phaseId} --input <file>。`
+    + '監査せず歴史として閉じるなら: '
+    + `todo phase close-unaudited --plan ${planKey} --phase ${phaseId} --reason <text>`
+    + '（複数planをまとめて畳むなら todo phase baseline --reason <text> [--except <plan_key>]...）。';
+}
+
+/**
  * phase無しplanで、この変異の結果terminal-audit Phaseがgate_ready(全task done・未監査)に
  * なっていれば助言を返す(ADR 0147)。doneの結果だけを見て機械的に判定するので、既にreview
  * まで進んでいれば`gate_ready`ではなくなり、二重に案内しない。phase付きplanや、まだ
@@ -429,9 +449,7 @@ function terminalAuditDoneAdvisory(plan, phases) {
   if (phase?.status !== 'gate_ready') return null;
   return {
     terminal_audit_required: true, phase_id: TERMINAL_AUDIT_PHASE_ID, status: phase.status,
-    guidance: '全taskがdoneになった。このplanはphaseを持たないため、終端の重監査'
-      + '(todo phase review --plan <key> --phase terminal-audit → todo phase accept)を'
-      + '経るまで「閉じた」ことにはならない。',
+    guidance: auditGateGuidance(plan.plan_key, TERMINAL_AUDIT_PHASE_ID),
   };
 }
 
@@ -705,11 +723,110 @@ async function phaseStatus({ repoRoot, planKey }) {
   // 無いのでsnapshot.phasesは直接読まない)。ここでPHASE_UNAVAILABLEへ拒否せず、その暗黙Phase
   // をそのまま返す——`implicit`で機械可読に「宣言されたPhaseではない」ことを示す。
   const implicit = isPhaselessTodoPlanSchema(member.plan.schema);
+  // ADR 0148裁定8: gate_readyのPhaseには、なぜ監査待ちになったかと次の一歩をここでも言う
+  // (todo doneのadvisoryと同じ文言)。implicit(暗黙のterminal-audit Phase)に限らず、
+  // v4/v5の実Phaseがgate_readyになった場合も同じ理由で同じ案内が要る。
+  const phases = member.phases.map((phase) => ({
+    ...phase,
+    guidance: phase.status === 'gate_ready'
+      ? auditGateGuidance(member.plan.plan_key, phase.phase_id) : null,
+  }));
   const result = {
     schema: 'lattice.phase_status_result.v1', project_id: store.project_id,
     plan_key: member.plan.plan_key, plan_version: member.plan.plan_version,
     journal_head_digest: member.journal.events.at(-1).event_digest,
-    implicit, phases: member.phases, result_digest: '',
+    implicit, phases, result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
+/**
+ * `phase baseline --reason <text> [--except <plan_key>]...`の可変長`--except`を解析する。
+ * 他のargvはすべて固定位置(argv.length + 位置一致)で判定しているが、0回以上繰り返せる
+ * flagだけは固定位置で表現できないため、並び全体を見る専用ヘルパへ切り出す
+ * (bridge-cliの`parseOptions`と同じ発想)。不正な並びはnullを返し、呼び出し側の
+ * 分岐条件がそのままusageFailureへ落ちる。
+ */
+function parseBaselineExceptFlags(rest) {
+  if (rest.length % 2 !== 0) return null;
+  const planKeys = [];
+  for (let index = 0; index < rest.length; index += 2) {
+    if (rest[index] !== '--except' || !isTodoIdentifier(rest[index + 1])) return null;
+    planKeys.push(rest[index + 1]);
+  }
+  return planKeys;
+}
+
+/**
+ * `phase baseline`——現在gate_readyかつphase eventを1つも持たないPhaseを一括で
+ * closed_unauditedへ宣言する(ADR 0148裁定6)。「phase eventを1つも持たない」は
+ * derivedStatusだけでは判定できない——一度reviewしてからreopenしたPhaseは、構造的には
+ * また`gate_ready`に戻り得るが、既に監査に触れている以上は対象外である。journalの実event
+ * 履歴(phase_id別に`phase_`で始まるkindがあるか)を直接見て区別する。
+ *
+ * `--except`はplan単位の除外(ADR 0148裁定7)。ServerManagerの26 ToDoのような
+ * 「最近の作業でコードも生きている」campaignを基準線で流さないための口であり、
+ * Phase単位では絞れない(そのplanのPhaseは丸ごと対象外になる)。
+ */
+async function phaseBaseline({ repoRoot, env, reason, exceptPlanKeys }) {
+  const store = await readTodoStore({ repoRoot });
+  const knownPlanKeys = new Set(store.members.map(({ descriptor }) => descriptor.plan_key));
+  const unknownExcept = exceptPlanKeys.filter((planKey) => !knownPlanKeys.has(planKey));
+  if (unknownExcept.length > 0) {
+    throw new TodoStoreError('PHASE_BASELINE_INVALID', 'except_plan_key_unknown', undefined, {
+      unknown_plan_keys: unknownExcept,
+    });
+  }
+  const exceptSet = new Set(exceptPlanKeys);
+  const applied = [];
+  const excluded = [];
+  const notApplicable = [];
+  const failed = [];
+  for (const member of store.members) {
+    const planKey = member.descriptor.plan_key;
+    const touchedPhaseIds = new Set(member.journal.events
+      .filter((event) => event.kind.startsWith('phase_'))
+      .map((event) => event.phase_id));
+    for (const phase of member.phases) {
+      const entry = { plan_key: planKey, phase_id: phase.phase_id, status: phase.status };
+      // 「対象外だったもの(既にaccepted等)も区別して返す」——まだgate_readyに到達していない
+      // (locked/active)のと、既に監査の決着が付いている(accepted/rejected/closed_unaudited)のは
+      // 原因が違うので、causeを分けて機械可読にする。
+      if (['accepted', 'rejected', 'closed_unaudited'].includes(phase.status)) {
+        notApplicable.push({ ...entry, cause: `already_${phase.status}` });
+      } else if (phase.status !== 'gate_ready') {
+        notApplicable.push({ ...entry, cause: 'not_gate_ready' });
+      } else if (touchedPhaseIds.has(phase.phase_id)) {
+        notApplicable.push({ ...entry, cause: 'already_has_phase_event' });
+      } else if (exceptSet.has(planKey)) {
+        excluded.push({ ...entry, cause: 'excepted' });
+      } else {
+        // ADR 0148裁定6の非目標: journalはappend-onlyで、一度書いた宣言を後から取り消す
+        // 手段が無い。1件失敗しても既に書けた他件を無かったことにはできない以上、
+        // 全件一括のtransactionは新設せず、appendTodoEvent単位(1 event = 1排他書込み)の
+        // 独立実行を続ける。各書込みは呼ぶたびにstoreを読み直してgate_ready前提を
+        // 再検証するため、他項目の成否とは無関係に安全である——1件の失敗で残りを
+        // 止めず、続行して全件の結果をtypedで返す。
+        try {
+          const result = await phaseMutation({
+            repoRoot, env, planKey, phaseId: phase.phase_id,
+            kind: 'phase_close_unaudited', payload: { reason },
+          });
+          applied.push({ ...entry, event_digest: result.event_digest,
+            journal_head_digest: result.journal_head_digest });
+        } catch (error) {
+          failed.push({ ...entry, code: error?.code ?? 'INTERNAL_FAILURE',
+            message: typeof error?.message === 'string' ? error.message : null });
+        }
+      }
+    }
+  }
+  const result = {
+    schema: 'lattice.phase_baseline_result.v1',
+    reason, except_plan_keys: [...exceptSet].sort(),
+    applied, excluded, not_applicable: notApplicable, failed,
+    result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
@@ -2148,6 +2265,17 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && (argv.length === 8 || (argv[8] === '--override-reason' && argv[9].length > 0))) {
     action = (repoRoot) => phaseMutation({ repoRoot, env, planKey: argv[3], phaseId: argv[5],
       kind: 'phase_reopen', payload: { reason: argv[7], override_reason: argv[9] ?? null } });
+  } else if (argv.length === 8 && argv[0] === 'phase' && argv[1] === 'close-unaudited'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--phase' && isTodoIdentifier(argv[5])
+    && argv[6] === '--reason' && argv[7].length > 0) {
+    action = (repoRoot) => phaseMutation({ repoRoot, env, planKey: argv[3], phaseId: argv[5],
+      kind: 'phase_close_unaudited', payload: { reason: argv[7] } });
+  } else if (argv.length >= 4 && argv[0] === 'phase' && argv[1] === 'baseline'
+    && argv[2] === '--reason' && argv[3].length > 0
+    && parseBaselineExceptFlags(argv.slice(4)) !== null) {
+    const exceptPlanKeys = parseBaselineExceptFlags(argv.slice(4));
+    action = (repoRoot) => phaseBaseline({ repoRoot, env, reason: argv[3], exceptPlanKeys });
   } else if ((argv.length === 5 || argv.length === 6 || argv.length === 7 || argv.length === 8)
     && argv[0] === 'start'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])

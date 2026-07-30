@@ -98,6 +98,12 @@ Write commands:
   phase review --plan <key> --phase <id> --reason <text>
   phase <accept|reject> --plan <key> --phase <id> --input <file>
   phase reopen --plan <key> --phase <id> --reason <text> [--override-reason <text>]
+  phase close-unaudited --plan <key> --phase <id> --reason <text>
+      # 監査せず「監査なしで閉じた」として明示的に閉じる(ADR 0148)。前提はgate_readyで、
+      # acceptedへは化けない(phase_accept_dependenciesを解錠しない)
+  phase baseline --reason <text> [--except <plan_key>]...
+      # 現在gate_readyかつphase eventを1つも持たないPhaseを一括でclosed_unauditedへ宣言する。
+      # 自動実行はしない(明示コマンドのみ)。--exceptで指定したplanは対象から除外する
 
 Write commands require LATTICE_TODO_ACTOR_HOST, LATTICE_TODO_ACTOR_SESSION,
 and LATTICE_TODO_ACTOR_AGENT.
@@ -169,12 +175,15 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo verify': 'todo verify [--plan <key>] [--json]',
   'todo snapshot': 'todo snapshot --rebuild --plan <key>',
   'todo gantt': 'todo gantt [--out <file>] [--scope live|all] | status [--out <file>] | serve --port <port> [--scope live|all]',
-  'todo phase': 'todo phase <status|review|accept|reject|reopen> --plan <key> [options]',
+  'todo phase': 'todo phase <status|review|accept|reject|reopen|close-unaudited> --plan <key> [options]'
+    + ' | baseline --reason <text> [--except <plan_key>]...',
   'todo phase status': 'todo phase status --plan <key>',
   'todo phase review': 'todo phase review --plan <key> --phase <id> --reason <text>',
   'todo phase accept': 'todo phase accept --plan <key> --phase <id> --input <file>',
   'todo phase reject': 'todo phase reject --plan <key> --phase <id> --input <file>',
   'todo phase reopen': 'todo phase reopen --plan <key> --phase <id> --reason <text> [--override-reason <text>]',
+  'todo phase close-unaudited': 'todo phase close-unaudited --plan <key> --phase <id> --reason <text>',
+  'todo phase baseline': 'todo phase baseline --reason <text> [--except <plan_key>]...',
   'todo start': 'todo start --plan <key> --task <id> [--parallel-frontier|--override-reason <text>]',
   'todo block': 'todo block --plan <key> --task <id> --reason <text>',
   'todo unblock': 'todo unblock --plan <key> --task <id>',

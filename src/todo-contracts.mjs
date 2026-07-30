@@ -4,6 +4,10 @@ import { isCanonicalUtcTimestamp } from './timestamp-contract.mjs';
 export const TODO_EVENT_KINDS = Object.freeze([
   'plan_genesis', 'start', 'block', 'unblock', 'done', 'reopen',
   'phase_review', 'phase_accept', 'phase_reject', 'phase_reopen',
+  // ADR 0148: 監査していない歴史を「監査なしで閉じた」として明示的に閉じるための専用kind。
+  // phase_review/accept/reject/reopenと同じv3 tail event shape(phase_id持ち)に収め、
+  // 新しいevent schema版は作らない。
+  'phase_close_unaudited',
 ]);
 export const TODO_LIMITS = Object.freeze({
   tasksPerPlan: 512,
@@ -345,6 +349,10 @@ function validPayload(event) {
     'reason', 'target_decision_digest', 'override_reason',
   ]) && nullableText(payload.reason) && payload.reason !== null
     && isTodoDigest(payload.target_decision_digest) && nullableText(payload.override_reason);
+  // ADR 0148裁定1: 監査なしで閉じたことの理由は必須(payload.reason !== null)。証拠は無い
+  // ——監査していないというのが事実であり、evidenceを要求すると「監査した体」を装う経路になる。
+  if (event.kind === 'phase_close_unaudited') return exactRecord(payload, ['reason'])
+    && nullableText(payload.reason) && payload.reason !== null;
   return false;
 }
 
@@ -392,7 +400,8 @@ function validPhaseStateMigration(value) {
       && (entry.state_policy === 'reset' ? entry.state === null
         : exactRecord(entry.state, [
           'status', 'review_event_digest', 'decision_event_digest', 'decision_evidence',
-        ]) && ['locked', 'active', 'gate_ready', 'reviewing', 'accepted', 'rejected'].includes(entry.state.status)
+        ]) && ['locked', 'active', 'gate_ready', 'reviewing', 'accepted', 'rejected', 'closed_unaudited']
+          .includes(entry.state.status)
           && nullableDigest(entry.state.review_event_digest)
           && nullableDigest(entry.state.decision_event_digest)
           && (entry.state.decision_evidence === null || evidence(entry.state.decision_evidence))))
@@ -421,7 +430,8 @@ export function validateTodoEvent(value) {
     ]) && value.kind === 'plan_genesis' && value.task_id === null && value.phase_id === null
       && isTodoDigest(value.revision_digest) && validStateMigration(value.state_migration)
       && validPhaseStateMigration(value.phase_state_migration);
-    const phaseKind = ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen'].includes(value?.kind);
+    const phaseKind = ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen', 'phase_close_unaudited']
+      .includes(value?.kind);
     return (v1 || v2 || v3 || v4) && isTodoIdentifier(value.project_id)
       && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.plan_version)
       && isNonNegativeSafeInteger(value.sequence) && nullableDigest(value.previous_digest)
@@ -491,7 +501,8 @@ export function validateTodoSnapshot(value) {
         && value.phases.every((entry) => exactRecord(entry, [
           'phase_id', 'status', 'review_event_digest', 'decision_event_digest', 'decision_evidence',
         ]) && isTodoIdentifier(entry.phase_id)
-          && ['locked', 'active', 'gate_ready', 'reviewing', 'accepted', 'rejected'].includes(entry.status)
+          && ['locked', 'active', 'gate_ready', 'reviewing', 'accepted', 'rejected', 'closed_unaudited']
+            .includes(entry.status)
           && nullableDigest(entry.review_event_digest) && nullableDigest(entry.decision_event_digest)
           && (entry.decision_evidence === null || evidence(entry.decision_evidence)))
         && value.phases.every((entry, index) => index === 0

@@ -217,12 +217,13 @@ async function readJournal(repoRoot, journalRef) {
   const phaseTail = (event) => event.schema === 'lattice.todo_event.v3';
   const legacyTail = (event) => event.schema === 'lattice.todo_event.v1';
   // ADR 0147: genesisがv1/v2(phase無しplan)でも、暗黙のterminal-audit Phaseへの
-  // phase_review/phase_accept/phase_reject/phase_reopenだけはv3 tail eventとして
-  // 混在を許す。task側のevent(start/done/block/unblock/reopen)は従来どおりv1のまま
+  // phase_review/phase_accept/phase_reject/phase_reopen/phase_close_unaudited(ADR 0148)だけは
+  // v3 tail eventとして混在を許す。task側のevent(start/done/block/unblock/reopen)は従来どおりv1のまま
   // ——既存planの既存event bytesは1つも変わらない。新しく増えるのは、これまで
   // phase無しplanには存在し得なかったphase_*event kindの受け皿だけである。
   const implicitTerminalAuditTail = (event) => phaseTail(event)
-    && ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen'].includes(event.kind);
+    && ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen', 'phase_close_unaudited']
+      .includes(event.kind);
   const legacyOrImplicitPhaseTail = (event) => legacyTail(event) || implicitTerminalAuditTail(event);
   if ((phaseSchema && events.some(({ schema }, index) => index === 0
     ? !['lattice.todo_event.v3', 'lattice.todo_event.v4'].includes(schema) : !phaseTail(events[index])))
@@ -271,7 +272,11 @@ function phasesOf(plan) {
 
 function derivedPhaseStatus(plan, taskStates, phaseStates, phaseId) {
   const state = phaseStates.get(phaseId);
-  if (['reviewing', 'accepted', 'rejected'].includes(state.status)) return state.status;
+  // ADR 0148: closed_unauditedも他の終端状態と同じく確定済みとして扱う。ここへ足さないと、
+  // 全taskがdone(＝構造的にgate_ready)のままなので、以後の呼び出しで毎回gate_readyへ
+  // 再導出されてしまい、記録した「監査なしで閉じた」がgantt折り畳み・phase_accept_dependencies
+  // 判定の上で一瞬で消える。
+  if (['reviewing', 'accepted', 'rejected', 'closed_unaudited'].includes(state.status)) return state.status;
   const phase = phasesOf(plan).find((entry) => entry.phase_id === phaseId);
   if (!phase.predecessor_phase_ids.every((id) => phaseStates.get(id)?.status === 'accepted')) return 'locked';
   // 暗黙のterminal-audit Phaseはtask側にphase_idフィールドが無い(v1/v2/v3にはそもそも
@@ -303,6 +308,13 @@ function projectPhaseStates(plan, events, taskStates) {
       const state = states.get(event.phase_id);
       state.status = 'rejected'; state.decision_event_digest = event.event_digest;
       state.decision_evidence = event.payload.decision_evidence;
+    } else if (event.kind === 'phase_close_unaudited') {
+      // ADR 0148: 監査していないので証拠(decision_evidence)は残さない。理由はevent payload
+      // 自身(decision_event_digestで指せるこの event)に記録済みで、accept/rejectと違い
+      // ここに複製しない。
+      const state = states.get(event.phase_id);
+      state.status = 'closed_unaudited'; state.decision_event_digest = event.event_digest;
+      state.decision_evidence = null;
     } else if (event.kind === 'phase_reopen') {
       Object.assign(states.get(event.phase_id), emptyPhaseState(event.phase_id));
     }
@@ -428,8 +440,17 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         if (verifyEvidence) verifyEvidence(event.payload.decision_evidence);
         state.status = 'rejected'; state.decision_event_digest = event.event_digest;
         state.decision_evidence = event.payload.decision_evidence;
+      } else if (event.kind === 'phase_close_unaudited') {
+        // ADR 0148裁定3: reviewと同じ前提(gate_ready)を課す——所属ToDoが全てdoneでない段階では
+        // まだ監査の地点に到達していないので、監査なしで閉じることもできない。
+        if (currentStatus !== 'gate_ready') fail('STORE_INCONSISTENT', 'phase_gate_not_ready');
+        state.status = 'closed_unaudited'; state.decision_event_digest = event.event_digest;
+        state.decision_evidence = null;
       } else {
-        if (!['accepted', 'rejected'].includes(currentStatus)
+        // phase_reopen。ADR 0148裁定5: closed_unauditedもaccepted/rejectedと同じく
+        // reopenで初期状態へ戻せる——監査せずに閉じた工程を、後から本当に監査したくなった時に
+        // 永久に締め出さない。
+        if (!['accepted', 'rejected', 'closed_unaudited'].includes(currentStatus)
           || state.decision_event_digest !== event.payload.target_decision_digest) {
           fail('STORE_INCONSISTENT', 'phase_reopen_binding_invalid');
         }
@@ -516,14 +537,16 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         fail('STORE_INCONSISTENT', 'invalid_reopen_binding');
       }
       {
-        // 暗黙のterminal-audit Phaseがacceptedの後にtaskだけを無警告でreopenできると、
-        // 監査済みのまま(gantt上も畳まれたまま)裏で作業が再開する抜け道になり、ADR 0147の
-        // 「監査の記録なしに閉じたことにさせない」を潜脱する。v4/v5の既存Phaseと同じ規律を
-        // 暗黙Phaseにも及ぼし、phase_reopenを先に通させる。
+        // 暗黙のterminal-audit Phaseがaccepted/closed_unauditedの後にtaskだけを無警告でreopen
+        // できると、監査済み(または監査なしで閉じた)まま(gantt上も畳まれたまま)裏で作業が
+        // 再開する抜け道になり、ADR 0147/0148の「監査の記録なしに閉じたことにさせない」を
+        // 潜脱する。v4/v5の既存Phaseと同じ規律を暗黙Phaseにも及ぼし、phase_reopenを先に
+        // 通させる。closed_unauditedをここへ足さないと、ADR 0148で新設した状態だけが
+        // このgateを素通りしてしまう。
         const phaseId = isPhaselessTodoPlanSchema(plan.schema)
           ? TERMINAL_AUDIT_PHASE_ID
           : plan.tasks.find(({ task_id }) => task_id === event.task_id).phase_id;
-        if (derivedPhaseStatus(plan, states, phaseStates, phaseId) === 'accepted') {
+        if (['accepted', 'closed_unaudited'].includes(derivedPhaseStatus(plan, states, phaseStates, phaseId))) {
           fail('STORE_INCONSISTENT', 'task_reopen_requires_phase_reopen');
         }
       }
@@ -1174,7 +1197,8 @@ function nextEvent(input, storeMember) {
     ? { done_mode: 'authored', imported: false, evidence: input.payload.evidence }
     : input.payload;
   const phaseCapablePlan = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(storeMember.plan.schema);
-  const phaseKind = ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen'].includes(input.kind);
+  const phaseKind = ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen', 'phase_close_unaudited']
+    .includes(input.kind);
   // ADR 0147: phase無しplanでも、暗黙のterminal-audit Phaseへのphase_*eventだけは
   // v3 tail eventとして書く(readJournalのlegacyOrImplicitPhaseTailが同じ規則で受理する)。
   // task側のevent(start/done等)はphase無しplanのままv1で書き続ける——既存の
@@ -1246,8 +1270,12 @@ function resolveTargetedEvent(input, storeMember) {
     };
   }
   if (input.kind === 'phase_reopen' && exactRecord(input.payload, ['reason', 'override_reason'])) {
+    // ADR 0148裁定5: closed_unauditedもaccept/rejectと同じ「決定event」なので、reopenの
+    // 結びつけ先として同列に探す。ここへ足し忘れると、監査なしで閉じたPhaseをreopenする
+    // 手段が無くなる(target_decision_digestを解決できずphase_reopen_binding_invalidで拒否される)。
     const target = [...storeMember.journal.events].reverse().find((event) => (
-      ['phase_accept', 'phase_reject'].includes(event.kind) && event.phase_id === input.phase_id
+      ['phase_accept', 'phase_reject', 'phase_close_unaudited'].includes(event.kind)
+      && event.phase_id === input.phase_id
     ));
     if (target === undefined) fail('STORE_INCONSISTENT', 'phase_reopen_binding_invalid');
     return { ...input, payload: { ...input.payload, target_decision_digest: target.event_digest } };

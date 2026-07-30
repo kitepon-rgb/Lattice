@@ -117,6 +117,49 @@ test('projectTodoGanttScopeはfoldableが無ければ入力をそのまま返す
   assert.equal(result.foldedKeys.size, 0);
 });
 
+test('ADR 0148: closed_unauditedはAUDIT_PENDING_PHASE_STATUSESに含まれず、gate_ready/reviewing/rejectedと違って通常どおり畳まれる', () => {
+  // f1 -> s -> live という鎖。sはliveの直接前提(distance 1)なので残るが、f1はさらに
+  // その先(distance 2)なので、foldDistance既定の1を超えて畳まれる対象になる
+  // ——ただしf1のphase_statusが監査待ち3状態のどれかなら、distance計算そのものを
+  // 迂回してdistance 0に固定され、畳まれない(ADR 0147の既存規律)。closed_unauditedは
+  // この固定に入らない、というのが0.36.1で直した点である。
+  const f1 = { project_id: 'project', plan_key: 'plan', task_id: 'f1' };
+  const s = { project_id: 'project', plan_key: 'plan', task_id: 's' };
+  const live = { project_id: 'project', plan_key: 'plan', task_id: 'live' };
+  const edges = [
+    { key: 'f1->s', from: 'f1', to: 's', kinds: new Set(['hard']), joinIdentities: new Map() },
+    { key: 's->live', from: 's', to: 'live', kinds: new Set(['hard']), joinIdentities: new Map() },
+  ];
+  const wave = new Map([['f1', 0], ['s', 1], ['live', 2]]);
+  const baseNodes = (phaseStatus) => [
+    { key: 'f1', ref: f1, title: 'f1', lane: 'main', status: 'done',
+      phase_status: phaseStatus, plan_schema: 'lattice.todo_plan.v3' },
+    { key: 's', ref: s, title: 's', lane: 'main', status: 'done' },
+    { key: 'live', ref: live, title: 'live', lane: 'main', status: 'pending' },
+  ];
+
+  for (const phaseStatus of ['gate_ready', 'reviewing', 'rejected']) {
+    const result = projectTodoGanttScope({ nodes: baseNodes(phaseStatus), edges, wave });
+    assert.equal(result.foldedKeys.has('f1'), false,
+      `phase_status=${phaseStatus}は監査待ちのまま図から消えてはいけない`);
+  }
+
+  const closedResult = projectTodoGanttScope({ nodes: baseNodes('closed_unaudited'), edges, wave });
+  assert.equal(closedResult.foldedKeys.has('f1'), true,
+    'closed_unauditedは監査待ちではないので通常どおり畳まれる(ADR 0148裁定4)');
+
+  // phase無しplanと違い、v4/v5(実Phaseを宣言したplan)は元からこの固定の対象外——
+  // gate_ready等でもschemaがv4/v5ならdistance計算どおりに畳まれる(既存挙動・非目標)。
+  const v5Nodes = [
+    { key: 'f1', ref: f1, title: 'f1', lane: 'main', status: 'done',
+      phase_status: 'gate_ready', plan_schema: 'lattice.todo_plan.v5' },
+    { key: 's', ref: s, title: 's', lane: 'main', status: 'done' },
+    { key: 'live', ref: live, title: 'live', lane: 'main', status: 'pending' },
+  ];
+  const v5Result = projectTodoGanttScope({ nodes: v5Nodes, edges, wave });
+  assert.equal(v5Result.foldedKeys.has('f1'), true);
+});
+
 test('同じ入力からは同じ図が出る', () => {
   const A = ref('A');
   const B = ref('B');
