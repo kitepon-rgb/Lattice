@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.36.1 — 2026-07-30
+
+- **配布漏れを直した**。`package.json`の`files`はschemaを個別列挙するため、0.36.0で追加した4件
+  （`todo_revision.v2`／`todo_revision_set.v3`／`phase_todo_revision.v3`／`todo_extraction.v2`）が
+  配布物へ入らず、global installでは`todo revise-phase --schema --json`等が
+  `INTERNAL_FAILURE`になっていた（公開後smokeで検出）。4件を列挙し、**CLIが読むschemaと配布
+  リストの一致を強制するtestを足した**（列挙を1件抜くと落ちることを確認済み）——repo内では
+  通るのに配布物では落ちる種類の欠陥は、機械で塞がないと再発する。
+
 ## 0.36.0 — 2026-07-30
 
 - **重監査を飛ばせなくした**（[ADR 0147](docs/adr/0147-audit-is-on-by-default.md)）。
