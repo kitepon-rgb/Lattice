@@ -52,6 +52,7 @@ import {
 } from './todo-store.mjs';
 import {
   appendTodoExtraction,
+  explainTodoExtraction,
   validateTodoExtraction,
 } from './todo-migration.mjs';
 import {
@@ -97,6 +98,7 @@ import {
   validateWitnessDraft,
 } from './witness-scaffold.mjs';
 import {
+  explainPhaseTodoRevision, explainTodoRevision, explainTodoRevisionSet,
   parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
   validateTodoRevision, validateTodoRevisionSet,
 } from './todo-revision.mjs';
@@ -112,6 +114,31 @@ const ACTOR_ENV_KEYS = Object.freeze([
   'LATTICE_TODO_ACTOR_SESSION',
   'LATTICE_TODO_ACTOR_AGENT',
 ]);
+
+/**
+ * `revise` / `revise-set` / `revise-phase` / `migrate`が実際に受理する最新契約のJSON
+ * Schemaを配布物から読む入口（`project-cli.mjs`の`runPlanCreateSchema`と同じ作法）。
+ *
+ * schemaを取る手段がCLIに無いと、AIはsrcを読んで必須keyを数えるしかなくなる
+ * （実運用で`phase_todo_revision.v3`の必須12 keyを試行錯誤で当てた）。storeは読まない
+ * ——`plan create --schema`と同じく決定的な出力・exit 0にする。
+ */
+const TODO_SCHEMA_COMMANDS = Object.freeze({
+  revise: { title: 'lattice.todo_revision.v2', file: 'lattice.todo_revision.v2.schema.json' },
+  'revise-set': { title: 'lattice.todo_revision_set.v3', file: 'lattice.todo_revision_set.v3.schema.json' },
+  'revise-phase': {
+    title: 'lattice.phase_todo_revision.v3', file: 'lattice.phase_todo_revision.v3.schema.json',
+  },
+  migrate: { title: 'lattice.todo_extraction.v2', file: 'lattice.todo_extraction.v2.schema.json' },
+});
+
+async function runTodoSchemaCommand(command, stdout) {
+  const spec = TODO_SCHEMA_COMMANDS[command];
+  const schemaUrl = new URL(`../docs/schemas/${spec.file}`, import.meta.url);
+  const schema = JSON.parse(await readFile(schemaUrl, 'utf8'));
+  if (schema?.title !== spec.title) throw new TypeError(`bundled ${command} schema invalid`);
+  stdout.write(`${JSON.stringify(schema)}\n`);
+}
 
 function usageFailure(stderr, argv) {
   const received = argv.length === 0 ? '(none)' : argv.join(' ').replace(/[\r\n]/gu, ' ');
@@ -223,7 +250,11 @@ async function readMigrationInput(repoRoot, inputRef) {
     throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
   }
   if (!validateTodoExtraction(extraction)) {
-    throw new TodoStoreError('INVALID_TODO_EXTRACTION', 'schema_invalid');
+    // 「schema_invalid」だけでは何のfieldがどう壊れているか分からない（ADR 0130の案内規律）。
+    // explainは可否判定を変えず、診断だけを追加する。
+    const explained = explainTodoExtraction(extraction);
+    throw new TodoStoreError('INVALID_TODO_EXTRACTION', 'schema_invalid', undefined,
+      explained.valid ? undefined : { violation_reason: explained.reason, violation_path: explained.path });
   }
   return extraction;
 }
@@ -232,6 +263,7 @@ async function readRevisionInput(repoRoot, inputRef, {
   validate = validateTodoRevision,
   invalidCode = 'REVISION_INVALID',
   invalidReason = 'revision_schema_or_digest_invalid',
+  explain = explainTodoRevision,
 } = {}) {
   const canonicalRoot = await realpath(repoRoot);
   const absolute = path.resolve(canonicalRoot, inputRef);
@@ -268,7 +300,16 @@ async function readRevisionInput(repoRoot, inputRef, {
   try { revision = JSON.parse(text.slice(0, -1)); } catch {
     throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
   }
-  if (!validate(revision)) throw new TodoStoreError(invalidCode, invalidReason);
+  if (!validate(revision)) {
+    // 「schema_or_digest_invalid」だけでは何のfieldがどう壊れているか分からない
+    // （ADR 0130の案内規律）。explainは可否判定を変えず、診断だけを追加する。
+    // 呼び出し元がexplainを渡さない（phase decision入力等）場合はdetail無しのまま。
+    const explained = explain === null ? null : explain(revision);
+    throw new TodoStoreError(invalidCode, invalidReason, undefined,
+      explained === null || explained.valid ? undefined : {
+        violation_reason: explained.reason, violation_path: explained.path,
+      });
+  }
   if (text !== `${canonicalizeTodoArtifact(revision)}\n`) {
     throw new TodoStoreError(invalidCode, 'non_canonical_revision_bytes');
   }
@@ -599,6 +640,8 @@ async function phaseDecision({ repoRoot, env, planKey, phaseId, outcome, inputRe
   const input = await readRevisionInput(repoRoot, inputRef, {
     validate: (value) => validatePhaseDecisionInput(value, outcome),
     invalidCode: 'PHASE_DECISION_INVALID', invalidReason: 'phase_decision_schema_or_digest_invalid',
+    // phase decision入力はrevision契約と別形状。既定のrevision explainを誤って当てない。
+    explain: null,
   });
   const payload = outcome === 'accept'
     ? { review_event_digest: input.review_event_digest, decision_evidence: input.decision_evidence,
@@ -711,6 +754,7 @@ async function reviseSet({ repoRoot, env, inputRef }) {
     validate: validateTodoRevisionSet,
     invalidCode: 'REVISION_SET_INVALID',
     invalidReason: 'revision_set_schema_invalid',
+    explain: explainTodoRevisionSet,
   });
   return applyTodoRevisionSet({
     repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), revisionSet,
@@ -722,6 +766,7 @@ async function revisePhase({ repoRoot, env, planKey, inputRef }) {
   const revision = await readRevisionInput(repoRoot, inputRef, {
     validate: validatePhaseTodoRevision, invalidCode: 'REVISION_INVALID',
     invalidReason: 'phase_revision_schema_or_digest_invalid',
+    explain: explainPhaseTodoRevision,
   });
   if (revision.plan_key !== planKey) throw new TodoStoreError('REVISION_INVALID', 'requested_plan_mismatch');
   return applyPhaseTodoRevision({ repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
@@ -1920,6 +1965,20 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     || typeof stdout?.write !== 'function' || typeof stderr?.write !== 'function'
     || env === null || typeof env !== 'object' || Array.isArray(env)) {
     throw new TypeError('runTodoCli optionsが不正');
+  }
+
+  // `--schema --json`はstoreを読まない決定的な出力（`plan create --schema`と同じ規律）。
+  // 通常dispatchより前に処理し、repoRoot解決やdashboard daemon起動を経由させない。
+  if (argv.length === 3 && argv[1] === '--schema' && argv[2] === '--json'
+    && Object.hasOwn(TODO_SCHEMA_COMMANDS, argv[0])) {
+    try {
+      await runTodoSchemaCommand(argv[0], stdout);
+      return 0;
+    } catch (error) {
+      return typedFailure(stderr, {
+        code: 'INTERNAL_FAILURE', message: error?.constructor?.name ?? 'Error',
+      });
+    }
   }
 
   let action = null;

@@ -126,6 +126,114 @@ function validateJoins(value) {
     && sortedStrictly(value, (join) => join.id);
 }
 
+const reject = (reason, path = '') => ({ valid: false, reason, path });
+
+/** value自体がexactRecordの対象になれる素朴なobjectかどうか（配列・nullを除く）。 */
+function plainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * 期待keyとの過不足を1件ずつ言い当てる。missing/unexpectedのどちらが先に見つかっても
+ * そこで止め、複数の欠落を一度に説明しない——`exactRecord`のbooleanと違い、
+ * 最初に見つかった違反fieldをpathへ刻む。
+ */
+function explainKeys(value, requiredKeys, at) {
+  if (!plainObject(value) || Object.getPrototypeOf(value) !== Object.prototype) {
+    return reject('not_an_object', at);
+  }
+  const actualKeys = new Set(Object.keys(value));
+  for (const key of requiredKeys) {
+    if (!actualKeys.has(key)) return reject('missing_required_key', `${at}/${key}`);
+  }
+  const requiredSet = new Set(requiredKeys);
+  for (const key of actualKeys) {
+    if (!requiredSet.has(key)) return reject('unexpected_key', `${at}/${key}`);
+  }
+  return { valid: true };
+}
+
+function explainSortedStrictly(values, key, at) {
+  for (let index = 1; index < values.length; index += 1) {
+    if (!(key(values[index - 1]) < key(values[index]))) {
+      return reject('unsorted_or_duplicate_collection', `${at}/${index}`);
+    }
+  }
+  return { valid: true };
+}
+
+/**
+ * `lattice.todo_extraction.v1/v2`を、既存の`validateTodoExtraction`の可否は変えずに
+ * 診断する（ADR 0130の案内規律をmigration入口へ拡張）。
+ *
+ * 深いgraph整合（親task解決・edge/join local参照解決）はここでは個別に言い当てず、
+ * 単一のreasonへ丸める——既知の実運用の詰まりどころ（必須key欠落・task/edge/joinの
+ * ソート違反・digest不一致）を優先して解消する。それでも掴めない違反は
+ * `diagnosis_incomplete`として正直に返す。
+ */
+export function explainTodoExtraction(value) {
+  try {
+    if (!plainObject(value)) return reject('not_an_object', '');
+    const schema = value.schema;
+    if (![TODO_EXTRACTION_SCHEMA, TODO_EXTRACTION_SCHEMA_V2].includes(schema)) {
+      return reject('schema_mismatch', '/schema');
+    }
+    const v2 = schema === TODO_EXTRACTION_SCHEMA_V2;
+    const topKeys = [
+      'schema', 'project_id', 'plan_key', 'plan_version', 'actor', 'recorded_at',
+      'tasks', 'hard_dependencies', 'joins', 'extraction_digest',
+    ];
+    const topKeyCheck = explainKeys(value, topKeys, '');
+    if (!topKeyCheck.valid) return topKeyCheck;
+    if (!isTodoIdentifier(value.project_id)) return reject('invalid_identifier', '/project_id');
+    if (!isTodoIdentifier(value.plan_key)) return reject('invalid_identifier', '/plan_key');
+    if (!isTodoIdentifier(value.plan_version)) return reject('invalid_identifier', '/plan_version');
+    if (!actor(value.actor)) return reject('invalid_actor', '/actor');
+    if (!isStrictTodoTimestamp(value.recorded_at)) return reject('invalid_timestamp', '/recorded_at');
+    if (!Array.isArray(value.tasks) || value.tasks.length === 0
+      || value.tasks.length > TODO_LIMITS.tasksPerPlan) {
+      return reject('bounded_collection_violation', '/tasks');
+    }
+    const taskKeys = v2
+      ? ['task_id', 'title', 'lane', 'narrative_ref', 'compile_binding', 'disposition',
+        'start', 'completion', 'source', 'migration_context']
+      : ['task_id', 'title', 'lane', 'narrative_ref', 'compile_binding', 'disposition',
+        'completion', 'source', 'migration_context'];
+    for (const [index, task] of value.tasks.entries()) {
+      const taskKeyCheck = explainKeys(task, taskKeys, `/tasks/${index}`);
+      if (!taskKeyCheck.valid) return taskKeyCheck;
+      if (!extractionTask(task, schema)) {
+        return reject('task_shape_invalid', `/tasks/${index}`);
+      }
+    }
+    const sortCheck = explainSortedStrictly(value.tasks, (task) => task.task_id, '/tasks');
+    if (!sortCheck.valid) return sortCheck;
+    if (new Set(value.tasks.map(({ task_id: taskId }) => taskId)).size !== value.tasks.length) {
+      return reject('duplicate_task_id', '/tasks');
+    }
+    if (!validateEdges(value.hard_dependencies)) return reject('hard_dependencies_invalid', '/hard_dependencies');
+    if (!validateJoins(value.joins)) return reject('joins_invalid', '/joins');
+    if (!isTodoDigest(value.extraction_digest)) return reject('invalid_digest', '/extraction_digest');
+    const expectedDigest = todoSelfDigest(value, 'extraction_digest');
+    if (value.extraction_digest !== expectedDigest) {
+      return reject('extraction_digest_mismatch', '/extraction_digest');
+    }
+    const taskIds = new Set(value.tasks.map(({ task_id: taskId }) => taskId));
+    const badParent = value.tasks.find((task) => task.source.parent_task_id === task.task_id
+      || (task.source.parent_task_id !== null && !taskIds.has(task.source.parent_task_id)));
+    if (badParent !== undefined) {
+      return reject('parent_task_id_unresolved',
+        `/tasks/${value.tasks.indexOf(badParent)}/source/parent_task_id`);
+    }
+    if (!localRefsResolve(value)) return reject('local_ref_unresolved', '');
+    // ここまでの個別検査を全て通過したのに`validateTodoExtraction`がfalseを返す状況は、
+    // このexplainがまだ言い当てられない違反があるということ。捏造せず未特定と申告する。
+    return { valid: true };
+  } catch {
+    return reject('diagnosis_failed', '');
+  }
+}
+
 function registeredTaskIds(value) {
   return new Set(value.tasks
     .filter(({ disposition }) => disposition.startsWith('register_'))

@@ -92,6 +92,9 @@ Write commands:
   revise --plan <key> --input <file>
   revise-phase --plan <key> --input <file>
   revise-set --input <file>
+  <revise|revise-phase|revise-set|migrate> --schema --json
+      # 実際に受理する最新契約のJSON Schemaを返す（storeを読まない）。
+      # 入力が契約に合わないときは、違反フィールドのpathがerror detailへ載る
   phase review --plan <key> --phase <id> --reason <text>
   phase <accept|reject> --plan <key> --phase <id> --input <file>
   phase reopen --plan <key> --phase <id> --reason <text> [--override-reason <text>]
@@ -179,10 +182,10 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo reopen': 'todo reopen --plan <key> --task <id> --reason <text> [--override-reason <text>]',
   'todo evidence': 'todo evidence promote --plan <key> --task <id> --evidence <file>',
   'todo evidence promote': 'todo evidence promote --plan <key> --task <id> --evidence <file>',
-  'todo revise': 'todo revise --plan <key> --input <file>',
-  'todo revise-phase': 'todo revise-phase --plan <key> --input <file>',
-  'todo revise-set': 'todo revise-set --input <file>',
-  'todo migrate': 'todo migrate --input <extraction.json> [--serialization-reviewed]',
+  'todo revise': 'todo revise --plan <key> --input <file> | --schema --json',
+  'todo revise-phase': 'todo revise-phase --plan <key> --input <file> | --schema --json',
+  'todo revise-set': 'todo revise-set --input <file> | --schema --json',
+  'todo migrate': 'todo migrate --input <extraction.json> [--serialization-reviewed] | --schema --json',
   'sensor init': 'sensor init [path] --json',
   'sensor sync': 'sensor sync [path] --json',
   'runtime-errors snapshot': 'runtime-errors snapshot [--after-cursor <n>] [--limit <n>] --json',

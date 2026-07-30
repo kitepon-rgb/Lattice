@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.phase_todo_revision.v3.schema.json",
+  "title": "lattice.phase_todo_revision.v3",
+  "description": "`lattice todo revise-phase`が受理する最新契約。v1/v2のphase-audited desired state・task/phase migrationへ、runtime task migration・source inventory・per-ToDo source cutover batchを加えた12 keyの完全契約。",
+  "$comment": "Runtime validation (src/todo-revision.mjs validatePhaseTodoRevision) additionally enforces: canonical JSON+LF bytes; strict sort order on task_migration (by from_task_id), runtime_task_migration.entries (by predecessor_task_id), runtime_task_migration.entries[].successor_task_ids/evidence_digests, and source_inventory.excluded_tombstones/source_cutover_batch.operations (by source_ref); uniqueness constraints across all of those; desired_plan.plan_version === phaseTodoRevisionPlanVersion(...); runtime_task_migration projects onto task_migration exactly (validRuntimeTodoProjection) and its successor_task_ids cover exactly desired_plan.tasks; phase_migration's target phase set equals desired_plan.phases exactly; every reconciliation.*_digest field against its own recomputation; and revision_digest as the canonical self-digest over every other top-level field.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "project_id", "plan_key", "predecessor", "desired_plan",
+    "runtime_task_migration", "task_migration", "phase_migration", "source_inventory",
+    "reconciliation", "source_cutover_batch", "revision_digest"
+  ],
+  "properties": {
+    "schema": { "const": "lattice.phase_todo_revision.v3" },
+    "project_id": { "$ref": "#/$defs/identifier" },
+    "plan_key": { "$ref": "#/$defs/identifier" },
+    "predecessor": { "$ref": "#/$defs/predecessor" },
+    "desired_plan": { "$ref": "#/$defs/desiredPlanV5" },
+    "runtime_task_migration": { "$ref": "#/$defs/runtimeTaskMigration" },
+    "task_migration": {
+      "type": "array", "minItems": 1, "maxItems": 512,
+      "items": { "$ref": "#/$defs/taskMigrationEntry" }
+    },
+    "phase_migration": {
+      "type": "array", "minItems": 1, "maxItems": 512,
+      "items": { "$ref": "#/$defs/phaseMigrationEntry" }
+    },
+    "source_inventory": { "$ref": "#/$defs/sourceInventory" },
+    "reconciliation": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "predecessor_reconciliation_digest", "source_inventory_digest", "desired_plan_digest",
+        "runtime_task_migration_digest", "task_migration_digest", "phase_migration_digest",
+        "source_cutover_batch_digest", "reconciliation_digest"
+      ],
+      "properties": {
+        "predecessor_reconciliation_digest": { "$ref": "#/$defs/digest" },
+        "source_inventory_digest": { "$ref": "#/$defs/digest" },
+        "desired_plan_digest": { "$ref": "#/$defs/digest" },
+        "runtime_task_migration_digest": { "$ref": "#/$defs/digest" },
+        "task_migration_digest": { "$ref": "#/$defs/digest" },
+        "phase_migration_digest": { "$ref": "#/$defs/digest" },
+        "source_cutover_batch_digest": { "$ref": "#/$defs/digest" },
+        "reconciliation_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "source_cutover_batch": { "$ref": "#/$defs/sourceCutoverBatch" },
+    "revision_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "nullableDigest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "repoRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)(?!.*[\\u0000-\\u001f\\u007f])[^/]+(?:/[^/]+)*$"
+    },
+    "sourceLineRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "$comment": "repoRefと同じ形に加え#L<line>を必須にする。実際の判定はparseTodoSourceRef（src/todo-revision.mjs）。",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)(?!.*[\\u0000-\\u001f\\u007f])[^/]+(?:/[^/]+)*#L[1-9][0-9]*$"
+    },
+    "nullableRepoRef": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/repoRef" }] },
+    "text": { "type": "string", "minLength": 1, "maxLength": 16384 },
+    "nullableText": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/text" }] },
+    "nodeRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["project_id", "plan_key", "task_id"],
+      "properties": {
+        "project_id": { "$ref": "#/$defs/identifier" },
+        "plan_key": { "$ref": "#/$defs/identifier" },
+        "task_id": { "$ref": "#/$defs/identifier" },
+        "expected_topology_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "phaseRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["project_id", "plan_key", "phase_id"],
+      "properties": {
+        "project_id": { "$ref": "#/$defs/identifier" },
+        "plan_key": { "$ref": "#/$defs/identifier" },
+        "phase_id": { "$ref": "#/$defs/identifier" },
+        "expected_topology_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "edge": {
+      "type": "object", "additionalProperties": false, "required": ["from", "to"],
+      "properties": { "from": { "$ref": "#/$defs/nodeRef" }, "to": { "$ref": "#/$defs/nodeRef" } }
+    },
+    "phaseAcceptDependency": {
+      "type": "object", "additionalProperties": false, "required": ["from", "to"],
+      "properties": { "from": { "$ref": "#/$defs/phaseRef" }, "to": { "$ref": "#/$defs/nodeRef" } }
+    },
+    "join": {
+      "type": "object", "additionalProperties": false, "required": ["id", "after", "before"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "after": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/nodeRef" } },
+        "before": { "$ref": "#/$defs/nodeRef" }
+      }
+    },
+    "narrativeAnchor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["origin_plan_ref", "origin_line", "source_commit", "source_line_digest"],
+      "properties": {
+        "origin_plan_ref": { "$ref": "#/$defs/repoRef" },
+        "origin_line": { "type": "integer", "minimum": 1 },
+        "source_commit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "source_line_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "compileBinding": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["boundary_manifest_digest", "compiled_plan_digest", "topology_digest", "base_sha"],
+          "properties": {
+            "boundary_manifest_digest": { "$ref": "#/$defs/digest" },
+            "compiled_plan_digest": { "$ref": "#/$defs/digest" },
+            "topology_digest": { "$ref": "#/$defs/digest" },
+            "base_sha": { "$ref": "#/$defs/gitSha" }
+          }
+        }
+      ]
+    },
+    "predecessor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["plan_digest", "journal_head_digest", "plan_version"],
+      "properties": {
+        "plan_digest": { "$ref": "#/$defs/digest" },
+        "journal_head_digest": { "$ref": "#/$defs/digest" },
+        "plan_version": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "taskV4": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "task_id", "title", "lane", "narrative_ref", "narrative_anchor", "compile_binding",
+        "parent_task_id", "phase_id"
+      ],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/identifier" },
+        "title": { "$ref": "#/$defs/nullableText" },
+        "lane": { "$ref": "#/$defs/identifier" },
+        "narrative_ref": { "$ref": "#/$defs/nullableRepoRef" },
+        "narrative_anchor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/narrativeAnchor" }] },
+        "compile_binding": { "$ref": "#/$defs/compileBinding" },
+        "parent_task_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/identifier" }] },
+        "phase_id": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "phase": {
+      "type": "object", "additionalProperties": false,
+      "required": ["phase_id", "title", "gate_policy", "predecessor_phase_ids", "required_evidence_slots"],
+      "properties": {
+        "phase_id": { "$ref": "#/$defs/identifier" },
+        "title": { "$ref": "#/$defs/nullableText" },
+        "gate_policy": { "$ref": "#/$defs/identifier" },
+        "predecessor_phase_ids": {
+          "type": "array", "items": { "$ref": "#/$defs/identifier" }, "uniqueItems": true
+        },
+        "required_evidence_slots": {
+          "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/identifier" }, "uniqueItems": true
+        }
+      }
+    },
+    "desiredPlanV5": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "schema", "project_id", "plan_key", "plan_version", "predecessor_plan_digest",
+        "tasks", "hard_dependencies", "joins", "phases", "phase_accept_dependencies",
+        "topology_digest", "plan_digest"
+      ],
+      "properties": {
+        "schema": { "const": "lattice.todo_plan.v5" },
+        "project_id": { "$ref": "#/$defs/identifier" },
+        "plan_key": { "$ref": "#/$defs/identifier" },
+        "plan_version": { "$ref": "#/$defs/identifier" },
+        "predecessor_plan_digest": { "$ref": "#/$defs/nullableDigest" },
+        "tasks": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/taskV4" } },
+        "hard_dependencies": { "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/edge" } },
+        "joins": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/join" } },
+        "phases": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/phase" } },
+        "phase_accept_dependencies": {
+          "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/phaseAcceptDependency" }
+        },
+        "topology_digest": { "$ref": "#/$defs/digest" },
+        "plan_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "taskMigrationEntry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["from_task_id", "to_task_id", "state_policy"],
+      "properties": {
+        "from_task_id": { "$ref": "#/$defs/identifier" },
+        "to_task_id": { "oneOf": [{ "const": "removed" }, { "$ref": "#/$defs/identifier" }] },
+        "state_policy": {
+          "enum": ["carry", "carry_reconciled_metadata", "reset_pending", "removed"],
+          "$comment": "'removed'はto_task_id==='removed'の時だけ、他の3値はto_task_idがidentifierの時だけ許される（runtime cross-check）。runtime_task_migrationのdisposition投影とも一致していなければならない（validRuntimeTodoProjection）。"
+        }
+      }
+    },
+    "phaseMigrationEntry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["from_phase_id", "to_phase_id", "state_policy"],
+      "properties": {
+        "from_phase_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/identifier" }] },
+        "to_phase_id": { "oneOf": [{ "const": "removed" }, { "$ref": "#/$defs/identifier" }] },
+        "state_policy": {
+          "enum": ["carry", "reset", "removed"],
+          "$comment": "carryはfrom_phase_id!=null かつ to_phase_id!=='removed'の時だけ、removedはfrom_phase_id!=null かつ to_phase_id==='removed'の時だけ、resetはto_phase_id!=='removed'の時だけ許される（runtime cross-check）。"
+        }
+      }
+    },
+    "runtimeTaskMigrationEntry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["predecessor_task_id", "disposition", "successor_task_ids", "reason", "evidence_digests"],
+      "properties": {
+        "predecessor_task_id": { "$ref": "#/$defs/identifier" },
+        "disposition": { "enum": ["carry", "stay", "replace", "split", "retire"] },
+        "successor_task_ids": {
+          "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/identifier" }, "uniqueItems": true,
+          "$comment": "carry/stayは要素1つでpredecessor_task_idと同一、retireは空、replace/splitは1つ以上（runtime cross-check）。全entry合算で重複禁止。"
+        },
+        "reason": { "$ref": "#/$defs/text" },
+        "evidence_digests": {
+          "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/digest" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "runtimeTaskMigration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "entries", "migration_digest"],
+      "properties": {
+        "schema": { "const": "lattice.runtime_task_migration.v1" },
+        "entries": {
+          "type": "array", "minItems": 1, "maxItems": 512,
+          "items": { "$ref": "#/$defs/runtimeTaskMigrationEntry" }
+        },
+        "migration_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "sourceInventoryActiveEntry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["task_id", "source_ref", "source_digest"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/identifier" },
+        "source_ref": { "$ref": "#/$defs/sourceLineRef" },
+        "source_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "sourceInventoryTombstone": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_ref", "source_digest", "exclusion_reason"],
+      "properties": {
+        "source_ref": { "$ref": "#/$defs/sourceLineRef" },
+        "source_digest": { "$ref": "#/$defs/digest" },
+        "exclusion_reason": { "$ref": "#/$defs/text" }
+      }
+    },
+    "sourceInventory": {
+      "type": "object", "additionalProperties": false,
+      "required": ["active", "excluded_tombstones"],
+      "$comment": "activeはdesired_plan.tasksと同じ順序・同じtask_id集合でなければならず、各entryのsource_refはそのtaskのnarrative_refと一致する必要がある（revise-phase v3固有のrequireNarrativeRef、runtime cross-check）。",
+      "properties": {
+        "active": {
+          "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/sourceInventoryActiveEntry" }
+        },
+        "excluded_tombstones": {
+          "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/sourceInventoryTombstone" }
+        }
+      }
+    },
+    "sourceCutoverOperation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["task_id", "disposition", "source_ref", "source_digest", "live_replacement"],
+      "properties": {
+        "task_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/identifier" }] },
+        "disposition": { "enum": ["active", "excluded"] },
+        "source_ref": { "$ref": "#/$defs/sourceLineRef" },
+        "source_digest": { "$ref": "#/$defs/digest" },
+        "live_replacement": {
+          "type": "string", "minLength": 1, "maxLength": 4096,
+          "$comment": "改行・制御文字禁止に加え、Markdownチェックボックス行に見える文字列は拒否される（validLiveReplacement）。"
+        }
+      }
+    },
+    "sourceCutoverBatch": {
+      "type": "object", "additionalProperties": false,
+      "required": ["batch_id", "archive_ref", "operations", "batch_digest"],
+      "properties": {
+        "batch_id": { "$ref": "#/$defs/identifier" },
+        "archive_ref": {
+          "allOf": [{ "$ref": "#/$defs/repoRef" }, { "pattern": "\\.md$" }],
+          "$comment": "#L<line>付きのsourceLineRef形にはなり得ない（runtime cross-check）。"
+        },
+        "operations": {
+          "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/sourceCutoverOperation" }
+        },
+        "batch_digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}
