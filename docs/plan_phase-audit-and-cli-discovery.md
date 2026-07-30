@@ -1,8 +1,13 @@
 # 重監査を飛ばせない工程管理と、authoring CLI の発見可能性 — 統括 plan
 
-**工程正本は Lattice store（`lattice todo status --json`、plan_key `phase-audit-and-cli-discovery`）。**
+**工程正本は Lattice store。** ToDo・依存・状態・完了証拠は Lattice が所有し、本書は持たない
+（10 ToDo を 2026-07-30 に `lattice todo migrate` で移転済み。source cutover 完了）。
+
+```bash
+lattice todo status --json   # plan_key: phase-audit-and-cli-discovery
+```
+
 本書は目的・思想・判断理由・非目標・受入条件を所有する。
-下部の ToDo は store への移転用 source であり、移転完了後に本書から削除する。
 
 ## 目的
 
@@ -75,27 +80,3 @@ AI が読み飛ばして直列化した。0.35.0 で機構（突き返し gate�
    npm install → 公開後 smoke
 7. **本 plan 自身が Phase gate 付きで運用される**（migrate 後に revise-phase で Phase を
    被せ、各 Phase を evidence 束縛の accept で閉じる）
-
-## ToDo（Lattice store への移転用 source）
-
-### 終端重監査の機構
-
-- [ ] 終端監査 gate と Phase 獲得 policy の設計を ADR に記録する（何が閉じを止めるか・acquire_phase の意味論・作成時通知の形）
-- [ ] phase 無し plan の終端重監査 gate を実装する（全 task done でも監査記録なしでは閉じない・作成時に明示・テスト込み）
-
-### done を保つ Phase 獲得
-
-- [ ] revise-phase に Phase 獲得専用の state_policy を実装する（実行状態を保持・他の意味論変化は従来どおり拒否・テスト込み）
-
-### authoring CLI の発見可能性
-
-- [ ] plan create --schema --json の既定を最新版にする（または非最新である旨を出力へ含める・テスト込み）
-- [ ] revise / revise-set / revise-phase / migrate に --schema --json を実装する（テスト込み）
-- [ ] スキーマ違反エラーの detail に違反フィールド名と位置を載せる（テスト込み）
-- [ ] lattice plan show を実装し、bindings が空を返すことでの誤読を解消する（テスト込み）
-
-### 閉じ
-
-- [ ] docs（製品契約・README・CHANGELOG）を実装へ揃える
-- [ ] npm test 全 green を確認し、version bump → push → npm publish → npm install → 公開後 smoke まで通す
-- [ ] オーナーへ最終報告（実施 / スキップ理由 / 検証結果）
