@@ -469,6 +469,33 @@ engine手前の理由`no_seam_candidate`／`finding_not_write_conflict`は門の
 gateの計画時展開（`seam_apply_outcome.v1`はreleased schemaなのでCHANGELOG明記か版上げ）と
 上記2語の分類（第3のhandoffが要るか）を同時に裁定する。
 
+## 複数pathを所有するToDoは並列可否を記録できない（2026-07-30に判明）
+
+`independence witness scaffold`は`multiple_owned_paths_unsupported`で拒否する——
+affected_testsを宣言とfresh観測でbinding単位のexact比較にしているため、1 ToDoが複数pathを
+所有する宣言を今の契約で表現できない。結果として、**複数fileを触るToDo（＝最も競合しやすい
+ToDo）ほど独立性記録を持てない**。phase-audit-and-cli-discoveryのt02（store gate: todo-store／
+todo-cli／project-cli）とt03（acquire_phase: todo-revision／todo-store）で実際に踏み、
+両者がsrc/todo-store.mjsへ書き込む事実はコード読解で確定させ、機械記録は作れないまま
+順序依存として直列化した。偽の宣言（所有を1 pathへ絞る）はしない。
+
+**起票条件**: 複数path所有のToDoで並列可否の判定が実際に必要になった時（＝直列化が
+惜しいと判断できる規模の競合が出た時）に、affected_tests比較の粒度をbinding単位から
+path単位の集合比較へ広げる設計を裁定する。ToDoを1 path単位へ割るのは回避であって解決ではない
+（工程の粒度を機械の都合で決めることになる）。
+
+## todo_revision_set.v3はphase revision v3をmemberにできない（2026-07-30に判明）
+
+`validateTodoRevisionSet`（`src/todo-revision.mjs:978`）はsetV3のmemberとして
+`phase_todo_revision`の**v1/v2しか受理しない**。v3はcross-plan revision setへ入れられない。
+公開契約は「revision setはPhase revisionを必須として通常revisionとの混在を許す」と述べており、
+v3が使えないという限定はどこにも書かれていない。reconciled planのPhase revisionはv3が要るので、
+**reconciled planはcross-plan同時切替に参加できない**。
+
+**起票条件**: 複数planのtopologyを同時に切り替える必要が実際に生じ、その中にreconciled planが
+含まれた時に、setV3のmember許容へv3を加えるか（cutover整合の同時検証が要る）、
+公開契約側へ限定を明記するかを裁定する。
+
 ---
 
 # 請求項の充足状況
