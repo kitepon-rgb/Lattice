@@ -197,7 +197,34 @@ lattice todo migrate --input <extraction.json> --serialization-reviewed
 `active_set`と`next_ready`で観測できます。
 ToDo完了は軽量確認までで、所属ToDoが全てdoneになったPhaseは`gate_ready`となり、`todo phase review`後に
 required evidenceを束縛した`todo phase accept`で重監査の判断を記録します。監査回数やPhase数を自動追加する
-機能ではありません。Phase状態は
+機能ではありません。
+
+**監査の既定は「有り」です。** phaseを持たないplanも終端に重監査が要ります（予約Phase
+`terminal-audit`を暗黙に1つ持ちます）。全taskがdoneになった状態は「完走」ではなく`gate_ready`＝
+**監査待ち**であり、工程図のlive scopeはそのplanのToDoを畳みません——完走扱いで図から消えることが
+「閉じた」の可視表現なので、監査の記録なしにそこへ行かせません。作成時に拒否はせず、
+`todo migrate`／`plan create`の結果と最後のdoneのadvisoryで`terminal_audit_required`を通知します。
+**終端監査はToDoのdispatch可否へ影響しません**（Phaseは重監査の順序だけを制御し、開始順はToDo DAGが決めます）。
+規約は[ADR 0147](docs/adr/0147-audit-is-on-by-default.md)が正です。
+
+```bash
+lattice todo phase status --plan <key>   # phase無しplanでも暗黙Phaseを返す（implicit: true）
+lattice todo phase review --plan <key> --phase terminal-audit --reason <text>
+lattice todo phase accept --plan <key> --phase terminal-audit --input <file>
+```
+
+誤ってphase無しで作ったplanへ後からPhaseを被せる場合は、`revise-phase`の
+`state_policy: acquire_phase`でdone状態を保ったまま獲得できます（未割当→割当の向きだけを許し、
+既にphaseを持つtaskの付け替えは拒否します）。
+
+契約のJSON Schemaは各入口から取れます。入力が合わないときは、違反フィールドのpathが
+error detailの`violation_path`へ載ります（配列のソート違反は`/tasks/1`のようにindexまで名指しします）。
+
+```bash
+lattice plan create --schema --json            # 既定は最新v3
+lattice todo revise-phase --schema --json
+lattice plan show <plan_key> --json            # planのtask・依存・phase・状態を1コマンドで読む
+```Phase状態は
 `lattice todo phase status --plan <key>`、閲覧中に進捗が更新される工程表は
 `lattice todo gantt serve --port 0`で確認できます。live viewerはloopback-only、read-onlyで、
 `/projects/<project_id>/`というproject固有URLを返します。別projectからそれぞれ起動すれば、独立port・独立SSE経路で同時表示できます。

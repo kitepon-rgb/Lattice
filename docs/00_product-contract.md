@@ -1,4 +1,4 @@
-# Lattice 製品契約（0.33.0）
+# Lattice 製品契約（0.36.0）
 
 ## Product outcome
 
@@ -218,6 +218,32 @@ frontier digest、subset選択時の理由要否を機械表示する。readyが
 意図的直列化理由のどちらかを必須とする。これはPhase、監査回数、task DAGを増やさない。
 `--parallel-frontier`は開始時のdispatch方針宣言であり、LatticeがAI hostのagentを直接生成する契約ではない。
 宣言後の実dispatchはhostが所有し、Latticeは`active_set`と残存`next_ready`から実状態を投影する。
+
+**監査の既定は「有り」であり、無しは表現できない**（ADR 0147）。phaseを持たないplan
+（`todo_plan.v1/v2/v3`）は予約Phase `terminal-audit`を暗黙に1つ持ち、所属taskはそのplanの全taskとする。
+状態機械は既存のPhase gateと同一で、全task doneは`gate_ready`＝監査待ちであって完走ではない。
+予約id以外のphase eventは`event_phase_missing`で拒否する。工程図のlive scopeは監査未了
+（`gate_ready`／`reviewing`／`rejected`）のplanのToDoを畳まない——完走扱いで図から消えることが
+「閉じた」の可視表現であり、監査の記録なしにそこへ行かせない。作成は拒否せず通知に留め、
+`todo migrate`と`plan create`の結果、および最後のpending taskがdoneになった`todo done`のadvisoryへ
+`terminal_audit_required`を載せる。`todo phase status`はphase無しplanでも暗黙Phaseを返し、
+`implicit`で機械可読に示す。**終端監査はToDoのdispatch可否へ影響しない**——ADR 0062の
+「Phase監査順とToDo schedulingの分離」を継承し、`next_ready`／`active_set`／`dispatch_frontier`は
+暗黙Phaseの状態遷移で不変である。Latticeは監査の中身を採点せず、accept記録の存在だけを見る。
+
+phase無しで作ったplanへ後からPhaseを被せる救済経路は、`revise-phase`の
+`state_policy: acquire_phase`が所有する。未割当（`phase_id`なし）→割当の向きだけを許し、
+既にphaseを持つtaskの付け替えは拒否する。`carry`／`carry_reconciled_metadata`の意味論比較は緩めない。
+journal eventのschema列は、v1 genesisのjournalへ`phase_*` eventだけをv3 tailとして混在許可する
+（既存eventのbytesとdigest計算は不変、v3のtask eventは従来どおり拒否）。
+
+authoring契約のJSON Schemaは各入口から取得できる。`plan create --schema --json`の既定は最新版
+（現在v3）で、`--schema-version <1|2|3> --json`が版を明示する。`todo revise`／`revise-set`／
+`revise-phase`／`migrate`も`--schema --json`を持ち、実際に受理する最新契約を返す（storeを読まない
+決定的出力）。schema違反は`detail`へ`violation_reason`と`violation_path`を載せ、配列のソート違反は
+index込みで名指しする。`lattice plan show <plan_key> --json`は`lattice.plan_show_result.v1`として
+plan本体（phase定義と状態・task一覧と状態・依存本数・topology要約）を投影する——
+`todo bindings`が`compile_binding`付きtaskだけを投影することによる「planが空」という誤読を塞ぐ面である。
 
 通常の状態遷移は`todo start / block / unblock / done / evidence promote / reopen`のclosed面で行う。
 mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,

@@ -150,6 +150,14 @@ point of use.
 transform that cannot be verified is not adopted. A finding that cannot be independently
 re-derived is not recorded.
 
+**Heavy audit is on by default.** A plan without explicit phases still carries an implicit
+terminal audit: every task being done means `gate_ready` — *awaiting audit* — not finished. The
+live dependency diagram refuses to fold such a plan away, because folding is how the product
+says "closed", and nothing gets there without an evidence-bound `phase accept`. Creation is never
+rejected over it; the requirement is reported instead. And the audit gate never touches dispatch:
+phases order reviews, the ToDo DAG orders work
+([ADR 0147](docs/adr/0147-audit-is-on-by-default.md)).
+
 ## Patent
 
 The design in this repository is the subject of a Japanese patent application:

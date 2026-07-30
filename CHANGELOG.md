@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.36.0 — 2026-07-30
+
+- **重監査を飛ばせなくした**（[ADR 0147](docs/adr/0147-audit-is-on-by-default.md)）。
+  phaseを持たないplanは終端に重監査が要る。予約Phase `terminal-audit`を暗黙に1つ持たせ、
+  全task doneは`gate_ready`（＝監査待ち）であって完走ではない扱いにする。既存のPhase gate機構
+  （review → evidence束縛accept／evidence slot／journal event）をそのまま再利用し、新しい状態機械も
+  event型も増やしていない。**閉じたことにさせないteethはgantt live scopeに置く**——監査未了planの
+  ToDoは畳まない（完走扱いで図から消えるのが「閉じた」の可視表現だからである）。実測: 本repoの
+  同一storeに対し、旧版が154件を完走済みとして畳むのに対し50件へ減り、差の104件が監査待ちとして
+  図に残った（本repo自身の23 campaignが終端監査を通っていなかった事実の可視化）。
+  作成は拒否せず通知に留める——`todo migrate`／`plan create`の結果と、最後のpending taskが
+  doneになったときのadvisoryへ`terminal_audit_required`を載せる。
+  **終端監査はToDoのdispatch可否へ影響しない**（ADR 0062の不変を継承。next_ready・active_set・
+  dispatch_frontierが暗黙Phaseの状態遷移でバイト同一であることをtestで固定）。
+- **doneを保ったままPhaseを獲得できるようにした**。全taskがdoneのplanへ後からPhaseを被せる経路が
+  無かった（carryは`phase_id`を意味論比較へ含めるため獲得を拒否し、`reset_pending`はdoneを消す）。
+  `state_policy: acquire_phase`を足し、**未割当→割当の向きだけ**を許す。既にphaseを持つtaskの
+  付け替えは拒否し、`carry`の意味論比較そのものは緩めていない。
+- **authoring CLIの発見可能性を4件直した**（2026-07-29の実運用で踏んだ不足）。
+  `plan create --schema --json`の既定を最新v3へ（`--schema-version 1`は互換で継続）。
+  `todo revise`／`revise-set`／`revise-phase`／`migrate`へ`--schema --json`を追加し、実際に受理する
+  最新契約のJSON Schemaを返す（storeを読まない）。スキーマ違反の`detail`へ`violation_reason`と
+  `violation_path`を載せる（ソート違反は`/tasks/1`のようにindexまで名指しする——実運用で最も
+  時間を溶かした箇所）。`lattice plan show <key> --json`を新設し、`todo bindings`の空配列を
+  「planが空」と誤読する事故を塞ぐ。
+- journal eventのschema列は、v1 genesisのjournalへ`phase_*` eventだけをv3 tailとして混在許可した。
+  既存eventのbytesとdigest計算は変えず、v3のtask eventは従来どおり拒否する。これが無いと
+  phase無しplanへphase eventを一切追加できない。
+
 ## 0.35.0 — 2026-07-29
 
 - **公開工程表の未知URLを、ブラウザではLatticeのブランド404として返すようにした。**
