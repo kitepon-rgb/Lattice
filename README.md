@@ -158,6 +158,15 @@ rejected over it; the requirement is reported instead. And the audit gate never 
 phases order reviews, the ToDo DAG orders work
 ([ADR 0147](docs/adr/0147-audit-is-on-by-default.md)).
 
+**History closes unaudited, never audited.** Work that finished long ago cannot be audited — the
+code under review has already moved. Demanding an audit there produces either a false finding
+(pointing at a later, intentional change) or a rubber stamp. So there is a third terminal state,
+`closed_unaudited`: recorded with a reason, folded away like finished work, and **structurally
+incapable of passing as `accepted`** — phase-accept dependencies unlock on `accepted` alone. The
+bulk entry point never runs by itself, and the machine never infers "old enough to skip"; a human
+decides what gets audited and what becomes history
+([ADR 0148](docs/adr/0148-history-closes-unaudited-not-audited.md)).
+
 ## Patent
 
 The design in this repository is the subject of a Japanese patent application:

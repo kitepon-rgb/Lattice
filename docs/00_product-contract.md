@@ -1,4 +1,4 @@
-# Lattice 製品契約（0.36.0）
+# Lattice 製品契約（0.37.0）
 
 ## Product outcome
 
@@ -230,6 +230,18 @@ frontier digest、subset選択時の理由要否を機械表示する。readyが
 `implicit`で機械可読に示す。**終端監査はToDoのdispatch可否へ影響しない**——ADR 0062の
 「Phase監査順とToDo schedulingの分離」を継承し、`next_ready`／`active_set`／`dispatch_frontier`は
 暗黙Phaseの状態遷移で不変である。Latticeは監査の中身を採点せず、accept記録の存在だけを見る。
+
+**監査していない歴史は「監査なしで閉じた」として閉じる**（ADR 0148）。Phaseは`accepted`／`rejected`に
+加えて`closed_unaudited`を持つ。過去の工程は監査できない——監査対象のコードが既に変化しているため、
+監査を要求すれば誤検出か中身を見ない`accept`のどちらかを誘発する。`closed_unaudited`は専用event kind
+`phase_close_unaudited`で理由つきに記録し、前提は`gate_ready`とする。**`accepted`へ化けない**——
+`phase_accept_dependencies`は`accepted`の厳密一致だけで解錠し、`closed_unaudited`では解錠しない。
+工程図では畳むので監査待ちの札が外れ、`phase_reopen`でやり直せる。
+一括入口`todo phase baseline --reason <text> [--except <plan_key>]...`は、現在`gate_ready`かつ
+phase eventを一度も持たないPhaseをまとめて宣言し、除外・対象外・失敗を区別して返す。
+**自動実行しない**——どれを監査しどれを歴史として畳むかは人／AIが決め、装置は宣言を受け取って
+記録するだけとする。「変化したか」の機械判定と時間ベースの推定は持たない。監査待ちを返す面は、
+何が起きたかと次に打つコマンドをtyped guidanceへ載せる。
 
 phase無しで作ったplanへ後からPhaseを被せる救済経路は、`revise-phase`の
 `state_policy: acquire_phase`が所有する。未割当（`phase_id`なし）→割当の向きだけを許し、

@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.37.0 — 2026-07-30
+
+### アップグレード注意（0.36.0 / 0.36.1 から上げる場合は必ず読む）
+
+0.36.0 で入れた終端監査 gate は、**過去に終わった工程まで「監査待ち」にしてしまう欠陥**を
+持っていた。アップグレードすると、phase を持たない完了済み plan が工程図で畳まれなくなり、
+過去の完了分が図に残る（実測: Lattice 自身が 23 plan／104 ToDo）。0.37.0 はこれを直す。
+
+**過去は監査できない。監査対象のコードが既に変化しているからである。** それでも監査を要求すると、
+今のコードを見て「問題がある」と言い出す（実際には後の意図的な変更である）か、中身を見ずに
+`accept` を押すかのどちらかを誘発する。どちらも gate が原因の事故になる。
+
+対処は次のどちらかを、plan ごとに選ぶ。
+
+```bash
+# 1) 今から監査する（コードが生きている最近の工程はこちら）
+lattice todo phase review --plan <key> --phase terminal-audit --reason <text>
+lattice todo phase accept --plan <key> --phase terminal-audit --input <file>
+
+# 2) 監査しないまま閉じる（対象が変化してしまった歴史はこちら）
+lattice todo phase close-unaudited --plan <key> --phase terminal-audit --reason <text>
+
+# 2 を一括で（除外を指定できる。監査したい plan は --except で残す）
+lattice todo phase baseline --reason <text> --except <残したい plan_key>
+```
+
+### 変更
+
+- **第3の終端状態 `closed_unaudited` を足した**（[ADR 0148](docs/adr/0148-history-closes-unaudited-not-audited.md)）。
+  「監査なしで閉じた」ことを理由つきで journal へ記録する。**`accepted` へ絶対に化けない**——
+  `phase_accept_dependencies`（Phase 受理を必要とする ToDo）は `accepted` の厳密一致だけで解錠され、
+  `closed_unaudited` では解錠されない。前提は `gate_ready`（所属 ToDo が全て done）で、
+  `phase_reopen` でやり直せる。工程図では畳むので監査待ちの札が外れる。
+- **一括入口 `todo phase baseline`**。現在 `gate_ready` かつ phase event を一度も持たない Phase を
+  まとめて宣言する。除外・対象外（既に accepted 等）・失敗を区別して返す。**自動実行はしない**——
+  どれを監査し、どれを歴史として畳むかは人／AI が決め、装置は宣言を受け取って記録するだけである。
+  時間ベースの推定（「N 日以上前だから免除」）も入れない。
+- **札が出た理由を画面で言う**。`todo done` の advisory と `todo phase status` の guidance へ、
+  何が起きたか（0.36.0 で終端監査の要求が過去の完了分にも及んだ）と、上記2択のコマンドを載せる。
+  原因を説明しない gate は、原因を隠すのと同じである。
+
 ## 0.36.1 — 2026-07-30
 
 - **配布漏れを直した**。`package.json`の`files`はschemaを個別列挙するため、0.36.0で追加した4件

@@ -213,6 +213,20 @@ lattice todo phase review --plan <key> --phase terminal-audit --reason <text>
 lattice todo phase accept --plan <key> --phase terminal-audit --input <file>
 ```
 
+**過去の工程は監査できません。** 監査対象のコードが既に変化しているためです。そこで
+「監査なしで閉じた」という状態を別に持ちます——`accepted`（監査を通った）へは絶対に化けず、
+記録は永久に区別できます。工程図では畳まれるので監査待ちの札は外れます。
+
+```bash
+lattice todo phase close-unaudited --plan <key> --phase terminal-audit --reason <text>
+lattice todo phase baseline --reason <text> --except <監査したいplan_key>   # 一括
+```
+
+一括の入口は、現在監査待ちで一度も監査に触れていないPhaseだけを対象にします。**自動では
+実行しません**——どれを監査し、どれを歴史として畳むかは人が決め、Latticeは宣言を受け取って
+記録するだけです。`--except`は「最近の作業でコードも生きているので本当に監査したい」planを
+残すための口です。規約は[ADR 0148](docs/adr/0148-history-closes-unaudited-not-audited.md)が正です。
+
 誤ってphase無しで作ったplanへ後からPhaseを被せる場合は、`revise-phase`の
 `state_policy: acquire_phase`でdone状態を保ったまま獲得できます（未割当→割当の向きだけを許し、
 既にphaseを持つtaskの付け替えは拒否します）。
