@@ -66,3 +66,9 @@
 6. **release まで届く**: CHANGELOG のアップグレード注意 → commit → push → npm publish →
    npm install → 常駐 daemon 載せ替え → 公開後 smoke
 7. 本 plan 自身を Phase gate 付きで運用する
+
+## 適用の方針
+
+release 後、公開版で Lattice 自身の監査待ちへ基準線を打つ。
+ServerManager の 26 ToDo は最終 done が 2026-07-29 でコードも生きているため、基準線で流さず
+監査対象として残す（`--except`）。一律免除はそれを取り逃がす。
