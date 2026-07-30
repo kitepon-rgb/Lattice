@@ -185,7 +185,7 @@ function validTaskMigration(value) {
     ]) && isTodoIdentifier(entry.from_task_id)
       && (entry.to_task_id === 'removed' || isTodoIdentifier(entry.to_task_id))
       && ((entry.state_policy === 'removed' && entry.to_task_id === 'removed')
-        || (['carry', 'carry_reconciled_metadata', 'reset_pending'].includes(entry.state_policy)
+        || (['carry', 'carry_reconciled_metadata', 'reset_pending', 'acquire_phase'].includes(entry.state_policy)
           && entry.to_task_id !== 'removed')))
     && new Set(value.map(({ from_task_id }) => from_task_id)).size === value.length
     && new Set(activeTargets).size === activeTargets.length
@@ -277,8 +277,11 @@ function validRuntimeTodoProjection(runtimeMigration, taskMigration) {
   return projected.length === taskMigration.length && projected.every((expected, index) => {
     const actual = taskMigration[index];
     return expected.from_task_id === actual.from_task_id && expected.to_task_id === actual.to_task_id
+      // runtime disposition carry/stayは実行状態の持ち越しだけを申告する。task_migration側は
+      // carry_reconciled_metadataに加え、Phase獲得だけを許すacquire_phase(ADR 0147裁定4)も
+      // 「状態を持ち越すcarry系」の投影として受理する。
       && (expected.state_policy === 'carry'
-        ? ['carry', 'carry_reconciled_metadata'].includes(actual.state_policy)
+        ? ['carry', 'carry_reconciled_metadata', 'acquire_phase'].includes(actual.state_policy)
         : expected.state_policy === actual.state_policy);
   });
 }
@@ -449,7 +452,7 @@ function explainTaskMigration(value, at = '/task_migration') {
       return reject('invalid_identifier', `${entryAt}/to_task_id`);
     }
     const validPolicy = (entry.state_policy === 'removed' && entry.to_task_id === 'removed')
-      || (['carry', 'carry_reconciled_metadata', 'reset_pending'].includes(entry.state_policy)
+      || (['carry', 'carry_reconciled_metadata', 'reset_pending', 'acquire_phase'].includes(entry.state_policy)
         && entry.to_task_id !== 'removed');
     if (!validPolicy) return reject('state_policy_disposition_mismatch', `${entryAt}/state_policy`);
   }
