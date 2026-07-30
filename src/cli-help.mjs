@@ -26,8 +26,9 @@ Commands:
   create --input <file> [--serialization-reviewed]
       # 依存グラフがほぼ一直線（serialization_ratioが閾値超）なら一度突き返す。
       # 再考した上でなお直列でよいなら --serialization-reviewed を付けて再実行する
-  create --schema --json
-  create --schema-version <2|3> --json
+  create --schema --json             # 既定は最新版（v3）のJSON Schemaを返す
+  create --schema-version <1|2|3> --json
+  show <plan_key> --json             # task・依存・phase・状態をplan本体から1コマンドで投影する
   compile --request <request.json>
   compile --schema --json            # lattice.run_request.v1 の JSON Schema を出す
   verify --request <request.json> --plan <plan.json>
@@ -135,7 +136,8 @@ registerはLATTICE_BRIDGE_REGISTRAR_SSH_HOSTとLATTICE_BRIDGE_REGISTRAR_SCRIPT�
 const SUBCOMMAND_USAGE = Object.freeze({
   status: 'status --json',
   'session-context': 'session-context --json',
-  'plan create': 'plan create --input <file> [--serialization-reviewed] | --schema --json | --schema-version <2|3> --json',
+  'plan create': 'plan create --input <file> [--serialization-reviewed] | --schema --json | --schema-version <1|2|3> --json',
+  'plan show': 'plan show <plan_key> --json',
   'plan compile': 'plan compile --request <request.json> | --schema --json',
   'plan verify': 'plan verify --request <request.json> --plan <plan.json>',
   'run start': 'run start --request <request.json> --executor <adapter> | --schema --json',

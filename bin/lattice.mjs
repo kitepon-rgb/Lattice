@@ -50,10 +50,18 @@ if (help !== null) {
     process.exitCode = projectCliFailure(process.stderr, error);
   }
 } else if (args.length === 5 && args[0] === 'plan' && args[1] === 'create'
-  && args[2] === '--schema-version' && ['2', '3'].includes(args[3]) && args[4] === '--json') {
+  && args[2] === '--schema-version' && ['1', '2', '3'].includes(args[3]) && args[4] === '--json') {
   const { projectCliFailure, runPlanCreateSchema } = await import('../src/project-cli.mjs');
   try {
     process.exitCode = await runPlanCreateSchema({ stdout: process.stdout, version: Number(args[3]) });
+  } catch (error) {
+    process.exitCode = projectCliFailure(process.stderr, error);
+  }
+} else if (args.length === 4 && args[0] === 'plan' && args[1] === 'show'
+  && typeof args[2] === 'string' && args[2].length > 0 && args[3] === '--json') {
+  const { projectCliFailure, runPlanShow } = await import('../src/project-cli.mjs');
+  try {
+    process.exitCode = await runPlanShow({ cwd: process.cwd(), planKey: args[2], stdout: process.stdout });
   } catch (error) {
     process.exitCode = projectCliFailure(process.stderr, error);
   }

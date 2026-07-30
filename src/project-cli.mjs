@@ -488,7 +488,16 @@ export async function runPlanCreate({ cwd, inputRef, stdout, serializationReview
   return 0;
 }
 
-export async function runPlanCreateSchema({ stdout, version = 1 }) {
+/**
+ * `--schema --json`（版指定なし）の既定はCURRENT_CREATE_INPUT_SCHEMAと同じv3にする。
+ * 既定がv1のままだと、素の`--schema`を叩いたAIが古いv1（Phaseを表現できない）を
+ * 受け取り、実運用で通らない入力を作ってしまう（実際に踏んだ）。
+ * `--schema-version 1`は互換のため引き続き取得できる（bin/lattice.mjs側で許可）。
+ *
+ * 「どの版を返したか」は返すJSON Schema自身の`title`（例: `lattice.plan_create_input.v3`）が
+ * 既に機械可読に持っている。壊さずに追加のkeyを足す理由が無いので足さない。
+ */
+export async function runPlanCreateSchema({ stdout, version = 3 }) {
   if (![1, 2, 3].includes(version)) throw new TypeError('unsupported plan create schema version');
   const expected = version === 3 ? DECOUPLED_PHASE_CREATE_INPUT_SCHEMA
     : version === 2 ? PHASE_CREATE_INPUT_SCHEMA : CREATE_INPUT_SCHEMA;
@@ -502,6 +511,93 @@ export async function runPlanCreateSchema({ stdout, version = 1 }) {
   } finally {
     await handle.close();
   }
+}
+
+const PLAN_SHOW_RESULT_SCHEMA = 'lattice.plan_show_result.v1';
+
+/**
+ * `todo bindings`はcompile_binding付きtaskだけを投影するので、通常planでは空配列を返す。
+ * それを見て「planが空だ」と誤読された実績があるため、plan本体（task・依存・phase・状態）を
+ * 1コマンドで読める面を別に持つ。読み出しは既存store readerとtodo status projectionの
+ * 再利用に留め、journalを独自に再実装しない。
+ */
+export async function runPlanShow({ cwd, planKey, stdout }) {
+  const repoRoot = resolveRepoRoot(cwd);
+  if (repoRoot === null) throw new TodoStoreError('REPO_UNRESOLVED', 'git_toplevel_unresolved');
+  const store = await readTodoStore({ repoRoot });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (member === undefined) {
+    // 既存read commands（independence compile等）と同じcode/reasonを踏襲する。
+    // 未知のplan_keyを「store不整合」と同じ扱いにするのはこのCLI全体の既定であり、
+    // ここだけ別codeへ逸れると呼び出し側の分岐が増える。
+    throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, {
+      plan_key: planKey, next_action: 'check_active_plans_via_status',
+    });
+  }
+  const { plan, snapshot, tasks } = member;
+  const phaseInput = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema);
+  const stateByTaskId = new Map(tasks.map((state) => [state.task_id, state]));
+  const phaseStatusById = new Map((snapshot?.phases ?? []).map((phase) => [phase.phase_id, phase.status]));
+
+  // 依存の本数: このplanの中でそのtaskへ入ってくるhard_dependencies辺と、joinで
+  // 合流するafter辺の合計。cross-plan参照は数えない（plan showは単一planの投影のため）。
+  const dependsOnCount = new Map(plan.tasks.map((task) => [task.task_id, 0]));
+  for (const edge of plan.hard_dependencies) {
+    if (edge.to.plan_key === planKey && dependsOnCount.has(edge.to.task_id)) {
+      dependsOnCount.set(edge.to.task_id, dependsOnCount.get(edge.to.task_id) + 1);
+    }
+  }
+  for (const join of plan.joins) {
+    if (join.before.plan_key === planKey && dependsOnCount.has(join.before.task_id)) {
+      dependsOnCount.set(join.before.task_id, dependsOnCount.get(join.before.task_id) + join.after.length);
+    }
+  }
+
+  const taskList = plan.tasks.map((task) => ({
+    task_id: task.task_id,
+    title: task.title,
+    lane: task.lane,
+    phase_id: phaseInput ? task.phase_id : null,
+    state: stateByTaskId.get(task.task_id).status,
+    depends_on_count: dependsOnCount.get(task.task_id) ?? 0,
+  }));
+
+  const phaseList = phaseInput ? plan.phases.map((phase) => ({
+    phase_id: phase.phase_id,
+    title: phase.title,
+    gate_policy: phase.gate_policy,
+    predecessor_phase_ids: phase.predecessor_phase_ids,
+    status: phaseStatusById.get(phase.phase_id) ?? null,
+  })) : [];
+
+  // dispatch形状はplan create時に既に計算している同じ関数を再利用する。
+  // critical path長・frontier幅を独自に計算し直さない。
+  const dispatchShape = computeTodoDispatchShapeForPlan({
+    projectId: plan.project_id, planKey,
+    taskIds: plan.tasks.map(({ task_id: taskId }) => taskId),
+    hardDependencies: plan.hard_dependencies, joins: plan.joins,
+  });
+
+  const result = {
+    schema: PLAN_SHOW_RESULT_SCHEMA,
+    project_id: plan.project_id,
+    plan_key: plan.plan_key,
+    plan_version: plan.plan_version,
+    plan_schema: plan.schema,
+    has_phases: phaseInput,
+    phases: phaseList,
+    tasks: taskList,
+    topology: {
+      task_count: dispatchShape.task_count,
+      critical_path_length: dispatchShape.critical_path_length,
+      max_frontier_width: dispatchShape.max_frontier_width,
+      serialization_ratio: dispatchShape.serialization_ratio,
+    },
+    result_digest: '',
+  };
+  result.result_digest = resultDigest(result);
+  stdout.write(`${JSON.stringify(result)}\n`);
+  return 0;
 }
 
 export function projectStatusFailure({ cwd, stdout, cliVersion, error }) {

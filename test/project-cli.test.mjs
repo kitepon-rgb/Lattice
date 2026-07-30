@@ -70,6 +70,18 @@ test('status --jsonは未初期化repoを成功として発見し実在する次
   assert.equal(JSON.parse(schemaExecution.stdout).title, 'lattice.plan_create_input.v3');
 });
 
+test('plan create --schema --jsonは版指定なしで最新v3を返し、--schema-version 1は互換のため引き続き取得できる', async (context) => {
+  const root = await workspace(context);
+  const bare = run(root, ['plan', 'create', '--schema', '--json']);
+  assert.equal(bare.status, 0, bare.stderr);
+  assert.equal(bare.stderr, '');
+  assert.equal(JSON.parse(bare.stdout).title, 'lattice.plan_create_input.v3');
+
+  const legacy = run(root, ['plan', 'create', '--schema-version', '1', '--json']);
+  assert.equal(legacy.status, 0, legacy.stderr);
+  assert.equal(JSON.parse(legacy.stdout).title, 'lattice.plan_create_input.v1');
+});
+
 test('status --jsonはSHA-256 Git HEADもtyped projectとして返す', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-project-sha256-'));
   context.after(() => rm(root, { recursive: true, force: true }));
@@ -381,6 +393,86 @@ test('task数が閾値未満の一直線plan createはdispatch_shape gateを素�
   assert.deepEqual(createResult.dispatch_shape, {
     task_count: 3, critical_path_length: 3, max_frontier_width: 1, serialization_ratio: '1.0000',
   });
+});
+
+test('plan show --jsonはtask・依存本数・topologyを投影し、未知keyをtyped errorにする', async (context) => {
+  const root = await workspace(context);
+  const input = chainInput({ projectId: 'show-project', taskCount: 3 });
+  await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(input)}\n`);
+  const created = run(root, ['plan', 'create', '--input', 'plan.json']);
+  assert.equal(created.status, 0, created.stderr);
+
+  const shown = run(root, ['plan', 'show', 'main', '--json']);
+  assert.equal(shown.status, 0, shown.stderr);
+  assert.equal(shown.stderr, '');
+  const result = JSON.parse(shown.stdout);
+  assert.equal(result.schema, 'lattice.plan_show_result.v1');
+  assert.equal(result.project_id, 'show-project');
+  assert.equal(result.plan_key, 'main');
+  assert.equal(result.plan_version, 'v1');
+  // plan_create_input.v1（Phaseなし）でも、格納されるplan本体のschemaは
+  // lattice.todo_plan.v3（runPlanCreateが常にv3以上へ正規化するため）。
+  assert.equal(result.plan_schema, 'lattice.todo_plan.v3');
+  // 通常planはphaseを持たない。`todo bindings`の空配列が「planが空」と誤読された
+  // 実績があるため、ここは「無い」事実自体をhas_phasesで明示する。
+  assert.equal(result.has_phases, false);
+  assert.deepEqual(result.phases, []);
+  assert.deepEqual(result.tasks.map(({ task_id, lane, phase_id, state, depends_on_count }) => (
+    [task_id, lane, phase_id, state, depends_on_count]
+  )), [
+    ['T1', 'main', null, 'pending', 0],
+    ['T2', 'main', null, 'pending', 1],
+    ['T3', 'main', null, 'pending', 1],
+  ]);
+  assert.deepEqual(result.topology, {
+    task_count: 3, critical_path_length: 3, max_frontier_width: 1, serialization_ratio: '1.0000',
+  });
+  assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
+
+  const missing = run(root, ['plan', 'show', 'no-such-plan', '--json']);
+  assert.equal(missing.status, 1);
+  assert.equal(missing.stdout, '');
+  const failure = JSON.parse(missing.stderr);
+  assert.equal(failure.schema, 'lattice.cli_error.v2');
+  assert.equal(failure.code, 'STORE_INCONSISTENT');
+  assert.equal(failure.message, 'plan_not_active');
+  assert.equal(failure.detail.plan_key, 'no-such-plan');
+  assert.equal(failure.detail.next_action, 'check_active_plans_via_status');
+});
+
+test('plan show --jsonはPhase定義とPhase状態を併せて投影する', async (context) => {
+  const root = await workspace(context);
+  await mkdir(path.join(root, '.lattice'));
+  const input = {
+    schema: 'lattice.plan_create_input.v3', project_id: 'show-phase-project', plan_key: 'main', plan_version: 'v1',
+    actor: { host: 'host-1', session: 'session-1', agent: 'agent-1' },
+    recorded_at: new Date().toISOString(),
+    tasks: [
+      { task_id: 'T1', title: '設計', lane: 'main', narrative_ref: null,
+        narrative_anchor: null, compile_binding: null, parent_task_id: null, phase_id: 'phase-1' },
+      { task_id: 'T2', title: '実装', lane: 'main', narrative_ref: null,
+        narrative_anchor: null, compile_binding: null, parent_task_id: null, phase_id: 'phase-2' },
+    ],
+    phases: [
+      { phase_id: 'phase-1', title: '設計', gate_policy: 'heavy', predecessor_phase_ids: [], required_evidence_slots: ['heavy'] },
+      { phase_id: 'phase-2', title: '実装', gate_policy: 'heavy', predecessor_phase_ids: ['phase-1'], required_evidence_slots: ['heavy'] },
+    ],
+    hard_dependencies: [], joins: [], phase_accept_dependencies: [], input_digest: '',
+  };
+  input.input_digest = todoSelfDigest(input, 'input_digest');
+  await writeFile(path.join(root, '.lattice', 'phase-plan-show.json'), `${canonicalizeTodoArtifact(input)}\n`);
+  const created = run(root, ['plan', 'create', '--input', '.lattice/phase-plan-show.json']);
+  assert.equal(created.status, 0, created.stderr);
+
+  const shown = JSON.parse(run(root, ['plan', 'show', 'main', '--json']).stdout);
+  assert.equal(shown.plan_schema, 'lattice.todo_plan.v5');
+  assert.equal(shown.has_phases, true);
+  assert.deepEqual(shown.phases.map(({ phase_id, status }) => [phase_id, status]), [
+    ['phase-1', 'active'], ['phase-2', 'locked'],
+  ]);
+  assert.deepEqual(shown.tasks.map(({ task_id, phase_id }) => [task_id, phase_id]), [
+    ['T1', 'phase-1'], ['T2', 'phase-2'],
+  ]);
 });
 
 test('status discoveryはactor環境がなくてもactive projectをdashboardへ登録する', async (context) => {
