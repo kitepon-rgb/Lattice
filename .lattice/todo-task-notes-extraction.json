@@ -1,0 +1,217 @@
+{
+  "schema": "lattice.todo_extraction.v2",
+  "project_id": "lattice",
+  "plan_key": "todo-task-notes",
+  "plan_version": "v1",
+  "actor": {
+    "host": "KaitonoMacBook-Air",
+    "session": "todo-task-notes-20260801",
+    "agent": "codex-5-6-sol"
+  },
+  "recorded_at": "2026-08-01T02:21:41.000Z",
+  "tasks": [
+    {
+      "task_id": "ttn-001",
+      "title": "独立note chainとbounded contextの公開契約を固定する",
+      "lane": "contract",
+      "narrative_ref": "docs/plan_todo-task-notes.md#L35",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_todo-task-notes.md",
+        "origin_line": 35,
+        "source_commit": "01d07ac75fd9e6c5c8fdf5937f8dc733a860d947",
+        "heading_path": [
+          "ToDoへ作業記憶を累積し、次のAIへ自動供給する — 統括plan",
+          "受入"
+        ],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": ["docs/adr/0149-task-notes-are-a-third-layer.md"],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": ["既存lifecycle journal・snapshot・manifestを変更しない別artifact契約と、通常read/startへの自動同梱を先にtestで固定する。"]
+      }
+    },
+    {
+      "task_id": "ttn-002",
+      "title": "note chainのappend・read・rotationと破損分離を実装する",
+      "lane": "store",
+      "narrative_ref": "docs/plan_todo-task-notes.md#L36",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_todo-task-notes.md",
+        "origin_line": 36,
+        "source_commit": "01d07ac75fd9e6c5c8fdf5937f8dc733a860d947",
+        "heading_path": ["ToDoへ作業記憶を累積し、次のAIへ自動供給する — 統括plan", "受入"],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": ["bodyは16 KiB、supersedesは同一task、chainはcanonical JSONLと1 MiB rotation。NOTE_LOG_CORRUPTはlifecycleを止めない。"]
+      }
+    },
+    {
+      "task_id": "ttn-003",
+      "title": "task migrationからnoteの現行束とarchived束を再構成する",
+      "lane": "projection",
+      "narrative_ref": "docs/plan_todo-task-notes.md#L37",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_todo-task-notes.md",
+        "origin_line": 37,
+        "source_commit": "01d07ac75fd9e6c5c8fdf5937f8dc733a860d947",
+        "heading_path": ["ToDoへ作業記憶を累積し、次のAIへ自動供給する — 統括plan", "受入"],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": ["note専用migrateは作らず、plan genesisのtask_migrationを版順に合成する。旧版来歴を保持しremovedはarchivedへ送る。"]
+      }
+    },
+    {
+      "task_id": "ttn-004",
+      "title": "通常ToDo詳細とtodo startへnote contextを自動同梱する",
+      "lane": "read",
+      "narrative_ref": "docs/plan_todo-task-notes.md#L35",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_todo-task-notes.md",
+        "origin_line": 35,
+        "source_commit": "01d07ac75fd9e6c5c8fdf5937f8dc733a860d947",
+        "heading_path": ["ToDoへ作業記憶を累積し、次のAIへ自動供給する — 統括plan", "受入"],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": ["docs/adr/0149-task-notes-are-a-third-layer.md"],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": ["最新notes・元plan version・訂正状態・head digest・overflowを64 KiB以内で必ず返す。note listの別実行をAIへ要求しない。"]
+      }
+    },
+    {
+      "task_id": "ttn-005",
+      "title": "note CLIとtodo verifyのtyped failureを実装する",
+      "lane": "cli",
+      "narrative_ref": "docs/plan_todo-task-notes.md#L38",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_todo-task-notes.md",
+        "origin_line": 38,
+        "source_commit": "01d07ac75fd9e6c5c8fdf5937f8dc733a860d947",
+        "heading_path": ["ToDoへ作業記憶を累積し、次のAIへ自動供給する — 統括plan", "受入"],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": ["--message/--input/--supersedesとnote list --jsonをexact argvで追加し、破損や不正taskで既存store bytesを変えない。"]
+      }
+    },
+    {
+      "task_id": "ttn-006",
+      "title": "Gantt右ペインへ安全に表示し公開serveから除外する",
+      "lane": "gantt",
+      "narrative_ref": "docs/plan_todo-task-notes.md#L39",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_todo-task-notes.md",
+        "origin_line": 39,
+        "source_commit": "01d07ac75fd9e6c5c8fdf5937f8dc733a860d947",
+        "heading_path": ["ToDoへ作業記憶を累積し、次のAIへ自動供給する — 統括plan", "受入"],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": ["既存AST rendererとserializeJsonForScriptを使い、taskごと64 KiB window、live head v2、公開serveでは本文非露出。"]
+      }
+    },
+    {
+      "task_id": "ttn-007",
+      "title": "実store受入と独立反証でcampaignを閉じる",
+      "lane": "acceptance",
+      "narrative_ref": "docs/plan_todo-task-notes.md#L40",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_todo-task-notes.md",
+        "origin_line": 40,
+        "source_commit": "01d07ac75fd9e6c5c8fdf5937f8dc733a860d947",
+        "heading_path": ["ToDoへ作業記憶を累積し、次のAIへ自動供給する — 統括plan", "受入"],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": ["focused/related/CI、実store三面、lifecycle三artifact hash不変、XSS、公開非露出を確認し、契約クリティカル範囲を独立反証する。"]
+      }
+    }
+  ],
+  "hard_dependencies": [
+    {"from":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-001"},"to":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-002"}},
+    {"from":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-002"},"to":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-003"}},
+    {"from":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-002"},"to":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-005"}},
+    {"from":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-003"},"to":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-004"}},
+    {"from":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-004"},"to":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-006"}},
+    {"from":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-005"},"to":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-006"}},
+    {"from":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-006"},"to":{"project_id":"lattice","plan_key":"todo-task-notes","task_id":"ttn-007"}}
+  ],
+  "joins": [],
+  "extraction_digest": "c19548a38ca8c6124c3de5bd34df9d3387c32db4cea75957b6b20067f95d52f0"
+}
