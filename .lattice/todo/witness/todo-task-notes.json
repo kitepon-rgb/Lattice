@@ -43,6 +43,11 @@
         "target": "bin/lattice-dashboard.mjs"
       },
       {
+        "id": "q-note-gantt-test",
+        "operation": "affected",
+        "target": "test/todo-note-gantt.test.mjs"
+      },
+      {
         "id": "q-status",
         "operation": "status"
       }
@@ -382,6 +387,7 @@
           { "expect": { "kind": "affected", "path": "src/todo-gantt-html-independence.mjs" }, "query_id": "q-gantt-detail" },
           { "expect": { "kind": "affected", "path": "src/todo-gantt-html-style.mjs" }, "query_id": "q-gantt-style" },
           { "expect": { "kind": "affected", "path": "bin/lattice-dashboard.mjs" }, "query_id": "q-dashboard" },
+          { "expect": { "kind": "affected", "path": "test/todo-note-gantt.test.mjs" }, "query_id": "q-note-gantt-test" },
           { "expect": { "kind": "affected", "path": "src/todo-note-store.mjs" }, "query_id": "q-note-store" }
         ]
       },
@@ -394,5 +400,5 @@
       ]
     }
   },
-  "witness_set_digest": "1c88d9cc0b7e3194cd6dda767bb70cfeac0b44f1f7f2fd753af96bc4e0f6633e"
+  "witness_set_digest": "6d36e0e02595e79e694da857204b3287a9ff2c4d99a7dbf48a478c2cac50a5d4"
 }
