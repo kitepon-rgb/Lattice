@@ -6,6 +6,10 @@
   [ADR 0131](0131-single-store-read-for-gantt.md)（Ganttの単一store read）
 - 計画: [docs/plan_todo-task-notes.md](../plan_todo-task-notes.md)
 
+> 追補（2026-08-01）: [ADR 0150](0150-todo-design-memo-is-mandatory-authoring-input.md)が初期設計メモを
+> ToDo本体へ追加し、ローカル／公開の動的右ペインへ表示する契約を加えた。[ADR 0151](0151-dynamic-gantt-is-the-only-operational-surface.md)は
+> 静的Gantt生成を退役させた。本ADRの公開除外はappend-only note本文にだけ残り、初期設計メモには適用しない。
+
 ## 文脈
 
 従来はToDoやplanを設計したMarkdownへ、作業中の調査結果、採用・棄却した案、実装上の注意、未解決事項を
@@ -42,7 +46,7 @@ plan級の思想・判断理由はlinked Markdownが持ち、状態・依存はL
    superseded noteには訂正済み表示を付ける。
 7. **Markdownは既存AST rendererのallow-listだけで描画する。** raw HTML、`innerHTML`、外部scheme linkを
    許さず、script埋込は`serializeJsonForScript`を通す。noteのbytesは既存Gantt prose budgetへ計上する。
-8. **公開面は初版でnote本文を出さない。** ローカル生成Ganttには表示するが、`todo gantt serve`と常駐dashboardは
+8. **公開面は初版でnote本文を出さない。** ローカル動的viewerには表示するが、`todo gantt serve`と常駐dashboardは
    共通の公開wrapperを通してnote本文を除外する。公開を許す変更は別の明示裁定を要求する。note artifact自体はgit trackedなので、秘密を
    書かない運用規範は維持する。
 9. **noteは正典や機械判定を代替しない。** 方針級の発見はADR・docs・caveatへ還流する。noteをindependence、

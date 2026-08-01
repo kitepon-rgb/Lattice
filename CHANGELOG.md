@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.39.0 — 2026-08-01
+
+### 変更
+
+- **新しいToDoへ初期設計メモを必須化した。** `plan create`、`todo migrate`、通常／Phase revisionの
+  各authoring契約が非空Markdownの`design_memo`を受理し、空欄やファイル参照だけの本文を拒否する。
+  本当に方針が無い場合だけ正確なsentinel `NO_PLAN`を許可し、authoring guidanceは
+  「If you have not thought through this ToDo, write exactly `NO_PLAN` in its design memo.」と問い返す。
+- **通常詳細と着手結果へ初期設計メモを自動同梱した。** `todo show`と成功する`todo start`は
+  append-only noteとは別に、ToDo本体へ束縛された設計メモを返す。revision後もtask migrationに従って運ぶ。
+- **ローカル／公開の動的工程表右ペインへ設計メモを表示した。** 公開面から除くのは作業開始後の
+  append-only note本文だけであり、初期設計メモは公開viewerでも読める。Markdownは既存の安全なrendererで描画する。
+- **静的工程表生成を退役させた。** `todo gantt`、`todo gantt status`、`--out`は
+  `STATIC_GANTT_RETIRED`で動的dashboardを案内する。project別HTMLやsidecarの生成・再生成は不要である。
+- **AI authoringをfail closedかつ診断可能にした。** 最新schema、`todo migrate --dry-run`、bounded diagnostics、
+  typed argument error、Phase guidance、reconciliation自己記述、`todo verify` v3を揃えた。
+- **dashboard registryのproject root競合を自動上書きしなくした。** 同じproject IDの別rootは
+  `PROJECT_ROOT_CONFLICT`で拒否し、明示actorを伴う`todo dashboard adopt`だけが配信元を切り替える。
+
+### アップグレード注意
+
+新規authoringへ旧schemaを送ると拒否される。既存storeの読取互換は維持する。新規planは
+`lattice plan create --schema-version 4 --json`、既存資料からの移行は
+`lattice todo migrate --schema --json`で最新契約を取得し、各ToDoへ`design_memo`または正確な`NO_PLAN`を入れる。
+個別HTMLを再生成せず、動的dashboardを使う。
+
 ## 0.38.1 — 2026-08-01
 
 ### 変更

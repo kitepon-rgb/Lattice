@@ -1,6 +1,6 @@
 # Lattice integration package（現行公開面）
 
-- Updated: 2026-07-25
+- Updated: 2026-08-01
 - 位置づけ: hostや工場へ組み込む公開面の索引。**各契約の正典は参照先ADR**であり、
   本書は所在と編入条件だけを固定する（複製しない）。
 - 根拠裁定: [ADR 0051](adr/0051-rc4-phase-gate-support.md)（RC4条件付きsupport・Decision 6のcarry-over）
@@ -27,7 +27,8 @@
 - RC2公開済み継承: `lattice.boundary_verdict.v2`・`lattice.plan_graph.v2`・RC2 artifact manifest系（同名変更禁止）
 - 共通規律: exact key・bounded collection・canonical serialization・SHA-256 digest・fail closed。
   field追加・意味変更はversionを上げ新ADRで裁定（in-place拡張禁止）
-- 配布されるJSON Schema: `plan_create_input` v1〜v3に加え、`run_request.v1`・`executor_packet.v1`・
+- 配布されるJSON Schema: `plan_create_input` v1〜v4に加え、`todo_revision.v2`、
+  `todo_revision_set.v3`、`phase_todo_revision.v3`、`todo_extraction` v2〜v3、`run_request.v1`・`executor_packet.v1`・
   `executor_receipt.v1`・`runtime_adapter_registration_input.v1`を`docs/schemas/`で同梱する。
   この4 schemaの正本は配布ファイルであり、ADR 0044 Decision 2の表ではない（ADR 0123・0125）。
 - TODO工程とruntime実行の相関: `todo bindings [--plan <key>] --json`が
@@ -35,9 +36,25 @@
   `todo_status_result.v4`は変更していないため、v4を受理する既存hostはそのまま動く。
 - TODO工程: 現行authoringは`lattice.plan_create_input.v4`、planは`lattice.todo_plan.v7`、
   eventは`lattice.todo_event.v4`、snapshotは`lattice.todo_snapshot.v2`、Phase revisionは
-  `lattice.phase_todo_revision.v2`、cross-plan revisionは`lattice.todo_revision_set.v3`、
+  `lattice.phase_todo_revision.v3`、cross-plan revisionは`lattice.todo_revision_set.v3`、
   statusは`lattice.todo_status_result.v4`を使う。
   旧schemaは既存storeの読取・移行互換としてだけ維持する。
+
+### 2.1 ToDo設計メモと動的工程表
+
+- 新規authoring／抽出／revisionの各ToDoは、非空Markdownの`design_memo`を持つ。ファイル参照だけの本文を
+  受理せず、実装方針を持たない時だけ正確なsentinel `NO_PLAN`を受理する。
+- authoring入口は「If you have not thought through this ToDo, write exactly `NO_PLAN` in its design memo.」を
+  機械可読guidanceへ含める。`NO_PLAN`は空欄を成功に見せるdefaultではなく、無計画を明示する申告である。
+- `todo show`と成功する`todo start`は初期設計メモを自動返却する。append-only noteは開始後に増えた
+  作業記憶の別層であり、初期設計メモを代替しない。
+- 個別ToDo右ペインはローカル／公開の動的viewerで初期設計メモを表示する。公開面から除くのは
+  append-only note本文だけである。
+- 運用表示面は動的dashboardだけとし、project別HTMLやstatus sidecarを生成しない。
+  `todo gantt`／`todo gantt status`は`STATIC_GANTT_RETIRED`で正規の動的入口を返す。
+- `todo migrate --schema --json`は最新`lattice.todo_extraction.v3`を返し、`--dry-run`は書込なしで
+  diagnostics、source inventory、cutover batchを検査する。検証結果は`lattice.todo_verify_result.v3`、
+  foreground viewer起動結果は`lattice.todo_gantt_live_result.v3`で返す。
 
 ## 2.5 ready frontier dispatch契約
 

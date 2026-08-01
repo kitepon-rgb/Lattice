@@ -310,6 +310,8 @@ ToDoが段の最下行になる。配線規約は[ADR 0068](adr/0068-gantt-route
 右ペインはToDo storeを見せる面であり、ToDo本体へ束縛した初期設計メモと追記noteを区別して表示する。
 元plan Markdown本文を暗黙に再読込しない。全工程一覧は、動いているplanを
 最終活動の新しい順で上、全ToDoが図から外れた完走planを古い順で下へ並べ、plan内は登録順を保つ。
+初期設計メモはローカル／公開の動的viewerへ表示する。追記note本文だけは公開面から除外し、
+「公開なので設計メモも空にする」という縮退を許さない。
 右ペインの規約は[ADR 0067](adr/0067-right-pane-shows-the-store-and-orders-by-activity.md)が正。
 
 工程表はstoreを都度読む動的viewerだけを運用表示面とする。`todo gantt serve --port <0..65535>`はloopback-onlyの

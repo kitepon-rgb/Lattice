@@ -496,14 +496,15 @@ v3が使えないという限定はどこにも書かれていない。reconcile
 含まれた時に、setV3のmember許容へv3を加えるか（cutover整合の同時検証が要る）、
 公開契約側へ限定を明記するかを裁定する。
 
-## narrative anchorの検査がmigrateとganttで非対称（2026-07-30に判明）
+## narrative anchorの検査がmigrateと動的rendererで非対称（2026-07-30に判明）
 
 `todo migrate`はplan文書の行数を超える`narrative_ref`（例 68行の文書へ`#L70`）を受理するが、
-`todo gantt`は`narrative_line_missing`で拒否する。登録は通るのに投影で止まるので、原因から
+動的工程表rendererは`narrative_line_missing`で拒否する。登録は通るのに投影で止まるので、原因から
 離れた場所で失敗が出る。audit-baseline planの登録で実際に踏んだ（文書へ節を足して解消）。
 
 **起票条件**: 同種の失敗をもう1件踏んだ時に、migrate側でも同じanchor検査を掛けるか、
-gantt側の検査時点を公開契約へ明示するかを裁定する。片方だけ厳しい状態を「どちらが正か」を
+renderer側の検査時点を公開契約へ明示するかを裁定する。静的`todo gantt`はADR 0151で退役済みであり、
+個別HTML生成を復活させる解決は採らない。片方だけ厳しい状態を「どちらが正か」を
 決めずに放置しない。
 
 ---
