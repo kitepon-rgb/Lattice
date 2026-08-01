@@ -1,0 +1,9 @@
+{
+  "evidence_id": "todo-note-cli-and-verify",
+  "repo_id": "self",
+  "path": "src/todo-cli.mjs",
+  "git_blob_oid": "b84a47f311033cc6cd92b6eb9bf5db2abbdf1356",
+  "content_digest": "f684829d4556027be135bc71d39815e36546ca4d0f85934ef2800929c79168e3",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
