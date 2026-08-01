@@ -1,0 +1,35 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "objective_ref": "docs/plan_todo-task-notes.md",
+  "actor_id": "codex-parent-20260801",
+  "document_refs": [
+    "docs/adr/0149-task-notes-are-a-third-layer.md",
+    "docs/plan_todo-task-notes.md"
+  ],
+  "budget": {
+    "max_worker_runs": 2,
+    "max_consultations": 2,
+    "max_external_runs": 2,
+    "max_wall_time_seconds": null,
+    "max_cost_microusd": null,
+    "max_runs_per_approach_family": 1,
+    "max_retries_per_assignment": 1,
+    "max_integration_runs": 2
+  },
+  "lane_admission": {
+    "contract_version": "dotagents.lane-admission.v1",
+    "conditions": {
+      "planned_interruption": false,
+      "chained_acceptance": true,
+      "multi_repo_write_coordination": false,
+      "decision_evidence_required": true
+    },
+    "decision": {
+      "type": "decision",
+      "ref": "docs/adr/0149-task-notes-are-a-third-layer.md",
+      "digest": "4bc1e4684c459e67c076c5a1de983a110a3108e3cfc0a10feaa159f89a67be8f",
+      "observed_at": "2026-08-01T02:21:41.000Z"
+    }
+  }
+}
