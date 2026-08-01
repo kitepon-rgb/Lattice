@@ -185,6 +185,43 @@
         "src/todo-note-store.mjs"
       ]
     },
+    "ttn-004": {
+      "affected_tests": [
+        "test/todo-cli-schema-command.test.mjs",
+        "test/todo-dashboard-registry.test.mjs",
+        "test/todo-explain-diagnostics.test.mjs",
+        "test/todo-independence-cli.test.mjs",
+        "test/todo-phase-baseline.test.mjs",
+        "test/todo-revision-set.test.mjs"
+      ],
+      "owns": [
+        {
+          "kind": "path",
+          "target": "src/todo-cli.mjs"
+        }
+      ],
+      "reads": [
+        "src/todo-note-store.mjs",
+        "src/todo-status.mjs"
+      ],
+      "resources": [],
+      "sensor_provenance": {
+        "queries": [
+          {
+            "expect": {
+              "kind": "affected",
+              "path": "src/todo-cli.mjs"
+            },
+            "query_id": "q-cli"
+          }
+        ]
+      },
+      "state_effects": [],
+      "unknowns": [],
+      "writes": [
+        "src/todo-cli.mjs"
+      ]
+    },
     "ttn-005": {
       "affected_tests": [
         "test/todo-cli-schema-command.test.mjs",
@@ -222,5 +259,5 @@
       ]
     }
   },
-  "witness_set_digest": "575f1a61b14c471dafc99d5a3b4d86187843b8d58aa08d989997a1254c03b3f8"
+  "witness_set_digest": "4248b3e6940d33a838a72abaaebb5a3e284554337eff319a32faace0b6b6ec6a"
 }
