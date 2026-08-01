@@ -1,4 +1,4 @@
-# Task notes v0.38.0 release plan
+# Task notes v0.38.0 release plan（完了）
 
 ## 目的
 

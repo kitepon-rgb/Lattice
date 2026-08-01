@@ -1,0 +1,17 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-release-20260801",
+  "actor_id": "codex-parent-release-20260801",
+  "expected_revision": 8,
+  "phase": "knowledge_return",
+  "state": "completed",
+  "evidence": [
+    {
+      "type": "file",
+      "ref": "docs/evidence/2026-08-01-v0.38.0-task-notes-release.md",
+      "digest": "c38e189edb5a59ac8005119af7e99fb240334dd715c32fb6f8c94ac80d4dec74",
+      "observed_at": "2026-08-01T04:00:00.000Z"
+    }
+  ],
+  "decision": null
+}
