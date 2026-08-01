@@ -114,7 +114,9 @@
       "state_effects": [],
       "unknowns": [],
       "affected_tests": [
+        "test/bridge-server.test.mjs",
         "test/project-cli.test.mjs",
+        "test/session-context.test.mjs",
         "test/todo-cli-schema-command.test.mjs",
         "test/todo-close-unaudited.test.mjs",
         "test/todo-dashboard-registry.test.mjs",
@@ -122,6 +124,7 @@
         "test/todo-explain-diagnostics.test.mjs",
         "test/todo-gantt-independence.test.mjs",
         "test/todo-gantt-layout.test.mjs",
+        "test/todo-gantt-live.test.mjs",
         "test/todo-gantt-render.test.mjs",
         "test/todo-gantt-scope-cli.test.mjs",
         "test/todo-gantt-scope.test.mjs",
@@ -232,6 +235,7 @@
       "unknowns": [],
       "affected_tests": [
         "test/bounded-seam.test.mjs",
+        "test/bridge-server.test.mjs",
         "test/cli-stdout-epipe.test.mjs",
         "test/integration/aishell-runtime-conflict-dogfood.integration.mjs",
         "test/integration/hold-transform-resume.integration.mjs",
@@ -244,15 +248,10 @@
         "test/project-cli.test.mjs",
         "test/rc3-hold-recompile.test.mjs",
         "test/replan-convergence.test.mjs",
-        "test/runtime-adapter-registry-cli.test.mjs",
-        "test/runtime-canonical-write-coverage.test.mjs",
         "test/runtime-conflict-cli.test.mjs",
         "test/runtime-hold-public-contract.test.mjs",
         "test/runtime-io-sentinel.test.mjs",
-        "test/runtime-lifecycle-lock.test.mjs",
-        "test/runtime-managed-supervisor.test.mjs",
         "test/runtime-multi-epoch-store.test.mjs",
-        "test/runtime-scripted-adapter-controller.test.mjs",
         "test/runtime-seam-resolve.test.mjs",
         "test/runtime-seam-treatment.test.mjs",
         "test/seam-conflict-input.test.mjs",
@@ -273,6 +272,7 @@
         "test/todo-evidence-promote-carried-done.test.mjs",
         "test/todo-explain-diagnostics.test.mjs",
         "test/todo-gantt-independence.test.mjs",
+        "test/todo-gantt-live.test.mjs",
         "test/todo-gantt-presentation.test.mjs",
         "test/todo-gantt-render.test.mjs",
         "test/todo-gantt-scope-cli.test.mjs",
@@ -366,17 +366,10 @@
       "unknowns": [],
       "affected_tests": [
         "test/cli-stdout-epipe.test.mjs",
-        "test/integration/aishell-runtime-conflict-dogfood.integration.mjs",
         "test/integration/hold-transform-resume.integration.mjs",
         "test/integration/seam-profile-cli.integration.mjs",
         "test/project-cli.test.mjs",
-        "test/runtime-adapter-registry-cli.test.mjs",
-        "test/runtime-canonical-write-coverage.test.mjs",
-        "test/runtime-conflict-cli.test.mjs",
         "test/runtime-hold-public-contract.test.mjs",
-        "test/runtime-lifecycle-lock.test.mjs",
-        "test/runtime-managed-supervisor.test.mjs",
-        "test/runtime-scripted-adapter-controller.test.mjs",
         "test/seam-proposal-cli.test.mjs",
         "test/session-context.test.mjs",
         "test/todo-cli-schema-command.test.mjs",
@@ -501,5 +494,5 @@
       }
     }
   },
-  "witness_set_digest": "7cf29de084751926f7c14ba600cc990eff57302eef4be109329a3c075fee4501"
+  "witness_set_digest": "41eafd6f448ff1f7c88732de9640de486561f4f5f16729f40a95bfdcf0afc97f"
 }
