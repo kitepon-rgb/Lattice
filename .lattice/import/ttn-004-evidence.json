@@ -1,0 +1,9 @@
+{
+  "evidence_id": "todo-note-auto-context",
+  "repo_id": "self",
+  "path": "src/todo-cli.mjs",
+  "git_blob_oid": "57dafc4938237e728125133747e6c26beb41b019",
+  "content_digest": "937e61329047648d2f4fd96d1b7c36f1318c89c10b600fc7cc4ad58c036da28c",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
