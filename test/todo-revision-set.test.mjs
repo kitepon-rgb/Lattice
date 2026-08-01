@@ -40,19 +40,24 @@ const ref = (planKey, taskId, expectedTopologyDigest) => ({
   ...(expectedTopologyDigest === undefined ? {} : { expected_topology_digest: expectedTopologyDigest }),
 });
 
-async function fixture(context) {
+async function fixture(context, { designMemos = false } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-revision-set-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   execFileSync('git', ['init', '--quiet'], { cwd: root });
   await writeFile(path.join(root, 'a.md'), '- [ ] A1\n');
   await writeFile(path.join(root, 'b.md'), '- [ ] B1\n');
   const upstream = buildTodoPlan({
-    schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'b', plan_version: 'v1',
-    predecessor_plan_digest: null, tasks: [task('B1')], hard_dependencies: [], joins: [],
+    schema: designMemos ? 'lattice.todo_plan.v6' : 'lattice.todo_plan.v3',
+    project_id: 'project-1', plan_key: 'b', plan_version: 'v1',
+    predecessor_plan_digest: null,
+    tasks: [{ ...task('B1'), ...(designMemos ? { design_memo: 'B1の設計メモ' } : {}) }],
+    hard_dependencies: [], joins: [],
   });
   const downstream = {
-    schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'a', plan_version: 'v1',
-    predecessor_plan_digest: null, tasks: [task('A1')],
+    schema: designMemos ? 'lattice.todo_plan.v6' : 'lattice.todo_plan.v3',
+    project_id: 'project-1', plan_key: 'a', plan_version: 'v1',
+    predecessor_plan_digest: null,
+    tasks: [{ ...task('A1'), ...(designMemos ? { design_memo: 'A1の設計メモ' } : {}) }],
     hard_dependencies: [{
       from: ref('b', 'B1', upstream.topology_digest),
       to: ref('a', 'A1'),
@@ -228,6 +233,17 @@ test('cross-plan successorは一件ずつ公開できずrevision setだけが同
   assert.deepEqual(active.members.map(({ plan }) => [plan.plan_key, plan.plan_version]), [
     ['a', set[0].desired_plan.plan_version], ['b', set[1].desired_plan.plan_version],
   ]);
+});
+
+test('revision setもv6からmemo無しschemaへの後退を一括activation前に拒否する', async (context) => {
+  const root = await fixture(context, { designMemos: true });
+  const set = revisionSet(await revisions(root));
+  const before = await readFile(path.join(root, '.lattice/todo/manifest.json'));
+  await assert.rejects(applyTodoRevisionSet({
+    repoRoot: root, writer, revisionSet: set, actor: ACTOR, recordedAt: NOW, now: NOW,
+  }), (error) => error.code === 'REVISION_INVALID'
+    && error.detail.reason === 'design_memo_schema_downgrade');
+  assert.deepEqual(await readFile(path.join(root, '.lattice/todo/manifest.json')), before);
 });
 
 test('revision set v3はcross-plan Phase successorsを一つのmanifestで同時activationする', async (context) => {

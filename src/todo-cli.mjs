@@ -1182,13 +1182,23 @@ async function migrateDryRun({ repoRoot, inputRef, serializationReviewed = false
           task_ids: error?.detail?.critical_path_task_ids ?? [],
           next_action: 'reconsider_parallel_seams_or_pass_serialization_reviewed' });
       }
+    } catch (error) {
+      plannedPlan = null;
+      dispatchShape = null;
+      violations.push({ code: error?.detail?.reason ?? 'topology_invalid', path: '/hard_dependencies',
+        task_ids: [], next_action: 'correct_extraction_topology' });
+    }
+    if (plannedPlan !== null && dispatchShape !== null) {
       violations.push(...extractionFreshnessViolations(repoRoot, extraction));
       let manifestPresent = false;
       try {
         const stats = await lstat(path.join(repoRoot, '.lattice', 'todo', 'manifest.json'));
         manifestPresent = stats.isFile() && !stats.isSymbolicLink();
       } catch (error) {
-        if (error?.code !== 'ENOENT') throw error;
+        if (error?.code !== 'ENOENT') {
+          throw new TodoStoreError('MIGRATION_DRY_RUN_IO_FAILED', 'manifest_status_unreadable',
+            undefined, { path: '.lattice/todo/manifest.json' });
+        }
       }
       if (manifestPresent) {
         const store = await readTodoStore({ repoRoot });
@@ -1201,9 +1211,6 @@ async function migrateDryRun({ repoRoot, inputRef, serializationReviewed = false
             next_action: 'choose_a_new_plan_key_or_use_revision' });
         }
       }
-    } catch (error) {
-      violations.push({ code: error?.detail?.reason ?? 'topology_invalid', path: '/hard_dependencies',
-        task_ids: [], next_action: 'correct_extraction_topology' });
     }
   }
   const bounded = violations.slice(0, 64);

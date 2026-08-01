@@ -73,7 +73,7 @@ async function revisionFor(root, {
   title = 'T1', migrationPolicy = 'carry', removeT5 = false,
   removeT5Reason = 'task removed by successor revision', extraTombstones = [],
   hardDependencies = [], t6Anchor = null, t1ParentTaskId = null, migrationPolicies = {},
-  sourceTextByTask = {}, planSchema = 'lattice.todo_plan.v3',
+  sourceTextByTask = {}, planSchema = 'lattice.todo_plan.v3', designMemoByTask = {},
 } = {}) {
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const previous = store.members[0];
@@ -90,6 +90,9 @@ async function revisionFor(root, {
     removeT5
       ? { from_task_id: 'T5', to_task_id: 'removed', state_policy: 'removed' }
       : { from_task_id: 'T5', to_task_id: 'T5', state_policy: 'reset_pending' },
+    ...(previous.plan.tasks.some(({ task_id }) => task_id === 'T6')
+      ? [{ from_task_id: 'T6', to_task_id: 'T6', state_policy: migrationPolicies.T6 ?? 'carry' }]
+      : []),
   ];
   const sourceText = (taskId) => sourceTextByTask[taskId]
     ?? `- [ ] ${taskId}`;
@@ -112,7 +115,8 @@ async function revisionFor(root, {
   const desiredTask = (taskId, taskTitle = taskId) => ({
     ...task(taskId, taskTitle),
     ...(planSchema === 'lattice.todo_plan.v6'
-      ? { design_memo: taskId === 'T1' ? 'NO_PLAN' : `## 方針\n\n${taskId}の設計メモ` }
+      ? { design_memo: designMemoByTask[taskId]
+          ?? (taskId === 'T1' ? 'NO_PLAN' : `## 方針\n\n${taskId}の設計メモ`) }
       : {}),
   });
   const desiredInput = {
@@ -132,9 +136,12 @@ async function revisionFor(root, {
     taskMigration, sourceInventory,
   });
   const desiredPlan = buildTodoPlan(desiredInput);
-  const predecessorReconciliationDigest = todoLegacyReconciliationDigest({
-    planDigest: predecessor.plan_digest, journalHeadDigest: predecessor.journal_head_digest,
-  });
+  const activeGenesis = previous.journal.events[0];
+  const predecessorReconciliationDigest = activeGenesis.schema === 'lattice.todo_event.v2'
+    ? activeGenesis.reconciliation_digest
+    : todoLegacyReconciliationDigest({
+      planDigest: predecessor.plan_digest, journalHeadDigest: predecessor.journal_head_digest,
+    });
   const sourceInventoryDigest = todoSourceInventoryDigest(sourceInventory);
   const reconciliation = {
     predecessor_reconciliation_digest: predecessorReconciliationDigest,
@@ -448,6 +455,44 @@ test('legacy planからdesign_memo付きv6へ改訂してもcarry lifecycleを�
   assert.equal(states.get('T2').status, 'in-progress');
   assert.equal(states.get('T2').started_at, NOW);
   assert.equal(states.get('T6').status, 'pending');
+});
+
+test('既存design_memo変更は通常carryを拒否し明示reconcileだけがstateとpolicyを引き継ぐ', async (context) => {
+  const root = await fixture(context);
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await apply(root, await revisionFor(root, { planSchema: 'lattice.todo_plan.v6' }));
+
+  const changed = await revisionFor(root, {
+    planSchema: 'lattice.todo_plan.v6', designMemoByTask: { T1: '## 改訂方針\n\n本文を更新する。' },
+  });
+  await assert.rejects(apply(root, changed), (error) => error instanceof TodoStoreError
+    && error.code === 'REVISION_INVALID' && error.detail.reason === 'carry_semantics_changed');
+
+  const reconciled = await revisionFor(root, {
+    planSchema: 'lattice.todo_plan.v6',
+    designMemoByTask: { T1: '## 改訂方針\n\n本文を更新する。' },
+    migrationPolicies: { T1: 'carry_reconciled_metadata' },
+  });
+  await apply(root, reconciled);
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  assert.equal(member.plan.tasks.find(({ task_id }) => task_id === 'T1').design_memo,
+    '## 改訂方針\n\n本文を更新する。');
+  assert.equal(member.tasks.find(({ task_id }) => task_id === 'T1').status, 'in-progress');
+  assert.equal(member.journal.events[0].state_migration
+    .find(({ from_task_id }) => from_task_id === 'T1').state_policy,
+  'carry_reconciled_metadata');
+});
+
+test('設計メモを持つplanからmemo無しschemaへの後退はrevision入口でtyped拒否する', async (context) => {
+  const root = await fixture(context);
+  await apply(root, await revisionFor(root, { planSchema: 'lattice.todo_plan.v6' }));
+  const downgrade = await revisionFor(root, { planSchema: 'lattice.todo_plan.v3' });
+  await assert.rejects(apply(root, downgrade), (error) => error instanceof TodoStoreError
+    && error.code === 'REVISION_INVALID' && error.detail.reason === 'design_memo_schema_downgrade'
+    && error.detail.predecessor_schema === 'lattice.todo_plan.v6'
+    && error.detail.desired_schema === 'lattice.todo_plan.v3');
 });
 
 test('removed taskはsuccessorから除外しpredecessor v1履歴とevidenceを不変保存する', async (context) => {

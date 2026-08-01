@@ -235,6 +235,45 @@ test('R7難所18例はsource階層と移行context、明示edge/joinを失わず
     && error.code === 'MIGRATION_EMPTY' && error.detail.reason === 'no_registered_tasks');
 });
 
+test('登録taskから除外taskへのparent・dependency・join参照は位置付きで拒否する', async () => {
+  const base = await fixture('r7-hard-cases.json');
+  const registered = base.tasks.find(({ disposition }) => disposition.startsWith('register_'));
+  const excluded = base.tasks.find(({ disposition }) => disposition.startsWith('exclude_'));
+  const ref = (taskId) => ({
+    project_id: base.project_id, plan_key: base.plan_key, task_id: taskId,
+  });
+  const cases = [
+    {
+      expectedReason: 'registered_parent_task_id_unresolved',
+      expectedPath: `/tasks/${base.tasks.indexOf(registered)}/source/parent_task_id`,
+      mutate: (value) => { value.tasks.find(({ task_id }) => task_id === registered.task_id)
+        .source.parent_task_id = excluded.task_id; },
+    },
+    {
+      expectedReason: 'local_ref_unresolved', expectedPath: '/hard_dependencies/0/to',
+      mutate: (value) => { value.hard_dependencies = [{
+        from: ref(registered.task_id), to: ref(excluded.task_id),
+      }]; value.joins = []; },
+    },
+    {
+      expectedReason: 'local_ref_unresolved', expectedPath: '/joins/0/after/0',
+      mutate: (value) => { value.hard_dependencies = []; value.joins = [{
+        id: 'excluded-join', after: [ref(excluded.task_id)], before: ref(registered.task_id),
+      }]; },
+    },
+  ];
+  for (const { mutate, expectedReason, expectedPath } of cases) {
+    const value = structuredClone(base);
+    mutate(value);
+    value.extraction_digest = todoSelfDigest(value, 'extraction_digest');
+    assert.equal(validateTodoExtraction(value), false);
+    assert.throws(() => compileTodoExtraction(value, '/repo'), (error) => error instanceof TodoStoreError
+      && error.code === 'INVALID_TODO_EXTRACTION'
+      && error.detail.violation_reason === expectedReason
+      && error.detail.violation_path === expectedPath);
+  }
+});
+
 test('schema違反、task duplicate、done_mode矛盾fixtureはfail closed', async () => {
   for (const name of [
     'schema-violation.json', 'duplicate-task.json', 'done-mode-contradiction.json',

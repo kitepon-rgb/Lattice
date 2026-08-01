@@ -65,7 +65,10 @@ reconciliation, revision_digest`
   `from_task_id, to_task_id, state_policy`、`to_task_id` は successor task ID 又は literal `removed`、
   `state_policy` は `carry | carry_reconciled_metadata | reset_pending | removed` のいずれかとする。
   `carry_reconciled_metadata`はtitle・lane・compile binding・hard dependency・joinを不変に保ったまま、
-  source provenanceと`parent_task_id`だけを校正し、既存state・evidenceを保存する。`removed` は
+  source provenance、`parent_task_id`、既存`design_memo`本文を明示的に校正し、既存state・evidenceを
+  保存する。policy名は後継genesisの`state_migration`へ残る。通常`carry`は既存`design_memo`の完全一致を
+  要求するが、memoを持たないlegacy taskへの初回追加だけは取得として許す。memoを持つv6／v7から
+  memo無しschemaへの後退は全revision activation入口で拒否する。`removed` は
   `to_task_id: removed` とだけ組み合わせ、非 removed target は`carry`、
   `carry_reconciled_metadata`又は`reset_pending`とだけ
   組み合わせる。同一 predecessor ID の重複、欠落、unknown target、new task への migration entry を

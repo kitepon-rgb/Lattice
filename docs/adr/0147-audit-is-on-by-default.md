@@ -47,7 +47,7 @@
    phase無しplanの作成を通し、結果へ「終端監査が要る」ことを明示するだけにする。
    小さいplanでphase定義を強制すると authoring が重くなり、Markdownへ逃げる誘因になる。
 4. **doneを保ったままのPhase獲得は、carryの緩和ではなく専用state_policyで表現する。**
-   既存`carry`／`carry_reconciled_metadata`が持つ「意味論が変わっていないことの保証」
+   既存`carry`／`carry_reconciled_metadata`が持つ、各policyで不変と定めた意味論の比較
    （`phaseV3CarrySemantics`によるbefore/after一致要求）はそのまま維持し、緩めない。
    「Phaseの獲得**だけ**を許し、他の変化は従来どおり拒否する」ことを、`carry`とは別の
    typed policy（例: `acquire_phase`）として型で表現する。同一の`carry`分岐へ
@@ -68,7 +68,7 @@
 - **既存のphase付きplanの挙動を変えない。** 終端監査gateはphaseを持たないplanにだけ
   掛かり、v4／v5のPhase gate契約（ADR 0043・0051・0062・0063）はそのまま。
 - **`carry`の意味論比較そのものを緩めない。** 専用policyの追加であり、既存`carry`／
-  `carry_reconciled_metadata`のbefore/after一致要求（`phaseV3CarrySemantics`・
+  `carry_reconciled_metadata`の各policyが定めるbefore/after一致要求（`phaseV3CarrySemantics`・
   `taskSemantics`）は変更しない。
 - **store canonical形式・digest計算を変えない。** journal eventの追加は既存event型の
   範囲に収める。

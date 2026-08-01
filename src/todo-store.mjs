@@ -1933,7 +1933,9 @@ function localTaskRef(ref, plan, taskId) {
     && ref.task_id === taskId;
 }
 
-function taskSemantics(plan, taskId, idMap, { reconciliationMetadata = false } = {}) {
+function taskSemantics(plan, taskId, idMap, {
+  reconciliationMetadata = false, includeDesignMemo = false,
+} = {}) {
   const task = plan.tasks.find(({ task_id }) => task_id === taskId);
   if (!task) return null;
   const mapId = (id) => id === null ? null : idMap.get(id) ?? id;
@@ -1942,6 +1944,7 @@ function taskSemantics(plan, taskId, idMap, { reconciliationMetadata = false } =
     compile_binding: task.compile_binding,
   } : {
     task_id: mapId(task.task_id), title: task.title, lane: task.lane,
+    ...(includeDesignMemo ? { design_memo: task.design_memo } : {}),
     narrative_ref: task.narrative_ref, narrative_anchor: task.narrative_anchor ?? null,
     compile_binding: task.compile_binding, parent_task_id: mapId(task.parent_task_id ?? null),
   };
@@ -1967,7 +1970,7 @@ function taskSemantics(plan, taskId, idMap, { reconciliationMetadata = false } =
 }
 
 function phaseV3CarrySemantics(plan, taskId, taskIdMap, phaseIdMap,
-  { reconciliationMetadata = false } = {}) {
+  { reconciliationMetadata = false, includeDesignMemo = false } = {}) {
   const task = plan.tasks.find(({ task_id: id }) => id === taskId);
   if (task === undefined) return null;
   const mapTaskRef = (ref) => ref.project_id === plan.project_id && ref.plan_key === plan.plan_key
@@ -1982,8 +1985,12 @@ function phaseV3CarrySemantics(plan, taskId, taskIdMap, phaseIdMap,
     task_id: taskIdMap.get(task.task_id) ?? task.task_id, title: task.title, lane: task.lane,
     compile_binding: task.compile_binding,
     phase_id: mappedPhaseId,
-  } : { ...task,
+  } : {
     task_id: taskIdMap.get(task.task_id) ?? task.task_id,
+    title: task.title, lane: task.lane,
+    ...(includeDesignMemo ? { design_memo: task.design_memo } : {}),
+    narrative_ref: task.narrative_ref, narrative_anchor: task.narrative_anchor ?? null,
+    compile_binding: task.compile_binding,
     phase_id: mappedPhaseId,
     parent_task_id: task.parent_task_id === null ? null
       : taskIdMap.get(task.parent_task_id) ?? task.parent_task_id,
@@ -2013,14 +2020,16 @@ function phaseV3CarrySemantics(plan, taskId, taskIdMap, phaseIdMap,
 
 function validatePhaseV3Carry(previous, revision, migration, idMap, state) {
   const reconciliationMetadata = migration.state_policy === 'carry_reconciled_metadata';
+  const predecessorTask = previous.plan.tasks.find(({ task_id }) => task_id === migration.from_task_id);
+  const includeDesignMemo = !reconciliationMetadata && typeof predecessorTask?.design_memo === 'string';
   const phaseIdMap = new Map(revision.phase_migration
     .filter(({ from_phase_id, to_phase_id }) => from_phase_id !== null && to_phase_id !== 'removed')
     .map(({ from_phase_id, to_phase_id }) => [from_phase_id, to_phase_id]));
   const before = phaseV3CarrySemantics(previous.plan, migration.from_task_id, idMap, phaseIdMap,
-    { reconciliationMetadata });
+    { reconciliationMetadata, includeDesignMemo });
   const after = phaseV3CarrySemantics(revision.desired_plan, migration.to_task_id,
     new Map(), new Map(),
-    { reconciliationMetadata });
+    { reconciliationMetadata, includeDesignMemo });
   if (canonicalizeTodoArtifact(before.task) !== canonicalizeTodoArtifact(after.task)
     || canonicalizeTodoArtifact(before.incoming) !== canonicalizeTodoArtifact(after.incoming)) {
     fail('REVISION_INVALID', 'carry_semantics_changed', { from_task_id: migration.from_task_id });
@@ -2048,8 +2057,12 @@ function validateAcquirePhaseCarry(previous, revision, migration, idMap) {
   const phaseIdMap = new Map(revision.phase_migration
     .filter(({ from_phase_id, to_phase_id }) => from_phase_id !== null && to_phase_id !== 'removed')
     .map(({ from_phase_id, to_phase_id }) => [from_phase_id, to_phase_id]));
-  const before = phaseV3CarrySemantics(previous.plan, migration.from_task_id, idMap, phaseIdMap);
-  const after = phaseV3CarrySemantics(revision.desired_plan, migration.to_task_id, new Map(), new Map());
+  const predecessorTask = previous.plan.tasks.find(({ task_id }) => task_id === migration.from_task_id);
+  const includeDesignMemo = typeof predecessorTask?.design_memo === 'string';
+  const before = phaseV3CarrySemantics(previous.plan, migration.from_task_id, idMap, phaseIdMap,
+    { includeDesignMemo });
+  const after = phaseV3CarrySemantics(revision.desired_plan, migration.to_task_id, new Map(), new Map(),
+    { includeDesignMemo });
   if (before.task.phase_id !== null) {
     fail('REVISION_INVALID', 'acquire_phase_requires_unassigned_predecessor', { from_task_id: migration.from_task_id });
   }
@@ -2068,6 +2081,12 @@ function validateAcquirePhaseCarry(previous, revision, migration, idMap) {
 }
 
 function stateMigrationFor(previous, revision) {
+  if (['lattice.todo_plan.v6', 'lattice.todo_plan.v7'].includes(previous.plan.schema)
+    && !['lattice.todo_plan.v6', 'lattice.todo_plan.v7'].includes(revision.desired_plan.schema)) {
+    fail('REVISION_INVALID', 'design_memo_schema_downgrade', {
+      predecessor_schema: previous.plan.schema, desired_schema: revision.desired_plan.schema,
+    });
+  }
   const oldIds = previous.plan.tasks.map(({ task_id }) => task_id);
   const migrationIds = revision.task_migration.map(({ from_task_id }) => from_task_id);
   if (canonicalizeTodoArtifact([...oldIds].sort()) !== canonicalizeTodoArtifact([...migrationIds].sort())) {
@@ -2100,10 +2119,14 @@ function stateMigrationFor(previous, revision) {
     } else if (revision.schema === 'lattice.phase_todo_revision.v3') {
       validatePhaseV3Carry(previous, revision, migration, idMap, state);
     } else {
+      const predecessorTask = previous.plan.tasks
+        .find(({ task_id }) => task_id === migration.from_task_id);
+      const includeDesignMemo = !reconciliationMetadata
+        && typeof predecessorTask?.design_memo === 'string';
       const before = taskSemantics(previous.plan, migration.from_task_id, idMap,
-        { reconciliationMetadata });
+        { reconciliationMetadata, includeDesignMemo });
       const after = taskSemantics(revision.desired_plan, migration.to_task_id, new Map(),
-        { reconciliationMetadata });
+        { reconciliationMetadata, includeDesignMemo });
       if (canonicalizeTodoArtifact(before) !== canonicalizeTodoArtifact(after)) {
         fail('REVISION_INVALID', 'carry_semantics_changed', { from_task_id: migration.from_task_id });
       }

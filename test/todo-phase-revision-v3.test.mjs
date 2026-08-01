@@ -48,6 +48,7 @@ function manifestV2Fixture(activeRevisionDigest = 'a'.repeat(64)) {
 
 async function fixture(t, {
   initialEdge = false, desiredEdge = true, crlf = false, carryT2 = false, t2Status = 'pending',
+  initialDesignMemo = null, desiredDesignMemo = null, t1StatePolicy = 'carry',
 } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-phase-v3-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -55,9 +56,11 @@ async function fixture(t, {
   const phase = { phase_id: 'phase-1', title: 'Phase 1', gate_policy: 'heavy',
     predecessor_phase_ids: [], required_evidence_slots: ['heavy'] };
   const task = (taskId, line) => ({ task_id: taskId, title: taskId, lane: 'main',
+    ...(initialDesignMemo === null ? {} : { design_memo: `${initialDesignMemo} ${taskId}` }),
     narrative_ref: `.lattice/todo/source-ledger/cutover.md#L${line}`,
     narrative_anchor: null, compile_binding: null, parent_task_id: null, phase_id: 'phase-1' });
-  const initial = buildTodoPlan({ schema: 'lattice.todo_plan.v5', project_id: 'project-1',
+  const initial = buildTodoPlan({ schema: initialDesignMemo === null
+    ? 'lattice.todo_plan.v5' : 'lattice.todo_plan.v7', project_id: 'project-1',
     plan_key: 'main', plan_version: 'v1', predecessor_plan_digest: null,
     tasks: [task('T1', 6), task('T2', 7)], phases: [phase],
     hard_dependencies: initialEdge ? [{ from: ref('T1'), to: ref('T2') }] : [],
@@ -108,13 +111,20 @@ async function fixture(t, {
   ], migration_digest: '' };
   runtimeTaskMigration.migration_digest = migrationDigest(runtimeTaskMigration);
   const taskMigration = [
-    { from_task_id: 'T1', to_task_id: 'T1', state_policy: 'carry' },
+    { from_task_id: 'T1', to_task_id: 'T1', state_policy: t1StatePolicy },
     { from_task_id: 'T2', to_task_id: 'T2', state_policy: carryT2 ? 'carry' : 'reset_pending' },
   ];
   const phaseMigration = [{ from_phase_id: 'phase-1', to_phase_id: 'phase-1', state_policy: 'carry' }];
   const desiredSeed = { ...member.plan, plan_version: 'pending',
     predecessor_plan_digest: predecessor.plan_digest,
     hard_dependencies: desiredEdge ? [{ from: ref('T1'), to: ref('T2') }] : [] };
+  if (desiredDesignMemo !== null) {
+    if (initialDesignMemo === null) desiredSeed.schema = 'lattice.todo_plan.v7';
+    desiredSeed.tasks = desiredSeed.tasks.map((entry) => ({
+      ...entry,
+      design_memo: entry.task_id === 'T1' ? desiredDesignMemo : entry.design_memo ?? 'NO_PLAN',
+    }));
+  }
   delete desiredSeed.topology_digest; delete desiredSeed.plan_digest;
   desiredSeed.plan_version = phaseTodoRevisionPlanVersion({ projectId: 'project-1', planKey: 'main',
     predecessor, desiredPlan: desiredSeed, taskMigration, phaseMigration });
@@ -716,6 +726,62 @@ test('phase v3 carryは旧outgoing削除を拒否しsafe outgoing追加を許す
     revision: removed.revision, actor: ACTOR, recordedAt: COMMIT_AT, now: COMMIT_AT }),
   (error) => error.code === 'REVISION_INVALID'
     && error.detail.reason === 'carry_outgoing_edge_removed');
+});
+
+test('phase v3の既存memo変更はcarryを拒否し明示reconcileだけがpolicy付きで保持する', async (t) => {
+  const normal = await fixture(t, {
+    initialDesignMemo: '初期方針', desiredDesignMemo: '## 改訂方針\n\n本文を更新する。',
+    desiredEdge: false,
+  });
+  await assert.rejects(applyPhaseTodoRevision({ repoRoot: normal.root, writer: normal.writer,
+    revision: normal.revision, actor: ACTOR, recordedAt: COMMIT_AT, now: COMMIT_AT }),
+  (error) => error.code === 'REVISION_INVALID' && error.detail.reason === 'carry_semantics_changed');
+
+  const explicit = await fixture(t, {
+    initialDesignMemo: '初期方針', desiredDesignMemo: '## 改訂方針\n\n本文を更新する。',
+    desiredEdge: false, t1StatePolicy: 'carry_reconciled_metadata',
+  });
+  await applyPhaseTodoRevision({ repoRoot: explicit.root, writer: explicit.writer,
+    revision: explicit.revision, actor: ACTOR, recordedAt: COMMIT_AT, now: COMMIT_AT });
+  const member = (await readTodoStore({ repoRoot: explicit.root, now: COMMIT_AT })).members[0];
+  assert.equal(member.tasks.find(({ task_id }) => task_id === 'T1').status, 'done');
+  assert.equal(member.journal.events[0].state_migration[0].state_policy,
+    'carry_reconciled_metadata');
+});
+
+test('phase legacy planへの初回design_memo追加は通常carryでdone stateを保持する', async (t) => {
+  const value = await fixture(t, {
+    desiredDesignMemo: '## 初回設計\n\nlegacy taskへ設計を与える。', desiredEdge: false,
+  });
+  await applyPhaseTodoRevision({ repoRoot: value.root, writer: value.writer,
+    revision: value.revision, actor: ACTOR, recordedAt: COMMIT_AT, now: COMMIT_AT });
+  const member = (await readTodoStore({ repoRoot: value.root, now: COMMIT_AT })).members[0];
+  assert.equal(member.plan.schema, 'lattice.todo_plan.v7');
+  assert.equal(member.tasks.find(({ task_id }) => task_id === 'T1').status, 'done');
+  assert.match(member.plan.tasks.find(({ task_id }) => task_id === 'T1').design_memo,
+    /legacy task/u);
+});
+
+test('phase revisionもv7からmemo無しv5へのschema後退をtyped拒否する', async (t) => {
+  const value = await fixture(t, { initialDesignMemo: '初期方針', desiredEdge: false });
+  const revision = structuredClone(value.revision);
+  const desiredInput = structuredClone(revision.desired_plan);
+  delete desiredInput.topology_digest; delete desiredInput.plan_digest;
+  desiredInput.schema = 'lattice.todo_plan.v5';
+  desiredInput.tasks = desiredInput.tasks.map(({ design_memo, ...entry }) => entry);
+  desiredInput.plan_version = phaseTodoRevisionPlanVersion({ projectId: revision.project_id,
+    planKey: revision.plan_key, predecessor: revision.predecessor, desiredPlan: desiredInput,
+    taskMigration: revision.task_migration, phaseMigration: revision.phase_migration });
+  revision.desired_plan = buildTodoPlan(desiredInput);
+  revision.reconciliation.desired_plan_digest = revision.desired_plan.plan_digest;
+  revision.reconciliation.reconciliation_digest = todoSelfDigest(
+    revision.reconciliation, 'reconciliation_digest');
+  revision.revision_digest = todoSelfDigest(revision, 'revision_digest');
+  assert.equal(validatePhaseTodoRevision(revision), true);
+  await assert.rejects(applyPhaseTodoRevision({ repoRoot: value.root, writer: value.writer,
+    revision, actor: ACTOR, recordedAt: COMMIT_AT, now: COMMIT_AT }),
+  (error) => error.code === 'REVISION_INVALID'
+    && error.detail.reason === 'design_memo_schema_downgrade');
 });
 
 test('phase v3 carryはphase ID migration後のtask semanticsを比較する', async (t) => {

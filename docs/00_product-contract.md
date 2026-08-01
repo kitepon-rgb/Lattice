@@ -261,7 +261,11 @@ phase eventを一度も持たないPhaseをまとめて宣言し、除外・対�
 
 phase無しで作ったplanへ後からPhaseを被せる救済経路は、`revise-phase`の
 `state_policy: acquire_phase`が所有する。未割当（`phase_id`なし）→割当の向きだけを許し、
-既にphaseを持つtaskの付け替えは拒否する。`carry`／`carry_reconciled_metadata`の意味論比較は緩めない。
+既にphaseを持つtaskの付け替えは拒否する。設計メモをまだ持たないlegacy taskが初めて
+`design_memo`を獲得する時だけ通常`carry`を許す。一度メモを持ったtaskの本文変更は通常`carry`で拒否し、
+明示`carry_reconciled_metadata`だけがstateを保持して変更できる。そのpolicyは後継genesisの
+`state_migration`へ記録する。v6／v7から設計メモを持たないschemaへの後退は、単体・Phase・revision setの
+全activation入口で拒否する。
 journal eventのschema列は、v1 genesisのjournalへ`phase_*` eventだけをv3 tailとして混在許可する
 （既存eventのbytesとdigest計算は不変、v3のtask eventは従来どおり拒否）。
 
@@ -272,7 +276,9 @@ authoring契約のJSON Schemaは各入口から取得できる。`plan create --
 `violation_kind`／JSON `pointer`／`expected`／`actual`／`task_id`／`next_action`を載せる。
 `todo migrate --input <ref> --dry-run --json`はstoreとdashboard registryを変更せず、独立した違反を
 上限付き配列でまとめて返す。digest不一致は期待digest、ソート違反はsort key、未来時刻は現在時刻と
-許容5分窓を返す。未知subcommand、不正引数、repo外絶対inputはそれぞれ`UNKNOWN_SUBCOMMAND`、
+許容5分窓を返す。循環等のtopology違反とstore／I/O障害を混同せず、除外taskを登録taskのparent・
+dependency・joinから参照する入力はcompile前にpointer付きで拒否する。未知subcommand、不正引数、
+repo外絶対inputはそれぞれ`UNKNOWN_SUBCOMMAND`、
 `INVALID_ARGUMENTS`、`INPUT_OUTSIDE_REPOSITORY`へ分ける。`lattice plan show <plan_key> --json`は`lattice.plan_show_result.v1`として
 plan本体（phase定義と状態・task一覧と状態・依存本数・topology要約）を投影する——
 `todo bindings`が`compile_binding`付きtaskだけを投影することによる「planが空」という誤読を塞ぐ面である。

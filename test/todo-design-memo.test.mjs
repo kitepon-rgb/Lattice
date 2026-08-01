@@ -215,6 +215,34 @@ test('migrate dry-run成功時は予定planと実write commandを返してstore�
   await assert.rejects(readTodoStore({ repoRoot }), (failure) => failure.code === 'STORE_INCONSISTENT');
 });
 
+test('migrate dry-runは循環topologyをnull参照せずplanned nullの違反として返す', async (t) => {
+  const repoRoot = await mkdtemp(path.join(tmpdir(), 'lattice-design-memo-cycle-'));
+  t.after(() => rm(repoRoot, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: repoRoot }).status, 0);
+  const value = extraction('NO_PLAN');
+  value.tasks.push({ ...structuredClone(value.tasks[0]), task_id: 'T2',
+    design_memo: '## 方針\n\nT1との循環を検査する。' });
+  const ref = (taskId) => ({ project_id: value.project_id, plan_key: value.plan_key, task_id: taskId });
+  value.hard_dependencies = [
+    { from: ref('T1'), to: ref('T2') },
+    { from: ref('T2'), to: ref('T1') },
+  ];
+  value.extraction_digest = todoSelfDigest(value, 'extraction_digest');
+  await writeFile(path.join(repoRoot, 'input.json'), `${JSON.stringify(value)}\n`);
+  let output = '';
+  let error = '';
+  const exitCode = await runTodoCli({
+    argv: ['migrate', '--input', 'input.json', '--dry-run', '--json'], cwd: repoRoot,
+    stdout: { write: (chunk) => { output += chunk; } },
+    stderr: { write: (chunk) => { error += chunk; } }, env: process.env,
+  });
+  assert.equal(exitCode, 0, error);
+  const result = JSON.parse(output);
+  assert.equal(result.valid, false);
+  assert.equal(result.planned, null);
+  assert.equal(result.violations.some(({ code }) => code === 'dispatch_shape_dependency_cycle'), true);
+});
+
 test('migrate dry-runはenum・配列・digest・参照・clock skewを一回で特定する', async (t) => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'lattice-authoring-diagnostics-'));
   t.after(() => rm(repoRoot, { recursive: true, force: true }));

@@ -257,7 +257,26 @@ export function explainTodoExtraction(value) {
       return reject('parent_task_id_unresolved',
         `/tasks/${value.tasks.indexOf(badParent)}/source/parent_task_id`);
     }
-    if (!localRefsResolve(value)) return reject('local_ref_unresolved', '');
+    const excluded = new Set(value.tasks
+      .filter((task) => task.disposition.startsWith('exclude_'))
+      .map(({ task_id }) => task_id));
+    const excludedParent = value.tasks.find((task) => task.disposition.startsWith('register_')
+      && task.source.parent_task_id !== null && excluded.has(task.source.parent_task_id));
+    if (excludedParent !== undefined) {
+      return reject('registered_parent_task_id_unresolved',
+        `/tasks/${value.tasks.indexOf(excludedParent)}/source/parent_task_id`, {
+          task_id: excludedParent.task_id,
+          expected: 'task_id not excluded from the compiled plan',
+          actual: excludedParent.source.parent_task_id,
+        });
+    }
+    const localRefViolation = firstUnregisteredLocalRef(value);
+    if (localRefViolation !== null) {
+      return reject('local_ref_unresolved', localRefViolation.path, {
+        task_id: localRefViolation.task_id,
+        expected: 'registered task_id', actual: localRefViolation.task_id,
+      });
+    }
     // ここまでの個別検査を全て通過したのに`validateTodoExtraction`がfalseを返す状況は、
     // このexplainがまだ言い当てられない違反があるということ。捏造せず未特定と申告する。
     return { valid: true };
@@ -273,11 +292,25 @@ function registeredTaskIds(value) {
 }
 
 function localRefsResolve(value) {
+  return firstUnregisteredLocalRef(value) === null;
+}
+
+function firstUnregisteredLocalRef(value) {
   const registered = registeredTaskIds(value);
-  const local = (ref) => ref.project_id !== value.project_id || ref.plan_key !== value.plan_key
-    || registered.has(ref.task_id);
-  return value.hard_dependencies.every((edge) => local(edge.from) && local(edge.to))
-    && value.joins.every((join) => local(join.before) && join.after.every(local));
+  const unresolved = (ref) => ref.project_id === value.project_id && ref.plan_key === value.plan_key
+    && !registered.has(ref.task_id);
+  for (const [index, edge] of value.hard_dependencies.entries()) {
+    if (unresolved(edge.from)) return { path: `/hard_dependencies/${index}/from`, task_id: edge.from.task_id };
+    if (unresolved(edge.to)) return { path: `/hard_dependencies/${index}/to`, task_id: edge.to.task_id };
+  }
+  for (const [index, join] of value.joins.entries()) {
+    if (unresolved(join.before)) return { path: `/joins/${index}/before`, task_id: join.before.task_id };
+    const afterIndex = join.after.findIndex(unresolved);
+    if (afterIndex >= 0) {
+      return { path: `/joins/${index}/after/${afterIndex}`, task_id: join.after[afterIndex].task_id };
+    }
+  }
+  return null;
 }
 
 /** Exact, bounded validation for the AI-authored G4 intermediate artifact. */
@@ -303,6 +336,11 @@ export function validateTodoExtraction(value) {
     const taskIds = new Set(value.tasks.map(({ task_id }) => task_id));
     if (value.tasks.some((task) => task.source.parent_task_id === task.task_id
       || (task.source.parent_task_id !== null && !taskIds.has(task.source.parent_task_id)))) return false;
+    const excluded = new Set(value.tasks
+      .filter((task) => task.disposition.startsWith('exclude_'))
+      .map(({ task_id }) => task_id));
+    if (value.tasks.some((task) => task.disposition.startsWith('register_')
+      && task.source.parent_task_id !== null && excluded.has(task.source.parent_task_id))) return false;
     return localRefsResolve(value);
   } catch {
     return false;
@@ -326,7 +364,12 @@ export function todoExtractionImportSource(task) {
  */
 export function compileTodoExtraction(value, repoRoot) {
   if (!validateTodoExtraction(value)) {
-    throw new TodoStoreError('INVALID_TODO_EXTRACTION', 'schema_invalid');
+    const explained = explainTodoExtraction(value);
+    throw new TodoStoreError('INVALID_TODO_EXTRACTION', 'schema_invalid', undefined,
+      explained.valid ? undefined : {
+        violation_reason: explained.reason, violation_path: explained.path,
+        ...(explained.task_id === undefined ? {} : { task_id: explained.task_id }),
+      });
   }
   const unresolved = value.tasks
     .filter(({ disposition }) => disposition === 'unknown_requires_evidence')
