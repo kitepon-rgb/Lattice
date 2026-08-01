@@ -38,6 +38,11 @@
         "target": "src/todo-gantt-html-style.mjs"
       },
       {
+        "id": "q-dashboard",
+        "operation": "affected",
+        "target": "bin/lattice-dashboard.mjs"
+      },
+      {
         "id": "q-status",
         "operation": "status"
       }
@@ -356,13 +361,18 @@
         "test/todo-phase-baseline.test.mjs",
         "test/todo-revision-set.test.mjs"
       ],
-      "owns": [],
+      "owns": [
+        { "kind": "path", "target": "bin/lattice-dashboard.mjs" },
+        { "kind": "path", "target": "src/todo-cli.mjs" },
+        { "kind": "path", "target": "test/todo-note-gantt.test.mjs" }
+      ],
       "reads": [
         "src/todo-cli.mjs",
         "src/todo-gantt-html.mjs",
         "src/todo-gantt-html-independence.mjs",
         "src/todo-gantt-html-style.mjs",
-        "src/todo-note-store.mjs"
+        "src/todo-note-store.mjs",
+        "test/todo-note-gantt.test.mjs"
       ],
       "resources": [],
       "sensor_provenance": {
@@ -371,13 +381,18 @@
           { "expect": { "kind": "affected", "path": "src/todo-gantt-html.mjs" }, "query_id": "q-gantt-html" },
           { "expect": { "kind": "affected", "path": "src/todo-gantt-html-independence.mjs" }, "query_id": "q-gantt-detail" },
           { "expect": { "kind": "affected", "path": "src/todo-gantt-html-style.mjs" }, "query_id": "q-gantt-style" },
+          { "expect": { "kind": "affected", "path": "bin/lattice-dashboard.mjs" }, "query_id": "q-dashboard" },
           { "expect": { "kind": "affected", "path": "src/todo-note-store.mjs" }, "query_id": "q-note-store" }
         ]
       },
       "state_effects": [],
       "unknowns": [],
-      "writes": []
+      "writes": [
+        "bin/lattice-dashboard.mjs",
+        "src/todo-cli.mjs",
+        "test/todo-note-gantt.test.mjs"
+      ]
     }
   },
-  "witness_set_digest": "422bbab0382beac55220545e906feb5a938a176bc5b03b8085a6d249c2487a36"
+  "witness_set_digest": "1c88d9cc0b7e3194cd6dda767bb70cfeac0b44f1f7f2fd753af96bc4e0f6633e"
 }
