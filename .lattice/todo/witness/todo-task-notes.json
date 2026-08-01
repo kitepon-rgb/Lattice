@@ -77,6 +77,7 @@
         "test/todo-independence-witness.test.mjs",
         "test/todo-migration.test.mjs",
         "test/todo-note-contracts.test.mjs",
+        "test/todo-note-store.test.mjs",
         "test/todo-phase-baseline.test.mjs",
         "test/todo-phase-revision-v3.test.mjs",
         "test/todo-ready-frontier.test.mjs",
@@ -147,5 +148,5 @@
       ]
     }
   },
-  "witness_set_digest": "ace6efad562fdf100279eb919c9a00d25e42b2b73ebd848ba218e94701e1aab2"
+  "witness_set_digest": "113f4874e8ab9a9492ebf5fb184bf561c703fc3e8ca02b84ff6711ffd9df893f"
 }
