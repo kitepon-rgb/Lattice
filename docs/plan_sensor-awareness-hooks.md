@@ -1,6 +1,6 @@
 # sensor気づかせ導線をinstall契約として提供する
 
-- Status: Planned
+- Status: Completed（2026-08-02・完了裁定は [ADR 0152](adr/0152-sensor-awareness-hooks-campaign-completion.md)）
 - Lane: Orchestrated Control（planned interruption・多段受入・複数repo調整・裁定証跡）
 - Lattice plan: `sensor-awareness-hooks`
 - Owner decision: 2026-08-01 GO（[backlog bk-006背景](plan_backlog.md#6-sensor気づかせ導線のinstall契約新設)）
