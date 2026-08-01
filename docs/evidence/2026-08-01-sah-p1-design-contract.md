@@ -2,8 +2,9 @@
 
 - 記録: 2026-08-01 / Control `sensor-awareness-hooks-20260801`
 - 起草: claude-fable-parent（F: 端末設定書換え契約・公開契約は親直轄）
-- 入力: P0 baseline証拠・構造調査（terra×medium）・反証1巡目12件全採用・反証2巡目11件全採用
-- 版: r3（2巡目反証を反映。旧版の欠陥は末尾の裁定記録が正）
+- 入力: P0 baseline証拠・構造調査（terra×medium）・反証1巡目12件全採用・2巡目11件全採用・
+  3巡目12件中10件採用/1件棄却/1件部分採用
+- 版: r4（3巡目反証を反映。旧版の欠陥は末尾の裁定記録が正）
 
 ## 調査ダイジェスト（設計の根拠事実）
 
@@ -38,7 +39,16 @@
   自entryとみなされるのは、POSIX shell-wordsでtokenizeしたargv列が
   (a) 現canonical、または (b) receiptに記録された過去のinstall argv、のどちらかと**完全一致**する
   場合だけ。tokenize不能・不一致entryは他人の所有物として一切触れない
-  （他人のdead entryも消さない——誤爆より取り逃しへ倒し、取り逃しはstatusのdriftで可視化する）。
+  （他人のdead entryも消さない——誤爆より取り逃しへ倒す）。
+- **receipt/configのcommit protocol**（r4）: 更新は receiptへ`pending`entryを先行fsync→config
+  commit→receiptを`committed`化、の順で行う。CLI起動時に`pending`が残っていればconfig実体と
+  突合して回復（適用済→committed化・未適用→pending破棄）する。configのrenameとreceipt追記の
+  間のcrashで削除権が孤児化しない。
+- **receipt leafの安全**（r4）: receiptファイルは`O_NOFOLLOW`でregular file・owner・0600を確認
+  してからatomic更新する（symlinkされたreceipt経由で他ファイルを書かない）。
+- **未帰属candidateの可視化**（r4）: receiptに無いが`hooks emit --host`形を含むhandlerは
+  削除権を持たない`foreign_candidate`としてstatusへ計上し、driftで可視化する（receipt喪失・
+  設定ファイルの端末間手動copy等の二重発火を、削除でなく報告で扱う）。
 - 除去・置換の単位はinner handler。同一wrapper内の他handlerとmetadataは保持し、除去で
   純粋wrapperが空になった時だけwrapperを落とす。
 - 単一canonical不変: installは自identity handlerを全除去→canonical handler 1件を追加。
@@ -52,21 +62,29 @@
 3. 不正JSON → `CONFIG_UNREADABLE` exit 1・一切書かない。
 4. prestate記録: `{existed, mode, bytes}`。不在（dir在り）は`existed:false`・空objectから開始。
 5. backup（変更が生じる場合だけ）: `<name>.bak-lattice-hooks-<UTC>-<random>` を **`O_EXCL`かつ
-   mode 0600** で作成し、write→fsync→close完了をもって有効とする。既存backupの上書き経路を
-   持たない。`existed:false`はbackup無し・rollback＝atomic unlink。backup失敗→中止・無変更。
+   mode 0600** で作成し、write→fsync→close→**parent directory fsync**完了をもって有効とする。
+   既存backupの上書き経路を持たない。`existed:false`はbackup無し・rollback＝atomic unlink。
+   backup失敗→中止・無変更。**保持規則**（r4）: commit前失敗で作った当回のbackup/displacedは
+   削除する。成功物はファイルごとに直近5世代だけ残し、それ以前を回収する（最低1世代は常に残す）。
 6. merge対象は自identity handlerだけ（C2）。他handler・他key・並び順不変、追加は末尾。
-7. **置換手順（r3・displaced-preimage方式）**: serialize→re-parse検証→同dirへ`O_EXCL`・
-   元mode（新規は0600）でtmp作成→fsync→直前preimage再読込で一致検証→
-   **`link(target, "<name>.pre-lattice-hooks-<UTC>-<random>")` で置換直前inodeを退避**（link失敗は中止）→
-   `rename(tmp→target)`→read-back検証。
-   - 一致検証とrenameの間の残余競合窓は排除できないが、その窓でhostが書いた内容は
-     displaced fileのinodeに**必ず残る**（「消えない」を契約とし、CASを僭称しない）。
+7. **置換手順（r4・displaced-preimage方式）**:
+   - `existed:true`: serialize→re-parse検証→同dirへ`O_EXCL`・元modeでtmp作成→fsync→
+     直前preimage再読込で一致検証→`link(target, "<name>.pre-lattice-hooks-<UTC>-<random>")` で
+     置換直前inodeを退避（link失敗は中止）→**rename直前にtargetを`lstat`し、退避したinodeと
+     dev/ino一致を再検証**（不一致＝hostが差し替えた→abort・re-mergeへ）→`rename(tmp→target)`→
+     parent directory fsync→read-back検証。
+   - `existed:false`（r4）: displaced/linkの前段を持たず、**`link(tmp, target)`のno-clobber commit**
+     で作成する（`EEXIST`＝並行作成検出→再読込・re-merge）。mode 0600。
+   - **残余竞合の受容（r4・表現訂正）**: inode再検証とrenameの間のごく短い窓で、hostが
+     atomic rename型writerでtargetを差し替えた場合、その内容は失われうる。displacedが保証する
+     のは「当方が検証した置換直前inodeの保全」までであり、「あらゆる並行書込みが必ず残る」
+     ではない。窓はμsオーダー・hostのsettings書込みは低頻度・失われるのはhost側の直近1回の
+     設定変更のみ（利用者が再操作で回復可能）——この残余をtyped契約の明記事項として受容する。
    - preimage不一致検出時は abort・tmp削除→再読込から1回だけre-merge。**retry時はprestateと
-     rollback源を再読preimageへ更新する**（旧backupで新しいhost書込みを巻き戻さない）。
+     rollback源を再読preimage（displaced優先）へ更新する**。
    - read-back失敗の復元は `existed:true`→直近preimage（displaced優先）から、`existed:false`→unlink。
-     **復元自体もtmp→fsync→rename→read-back規律**で行い、復元失敗は `RESTORE_FAILED` の
-     typed fatalとして残骸pathを明示する。
-   - 全失敗経路で`finally`によりtmpを削除。成功時、backup/displacedは残す（利用者の回収面）。
+     復元もtmp→fsync→rename→parent fsync→read-back規律。復元失敗は `RESTORE_FAILED` typed fatal。
+   - 全失敗経路で`finally`によりtmpと当回の未確定backup/displacedを削除。
 8. 冪等: 既にcanonicalなら無変更・backup無し・`already_wired`。
 
 ### C4. status契約
@@ -87,20 +105,25 @@
 
 判定順:
 1. `LATTICE_HOOKS=off` → 沈黙 exit 0。
-2. state root解決: `XDG_STATE_HOME`（絶対pathの時のみ採用）または`os.homedir()/.local/state`を
-   **realpathで固定**し、`lattice`・`hooks`各componentを`lstat`でsymlink拒否・owner確認しつつ
-   mode 0700で作成。以後のmarker/GC/receipt操作は**このdir fd基準**で行う。解決・作成不能は
-   1行可視診断をstdoutへ出して exit 0（無記録の沈黙禁止）。
+2. state root解決（r4）: `XDG_STATE_HOME`（絶対pathの時のみ採用）または`os.homedir()/.local/state`
+   に対し、**存在する最深ancestorをrealpathで固定**してから、そこへ至る未存在component
+   （`.local/state`自体を含む）と`lattice`・`hooks`を順に作成する。各既存componentは`lstat`で
+   symlink拒否・owner・mode確認（fresh homeでも到達可能）。解決・作成不能は1行可視診断を
+   stdoutへ出して exit 0（無記録の沈黙禁止）。
 3. stdin（64KiB上限・strict JSON・`session_id`/`cwd`必須）不成立 → `errors.log`記録＋沈黙。
    **log書込み自体の失敗は可視診断へfallback**。
 4. git root解決: shell非経由の固定argv
    `git --no-optional-locks -C <検証済みcwd> rev-parse --show-toplevel`（timeout 2s）。
    **exit非0（非git）だけ沈黙**。spawn失敗・timeout・その他I/O失敗は記録＋可視診断。
 5. `<root>/.lattice/sensor/` の判定: `ENOENT`/`ENOTDIR`だけ沈黙。EACCES/EIO等は記録＋可視診断。
-6. 通知claim: `<state>/lattice/hooks/<sha256(session)>.<sha256(root)>.claim` を`wx`で作成
-   （EEXIST→沈黙）→案内をstdoutへ出力→**出力成功後に`.shown`へrename**。出力失敗はclaimを
-   削除（永久抑止を作らない）。stale claim（1時間超）は回収する。gcは自pattern
-   （`*.shown`/`*.claim`）かつ7日超だけ・dir fd基準。
+6. 通知claim（r4）: **先に同名`.shown`（7日以内）の存在を確認し、あれば沈黙**。無ければ
+   `<state>/lattice/hooks/<sha256(session)>.<sha256(root)>.claim` を`wx`で作成（EEXIST→沈黙）→
+   案内をstdoutへ出力→出力成功後に`.shown`へrename。出力失敗はclaimを削除（永久抑止を
+   作らない）。**出力成功後のrename失敗**は可視記録し、`.shown`の直接`wx`作成を試みる
+   （両方失敗なら後の再表示を受容・記録）。stale claim（1時間超）は回収する——claim内容には
+   pid・開始時刻を診断用に書くが、回収は年齢基準とし、suspend復帰等の極端系で起きうる
+   稀な二重INFOは実害軽微として明記受容する。gcは自pattern（`*.shown`/`*.claim`）かつ
+   7日超だけ・state root配下限定。
 - 出力形: claude=plain 1行／codex=`hookSpecificOutput` envelope（ASCII）。
 - 文面: `INFO: このrepoにはLattice sensor index（.lattice/sensor/）があります。コード構造の調査はsensor入口（MCP: lattice_sensor_explore 等／CLI: lattice sensor）を優先できます。`
 
@@ -139,6 +162,30 @@ state dir初回/並行claim、fail-visible矛盾、PATH非依存の偽（絶対N
 10. log失敗・stat異常の無記録沈黙（採用→ENOENT/ENOTDIR以外は可視診断fallback）
 11. git rootがstdin cwdへ未束縛（採用→`-C <cwd>`固定argv）
 
-### 3巡目（r3の変更機構への再反証）
+### 3巡目（同refuter・r3の変更機構への再攻撃）
+
+12 finding（high 9・medium 3）。**10件採用・1件棄却・1件部分採用**→r4改訂。裁定メモ:
+
+1. receipt喪失/非同期での未帰属entry（採用→`foreign_candidate`可視化。削除権は与えない）
+2. receipt/config間のcommit protocol欠如（採用→pending先行fsync→config commit→committed化）
+3. receipt leafのsymlink（採用→`O_NOFOLLOW`・regular・owner・0600検査）
+4. **不在ファイルへのlinkでinstall構造的不能**（採用→`existed:false`は`link(tmp,target)`
+   no-clobber commitへ分岐。契約文の確定バグだった）
+5. **「必ず残る」の反例**——hostのatomic rename型writerの内容はhardlink退避に入らない
+   （採用・裁定: rename直前のdev/ino再検証で窓を縮小し、絶対表現を撤回して残余を
+   明記受容へ訂正。真のatomic exchangeはNode標準に無く、native依存化は本機能の
+   規模に不釣り合い）
+6. parent directory fsync欠如（採用→backup/link/rename/unlink各境界でparent fsync）
+7. backup/displaced無限蓄積（採用→失敗時当回分削除・成功物は直近5世代保持）
+8. **`.shown`未確認で毎prompt再表示**（採用→claim前に7日以内`.shown`確認。確定バグだった）
+9. stale claim回収の競合（部分採用: pid/開始時刻は診断用に記録するが、回収は年齢基準を維持。
+   極端系の稀な二重INFOは実害軽微として明記受容——inode/process生存検証機構は過剰）
+10. 出力成功後rename失敗の再表示（採用→可視記録＋`.shown`直接作成のfallback）
+11. **fresh homeでrealpath ENOENT到達不能**（採用→最深既存ancestor基準の解決へ。確定バグだった）
+12. lstat後のdirectory交換race（**棄却**: 同一uidの敵対プロセスはstate root硬化の有無に
+    かかわらず利用者資産を任意に破壊できるため脅威モデル外。lstat＋owner＋mode検査で
+    誤設定・非敵対事故は防げている。Node標準に*at系が無い点も棄却を支持）
+
+### 4巡目（r4の確定バグ修正4件＋#5新機構への最終確認）
 
 （完了後に追記）
