@@ -1,0 +1,477 @@
+{
+  "schema": "lattice.todo_extraction.v2",
+  "project_id": "lattice",
+  "plan_key": "ai-safe-todo-authoring",
+  "plan_version": "v1",
+  "actor": {
+    "host": "codex-desktop",
+    "session": "ai-safe-authoring",
+    "agent": "bell"
+  },
+  "recorded_at": "2026-08-01T05:54:00.000Z",
+  "tasks": [
+    {
+      "task_id": "bingo-design-memo-backfill",
+      "title": "bingo未着手ToDoへ既存設計メモを移送する",
+      "lane": "main",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring.md",
+        "origin_line": 83,
+        "source_commit": "c96a299efc5d625214d45de196b02d95b70c94de",
+        "heading_path": [
+          "実装単位",
+          "H1. bingo移送と公開smoke"
+        ],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [
+          "/Users/kite/Developer/bingo/docs/architecture/capacity-retest-plan.md:87"
+        ],
+        "notes": [
+          "時計補正、50ms gate、artifact、原因分類等を対応ToDo本文へ移送する"
+        ]
+      }
+    },
+    {
+      "task_id": "cli-error-detail",
+      "title": "authoringエラーへ対象・期待値・次の一手を付ける",
+      "lane": "main",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring.md",
+        "origin_line": 70,
+        "source_commit": "c96a299efc5d625214d45de196b02d95b70c94de",
+        "heading_path": [
+          "実装単位",
+          "A1. Authoring診断"
+        ],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [
+          "docs/plan_ai-safe-todo-authoring.md:73"
+        ],
+        "notes": [
+          "JSON pointer、digest、sort key、clock skew、plan/task IDをtyped detailにする"
+        ]
+      }
+    },
+    {
+      "task_id": "integration-release-smoke",
+      "title": "関連gateとbingo公開右ペインsmokeを完了する",
+      "lane": "main",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring.md",
+        "origin_line": 90,
+        "source_commit": "c96a299efc5d625214d45de196b02d95b70c94de",
+        "heading_path": [
+          "受入条件"
+        ],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [
+          "docs/plan_ai-safe-todo-authoring.md:92"
+        ],
+        "notes": [
+          "focused test、check、CI、公開URLの実表示を順に検証し未実行をgreen扱いしない"
+        ]
+      }
+    },
+    {
+      "task_id": "memo-contract",
+      "title": "ToDo設計メモとNO_PLANのauthoring契約を実装する",
+      "lane": "main",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring.md",
+        "origin_line": 49,
+        "source_commit": "c96a299efc5d625214d45de196b02d95b70c94de",
+        "heading_path": [
+          "実装単位",
+          "F1. ToDo設計メモ契約"
+        ],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [
+          "docs/adr/0150-todo-design-memo-is-required.md"
+        ],
+        "notes": [
+          "空欄は拒否し、固定値NO_PLANは明示的な計画不在として受理する"
+        ]
+      }
+    },
+    {
+      "task_id": "memo-gantt-public",
+      "title": "ローカルと公開Gantt右ペインへ設計メモを表示する",
+      "lane": "main",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring.md",
+        "origin_line": 56,
+        "source_commit": "c96a299efc5d625214d45de196b02d95b70c94de",
+        "heading_path": [
+          "実装単位",
+          "F2. 右ペインと通常供給"
+        ],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [
+          "docs/adr/0150-todo-design-memo-is-required.md"
+        ],
+        "notes": [
+          "公開だから本文を一律除外する旧Decisionを改め、安全なMarkdown rendererで表示する"
+        ]
+      }
+    },
+    {
+      "task_id": "memo-read-surface",
+      "title": "todo showとstartへ設計メモを自動供給する",
+      "lane": "main",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring.md",
+        "origin_line": 56,
+        "source_commit": "c96a299efc5d625214d45de196b02d95b70c94de",
+        "heading_path": [
+          "実装単位",
+          "F2. 右ペインと通常供給"
+        ],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [
+          "docs/adr/0150-todo-design-memo-is-required.md"
+        ],
+        "notes": [
+          "後続AIが別commandや元Markdown探索なしで実装方針を取得できるようにする"
+        ]
+      }
+    },
+    {
+      "task_id": "migrate-dry-run",
+      "title": "migrate dry-runで複数authoring診断を返す",
+      "lane": "main",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring.md",
+        "origin_line": 70,
+        "source_commit": "c96a299efc5d625214d45de196b02d95b70c94de",
+        "heading_path": [
+          "実装単位",
+          "A1. Authoring診断"
+        ],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [
+          "docs/plan_ai-safe-todo-authoring.md:72"
+        ],
+        "notes": [
+          "書込み直前まで検証し、boundedな独立違反集合を一回で返す"
+        ]
+      }
+    },
+    {
+      "task_id": "phase-guidance",
+      "title": "migrate結果からPhase acquireの正規手順へ案内する",
+      "lane": "main",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring.md",
+        "origin_line": 77,
+        "source_commit": "c96a299efc5d625214d45de196b02d95b70c94de",
+        "heading_path": [
+          "実装単位",
+          "A2. Phase・reconciliation・Gantt案内"
+        ],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [
+          "docs/plan_ai-safe-todo-authoring.md:79"
+        ],
+        "notes": [
+          "既存のacquire_phaseを重複実装せずmigrate結果から発見可能にする"
+        ]
+      }
+    },
+    {
+      "task_id": "reconciliation-gantt-contract",
+      "title": "reconciliationとGantt出力契約を自己記述させる",
+      "lane": "main",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring.md",
+        "origin_line": 77,
+        "source_commit": "c96a299efc5d625214d45de196b02d95b70c94de",
+        "heading_path": [
+          "実装単位",
+          "A2. Phase・reconciliation・Gantt案内"
+        ],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [
+          "docs/plan_ai-safe-todo-authoring.md:80"
+        ],
+        "notes": [
+          "registered_unreconciledをdashboard非表示原因と誤診させず、project scope HTMLを明示する"
+        ]
+      }
+    },
+    {
+      "task_id": "registry-root-conflict",
+      "title": "dashboard registryのproject root衝突をfail-closedにする",
+      "lane": "main",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring.md",
+        "origin_line": 63,
+        "source_commit": "c96a299efc5d625214d45de196b02d95b70c94de",
+        "heading_path": [
+          "実装単位",
+          "F3. Registry所有root"
+        ],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [
+          "docs/plan_ai-safe-todo-authoring.md:19"
+        ],
+        "notes": [
+          "scratch copyのstatusだけで公開配信元が置換された実被弾を再現し、既存entry不変を検証する"
+        ]
+      }
+    }
+  ],
+  "hard_dependencies": [
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "bingo-design-memo-backfill"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "integration-release-smoke"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "cli-error-detail"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "integration-release-smoke"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "memo-contract"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "memo-gantt-public"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "memo-contract"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "memo-read-surface"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "memo-gantt-public"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "bingo-design-memo-backfill"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "memo-read-surface"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "bingo-design-memo-backfill"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "migrate-dry-run"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "integration-release-smoke"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "phase-guidance"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "integration-release-smoke"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "reconciliation-gantt-contract"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "integration-release-smoke"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "registry-root-conflict"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "ai-safe-todo-authoring",
+        "task_id": "integration-release-smoke"
+      }
+    }
+  ],
+  "joins": [],
+  "extraction_digest": "ae5ed88bc808857130482e7a3d99b612a4448341f04c944bb69fd0edb0b70a24"
+}

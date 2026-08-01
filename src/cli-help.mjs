@@ -27,7 +27,7 @@ Commands:
       # 依存グラフがほぼ一直線（serialization_ratioが閾値超）なら一度突き返す。
       # 再考した上でなお直列でよいなら --serialization-reviewed を付けて再実行する
   create --schema --json             # 既定は最新版（v3）のJSON Schemaを返す
-  create --schema-version <1|2|3> --json
+  create --schema-version <1|2|3|4> --json
   show <plan_key> --json             # task・依存・phase・状態をplan本体から1コマンドで投影する
   compile --request <request.json>
   compile --schema --json            # lattice.run_request.v1 の JSON Schema を出す
@@ -69,15 +69,15 @@ Read commands:
   seam-proposal [--plan <key>] [--json]  # 記録済みseam提案をsensor無しで投影する
   verify [--plan <key>] [--json]
   snapshot --rebuild --plan <key>
-  gantt [--out <file>] [--scope live|all]  # 既定live: 完走した工程を図から除く（一覧には残る）
-  gantt status [--out <file>]
-  gantt serve --port <port> [--scope live|all]  # /projects/<project_id>/ をforeground配信
+  gantt serve --port <port> [--scope live|all]  # 動的表示。静的HTML生成とstatusは廃止
   phase status --plan <key>
 
 Write commands:
+  dashboard adopt --json  # 衝突したproject_idの配信元rootを現在repoへ明示的に移す
   note --plan <key> --task <id> (--message <text>|--input <file>)
       # ToDoへ作業継続に必要な方針・調査結果・注意をappend-onlyで追記する
   migrate --input <extraction.json> [--serialization-reviewed]
+  migrate --input <extraction.json> --dry-run --json [--serialization-reviewed]
       # 既存storeへplanを追加する（plan createは空store初期化専用）。
       # 依存グラフがほぼ一直線なら一度突き返し、再考後の --serialization-reviewed で通す
   start --plan <key> --task <id> [--parallel-frontier|--override-reason <text> [--serial-confirmed]]
@@ -149,7 +149,7 @@ registerはLATTICE_BRIDGE_REGISTRAR_SSH_HOSTとLATTICE_BRIDGE_REGISTRAR_SCRIPT�
 const SUBCOMMAND_USAGE = Object.freeze({
   status: 'status --json',
   'session-context': 'session-context --json',
-  'plan create': 'plan create --input <file> [--serialization-reviewed] | --schema --json | --schema-version <1|2|3> --json',
+  'plan create': 'plan create --input <file> [--serialization-reviewed] | --schema --json | --schema-version <1|2|3|4> --json',
   'plan show': 'plan show <plan_key> --json',
   'plan compile': 'plan compile --request <request.json> | --schema --json',
   'plan verify': 'plan verify --request <request.json> --plan <plan.json>',
@@ -181,7 +181,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo seam-proposal': 'todo seam-proposal [--plan <key>] [--json] | compile --plan <key>',
   'todo verify': 'todo verify [--plan <key>] [--json]',
   'todo snapshot': 'todo snapshot --rebuild --plan <key>',
-  'todo gantt': 'todo gantt [--out <file>] [--scope live|all] | status [--out <file>] | serve --port <port> [--scope live|all]',
+  'todo gantt': 'todo gantt serve --port <port> [--scope live|all]  # 動的表示のみ。静的HTML生成は廃止',
   'todo phase': 'todo phase <status|review|accept|reject|reopen|close-unaudited> --plan <key> [options]'
     + ' | baseline --reason <text> [--except <plan_key>]...',
   'todo phase status': 'todo phase status --plan <key>',
@@ -201,7 +201,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo revise': 'todo revise --plan <key> --input <file> | --schema --json',
   'todo revise-phase': 'todo revise-phase --plan <key> --input <file> | --schema --json',
   'todo revise-set': 'todo revise-set --input <file> | --schema --json',
-  'todo migrate': 'todo migrate --input <extraction.json> [--serialization-reviewed] | --schema --json',
+  'todo migrate': 'todo migrate --input <extraction.json> [--serialization-reviewed] | --input <extraction.json> --dry-run --json [--serialization-reviewed] | --schema --json',
   'sensor init': 'sensor init [path] --json',
   'sensor sync': 'sensor sync [path] --json',
   'runtime-errors snapshot': 'runtime-errors snapshot [--after-cursor <n>] [--limit <n>] --json',

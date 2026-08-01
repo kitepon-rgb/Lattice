@@ -29,6 +29,7 @@ const ACTOR = Object.freeze({ host: 'host-1', session: 'session-1', agent: 'agen
 const ACTOR_ENV = Object.freeze({
   LATTICE_TODO_ACTOR_HOST: 'host-1', LATTICE_TODO_ACTOR_SESSION: 'session-1',
   LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+  LATTICE_DASHBOARD_AUTOSTART: '0',
 });
 
 const task = (taskId) => ({ task_id: taskId, title: taskId, lane: 'main',

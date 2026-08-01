@@ -17,7 +17,7 @@ import {
   writeTodoIndependenceArtifact,
   writeTodoWitnessSet,
 } from '../src/todo-store.mjs';
-import { ganttLiveHeadDigest } from '../src/todo-cli.mjs';
+import { ganttLiveHeadDigest, renderTodoGanttForProject } from '../src/todo-cli.mjs';
 import { TODO_INDEPENDENCE_SCHEMA } from '../src/todo-independence-contracts.mjs';
 import { canonicalizeTodoArtifact, todoSelfDigest } from '../src/todo-contracts.mjs';
 
@@ -74,7 +74,7 @@ async function workspace(context, { tasks = ['T1', 'T2'], extraPlans = [] } = {}
 }
 
 function runCli(root, args) {
-  const env = { ...process.env, NO_COLOR: '1' };
+  const env = { ...process.env, NO_COLOR: '1', LATTICE_DASHBOARD_AUTOSTART: '0' };
   delete env.FORCE_COLOR;
   return spawnSync(process.execPath, [CLI, 'todo', ...args], { cwd: root, encoding: 'utf8', env });
 }
@@ -144,7 +144,7 @@ test('既知の旧artifactはsupersededとしてindependence・session-context�
     const actorEnv = {
       LATTICE_TODO_ACTOR_HOST: 'host-1',
       LATTICE_TODO_ACTOR_SESSION: 'session-1',
-      LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+      LATTICE_TODO_ACTOR_AGENT: 'agent-1', LATTICE_DASHBOARD_AUTOSTART: '0',
     };
     const started = spawnSync(process.execPath, [
       CLI, 'todo', 'start', '--plan', 'main', '--task', 'T1', '--parallel-frontier',
@@ -168,8 +168,8 @@ test('既知の旧artifactはsupersededとしてindependence・session-context�
     assert.deepEqual(summary.guidance, projection.guidance);
     assert.equal(summary.unreadable_reason, null);
 
-    const gantt = runCli(root, ['gantt', '--out', 'gantt.html']);
-    assert.equal(gantt.status, 0, gantt.stderr);
+    const gantt = await renderTodoGanttForProject({ repoRoot: root });
+    assert.match(gantt.rendered.html, /class="todo-gantt"/u);
   });
 
 test('記録があればHEAD一致でverified並列グループを返す（sensorは引かない）', async (context) => {
@@ -275,7 +275,7 @@ test('進行中ToDoとの競合をconflicts_with_activeとして返す', async (
   const env = {
     LATTICE_TODO_ACTOR_HOST: 'host-1',
     LATTICE_TODO_ACTOR_SESSION: 'session-1',
-    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1', LATTICE_DASHBOARD_AUTOSTART: '0',
   };
   const started = spawnSync(process.execPath, [
     CLI, 'todo', 'start', '--plan', 'main', '--task', 'T1', '--override-reason', 'fixture', '--serial-confirmed',
@@ -384,7 +384,7 @@ test('着手時のadvisoryが進行中との競合と切断可能性を返す', 
   const actorEnv = {
     LATTICE_TODO_ACTOR_HOST: 'host-1',
     LATTICE_TODO_ACTOR_SESSION: 'session-1',
-    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1', LATTICE_DASHBOARD_AUTOSTART: '0',
   };
   const start = (taskId) => spawnSync(process.execPath, [
     CLI, 'todo', 'start', '--plan', 'main', '--task', taskId, '--override-reason', 'fixture', '--serial-confirmed',
@@ -418,7 +418,7 @@ test('記録が無い時の着手も助言を返し、未検査であること�
   const actorEnv = {
     LATTICE_TODO_ACTOR_HOST: 'host-1',
     LATTICE_TODO_ACTOR_SESSION: 'session-1',
-    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1', LATTICE_DASHBOARD_AUTOSTART: '0',
   };
   const started = spawnSync(process.execPath, [
     CLI, 'todo', 'start', '--plan', 'main', '--task', 'T1',
@@ -542,7 +542,7 @@ test('案内はadvisoryと投影の両方へ同じ文言で載る', async (conte
   const actorEnv = {
     LATTICE_TODO_ACTOR_HOST: 'host-1',
     LATTICE_TODO_ACTOR_SESSION: 'session-1',
-    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1', LATTICE_DASHBOARD_AUTOSTART: '0',
   };
   const started = spawnSync(process.execPath, [
     CLI, 'todo', 'start', '--plan', 'main', '--task', 'T1',
@@ -590,7 +590,7 @@ test('進行中との競合では案内が切断可能性まで述べる', async
   const actorEnv = {
     LATTICE_TODO_ACTOR_HOST: 'host-1',
     LATTICE_TODO_ACTOR_SESSION: 'session-1',
-    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1', LATTICE_DASHBOARD_AUTOSTART: '0',
   };
   const start = (taskId) => spawnSync(process.execPath, [
     CLI, 'todo', 'start', '--plan', 'main', '--task', taskId, '--override-reason', 'fixture', '--serial-confirmed',

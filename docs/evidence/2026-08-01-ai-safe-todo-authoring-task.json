@@ -1,0 +1,50 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "ai-safe-todo-authoring-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 1,
+  "task": {
+    "task_id": "todo-design-memo-core",
+    "title": "ToDo設計メモ契約・通常読出し・公開右ペインを実装する",
+    "classification": "A",
+    "effect": "write",
+    "doc_ref": "docs/plan_ai-safe-todo-authoring.md",
+    "role": "implementer",
+    "lane": "behavior-change",
+    "depends_on": [],
+    "required_capabilities": ["workspace.write", "report.structured"],
+    "isolation": "none",
+    "context_policy": {
+      "share_objective": true,
+      "share_current_candidate": false,
+      "share_existing_findings": false,
+      "share_failed_approaches": false,
+      "share_test_results": true
+    },
+    "validation": [
+      "node --test test/todo-design-memo.test.mjs test/todo-note-gantt.test.mjs",
+      "npm run check"
+    ],
+    "non_goals": [
+      "Lattice本体からAIを呼んで設計文章を生成しない",
+      "空欄を暗黙のNO_PLANへ変換しない"
+    ],
+    "known_traps": [
+      "public rendererがnote本文を一律除外していた",
+      "plan schemaの世代追加でPhase capabilityを暗黙に失わない"
+    ],
+    "read_scope": [
+      { "kind": "directory", "path": "src" },
+      { "kind": "directory", "path": "test" },
+      { "kind": "directory", "path": "docs" }
+    ],
+    "write_scope": [
+      { "kind": "directory", "path": "src" },
+      { "kind": "directory", "path": "test" },
+      { "kind": "directory", "path": "docs" },
+      { "kind": "directory", "path": ".lattice" }
+    ],
+    "approval": null,
+    "alternative_group": null
+  }
+}

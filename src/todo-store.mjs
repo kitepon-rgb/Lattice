@@ -252,10 +252,18 @@ function emptyPhaseState(phaseId) {
 // と衝突しない予約名として固定する。
 export const TERMINAL_AUDIT_PHASE_ID = 'terminal-audit';
 
+export function isPhaseTodoPlanSchema(schema) {
+  return ['lattice.todo_plan.v4', 'lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(schema);
+}
+
+export function isDecoupledPhaseTodoPlanSchema(schema) {
+  return ['lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(schema);
+}
+
 // CLI側(migrate/plan create/最後のdone)が「終端重監査が要る」ことを通知するために
 // 同じ判定を再利用する。判定基準を二重管理しないよう、ここから公開する。
 export function isPhaselessTodoPlanSchema(schema) {
-  return !['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(schema);
+  return !isPhaseTodoPlanSchema(schema);
 }
 
 function terminalAuditPhase() {
@@ -358,7 +366,13 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
     if (!isStrictTodoTimestamp(event.recorded_at)) fail('STORE_CORRUPT', 'timestamp_invalid');
     const time = Date.parse(event.recorded_at);
     if (previousTime !== null && time < previousTime) fail('STORE_INCONSISTENT', 'clock_reversal');
-    if (time > now.valueOf() + MAX_FUTURE_SKEW_MS) fail('STORE_INCONSISTENT', 'future_clock_skew');
+    if (time > now.valueOf() + MAX_FUTURE_SKEW_MS) {
+      fail('STORE_INCONSISTENT', 'future_clock_skew', {
+        recorded_at: event.recorded_at,
+        current_time: now.toISOString(),
+        max_future_skew_ms: MAX_FUTURE_SKEW_MS,
+      });
+    }
     previousTime = time;
     if (event.kind === 'plan_genesis') {
       if (event.payload.plan_digest !== plan.plan_digest || event.payload.topology_digest !== plan.topology_digest
@@ -386,8 +400,12 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           Object.assign(state, structuredClone(migration.state), { evidence_unverified: false });
           if (state.evidence !== null) {
             if (state.imported) {
-              if (verifyImportSource) verifyImportSource(state.evidence);
-            } else if (verifyEvidence) verifyEvidence(state.evidence);
+              if (verifyImportSource) verifyImportSource(state.evidence, {
+                plan_key: plan.plan_key, task_id: migration.to_task_id,
+              });
+            } else if (verifyEvidence) verifyEvidence(state.evidence, {
+              plan_key: plan.plan_key, task_id: migration.to_task_id,
+            });
           }
           if (state.status === 'done') {
             doneDigest.set(migration.to_task_id, event.event_digest);
@@ -484,7 +502,9 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         if (!importedGenesis || state.status !== 'pending') {
           fail('STORE_INCONSISTENT', 'invalid_historical_import_start_transition');
         }
-        if (verifyImportSource) verifyImportSource(event.payload.evidence);
+        if (verifyImportSource) verifyImportSource(event.payload.evidence, {
+          plan_key: plan.plan_key, task_id: event.task_id,
+        });
         state.status = 'in-progress';
         state.started_at = event.payload.started_at === 'unknown_requires_evidence'
           ? null : event.payload.started_at;
@@ -509,13 +529,17 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
     } else if (event.kind === 'done') {
       if (event.payload.done_mode === 'authored') {
         if (state.status !== 'in-progress' || !dependenciesDone) fail('STORE_INCONSISTENT', 'invalid_done_transition');
-        if (verifyEvidence) verifyEvidence(event.payload.evidence);
+        if (verifyEvidence) verifyEvidence(event.payload.evidence, {
+          plan_key: plan.plan_key, task_id: event.task_id,
+        });
         state.status = 'done'; state.done_at = event.recorded_at; state.evidence = event.payload.evidence;
         state.imported = false;
         completion.set(event.task_id, { mode: 'authored', completed_at: event.recorded_at });
       } else if (event.payload.done_mode === 'historical_import') {
         if (!importedGenesis || state.status !== 'pending') fail('STORE_INCONSISTENT', 'invalid_historical_import_transition');
-        if (verifyImportSource) verifyImportSource(event.payload.evidence);
+        if (verifyImportSource) verifyImportSource(event.payload.evidence, {
+          plan_key: plan.plan_key, task_id: event.task_id,
+        });
         state.status = 'done'; state.done_at = event.payload.completed_at === 'unknown_requires_evidence'
           ? null : event.payload.completed_at;
         state.evidence = event.payload.evidence; state.imported = true;
@@ -527,7 +551,9 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           || doneDigest.get(event.task_id) !== event.payload.target_done_digest) {
           fail('STORE_INCONSISTENT', 'invalid_evidence_promotion');
         }
-        if (verifyEvidence) verifyEvidence(event.payload.evidence);
+        if (verifyEvidence) verifyEvidence(event.payload.evidence, {
+          plan_key: plan.plan_key, task_id: event.task_id,
+        });
         state.evidence = event.payload.evidence;
         completion.set(event.task_id, { mode: 'evidence_promotion', completed_at: current.completed_at });
       }
@@ -566,7 +592,7 @@ function snapshotFor(plan, events, tasks) {
   // snapshot_staleになりforWrite(start/done/revise等)が丸ごとSTORE_WRITE_REFUSEDへ落ちる
   // ——ADR 0147以降の暗黙terminal-audit Phaseの状態は、この関数の外(readTodoStore/
   // appendTodoEventが返す`phases`という導出ビュー)で供給する。
-  const phasePlan = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema);
+  const phasePlan = isPhaseTodoPlanSchema(plan.schema);
   const snapshot = {
     schema: phasePlan ? 'lattice.todo_snapshot.v2' : 'lattice.todo_snapshot.v1',
     project_id: plan.project_id, plan_key: plan.plan_key,
@@ -587,7 +613,7 @@ function validateMergedGraph(members) {
   const adjacency = new Map([...tasks.keys()].map((key) => [key, []]));
   const phases = new Map();
   for (const member of members) {
-    if (member.plan.schema !== 'lattice.todo_plan.v5') continue;
+    if (!isDecoupledPhaseTodoPlanSchema(member.plan.schema)) continue;
     for (const phase of member.plan.phases) {
       const key = `phase\0${member.plan.project_id}\0${member.plan.plan_key}\0${phase.phase_id}`;
       phases.set(key, member.plan.topology_digest);
@@ -630,7 +656,7 @@ function validateMergedGraph(members) {
         adjacency.get(after).push(before);
       }
     }
-    if (plan.schema === 'lattice.todo_plan.v5') {
+    if (isDecoupledPhaseTodoPlanSchema(plan.schema)) {
       for (const task of plan.tasks) {
         const taskKey = `${plan.project_id}\0${plan.plan_key}\0${task.task_id}`;
         const phaseKey = `phase\0${plan.project_id}\0${plan.plan_key}\0${task.phase_id}`;
@@ -675,7 +701,7 @@ function mergedTaskPhase(store, taskKey) {
       project_id: member.plan.project_id, plan_key: member.plan.plan_key, task_id: entry.task_id,
     }) === taskKey);
     if (task === undefined) continue;
-    if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)) return null;
+    if (!isPhaseTodoPlanSchema(member.plan.schema)) return null;
     return { schema: member.plan.schema, plan_key: member.plan.plan_key, phase_id: task.phase_id,
       status: member.snapshot.phases.find(({ phase_id }) => phase_id === task.phase_id)?.status };
   }
@@ -687,7 +713,7 @@ function mergedDependencyPhaseReady(store, predecessorKey, targetKey) {
   const target = mergedTaskPhase(store, targetKey);
   if (predecessor === undefined) return false;
   if (predecessor === null) return true;
-  if (predecessor.schema === 'lattice.todo_plan.v5') return true;
+  if (isDecoupledPhaseTodoPlanSchema(predecessor.schema)) return true;
   if (target !== null && target !== undefined && predecessor.plan_key === target.plan_key
     && predecessor.phase_id === target.phase_id) return true;
   return predecessor.status === 'accepted';
@@ -695,7 +721,7 @@ function mergedDependencyPhaseReady(store, predecessorKey, targetKey) {
 
 function mergedPhaseAcceptReady(store, targetKey) {
   for (const member of store.members) {
-    if (member.plan.schema !== 'lattice.todo_plan.v5') continue;
+    if (!isDecoupledPhaseTodoPlanSchema(member.plan.schema)) continue;
     for (const edge of member.plan.phase_accept_dependencies) {
       if (mergedTaskKey(edge.to) !== targetKey) continue;
       const source = store.members.find((candidate) => candidate.plan.project_id === edge.from.project_id
@@ -766,7 +792,7 @@ function validateMergedTransition(store, member, event) {
           plan_key: member.plan.plan_key, task_id }))
         .flatMap((key) => mergedSuccessorKeys(store, key))
         .some((key) => states.get(key) !== 'pending')
-      : store.members.some((candidate) => candidate.plan.schema === 'lattice.todo_plan.v5'
+      : store.members.some((candidate) => isDecoupledPhaseTodoPlanSchema(candidate.plan.schema)
         && candidate.plan.phase_accept_dependencies.some((edge) => (
           edge.from.project_id === member.plan.project_id
           && edge.from.plan_key === member.plan.plan_key && edge.from.phase_id === event.phase_id
@@ -806,7 +832,7 @@ function reachableObjects(absoluteRepo) {
 
 function evidenceVerifier(manifest, repoRoot, hard) {
   const repositories = new Map(manifest.repositories.map((repo) => [repo.repo_id, repo.path]));
-  return (descriptor) => {
+  return (descriptor, context = {}) => {
     if (!validateEvidenceDescriptor(descriptor)) fail('STORE_INCONSISTENT', 'evidence_descriptor_invalid');
     const repoRef = repositories.get(descriptor.repo_id);
     if (repoRef === undefined) fail('STORE_INCONSISTENT', 'evidence_repo_missing');
@@ -829,7 +855,12 @@ function evidenceVerifier(manifest, repoRoot, hard) {
       if (sha256Bytes(bytes) !== descriptor.content_digest) throw new Error('digest mismatch');
       return true;
     } catch {
-      if (hard) fail('STORE_INCONSISTENT', 'evidence_unverified');
+      if (hard) fail('STORE_INCONSISTENT', 'evidence_unverified', {
+        ...context,
+        next_action: context.plan_key === undefined
+          ? 'verify_the_evidence_descriptor_and_retry'
+          : `lattice todo verify --plan ${context.plan_key} --json`,
+      });
       return false;
     }
   };
@@ -886,13 +917,16 @@ function liveReplacementPreservesListStructure(lineBytes, replacement) {
 }
 
 function importSourceVerifier(repoRoot, hard, cache = null) {
-  return (descriptor) => {
+  return (descriptor, context = {}) => {
     if (!validateTodoImportSource(descriptor)) fail('STORE_INCONSISTENT', 'import_source_descriptor_invalid');
     try {
       pinnedSourceLine(repoRoot, descriptor, cache);
       return true;
     } catch {
-      if (hard) fail('STORE_INCONSISTENT', 'import_source_unverified');
+      if (hard) fail('STORE_INCONSISTENT', 'import_source_unverified', {
+        ...context,
+        next_action: 'verify_source_commit_origin_path_and_line_then_retry',
+      });
       return false;
     }
   };
@@ -911,7 +945,8 @@ function narrativeAnchorSource(value) {
 
 function materializeImportedNarrativeAnchors(repoRoot, planInput, sources) {
   if (sources === undefined) return planInput;
-  if (planInput?.schema !== 'lattice.todo_plan.v2' || !Array.isArray(sources)
+  if (!['lattice.todo_plan.v2', 'lattice.todo_plan.v6'].includes(planInput?.schema)
+    || !Array.isArray(sources)
     || sources.length > TODO_LIMITS.tasksPerPlan || !sources.every(narrativeAnchorSource)) {
     throw new TypeError('imported narrative anchor sources are invalid');
   }
@@ -947,8 +982,10 @@ function materializeImportedNarrativeAnchors(repoRoot, planInput, sources) {
 }
 
 function verifyPlanNarrativeAnchors(repoRoot, plan, trustedPlan = null) {
-  if (!['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema)) return;
-  const trusted = new Map((['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(trustedPlan?.schema)
+  if (!['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4',
+    'lattice.todo_plan.v5', 'lattice.todo_plan.v6', 'lattice.todo_plan.v7'].includes(plan.schema)) return;
+  const trusted = new Map((['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4',
+    'lattice.todo_plan.v5', 'lattice.todo_plan.v6', 'lattice.todo_plan.v7'].includes(trustedPlan?.schema)
     ? trustedPlan.tasks : [])
     .map((task) => [task.task_id, task.narrative_anchor]));
   for (const task of plan.tasks) {
@@ -1196,7 +1233,7 @@ function nextEvent(input, storeMember) {
   const payload = input.kind === 'done' && exactRecord(input.payload, ['evidence'])
     ? { done_mode: 'authored', imported: false, evidence: input.payload.evidence }
     : input.payload;
-  const phaseCapablePlan = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(storeMember.plan.schema);
+  const phaseCapablePlan = isPhaseTodoPlanSchema(storeMember.plan.schema);
   const phaseKind = ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen', 'phase_close_unaudited']
     .includes(input.kind);
   // ADR 0147: phase無しplanでも、暗黙のterminal-audit Phaseへのphase_*eventだけは
@@ -1361,8 +1398,8 @@ export function buildTodoPlan(input) {
   plan.topology_digest = digestTodoArtifact({
     project_id: plan.project_id, plan_key: plan.plan_key, plan_version: plan.plan_version,
     tasks: plan.tasks, hard_dependencies: plan.hard_dependencies, joins: plan.joins,
-    ...(['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema) ? { phases: plan.phases } : {}),
-    ...(plan.schema === 'lattice.todo_plan.v5'
+    ...(isPhaseTodoPlanSchema(plan.schema) ? { phases: plan.phases } : {}),
+    ...(isDecoupledPhaseTodoPlanSchema(plan.schema)
       ? { phase_accept_dependencies: plan.phase_accept_dependencies } : {}),
   });
   plan.plan_digest = todoSelfDigest(plan, 'plan_digest');
@@ -1372,12 +1409,12 @@ export function buildTodoPlan(input) {
 
 export function buildPlanGenesis(plan, input) {
   const event = {
-    schema: ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema)
+    schema: isPhaseTodoPlanSchema(plan.schema)
       ? 'lattice.todo_event.v3' : 'lattice.todo_event.v1',
     project_id: plan.project_id, plan_key: plan.plan_key,
     plan_version: plan.plan_version, sequence: 0, previous_digest: input.previous_digest ?? null,
     kind: 'plan_genesis', task_id: null,
-    ...(['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema) ? { phase_id: null } : {}),
+    ...(isPhaseTodoPlanSchema(plan.schema) ? { phase_id: null } : {}),
     actor: input.actor, recorded_at: input.recorded_at,
     provenance: input.provenance ?? null,
     payload: { plan_digest: plan.plan_digest, topology_digest: plan.topology_digest,
@@ -1920,7 +1957,7 @@ function taskSemantics(plan, taskId, idMap, { reconciliationMetadata = false } =
         .sort((left, right) => canonicalizeTodoArtifact(left) < canonicalizeTodoArtifact(right) ? -1 : 1),
       before: mappedNodeRef(join.before, plan, idMap),
     })).sort((left, right) => left.id < right.id ? -1 : 1);
-  const phaseAcceptDependencies = plan.schema === 'lattice.todo_plan.v5'
+  const phaseAcceptDependencies = isDecoupledPhaseTodoPlanSchema(plan.schema)
     ? plan.phase_accept_dependencies
       .filter(({ to }) => localTaskRef(to, plan, taskId))
       .map(({ from, to }) => ({ from, to: mappedNodeRef(to, plan, idMap) }))
@@ -1966,7 +2003,7 @@ function phaseV3CarrySemantics(plan, taskId, taskIdMap, phaseIdMap,
       if (localTaskRef(after, plan, taskId)) outgoing.push(tuple);
     }
   }
-  if (plan.schema === 'lattice.todo_plan.v5') for (const edge of plan.phase_accept_dependencies) {
+  if (isDecoupledPhaseTodoPlanSchema(plan.schema)) for (const edge of plan.phase_accept_dependencies) {
     if (localTaskRef(edge.to, plan, taskId)) incoming.push({ kind: 'phase_accept',
       from: mapPhaseRef(edge.from), to: mapTaskRef(edge.to) });
   }
@@ -2079,7 +2116,7 @@ function stateMigrationFor(previous, revision) {
 }
 
 function phaseStateMigrationFor(previous, revision) {
-  const predecessorPhases = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(previous.plan.schema)
+  const predecessorPhases = isPhaseTodoPlanSchema(previous.plan.schema)
     ? previous.plan.phases : [];
   const sourceIds = revision.phase_migration
     .filter(({ from_phase_id }) => from_phase_id !== null).map(({ from_phase_id }) => from_phase_id);
@@ -3685,13 +3722,19 @@ export async function createSuccessorTodoPlan(options = {}) {
     }
     const schemaRank = new Map([
       ['lattice.todo_plan.v1', 1], ['lattice.todo_plan.v2', 2], ['lattice.todo_plan.v3', 3],
-      ['lattice.todo_plan.v4', 4], ['lattice.todo_plan.v5', 5],
+      // v6はphase無しv3へdesign_memoを追加した枝であり、phase世代より後という意味ではない。
+      ['lattice.todo_plan.v4', 4], ['lattice.todo_plan.v5', 5], ['lattice.todo_plan.v6', 3],
+      ['lattice.todo_plan.v7', 5],
     ]);
     if (schemaRank.get(plan.schema) < schemaRank.get(previous.plan.schema)) {
       throw new TypeError(previous.plan.schema === 'lattice.todo_plan.v2'
         && plan.schema === 'lattice.todo_plan.v1'
         ? 'todo plan schema cannot regress from v2 to v1'
         : 'todo plan schema cannot regress');
+    }
+    if (['lattice.todo_plan.v6', 'lattice.todo_plan.v7'].includes(previous.plan.schema)
+      && !['lattice.todo_plan.v6', 'lattice.todo_plan.v7'].includes(plan.schema)) {
+      throw new TypeError('todo plan design_memo cannot be removed by successor schema');
     }
     verifyPlanNarrativeAnchors(repoRoot, plan, previous.plan);
     const migration = options.genesis.task_migration ?? [];

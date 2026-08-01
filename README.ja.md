@@ -128,11 +128,11 @@ lattice status --json
 
 `state`は`uninitialized | ready | active_run | invalid`のいずれかです。`uninitialized`は
 正常な未初期化状態で、`next_action`が正規の初期authoring入口を返します。初回planは
-新規planはPhase監査とToDo schedulingを分離する`lattice.plan_create_input.v3`のcanonical
+新規planはPhase監査とToDo schedulingを分離し、全ToDoに設計メモを持つ`lattice.plan_create_input.v4`のcanonical
 JSON+LFを用意し、次で作成します。既存v2/v4は互換契約として維持されます。
 
 ```bash
-lattice plan create --schema-version 3 --json
+lattice plan create --schema-version 4 --json
 ```
 
 ```bash
@@ -166,8 +166,8 @@ digestは手で計算しません。binary・config・capabilities・自己diges
 作業ツリーをcleanにすると同じrequestがそのまま通ります。
 
 TODO工程storeの読取は`lattice todo status`、`compile_binding`付きTaskの投影は
-`lattice todo bindings`、検証は`lattice todo verify`、表示生成は
-`lattice todo gantt`を使います。topology/source reconciliationは
+`lattice todo bindings`、検証は`lattice todo verify`、表示は動的dashboardを使います。
+個別HTMLの生成や再生成は不要です。topology/source reconciliationは
 `lattice todo revise --plan <key> --input <canonical-revision.json>`、Phase付きplanは
 `lattice todo revise-phase --plan <key> --input <canonical-phase-revision.json>`でsuccessor発行します。
 cross-plan topologyを同時に切り替える場合は
@@ -250,7 +250,7 @@ lattice todo phase baseline --reason <text> --except <監査したいplan_key>  
 error detailの`violation_path`へ載ります（配列のソート違反は`/tasks/1`のようにindexまで名指しします）。
 
 ```bash
-lattice plan create --schema --json            # 既定は最新v3
+lattice plan create --schema --json            # 既定は最新v4
 lattice todo revise-phase --schema --json
 lattice plan show <plan_key> --json            # planのtask・依存・phase・状態を1コマンドで読む
 ```Phase状態は
@@ -271,8 +271,8 @@ LANや外部reverse proxyから閲覧するoptional bridgeは既定で無効で�
 工程図の既定表示は、後続に作業中・未着手が残っていない完了工程を図から除きます。まとめnodeも置かないため、
 完走したplanは図の場所を取りません。除いた工程は凡例の件数、右ペインの「全工程」一覧、各工程の詳細から
 辿れ、詳細の前提・後続は除外前の依存関係を示します。総数・進捗・最長依存鎖は除外前の全工程で数えます。
-凡例の件数バッジを押すと全工程を描いた図へ切り替わり、`lattice todo gantt --scope all`は最初から全件を
-描きます。表示規約は[ADR 0066](docs/adr/0066-gantt-live-scope-drops-finished-work.md)が正です。
+凡例の件数バッジを押すと全工程を描いた図へ切り替わります。表示規約は
+[ADR 0066](docs/adr/0066-gantt-live-scope-drops-finished-work.md)が正です。
 
 右ペインは概要・選択工程・全工程の3面で、いずれもToDo storeを表示します（元plan Markdown本文は
 再表示しません。元文書へは各工程の詳細が持つ行対応から辿ります）。全工程一覧は動いているplanを
@@ -280,8 +280,8 @@ LANや外部reverse proxyから閲覧するoptional bridgeは既定で無効で�
 決着済みPhaseと図から外した工程は既定で畳み、開けば読めます。規約は
 [ADR 0067](docs/adr/0067-right-pane-shows-the-store-and-orders-by-activity.md)が正です。
 
-静的工程表は`lattice todo gantt status`で`current / stale / missing`を確認でき、HTMLまたは
-digest付きsidecarの欠落・改ざんはtyped failureになります。
+`lattice todo gantt`と`lattice todo gantt status`による静的工程表は廃止済みで、呼ぶと
+`STATIC_GANTT_RETIRED`が動的dashboardを案内します。
 dashboard daemonは起動時に読み込んだ版数をhealthで名乗り、installされた版と食い違えば`lattice status`の
 たびに新版daemonへ置き換わります。publishしただけで配信面が古いまま残ることはありません。
 入れ替えは新daemonが登録済み全projectのstoreを読み終えるまで待つため、`lattice status`の応答が

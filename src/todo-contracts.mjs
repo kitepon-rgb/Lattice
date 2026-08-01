@@ -27,6 +27,8 @@ const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
 const CONTROL = /[\u0000-\u001f\u007f]/u;
 const NOTE_FORBIDDEN_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
 
+export const TODO_DESIGN_MEMO_PROMPT = 'あなたがこのToDoに対して、何も考えていないならば、設計メモに `NO_PLAN` と書いてください';
+
 export const isTodoDigest = (value) => typeof value === 'string' && DIGEST.test(value);
 export const isTodoIdentifier = (value) => typeof value === 'string' && IDENTIFIER.test(value);
 export const isNonNegativeSafeInteger = (value) => Number.isSafeInteger(value) && value >= 0;
@@ -157,6 +159,9 @@ export function validateTodoNoteContext(value) {
 
 const nullableDigest = (value) => value === null || isTodoDigest(value);
 const nullableText = (value) => value === null || (typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= 16_384);
+export const isTodoDesignMemo = (value) => typeof value === 'string' && value.trim().length > 0
+  && Buffer.byteLength(value, 'utf8') <= TODO_LIMITS.noteBodyBytes
+  && !NOTE_FORBIDDEN_CONTROL.test(value);
 const actor = (value) => exactRecord(value, ['host', 'session', 'agent'])
   && [value.host, value.session, value.agent].every(isTodoIdentifier);
 const provenance = (value) => value === null || (exactRecord(value, ['source_commit', 'source_event_digest'])
@@ -246,6 +251,33 @@ function taskV4(value) {
     && isTodoIdentifier(value.phase_id);
 }
 
+function taskV5(value) {
+  return exactRecord(value, [
+    'task_id', 'title', 'lane', 'design_memo', 'narrative_ref', 'narrative_anchor',
+    'compile_binding', 'parent_task_id',
+  ]) && isTodoIdentifier(value.task_id) && nullableText(value.title) && isTodoIdentifier(value.lane)
+    && isTodoDesignMemo(value.design_memo)
+    && (value.narrative_ref === null || isTodoRef(value.narrative_ref))
+    && (value.narrative_anchor === null || (validateTodoNarrativeAnchor(value.narrative_anchor)
+      && value.narrative_ref === value.narrative_anchor.origin_plan_ref))
+    && compileBinding(value.compile_binding)
+    && (value.parent_task_id === null || isTodoIdentifier(value.parent_task_id));
+}
+
+function taskV6(value) {
+  return exactRecord(value, [
+    'task_id', 'title', 'lane', 'design_memo', 'narrative_ref', 'narrative_anchor',
+    'compile_binding', 'parent_task_id', 'phase_id',
+  ]) && isTodoIdentifier(value.task_id) && nullableText(value.title) && isTodoIdentifier(value.lane)
+    && isTodoDesignMemo(value.design_memo)
+    && (value.narrative_ref === null || isTodoRef(value.narrative_ref))
+    && (value.narrative_anchor === null || (validateTodoNarrativeAnchor(value.narrative_anchor)
+      && value.narrative_ref === value.narrative_anchor.origin_plan_ref))
+    && compileBinding(value.compile_binding)
+    && (value.parent_task_id === null || isTodoIdentifier(value.parent_task_id))
+    && isTodoIdentifier(value.phase_id);
+}
+
 function phaseV1(value) {
   return exactRecord(value, [
     'phase_id', 'title', 'gate_policy', 'predecessor_phase_ids', 'required_evidence_slots',
@@ -300,13 +332,18 @@ export function validateTodoPlan(value) {
     const taskValidator = value?.schema === 'lattice.todo_plan.v1' ? taskV1
       : value?.schema === 'lattice.todo_plan.v2' ? taskV2
         : value?.schema === 'lattice.todo_plan.v3' ? taskV3
-          : ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(value?.schema) ? taskV4 : null;
+          : ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(value?.schema) ? taskV4
+            : value?.schema === 'lattice.todo_plan.v6' ? taskV5
+              : value?.schema === 'lattice.todo_plan.v7' ? taskV6 : null;
     const planKeys = [
       'schema', 'project_id', 'plan_key', 'plan_version', 'predecessor_plan_digest',
       'tasks', 'hard_dependencies', 'joins', 'topology_digest', 'plan_digest',
     ];
-    if (['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(value?.schema)) planKeys.push('phases');
-    if (value?.schema === 'lattice.todo_plan.v5') planKeys.push('phase_accept_dependencies');
+    if (['lattice.todo_plan.v4', 'lattice.todo_plan.v5', 'lattice.todo_plan.v7']
+      .includes(value?.schema)) planKeys.push('phases');
+    if (['lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(value?.schema)) {
+      planKeys.push('phase_accept_dependencies');
+    }
     if (!exactRecord(value, planKeys) || taskValidator === null || !isTodoIdentifier(value.project_id)
       || !isTodoIdentifier(value.plan_key) || !isTodoIdentifier(value.plan_version)
       || !nullableDigest(value.predecessor_plan_digest) || !Array.isArray(value.tasks)
@@ -319,9 +356,10 @@ export function validateTodoPlan(value) {
         && Array.isArray(join.after) && join.after.length > 0 && join.after.length <= TODO_LIMITS.tasksPerPlan
         && join.after.every(nodeRef) && nodeRef(join.before))
       || !isTodoDigest(value.topology_digest) || !isTodoDigest(value.plan_digest)
-      || (['lattice.todo_plan.v3', 'lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(value.schema)
+      || (['lattice.todo_plan.v3', 'lattice.todo_plan.v4', 'lattice.todo_plan.v5',
+        'lattice.todo_plan.v6', 'lattice.todo_plan.v7'].includes(value.schema)
         && !validParentGraph(value.tasks))) return false;
-    if (['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(value.schema)
+    if (['lattice.todo_plan.v4', 'lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(value.schema)
       && (!Array.isArray(value.phases) || value.phases.length === 0
         || value.phases.length > TODO_LIMITS.tasksPerPlan || !value.phases.every(phaseV1)
         || value.phases.some((entry, index) => index > 0
@@ -329,7 +367,7 @@ export function validateTodoPlan(value) {
         || new Set(value.phases.map(({ phase_id }) => phase_id)).size !== value.phases.length
         || value.tasks.some(({ phase_id }) => !value.phases.some((phase) => phase.phase_id === phase_id))
         || !validPhaseGraph(value.phases))) return false;
-    if (value.schema === 'lattice.todo_plan.v5'
+    if (['lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(value.schema)
       && (!Array.isArray(value.phase_accept_dependencies)
         || value.phase_accept_dependencies.length > TODO_LIMITS.edgesPerPlan
         || !value.phase_accept_dependencies.every((edge) => exactRecord(edge, ['from', 'to'])
@@ -347,9 +385,9 @@ export function validateTodoPlan(value) {
     const topology = {
       project_id: value.project_id, plan_key: value.plan_key, plan_version: value.plan_version,
       tasks: value.tasks, hard_dependencies: value.hard_dependencies, joins: value.joins,
-      ...(['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(value.schema)
+      ...(['lattice.todo_plan.v4', 'lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(value.schema)
         ? { phases: value.phases } : {}),
-      ...(value.schema === 'lattice.todo_plan.v5'
+      ...(['lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(value.schema)
         ? { phase_accept_dependencies: value.phase_accept_dependencies } : {}),
     };
     return value.topology_digest === digestTodoArtifact(topology)

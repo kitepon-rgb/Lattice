@@ -23,6 +23,7 @@ import {
   TodoStoreError, appendTodoEvent, buildTodoPlan, createTodoStoreWriter,
   initializeTodoStore, readTodoStore,
 } from '../src/todo-store.mjs';
+import { renderTodoGanttForProject } from '../src/todo-cli.mjs';
 import { projectTodoStatus } from '../src/todo-status.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -38,7 +39,9 @@ const ACTOR_ENV = Object.freeze({
   LATTICE_TODO_ACTOR_AGENT: 'agent-1',
 });
 const run = (root, args, env = {}) => spawnSync(process.execPath, [CLI, ...args],
-  { cwd: root, encoding: 'utf8', env: { ...process.env, ...env } });
+  { cwd: root, encoding: 'utf8', env: {
+    ...process.env, LATTICE_DASHBOARD_AUTOSTART: '0', ...env,
+  } });
 
 async function evidenceFile(root, name) {
   const fileRef = `${name}.txt`;
@@ -137,13 +140,10 @@ test('phase無しplanは終端監査(gate_ready)を経るまでgantt live scope�
   assert.equal(phaseStatusResult.phases[0].phase_id, 'terminal-audit');
   assert.equal(phaseStatusResult.phases[0].status, 'gate_ready');
 
-  const live = run(root, ['todo', 'gantt', '--out', '.lattice/generated/live.html']);
-  assert.equal(live.status, 0, live.stderr);
-  const liveResult = JSON.parse(live.stdout);
-  assert.equal(liveResult.scope, 'live');
+  const liveResult = await renderTodoGanttForProject({ repoRoot: root, scope: 'live' });
   // A/B/Cは全done、Pはずっとpendingで生きているが、`audited`は監査未了なので
   // A/B/Cも「畳まれてよい死んだ枝」として扱われない。foldされるのは0件。
-  assert.equal(liveResult.folded_task_count, 0);
+  assert.equal(liveResult.metadata.folded_task_count, 0);
 });
 
 test('予約phase_id以外のphase eventはtypedに拒否される', async (t) => {
@@ -183,11 +183,9 @@ test('終端監査をreview→evidence束縛acceptで通すとacceptedになりg
   const phaseStatusResult = JSON.parse(run(root, ['todo', 'phase', 'status', '--plan', 'audited']).stdout);
   assert.equal(phaseStatusResult.phases[0].status, 'accepted');
 
-  const live = run(root, ['todo', 'gantt', '--out', '.lattice/generated/live.html']);
-  assert.equal(live.status, 0, live.stderr);
-  const liveResult = JSON.parse(live.stdout);
+  const liveResult = await renderTodoGanttForProject({ repoRoot: root, scope: 'live' });
   // 監査が通ったので、他に生きた後続を持たないA/B/Cは通常どおり畳まれる。
-  assert.equal(liveResult.folded_task_count, 3);
+  assert.equal(liveResult.metadata.folded_task_count, 3);
 });
 
 test('終端監査gateはToDoのdispatch(next_ready/active_set/dispatch_frontier)へ影響しない', async (t) => {

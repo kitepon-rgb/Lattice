@@ -23,6 +23,7 @@ import {
   TodoStoreError, appendTodoEvent, buildTodoPlan, createTodoStoreWriter,
   initializeTodoStore, readTodoStore,
 } from '../src/todo-store.mjs';
+import { renderTodoGanttForProject } from '../src/todo-cli.mjs';
 import { projectTodoStatus } from '../src/todo-status.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -34,7 +35,9 @@ const ACTOR_ENV = Object.freeze({
   LATTICE_TODO_ACTOR_AGENT: 'agent-1',
 });
 const run = (root, args, env = {}) => spawnSync(process.execPath, [CLI, ...args],
-  { cwd: root, encoding: 'utf8', env: { ...process.env, ...env } });
+  { cwd: root, encoding: 'utf8', env: {
+    ...process.env, LATTICE_DASHBOARD_AUTOSTART: '0', ...env,
+  } });
 
 const task = (taskId) => ({ task_id: taskId, title: taskId, lane: 'main',
   narrative_ref: null, narrative_anchor: null, compile_binding: null, parent_task_id: null });
@@ -165,9 +168,8 @@ test('closed_unauditedはacceptedと機械的に区別され、gantt上は畳ま
 
   // ADR 0148裁定4: closed_unauditedはAUDIT_PENDING_PHASE_STATUSESに含まれないため、
   // gate_ready/reviewing/rejectedと違って工程図では通常どおり畳まれる。
-  const live = run(root, ['todo', 'gantt', '--out', '.lattice/generated/live.html']);
-  assert.equal(live.status, 0, live.stderr);
-  assert.equal(JSON.parse(live.stdout).folded_task_count, 3);
+  const live = await renderTodoGanttForProject({ repoRoot: root, scope: 'live' });
+  assert.equal(live.metadata.folded_task_count, 3);
 
   // ADR 0148裁定5: phase_reopenはclosed_unauditedも初期状態(gate_ready・digest類null)へ戻す。
   const reopened = await appendTodoEvent({ repoRoot: root, writer, planKey: 'audited', now: NOW,

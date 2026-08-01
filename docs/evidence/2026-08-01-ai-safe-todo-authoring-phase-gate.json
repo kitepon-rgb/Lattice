@@ -1,0 +1,8 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "ai-safe-todo-authoring-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 0,
+  "risk": "high",
+  "behavior_lane": "behavior-change"
+}

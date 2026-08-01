@@ -34,7 +34,7 @@ const CASES = [
   { argv: ['revise', '--schema', '--json'], title: 'lattice.todo_revision.v2' },
   { argv: ['revise-set', '--schema', '--json'], title: 'lattice.todo_revision_set.v3' },
   { argv: ['revise-phase', '--schema', '--json'], title: 'lattice.phase_todo_revision.v3' },
-  { argv: ['migrate', '--schema', '--json'], title: 'lattice.todo_extraction.v2' },
+  { argv: ['migrate', '--schema', '--json'], title: 'lattice.todo_extraction.v3' },
 ];
 
 for (const { argv, title } of CASES) {
@@ -53,7 +53,7 @@ for (const { argv, title } of CASES) {
   });
 }
 
-test('todo migrate --schema --jsonが返すschemaはtodo_extraction.v2の必須12keyを持つ', async (context) => {
+test('todo migrate --schema --jsonはdesign_memoとNO_PLAN案内を持つv3 schemaを返す', async (context) => {
   const cwd = await bareCwd(context);
   const { stdout, stderr, out } = stdio();
   await runTodoCli({ argv: ['migrate', '--schema', '--json'], cwd, stdout, stderr });
@@ -62,6 +62,8 @@ test('todo migrate --schema --jsonが返すschemaはtodo_extraction.v2の必須1
     'schema', 'project_id', 'plan_key', 'plan_version', 'actor', 'recorded_at',
     'tasks', 'hard_dependencies', 'joins', 'extraction_digest',
   ]);
+  assert.equal(schema.$defs.task.required.includes('design_memo'), true);
+  assert.match(schema.$comment, /`NO_PLAN`/u);
 });
 
 test('todo revise-phase --schema --jsonが返すschemaはphase_todo_revision.v3の必須12keyを持つ', async (context) => {

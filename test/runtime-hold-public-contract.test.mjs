@@ -133,12 +133,15 @@ test.after(async () => {
 function assertUsageRejected(args) {
   const result = runCli(args);
   const received = args.join(' ');
-  const diagnostic = args[0] === 'todo'
-    ? `lattice todo: unsupported command or arguments: ${args.slice(1).join(' ')}\n`
-    : `lattice: unsupported command or arguments: ${received}\n`;
   assert.equal(result.status, 2, received);
   assert.equal(result.stdout, '', received);
-  assert.equal(result.stderr, diagnostic);
+  if (args[0] === 'todo') {
+    const error = JSON.parse(result.stderr);
+    assert.ok(['INVALID_ARGUMENTS', 'UNKNOWN_SUBCOMMAND', 'INPUT_OUTSIDE_REPOSITORY']
+      .includes(error.code), received);
+  } else {
+    assert.equal(result.stderr, `lattice: unsupported command or arguments: ${received}\n`);
+  }
 }
 
 async function snapshotRegularFiles(root, relative = '') {

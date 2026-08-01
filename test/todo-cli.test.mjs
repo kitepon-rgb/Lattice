@@ -264,7 +264,7 @@ test('todo verifyは全member/plan指定のexact result wireを一行で返す',
     assertExactKeys(output, [
       'schema', 'project_id', 'requested_plan_key', 'verified_members', 'snapshot_stale', 'result_digest',
     ]);
-    assert.equal(output.schema, 'lattice.todo_verify_result.v2');
+    assert.equal(output.schema, 'lattice.todo_verify_result.v3');
     assert.equal(output.project_id, 'project-1');
     assert.equal(output.requested_plan_key, args.length === 2 ? null : 'main');
     assert.equal(output.snapshot_stale, false);
@@ -274,10 +274,17 @@ test('todo verifyは全member/plan指定のexact result wireを一行で返す',
       'plan_key', 'plan_version', 'topology_digest', 'journal_head_digest', 'through_sequence',
       'snapshot_stale', 'reconciliation_state', 'revision_digest', 'reconciliation_digest',
       'source_inventory_count', 'active_task_count', 'excluded_tombstone_count',
+      'reconciliation_guidance',
     ]);
     assert.equal(output.verified_members[0].reconciliation_state, 'registered_unreconciled');
     assert.equal(output.verified_members[0].revision_digest, null);
     assert.equal(output.verified_members[0].source_inventory_count, null);
+    assert.deepEqual(output.verified_members[0].reconciliation_guidance, {
+      meaning: 'source_inventory_verification_state', lifecycle_blocked: false,
+      dashboard_visibility_blocked: false,
+      schema_command: 'lattice todo revise --schema --json',
+      next_action: 'lattice todo revise --plan main --input <revision.json>',
+    });
   }
 });
 
@@ -402,12 +409,14 @@ test('authoring CLIはclosed遷移をappendしmutation resultをdigest束縛す�
       'event_digest', 'journal_head_digest', 'snapshot_digest', 'status', 'advisory',
       'result_digest',
     ];
-    if (kind === 'start') keys.push('note_context');
+    if (kind === 'start') keys.push('design_memo', 'note_context');
     assertExactKeys(output, keys);
     assert.equal(output.schema, kind === 'start'
-      ? 'lattice.todo_mutation_result.v3' : 'lattice.todo_mutation_result.v2');
+      ? 'lattice.todo_mutation_result.v4' : 'lattice.todo_mutation_result.v2');
     // 助言はstartだけが持つ。他の遷移で独立性を語らない（ADR 0128 Decision 5）。
     if (kind === 'start') {
+      assert.deepEqual(output.design_memo.status, 'missing_legacy');
+      assert.equal(output.design_memo.markdown, null);
       assert.deepEqual(output.note_context.notes, []);
       assertExactKeys(output.advisory, [
         'coverage', 'drift_intersecting', 'conflicts_with_active',
@@ -727,7 +736,7 @@ test('journal破損はSTORE_CORRUPT exit 1で全store bytes不変', async (conte
   }
 });
 
-test('todo namespaceの未知subcommand・不足・余剰・重複・順序違反はusage exit 2', async (context) => {
+test('todo namespaceの未知subcommandと不正引数は別codeのtyped exit 2', async (context) => {
   const root = await workspace(context);
   const malformed = [
     ['todo'],
@@ -740,8 +749,6 @@ test('todo namespaceの未知subcommand・不足・余剰・重複・順序違�
     ['todo', 'verify', '--plan', 'main', '--plan', 'main'],
     ['todo', 'snapshot', '--plan', 'main', '--rebuild'],
     ['todo', 'snapshot', '--rebuild', '--plan', 'main', 'extra'],
-    ['todo', 'gantt', 'status', 'extra'],
-    ['todo', 'gantt', 'status', '--out'],
     ['todo', 'migrate'],
     ['todo', 'migrate', '--input'],
     ['todo', 'migrate', '--input', '/tmp/extraction.json'],
@@ -760,8 +767,12 @@ test('todo namespaceの未知subcommand・不足・余剰・重複・順序違�
     const result = runCli(root, args);
     assert.equal(result.status, 2, args.join(' '));
     assert.equal(result.stdout, '');
-    assert.equal(result.stderr.split('\n').length, 2);
-    assert.doesNotMatch(result.stderr, /^\{/u);
+    const error = JSON.parse(result.stderr);
+    const expectedCode = args[1] === 'unknown' ? 'UNKNOWN_SUBCOMMAND'
+      : args[1] === 'migrate' && path.isAbsolute(args[3] ?? '')
+        ? 'INPUT_OUTSIDE_REPOSITORY' : 'INVALID_ARGUMENTS';
+    assert.equal(error.code, expectedCode, args.join(' '));
+    assert.equal(typeof error.detail.next_action, 'string');
     assert.equal(await storeDigest(root), before);
   }
 });

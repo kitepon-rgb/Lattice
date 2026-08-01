@@ -15,7 +15,12 @@
     "project_id": { "$ref": "#/$defs/identifier" },
     "plan_key": { "$ref": "#/$defs/identifier" },
     "predecessor": { "$ref": "#/$defs/predecessor" },
-    "desired_plan": { "$ref": "#/$defs/desiredPlanV3" },
+    "desired_plan": {
+      "oneOf": [
+        { "$ref": "#/$defs/desiredPlanV3" },
+        { "$ref": "#/$defs/desiredPlanV6" }
+      ]
+    },
     "task_migration": {
       "type": "array", "minItems": 1, "maxItems": 512,
       "items": { "$ref": "#/$defs/taskMigrationEntry" }
@@ -138,6 +143,41 @@
         "plan_version": { "$ref": "#/$defs/identifier" },
         "predecessor_plan_digest": { "$ref": "#/$defs/nullableDigest" },
         "tasks": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/taskV3" } },
+        "hard_dependencies": { "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/edge" } },
+        "joins": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/join" } },
+        "topology_digest": { "$ref": "#/$defs/digest" },
+        "plan_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "taskV6": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "task_id", "title", "lane", "design_memo", "narrative_ref", "narrative_anchor", "compile_binding", "parent_task_id"
+      ],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/identifier" },
+        "title": { "$ref": "#/$defs/nullableText" },
+        "lane": { "$ref": "#/$defs/identifier" },
+        "design_memo": { "type": "string", "minLength": 1, "maxLength": 262144, "pattern": "\\S" },
+        "narrative_ref": { "$ref": "#/$defs/nullableRepoRef" },
+        "narrative_anchor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/narrativeAnchor" }] },
+        "compile_binding": { "$ref": "#/$defs/compileBinding" },
+        "parent_task_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/identifier" }] }
+      }
+    },
+    "desiredPlanV6": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "schema", "project_id", "plan_key", "plan_version", "predecessor_plan_digest",
+        "tasks", "hard_dependencies", "joins", "topology_digest", "plan_digest"
+      ],
+      "properties": {
+        "schema": { "const": "lattice.todo_plan.v6" },
+        "project_id": { "$ref": "#/$defs/identifier" },
+        "plan_key": { "$ref": "#/$defs/identifier" },
+        "plan_version": { "$ref": "#/$defs/identifier" },
+        "predecessor_plan_digest": { "$ref": "#/$defs/nullableDigest" },
+        "tasks": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/taskV6" } },
         "hard_dependencies": { "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/edge" } },
         "joins": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/join" } },
         "topology_digest": { "$ref": "#/$defs/digest" },

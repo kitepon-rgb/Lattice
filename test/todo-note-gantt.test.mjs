@@ -26,10 +26,12 @@ async function workspace(t) {
     projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }],
     plans: [{
       plan: {
-        schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'main',
+        schema: 'lattice.todo_plan.v6', project_id: 'project-1', plan_key: 'main',
         plan_version: 'v1', predecessor_plan_digest: null,
-        tasks: [{ task_id: 'T1', title: 'Task 1', lane: 'main', narrative_ref: null,
-          compile_binding: null }], hard_dependencies: [], joins: [],
+        tasks: [{ task_id: 'T1', title: 'Task 1', lane: 'main',
+          design_memo: '## 初期方針\n\n`NO_PLAN`ではなく、作業記録とは別の初期設計を持つ。',
+          narrative_ref: null, narrative_anchor: null, compile_binding: null,
+          parent_task_id: null }], hard_dependencies: [], joins: [],
       },
       genesis: { actor: ACTOR, recorded_at: NOW },
     }], now: NOW,
@@ -44,16 +46,18 @@ async function append(repoRoot, body, recordedAt = NOW) {
   });
 }
 
-test('ローカルGantt詳細は安全なnote本文と来歴を表示し公開renderは本文を含めない', async (t) => {
+test('公開Ganttは設計メモを表示しappend-only作業記録だけを除外する', async (t) => {
   const repoRoot = await workspace(t);
-  const secret = 'LOCAL-ONLY-NOTE-9f83';
-  await append(repoRoot, `${secret}\n\n**重要**\n\n<script>alert(1)</script>\n\n[危険](javascript:alert(1))`);
+  const memo = 'PUBLIC-DESIGN-NOTE-9f83';
+  await append(repoRoot, `${memo}\n\n**重要**\n\n<script>alert(1)</script>\n\n[危険](javascript:alert(1))`);
   const store = await readTodoStore({ repoRoot });
 
   const local = await renderTodoGanttForProject({
     repoRoot, readModel: store, displayName: 'Fixture', includeNotes: true,
   });
-  assert.match(local.rendered.html, new RegExp(secret, 'u'));
+  assert.match(local.rendered.html, new RegExp(memo, 'u'));
+  assert.match(local.rendered.html, /<h2>設計メモ<\/h2>/u);
+  assert.match(local.rendered.html, /<h2>初期方針<\/h2>/u);
   assert.match(local.rendered.html, /<strong>重要<\/strong>/u);
   assert.match(local.rendered.html, /来歴: v1\/T1/u);
   assert.match(local.rendered.html, /安全上表示できない要素を除外/u);
@@ -63,8 +67,12 @@ test('ローカルGantt詳細は安全なnote本文と来歴を表示し公開re
   const publicRender = await renderPublicTodoGanttForProject({
     repoRoot, readModel: store, displayName: 'Fixture', includeNotes: true,
   });
-  assert.doesNotMatch(publicRender.rendered.html, new RegExp(secret, 'u'));
+  assert.doesNotMatch(publicRender.rendered.html, new RegExp(memo, 'u'));
+  assert.match(publicRender.rendered.html, /<h2>設計メモ<\/h2>/u);
+  assert.match(publicRender.rendered.html, /作業記録とは別の初期設計を持つ/u);
   assert.doesNotMatch(publicRender.rendered.html, /<h2>作業記録<\/h2>/u);
+  assert.doesNotMatch(publicRender.rendered.html, /<script>alert\(1\)<\/script>/u);
+  assert.doesNotMatch(publicRender.rendered.html, /javascript:/u);
 });
 
 test('Ganttのnote chain破損は明示警告になりlive headも破損を反映する', async (t) => {

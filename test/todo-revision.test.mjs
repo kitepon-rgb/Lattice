@@ -20,7 +20,7 @@ const HEAD = '2'.repeat(64);
 const ACTOR = { host: 'host-1', session: 'session-1', agent: 'agent-1' };
 const NOW = '2026-07-19T00:00:00.000Z';
 
-const task = (taskId, parentTaskId = null) => ({
+const task = (taskId, parentTaskId = null, designMemo = null) => ({
   task_id: taskId,
   title: taskId,
   lane: 'main',
@@ -28,20 +28,24 @@ const task = (taskId, parentTaskId = null) => ({
   narrative_anchor: null,
   compile_binding: null,
   parent_task_id: parentTaskId,
+  ...(designMemo === null ? {} : { design_memo: designMemo }),
 });
 
 function revisionFixture({ taskMigration = [
   { from_task_id: 'A1', to_task_id: 'P1', state_policy: 'carry' },
   { from_task_id: 'A2', to_task_id: 'T1', state_policy: 'reset_pending' },
-] } = {}) {
+], planSchema = 'lattice.todo_plan.v3' } = {}) {
   const predecessor = { plan_digest: DIGEST, journal_head_digest: HEAD, plan_version: 'v1' };
   const desiredPlanInput = {
-    schema: 'lattice.todo_plan.v3',
+    schema: planSchema,
     project_id: 'project-1',
     plan_key: 'main',
     plan_version: 'pending',
     predecessor_plan_digest: DIGEST,
-    tasks: [task('P1'), task('T1', 'P1')],
+    tasks: [
+      task('P1', null, planSchema === 'lattice.todo_plan.v6' ? 'NO_PLAN' : null),
+      task('T1', 'P1', planSchema === 'lattice.todo_plan.v6' ? '## 方針\n\n状態を引き継ぐ。' : null),
+    ],
     hard_dependencies: [],
     joins: [],
   };
@@ -166,6 +170,17 @@ test('todo_revision.v1はv3 desired state・inventory・reconciliationをexact d
     mutate(invalid);
     assert.equal(validateTodoRevision(invalid), false);
   }
+});
+
+test('todo revisionはdesign_memoを持つv6 desired planを受理し空白を拒否する', () => {
+  const revision = revisionFixture({ planSchema: 'lattice.todo_plan.v6' });
+  assert.equal(validateTodoRevision(revision), true);
+  const blank = structuredClone(revision);
+  blank.desired_plan.tasks[0].design_memo = '  \n';
+  blank.desired_plan.topology_digest = '0'.repeat(64);
+  blank.desired_plan.plan_digest = '0'.repeat(64);
+  blank.revision_digest = todoSelfDigest(blank, 'revision_digest');
+  assert.equal(validateTodoRevision(blank), false);
 });
 
 test('todo_revision.v2はper-ToDo source cutover batchをplan・inventory・narrativeへ束縛する', () => {

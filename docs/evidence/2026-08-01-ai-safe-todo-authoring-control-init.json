@@ -1,0 +1,35 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "ai-safe-todo-authoring-20260801",
+  "objective_ref": "docs/plan_ai-safe-todo-authoring.md",
+  "actor_id": "codex-parent-20260801",
+  "document_refs": [
+    "docs/adr/0150-todo-design-memo-is-required.md",
+    "docs/plan_ai-safe-todo-authoring.md"
+  ],
+  "budget": {
+    "max_worker_runs": 4,
+    "max_consultations": 2,
+    "max_external_runs": 2,
+    "max_wall_time_seconds": null,
+    "max_cost_microusd": null,
+    "max_runs_per_approach_family": 3,
+    "max_retries_per_assignment": 2,
+    "max_integration_runs": 4
+  },
+  "lane_admission": {
+    "contract_version": "dotagents.lane-admission.v1",
+    "conditions": {
+      "planned_interruption": false,
+      "chained_acceptance": true,
+      "multi_repo_write_coordination": true,
+      "decision_evidence_required": true
+    },
+    "decision": {
+      "type": "decision",
+      "ref": "docs/adr/0150-todo-design-memo-is-required.md",
+      "digest": "7c6449bd64227e7b7b566a67a6d1e3ba2ce2a75808a4e3985b502c14b4b7656b",
+      "observed_at": "2026-08-01T05:52:21.000Z"
+    }
+  }
+}

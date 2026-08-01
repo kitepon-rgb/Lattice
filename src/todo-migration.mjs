@@ -3,6 +3,7 @@ import {
   exactRecord,
   isStrictTodoTimestamp,
   isTodoDigest,
+  isTodoDesignMemo,
   isTodoIdentifier,
   isTodoRef,
   todoSelfDigest,
@@ -15,6 +16,7 @@ import {
 
 export const TODO_EXTRACTION_SCHEMA = 'lattice.todo_extraction.v1';
 export const TODO_EXTRACTION_SCHEMA_V2 = 'lattice.todo_extraction.v2';
+export const TODO_EXTRACTION_SCHEMA_V3 = 'lattice.todo_extraction.v3';
 
 const V1_DISPOSITIONS = new Set([
   'register_pending',
@@ -93,14 +95,17 @@ function historicalStart(value) {
 }
 
 function extractionTask(value, schema) {
-  const v2 = schema === TODO_EXTRACTION_SCHEMA_V2;
+  const v2 = [TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3].includes(schema);
+  const v3 = schema === TODO_EXTRACTION_SCHEMA_V3;
   const keys = [
     'task_id', 'title', 'lane', 'narrative_ref', 'compile_binding', 'disposition',
     'completion', 'source', 'migration_context',
   ];
   if (v2) keys.push('start');
+  if (v3) keys.push('design_memo');
   if (!exactRecord(value, keys) || !isTodoIdentifier(value.task_id) || !boundedText(value.title)
     || !isTodoIdentifier(value.lane) || (value.narrative_ref !== null && !isTodoRef(value.narrative_ref))
+    || (v3 && !isTodoDesignMemo(value.design_memo))
     || value.compile_binding !== null || !(v2 ? V2_DISPOSITIONS : V1_DISPOSITIONS).has(value.disposition)
     || !sourceLocation(value.source) || !migrationContext(value.migration_context)) return false;
   if (!v2) return value.disposition === 'register_done' ? completion(value.completion) : value.completion === null;
@@ -126,7 +131,7 @@ function validateJoins(value) {
     && sortedStrictly(value, (join) => join.id);
 }
 
-const reject = (reason, path = '') => ({ valid: false, reason, path });
+const reject = (reason, path = '', detail = {}) => ({ valid: false, reason, path, ...detail });
 
 /** value自体がexactRecordの対象になれる素朴なobjectかどうか（配列・nullを除く）。 */
 function plainObject(value) {
@@ -175,10 +180,13 @@ export function explainTodoExtraction(value) {
   try {
     if (!plainObject(value)) return reject('not_an_object', '');
     const schema = value.schema;
-    if (![TODO_EXTRACTION_SCHEMA, TODO_EXTRACTION_SCHEMA_V2].includes(schema)) {
-      return reject('schema_mismatch', '/schema');
+    if (![TODO_EXTRACTION_SCHEMA, TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3].includes(schema)) {
+      return reject('schema_mismatch', '/schema', {
+        expected: TODO_EXTRACTION_SCHEMA_V3, actual: typeof schema === 'string' ? schema : null,
+      });
     }
-    const v2 = schema === TODO_EXTRACTION_SCHEMA_V2;
+    const v2 = [TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3].includes(schema);
+    const v3 = schema === TODO_EXTRACTION_SCHEMA_V3;
     const topKeys = [
       'schema', 'project_id', 'plan_key', 'plan_version', 'actor', 'recorded_at',
       'tasks', 'hard_dependencies', 'joins', 'extraction_digest',
@@ -199,11 +207,33 @@ export function explainTodoExtraction(value) {
         'start', 'completion', 'source', 'migration_context']
       : ['task_id', 'title', 'lane', 'narrative_ref', 'compile_binding', 'disposition',
         'completion', 'source', 'migration_context'];
+    if (v3) taskKeys.push('design_memo');
     for (const [index, task] of value.tasks.entries()) {
       const taskKeyCheck = explainKeys(task, taskKeys, `/tasks/${index}`);
       if (!taskKeyCheck.valid) return taskKeyCheck;
+      if (v3 && !isTodoDesignMemo(task.design_memo)) {
+        return reject('design_memo_required', `/tasks/${index}/design_memo`, {
+          task_id: isTodoIdentifier(task.task_id) ? task.task_id : null,
+          expected: 'non-empty Markdown or NO_PLAN',
+        });
+      }
+      if (task.disposition === 'register_done'
+        && task.completion?.done_mode !== 'historical_import') {
+        return reject('enum_mismatch', `/tasks/${index}/completion/done_mode`, {
+          task_id: isTodoIdentifier(task.task_id) ? task.task_id : null,
+          expected: 'historical_import', actual: task.completion?.done_mode ?? null,
+        });
+      }
+      if (!Array.isArray(task.migration_context?.notes)) {
+        return reject('expected_array', `/tasks/${index}/migration_context/notes`, {
+          task_id: isTodoIdentifier(task.task_id) ? task.task_id : null,
+          expected: 'array', actual: typeof task.migration_context?.notes,
+        });
+      }
       if (!extractionTask(task, schema)) {
-        return reject('task_shape_invalid', `/tasks/${index}`);
+        return reject('task_shape_invalid', `/tasks/${index}`, {
+          task_id: isTodoIdentifier(task.task_id) ? task.task_id : null,
+        });
       }
     }
     const sortCheck = explainSortedStrictly(value.tasks, (task) => task.task_id, '/tasks');
@@ -216,7 +246,9 @@ export function explainTodoExtraction(value) {
     if (!isTodoDigest(value.extraction_digest)) return reject('invalid_digest', '/extraction_digest');
     const expectedDigest = todoSelfDigest(value, 'extraction_digest');
     if (value.extraction_digest !== expectedDigest) {
-      return reject('extraction_digest_mismatch', '/extraction_digest');
+      return reject('extraction_digest_mismatch', '/extraction_digest', {
+        expected: expectedDigest, actual: value.extraction_digest,
+      });
     }
     const taskIds = new Set(value.tasks.map(({ task_id: taskId }) => taskId));
     const badParent = value.tasks.find((task) => task.source.parent_task_id === task.task_id
@@ -255,7 +287,7 @@ export function validateTodoExtraction(value) {
     if (!exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'plan_version', 'actor', 'recorded_at',
       'tasks', 'hard_dependencies', 'joins', 'extraction_digest',
-    ]) || ![TODO_EXTRACTION_SCHEMA, TODO_EXTRACTION_SCHEMA_V2].includes(schema)
+    ]) || ![TODO_EXTRACTION_SCHEMA, TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3].includes(schema)
       || !isTodoIdentifier(value.project_id)
       || !isTodoIdentifier(value.plan_key) || !isTodoIdentifier(value.plan_version)
       || !actor(value.actor) || !isStrictTodoTimestamp(value.recorded_at)
@@ -317,7 +349,8 @@ export function compileTodoExtraction(value, repoRoot) {
       repositories: [{ repo_id: 'self', path: '.' }],
     },
     plan: {
-      schema: 'lattice.todo_plan.v2',
+      schema: value.schema === TODO_EXTRACTION_SCHEMA_V3
+        ? 'lattice.todo_plan.v6' : 'lattice.todo_plan.v2',
       project_id: value.project_id,
       plan_key: value.plan_key,
       plan_version: value.plan_version,
@@ -326,9 +359,13 @@ export function compileTodoExtraction(value, repoRoot) {
         task_id: task.task_id,
         title: task.title,
         lane: task.lane,
+        ...(value.schema === TODO_EXTRACTION_SCHEMA_V3
+          ? { design_memo: task.design_memo } : {}),
         narrative_ref: task.narrative_ref,
         narrative_anchor: null,
         compile_binding: null,
+        ...(value.schema === TODO_EXTRACTION_SCHEMA_V3
+          ? { parent_task_id: task.source.parent_task_id } : {}),
       })),
       hard_dependencies: value.hard_dependencies,
       joins: value.joins,

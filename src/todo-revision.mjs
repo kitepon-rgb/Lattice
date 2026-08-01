@@ -66,14 +66,14 @@ export function phaseTodoRevisionPlanVersion({
   projectId, planKey, predecessor, desiredPlan, taskMigration, phaseMigration,
 }) {
   const versionDigest = digestTodoArtifact({
-    schema: desiredPlan.schema === 'lattice.todo_plan.v5'
+    schema: ['lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(desiredPlan.schema)
       ? 'lattice.phase_todo_revision_version.v2' : 'lattice.phase_todo_revision_version.v1', project_id: projectId,
     plan_key: planKey, predecessor, desired_topology: {
       schema: desiredPlan.schema, project_id: desiredPlan.project_id,
       plan_key: desiredPlan.plan_key, predecessor_plan_digest: desiredPlan.predecessor_plan_digest,
       tasks: desiredPlan.tasks, phases: desiredPlan.phases,
       hard_dependencies: desiredPlan.hard_dependencies, joins: desiredPlan.joins,
-      ...(desiredPlan.schema === 'lattice.todo_plan.v5'
+      ...(['lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(desiredPlan.schema)
         ? { phase_accept_dependencies: desiredPlan.phase_accept_dependencies } : {}),
     }, task_migration: taskMigration, phase_migration: phaseMigration,
   });
@@ -295,8 +295,9 @@ export function validatePhaseTodoRevision(value) {
     if (!exactRecord(value, keys) || (!revisionV1 && !revisionV2 && !revisionV3)) return false;
     if (!isTodoIdentifier(value.project_id) || !isTodoIdentifier(value.plan_key)) return false;
     if (!validPredecessor(value.predecessor) || !validateTodoPlan(value.desired_plan)
-      || value.desired_plan.schema !== ((revisionV2 || revisionV3)
-        ? 'lattice.todo_plan.v5' : 'lattice.todo_plan.v4')
+      || !(revisionV3
+        ? ['lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(value.desired_plan.schema)
+        : value.desired_plan.schema === (revisionV2 ? 'lattice.todo_plan.v5' : 'lattice.todo_plan.v4'))
       || value.desired_plan.project_id !== value.project_id
       || value.desired_plan.plan_key !== value.plan_key
       || value.desired_plan.predecessor_plan_digest !== value.predecessor.plan_digest
@@ -370,7 +371,7 @@ export function validateTodoRevision(value) {
       || !exactRecord(value, revisionV1 ? REVISION_V1_KEYS : REVISION_V2_KEYS)
       || !isTodoIdentifier(value.project_id) || !isTodoIdentifier(value.plan_key)
       || !validPredecessor(value.predecessor) || !validateTodoPlan(value.desired_plan)
-      || value.desired_plan.schema !== 'lattice.todo_plan.v3'
+      || !['lattice.todo_plan.v3', 'lattice.todo_plan.v6'].includes(value.desired_plan.schema)
       || value.desired_plan.project_id !== value.project_id
       || value.desired_plan.plan_key !== value.plan_key
       || value.desired_plan.predecessor_plan_digest !== value.predecessor.plan_digest
@@ -729,7 +730,7 @@ export function explainTodoRevision(value) {
     const predecessorCheck = explainPredecessor(value.predecessor);
     if (!predecessorCheck.valid) return predecessorCheck;
     if (!validateTodoPlan(value.desired_plan)) return reject('desired_plan_invalid', '/desired_plan');
-    if (value.desired_plan.schema !== 'lattice.todo_plan.v3') {
+    if (!['lattice.todo_plan.v3', 'lattice.todo_plan.v6'].includes(value.desired_plan.schema)) {
       return reject('desired_plan_schema_mismatch', '/desired_plan/schema');
     }
     if (value.desired_plan.project_id !== value.project_id) {
@@ -817,8 +818,9 @@ export function explainPhaseTodoRevision(value) {
     const predecessorCheck = explainPredecessor(value.predecessor);
     if (!predecessorCheck.valid) return predecessorCheck;
     if (!validateTodoPlan(value.desired_plan)) return reject('desired_plan_invalid', '/desired_plan');
-    const expectedPlanSchema = (revisionV2 || revisionV3) ? 'lattice.todo_plan.v5' : 'lattice.todo_plan.v4';
-    if (value.desired_plan.schema !== expectedPlanSchema) {
+    const expectedPlanSchemas = revisionV3 ? ['lattice.todo_plan.v5', 'lattice.todo_plan.v7']
+      : [revisionV2 ? 'lattice.todo_plan.v5' : 'lattice.todo_plan.v4'];
+    if (!expectedPlanSchemas.includes(value.desired_plan.schema)) {
       return reject('desired_plan_schema_mismatch', '/desired_plan/schema');
     }
     if (value.desired_plan.project_id !== value.project_id) {

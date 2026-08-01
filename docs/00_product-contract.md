@@ -129,7 +129,7 @@ canonical store ref、active plan、active run、`uninitialized | ready | active
 Markdownへ暗黙fallbackしない。
 
 未初期化projectの初期authoring入口は
-`lattice plan create --input <lattice.plan_create_input.v3>`である。入力はrepo内のcanonical
+`lattice plan create --input <lattice.plan_create_input.v4>`である。入力はrepo内のcanonical
 JSON+LFに限定し、`lattice.todo_plan.v5`と同じPhase／task／topology制約を満たすfull desired stateを
 一回のtransactionでstoreへ登録する。移行専用の`todo migrate`を新規authoringへ流用しない。
 v2/v4は既存planの互換契約として維持する。
@@ -223,7 +223,9 @@ Phase v3のactive source移転は、同じrevisionの`source_cutover_batch`が�
 predecessor source消失は`predecessor_source_silently_dropped`として拒否する。
 成功は単体通常revisionが`lattice.todo_revise_result.v1`、revision setが
 `lattice.todo_revision_set_result.v1`、statusはreconciliation identityを含む
-`lattice.todo_status_result.v4`、verifyはsource inventoryを再検査する`lattice.todo_verify_result.v2`を返す。
+`lattice.todo_status_result.v4`、verifyはsource inventoryを再検査する`lattice.todo_verify_result.v3`を返す。
+verify v3の各memberは`reconciliation_guidance`を持ち、`registered_unreconciled`がsource inventoryの
+検証状態であってlifecycle操作とdashboard表示を塞がないこと、および正規のrevision schema取得・適用commandを示す。
 status v4の`dispatch_frontier`は`next_ready`全件を既定の同時dispatch集合とし、推奨同時数、
 frontier digest、subset選択時の理由要否を機械表示する。readyが複数でactive taskがない時の最初の
 `todo start`は`--parallel-frontier`による並列開始宣言、または`--override-reason <reason>`による
@@ -262,10 +264,14 @@ journal eventのschema列は、v1 genesisのjournalへ`phase_*` eventだけをv3
 （既存eventのbytesとdigest計算は不変、v3のtask eventは従来どおり拒否）。
 
 authoring契約のJSON Schemaは各入口から取得できる。`plan create --schema --json`の既定は最新版
-（現在v3）で、`--schema-version <1|2|3> --json`が版を明示する。`todo revise`／`revise-set`／
+（現在v4）で、`--schema-version <1|2|3|4> --json`が版を明示する。`todo revise`／`revise-set`／
 `revise-phase`／`migrate`も`--schema --json`を持ち、実際に受理する最新契約を返す（storeを読まない
-決定的出力）。schema違反は`detail`へ`violation_reason`と`violation_path`を載せ、配列のソート違反は
-index込みで名指しする。`lattice plan show <plan_key> --json`は`lattice.plan_show_result.v1`として
+決定的出力）。schema違反は`detail`へ互換fieldの`violation_reason`／`violation_path`と、構造化した
+`violation_kind`／JSON `pointer`／`expected`／`actual`／`task_id`／`next_action`を載せる。
+`todo migrate --input <ref> --dry-run --json`はstoreとdashboard registryを変更せず、独立した違反を
+上限付き配列でまとめて返す。digest不一致は期待digest、ソート違反はsort key、未来時刻は現在時刻と
+許容5分窓を返す。未知subcommand、不正引数、repo外絶対inputはそれぞれ`UNKNOWN_SUBCOMMAND`、
+`INVALID_ARGUMENTS`、`INPUT_OUTSIDE_REPOSITORY`へ分ける。`lattice plan show <plan_key> --json`は`lattice.plan_show_result.v1`として
 plan本体（phase定義と状態・task一覧と状態・依存本数・topology要約）を投影する——
 `todo bindings`が`compile_binding`付きtaskだけを投影することによる「planが空」という誤読を塞ぐ面である。
 
@@ -273,7 +279,7 @@ plan本体（phase定義と状態・task一覧と状態・依存本数・topolog
 mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,
 `LATTICE_TODO_ACTOR_AGENT`をすべてtodo identifierとして明示し、欠落時は書き込まない。`done`の
 evidenceはrepo内descriptor JSONとpinned Git objectをwrite時にhard検証する。成功は
-`lattice.todo_mutation_result.v2`一行、失敗は`lattice.cli_error.v2`一行、usage違反は人間向け診断一行で、
+`lattice.todo_mutation_result.v2`一行、失敗とusage違反は`lattice.cli_error.v2`一行で、
 失敗時のstore bytesは不変とする。v2の`advisory`は`todo start`だけが非nullで返し、着手対象と
 進行中ToDoの競合・切断可能性・未検査の内訳を機械可読で載せる（ADR 0128）。助言であって拒否ではなく、
 ready frontier dispatch契約は変えない。ただし記録があるのに鮮度を判定できない場合は、
@@ -301,13 +307,15 @@ placeholderを代わりに置かず、生きたToDoとその直接の前提ToDo�
 繋ぐ線は折れずに一直線で降りる。依存edgeを持たないToDoのブロックは接続済みToDoの上へ置き、接続済み
 ToDoが段の最下行になる。配線規約は[ADR 0068](adr/0068-gantt-routes-run-between-the-columns.md)が正
 （ADR 0066 Decision 7を置き換える）。
-右ペインはToDo storeを見せる面であり、元plan Markdown本文を再表示しない。全工程一覧は、動いているplanを
+右ペインはToDo storeを見せる面であり、ToDo本体へ束縛した初期設計メモと追記noteを区別して表示する。
+元plan Markdown本文を暗黙に再読込しない。全工程一覧は、動いているplanを
 最終活動の新しい順で上、全ToDoが図から外れた完走planを古い順で下へ並べ、plan内は登録順を保つ。
 右ペインの規約は[ADR 0067](adr/0067-right-pane-shows-the-store-and-orders-by-activity.md)が正。
 
-静的`todo gantt`はoffline証拠として維持する。`todo gantt serve --port <0..65535>`はloopback-onlyの
+工程表はstoreを都度読む動的viewerだけを運用表示面とする。`todo gantt serve --port <0..65535>`はloopback-onlyの
 foreground read-only viewerで、stable store readとSSEにより更新を反映し、mixed viewを最新として表示しない。
-live result v2は`project_id`、`/projects/<project_id>/`のproject固有URL、同じnamespace配下の`events_url`を返す。
+live result v3は`project_id`、project scope、選択scope、起動時点で含むplan key群、HTML media type、
+動的表示であること、`/projects/<project_id>/`のproject固有URL、同じnamespace配下の`events_url`を返す。
 各projectのforeground sessionは独立portで同時起動でき、project間でHTML、SSE、store stateを共有しない。
 共有dashboardのactive project判定はrecent session activityまたはstoreの非空`active_set`だけを根拠にする。
 activity TTLを越えてもactive runがあるprojectを一覧から除外せず、active run終了かつTTL期限切れで除外する。
@@ -320,7 +328,8 @@ dashboard daemonは起動時に読み込んだ版数をhealthで名乗り、inst
 HTMLを要求しないclientには、従来の`lattice.todo_gantt_http_error.v1` JSON 404を維持する。
 content negotiationは表示面だけの加算であり、未知URLを200へ丸めず、他methodや他errorの契約を
 暗黙に変更しない。
-静的生成時はHTMLと`<output_ref>.status.json` descriptorを発行する。`todo gantt status [--out <ref>]`は
-現在の決定的renderとdescriptor／HTML digestを照合し、`current / stale / missing`を返す。
-片側欠落、non-canonical descriptor、digest不一致、project不一致は`GANTT_ARTIFACT_INVALID`として失敗し、
-staleまたはcurrentへ丸めない。
+`todo gantt`と`todo gantt status`は`STATIC_GANTT_RETIRED`で拒否する。project別HTMLとsidecarを
+運用正本として生成せず、AIへ再生成やstale確認を要求しない。
+dashboard registryは同じ`project_id`を別canonical rootから自動登録しようとすると
+`PROJECT_ROOT_CONFLICT`でregistry bytesを不変に保つ。配信元を動かす唯一の例外は、actorを明示した
+`lattice todo dashboard adopt --json`である。結果と公開画面へローカル絶対pathを露出しない。

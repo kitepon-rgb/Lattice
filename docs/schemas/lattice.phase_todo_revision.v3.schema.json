@@ -16,7 +16,10 @@
     "project_id": { "$ref": "#/$defs/identifier" },
     "plan_key": { "$ref": "#/$defs/identifier" },
     "predecessor": { "$ref": "#/$defs/predecessor" },
-    "desired_plan": { "$ref": "#/$defs/desiredPlanV5" },
+    "desired_plan": { "oneOf": [
+      { "$ref": "#/$defs/desiredPlanV5" },
+      { "$ref": "#/$defs/desiredPlanV7" }
+    ] },
     "runtime_task_migration": { "$ref": "#/$defs/runtimeTaskMigration" },
     "task_migration": {
       "type": "array", "minItems": 1, "maxItems": 512,
@@ -156,6 +159,27 @@
         "phase_id": { "$ref": "#/$defs/identifier" }
       }
     },
+    "taskV6": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "task_id", "title", "lane", "design_memo", "narrative_ref", "narrative_anchor",
+        "compile_binding", "parent_task_id", "phase_id"
+      ],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/identifier" },
+        "title": { "$ref": "#/$defs/nullableText" },
+        "lane": { "$ref": "#/$defs/identifier" },
+        "design_memo": {
+          "$ref": "#/$defs/text",
+          "description": "Markdown design memo. あなたがこのToDoに対して、何も考えていないならば、設計メモに `NO_PLAN` と書いてください"
+        },
+        "narrative_ref": { "$ref": "#/$defs/nullableRepoRef" },
+        "narrative_anchor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/narrativeAnchor" }] },
+        "compile_binding": { "$ref": "#/$defs/compileBinding" },
+        "parent_task_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/identifier" }] },
+        "phase_id": { "$ref": "#/$defs/identifier" }
+      }
+    },
     "phase": {
       "type": "object", "additionalProperties": false,
       "required": ["phase_id", "title", "gate_policy", "predecessor_phase_ids", "required_evidence_slots"],
@@ -185,6 +209,30 @@
         "plan_version": { "$ref": "#/$defs/identifier" },
         "predecessor_plan_digest": { "$ref": "#/$defs/nullableDigest" },
         "tasks": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/taskV4" } },
+        "hard_dependencies": { "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/edge" } },
+        "joins": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/join" } },
+        "phases": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/phase" } },
+        "phase_accept_dependencies": {
+          "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/phaseAcceptDependency" }
+        },
+        "topology_digest": { "$ref": "#/$defs/digest" },
+        "plan_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "desiredPlanV7": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "schema", "project_id", "plan_key", "plan_version", "predecessor_plan_digest",
+        "tasks", "hard_dependencies", "joins", "phases", "phase_accept_dependencies",
+        "topology_digest", "plan_digest"
+      ],
+      "properties": {
+        "schema": { "const": "lattice.todo_plan.v7" },
+        "project_id": { "$ref": "#/$defs/identifier" },
+        "plan_key": { "$ref": "#/$defs/identifier" },
+        "plan_version": { "$ref": "#/$defs/identifier" },
+        "predecessor_plan_digest": { "$ref": "#/$defs/nullableDigest" },
+        "tasks": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/taskV6" } },
         "hard_dependencies": { "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/edge" } },
         "joins": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/join" } },
         "phases": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/phase" } },

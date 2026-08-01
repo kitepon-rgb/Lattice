@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { runTodoCli } from '../src/todo-cli.mjs';
 import {
+  adoptTodoDashboardActivity,
   ensureTodoDashboardDaemon,
   ensureTodoDashboardActivity,
   readActiveTodoDashboardProjects,
@@ -63,6 +64,46 @@ test('session activity registryはprojectをupsertし期限切れentryを一覧�
   assert.equal(active.length, 1);
   assert.equal(active[0].display_name, 'Lattice');
   assert.equal(active[0].session_id, 'session-b');
+});
+
+test('同一project_idを別canonical rootから登録しても既存registryを置換しない', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-root-conflict-'));
+  const canonical = path.join(root, 'canonical');
+  const scratch = path.join(root, 'scratch');
+  await Promise.all([mkdir(canonical), mkdir(scratch)]);
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_DASHBOARD_RUNTIME_DIR: path.join(root, 'runtime') };
+  await registerTodoDashboardActivity({ repoRoot: canonical, projectId: 'bingo',
+    displayName: 'Bingo', sessionId: 'canonical-session', env,
+    now: new Date('2026-08-01T00:00:00.000Z') });
+  const registryRef = path.join(root, 'runtime', 'projects.json');
+  const before = await readFile(registryRef);
+
+  await assert.rejects(registerTodoDashboardActivity({ repoRoot: scratch, projectId: 'bingo',
+    displayName: 'Bingo scratch', sessionId: 'scratch-session', env,
+    now: new Date('2026-08-01T00:01:00.000Z') }), (error) => {
+    assert.equal(error.code, 'PROJECT_ROOT_CONFLICT');
+    assert.deepEqual(error.detail, { project_id: 'bingo' });
+    assert.equal(error.message.includes(canonical), false);
+    assert.equal(error.message.includes(scratch), false);
+    return true;
+  });
+  assert.deepEqual(await readFile(registryRef), before);
+  const [entry] = await readActiveTodoDashboardProjects({
+    env, now: Date.parse('2026-08-01T00:01:00.000Z'),
+  });
+  assert.equal(entry.repo_root, await realpath(canonical));
+  assert.equal(entry.session_id, 'canonical-session');
+
+  const adopted = await adoptTodoDashboardActivity({ repoRoot: scratch, projectId: 'bingo',
+    displayName: 'Bingo', sessionId: 'adopt-session', env,
+    now: new Date('2026-08-01T00:02:00.000Z') });
+  assert.equal(adopted.adopted, true);
+  const [moved] = await readActiveTodoDashboardProjects({
+    env, now: Date.parse('2026-08-01T00:02:00.000Z'),
+  });
+  assert.equal(moved.repo_root, await realpath(scratch));
+  assert.equal(moved.session_id, 'adopt-session');
 });
 
 test('期限切れactivityでもstoreにactive runがあれば一覧へ残す', async (context) => {

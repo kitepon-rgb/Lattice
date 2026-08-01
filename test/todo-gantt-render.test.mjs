@@ -23,7 +23,8 @@ import {
   createTodoStoreWriter,
   initializeTodoStore,
 } from '../src/todo-store.mjs';
-import { digestTodoArtifact, todoSelfDigest } from '../src/todo-contracts.mjs';
+import { digestTodoArtifact } from '../src/todo-contracts.mjs';
+import { renderTodoGanttForProject } from '../src/todo-cli.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
@@ -100,6 +101,8 @@ test('図から外した工程は、代わりの箱も置かない', () => {
   // 外したことと、その工程がどこにいるかは言葉で残す。
   assert.match(html, /完走済み 2件を非表示/u);
   assert.match(detailPanelOf(html, 'T0001'), /完走済みのため図には描いていません/u);
+  assert.match(detailPanelOf(html, 'T0001'), /gantt serve --port &lt;port&gt; --scope all/u);
+  assert.doesNotMatch(html, /lattice todo gantt --scope all/u);
 });
 
 test('選択ボタンは必ず開ける詳細を指す', () => {
@@ -351,28 +354,16 @@ function taskNodeY(html) {
   return positions;
 }
 
-test('small real store E2E generates the default self-contained gantt and exact binding result', async (context) => {
+test('small real store E2E renders the dynamic self-contained gantt with exact bindings', async (context) => {
   const root = await workspace(context);
   await writeFile(path.join(root, '.lattice', 'project.json'), `${JSON.stringify({
     schema: 'lattice.project_identity.v1', project_id: 'project-1', display_name: 'Fixture Project',
   })}\n`);
-  const execution = run(root, ['todo', 'gantt']);
-  assert.equal(execution.status, 0, execution.stderr);
-  assert.equal(execution.stderr, '');
-  const result = JSON.parse(execution.stdout);
-  assert.deepEqual(Object.keys(result), [
-    'schema', 'project_id', 'output_ref', 'scope', 'folded_task_count', 'manifest_digest',
-    'member_bindings',
-    'narrative_bindings_digest', 'chain_digest', 'layout_digest', 'renderer_version',
-    'html_digest', 'result_digest',
-  ]);
-  assert.equal(result.schema, 'lattice.todo_gantt_result.v1');
-  assert.equal(result.output_ref, '.lattice/generated/gantt.html');
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v18');
-  const generatedHtml = await readFile(path.join(root, '.lattice', 'generated', 'gantt.html'), 'utf8');
-  assert.match(generatedHtml, /<title>Lattice — Fixture Project 依存工程図<\/title>/u);
+  const result = await renderTodoGanttForProject({ repoRoot: root });
+  assert.equal(result.metadata.renderer_version, 'lattice.todo_gantt_renderer.v18');
+  assert.match(result.rendered.html, /<title>Lattice — Fixture Project 依存工程図<\/title>/u);
   const narrativeBytes = await readFile(path.join(root, 'narrative.md'));
-  assert.equal(result.narrative_bindings_digest, digestTodoArtifact([{
+  assert.equal(result.metadata.narrative_bindings_digest, digestTodoArtifact([{
     project_id: 'project-1',
     plan_key: 'main',
     task_id: 'T1',
@@ -381,10 +372,8 @@ test('small real store E2E generates the default self-contained gantt and exact 
     anchored: false,
     reason: 'anchor_missing',
   }]));
-  assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
-  assert.equal(path.isAbsolute(result.output_ref), false);
-  assert.equal(JSON.stringify(result).includes('file://'), false);
-  const html = await readFile(path.join(root, result.output_ref), 'utf8');
+  assert.equal(JSON.stringify(result.metadata).includes('file://'), false);
+  const html = result.rendered.html;
   assert.match(html, /class="todo-gantt"/u);
   assert.match(html, /data-node-key=/u);
   assert.match(html, /tabindex="0" role="button" aria-selected="false"/u);
@@ -414,6 +403,12 @@ test('manual gantt serveもproject identity fileのdisplay nameを使う', async
     stdout += chunk.toString('utf8');
   }
   const live = JSON.parse(stdout.split('\n')[0]);
+  assert.equal(live.schema, 'lattice.todo_gantt_live_result.v3');
+  assert.equal(live.resource_scope, 'project');
+  assert.equal(live.selection_scope, 'live');
+  assert.deepEqual(live.included_plan_keys, ['main']);
+  assert.equal(live.media_type, 'text/html; charset=utf-8');
+  assert.equal(live.dynamic, true);
   const response = await fetch(live.url);
   assert.equal(response.status, 200);
   assert.match(await response.text(), /<title>Lattice — Manual Fixture 依存工程図<\/title>/u);
@@ -422,76 +417,42 @@ test('manual gantt serveもproject identity fileのdisplay nameを使う', async
   assert.equal(code, 0);
 });
 
-test('gantt statusはmissing/current/staleを区別しartifact改竄をtyped拒否する', async (context) => {
+test('静的gantt生成とstatusは廃止済みとしてtyped拒否しartifactを作らない', async (context) => {
   const root = await workspace(context);
-  const missingExecution = run(root, ['todo', 'gantt', 'status']);
-  assert.equal(missingExecution.status, 0, missingExecution.stderr);
-  const missing = JSON.parse(missingExecution.stdout);
-  assert.equal(missing.schema, 'lattice.todo_gantt_status_result.v1');
-  assert.equal(missing.artifact_status, 'missing');
-  assert.equal(missing.artifact_manifest_digest, null);
-  assert.equal(missing.html_digest, null);
-
-  const generated = run(root, ['todo', 'gantt']);
-  assert.equal(generated.status, 0, generated.stderr);
-  const currentExecution = run(root, ['todo', 'gantt', 'status']);
-  assert.equal(currentExecution.status, 0, currentExecution.stderr);
-  const current = JSON.parse(currentExecution.stdout);
-  assert.equal(current.artifact_status, 'current');
-  assert.equal(current.current_manifest_digest, current.artifact_manifest_digest);
-  assert.equal(current.result_digest, todoSelfDigest(current, 'result_digest'));
-  const descriptor = JSON.parse(await readFile(path.join(root, current.descriptor_ref), 'utf8'));
-  assert.equal(descriptor.schema, 'lattice.todo_gantt_artifact.v2');
-  assert.equal(descriptor.scope, 'live');
-  assert.equal(descriptor.html_digest, current.html_digest);
-  assert.equal(descriptor.artifact_digest, todoSelfDigest(descriptor, 'artifact_digest'));
-
-  await writeFile(path.join(root, 'narrative.md'), '# Changed narrative\n');
-  const staleExecution = run(root, ['todo', 'gantt', 'status']);
-  assert.equal(staleExecution.status, 0, staleExecution.stderr);
-  assert.equal(JSON.parse(staleExecution.stdout).artifact_status, 'stale');
-
-  await writeFile(path.join(root, current.output_ref), 'tampered\n');
-  const invalid = run(root, ['todo', 'gantt', 'status']);
-  assert.equal(invalid.status, 1);
-  assert.equal(invalid.stdout, '');
-  const error = JSON.parse(invalid.stderr);
-  assert.equal(error.code, 'GANTT_ARTIFACT_INVALID');
-  assert.equal(error.detail.reason, 'artifact_digest_mismatch');
+  for (const args of [['todo', 'gantt'], ['todo', 'gantt', 'status']]) {
+    const execution = run(root, args);
+    assert.equal(execution.status, 1);
+    assert.equal(execution.stdout, '');
+    const error = JSON.parse(execution.stderr);
+    assert.equal(error.code, 'STATIC_GANTT_RETIRED');
+    assert.equal(error.detail.reason, 'dynamic_dashboard_only');
+  }
+  await assert.rejects(readFile(path.join(root, '.lattice', 'generated', 'gantt.html')),
+    (error) => error.code === 'ENOENT');
 });
 
 test('Gantt narrativeはarchive line fragmentをfile pathと混同せず1行だけ読む', async (context) => {
   const root = await workspace(context, 'fragment narrative', 'narrative.md#L3');
-  const execution = run(root, ['todo', 'gantt']);
-  assert.equal(execution.status, 0, execution.stderr);
-  const result = JSON.parse(execution.stdout);
-  assert.equal(result.narrative_bindings_digest, digestTodoArtifact([{
+  const result = await renderTodoGanttForProject({ repoRoot: root });
+  assert.equal(result.metadata.narrative_bindings_digest, digestTodoArtifact([{
     project_id: 'project-1', plan_key: 'main', task_id: 'T1',
     narrative_ref: 'narrative.md#L3',
     content_digest: createHash('sha256').update('fragment narrative').digest('hex'),
     anchored: false, reason: 'anchor_missing',
   }]));
-  const html = await readFile(path.join(root, result.output_ref), 'utf8');
+  const html = result.rendered.html;
   assert.match(html, /fragment narrative/u);
   assert.doesNotMatch(html, /# Background/u);
 });
 
-test('v2 anchor成立のCLI ganttはoutcomeをbinding digestと行内markの両方へ一度で束縛する', async (context) => {
+test('v2 anchor成立の動的ganttはoutcomeをbinding digestと行内markの両方へ一度で束縛する', async (context) => {
   const { root, markdown } = await anchoredWorkspace(context);
-  const execution = run(root, ['todo', 'gantt']);
-  assert.equal(execution.status, 0, execution.stderr);
-  const result = JSON.parse(execution.stdout);
-  assert.deepEqual(Object.keys(result), [
-    'schema', 'project_id', 'output_ref', 'scope', 'folded_task_count', 'manifest_digest',
-    'member_bindings',
-    'narrative_bindings_digest', 'chain_digest', 'layout_digest', 'renderer_version',
-    'html_digest', 'result_digest',
-  ]);
-  assert.equal(result.narrative_bindings_digest, digestTodoArtifact([{
+  const result = await renderTodoGanttForProject({ repoRoot: root });
+  assert.equal(result.metadata.narrative_bindings_digest, digestTodoArtifact([{
     project_id: 'project-1', plan_key: 'main', task_id: 'T1', narrative_ref: 'plan.md',
     content_digest: createHash('sha256').update(markdown).digest('hex'), anchored: true, reason: null,
   }]));
-  const html = await readFile(path.join(root, result.output_ref), 'utf8');
+  const html = result.rendered.html;
   assert.match(html, /class="task-index-status status-pending" role="img" aria-label="未着手">☐<\/span>/u);
   assert.doesNotMatch(html, /class="task-line"|class="narrative-warning"|class="narrative-body"/u);
 });
@@ -510,11 +471,9 @@ test('real store smoke draws every edge and emits readable nodes plus named cate
       ],
     }],
   })}\n`);
-  const execution = run(root, ['todo', 'gantt']);
-  assert.equal(execution.status, 0, execution.stderr);
-  const result = JSON.parse(execution.stdout);
-  assert.equal(result.renderer_version, 'lattice.todo_gantt_renderer.v18');
-  const html = await readFile(path.join(root, result.output_ref), 'utf8');
+  const result = await renderTodoGanttForProject({ repoRoot: root });
+  assert.equal(result.metadata.renderer_version, 'lattice.todo_gantt_renderer.v18');
+  const html = result.rendered.html;
   assert.equal((html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 3);
   assert.equal((html.match(/data-node-key=/gu) ?? []).length, 4);
   assert.match(html, /class="summary-plan"[^>]*aria-label="main — 4 ToDo"/u);
@@ -541,15 +500,12 @@ test('real store smoke draws every edge and emits readable nodes plus named cate
   assert.doesNotMatch(html, /#7c3aed|drop-shadow|font-size:30px/u);
 });
 
-test('custom output remains repo-relative and traversal/absolute refs are usage failures', async (context) => {
+test('静的custom output指定も廃止済みとして一律拒否する', async (context) => {
   const root = await workspace(context);
-  const success = run(root, ['todo', 'gantt', '--out', 'artifacts/todo.html']);
-  assert.equal(success.status, 0, success.stderr);
-  assert.equal(JSON.parse(success.stdout).output_ref, 'artifacts/todo.html');
-  for (const bad of ['../escape.html', '/tmp/escape.html', 'a/../../escape.html']) {
-    const failure = run(root, ['todo', 'gantt', '--out', bad]);
-    assert.equal(failure.status, 2);
-    assert.equal(failure.stdout, '');
+  for (const output of ['artifacts/todo.html', '../escape.html', '/tmp/escape.html']) {
+    const failure = run(root, ['todo', 'gantt', '--out', output]);
+    assert.equal(failure.status, 1);
+    assert.equal(JSON.parse(failure.stderr).code, 'STATIC_GANTT_RETIRED');
   }
 });
 
@@ -760,9 +716,7 @@ test('SVG renders readable status nodes, every edge, join marker, and hierarchic
 test('XSS through narrative and task title is inert in the final document', async (context) => {
   const payload = '</script><script>globalThis.pwned=1</script><svg onload=alert(1)>';
   const root = await workspace(context, payload);
-  const execution = run(root, ['todo', 'gantt']);
-  assert.equal(execution.status, 0, execution.stderr);
-  const html = await readFile(path.join(root, '.lattice/generated/gantt.html'), 'utf8');
+  const { rendered: { html } } = await renderTodoGanttForProject({ repoRoot: root });
   assert.equal(html.includes('<script>globalThis.pwned=1</script>'), false);
   assert.equal(html.includes('<svg onload='), false);
   assert.equal(html.includes('javascript:'), false);

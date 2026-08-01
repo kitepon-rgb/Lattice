@@ -86,8 +86,19 @@ async function workspace(context) {
   return root;
 }
 
+function currentExtraction(value) {
+  const current = structuredClone(value);
+  current.schema = 'lattice.todo_extraction.v3';
+  for (const entry of current.tasks) {
+    if (!Object.hasOwn(entry, 'start')) entry.start = null;
+    entry.design_memo = 'NO_PLAN';
+  }
+  current.extraction_digest = todoSelfDigest(current, 'extraction_digest');
+  return current;
+}
+
 function bindCommit(value, sourceCommit) {
-  const bound = structuredClone(value);
+  const bound = currentExtraction(value);
   for (const entry of bound.tasks) entry.source.source_commit = sourceCommit;
   bound.extraction_digest = todoSelfDigest(bound, 'extraction_digest');
   return bound;
@@ -318,7 +329,9 @@ test('todo migrateは未初期化repoへ抽出project_idのstoreとimport plan�
 
 test('未初期化repoの登録失敗は初期化directoryもbootstrap stagingも残さない', async (context) => {
   const root = await bareWorkspace(context);
-  const execution = runCli(root, await writeInput(root, 'bootstrap-failure', await fixture('valid.json')));
+  const execution = runCli(root, await writeInput(
+    root, 'bootstrap-failure', currentExtraction(await fixture('valid.json')),
+  ));
   assert.equal(execution.status, 1);
   assert.equal(execution.stdout, '');
   const error = JSON.parse(execution.stderr);
@@ -343,9 +356,10 @@ test('既存store経路のtodo migrateは検証済みJSONを一度だけ追加�
     'schema', 'project_id', 'plan_key', 'plan_version', 'extraction_digest',
     'imported_task_count', 'completed_task_count', 'plan_ref', 'journal_ref', 'snapshot_ref',
     'topology_digest', 'journal_head_digest', 'dispatch_shape', 'terminal_audit_required',
+    'phase_guidance',
     'result_digest',
   ]);
-  assert.equal(result.schema, 'lattice.todo_migrate_result.v1');
+  assert.equal(result.schema, 'lattice.todo_migrate_result.v2');
   assert.equal(result.imported_task_count, 2);
   assert.equal(result.completed_task_count, 1);
   assert.deepEqual(result.dispatch_shape, {
@@ -353,10 +367,16 @@ test('既存store経路のtodo migrateは検証済みJSONを一度だけ追加�
   });
   // ADR 0147裁定3: migrateで作るplanは常にphase無しなので終端監査が要ることを結果へ明示する。
   assert.equal(result.terminal_audit_required, true);
+  assert.deepEqual(result.phase_guidance, {
+    capability: 'acquire_phase', preserves_completed_state: true,
+    schema_command: 'lattice todo revise-phase --schema --json',
+    required_state_policy: 'acquire_phase',
+    next_action: 'lattice todo revise-phase --plan archive --input <phase-revision.json>',
+  });
   assert.equal(result.result_digest, todoSelfDigest(result, 'result_digest'));
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const archive = store.members.find(({ descriptor }) => descriptor.plan_key === 'archive');
-  assert.equal(archive.plan.schema, 'lattice.todo_plan.v2');
+  assert.equal(archive.plan.schema, 'lattice.todo_plan.v6');
   assert.deepEqual(archive.plan.tasks.map(({ task_id, narrative_anchor: anchor }) => [task_id, anchor]), [
     ['A1', {
       origin_plan_ref: 'plan.md', origin_line: 2, source_commit: input.tasks[0].source.source_commit,
@@ -440,7 +460,7 @@ test('履歴時刻欠落は現在時刻で埋めずunknownのhistorical doneと�
   assert.equal(result.status, 0, result.stderr);
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === 'unknown-time');
-  assert.equal(member.plan.schema, 'lattice.todo_plan.v2');
+  assert.equal(member.plan.schema, 'lattice.todo_plan.v6');
   assert.equal(member.plan.tasks[0].narrative_anchor, null);
   const done = member.journal.events.find(({ kind }) => kind === 'done');
   assert.equal(done.payload.done_mode, 'historical_import');
@@ -450,7 +470,7 @@ test('履歴時刻欠落は現在時刻で埋めずunknownのhistorical doneと�
 
 test('anchor sourceを取得できないpending taskは推定せずnull anchorで登録する', async (context) => {
   const root = await workspace(context);
-  const input = await fixture('valid.json');
+  const input = currentExtraction(await fixture('valid.json'));
   input.plan_key = 'anchor-missing';
   input.tasks = [input.tasks.find(({ task_id }) => task_id === 'A2')];
   input.tasks[0].narrative_ref = 'plan.md';
@@ -460,7 +480,7 @@ test('anchor sourceを取得できないpending taskは推定せずnull anchor�
   assert.equal(result.status, 0, result.stderr);
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === 'anchor-missing');
-  assert.equal(member.plan.schema, 'lattice.todo_plan.v2');
+  assert.equal(member.plan.schema, 'lattice.todo_plan.v6');
   assert.equal(member.plan.tasks[0].narrative_anchor, null);
 });
 
@@ -474,7 +494,9 @@ test('曖昧・schema違反・duplicate・done_mode矛盾はtyped exit 1でstore
     ['in-progress-done-contradiction.json', 'INVALID_TODO_EXTRACTION'],
     ['in-progress-blocked-contradiction.json', 'INVALID_TODO_EXTRACTION'],
   ]) {
-    const inputRef = await writeInput(root, name.replace('.json', ''), await fixture(name));
+    const inputRef = await writeInput(
+      root, name.replace('.json', ''), currentExtraction(await fixture(name)),
+    );
     const before = await storeDigest(root);
     const result = runCli(root, inputRef);
     assert.equal(result.status, 1, `${name}: ${result.stderr}`);

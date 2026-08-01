@@ -108,11 +108,10 @@
   `node scripts/validate_palette.js` を実行して通す（勝手に色を発明しない）。
 - 実装後、実生成HTMLのスクリーンショットで「label衝突・overflow・視覚階層」を目視確認（validatorはlayoutを見ない）。
 
-## 8. 静的artifactとlive viewer
+## 8. 動的viewer
 
-- 静的HTMLはoffline証拠として維持し、`<output_ref>.status.json`のdigest付きdescriptorと一組で発行する。
-- `todo gantt status`は現在の決定的renderと照合して`current / stale / missing`を返す。
-  HTML・descriptorの片側欠落、non-canonical bytes、digest不一致はtyped failureとする。
+- 静的HTMLとstatus sidecarは生成しない。`todo gantt`／`todo gantt status`は
+  `STATIC_GANTT_RETIRED`で動的dashboardを案内する。
 - live viewerはloopback-only、read-only、foregroundとし、SSEでmanifest head更新を通知する。
   URLとSSE endpointは`/projects/<project_id>/`配下へ固定し、live result v2で`project_id`、
   `project_path`、`url`、`events_url`を返す。projectごとのserver sessionは独立portを所有し、

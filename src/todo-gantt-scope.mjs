@@ -59,7 +59,7 @@ const AUDIT_PENDING_PHASE_STATUSES = new Set(['gate_ready', 'reviewing', 'reject
 function auditPending(node) {
   if (!AUDIT_PENDING_PHASE_STATUSES.has(node.phase_status ?? null)) return false;
   const schema = node.plan_schema ?? null;
-  return schema !== 'lattice.todo_plan.v4' && schema !== 'lattice.todo_plan.v5';
+  return !['lattice.todo_plan.v4', 'lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(schema);
 }
 
 /**

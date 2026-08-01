@@ -4,8 +4,10 @@ import { lstat, open, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  TODO_DESIGN_MEMO_PROMPT,
   canonicalizeTodoArtifact,
   exactRecord,
+  isTodoDesignMemo,
   isStrictTodoTimestamp,
   isTodoDigest,
   isTodoIdentifier,
@@ -42,8 +44,9 @@ const PLACEHOLDER_SHA = '0'.repeat(40);
 const CREATE_INPUT_SCHEMA = 'lattice.plan_create_input.v1';
 const PHASE_CREATE_INPUT_SCHEMA = 'lattice.plan_create_input.v2';
 const DECOUPLED_PHASE_CREATE_INPUT_SCHEMA = 'lattice.plan_create_input.v3';
-const CURRENT_CREATE_INPUT_SCHEMA = DECOUPLED_PHASE_CREATE_INPUT_SCHEMA;
-const CURRENT_CREATE_SCHEMA_COMMAND = 'lattice plan create --schema-version 3 --json';
+const MEMO_PHASE_CREATE_INPUT_SCHEMA = 'lattice.plan_create_input.v4';
+const CURRENT_CREATE_INPUT_SCHEMA = MEMO_PHASE_CREATE_INPUT_SCHEMA;
+const CURRENT_CREATE_SCHEMA_COMMAND = 'lattice plan create --schema-version 4 --json';
 const CREATE_RESULT_SCHEMA = 'lattice.plan_create_result.v1';
 
 function resolveRepoRoot(cwd) {
@@ -404,8 +407,10 @@ async function readCanonicalInput(repoRoot, inputRef) {
 }
 
 function validateCreateInput(value) {
-  const phaseInput = [PHASE_CREATE_INPUT_SCHEMA, DECOUPLED_PHASE_CREATE_INPUT_SCHEMA].includes(value?.schema);
-  const decoupledPhaseInput = value?.schema === DECOUPLED_PHASE_CREATE_INPUT_SCHEMA;
+  const phaseInput = [PHASE_CREATE_INPUT_SCHEMA, DECOUPLED_PHASE_CREATE_INPUT_SCHEMA,
+    MEMO_PHASE_CREATE_INPUT_SCHEMA].includes(value?.schema);
+  const decoupledPhaseInput = [DECOUPLED_PHASE_CREATE_INPUT_SCHEMA,
+    MEMO_PHASE_CREATE_INPUT_SCHEMA].includes(value?.schema);
   const keys = [
     'schema', 'project_id', 'plan_key', 'plan_version', 'actor', 'recorded_at',
     'tasks', 'hard_dependencies', 'joins', 'input_digest',
@@ -414,6 +419,7 @@ function validateCreateInput(value) {
   if (decoupledPhaseInput) keys.push('phase_accept_dependencies');
   if (!exactRecord(value, keys) || ![
     CREATE_INPUT_SCHEMA, PHASE_CREATE_INPUT_SCHEMA, DECOUPLED_PHASE_CREATE_INPUT_SCHEMA,
+    MEMO_PHASE_CREATE_INPUT_SCHEMA,
   ].includes(value.schema)
     || !isTodoIdentifier(value.project_id)
     || !isTodoIdentifier(value.plan_key) || !isTodoIdentifier(value.plan_version)
@@ -425,7 +431,8 @@ function validateCreateInput(value) {
     || value.tasks.some((task) => task?.narrative_anchor !== null || task?.compile_binding !== null)) return false;
   try {
     buildTodoPlan({
-      schema: decoupledPhaseInput ? 'lattice.todo_plan.v5'
+      schema: value.schema === MEMO_PHASE_CREATE_INPUT_SCHEMA ? 'lattice.todo_plan.v7'
+        : decoupledPhaseInput ? 'lattice.todo_plan.v5'
         : phaseInput ? 'lattice.todo_plan.v4' : 'lattice.todo_plan.v3', project_id: value.project_id,
       plan_key: value.plan_key, plan_version: value.plan_version,
       predecessor_plan_digest: null, tasks: value.tasks,
@@ -441,6 +448,13 @@ export async function runPlanCreate({ cwd, inputRef, stdout, serializationReview
   const repoRoot = resolveRepoRoot(cwd);
   if (repoRoot === null) throw new TodoStoreError('REPO_UNRESOLVED', 'git_toplevel_unresolved');
   const input = await readCanonicalInput(repoRoot, inputRef);
+  if (input?.schema !== MEMO_PHASE_CREATE_INPUT_SCHEMA
+    || !Array.isArray(input.tasks) || input.tasks.some((task) => !isTodoDesignMemo(task?.design_memo))) {
+    throw new TodoStoreError('DESIGN_MEMO_REQUIRED', 'plan_create_design_memo_required', undefined, {
+      prompt: TODO_DESIGN_MEMO_PROMPT,
+      next_action: CURRENT_CREATE_SCHEMA_COMMAND,
+    });
+  }
   if (!validateCreateInput(input)) throw new TodoStoreError('INPUT_INVALID', 'plan_create_schema_invalid');
   // dispatch_shapeのgateはstore初期化より前に判定する（拒否時にstoreへ何も書かないため、
   // 再考後の再実行がplan_key_already_existsで詰まらない）。
@@ -456,15 +470,16 @@ export async function runPlanCreate({ cwd, inputRef, stdout, serializationReview
     repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
     projectId: input.project_id, repositories: [{ repo_id: 'self', path: '.' }],
     plan: {
-      schema: input.schema === DECOUPLED_PHASE_CREATE_INPUT_SCHEMA ? 'lattice.todo_plan.v5'
+      schema: input.schema === MEMO_PHASE_CREATE_INPUT_SCHEMA ? 'lattice.todo_plan.v7'
+        : input.schema === DECOUPLED_PHASE_CREATE_INPUT_SCHEMA ? 'lattice.todo_plan.v5'
         : input.schema === PHASE_CREATE_INPUT_SCHEMA
           ? 'lattice.todo_plan.v4' : 'lattice.todo_plan.v3', project_id: input.project_id,
       plan_key: input.plan_key, plan_version: input.plan_version,
       predecessor_plan_digest: null, tasks: input.tasks,
       hard_dependencies: input.hard_dependencies, joins: input.joins,
-      ...(input.schema === PHASE_CREATE_INPUT_SCHEMA
-        || input.schema === DECOUPLED_PHASE_CREATE_INPUT_SCHEMA ? { phases: input.phases } : {}),
-      ...(input.schema === DECOUPLED_PHASE_CREATE_INPUT_SCHEMA
+      ...([PHASE_CREATE_INPUT_SCHEMA, DECOUPLED_PHASE_CREATE_INPUT_SCHEMA,
+        MEMO_PHASE_CREATE_INPUT_SCHEMA].includes(input.schema) ? { phases: input.phases } : {}),
+      ...([DECOUPLED_PHASE_CREATE_INPUT_SCHEMA, MEMO_PHASE_CREATE_INPUT_SCHEMA].includes(input.schema)
         ? { phase_accept_dependencies: input.phase_accept_dependencies } : {}),
     },
     genesis: { actor: input.actor, recorded_at: input.recorded_at, provenance: null },
@@ -493,17 +508,18 @@ export async function runPlanCreate({ cwd, inputRef, stdout, serializationReview
 }
 
 /**
- * `--schema --json`（版指定なし）の既定はCURRENT_CREATE_INPUT_SCHEMAと同じv3にする。
+ * `--schema --json`（版指定なし）の既定はCURRENT_CREATE_INPUT_SCHEMAと同じv4にする。
  * 既定がv1のままだと、素の`--schema`を叩いたAIが古いv1（Phaseを表現できない）を
  * 受け取り、実運用で通らない入力を作ってしまう（実際に踏んだ）。
  * `--schema-version 1`は互換のため引き続き取得できる（bin/lattice.mjs側で許可）。
  *
- * 「どの版を返したか」は返すJSON Schema自身の`title`（例: `lattice.plan_create_input.v3`）が
+ * 「どの版を返したか」は返すJSON Schema自身の`title`（例: `lattice.plan_create_input.v4`）が
  * 既に機械可読に持っている。壊さずに追加のkeyを足す理由が無いので足さない。
  */
-export async function runPlanCreateSchema({ stdout, version = 3 }) {
-  if (![1, 2, 3].includes(version)) throw new TypeError('unsupported plan create schema version');
-  const expected = version === 3 ? DECOUPLED_PHASE_CREATE_INPUT_SCHEMA
+export async function runPlanCreateSchema({ stdout, version = 4 }) {
+  if (![1, 2, 3, 4].includes(version)) throw new TypeError('unsupported plan create schema version');
+  const expected = version === 4 ? MEMO_PHASE_CREATE_INPUT_SCHEMA
+    : version === 3 ? DECOUPLED_PHASE_CREATE_INPUT_SCHEMA
     : version === 2 ? PHASE_CREATE_INPUT_SCHEMA : CREATE_INPUT_SCHEMA;
   const schemaUrl = new URL(`../docs/schemas/lattice.plan_create_input.v${version}.schema.json`, import.meta.url);
   const handle = await open(schemaUrl, fsConstants.O_RDONLY);
@@ -539,7 +555,8 @@ export async function runPlanShow({ cwd, planKey, stdout }) {
     });
   }
   const { plan, tasks, phases } = member;
-  const phaseInput = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(plan.schema);
+  const phaseInput = ['lattice.todo_plan.v4', 'lattice.todo_plan.v5', 'lattice.todo_plan.v7']
+    .includes(plan.schema);
   const stateByTaskId = new Map(tasks.map((state) => [state.task_id, state]));
   // snapshot artifactの形式(v1にはphasesキーが無い)には縛られない導出ビューを読む
   // (readTodoStoreが常に member.phases として埋める。ADR 0147)。

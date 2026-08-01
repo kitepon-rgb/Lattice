@@ -1,7 +1,7 @@
 # `lattice.todo_extraction.v1`
 
 > 状態: 移行由来の契約だが、既存 store へ plan を足す入口としては現役である。
-> **空 store の初回 authoring だけが `lattice plan create --input <lattice.plan_create_input.v3>`**。
+> **空 store の初回 authoring だけが `lattice plan create --input <lattice.plan_create_input.v4>`**。
 > `plan create` は store 初期化専用で、既に `.lattice/todo` がある project では
 > `STORE_WRITE_CONFLICT: store_already_exists` を返す。**既に plan を持つ store へ新しい plan を
 > 足すのは `lattice todo migrate --input <extraction JSON>` だけ**。Phase gate を伴う plan は
@@ -45,7 +45,8 @@ tool が散文から edge を補うことはない。
 lattice todo migrate --input <repo-relative-extraction.json>
 ```
 
-成功時は stdout に `lattice.todo_migrate_result.v1` JSON 一行を返す。typed failure は stdout を空にして
+成功時は stdout に `lattice.todo_migrate_result.v2` JSON 一行を返す。Phase無しの移送結果には
+`phase_guidance`として`acquire_phase`の正規schema commandと次の一手を返す。typed failure は stdout を空にして
 stderr に `lattice.cli_error.v2` 一行、usage 違反は stderr の人間向け一行となる。入力 JSON は repo 内に
 置く（repo 外 path は `INPUT_INVALID` で拒否する）。この入口が担うのは**明示的な一回の登録だけ**であり、
 Markdown 同期、watch、再取込 pipeline として常設しない。

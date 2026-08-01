@@ -247,9 +247,9 @@ function buildTodoGraph(readModel) {
         status: state.status,
         blocked_reason: state.blocked_reason,
         plan_schema: member.plan.schema,
-        phase_id: ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)
+        phase_id: ['lattice.todo_plan.v4', 'lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(member.plan.schema)
           ? task.phase_id : null,
-        phase_status: ['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)
+        phase_status: ['lattice.todo_plan.v4', 'lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(member.plan.schema)
           ? phases.get(task.phase_id)?.status : null,
         phase_ready: member.plan.schema !== 'lattice.todo_plan.v4'
           || phases.get(task.phase_id)?.status === 'active',
@@ -272,7 +272,7 @@ function buildTodoGraph(readModel) {
     for (const join of member.plan.joins) {
       for (const after of join.after) addPredecessor(after, join.before);
     }
-    if (member.plan.schema === 'lattice.todo_plan.v5') {
+    if (['lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(member.plan.schema)) {
       for (const edge of member.plan.phase_accept_dependencies) {
         const target = refKey(edge.to);
         if (!nodes.has(target)) fail('TODO_STATUS_INVALID_INPUT', 'todo_status_dependency_dangling');

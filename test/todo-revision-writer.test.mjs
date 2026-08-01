@@ -73,7 +73,7 @@ async function revisionFor(root, {
   title = 'T1', migrationPolicy = 'carry', removeT5 = false,
   removeT5Reason = 'task removed by successor revision', extraTombstones = [],
   hardDependencies = [], t6Anchor = null, t1ParentTaskId = null, migrationPolicies = {},
-  sourceTextByTask = {},
+  sourceTextByTask = {}, planSchema = 'lattice.todo_plan.v3',
 } = {}) {
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   const previous = store.members[0];
@@ -109,13 +109,19 @@ async function revisionFor(root, {
       exclusion_reason: removeT5Reason,
     }] : []), ...extraTombstones].sort((left, right) => left.source_ref.localeCompare(right.source_ref)),
   };
+  const desiredTask = (taskId, taskTitle = taskId) => ({
+    ...task(taskId, taskTitle),
+    ...(planSchema === 'lattice.todo_plan.v6'
+      ? { design_memo: taskId === 'T1' ? 'NO_PLAN' : `## 方針\n\n${taskId}の設計メモ` }
+      : {}),
+  });
   const desiredInput = {
-    schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'main',
+    schema: planSchema, project_id: 'project-1', plan_key: 'main',
     plan_version: 'pending', predecessor_plan_digest: predecessor.plan_digest,
-    tasks: [{ ...task('T1', title), parent_task_id: t1ParentTaskId },
-      task('T2'), task('T3'), task('T4'),
-      ...(removeT5 ? [] : [task('T5')]), {
-        ...task('T6'),
+    tasks: [{ ...desiredTask('T1', title), parent_task_id: t1ParentTaskId },
+      desiredTask('T2'), desiredTask('T3'), desiredTask('T4'),
+      ...(removeT5 ? [] : [desiredTask('T5')]), {
+        ...desiredTask('T6'),
         narrative_ref: t6Anchor === null ? null : t6Anchor.origin_plan_ref,
         narrative_anchor: t6Anchor,
       }],
@@ -422,6 +428,26 @@ test('carryはpending・in-progress・blocked・doneを保ちresetとsource-seed
   assert.equal(states.get('T6').status, 'pending');
   assert.equal(member.journal.events[0].state_migration
     .find(({ from_task_id }) => from_task_id === 'T5').state, null);
+});
+
+test('legacy planからdesign_memo付きv6へ改訂してもcarry lifecycleを保持する', async (context) => {
+  const root = await fixture(context);
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T2', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+
+  const revision = await revisionFor(root, { planSchema: 'lattice.todo_plan.v6' });
+  await apply(root, revision);
+
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  const states = new Map(member.tasks.map((state) => [state.task_id, state]));
+  assert.equal(member.plan.schema, 'lattice.todo_plan.v6');
+  assert.equal(member.plan.tasks.find(({ task_id }) => task_id === 'T1').design_memo, 'NO_PLAN');
+  assert.match(member.plan.tasks.find(({ task_id }) => task_id === 'T2').design_memo,
+    /T2の設計メモ/u);
+  assert.equal(states.get('T2').status, 'in-progress');
+  assert.equal(states.get('T2').started_at, NOW);
+  assert.equal(states.get('T6').status, 'pending');
 });
 
 test('removed taskはsuccessorから除外しpredecessor v1履歴とevidenceを不変保存する', async (context) => {

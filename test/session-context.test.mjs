@@ -32,18 +32,22 @@ const parse = (text) => JSON.parse(text.trim().split('\n').at(-1));
 
 function createInput(taskIds) {
   const value = {
-    schema: 'lattice.plan_create_input.v1',
+    schema: 'lattice.plan_create_input.v4',
     project_id: 'sample-project',
     plan_key: 'main',
     plan_version: 'v1',
     actor: { host: 'host-1', session: 'session-1', agent: 'agent-1' },
     recorded_at: new Date().toISOString(),
     tasks: taskIds.map((taskId) => ({
-      task_id: taskId, title: taskId, lane: 'main', narrative_ref: null,
-      narrative_anchor: null, compile_binding: null, parent_task_id: null,
+      task_id: taskId, title: taskId, lane: 'main', design_memo: 'NO_PLAN',
+      narrative_ref: null, narrative_anchor: null, compile_binding: null,
+      parent_task_id: null, phase_id: 'phase-1',
     })),
+    phases: [{ phase_id: 'phase-1', title: '実装', gate_policy: 'heavy',
+      predecessor_phase_ids: [], required_evidence_slots: ['heavy'] }],
     hard_dependencies: [],
     joins: [],
+    phase_accept_dependencies: [],
     input_digest: '',
   };
   value.input_digest = todoSelfDigest(value, 'input_digest');

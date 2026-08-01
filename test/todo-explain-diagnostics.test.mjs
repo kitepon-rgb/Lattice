@@ -81,16 +81,25 @@ test('explainTodoExtractionはdigest不一致を該当fieldへ名指しする', 
   const corrupted = structuredClone(value);
   corrupted.extraction_digest = 'f'.repeat(64);
   assert.equal(validateTodoExtraction(corrupted), false);
-  assert.deepEqual(explainTodoExtraction(corrupted), {
-    valid: false, reason: 'extraction_digest_mismatch', path: '/extraction_digest',
-  });
+  const explained = explainTodoExtraction(corrupted);
+  assert.equal(explained.valid, false);
+  assert.equal(explained.reason, 'extraction_digest_mismatch');
+  assert.equal(explained.path, '/extraction_digest');
+  assert.equal(explained.actual, 'f'.repeat(64));
+  assert.match(explained.expected, /^[0-9a-f]{64}$/u);
 });
 
 test('todo migrate --inputはschema違反detailへviolation_reason/violation_pathを載せる（CLI入口経由）', async (context) => {
   const root = await gitWorkspace(context);
   const value = JSON.parse(await readFile(path.join(FIXTURE_ROOT, 'valid.json'), 'utf8'));
   const broken = structuredClone(value);
+  broken.schema = 'lattice.todo_extraction.v3';
+  for (const task of broken.tasks) {
+    task.start = null;
+    task.design_memo = 'NO_PLAN';
+  }
   delete broken.plan_version;
+  broken.extraction_digest = todoSelfDigest(broken, 'extraction_digest');
   await writeFile(path.join(root, 'broken.json'), `${JSON.stringify(broken)}\n`);
   const { stdout, stderr, err } = stdio();
   const env = { ...process.env, LATTICE_DASHBOARD_AUTOSTART: '0' };
@@ -102,6 +111,9 @@ test('todo migrate --inputはschema違反detailへviolation_reason/violation_pat
   assert.equal(payload.code, 'INVALID_TODO_EXTRACTION');
   assert.equal(payload.detail.violation_reason, 'missing_required_key');
   assert.equal(payload.detail.violation_path, '/plan_version');
+  assert.equal(payload.detail.violation_kind, 'missing_required_key');
+  assert.equal(payload.detail.pointer, '/plan_version');
+  assert.equal(typeof payload.detail.next_action, 'string');
 });
 
 // --- revise (todo_revision.v1/v2) ---

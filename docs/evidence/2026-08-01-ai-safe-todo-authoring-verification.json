@@ -1,0 +1,55 @@
+{
+  "schema": "lattice.implementation_verification.v1",
+  "campaign": "ai-safe-todo-authoring",
+  "lattice_plan_version": "rev-b0f8e5e6b197ab3cf76e892e",
+  "observed_at": "2026-08-01T07:37:05Z",
+  "candidate": "working-tree",
+  "checks": [
+    {
+      "command": "node --test test/todo-design-memo.test.mjs test/todo-migration.test.mjs test/todo-cli.test.mjs test/todo-explain-diagnostics.test.mjs test/todo-dashboard-registry.test.mjs test/todo-gantt-render.test.mjs test/runtime-hold-public-contract.test.mjs",
+      "outcome": "passed",
+      "passed": 122,
+      "failed": 0
+    },
+    {
+      "command": "npm run check",
+      "outcome": "passed",
+      "checked_files": 134
+    },
+    {
+      "command": "npm test",
+      "outcome": "failed_unrelated",
+      "failed_test": "test/integration/runtime-seam-transform.integration.mjs",
+      "expected": "seam_transform",
+      "actual": "intentional_serial",
+      "reason": "behavior_equivalent:severed_reference:src/page-left.mjs:counter"
+    },
+    {
+      "command": "npm run ci",
+      "outcome": "failed_unrelated",
+      "failed_test": "test/integration/runtime-seam-transform.integration.mjs",
+      "expected": "seam_transform",
+      "actual": "intentional_serial",
+      "reason": "behavior_equivalent:severed_reference:src/page-left.mjs:counter"
+    }
+  ],
+  "public_smoke": {
+    "url": "https://lattice.kitepon.dev/projects/bingo/",
+    "outcome": "passed",
+    "assertion": "retest-03-wave1-generator-clockの右ペインへ設計メモが表示された"
+  },
+  "static_artifact_retirement": {
+    "removed": [
+      "docs/bingo-gantt.html",
+      "docs/bingo-gantt.html.status.json"
+    ],
+    "replacement": "dynamic dashboard"
+  },
+  "known_blockers": [
+    {
+      "scope": "release gate only",
+      "cause": "既知の変更範囲外runtime seam分類failure",
+      "implementation_blocked": false
+    }
+  ]
+}

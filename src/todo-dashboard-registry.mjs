@@ -151,11 +151,11 @@ export async function readVisibleTodoDashboardProjects({
 
 export async function registerTodoDashboardActivity({
   repoRoot, projectId, displayName = projectId, sessionId, env = process.env,
-  now = new Date(),
+  now = new Date(), adopt = false,
 }) {
   if (!path.isAbsolute(repoRoot) || !identifier(projectId) || !identifier(sessionId)
     || typeof displayName !== 'string' || displayName.length === 0 || displayName !== displayName.trim()
-    || !(now instanceof Date) || !Number.isFinite(now.getTime())) {
+    || !(now instanceof Date) || !Number.isFinite(now.getTime()) || typeof adopt !== 'boolean') {
     throw new TypeError('dashboard activity is invalid');
   }
   const canonicalRoot = await realpath(repoRoot);
@@ -163,13 +163,27 @@ export async function registerTodoDashboardActivity({
   await mkdir(refs.root, { recursive: true, mode: 0o700 });
   await withLock(refs.lock, async () => {
     const current = validateRegistry(await readJson(refs.registry, { schema: REGISTRY_SCHEMA, projects: [] }));
+    const existing = current.projects.find((entry) => entry.project_id === projectId);
+    if (existing !== undefined && existing.repo_root !== canonicalRoot && !adopt) {
+      const error = new Error('project id is already owned by another canonical root');
+      error.code = 'PROJECT_ROOT_CONFLICT';
+      // 公開・CLI errorへlocal absolute pathを運ばない。project_idだけで人と機械が
+      // 衝突対象を特定でき、registry bytesはこの分岐より後で一切変更しない。
+      error.detail = { project_id: projectId };
+      throw error;
+    }
     const projects = current.projects.filter((entry) => entry.project_id !== projectId);
     projects.push({ project_id: projectId, display_name: displayName, repo_root: canonicalRoot,
       session_id: sessionId, last_seen_at: now.toISOString() });
     projects.sort((left, right) => left.project_id.localeCompare(right.project_id, 'en'));
     await atomicJson(refs.registry, { schema: REGISTRY_SCHEMA, projects });
   });
-  return { projectId, displayName, repoRoot: canonicalRoot, sessionId };
+  return { projectId, displayName, repoRoot: canonicalRoot, sessionId, adopted: adopt };
+}
+
+/** 配信元rootを移す唯一の明示入口。通常activity登録はこのflagを立てない。 */
+export async function adoptTodoDashboardActivity(options) {
+  return registerTodoDashboardActivity({ ...options, adopt: true });
 }
 
 function validDaemonDescriptor(descriptor) {

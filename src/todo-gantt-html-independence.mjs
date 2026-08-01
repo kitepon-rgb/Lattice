@@ -21,6 +21,16 @@ function renderNoteContext(context) {
   return `<section class="work-log"><h2>作業記録</h2>${entries}${overflow}<p class="work-log-head">note head: <code>${escapeHtmlText(context.note_head_digest ?? 'none')}</code></p></section>`;
 }
 
+function renderDesignMemo(task) {
+  if (typeof task.design_memo !== 'string') {
+    return '<section class="design-memo"><h2>設計メモ</h2><p class="note-warning">未登録（legacy ToDo）</p></section>';
+  }
+  const rendered = renderTodoMarkdown(task.design_memo);
+  const filtering = rendered.discarded.length === 0 ? ''
+    : '<p class="note-warning">安全上表示できない要素を除外しました。</p>';
+  return `<section class="design-memo"><h2>設計メモ</h2><div class="design-memo-body">${rendered.html}</div>${filtering}</section>`;
+}
+
 /**
  * 図の外が語るための独立性要約を、plan単位の投影から引ける形へ畳む（ADR 0129 Decision 3）。
  */
@@ -150,9 +160,10 @@ export function renderRightPane(
     const independenceNote = renderIndependenceNote(section.ref, node, independenceSummary);
     // Say it plainly when the reader will not find this ToDo on the diagram.
     const foldedNote = !folds.has(key) ? ''
-      : '<p class="fold-note">完走済みのため図には描いていません。図に出すには <code>lattice todo gantt --scope all</code> を実行してください。</p>';
+      : '<p class="fold-note">完走済みのため図には描いていません。図に出すには動的dashboardを <code>lattice todo gantt serve --port &lt;port&gt; --scope all</code> で起動してください。</p>';
     const workLog = notesEnabled ? renderNoteContext(section.noteContext) : '';
-    return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}${independenceNote}${foldedNote}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。', folds)}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。', folds)}</section>${workLog}<p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;
+    const designMemo = renderDesignMemo(section.task);
+    return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}${independenceNote}${foldedNote}${designMemo}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。', folds)}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。', folds)}</section>${workLog}<p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;
   }).join('');
   const taskIndex = renderTaskIndex(sections, lookup, folds, planActivity(readModel));
   return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>全工程一覧</button></div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を現在の状態とともに表示しています。planは動いているものを最終活動の新しい順で上に、完走したものを古い順で下にまとめ、plan内は登録順です。</p>${taskIndex}</section></div>`;
@@ -172,7 +183,7 @@ export function renderDiagramLegend(presentation, layout = null, expandable = fa
   const foldNote = foldedCount === 0 ? ''
     : expandable
       ? '<p class="fold-note">後続に作業中・未着手が残っていない完了工程は図から外しています。生きた工程とその直接の前提工程は必ず描きます。上のバッジを押すと外した工程も含めて描きます。総数・進捗・最長依存鎖は外す前の全工程で数えています。</p>'
-      : '<p class="fold-note">後続に作業中・未着手が残っていない完了工程は図から外しています。生きた工程とその直接の前提工程は必ず描きます。外した工程は右の「全工程」から辿れ、図に出すには <code>lattice todo gantt --scope all</code> を実行してください。総数・進捗・最長依存鎖は外す前の全工程で数えています。</p>';
+      : '<p class="fold-note">後続に作業中・未着手が残っていない完了工程は図から外しています。生きた工程とその直接の前提工程は必ず描きます。外した工程は右の「全工程」から辿れ、図に出すには動的dashboardを <code>lattice todo gantt serve --port &lt;port&gt; --scope all</code> で起動してください。総数・進捗・最長依存鎖は外す前の全工程で数えています。</p>';
   const independenceLegend = layout.independence === null ? ''
     : '<span>∥ 独立検証済</span><span>⛓ 要直列</span><span>? 未検査</span>';
   // 独立性の記録がある間は「全件同時dispatchが既定」と無条件に述べない（ADR 0129 Decision 3）。

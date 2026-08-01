@@ -1,5 +1,8 @@
 # Handoff — 依存工程図 renderer v7 UI改修（完了済み履歴）
 
+> **ADR 0151により運用上は失効。** 以下の静的HTML生成手順は実行しない。現在の工程表は
+> 動的dashboardだけであり、`lattice todo gantt`と個別`gantt.html`生成は廃止済みである。
+
 更新日: 2026-07-19
 状態: **完了済み履歴**（以下の状態・未完一覧はhandoff作成時点の記録）
 当時の状態: **再開済み・実装と機械検証完了・実ブラウザ受入待ち・未commit**
@@ -13,7 +16,8 @@
 
 ## 目的
 
-`/Users/kite/Developer/dotagents/.lattice/generated/gantt.html`を、既存の依存ツリー構造を維持したまま利用者向けに直す。
+当時は`/Users/kite/Developer/dotagents/.lattice/generated/gantt.html`を対象にしていたが、
+この静的成果物は現在の運用対象ではない。
 
 - `fm-0551`を主表示せず、`工程 0551`として人・AIが参照できる
 - `O2`等を略号＋正式名＋説明で読める
@@ -254,10 +258,10 @@ node --test test/todo-gantt-layout.test.mjs test/todo-gantt-render.test.mjs test
 
 ```bash
 cd /Users/kite/Developer/dotagents
-node /Users/kite/Developer/Lattice/bin/lattice.mjs todo gantt
+node /Users/kite/Developer/Lattice/bin/lattice.mjs todo gantt serve --port 0
 ```
 
-生成物 `.lattice/generated/gantt.html` はgitignored。commitしない。
+静的生成物は作らない。表示確認は動的viewerで行う。
 
 実受入の固定値（中断前調査）:
 

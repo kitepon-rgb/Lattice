@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,7 @@ import test from 'node:test';
 import {
   appendTodoEvent, createTodoStoreWriter, initializeTodoStore,
 } from '../src/todo-store.mjs';
+import { renderTodoGanttForProject } from '../src/todo-cli.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
@@ -57,23 +58,15 @@ async function foldableWorkspace(context) {
   return root;
 }
 
-test('既定scopeは完走した枝を畳み、--scope allは全件描く', async (context) => {
+test('動的rendererの既定scopeは完走した枝を畳み、allは全件描く', async (context) => {
   const root = await foldableWorkspace(context);
 
-  const live = run(root, ['todo', 'gantt', '--out', '.lattice/generated/live.html']);
-  assert.equal(live.status, 0, live.stderr);
-  const liveResult = JSON.parse(live.stdout);
-  assert.equal(liveResult.scope, 'live');
-  assert.equal(liveResult.folded_task_count, 1);
-
-  const all = run(root, ['todo', 'gantt', '--out', '.lattice/generated/all.html', '--scope', 'all']);
-  assert.equal(all.status, 0, all.stderr);
-  const allResult = JSON.parse(all.stdout);
-  assert.equal(allResult.scope, 'all');
-  assert.equal(allResult.folded_task_count, 0);
-
-  const liveHtml = await readFile(path.join(root, liveResult.output_ref), 'utf8');
-  const allHtml = await readFile(path.join(root, allResult.output_ref), 'utf8');
+  const live = await renderTodoGanttForProject({ repoRoot: root, scope: 'live' });
+  const all = await renderTodoGanttForProject({ repoRoot: root, scope: 'all' });
+  assert.equal(live.metadata.folded_task_count, 1);
+  assert.equal(all.metadata.folded_task_count, 0);
+  const liveHtml = live.rendered.html;
+  const allHtml = all.rendered.html;
   // 既定で見えている図はFを描かず、全件の図は描く。生きた工程はどちらにも出る。
   const shownDiagram = (html) => html.slice(html.indexOf('<div data-diagram="live">'),
     html.indexOf('<div data-diagram="expanded"') === -1
@@ -102,9 +95,7 @@ test('既定scopeは完走した枝を畳み、--scope allは全件描く', asyn
 
 test('図から外した工程も、生成物の上で一覧から開ける', async (context) => {
   const root = await foldableWorkspace(context);
-  const live = run(root, ['todo', 'gantt', '--out', '.lattice/generated/live.html']);
-  assert.equal(live.status, 0, live.stderr);
-  const html = await readFile(path.join(root, JSON.parse(live.stdout).output_ref), 'utf8');
+  const { rendered: { html } } = await renderTodoGanttForProject({ repoRoot: root, scope: 'live' });
 
   const detailKeys = new Set([...html.matchAll(/data-detail-key="([^"]*)"/gu)].map(([, key]) => key));
   const selectKeys = [...html.matchAll(/data-select-node-key="([^"]*)"/gu)].map(([, key]) => key);
@@ -118,20 +109,17 @@ test('図から外した工程も、生成物の上で一覧から開ける', as
   assert.doesNotMatch(html, /~folded/u);
 });
 
-test('gantt statusはscope違いの生成物をstaleと誤判定しない', async (context) => {
+test('静的gantt生成とstatusはtypedに廃止し動的dashboardを案内する', async (context) => {
   const root = await foldableWorkspace(context);
-  const all = run(root, ['todo', 'gantt', '--out', '.lattice/generated/all.html', '--scope', 'all']);
-  assert.equal(all.status, 0, all.stderr);
-
-  const status = run(root, ['todo', 'gantt', 'status', '--out', '.lattice/generated/all.html']);
-  assert.equal(status.status, 0, status.stderr);
-  const result = JSON.parse(status.stdout);
-  assert.equal(result.scope, 'all');
-  assert.equal(result.artifact_status, 'current');
-});
-
-test('未知のscope値はusage failureになる', async (context) => {
-  const root = await foldableWorkspace(context);
-  const bad = run(root, ['todo', 'gantt', '--scope', 'everything']);
-  assert.equal(bad.status, 2);
+  for (const args of [
+    ['todo', 'gantt'],
+    ['todo', 'gantt', '--out', 'docs/gantt.html'],
+    ['todo', 'gantt', 'status'],
+  ]) {
+    const result = run(root, args);
+    assert.equal(result.status, 1);
+    const failure = JSON.parse(result.stderr);
+    assert.equal(failure.code, 'STATIC_GANTT_RETIRED');
+    assert.equal(failure.detail.next_action, 'lattice todo status --json');
+  }
 });

@@ -116,7 +116,8 @@ export function renderPhaseProgress(readModel) {
   const rows = [];
   const settledRows = [];
   for (const member of readModel.members) {
-    if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(member.plan.schema)) continue;
+    if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5', 'lattice.todo_plan.v7']
+      .includes(member.plan.schema)) continue;
     // snapshot artifactの形式には縛られない導出ビュー(member.phases)を読む(ADR 0147)。
     const phases = new Map(member.phases.map((phase) => [phase.phase_id, phase]));
     for (const phase of member.plan.phases) {
@@ -130,7 +131,9 @@ export function renderPhaseProgress(readModel) {
       (SETTLED_PHASE_STATUS.includes(state.status) ? settledRows : rows).push(row);
     }
   }
-  const decoupled = readModel.members.some(({ plan }) => plan.schema === 'lattice.todo_plan.v5');
+  const decoupled = readModel.members.some(({ plan }) => (
+    ['lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(plan.schema)
+  ));
   const guidance = decoupled
     ? 'ToDo完了とPhase受理は別です。Phaseは重監査の順序を表し、通常ToDoの開始順はToDo依存だけで決まります。'
     : 'ToDo完了とPhase受理は別です。<code>gate_ready</code>では後続Phaseはまだ解放されません。';

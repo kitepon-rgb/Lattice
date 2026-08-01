@@ -33,7 +33,7 @@
 - TODO工程とruntime実行の相関: `todo bindings [--plan <key>] --json`が
   `lattice.todo_binding_projection.v1`を返す（[ADR 0124](adr/0124-todo-binding-projection.md)）。
   `todo_status_result.v4`は変更していないため、v4を受理する既存hostはそのまま動く。
-- TODO工程: 現行authoringは`lattice.plan_create_input.v3`、planは`lattice.todo_plan.v5`、
+- TODO工程: 現行authoringは`lattice.plan_create_input.v4`、planは`lattice.todo_plan.v7`、
   eventは`lattice.todo_event.v4`、snapshotは`lattice.todo_snapshot.v2`、Phase revisionは
   `lattice.phase_todo_revision.v2`、cross-plan revisionは`lattice.todo_revision_set.v3`、
   statusは`lattice.todo_status_result.v4`を使う。

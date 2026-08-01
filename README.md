@@ -60,19 +60,23 @@ Nobody hand-refactored that file. The product cut it so the work could paralleli
 
 ### Task memory travels with the task
 
-An agent can append the decisions, rejected approaches, findings, cautions, and open questions needed
-to continue a ToDo. A normal `lattice todo show` and every successful `lattice todo start` return the
-latest bounded `note_context` automatically, including origin, correction state, chain head, overflow,
-and the full-history command. The next agent does not need to discover or remember a separate note
-lookup command.
+Every newly authored ToDo carries an initial Markdown design memo. Empty text and a file reference are
+not accepted; an agent with no plan must explicitly write `NO_PLAN`. Lattice asks:
+“あなたがこのToDoに対して、何も考えていないならば、設計メモに `NO_PLAN` と書いてください”.
+A normal `lattice todo show` and every successful `lattice todo start` return that memo automatically.
+
+After work begins, an agent can append decisions, rejected approaches, findings, cautions, and open
+questions. These remain a separate, append-only `note_context`, with origin, correction state, chain
+head, overflow, and the full-history command.
 
 ```bash
 lattice todo note --plan <key> --task <id> --message "Use the existing parser; do not add a fallback"
 lattice todo show --plan <key> --task <id> --json
 ```
 
-The same context appears in the selected ToDo's detail pane in a local Gantt. Public Gantt and
-dashboard rendering exclude note bodies by contract.
+The initial design memo appears in the selected ToDo's detail pane on both local and public dynamic
+dashboards. Public rendering excludes append-only note bodies by contract. Static per-project HTML is
+not generated; `lattice todo gantt serve` and the shared dashboard read the store dynamically.
 
 ### The five acceptance conditions
 

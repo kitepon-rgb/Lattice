@@ -251,7 +251,7 @@ function readyTaskKeys(readModel, nodes, nodesByKey, incoming) {
         member.plan.project_id, member.plan.plan_key, phase.phase_id,
       ]), phase.status);
     }
-    if (member.plan.schema === 'lattice.todo_plan.v5') {
+    if (['lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(member.plan.schema)) {
       for (const edge of member.plan.phase_accept_dependencies ?? []) {
         const target = refKey(refOf(edge.to, 'phase_accept_dependencies.to'));
         if (!nodesByKey.has(target)) {
