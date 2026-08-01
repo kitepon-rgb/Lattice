@@ -1,0 +1,26 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 7,
+  "task": {
+    "task_id": "ttn-007",
+    "title": "実store受入と独立反証でcampaignを閉じる",
+    "classification": "F",
+    "effect": "write",
+    "doc_ref": "docs/plan_todo-task-notes.md",
+    "role": "auditor",
+    "lane": "behavior-change",
+    "depends_on": ["ttn-001", "ttn-002", "ttn-003", "ttn-004", "ttn-005", "ttn-006"],
+    "required_capabilities": ["todo-store-acceptance", "independent-refutation", "full-ci"],
+    "isolation": "none",
+    "context_policy": {"share_objective": true, "share_current_candidate": true, "share_existing_findings": true, "share_failed_approaches": true, "share_test_results": true},
+    "validation": ["実ToDoのshow/startがnoteを自動同梱する", "Ganttローカル表示と公開本文除外を実データで確認する", "Fableが契約を独立反証する", "npm run ciを通す"],
+    "non_goals": ["新機能の追加", "依頼外のrefactor"],
+    "known_traps": ["note listの手動実行を通常受入に使わない", "公開HTMLに本文が混入していないかexact bodyで検査する"],
+    "read_scope": [{"kind": "directory", "path": "src"}, {"kind": "directory", "path": "test"}, {"kind": "file", "path": "docs/adr/0149-task-notes-are-a-third-layer.md"}],
+    "write_scope": [{"kind": "directory", "path": "docs/evidence"}],
+    "approval": null,
+    "alternative_group": null
+  }
+}
