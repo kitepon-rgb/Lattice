@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import {
   chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, unlink,
-  utimes, writeFile,
+  utimes, writeFile, rename,
 } from 'node:fs/promises';
 import { PassThrough, Readable } from 'node:stream';
 import { tmpdir } from 'node:os';
@@ -163,12 +163,19 @@ const FOREIGN_CODEX_HOOKS = JSON.stringify({
   omega: 2,
 }, null, 2);
 
-function shell(argv) {
-  return argv.map((item) => `'${item.replaceAll("'", "'\\\"'\\\"'")}'`).join(' ');
-}
-
 async function canonical(host) {
   return [process.execPath, await realpath(CLI), 'hooks', 'emit', '--host', host];
+}
+
+function commandArgv(command) {
+  const result = spawnSync('sh', ['-c', 'eval "set -- $HOOK_COMMAND"; printf "%s\\0" "$@"'], {
+    cwd: REPO_ROOT,
+    env: isolatedEnv({ extraEnv: { HOOK_COMMAND: command } }),
+  });
+  assert.equal(result.status, 0, result.stderr.toString());
+  const bytes = result.stdout;
+  assert.equal(bytes.at(-1), 0);
+  return bytes.subarray(0, -1).toString('utf8').split('\0');
 }
 
 function receiptPath(fixture, host) {
@@ -197,12 +204,14 @@ function captureStdout({ fail = false } = {}) {
 
 async function directCli(argv, fixture, {
   input = '', platform, source, spawnImpl, gitTimeoutMs, stdout = captureStdout(), extraEnv = {},
+  testHooks,
 } = {}) {
   const env = isolatedEnv({
     home: fixture.home, stateHome: fixture.stateHome, configHome: fixture.configHome, extraEnv,
   });
   const status = await runHooksCli({
     argv, stdout, stdin: Readable.from([input]), env, platform, source, spawnImpl, gitTimeoutMs,
+    testHooks,
   });
   return { status, stdout: stdout.output };
 }
@@ -283,10 +292,11 @@ test('P3 C1: hooks namespace/subcommand helpとCLI surface COMMANDSは4 subcomma
 test('P3 C2: install は Claude のcanonical commandを絶対node/絶対mjs/hooks emit --host claude で1件だけ書く', async (t) => {
   const fixture = await hooksFixture(t, 'claude', { config: FOREIGN_CLAUDE_HOOKS });
   assert.equal(runCli(['hooks', 'install', '--host', 'claude'], options(fixture)).status, 0);
-  const expected = shell(await canonical('claude'));
   const self = handlers(await readJson(fixture.configPath))
-    .filter((item) => item.command === expected);
-  assert.deepEqual(self, [{ type: 'command', command: shell(await canonical('claude')), timeout: 5 }]);
+    .filter((item) => commandArgv(item.command).includes('hooks'));
+  assert.equal(self.length, 1);
+  assert.deepEqual(commandArgv(self[0].command), await canonical('claude'));
+  assert.deepEqual(self[0], { type: 'command', command: self[0].command, timeout: 5 });
   assert.equal(path.isAbsolute((await canonical('claude'))[0]), true);
   assert.equal(path.isAbsolute((await canonical('claude'))[1]), true);
 });
@@ -295,11 +305,12 @@ test('P3 C2: install は Claude のcanonical commandを絶対node/絶対mjs/hook
 test('P3 C2: install は Codex のcanonical commandを絶対node/絶対mjs/hooks emit --host codex で1件だけ書く', async (t) => {
   const fixture = await hooksFixture(t, 'codex', { config: FOREIGN_CODEX_HOOKS });
   assert.equal(runCli(['hooks', 'install', '--host', 'codex'], options(fixture)).status, 0);
-  const expected = shell(await canonical('codex'));
   const self = handlers(await readJson(fixture.configPath))
-    .filter((item) => item.command === expected);
+    .filter((item) => commandArgv(item.command).includes('hooks'));
+  assert.equal(self.length, 1);
+  assert.deepEqual(commandArgv(self[0].command), await canonical('codex'));
   assert.deepEqual(self, [{
-    type: 'command', command: shell(await canonical('codex')), timeout: 5,
+    type: 'command', command: self[0].command, timeout: 5,
     async: false, statusMessage: null,
   }]);
 });
@@ -309,6 +320,7 @@ test('P3 C2: receiptの現canonical・過去argv完全一致だけを自identity
   const fixture = await hooksFixture(t, 'claude', { config: '{}' });
   assert.equal(runCli(['hooks', 'install', '--host', 'claude'], options(fixture)).status, 0);
   const old = ['/old/node', '/old/lattice.mjs', 'hooks', 'emit', '--host', 'claude'];
+  const oldCommand = "'/old/node' '/old/lattice.mjs' 'hooks' 'emit' '--host' 'claude'";
   const missing = ['/missing/node', '/missing/lattice.mjs', 'hooks', 'emit', '--host', 'claude'];
   const receipt = await readJson(receiptPath(fixture, 'claude'));
   receipt.entries.push({ argv: old, status: 'pending', operation_id: 'applied' });
@@ -316,8 +328,8 @@ test('P3 C2: receiptの現canonical・過去argv完全一致だけを自identity
   await writeFile(receiptPath(fixture, 'claude'), `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
   const config = await readJson(fixture.configPath);
   config.hooks.UserPromptSubmit.push({ hooks: [
-    { type: 'command', command: shell(old), timeout: 5 },
-    { type: 'command', command: `${shell(old)} --extra`, timeout: 5 },
+    { type: 'command', command: oldCommand, timeout: 5 },
+    { type: 'command', command: `${oldCommand} --extra`, timeout: 5 },
   ] });
   await writeFile(fixture.configPath, `${JSON.stringify(config)}\n`);
   assert.equal(runCli(['hooks', 'status', '--host', 'claude'], options(fixture)).status, 0);
@@ -327,7 +339,7 @@ test('P3 C2: receiptの現canonical・過去argv完全一致だけを自identity
   assert.equal(recovered.entries.some((entry) => entry.operation_id === 'not-applied'), false);
   assert.equal(runCli(['hooks', 'uninstall', '--host', 'claude'], options(fixture)).status, 0);
   const remaining = handlers(await readJson(fixture.configPath));
-  assert.deepEqual(remaining.map((item) => item.command), [`${shell(old)} --extra`]);
+  assert.deepEqual(remaining.map((item) => item.command), [`${oldCommand} --extra`]);
 });
 
 // C2: 除去単位はinner handlerで、同じwrapperの他handlerとmetadataを保持する。
@@ -355,9 +367,11 @@ test('P3 C2: receiptにない hooks emit --host handlerはforeign_candidateと�
   const fixture = await hooksFixture(t, 'claude', { config });
   const statusResult = runCli(['hooks', 'status', '--host', 'claude'], options(fixture));
   assert.equal(statusResult.status, 0);
-  assert.deepEqual(JSON.parse(statusResult.stdout), {
+  const statusValue = JSON.parse(statusResult.stdout);
+  assert.deepEqual(commandArgv(statusValue.canonical_command), await canonical('claude'));
+  assert.deepEqual({ ...statusValue, canonical_command: '<checked-by-sh>' }, {
     schema: 'lattice.hooks_status_result.v1', host: 'claude', config_path: fixture.configPath,
-    state: 'drift', canonical_command: shell(await canonical('claude')),
+    state: 'drift', canonical_command: '<checked-by-sh>',
     matched_handler_count: 0, foreign_candidate_count: 1, executable_ok: true,
     next_action: 'lattice hooks install --host claude',
   });
@@ -402,6 +416,98 @@ test('P3 C2 negative: 非POSIXは HOST_PLATFORM_UNSUPPORTED、canonical解決不
   assert.equal(unresolved.status, 1);
   assert.equal(JSON.parse(unresolved.stdout).code, 'INSTALL_SOURCE_UNRESOLVED');
   assert.equal(await readFile(fixture.configPath, 'utf8'), '{}');
+});
+
+test('P4 F2: apostrophe入りcanonical commandは実shでargv往復し、install/status/uninstallが冪等である', async (t) => {
+  const fixture = await hooksFixture(t, 'claude', { config: '{}' });
+  const sourceDirectory = path.join(fixture.root, "source with ' apostrophe");
+  await mkdir(sourceDirectory, { recursive: true, mode: 0o700 });
+  const execPath = path.join(sourceDirectory, "node'copy");
+  const scriptPath = path.join(sourceDirectory, "lattice'script.mjs");
+  await Promise.all([
+    writeFile(execPath, '#!/bin/sh\nexit 0\n', { mode: 0o700 }),
+    writeFile(scriptPath, '#!/bin/sh\nexit 0\n', { mode: 0o700 }),
+  ]);
+  await Promise.all([chmod(execPath, 0o700), chmod(scriptPath, 0o700)]);
+  const source = { execPath, binPath: scriptPath };
+  const installed = await directCli(['install', '--host', 'claude'], fixture, { source });
+  assert.equal(installed.status, 0, installed.stdout);
+  const command = handlers(await readJson(fixture.configPath)).at(-1).command;
+  assert.deepEqual(commandArgv(command), [execPath, await realpath(scriptPath),
+    'hooks', 'emit', '--host', 'claude']);
+  const statusResult = await directCli(['status', '--host', 'claude'], fixture, { source });
+  assert.equal(statusResult.status, 0);
+  assert.equal(JSON.parse(statusResult.stdout).state, 'wired');
+  const second = await directCli(['install', '--host', 'claude'], fixture, { source });
+  assert.equal(JSON.parse(second.stdout).state, 'already_wired');
+  const removed = await directCli(['uninstall', '--host', 'claude'], fixture, { source });
+  assert.equal(JSON.parse(removed.stdout).removed_count, 1);
+
+  for (const unsafe of [`${execPath}\nother`, `${execPath}\0other`]) {
+    const rejected = await directCli(['install', '--host', 'claude'], fixture, {
+      source: { execPath: unsafe, binPath: scriptPath },
+    });
+    assert.equal(rejected.status, 1);
+    assert.equal(JSON.parse(rejected.stdout).code, 'INSTALL_SOURCE_UNRESOLVED');
+  }
+});
+
+test('P4 F3: dquote内backslashはPOSIX規則でtokenizeし、receipt不一致entryを誤削除しない', async (t) => {
+  const trickyArg = '/tmp/a\\q$`"\\z';
+  const trickyCommand = '"/tmp/a\\q\\$\\`\\"\\\\z" "/old/lattice.mjs" hooks emit --host claude';
+  const oldTail = ['/old/lattice.mjs', 'hooks', 'emit', '--host', 'claude'];
+  assert.deepEqual(commandArgv(trickyCommand), [trickyArg, ...oldTail]);
+  const fixture = await hooksFixture(t, 'claude', { config: JSON.stringify({
+    hooks: { UserPromptSubmit: [{ hooks: [
+      { type: 'command', command: trickyCommand, timeout: 5 },
+    ] }] },
+  }) });
+  const target = receiptPath(fixture, 'claude');
+  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+  const receipt = (argv) => JSON.stringify({
+    schema: 'lattice.hooks_install_receipt.v1',
+    entries: [{ argv, status: 'committed', operation_id: 'old' }],
+  });
+  await writeFile(target, receipt(['/tmp/aq$`"\\z', ...oldTail]), { mode: 0o600 });
+  const before = await readFile(fixture.configPath);
+  const preserved = runCli(['hooks', 'uninstall', '--host', 'claude'], options(fixture));
+  assert.equal(JSON.parse(preserved.stdout).removed_count, 0);
+  assert.deepEqual(await readFile(fixture.configPath), before);
+
+  await writeFile(target, receipt([trickyArg, ...oldTail]), { mode: 0o600 });
+  const removed = runCli(['hooks', 'uninstall', '--host', 'claude'], options(fixture));
+  assert.equal(JSON.parse(removed.stdout).removed_count, 1);
+  assert.deepEqual(handlers(await readJson(fixture.configPath)), []);
+});
+
+test('P4 F6: pending receipt回復はlock取得後にconfigを再読してcommitted化する', async (t) => {
+  const fixture = await hooksFixture(t, 'claude', { config: '{}' });
+  const old = ['/old/node', '/old/lattice.mjs', 'hooks', 'emit', '--host', 'claude'];
+  const oldCommand = "'/old/node' '/old/lattice.mjs' hooks emit --host claude";
+  const target = receiptPath(fixture, 'claude');
+  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+  await writeFile(target, JSON.stringify({
+    schema: 'lattice.hooks_install_receipt.v1',
+    entries: [{ argv: old, status: 'pending', operation_id: 'locked-recovery' }],
+  }), { mode: 0o600 });
+  let lockObserved = 0;
+  const result = await directCli(['status', '--host', 'claude'], fixture, {
+    testHooks: {
+      afterReceiptLock: async ({ configTarget }) => {
+        lockObserved += 1;
+        await writeFile(configTarget, JSON.stringify({
+          hooks: { UserPromptSubmit: [{ hooks: [
+            { type: 'command', command: oldCommand, timeout: 5 },
+          ] }] },
+        }));
+      },
+    },
+  });
+  assert.equal(result.status, 0);
+  assert.equal(lockObserved, 1);
+  const recovered = await readJson(target);
+  assert.equal(recovered.entries[0].status, 'committed');
+  assert.equal(JSON.parse(result.stdout).matched_handler_count, 1);
 });
 
 // C3-1: host home dir不在はHOST_NOT_PRESENT exit 1で、dirを作らない。
@@ -493,7 +599,8 @@ test('P3 C3-6: foreign Claude/Codex hook同居fixtureでは他entry/key/順序�
     assert.equal(value.hooks.metadata, 'keep');
     assert.equal(value.hooks.UserPromptSubmit[0].matcher, 'all');
     assert.equal(value.hooks.UserPromptSubmit[0].hooks[0].command, 'other-product --observe');
-    assert.equal(value.hooks.UserPromptSubmit.at(-1).hooks[0].command, shell(await canonical(host)));
+    assert.deepEqual(commandArgv(value.hooks.UserPromptSubmit.at(-1).hooks[0].command),
+      await canonical(host));
   }
 });
 
@@ -505,10 +612,10 @@ test('P3 C3-7: 不在設定は link(tmp,target) no-clobber commitで作成しEEX
     runCliAsync(['hooks', 'install', '--host', 'claude'], options(fixture)),
   ]);
   assert.deepEqual([left.status, right.status], [0, 0], `${left.stdout}\n${right.stdout}`);
-  const expected = shell(await canonical('claude'));
   const self = handlers(await readJson(fixture.configPath))
-    .filter((item) => item.command === expected);
+    .filter((item) => commandArgv(item.command).includes('hooks'));
   assert.equal(self.length, 1);
+  assert.deepEqual(commandArgv(self[0].command), await canonical('claude'));
   assert.equal((await stat(fixture.configPath)).mode & 0o777, 0o600);
 });
 
@@ -542,6 +649,107 @@ test('P3 C3 negative: foreign-only hook同居fixtureの全失敗経路で他人�
   assert.equal(await readFile(outside, 'utf8'), 'owner-bytes');
 });
 
+test('P4 F4-1: preimage不一致はabort後に1回だけ再読・re-mergeする', async (t) => {
+  const fixture = await hooksFixture(t, 'claude', { config: FOREIGN_CLAUDE_HOOKS });
+  let checks = 0;
+  const result = await directCli(['install', '--host', 'claude'], fixture, {
+    testHooks: {
+      beforePreimageVerify: async ({ target }) => {
+        checks += 1;
+        if (checks !== 1) return;
+        const value = await readJson(target);
+        value.concurrent_preimage = 'preserved';
+        await writeFile(target, `${JSON.stringify(value)}\n`);
+      },
+    },
+  });
+  assert.equal(result.status, 0, result.stdout);
+  assert.equal(checks, 2);
+  const value = await readJson(fixture.configPath);
+  assert.equal(value.concurrent_preimage, 'preserved');
+  assert.equal(handlers(value).filter((item) => commandArgv(item.command).includes('hooks')).length, 1);
+});
+
+test('P4 F4-2: displaced link後のtarget inode交換はdev/ino再検証でabortして再mergeする', async (t) => {
+  const fixture = await hooksFixture(t, 'claude', { config: FOREIGN_CLAUDE_HOOKS });
+  let linkChecks = 0;
+  const result = await directCli(['install', '--host', 'claude'], fixture, {
+    testHooks: {
+      afterDisplacedLink: async ({ target }) => {
+        linkChecks += 1;
+        if (linkChecks !== 1) return;
+        const value = await readJson(target);
+        value.concurrent_inode = 'preserved';
+        const replacement = `${target}.host-replacement`;
+        await writeFile(replacement, `${JSON.stringify(value)}\n`, { mode: 0o600 });
+        await rename(replacement, target);
+      },
+    },
+  });
+  assert.equal(result.status, 0, result.stdout);
+  assert.equal(linkChecks, 2);
+  assert.equal((await readJson(fixture.configPath)).concurrent_inode, 'preserved');
+});
+
+test('P4 F4-3: rename後read-back不一致はdisplaced preimageから元bytesへ復元する', async (t) => {
+  const fixture = await hooksFixture(t, 'claude', { config: FOREIGN_CLAUDE_HOOKS });
+  const before = await readFile(fixture.configPath);
+  let injected = false;
+  const result = await directCli(['install', '--host', 'claude'], fixture, {
+    testHooks: {
+      beforeConfigReadBack: async ({ target }) => {
+        if (injected) return;
+        injected = true;
+        await writeFile(target, '{"read_back":"corrupted"}\n');
+      },
+    },
+  });
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stdout).code, 'CONFIG_WRITE_FAILED');
+  assert.deepEqual(await readFile(fixture.configPath), before);
+  const names = await readdir(path.dirname(fixture.configPath));
+  assert.equal(names.filter((name) => name.includes('.bak-lattice-hooks-')).length, 1);
+  assert.equal(names.filter((name) => name.includes('.pre-lattice-hooks-')).length, 1);
+});
+
+test('P4 F1/F4-4: RESTORE_FAILEDはbackup/displacedを保持しtyped detailへ両pathを返す', async (t) => {
+  const fixture = await hooksFixture(t, 'claude', { config: FOREIGN_CLAUDE_HOOKS });
+  const before = await readFile(fixture.configPath);
+  const result = await directCli(['install', '--host', 'claude'], fixture, {
+    testHooks: {
+      beforeConfigReadBack: async ({ target }) => {
+        await writeFile(target, '{"read_back":"corrupted"}\n');
+      },
+      beforeRestore: async () => { throw new Error('injected restore failure'); },
+    },
+  });
+  assert.equal(result.status, 1);
+  const error = JSON.parse(result.stdout);
+  assert.equal(error.code, 'RESTORE_FAILED');
+  assert.deepEqual(Object.keys(error.detail), ['backup_path', 'displaced_path']);
+  for (const artifact of [error.detail.backup_path, error.detail.displaced_path]) {
+    assert.equal(path.isAbsolute(artifact), true);
+    assert.deepEqual(await readFile(artifact), before);
+  }
+  assert.notDeepEqual(await readFile(fixture.configPath), before);
+});
+
+test('P4 F5: generation prune失敗はcommit済みinstallを成功のwarningとして返す', async (t) => {
+  const fixture = await hooksFixture(t, 'claude', { config: FOREIGN_CLAUDE_HOOKS });
+  const result = await directCli(['install', '--host', 'claude'], fixture, {
+    testHooks: {
+      beforePrune: async () => { throw new Error('injected prune failure'); },
+    },
+  });
+  assert.equal(result.status, 0);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    schema: 'lattice.hooks_install_result.v1', host: 'claude', state: 'wired',
+    warning: { code: 'GENERATION_PRUNE_FAILED', message: 'injected prune failure' },
+  });
+  const statusResult = await directCli(['status', '--host', 'claude'], fixture);
+  assert.equal(JSON.parse(statusResult.stdout).state, 'wired');
+});
+
 // C4: canonical self handler 1件かつ実行可能なnode/scriptだけがwiredである。
 test('P3 C4: canonical self handlerが1件でnode/script実行可能なら status は wired を返す', async (t) => {
   const fixture = await hooksFixture(t, 'claude', { config: '{}' });
@@ -572,11 +780,12 @@ test('P3 C4: canonical1件に旧path receipt handlerが残る場合を含め mat
   const fixture = await hooksFixture(t, 'claude', { config: '{}' });
   runCli(['hooks', 'install', '--host', 'claude'], options(fixture));
   const old = ['/old/node', '/old/lattice.mjs', 'hooks', 'emit', '--host', 'claude'];
+  const oldCommand = "'/old/node' '/old/lattice.mjs' 'hooks' 'emit' '--host' 'claude'";
   const receipt = await readJson(receiptPath(fixture, 'claude'));
   receipt.entries.push({ argv: old, status: 'committed', operation_id: 'old' });
   await writeFile(receiptPath(fixture, 'claude'), `${JSON.stringify(receipt)}\n`);
   const config = await readJson(fixture.configPath);
-  config.hooks.UserPromptSubmit.push({ hooks: [{ type: 'command', command: shell(old), timeout: 5 }] });
+  config.hooks.UserPromptSubmit.push({ hooks: [{ type: 'command', command: oldCommand, timeout: 5 }] });
   await writeFile(fixture.configPath, `${JSON.stringify(config)}\n`);
   const value = JSON.parse(runCli(['hooks', 'status', '--host', 'claude'], options(fixture)).stdout);
   assert.equal(value.state, 'drift');
@@ -774,7 +983,7 @@ test('P3 C6-5: sensor indexなしは沈黙、sensor判定EACCES/EIOは記録と�
 test('P3 C6-6a: fresh .shown既存はclaim前に沈黙し、claim EEXISTも沈黙する', async (t) => {
   const fixture = await hooksFixture(t, 'claude', { git: true });
   await mkdir(path.join(fixture.root, '.lattice', 'sensor'), { recursive: true });
-  const state = path.join(fixture.stateHome, 'lattice', 'hooks');
+  const state = path.join(await realpath(fixture.stateHome), 'lattice', 'hooks');
   await mkdir(state, { recursive: true, mode: 0o700 });
   const root = await realpath(fixture.root);
   const key = `${hash('shown-session')}.${hash(root)}`;
@@ -831,6 +1040,37 @@ test('P3 C6-6b: claim後shown再確認、初回表示から.shown化、二度目
   const failedState = path.join(failedOutput.stateHome, 'lattice', 'hooks');
   await assert.rejects(lstat(path.join(failedState, `${failedKey}.claim`)), { code: 'ENOENT' });
   await assert.rejects(lstat(path.join(failedState, `${failedKey}.shown`)), { code: 'ENOENT' });
+});
+
+test('P4 F4-5: output成功後のclaim rename失敗はshownを直接wx作成してclaimを回収する', async (t) => {
+  const fixture = await hooksFixture(t, 'claude', { git: true });
+  await mkdir(path.join(fixture.root, '.lattice', 'sensor'), { recursive: true });
+  const root = await realpath(fixture.root);
+  const key = `${hash('rename-fallback')}.${hash(root)}`;
+  let checkpoint;
+  const result = await directCli(['emit', '--host', 'claude'], fixture, {
+    input: JSON.stringify({ session_id: 'rename-fallback', cwd: fixture.root }),
+    testHooks: {
+      beforeShownRename: async (paths) => {
+        checkpoint = paths;
+        throw new Error('injected claim rename failure');
+      },
+    },
+  });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, `${INFO}\n`);
+  const state = path.join(await realpath(fixture.stateHome), 'lattice', 'hooks');
+  assert.deepEqual(checkpoint, {
+    claim: path.join(state, `${key}.claim`), shown: path.join(state, `${key}.shown`),
+  });
+  assert.equal((await lstat(checkpoint.shown)).isFile(), true);
+  assert.equal((await stat(checkpoint.shown)).mode & 0o777, 0o600);
+  await assert.rejects(lstat(checkpoint.claim), { code: 'ENOENT' });
+  assert.match(await readFile(path.join(state, 'errors.log'), 'utf8'), /claim promotion failed/u);
+  const second = runCli(['hooks', 'emit', '--host', 'claude'], options(fixture, {
+    input: JSON.stringify({ session_id: 'rename-fallback', cwd: fixture.root }),
+  }));
+  assert.equal(second.stdout, '');
 });
 
 // C6: Claude出力は指定INFO文のplain 1行、CodexはASCII hookSpecificOutput envelopeである。

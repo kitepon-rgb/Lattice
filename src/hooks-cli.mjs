@@ -23,8 +23,10 @@ function writeJson(stdout, value) {
   stdout.write(`${JSON.stringify(value)}\n`);
 }
 
-function failure(stdout, code, message, exit = 1) {
-  writeJson(stdout, { schema: 'lattice.hooks_error.v1', code, message });
+function failure(stdout, code, message, exit = 1, detail) {
+  const value = { schema: 'lattice.hooks_error.v1', code, message };
+  if (detail !== undefined) value.detail = detail;
+  writeJson(stdout, value);
   return exit;
 }
 
@@ -41,11 +43,25 @@ function words(command) {
   const out = [];
   let word = '';
   let quote = null;
-  let escaped = false;
   let started = false;
-  for (const char of command) {
-    if (escaped) { word += char; escaped = false; started = true; continue; }
-    if (char === '\\' && quote !== "'") { escaped = true; started = true; continue; }
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (char === '\\' && quote !== "'") {
+      const next = command[index + 1];
+      if (next === undefined) return null;
+      const escapesNext = quote !== '"' || ['$', '`', '"', '\\', '\n'].includes(next);
+      if (!escapesNext) {
+        word += '\\';
+        started = true;
+        continue;
+      }
+      index += 1;
+      if (next !== '\n') {
+        word += next;
+        started = true;
+      }
+      continue;
+    }
     if ((char === "'" || char === '"') && (!quote || quote === char)) {
       quote = quote ? null : char;
       started = true;
@@ -60,13 +76,13 @@ function words(command) {
       started = true;
     }
   }
-  if (quote || escaped) return null;
+  if (quote) return null;
   if (started) out.push(word);
   return out;
 }
 
 function shell(argv) {
-  return argv.map((item) => `'${item.replaceAll("'", "'\\\"'\\\"'")}'`).join(' ');
+  return argv.map((item) => `'${item.replaceAll("'", "'\\''")}'`).join(' ');
 }
 
 function sameArgv(left, right) {
@@ -312,15 +328,17 @@ function configContains(value, argv) {
     && typeof item.command === 'string' && commandIs(item.command, [argv]));
 }
 
-async function recoverReceipt(env, host, config) {
+async function recoverReceipt(env, host, configTarget, testHooks) {
   const current = await readReceipt(env, host);
   if (current.target === null || !current.value.entries.some((entry) => entry.status === 'pending')) {
     return current.value;
   }
   return withReceiptLock(env, host, async (receipt, target) => {
+    await testHooks.afterReceiptLock?.({ configTarget });
+    const config = await readConfig(configTarget);
     const entries = receipt.entries.flatMap((entry) => {
       if (entry.status !== 'pending') return [entry];
-      return configContains(config, entry.argv) ? [{ ...entry, status: 'committed' }] : [];
+      return configContains(config.value, entry.argv) ? [{ ...entry, status: 'committed' }] : [];
     });
     const recovered = { ...receipt, entries };
     await writeReceiptUnlocked(target, recovered);
@@ -410,12 +428,15 @@ function hostHandler(host, command) {
 }
 
 async function resolveCanonical(host, source) {
-  if (!path.isAbsolute(source.execPath) || !path.isAbsolute(source.binPath)) {
+  const sourcePaths = [source.execPath, source.binPath];
+  if (sourcePaths.some((entry) => typeof entry !== 'string' || !path.isAbsolute(entry)
+    || /[\0\r\n]/u.test(entry))) {
     throw Object.assign(new Error('install source is not absolute'), { code: 'INSTALL_SOURCE_UNRESOLVED' });
   }
   try {
     await access(source.execPath, fsConstants.X_OK);
     const script = await realpath(source.binPath);
+    if (/[\0\r\n]/u.test(script)) throw new Error('resolved install source has unsafe characters');
     await access(script, fsConstants.R_OK | fsConstants.X_OK);
     return [source.execPath, script, 'hooks', 'emit', '--host', host];
   } catch (error) {
@@ -488,7 +509,8 @@ async function writeTmp(target, bytes, mode, tag = 'tmp') {
   }
 }
 
-async function restoreExisting(target, displaced, mode) {
+async function restoreExisting(target, displaced, mode, testHooks) {
+  await testHooks.beforeRestore?.({ target, displaced });
   const bytes = await readFile(displaced);
   const tmp = await writeTmp(target, bytes, mode, 'restore');
   try {
@@ -513,7 +535,7 @@ async function rollbackAbsent(target, tmp) {
   }
 }
 
-async function commitConfig(target, prestate, value) {
+async function commitConfig(target, prestate, value, testHooks) {
   const serialized = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
   JSON.parse(serialized);
   const tmp = await writeTmp(target, serialized, prestate.existed ? prestate.mode : 0o600);
@@ -522,6 +544,7 @@ async function commitConfig(target, prestate, value) {
   let complete = false;
   try {
     if (prestate.existed) {
+      await testHooks.beforePreimageVerify?.({ target, prestate });
       const current = await readConfig(target);
       if (!current.existed || !current.bytes.equals(prestate.bytes)) {
         throw Object.assign(new Error('preimage changed'), { code: 'PREIMAGE_CHANGED' });
@@ -529,6 +552,7 @@ async function commitConfig(target, prestate, value) {
       displaced = `${target}.pre-lattice-hooks-${new Date().toISOString().replaceAll(/[:.]/gu, '-')}-${unique()}`;
       await link(target, displaced);
       await fsyncDir(path.dirname(target));
+      await testHooks.afterDisplacedLink?.({ target, displaced });
       const before = await lstat(target);
       const saved = await lstat(displaced);
       if (!before.isFile() || before.dev !== saved.dev || before.ino !== saved.ino) {
@@ -547,24 +571,26 @@ async function commitConfig(target, prestate, value) {
       committed = true;
       await fsyncDir(path.dirname(target));
     }
+    await testHooks.beforeConfigReadBack?.({ target, serialized, displaced });
     if (!(await readFile(target)).equals(serialized)) throw new Error('config read-back mismatch');
     complete = true;
     return displaced;
   } catch (error) {
     if (committed) {
       try {
-        if (prestate.existed) await restoreExisting(target, displaced, prestate.mode);
+        if (prestate.existed) await restoreExisting(target, displaced, prestate.mode, testHooks);
         else await rollbackAbsent(target, tmp);
       } catch (restoreError) {
         throw Object.assign(new Error(`restore failed: ${restoreError.message}`), {
-          code: 'RESTORE_FAILED', cause: error,
+          code: 'RESTORE_FAILED', cause: error, commitOccurred: true, displacedPath: displaced,
         });
       }
+      Object.assign(error, { commitOccurred: true, displacedPath: displaced });
     }
     throw error;
   } finally {
     await removeArtifact(tmp).catch(() => {});
-    if (!complete) await removeArtifact(displaced).catch(() => {});
+    if (!complete && !committed) await removeArtifact(displaced).catch(() => {});
   }
 }
 
@@ -587,7 +613,7 @@ async function hostDirectory(home, host) {
   }
 }
 
-async function mutate(host, env, stdout, uninstall, source) {
+async function mutate(host, env, stdout, uninstall, source, testHooks) {
   const home = env.HOME ?? os.homedir();
   if (await hostDirectory(home, host) === null) {
     return failure(stdout, 'HOST_NOT_PRESENT', 'host home directory is not present');
@@ -604,7 +630,7 @@ async function mutate(host, env, stdout, uninstall, source) {
         : 'CONFIG_UNREADABLE', 'configuration cannot be read');
     }
     let receipt;
-    try { receipt = await recoverReceipt(env, host, prestate.value); } catch {
+    try { receipt = await recoverReceipt(env, host, target, testHooks); } catch {
       return failure(stdout, 'INSTALL_RECEIPT_UNSAFE', 'install receipt cannot be safely read');
     }
     const identities = [current, ...committedIdentities(receipt)];
@@ -630,21 +656,34 @@ async function mutate(host, env, stdout, uninstall, source) {
     try {
       if (!uninstall) pendingId = await appendPending(env, host, current);
       backup = await createBackup(target, prestate);
-      await commitConfig(target, prestate, next);
+      await commitConfig(target, prestate, next, testHooks);
       configCommitted = true;
       if (!uninstall) await commitPending(env, host, pendingId, current);
-      await pruneGenerations(target);
-      writeJson(stdout, uninstall
+      let warning;
+      try {
+        await testHooks.beforePrune?.({ target });
+        await pruneGenerations(target);
+      } catch (error) {
+        warning = { code: 'GENERATION_PRUNE_FAILED', message: error?.message ?? 'generation prune failed' };
+      }
+      const result = uninstall
         ? { schema: 'lattice.hooks_uninstall_result.v1', host, removed_count: removed }
-        : { schema: 'lattice.hooks_install_result.v1', host, state: 'wired' });
+        : { schema: 'lattice.hooks_install_result.v1', host, state: 'wired' };
+      if (warning !== undefined) result.warning = warning;
+      writeJson(stdout, result);
       return 0;
     } catch (error) {
-      if (!configCommitted) await removeArtifact(backup).catch(() => {});
+      if (!configCommitted && !error?.commitOccurred) await removeArtifact(backup).catch(() => {});
       if (!configCommitted && error?.code === 'PREIMAGE_CHANGED' && attempt === 0) continue;
-      return failure(stdout, error?.code === 'RESTORE_FAILED' ? 'RESTORE_FAILED'
+      const code = error?.code === 'RESTORE_FAILED' ? 'RESTORE_FAILED'
         : ['INSTALL_RECEIPT_UNSAFE', 'INSTALL_RECEIPT_BUSY'].includes(error?.code)
           ? 'INSTALL_RECEIPT_UNSAFE'
-          : 'CONFIG_WRITE_FAILED', 'configuration cannot be safely written');
+          : 'CONFIG_WRITE_FAILED';
+      const detail = code === 'RESTORE_FAILED' ? {
+        backup_path: backup,
+        displaced_path: error.displacedPath,
+      } : undefined;
+      return failure(stdout, code, 'configuration cannot be safely written', 1, detail);
     }
   }
   return failure(stdout, 'CONFIG_WRITE_FAILED', 'configuration changed concurrently');
@@ -665,7 +704,7 @@ function statusResult(host, target, canonicalCommand, state, matches, executable
   };
 }
 
-async function status(host, env, stdout, source, platform) {
+async function status(host, env, stdout, source, platform, testHooks) {
   const home = env.HOME ?? os.homedir();
   const target = configPath(home, host);
   let argv;
@@ -683,7 +722,11 @@ async function status(host, env, stdout, source, platform) {
     return 1;
   }
   let receipt;
-  try { receipt = await recoverReceipt(env, host, config.value); } catch {
+  try { receipt = await recoverReceipt(env, host, target, testHooks); } catch {
+    writeJson(stdout, statusResult(host, target, shell(argv), 'unreadable', 0, false, 0));
+    return 1;
+  }
+  try { config = await readConfig(target); } catch {
     writeJson(stdout, statusResult(host, target, shell(argv), 'unreadable', 0, false, 0));
     return 1;
   }
@@ -873,7 +916,7 @@ async function writeOutput(stdout, line) {
   });
 }
 
-async function emit(host, env, stdin, stdout, spawnImpl, gitTimeoutMs) {
+async function emit(host, env, stdin, stdout, spawnImpl, gitTimeoutMs, testHooks) {
   if (env.LATTICE_HOOKS === 'off') return 0;
   let state;
   try { state = await secureStateDirectory(env, ['lattice', 'hooks']); } catch {
@@ -937,6 +980,7 @@ async function emit(host, env, stdin, stdout, spawnImpl, gitTimeoutMs) {
     return 0;
   }
   try {
+    await testHooks.beforeShownRename?.({ claim, shown });
     await rename(claim, shown);
     await fsyncDir(state);
   } catch (error) {
@@ -967,6 +1011,7 @@ export async function runHooksCli({
   source = { execPath: process.execPath, binPath },
   spawnImpl = spawn,
   gitTimeoutMs = 2000,
+  testHooks = {},
 }) {
   if (argv.length !== 3 || !['install', 'status', 'uninstall', 'emit'].includes(argv[0])
     || argv[1] !== '--host' || !HOSTS.has(argv[2])) {
@@ -975,11 +1020,11 @@ export async function runHooksCli({
   }
   const [command, , host] = argv;
   if (platform === 'win32') {
-    if (command === 'status') return status(host, env, stdout, source, platform);
+    if (command === 'status') return status(host, env, stdout, source, platform, testHooks);
     return failure(stdout, 'HOST_PLATFORM_UNSUPPORTED', 'native Windows hooks are unsupported');
   }
-  if (command === 'install') return mutate(host, env, stdout, false, source);
-  if (command === 'uninstall') return mutate(host, env, stdout, true, source);
-  if (command === 'status') return status(host, env, stdout, source, platform);
-  return emit(host, env, stdin, stdout, spawnImpl, gitTimeoutMs);
+  if (command === 'install') return mutate(host, env, stdout, false, source, testHooks);
+  if (command === 'uninstall') return mutate(host, env, stdout, true, source, testHooks);
+  if (command === 'status') return status(host, env, stdout, source, platform, testHooks);
+  return emit(host, env, stdin, stdout, spawnImpl, gitTimeoutMs, testHooks);
 }
