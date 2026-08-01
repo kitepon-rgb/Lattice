@@ -7,7 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { canonicalizeTodoArtifact, todoSelfDigest } from '../src/todo-contracts.mjs';
-import { runProjectStatus, validateProjectStatus } from '../src/project-cli.mjs';
+import { projectStatusFailure, runProjectStatus, validateProjectStatus } from '../src/project-cli.mjs';
 import { renderTodoGanttForProject } from '../src/todo-cli.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
@@ -86,7 +86,7 @@ test('plan create --schema --jsonは版指定なしで最新v4を返し、旧sch
   assert.equal(JSON.parse(legacy.stdout).title, 'lattice.plan_create_input.v1');
 });
 
-test('旧plan create入力は空設計メモを作らずNO_PLAN prompt付きで拒否する', async (context) => {
+test('旧plan create入力は参照用schemaとして識別し現行v4への訂正情報付きで拒否する', async (context) => {
   const root = await workspace(context);
   const legacy = {
     schema: 'lattice.plan_create_input.v1', project_id: 'legacy-project',
@@ -102,9 +102,57 @@ test('旧plan create入力は空設計メモを作らずNO_PLAN prompt付きで�
   const execution = run(root, ['plan', 'create', '--input', 'legacy.json']);
   assert.equal(execution.status, 1);
   const failure = JSON.parse(execution.stderr);
-  assert.equal(failure.code, 'DESIGN_MEMO_REQUIRED');
-  assert.match(failure.detail.prompt, /`NO_PLAN`/u);
+  assert.equal(failure.code, 'INPUT_INVALID');
+  assert.equal(failure.detail.violation_kind, 'const_mismatch');
+  assert.equal(failure.detail.pointer, '/schema');
+  assert.equal(failure.detail.expected, 'lattice.plan_create_input.v4');
+  assert.equal(failure.detail.actual, 'lattice.plan_create_input.v1');
   assert.equal(failure.detail.next_action, 'lattice plan create --schema-version 4 --json');
+});
+
+test('plan createは設計メモ違反を本文非露出のpointer付きdiagnosticで返す', async (context) => {
+  const root = await workspace(context);
+  const input = createInput();
+  input.tasks[0].design_memo = '   ';
+  input.input_digest = todoSelfDigest(input, 'input_digest');
+  await writeFile(path.join(root, 'blank-memo.json'), `${canonicalizeTodoArtifact(input)}\n`);
+  const execution = run(root, ['plan', 'create', '--input', 'blank-memo.json']);
+  assert.equal(execution.status, 1);
+  const failure = JSON.parse(execution.stderr);
+  assert.equal(failure.code, 'DESIGN_MEMO_REQUIRED');
+  assert.equal(failure.detail.violation_kind, 'blank');
+  assert.equal(failure.detail.pointer, '/tasks/0/design_memo');
+  assert.deepEqual(failure.detail.actual, { byte_length: 3, non_whitespace: false });
+  assert.match(failure.detail.prompt, /`NO_PLAN`/u);
+});
+
+test('PROJECT_ROOT_CONFLICTのstatus失敗はcodeを一般化せずadopt導線を返す', async (context) => {
+  const root = await workspace(context);
+  let stdout = '';
+  const error = new Error('project id is already owned by another canonical root');
+  error.code = 'PROJECT_ROOT_CONFLICT';
+  const exitCode = projectStatusFailure({
+    cwd: root, stdout: { write: (chunk) => { stdout += chunk; } }, cliVersion: '0.39.0', error,
+  });
+  assert.equal(exitCode, 1);
+  const result = JSON.parse(stdout);
+  assert.equal(result.state, 'invalid');
+  assert.deepEqual(result.next_action, {
+    command: 'lattice todo dashboard adopt --json', reason: 'project_root_conflict',
+  });
+  assert.equal(validateProjectStatus(result), true);
+});
+
+test('dashboard adoptとgantt serveは個別helpへ到達する', async (context) => {
+  const root = await workspace(context);
+  for (const args of [
+    ['todo', 'dashboard', 'adopt', '--help'],
+    ['todo', 'gantt', 'serve', '--help'],
+  ]) {
+    const execution = run(root, args);
+    assert.equal(execution.status, 0, execution.stderr);
+    assert.match(execution.stdout, /^Usage: lattice todo /u);
+  }
 });
 
 test('status --jsonはSHA-256 Git HEADもtyped projectとして返す', async (context) => {

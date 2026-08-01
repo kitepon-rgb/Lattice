@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import {
   TODO_DESIGN_MEMO_PROMPT,
+  explainTodoDesignMemo,
   todoSelfDigest,
   validateTodoPlan,
 } from '../src/todo-contracts.mjs';
@@ -74,6 +75,18 @@ test('v3 extractionは空の設計メモを拒否しNO_PLANを明示値として
     TODO_DESIGN_MEMO_PROMPT,
     'あなたがこのToDoに対して、何も考えていないならば、設計メモに `NO_PLAN` と書いてください',
   );
+});
+
+test('設計メモ診断はtype・blank・too_large・controlを本文非露出で区別する', () => {
+  assert.equal(explainTodoDesignMemo(null).reason, 'type');
+  assert.equal(explainTodoDesignMemo(' \n').reason, 'blank');
+  const tooLarge = explainTodoDesignMemo('設'.repeat(6_000));
+  assert.equal(tooLarge.reason, 'too_large');
+  assert.equal(tooLarge.actual.byte_length, 18_000);
+  assert.equal(Object.values(tooLarge.actual).includes('設'.repeat(6_000)), false);
+  const control = explainTodoDesignMemo('方針\u0000本文');
+  assert.equal(control.reason, 'forbidden_control');
+  assert.equal(control.actual.contains_forbidden_control, true);
 });
 
 test('v3 extractionは設計メモをToDo本体へ保存するv6 planへcompileする', () => {
@@ -170,9 +183,12 @@ test('migrate dry-runは独立した複数違反を一度に返しstoreを作ら
   assert.equal(result.schema, 'lattice.todo_migrate_dry_run_result.v1');
   assert.equal(result.valid, false);
   assert.deepEqual(result.violations.map(({ code }) => code), [
-    'design_memo_required', 'unknown_requires_evidence', 'no_registered_tasks',
+    'design_memo_type', 'design_memo_type', 'unknown_requires_evidence', 'no_registered_tasks',
   ]);
-  assert.deepEqual(result.violations[0].task_ids, ['T1', 'T2']);
+  assert.deepEqual(result.violations[0].task_ids, ['T1']);
+  assert.equal(result.violations[0].path, '/tasks/0/design_memo');
+  assert.deepEqual(result.violations[1].task_ids, ['T2']);
+  assert.equal(result.violations[1].path, '/tasks/1/design_memo');
   assert.equal(result.violations[0].prompt, TODO_DESIGN_MEMO_PROMPT);
   await assert.rejects(readTodoStore({ repoRoot }), (failure) => failure.code === 'STORE_INCONSISTENT');
 });

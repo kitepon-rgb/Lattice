@@ -12,6 +12,7 @@ import {
   canonicalizeTodoArtifact,
   digestTodoArtifact,
   exactRecord,
+  explainTodoDesignMemo,
   isTodoDigest,
   isTodoDesignMemo,
   isTodoIdentifier,
@@ -1116,10 +1117,20 @@ async function migrateDryRun({ repoRoot, inputRef, serializationReviewed = false
   const extraction = await readMigrationInput(repoRoot, inputRef, { requireValid: false });
   const violations = [];
   const tasks = Array.isArray(extraction?.tasks) ? extraction.tasks : [];
-  const missingMemoIds = tasks.filter((task) => !isTodoDesignMemo(task?.design_memo))
-    .map((task) => task?.task_id).filter(isTodoIdentifier).slice(0, 64);
-  if (extraction?.schema !== TODO_EXTRACTION_SCHEMA_V3 || missingMemoIds.length > 0) {
-    violations.push({ code: 'design_memo_required', path: '/tasks', task_ids: missingMemoIds,
+  const invalidMemos = tasks.map((task, index) => ({
+    task, index, explained: explainTodoDesignMemo(task?.design_memo),
+  })).filter(({ explained }) => !explained.valid).slice(0, 64);
+  if (extraction?.schema !== TODO_EXTRACTION_SCHEMA_V3) {
+    violations.push({ code: 'schema_retired', path: '/schema', task_ids: [],
+      expected: TODO_EXTRACTION_SCHEMA_V3,
+      actual: typeof extraction?.schema === 'string' ? extraction.schema
+        : { type: typeof extraction?.schema },
+      next_action: 'lattice todo migrate --schema --json' });
+  }
+  for (const { task, index, explained } of invalidMemos) {
+    violations.push({ code: `design_memo_${explained.reason}`, path: `/tasks/${index}/design_memo`,
+      task_ids: isTodoIdentifier(task?.task_id) ? [task.task_id] : [],
+      expected: explained.expected, actual: explained.actual,
       prompt: TODO_DESIGN_MEMO_PROMPT, next_action: 'lattice todo migrate --schema --json' });
   }
   const schemaValid = extraction?.schema === TODO_EXTRACTION_SCHEMA_V3
@@ -2329,7 +2340,11 @@ async function ensureActiveProjectDashboard({ repoRoot, env }) {
     });
   } catch (error) {
     throw new TodoStoreError(error?.code ?? 'DASHBOARD_DAEMON_UNAVAILABLE',
-      'dashboard_daemon_ensure_failed', undefined, { project_id: store.project_id });
+      'dashboard_daemon_ensure_failed', undefined, {
+        project_id: store.project_id,
+        ...(typeof error?.detail?.next_action === 'string'
+          ? { next_action: error.detail.next_action } : {}),
+      });
   }
 }
 
@@ -2573,10 +2588,10 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     action = (repoRoot) => serveGantt({
       repoRoot, port: Number(argv[3]), stdout, env, scope: argv[5],
     });
-  } else if (argv[0] === 'gantt') {
+  } else if (argv[0] === 'gantt' && argv[1] !== 'serve') {
     action = () => {
       throw new TodoStoreError('STATIC_GANTT_RETIRED', 'dynamic_dashboard_only', undefined, {
-        next_action: 'lattice todo status --json',
+        next_action: 'lattice todo gantt serve --port 0',
       });
     };
   } else if ((argv.length === 5 || argv.length === 6) && argv[0] === 'migrate'
@@ -2688,17 +2703,20 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
         next_action: 'lattice todo --help',
       });
     }
+    const argumentHelp = argv[0] === 'gantt' && argv[1] === 'serve'
+      ? 'lattice todo gantt serve --help'
+      : command === null ? 'lattice todo --help' : `lattice todo ${command} --help`;
     return typedArgumentFailure(stderr, 'INVALID_ARGUMENTS', 'todo_arguments_invalid', {
-      command, next_action: command === null ? 'lattice todo --help' : `lattice todo ${command} --help`,
+      command, next_action: argumentHelp,
     });
   }
 
   try {
     const repoRoot = resolveRepoRoot(cwd);
-    const manualServe = argv[0] === 'gantt' && argv[1] === 'serve';
+    const ganttCommand = argv[0] === 'gantt';
     const dashboardAdopt = argv[0] === 'dashboard' && argv[1] === 'adopt';
     const migrationDryRun = argv[0] === 'migrate' && argv.includes('--dry-run');
-    if (!manualServe && !dashboardAdopt && !migrationDryRun) {
+    if (!ganttCommand && !dashboardAdopt && !migrationDryRun) {
       await ensureActiveProjectDashboard({ repoRoot, env });
     }
     const result = await action(repoRoot);

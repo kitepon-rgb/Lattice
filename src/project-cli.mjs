@@ -7,6 +7,7 @@ import {
   TODO_DESIGN_MEMO_PROMPT,
   canonicalizeTodoArtifact,
   exactRecord,
+  explainTodoDesignMemo,
   isTodoDesignMemo,
   isStrictTodoTimestamp,
   isTodoDigest,
@@ -196,14 +197,16 @@ function statusResult(fields) {
   return result;
 }
 
-function invalidStatus({ cliVersion, repoRoot, reason }) {
+function invalidStatus({ cliVersion, repoRoot, reason, nextAction = null }) {
   return statusResult({
     cli: { available: true, version: cliVersion },
     project: repoRoot === null ? null : { root: repoRoot, git_head: gitHead(repoRoot), project_id: null },
     state: 'invalid',
     store: { ref: STORE_REF, absolute_path: repoRoot === null ? null : path.join(repoRoot, STORE_REF) },
     active_plans: [], active_runs: [], can_create_plan: false,
-    next_action: { command: repoRoot === null ? 'git status' : 'lattice todo verify', reason },
+    next_action: nextAction ?? {
+      command: repoRoot === null ? 'git status' : 'lattice todo verify', reason,
+    },
   });
 }
 
@@ -448,14 +451,43 @@ export async function runPlanCreate({ cwd, inputRef, stdout, serializationReview
   const repoRoot = resolveRepoRoot(cwd);
   if (repoRoot === null) throw new TodoStoreError('REPO_UNRESOLVED', 'git_toplevel_unresolved');
   const input = await readCanonicalInput(repoRoot, inputRef);
-  if (input?.schema !== MEMO_PHASE_CREATE_INPUT_SCHEMA
-    || !Array.isArray(input.tasks) || input.tasks.some((task) => !isTodoDesignMemo(task?.design_memo))) {
-    throw new TodoStoreError('DESIGN_MEMO_REQUIRED', 'plan_create_design_memo_required', undefined, {
-      prompt: TODO_DESIGN_MEMO_PROMPT,
+  if (input?.schema !== MEMO_PHASE_CREATE_INPUT_SCHEMA) {
+    throw new TodoStoreError('INPUT_INVALID', 'plan_create_schema_retired', undefined, {
+      violation_kind: 'const_mismatch', pointer: '/schema',
+      expected: MEMO_PHASE_CREATE_INPUT_SCHEMA,
+      actual: typeof input?.schema === 'string' ? input.schema : { type: typeof input?.schema },
       next_action: CURRENT_CREATE_SCHEMA_COMMAND,
     });
   }
-  if (!validateCreateInput(input)) throw new TodoStoreError('INPUT_INVALID', 'plan_create_schema_invalid');
+  if (!Array.isArray(input.tasks)) {
+    throw new TodoStoreError('INPUT_INVALID', 'plan_create_schema_invalid', undefined, {
+      violation_kind: 'type', pointer: '/tasks', expected: { type: 'array', min_items: 1 },
+      actual: { type: input.tasks === null ? 'null' : typeof input.tasks },
+      next_action: CURRENT_CREATE_SCHEMA_COMMAND,
+    });
+  }
+  const invalidMemoIndex = input.tasks.findIndex((task) => !isTodoDesignMemo(task?.design_memo));
+  if (invalidMemoIndex >= 0) {
+    const explained = explainTodoDesignMemo(input.tasks[invalidMemoIndex]?.design_memo);
+    throw new TodoStoreError('DESIGN_MEMO_REQUIRED', 'plan_create_design_memo_required', undefined, {
+      violation_kind: explained.reason, pointer: `/tasks/${invalidMemoIndex}/design_memo`,
+      expected: explained.expected, actual: explained.actual,
+      prompt: TODO_DESIGN_MEMO_PROMPT, next_action: CURRENT_CREATE_SCHEMA_COMMAND,
+    });
+  }
+  if (!validateCreateInput(input)) {
+    const digestValid = isTodoDigest(input.input_digest)
+      && input.input_digest === todoSelfDigest(input, 'input_digest');
+    throw new TodoStoreError('INPUT_INVALID', 'plan_create_schema_invalid', undefined, {
+      violation_kind: digestValid ? 'schema_or_topology_invalid' : 'input_digest_mismatch',
+      pointer: digestValid ? '/' : '/input_digest',
+      expected: digestValid ? { schema: MEMO_PHASE_CREATE_INPUT_SCHEMA }
+        : todoSelfDigest(input, 'input_digest'),
+      actual: digestValid ? { validation: 'failed' }
+        : { type: typeof input.input_digest, matches_canonical_input: false },
+      next_action: 'correct_the_reported_pointer_then_rerun_plan_create',
+    });
+  }
   // dispatch_shapeのgateはstore初期化より前に判定する（拒否時にstoreへ何も書かないため、
   // 再考後の再実行がplan_key_already_existsで詰まらない）。
   const dispatchShape = computeTodoDispatchShapeForPlan({
@@ -624,9 +656,15 @@ export async function runPlanShow({ cwd, planKey, stdout }) {
 }
 
 export function projectStatusFailure({ cwd, stdout, cliVersion, error }) {
+  const projectRootConflict = error?.code === 'PROJECT_ROOT_CONFLICT';
   const result = invalidStatus({
     cliVersion, repoRoot: resolveRepoRoot(cwd),
-    reason: `status_internal_failure:${error?.constructor?.name ?? 'Error'}`,
+    reason: projectRootConflict
+      ? 'project_root_conflict'
+      : `status_internal_failure:${error?.constructor?.name ?? 'Error'}`,
+    ...(projectRootConflict ? { nextAction: {
+      command: 'lattice todo dashboard adopt --json', reason: 'project_root_conflict',
+    } } : {}),
   });
   stdout.write(`${JSON.stringify(result)}\n`);
   return 1;

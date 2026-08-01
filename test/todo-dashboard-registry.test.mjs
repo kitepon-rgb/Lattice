@@ -94,7 +94,9 @@ test('同一project_idを別canonical rootから登録しても既存registryを
     displayName: 'Bingo scratch', sessionId: 'scratch-session', env,
     now: new Date('2026-08-01T00:01:00.000Z') }), (error) => {
     assert.equal(error.code, 'PROJECT_ROOT_CONFLICT');
-    assert.deepEqual(error.detail, { project_id: 'bingo' });
+    assert.deepEqual(error.detail, {
+      project_id: 'bingo', next_action: 'lattice todo dashboard adopt --json',
+    });
     assert.equal(error.message.includes(canonical), false);
     assert.equal(error.message.includes(scratch), false);
     return true;

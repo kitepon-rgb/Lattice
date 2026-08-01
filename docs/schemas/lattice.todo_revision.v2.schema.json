@@ -158,7 +158,7 @@
         "task_id": { "$ref": "#/$defs/identifier" },
         "title": { "$ref": "#/$defs/nullableText" },
         "lane": { "$ref": "#/$defs/identifier" },
-        "design_memo": { "type": "string", "minLength": 1, "maxLength": 262144, "pattern": "\\S" },
+        "design_memo": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "\\S" },
         "narrative_ref": { "$ref": "#/$defs/nullableRepoRef" },
         "narrative_anchor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/narrativeAnchor" }] },
         "compile_binding": { "$ref": "#/$defs/compileBinding" },

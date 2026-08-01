@@ -159,9 +159,34 @@ export function validateTodoNoteContext(value) {
 
 const nullableDigest = (value) => value === null || isTodoDigest(value);
 const nullableText = (value) => value === null || (typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= 16_384);
-export const isTodoDesignMemo = (value) => typeof value === 'string' && value.trim().length > 0
-  && Buffer.byteLength(value, 'utf8') <= TODO_LIMITS.noteBodyBytes
-  && !NOTE_FORBIDDEN_CONTROL.test(value);
+/** 設計メモの拒否理由を、本文をerrorへ複製せずAIが訂正できる形で返す。 */
+export function explainTodoDesignMemo(value) {
+  const expected = {
+    type: 'string', non_whitespace: true,
+    max_characters: TODO_LIMITS.noteBodyBytes, max_utf8_bytes: TODO_LIMITS.noteBodyBytes,
+    forbidden_control_characters: false,
+  };
+  if (typeof value !== 'string') {
+    return { valid: false, reason: 'type', expected,
+      actual: { type: value === null ? 'null' : typeof value } };
+  }
+  const byteLength = Buffer.byteLength(value, 'utf8');
+  if (value.trim().length === 0) {
+    return { valid: false, reason: 'blank', expected,
+      actual: { byte_length: byteLength, non_whitespace: false } };
+  }
+  if (value.length > TODO_LIMITS.noteBodyBytes || byteLength > TODO_LIMITS.noteBodyBytes) {
+    return { valid: false, reason: 'too_large', expected,
+      actual: { character_length: value.length, byte_length: byteLength } };
+  }
+  if (NOTE_FORBIDDEN_CONTROL.test(value)) {
+    return { valid: false, reason: 'forbidden_control', expected,
+      actual: { byte_length: byteLength, contains_forbidden_control: true } };
+  }
+  return { valid: true };
+}
+
+export const isTodoDesignMemo = (value) => explainTodoDesignMemo(value).valid;
 const actor = (value) => exactRecord(value, ['host', 'session', 'agent'])
   && [value.host, value.session, value.agent].every(isTodoIdentifier);
 const provenance = (value) => value === null || (exactRecord(value, ['source_commit', 'source_event_digest'])

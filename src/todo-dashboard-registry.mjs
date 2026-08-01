@@ -176,7 +176,10 @@ export async function registerTodoDashboardActivity({
       error.code = 'PROJECT_ROOT_CONFLICT';
       // 公開・CLI errorへlocal absolute pathを運ばない。project_idだけで人と機械が
       // 衝突対象を特定でき、registry bytesはこの分岐より後で一切変更しない。
-      error.detail = { project_id: projectId };
+      error.detail = {
+        project_id: projectId,
+        next_action: 'lattice todo dashboard adopt --json',
+      };
       throw error;
     }
     const projects = current.projects.filter((entry) => entry.project_id !== projectId);

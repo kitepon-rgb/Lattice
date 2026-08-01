@@ -456,9 +456,35 @@ test('静的gantt生成とstatusは廃止済みとしてtyped拒否しartifact�
     const error = JSON.parse(execution.stderr);
     assert.equal(error.code, 'STATIC_GANTT_RETIRED');
     assert.equal(error.detail.reason, 'dynamic_dashboard_only');
+    assert.equal(error.detail.next_action, 'lattice todo gantt serve --port 0');
   }
   await assert.rejects(readFile(path.join(root, '.lattice', 'generated', 'gantt.html')),
     (error) => error.code === 'ENOENT');
+});
+
+test('動的gantt serveの不正portはstatic退役と誤診断せずdashboard副作用も起こさない', async (context) => {
+  const root = await workspace(context);
+  const runtime = path.join(root, 'dashboard-runtime');
+  for (const port of ['abc', '99999']) {
+    const execution = run(root, ['todo', 'gantt', 'serve', '--port', port], {
+      LATTICE_DASHBOARD_AUTOSTART: '1',
+      LATTICE_DASHBOARD_RUNTIME_DIR: runtime,
+      LATTICE_TODO_ACTOR_HOST: 'host-1',
+      LATTICE_TODO_ACTOR_SESSION: 'session-1',
+      LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+    });
+    assert.equal(execution.status, 2);
+    const error = JSON.parse(execution.stderr);
+    assert.equal(error.code, 'INVALID_ARGUMENTS');
+    assert.equal(error.detail.next_action, 'lattice todo gantt serve --help');
+  }
+  const retired = run(root, ['todo', 'gantt', 'status'], {
+    LATTICE_DASHBOARD_AUTOSTART: '1', LATTICE_DASHBOARD_RUNTIME_DIR: runtime,
+    LATTICE_TODO_ACTOR_HOST: 'host-1', LATTICE_TODO_ACTOR_SESSION: 'session-1',
+    LATTICE_TODO_ACTOR_AGENT: 'agent-1',
+  });
+  assert.equal(JSON.parse(retired.stderr).code, 'STATIC_GANTT_RETIRED');
+  await assert.rejects(readFile(path.join(runtime, 'projects.json')), (error) => error.code === 'ENOENT');
 });
 
 test('Gantt narrativeはarchive line fragmentをfile pathと混同せず1行だけ読む', async (context) => {

@@ -47,7 +47,7 @@
     },
     "text": { "type": "string", "minLength": 1, "maxLength": 16384 },
     "designMemo": {
-      "type": "string", "minLength": 1, "maxLength": 262144, "pattern": "\\S",
+      "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "\\S",
       "description": "Markdown design memo. Use the literal NO_PLAN only when no plan exists."
     },
     "nullableText": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/text" }] },

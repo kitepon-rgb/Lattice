@@ -26,7 +26,7 @@ Commands:
   create --input <file> [--serialization-reviewed]
       # 依存グラフがほぼ一直線（serialization_ratioが閾値超）なら一度突き返す。
       # 再考した上でなお直列でよいなら --serialization-reviewed を付けて再実行する
-  create --schema --json             # 既定は最新版（v3）のJSON Schemaを返す
+  create --schema --json             # 既定は最新版（v4）のJSON Schemaを返す
   create --schema-version <1|2|3|4> --json
   show <plan_key> --json             # task・依存・phase・状態をplan本体から1コマンドで投影する
   compile --request <request.json>
@@ -182,6 +182,9 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo verify': 'todo verify [--plan <key>] [--json]',
   'todo snapshot': 'todo snapshot --rebuild --plan <key>',
   'todo gantt': 'todo gantt serve --port <port> [--scope live|all]  # 動的表示のみ。静的HTML生成は廃止',
+  'todo gantt serve': 'todo gantt serve --port <0..65535> [--scope live|all]  # loopback動的viewer',
+  'todo dashboard': 'todo dashboard adopt --json  # 配信元rootの衝突を明示的に解消',
+  'todo dashboard adopt': 'todo dashboard adopt --json  # 現在repoをproject_idの配信元として明示採用',
   'todo phase': 'todo phase <status|review|accept|reject|reopen|close-unaudited> --plan <key> [options]'
     + ' | baseline --reason <text> [--except <plan_key>]...',
   'todo phase status': 'todo phase status --plan <key>',

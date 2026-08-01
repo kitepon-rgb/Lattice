@@ -130,12 +130,13 @@ Markdownへ暗黙fallbackしない。
 
 未初期化projectの初期authoring入口は
 `lattice plan create --input <lattice.plan_create_input.v4>`である。入力はrepo内のcanonical
-JSON+LFに限定し、`lattice.todo_plan.v5`と同じPhase／task／topology制約を満たすfull desired stateを
+JSON+LFに限定し、`lattice.todo_plan.v7`と同じPhase／task／topology制約を満たすfull desired stateを
 一回のtransactionでstoreへ登録する。移行専用の`todo migrate`を新規authoringへ流用しない。
 v2/v4は既存planの互換契約として維持する。
 
-`.lattice/todo/`のcanonical journalを工程状態の唯一正本とし、snapshotとガントHTMLは再生成可能な
-投影として扱う。読取CLIは`lattice todo status / bindings / independence / verify / snapshot --rebuild / gantt`、
+`.lattice/todo/`のcanonical journalを工程状態の唯一正本とし、snapshotは再生成可能な投影として扱う。
+工程表HTMLはfileへ生成せず、動的viewerがstoreから応答時に描画する。読取CLIは
+`lattice todo status / bindings / independence / verify / snapshot --rebuild / gantt serve`、
 一回きりの移行入口は`todo migrate`である。`todo bindings [--plan <key>] --json`は`compile_binding`が設定された
 Taskだけを`project_id`／`plan_key`／`plan_version`／`task_id`つきで投影し
 （`lattice.todo_binding_projection.v1`・ADR 0124）、TODO工程とruntime実行を結ぶ唯一の公開読み取り面とする。
@@ -215,7 +216,8 @@ session開始時にhostが必要とする現在地は`lattice session-context --
 topologyとsource reconciliationの変更はfull desired-state successorを
 発行する`todo revise`／`todo revise-phase`だけが所有し、Markdown fallback、部分CRUD、独立`todo reconcile`を持たない。
 通常revision inputはcanonical JSON+LFの`lattice.todo_revision.v1/v2`、Phase revisionは
-`lattice.phase_todo_revision.v1/v2`とする。v2はdesired plan v5を所有する。cross-plan successorは`todo revise-set`で一括公開し、
+`lattice.phase_todo_revision.v1/v2`とする。各v2は設計メモを持つdesired plan v6／v7を所有する。
+cross-plan successorは`todo revise-set`で一括公開し、
 `lattice.todo_revision_set.v3`はPhase revisionを必須として通常revisionとの混在を許す。全desired graphと
 predecessorを検査し、artifactをdurable化した後、一つのmanifest activationで全planを同時に切り替える。
 Phase v3のactive source移転は、同じrevisionの`source_cutover_batch`が旧refとdigestを明示し、その操作から
@@ -286,14 +288,14 @@ ready frontier dispatch契約は変えない。ただし記録があるのに鮮
 助言なしで通さずjournal書込前に失敗させる。actor解決失敗はrequired／missing／invalid環境キーと正規次操作を
 error detailへ返し、OS由来の偽identityへfallbackしない。
 
-PhaseはToDoの直列化groupではなく重監査の制御境界である。`todo_plan.v5`は各ToDoの`phase_id`、
+PhaseはToDoの直列化groupではなく重監査の制御境界である。現行`todo_plan.v7`は各ToDoの`phase_id`、
 gate policy、前段Phase、required evidence slotを所有するが、通常ToDoのstart/done readinessはToDo DAGだけで決める。
 前段Phaseは監査のreview/accept順だけを制御する。特定ToDoがPhase受理を必要とする時だけ
 `phase_accept_dependencies`へPhase ref→task refを明示し、task・Phase gateを合わせたmerged graphでcycleと
 cross-plan topology bindingを検査する。所属ToDoが全てdoneでも`gate_ready`までしか進まず、
 `phase_review`とimmutable evidence付き`phase_accept`を同じjournalへ記録して監査判断を残す。
-この契約はPhase数、監査回数、required evidence slotを自動的に増やさない。旧v4はPhase acceptまで後続ToDoを
-暗黙に閉じる互換契約として維持する。旧plan versionやjournal headを
+この契約はPhase数、監査回数、required evidence slotを自動的に増やさない。旧v4／v5は互換読取契約として
+維持し、v4だけはPhase acceptまで後続ToDoを暗黙に閉じる。旧plan versionやjournal headを
 下流eventの永続依存先にはしない。revisionではPhase定義と所属ToDo集合が同じ時だけDecision stateをcarryし、
 意味が変わればresetを必須にする。Phase revisionと通常revisionはrevision set v3で同時公開できる。
 reject/reopenはDecisionへ束縛し、開始済み後続を持つreopenは明示overrideなしに拒否する。

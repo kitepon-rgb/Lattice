@@ -1,4 +1,4 @@
-# `lattice.todo_extraction.v1`
+# `lattice.todo_extraction.v3`
 
 > 状態: 移行由来の契約だが、既存 store へ plan を足す入口としては現役である。
 > **空 store の初回 authoring だけが `lattice plan create --input <lattice.plan_create_input.v4>`**。
@@ -7,10 +7,17 @@
 > 足すのは `lattice todo migrate --input <extraction JSON>` だけ**。Phase gate を伴う plan は
 > migrate で登録した後に `lattice todo revise-phase` で Phase を与える。
 
-`lattice.todo_extraction.v1` は G4 の一回きり移行 wave で AI が作る中間抽出 JSON である。
-規範 shape は [JSON Schema](schemas/lattice.todo_extraction.v1.schema.json)、実行時の exact-key・
+`lattice.todo_extraction.v3` は既存storeへ新planを足す時にAIが作るauthoring JSONである。
+v1／v2 schemaは過去artifactの参照用であり、新しい入力として受理しない。規範shapeは
+[JSON Schema](schemas/lattice.todo_extraction.v3.schema.json)、実行時のexact-key・
 sort・digest・意味制約は `validateTodoExtraction` が所有する。`todo migrate` は Markdown を読まず、
 この JSON の検証と `appendImportedPlan` による原子的登録だけを行う。
+
+各taskの`design_memo`は必須で、Markdownの設計メモをそのままToDo本体へ保存する。AIが何も考えて
+いない場合も空値にはせず、問いかけ
+「あなたがこのToDoに対して、何も考えていないならば、設計メモに `NO_PLAN` と書いてください」
+への明示回答として`NO_PLAN`を書く。上限は16,384文字かつUTF-8で16,384 bytesであり、本文を
+errorへ複製せず、type／blank／too_large／forbidden_controlとJSON pointerで訂正箇所を返す。
 
 ## status と fail closed
 
@@ -47,6 +54,8 @@ lattice todo migrate --input <repo-relative-extraction.json>
 
 成功時は stdout に `lattice.todo_migrate_result.v2` JSON 一行を返す。Phase無しの移送結果には
 `phase_guidance`として`acquire_phase`の正規schema commandと次の一手を返す。typed failure は stdout を空にして
-stderr に `lattice.cli_error.v2` 一行、usage 違反は stderr の人間向け一行となる。入力 JSON は repo 内に
-置く（repo 外 path は `INPUT_INVALID` で拒否する）。この入口が担うのは**明示的な一回の登録だけ**であり、
+stderr に `lattice.cli_error.v2` 一行を返す。入力 JSON は repo 内に置く
+（repo 外 path は `INPUT_OUTSIDE_REPOSITORY`で拒否する）。書込前診断は
+`lattice todo migrate --input <ref> --dry-run --json`で行い、複数違反をpointer付きでまとめて返す。
+この入口が担うのは**明示的な一回の登録だけ**であり、
 Markdown 同期、watch、再取込 pipeline として常設しない。
