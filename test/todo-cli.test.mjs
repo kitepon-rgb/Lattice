@@ -397,14 +397,18 @@ test('authoring CLIはclosed遷移をappendしmutation resultをdigest束縛す�
   for (const [args, kind, status] of commands) {
     const output = successJson(runCli(root, args));
     sequence += 1;
-    assertExactKeys(output, [
+    const keys = [
       'schema', 'project_id', 'plan_key', 'plan_version', 'task_id', 'kind', 'sequence',
       'event_digest', 'journal_head_digest', 'snapshot_digest', 'status', 'advisory',
       'result_digest',
-    ]);
-    assert.equal(output.schema, 'lattice.todo_mutation_result.v2');
+    ];
+    if (kind === 'start') keys.push('note_context');
+    assertExactKeys(output, keys);
+    assert.equal(output.schema, kind === 'start'
+      ? 'lattice.todo_mutation_result.v3' : 'lattice.todo_mutation_result.v2');
     // 助言はstartだけが持つ。他の遷移で独立性を語らない（ADR 0128 Decision 5）。
     if (kind === 'start') {
+      assert.deepEqual(output.note_context.notes, []);
       assertExactKeys(output.advisory, [
         'coverage', 'drift_intersecting', 'conflicts_with_active',
         'uncovered_active_task_ids', 'self_unknowns', 'guidance',

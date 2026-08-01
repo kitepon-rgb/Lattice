@@ -498,6 +498,7 @@ function terminalAuditDoneAdvisory(plan, phases) {
 
 async function mutate({
   repoRoot, env, planKey, taskId, kind, payload, evidenceRef, advisory = null,
+  noteContext = null,
 }) {
   const actor = mutationActor(env);
   const evidence = evidenceRef === null ? null : await readEvidenceInput(repoRoot, evidenceRef);
@@ -518,8 +519,12 @@ async function mutate({
   // Phase状態はsnapshot(v1にはphasesキーが無い)でなく、appendTodoEventが別途返す
   // 導出ビュー`phases`から読む。
   const resolvedAdvisory = advisory ?? (kind === 'done' ? terminalAuditDoneAdvisory(plan, phases) : null);
+  const includesNoteContext = kind === 'start';
+  if (includesNoteContext && noteContext === null) {
+    throw new TypeError('start mutation requires note context');
+  }
   const result = {
-    schema: 'lattice.todo_mutation_result.v2',
+    schema: includesNoteContext ? 'lattice.todo_mutation_result.v3' : 'lattice.todo_mutation_result.v2',
     project_id: event.project_id,
     plan_key: event.plan_key,
     plan_version: event.plan_version,
@@ -531,6 +536,7 @@ async function mutate({
     snapshot_digest: snapshot.snapshot_digest,
     status: task.status,
     advisory: resolvedAdvisory,
+    ...(includesNoteContext ? { note_context: noteContext } : {}),
     result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
@@ -698,13 +704,33 @@ async function startTask({
         });
     }
   }
-  const resolvedTaskId = readyTask?.task_id ?? taskId;
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (member === undefined) throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active');
+  const taskMatches = member.plan.tasks.filter(({ task_id: candidate }) => (
+    candidate.toLowerCase() === taskId.toLowerCase()
+  ));
+  if (taskMatches.length === 0) {
+    throw new TodoStoreError('TASK_NOT_FOUND', 'task_not_found', undefined, {
+      requested_task_id: taskId,
+    });
+  }
+  if (taskMatches.length > 1) {
+    throw new TodoStoreError('TASK_ID_AMBIGUOUS', 'task_id_case_ambiguous', undefined, {
+      requested_task_id: taskId,
+      matching_task_ids: taskMatches.map(({ task_id: candidate }) => candidate).sort(),
+    });
+  }
+  const resolvedTaskId = readyTask?.task_id ?? taskMatches[0].task_id;
+  // noteはjournal appendより前に読む。読めなければstart自体を止め、部分進行を作らない。
+  const { context: noteContext } = await readTodoNoteContext({
+    repoRoot, store, planKey, taskId: resolvedTaskId,
+  });
   // 助言はjournalへ書く前に確定させる。計算できないならstart自体を止める。
   const advisory = await startAdvisory({
     repoRoot, store, projection, planKey, taskId: resolvedTaskId,
   });
   return mutate({ repoRoot, env, planKey, taskId: resolvedTaskId, kind: 'start',
-    payload: { override_reason: overrideReason }, evidenceRef: null, advisory });
+    payload: { override_reason: overrideReason }, evidenceRef: null, advisory, noteContext });
 }
 
 function validatePhaseDecisionInput(value, outcome) {
@@ -969,6 +995,29 @@ async function revisePhase({ repoRoot, env, planKey, inputRef }) {
 
 async function status({ repoRoot }) {
   return projectTodoStatus(await readTodoStore({ repoRoot }));
+}
+
+async function todoDetail({ repoRoot, planKey, taskId }) {
+  const store = await readTodoStore({ repoRoot });
+  const [member] = selectMembers(store, planKey);
+  const task = selectNoteTask(member, taskId);
+  const state = member.tasks.find(({ task_id: current }) => current === task.task_id);
+  if (state === undefined) throw new TodoStoreError('STORE_INCONSISTENT', 'task_state_missing');
+  const { context } = await readTodoNoteContext({
+    repoRoot, store, planKey, taskId: task.task_id,
+  });
+  const result = {
+    schema: 'lattice.todo_detail_result.v1',
+    project_id: store.project_id,
+    plan_key: planKey,
+    plan_version: member.plan.plan_version,
+    task,
+    state,
+    note_context: context,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
 }
 
 async function appendNote({ repoRoot, env, planKey, taskId, message, inputRef, supersedes }) {
@@ -2243,6 +2292,10 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   if ((argv.length === 1 && argv[0] === 'status')
     || (argv.length === 2 && argv[0] === 'status' && argv[1] === '--json')) {
     action = (repoRoot) => status({ repoRoot });
+  } else if (argv.length === 6 && argv[0] === 'show'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--task' && isTodoIdentifier(argv[4]) && argv[5] === '--json') {
+    action = (repoRoot) => todoDetail({ repoRoot, planKey: argv[2], taskId: argv[4] });
   } else if ((argv.length === 1 && argv[0] === 'bindings')
     || (argv.length === 2 && argv[0] === 'bindings' && argv[1] === '--json')) {
     action = (repoRoot) => bindings({ repoRoot, requestedPlanKey: null });
