@@ -15,7 +15,7 @@
 ## 工程
 
 - [x] 関連する英日README、公開契約、統合索引、UI仕様、ADR追補、backlog、CHANGELOGを現行実装へ揃える。
-- [ ] package versionを0.39.0へ上げ、focused test、pack dry-run、完全CIを通す。
+- [x] package versionを0.39.0へ上げ、focused test、pack dry-run、完全CIを通す。
 - [ ] 対象限定commitをmainへpushし、release commit gateを通す。
 - [ ] `@quolu/lattice@0.39.0`をnpmへpublishする。
 - [ ] 公開版をversion pinでglobal installし、bridge／dashboard常駐実体を載せ替える。
