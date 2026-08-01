@@ -81,7 +81,7 @@ Spotter併載端末で提案が二重になることは許容し、住み分け�
 - [x] seam evidence receiptの複数path解決を裁定する
 - [x] bridge daemonのdescriptor読み取りへretryを入れる
 - [x] ADR 0132 Open questions 2〜4を再裁定する
-- [ ] sensor気づかせ導線のinstall契約を専用campaignとして起票する
+- [x] sensor気づかせ導線のinstall契約を専用campaignとして起票する（`sensor-awareness-hooks`）
 
 ## 導線
 
