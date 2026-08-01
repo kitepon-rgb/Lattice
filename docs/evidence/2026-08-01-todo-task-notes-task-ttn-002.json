@@ -1,0 +1,47 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 2,
+  "task": {
+    "task_id": "ttn-002",
+    "title": "note chainのappend・read・rotationと破損分離を実装する",
+    "classification": "A",
+    "effect": "write",
+    "doc_ref": "docs/plan_todo-task-notes.md",
+    "role": "implementer",
+    "lane": "behavior-change",
+    "depends_on": ["ttn-001"],
+    "required_capabilities": ["append-only-jsonl", "digest-chain", "typed-corruption"],
+    "isolation": "none",
+    "context_policy": {
+      "share_objective": true,
+      "share_current_candidate": true,
+      "share_existing_findings": true,
+      "share_failed_approaches": true,
+      "share_test_results": true
+    },
+    "validation": [
+      "note追記でlifecycle journal・snapshot・manifestのbytesが変わらない",
+      "dense sequence・digest link・canonical JSONL・1 MiB rotationを検証する",
+      "破損はNOTE_LOG_CORRUPTでありSTORE_CORRUPTへ丸めない"
+    ],
+    "non_goals": ["revision投影", "CLI配線", "Gantt表示"],
+    "known_traps": [
+      "既存appendTodoEventを再利用するとlifecycle正本を汚す",
+      "破損読取を空chainへ丸めると方針消失を隠す"
+    ],
+    "read_scope": [
+      {"kind": "file", "path": "src/todo-store.mjs"},
+      {"kind": "file", "path": "src/todo-contracts.mjs"},
+      {"kind": "directory", "path": "test"}
+    ],
+    "write_scope": [
+      {"kind": "file", "path": "src/todo-note-store.mjs"},
+      {"kind": "file", "path": "test/todo-note-store.test.mjs"},
+      {"kind": "directory", "path": "docs/evidence"}
+    ],
+    "approval": null,
+    "alternative_group": null
+  }
+}
