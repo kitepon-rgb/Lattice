@@ -1,0 +1,9 @@
+{
+  "evidence_id": "todo-note-chain-store",
+  "repo_id": "self",
+  "path": "src/todo-note-store.mjs",
+  "git_blob_oid": "4b576f598ff372418270000d1e66eee0301454ae",
+  "content_digest": "dd0c00f4600b5e4f3b7946d9d1407965f51e41deb53408e5fe2c67ebcc0670b7",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
