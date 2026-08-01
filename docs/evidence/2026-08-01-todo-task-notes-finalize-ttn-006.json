@@ -1,0 +1,9 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 14,
+  "task_id": "ttn-006",
+  "finalization_ref": "docs/adr/0149-task-notes-are-a-third-layer.md",
+  "recorded_by": "codex-parent-20260801"
+}

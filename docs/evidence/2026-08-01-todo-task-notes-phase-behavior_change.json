@@ -1,0 +1,15 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 22,
+  "phase": "behavior_change",
+  "state": "completed",
+  "evidence": [],
+  "decision": {
+    "type": "decision",
+    "ref": "docs/adr/0149-task-notes-are-a-third-layer.md",
+    "digest": "cafb6546b4a035d4b7630319bc72ce8835b68a623f814e3d3fd259f22becf728",
+    "observed_at": "2026-08-01T03:40:00.000Z"
+  }
+}

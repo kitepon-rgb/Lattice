@@ -1,0 +1,17 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 20,
+  "phase": "safety_net",
+  "state": "completed",
+  "evidence": [
+    {
+      "type": "file",
+      "ref": "docs/evidence/2026-08-01-todo-task-notes-acceptance.md",
+      "digest": "e4259b1e13e356117c91c5169858211424c3196cfb57264296a53cd2ae45bcda",
+      "observed_at": "2026-08-01T03:40:00.000Z"
+    }
+  ],
+  "decision": null
+}

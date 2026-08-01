@@ -1,0 +1,33 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 26,
+  "acceptance_matrix_ref": "docs/evidence/2026-08-01-todo-task-notes-acceptance.md",
+  "final_audit_evidence": [
+    {
+      "type": "file",
+      "ref": "docs/evidence/2026-08-01-todo-task-notes-acceptance.md",
+      "digest": "e4259b1e13e356117c91c5169858211424c3196cfb57264296a53cd2ae45bcda",
+      "observed_at": "2026-08-01T03:40:00.000Z"
+    }
+  ],
+  "regression_evidence": [
+    {
+      "type": "file",
+      "ref": "docs/evidence/2026-08-01-todo-task-notes-acceptance.md",
+      "digest": "e4259b1e13e356117c91c5169858211424c3196cfb57264296a53cd2ae45bcda",
+      "observed_at": "2026-08-01T03:40:00.000Z"
+    }
+  ],
+  "knowledge_return_refs": [
+    "docs/evidence/2026-08-01-todo-task-notes-acceptance.md"
+  ],
+  "parent_decision": {
+    "type": "decision",
+    "ref": "docs/adr/0149-task-notes-are-a-third-layer.md",
+    "digest": "cafb6546b4a035d4b7630319bc72ce8835b68a623f814e3d3fd259f22becf728",
+    "observed_at": "2026-08-01T03:40:00.000Z"
+  },
+  "finalized_by": "codex-parent-20260801"
+}

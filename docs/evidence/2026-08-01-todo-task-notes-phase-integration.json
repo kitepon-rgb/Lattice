@@ -1,0 +1,10 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 23,
+  "phase": "integration",
+  "state": "completed",
+  "evidence": [],
+  "decision": null
+}
