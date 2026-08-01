@@ -13,6 +13,11 @@
         "target": "src/todo-contracts.mjs"
       },
       {
+        "id": "q-note-store",
+        "operation": "affected",
+        "target": "src/todo-note-store.mjs"
+      },
+      {
         "id": "q-status",
         "operation": "status"
       }
@@ -110,12 +115,13 @@
       ]
     },
     "ttn-002": {
-      "affected_tests": [],
+      "affected_tests": [
+        "test/todo-note-store.test.mjs"
+      ],
       "owns": [
         {
           "kind": "path",
-          "target": "src/todo-note-store.mjs",
-          "creates": true
+          "target": "src/todo-note-store.mjs"
         }
       ],
       "reads": [
@@ -124,7 +130,15 @@
       ],
       "resources": [],
       "sensor_provenance": {
-        "queries": []
+        "queries": [
+          {
+            "expect": {
+              "kind": "affected",
+              "path": "src/todo-note-store.mjs"
+            },
+            "query_id": "q-note-store"
+          }
+        ]
       },
       "state_effects": [],
       "unknowns": [],
@@ -133,5 +147,5 @@
       ]
     }
   },
-  "witness_set_digest": "a3d3a1a7d5ffb218cb3b210fe7dc36bd63dab25daf814d44481cfd4e3d9b4690"
+  "witness_set_digest": "ace6efad562fdf100279eb919c9a00d25e42b2b73ebd848ba218e94701e1aab2"
 }
