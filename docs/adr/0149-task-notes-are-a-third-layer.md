@@ -27,8 +27,9 @@ plan級の思想・判断理由はlinked Markdownが持ち、状態・依存はL
    `body`は非空Markdown、UTF-8で16 KiB以下、改行以外のC0制御文字を拒否する。`supersedes`は`null`または
    同一taskの既存note event digestであり、訂正は履歴を書き換えず新eventとして残す。
 3. **chainはbyte-level fail closedにする。** dense sequence、digest link、canonical JSON+LF、1 MiBごとの
-   seal/rotationを要求する。破損は`NOTE_LOG_CORRUPT`としてnote read/writeと`todo verify`を失敗させるが、
-   `STORE_CORRUPT`へ丸めずlifecycle read/writeを止めない。Ganttは黙って空にせず明示WARNを出す。
+   seal/rotationを要求する。破損は`NOTE_LOG_CORRUPT`としてnote read/writeと`todo verify`を失敗させ、
+   `STORE_CORRUPT`へ丸めない。通常のlifecycle操作へnote読取を波及させないが、`todo start`だけは裁定5の
+   自動供給を欠いた成功を許さず、lifecycle event追記前にtyped failureする。Ganttは黙って空にせず明示WARNを出す。
 4. **revision移行は既存`task_migration`から決定的に導出する。** note専用のcarry/archive儀式を追加しない。
    旧版noteは現行taskへ解決し、元plan versionと元task IDを来歴として保持する。removed taskのnoteは
    archived束へ残し、現行taskの指示として表示しない。
@@ -41,8 +42,8 @@ plan級の思想・判断理由はlinked Markdownが持ち、状態・依存はL
    superseded noteには訂正済み表示を付ける。
 7. **Markdownは既存AST rendererのallow-listだけで描画する。** raw HTML、`innerHTML`、外部scheme linkを
    許さず、script埋込は`serializeJsonForScript`を通す。noteのbytesは既存Gantt prose budgetへ計上する。
-8. **公開面は初版でnote本文を出さない。** ローカル生成Ganttには表示するが、`todo gantt serve`の公開wrapperは
-   note本文を除外する。公開を許す変更は別の明示裁定を要求する。note artifact自体はgit trackedなので、秘密を
+8. **公開面は初版でnote本文を出さない。** ローカル生成Ganttには表示するが、`todo gantt serve`と常駐dashboardは
+   共通の公開wrapperを通してnote本文を除外する。公開を許す変更は別の明示裁定を要求する。note artifact自体はgit trackedなので、秘密を
    書かない運用規範は維持する。
 9. **noteは正典や機械判定を代替しない。** 方針級の発見はADR・docs・caveatへ還流する。noteをindependence、
    dispatch、done evidence、受入判定の入力にしない。
@@ -69,7 +70,7 @@ plan級の思想・判断理由はlinked Markdownが持ち、状態・依存はL
 1. noteを登録したToDoの通常詳細読取と`todo start`が、追加の`note list`なしで最新note・来歴・overflowを返す。
 2. note追記の前後でlifecycle journal、snapshot、manifestのSHA-256が完全一致する。
 3. 多段revisionとremoved taskを通して、現行束とarchived束が決定的に再構成される。
-4. 破損note chainはtyped failureまたはGantt WARNになり、空の成功へ丸められずlifecycle操作も止めない。
+4. 破損note chainはtyped failureまたはGantt WARNになり、空の成功へ丸められない。`todo start`はevent追記前に
+   typed failureし、それ以外のlifecycle操作はnote読取へ依存しない。
 5. ローカルGantt右ペインへ安全に表示され、XSS fixtureが全拒否され、公開serveへ本文が出ない。
 6. focused test、関連test、`npm run ci`がgreenになる。
-

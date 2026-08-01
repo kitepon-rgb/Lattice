@@ -34,7 +34,7 @@ const migrations = [
     from_plan_version: 'v1', to_plan_version: 'v2',
     task_migration: [
       { from_task_id: 'old', to_task_id: 'middle' },
-      { from_task_id: 'removed', to_task_id: null },
+      { from_task_id: 'removed', to_task_id: 'removed' },
     ],
   },
   {
@@ -51,7 +51,7 @@ test('多段task migrationを合成し、本文と元plan version・元task id�
   ]);
   const result = projectTodoNoteContext({
     projectId: 'lattice', planKey: 'plan-a', currentPlanVersion: 'v3',
-    currentTaskId: 'current', currentTaskIds: ['current'], events: chain, migrations,
+    currentTaskId: 'current', currentTaskIds: ['current', 'removed'], events: chain, migrations,
   });
   assert.deepEqual(result.context.notes.map(({ body }) => body),
     ['現在版の判断', '中間版の注意', '最初の方針']);

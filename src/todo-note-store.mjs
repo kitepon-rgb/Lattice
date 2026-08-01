@@ -181,13 +181,11 @@ async function withNoteLock(repoRoot, callback) {
 export async function appendTodoNote(options = {}) {
   const keys = [
     'repoRoot', 'projectId', 'planKey', 'planVersion', 'taskId', 'actor',
-    'recordedAt', 'body', 'supersedes',
+    'recordedAt', 'body', 'supersedes', 'eligibleSupersedes',
   ];
-  if (Object.hasOwn(options, 'eligibleSupersedes')) keys.push('eligibleSupersedes');
   if (!exactRecord(options, keys)
-    || (options.eligibleSupersedes !== undefined
-      && (!Array.isArray(options.eligibleSupersedes)
-        || !options.eligibleSupersedes.every(isTodoDigest)))
+    || !Array.isArray(options.eligibleSupersedes)
+    || !options.eligibleSupersedes.every(isTodoDigest)
     || ![options.projectId, options.planKey, options.planVersion, options.taskId]
     .every(isTodoIdentifier)) throw new TypeError('todo note append options invalid');
   const repoRoot = path.resolve(options.repoRoot);
@@ -195,9 +193,7 @@ export async function appendTodoNote(options = {}) {
     const chain = await readTodoNoteEvents({ repoRoot, planKey: options.planKey });
     if (options.supersedes !== null) {
       const target = chain.events.find(({ event_digest: digest }) => digest === options.supersedes);
-      const projectedToCurrentTask = options.eligibleSupersedes?.includes(options.supersedes) ?? false;
-      if (target === undefined
-        || (target.task_id !== options.taskId && !projectedToCurrentTask)) {
+      if (target === undefined || !options.eligibleSupersedes.includes(options.supersedes)) {
         fail('NOTE_SUPERSEDES_INVALID', 'superseded_note_not_in_same_task', {
           plan_key: options.planKey, task_id: options.taskId,
         });
@@ -273,7 +269,7 @@ function migrationIndex(migrations) {
         || taskMap.has(entry.from_task_id)) {
         fail('NOTE_PROJECTION_INVALID', 'note_task_migration_invalid');
       }
-      taskMap.set(entry.from_task_id, entry.to_task_id);
+      taskMap.set(entry.from_task_id, entry.to_task_id === 'removed' ? null : entry.to_task_id);
     }
     index.set(migration.from_plan_version, {
       toPlanVersion: migration.to_plan_version, taskMap,

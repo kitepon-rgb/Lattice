@@ -35,7 +35,7 @@ note head digest、overflowを自動同梱しなければ、本planの目的は�
 - 通常の個別ToDo詳細と`todo start`が、別途`note list`を要求せずbounded note contextを返す
 - note追記でlifecycle journal、snapshot、manifestのbytesが変わらない
 - revisionを跨いだnoteの来歴とremoved taskのarchived束が再生できる
-- note chain破損がnote面でfail closedになり、lifecycle操作を巻き込まない
+- note chain破損は空へ丸めず、`todo start`はevent追記前にfail closedし、他のlifecycle操作を巻き込まない
 - ローカルGantt右ペインへ安全に表示され、公開serveへ本文が出ない
 - `npm run ci`がgreen
 

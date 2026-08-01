@@ -39,6 +39,7 @@ function input(repoRoot, overrides = {}) {
     recordedAt: WHEN,
     body: '境界を先に固定する。',
     supersedes: null,
+    eligibleSupersedes: [],
     ...overrides,
   };
 }
@@ -64,12 +65,18 @@ test('追記はdense sequenceとdigest linkを形成し訂正先を同一taskへ
   const correction = await appendTodoNote(input(repoRoot, {
     body: '訂正: store境界を先に固定する。',
     supersedes: first.event_digest,
+    eligibleSupersedes: [first.event_digest],
   }));
   assert.equal(correction.sequence, 2);
   assert.equal(correction.previous_digest, first.event_digest);
 
   await assert.rejects(() => appendTodoNote(input(repoRoot, {
     taskId: 'task-002', supersedes: first.event_digest,
+  })), (error) => error instanceof TodoNoteStoreError
+    && error.code === 'NOTE_SUPERSEDES_INVALID');
+
+  await assert.rejects(() => appendTodoNote(input(repoRoot, {
+    planVersion: 'v2', supersedes: first.event_digest,
   })), (error) => error instanceof TodoNoteStoreError
     && error.code === 'NOTE_SUPERSEDES_INVALID');
 

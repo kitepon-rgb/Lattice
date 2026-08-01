@@ -40,7 +40,7 @@ async function workspace(t) {
 async function append(repoRoot, body, recordedAt = NOW) {
   return appendTodoNote({
     repoRoot, projectId: 'project-1', planKey: 'main', planVersion: 'v1', taskId: 'T1',
-    actor: ACTOR, recordedAt, body, supersedes: null,
+    actor: ACTOR, recordedAt, body, supersedes: null, eligibleSupersedes: [],
   });
 }
 
@@ -80,6 +80,8 @@ test('Ganttのnote chain破損は明示警告になりlive headも破損を反�
   });
   assert.match(rendered.rendered.html, /作業記録の読取警告/u);
   assert.match(rendered.rendered.html, /NOTE_LOG_CORRUPT/u);
+  assert.match(rendered.rendered.html, /作業記録を読み取れません/u);
+  assert.doesNotMatch(rendered.rendered.html, /記録はありません/u);
   const after = await ganttLiveHeadDigest({ repoRoot, store });
   assert.notEqual(after, before);
 });

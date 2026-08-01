@@ -2,7 +2,10 @@ import { DOCUMENT_STATUS, SEVERABILITY_LABEL, escapeHtmlAttribute, escapeHtmlTex
 import { renderTodoMarkdown } from './todo-markdown-renderer.mjs';
 
 function renderNoteContext(context) {
-  if (context === null || context.notes.length === 0) {
+  if (context === null) {
+    return '<section class="work-log"><h2>作業記録</h2><p class="note-warning">作業記録を読み取れません。概要の読取警告を確認してください。</p></section>';
+  }
+  if (context.notes.length === 0) {
     return '<section class="work-log"><h2>作業記録</h2><p>記録はありません。</p></section>';
   }
   const entries = context.notes.map((note) => {
