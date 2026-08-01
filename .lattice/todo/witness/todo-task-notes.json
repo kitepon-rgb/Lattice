@@ -58,7 +58,6 @@
         "test/todo-cli.test.mjs",
         "test/todo-close-unaudited.test.mjs",
         "test/todo-dashboard-registry.test.mjs",
-        "test/todo-contracts.test.mjs",
         "test/todo-dispatch-shape.test.mjs",
         "test/todo-evidence-promote-carried-done.test.mjs",
         "test/todo-explain-diagnostics.test.mjs",
@@ -110,5 +109,5 @@
       ]
     }
   },
-  "witness_set_digest": "0bb235ee165a630d6cc6a5b85a9bb33b92149727d47f835f6ef5e59324d7eb0a"
+  "witness_set_digest": "14b63df706176666554956e75f53a5365f5bd6646cb228d3e2bfd87b7887589e"
 }
