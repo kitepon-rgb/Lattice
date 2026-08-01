@@ -1,0 +1,30 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 3,
+  "task": {
+    "task_id": "ttn-003",
+    "title": "task migrationからnoteの現行束とarchived束を再構成する",
+    "classification": "F",
+    "effect": "write",
+    "doc_ref": "docs/plan_todo-task-notes.md",
+    "role": "implementer",
+    "lane": "behavior-change",
+    "depends_on": ["ttn-002"],
+    "required_capabilities": ["revision-projection", "task-migration", "bounded-context"],
+    "isolation": "none",
+    "context_policy": {"share_objective": true, "share_current_candidate": true, "share_existing_findings": true, "share_failed_approaches": true, "share_test_results": true},
+    "validation": [
+      "多段task_migrationを合成して元plan versionと元task idを保持する",
+      "removed task noteはarchived束へ分離する",
+      "64 KiB超過分はoverflow件数として返す"
+    ],
+    "non_goals": ["CLI引数parse", "Gantt描画"],
+    "known_traps": ["active planだけを読むと旧version noteが消える", "superseded noteを削除すると来歴が壊れる"],
+    "read_scope": [{"kind": "file", "path": "src/todo-revision.mjs"}, {"kind": "file", "path": "src/todo-store.mjs"}, {"kind": "file", "path": "src/todo-note-store.mjs"}],
+    "write_scope": [{"kind": "file", "path": "src/todo-note-store.mjs"}, {"kind": "file", "path": "test/todo-note-projection.test.mjs"}, {"kind": "directory", "path": "docs/evidence"}],
+    "approval": null,
+    "alternative_group": null
+  }
+}
