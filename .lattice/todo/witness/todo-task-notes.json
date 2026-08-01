@@ -23,6 +23,21 @@
         "target": "src/todo-note-store.mjs"
       },
       {
+        "id": "q-gantt-html",
+        "operation": "affected",
+        "target": "src/todo-gantt-html.mjs"
+      },
+      {
+        "id": "q-gantt-detail",
+        "operation": "affected",
+        "target": "src/todo-gantt-html-independence.mjs"
+      },
+      {
+        "id": "q-gantt-style",
+        "operation": "affected",
+        "target": "src/todo-gantt-html-style.mjs"
+      },
+      {
         "id": "q-status",
         "operation": "status"
       }
@@ -273,7 +288,48 @@
       "writes": [
         "src/todo-cli.mjs"
       ]
+    },
+    "ttn-006": {
+      "affected_tests": [
+        "test/todo-gantt-independence.test.mjs",
+        "test/todo-gantt-render.test.mjs",
+        "test/todo-gantt-selfcontained.test.mjs",
+        "test/todo-note-gantt.test.mjs",
+        "test/todo-note-store.test.mjs"
+      ],
+      "owns": [
+        { "kind": "path", "target": "src/todo-cli.mjs" },
+        { "kind": "path", "target": "src/todo-gantt-html.mjs" },
+        { "kind": "path", "target": "src/todo-gantt-html-independence.mjs" },
+        { "kind": "path", "target": "src/todo-gantt-html-style.mjs" },
+        { "kind": "path", "target": "src/todo-note-store.mjs" }
+      ],
+      "reads": [
+        "src/todo-markdown-renderer.mjs",
+        "src/todo-store.mjs"
+      ],
+      "resources": [],
+      "sensor_provenance": {
+        "queries": [
+          { "expect": { "kind": "affected", "path": "src/todo-cli.mjs" }, "query_id": "q-cli" },
+          { "expect": { "kind": "affected", "path": "src/todo-gantt-html.mjs" }, "query_id": "q-gantt-html" },
+          { "expect": { "kind": "affected", "path": "src/todo-gantt-html-independence.mjs" }, "query_id": "q-gantt-detail" },
+          { "expect": { "kind": "affected", "path": "src/todo-gantt-html-style.mjs" }, "query_id": "q-gantt-style" },
+          { "expect": { "kind": "affected", "path": "src/todo-note-store.mjs" }, "query_id": "q-note-store" }
+        ]
+      },
+      "state_effects": [
+        ".lattice/todo/notes/<plan_key>/active.jsonl"
+      ],
+      "unknowns": [],
+      "writes": [
+        "src/todo-cli.mjs",
+        "src/todo-gantt-html.mjs",
+        "src/todo-gantt-html-independence.mjs",
+        "src/todo-gantt-html-style.mjs",
+        "src/todo-note-store.mjs"
+      ]
     }
   },
-  "witness_set_digest": "2659c3fea21cef3e4525cf4949427ecc7bc73e2a3145a4102e3ba8e3280663c1"
+  "witness_set_digest": "4d73a5a9f701f4849a246bcce6d45e7f9b03e4df95e86d464caa2cafbd940aef"
 }
