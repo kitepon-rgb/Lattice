@@ -6,7 +6,7 @@ import { renderDiagramLegend, renderRightPane } from './todo-gantt-html-independ
 import { escapeHtmlAttribute, escapeHtmlText, refKey } from './todo-gantt-html-shared.mjs';
 import { CSS } from './todo-gantt-html-style.mjs';
 
-export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v17';
+export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v18';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
 export const TODO_GANTT_HTML_MAX_BYTES = 24 * 1024 * 1024;
 
@@ -40,9 +40,12 @@ function digest(value) {
  * still read, because anchor verification needs them, and their size is still
  * bounded — but they are not rendered into the page.
  */
-function normalizeSections(readModel, narratives, anchorOutcomes) {
+function normalizeSections(readModel, narratives, anchorOutcomes, noteContexts) {
   const supplied = new Map(narratives.map((entry) => [refKey(entry.ref), entry]));
   const outcomes = new Map(anchorOutcomes.map((entry) => [refKey(entry.ref), entry]));
+  const notes = noteContexts === null ? null : new Map(noteContexts.map((entry) => [
+    refKey({ project_id: entry.project_id, plan_key: entry.plan_key, task_id: entry.task_id }), entry,
+  ]));
   const result = [];
   const counted = new Set();
   let proseBytes = 0;
@@ -69,7 +72,20 @@ function normalizeSections(readModel, narratives, anchorOutcomes) {
         ref, narrative_ref: narrativeRef, anchored: false, reason: 'anchor_missing',
         origin_line: task.narrative_anchor?.origin_line ?? null,
       };
-      result.push({ ref, task, state: states.get(task.task_id), narrativeRef, anchorOutcome });
+      const noteContext = notes?.get(refKey(ref)) ?? null;
+      if (noteContext !== null) {
+        proseBytes += noteContext.notes.reduce((bytes, note) => (
+          bytes + Buffer.byteLength(note.body, 'utf8')
+        ), 0);
+        if (proseBytes > TODO_GANTT_PROSE_MAX_BYTES) {
+          throw new TodoGanttRenderError('TODO_SCALE_EXCEEDED', 'todo gantt embedded prose limit exceeded', {
+            prose_bytes: proseBytes, prose_limit: TODO_GANTT_PROSE_MAX_BYTES,
+          });
+        }
+      }
+      result.push({
+        ref, task, state: states.get(task.task_id), narrativeRef, anchorOutcome, noteContext,
+      });
     }
   }
   return { sections: result, proseBytes };
@@ -132,19 +148,23 @@ const CONTROLLER = `
 
 export function renderTodoGanttHtml({
   readModel, layout, narratives = [], anchorOutcomes = [], presentation = null, metadata = {},
-  expandedLayout = null,
+  expandedLayout = null, noteContexts = null, noteWarnings = [],
 }) {
   if (readModel?.schema !== 'lattice.todo_store_read.v1' || !Array.isArray(readModel.members)) {
     throw new TypeError('readModel must be lattice.todo_store_read.v1');
   }
   if (!Array.isArray(narratives)) throw new TypeError('narratives must be an array');
   if (!Array.isArray(anchorOutcomes)) throw new TypeError('anchorOutcomes must be an array');
+  if (!(noteContexts === null || Array.isArray(noteContexts))) {
+    throw new TypeError('noteContexts must be null or an array');
+  }
+  if (!Array.isArray(noteWarnings)) throw new TypeError('noteWarnings must be an array');
   if (presentation !== null
     && (presentation?.schema !== 'lattice.todo_gantt_presentation_model.v1'
       || presentation.project_id !== readModel.project_id)) {
     throw new TypeError('presentation must be lattice.todo_gantt_presentation_model.v1');
   }
-  const normalized = normalizeSections(readModel, narratives, anchorOutcomes);
+  const normalized = normalizeSections(readModel, narratives, anchorOutcomes, noteContexts);
   const displayName = projectDisplayName(readModel, metadata);
   const svg = renderTodoGanttSvg(layout, { presentation });
   // The expanded diagram travels with the page so the badge can bring the
@@ -153,7 +173,9 @@ export function renderTodoGanttHtml({
   const diagrams = expandedSvg === ''
     ? `<div data-diagram="live">${svg}</div>`
     : `<div data-diagram="live">${svg}</div><div data-diagram="expanded" hidden>${expandedSvg}</div>`;
-  const rightPane = renderRightPane(normalized.sections, layout, presentation, readModel);
+  const rightPane = renderRightPane(
+    normalized.sections, layout, presentation, readModel, noteContexts !== null, noteWarnings,
+  );
   const staticData = serializeJsonForScript({
     renderer_version: TODO_GANTT_RENDERER_VERSION,
     metadata,

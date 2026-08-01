@@ -1,4 +1,22 @@
 import { DOCUMENT_STATUS, SEVERABILITY_LABEL, escapeHtmlAttribute, escapeHtmlText, foldIndex, planActivity, presentationLookup, refKey, renderPhaseProgress, renderRelationList, renderSeamProposalOverview, renderTaskIndex, statusMarkup, taskReference } from './todo-gantt-html-shared.mjs';
+import { renderTodoMarkdown } from './todo-markdown-renderer.mjs';
+
+function renderNoteContext(context) {
+  if (context === null || context.notes.length === 0) {
+    return '<section class="work-log"><h2>作業記録</h2><p>記録はありません。</p></section>';
+  }
+  const entries = context.notes.map((note) => {
+    const rendered = renderTodoMarkdown(note.body);
+    const filtering = rendered.discarded.length === 0 ? ''
+      : '<p class="note-warning">安全上表示できない要素を除外しました。</p>';
+    const correction = note.correction_state === 'superseded'
+      ? `訂正済み（後継 ${note.superseded_by.slice(0, 12)}…）` : '現行';
+    return `<article class="work-log-entry"><header><span>${escapeHtmlText(note.recorded_at)}</span><span>${escapeHtmlText(correction)}</span></header><div class="work-log-body">${rendered.html}</div>${filtering}<p class="work-log-origin">来歴: ${escapeHtmlText(note.origin_plan_version)}/${escapeHtmlText(note.origin_task_id)}・記録者 ${escapeHtmlText(`${note.actor.host}/${note.actor.agent}`)}</p></article>`;
+  }).join('');
+  const overflow = context.overflow_count === 0 ? ''
+    : `<p class="note-warning">ほか ${context.overflow_count}件は上限のため省略。全履歴: <code>${escapeHtmlText(context.full_history_command)}</code></p>`;
+  return `<section class="work-log"><h2>作業記録</h2>${entries}${overflow}<p class="work-log-head">note head: <code>${escapeHtmlText(context.note_head_digest ?? 'none')}</code></p></section>`;
+}
 
 /**
  * 図の外が語るための独立性要約を、plan単位の投影から引ける形へ畳む（ADR 0129 Decision 3）。
@@ -63,7 +81,9 @@ export function renderIndependenceNote(ref, node, summary) {
   return `<p class="readiness-note"><strong>並列可否:</strong> 要直列です。</p><ul class="independence-conflicts">${items}</ul>`;
 }
 
-export function renderRightPane(sections, layout, presentation, readModel) {
+export function renderRightPane(
+  sections, layout, presentation, readModel, notesEnabled = false, noteWarnings = [],
+) {
   const lookup = presentationLookup(presentation);
   const sectionByKey = new Map(sections.map((section) => [refKey(section.ref), section]));
   const nodeByKey = new Map(layout.nodes.map((node) => [refKey(node.ref), node]));
@@ -104,7 +124,9 @@ export function renderRightPane(sections, layout, presentation, readModel) {
   const dispatchSummary = `${readyHeadline}${independenceNote}`;
   const activeLinks = active.length === 0 ? '<p>作業中の工程はありません。</p>'
     : `<ul class="active-list">${active.map((section) => `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(refKey(section.ref))}">${escapeHtmlText(taskReference(section, lookup))} — ${escapeHtmlText(section.task.title)}</button></li>`).join('')}</ul>`;
-  const overview = `<section class="right-overview" data-right-panel="overview"><h1>工程を選択してください</h1><p>左の依存工程図から工程を選ぶと、題名・状態・前提・後続を表示します。</p><div class="status-summary"><span>☐ 未着手 ${counts.pending}</span><span>▶ 作業中 ${counts['in-progress']}</span><span>✅ 完了 ${counts.done}</span><span>⛔ ブロック中 ${counts.blocked}</span></div>${dispatchSummary}${renderSeamProposalOverview(layout)}${renderPhaseProgress(readModel)}<h2>作業中</h2>${activeLinks}</section>`;
+  const noteWarningMarkup = noteWarnings.length === 0 ? ''
+    : `<section class="gantt-warning"><h2>作業記録の読取警告</h2><ul>${noteWarnings.map((warning) => `<li><code>${escapeHtmlText(warning.plan_key)}</code>: <strong>${escapeHtmlText(warning.code)}</strong> — ${escapeHtmlText(warning.message)}</li>`).join('')}</ul></section>`;
+  const overview = `<section class="right-overview" data-right-panel="overview"><h1>工程を選択してください</h1><p>左の依存工程図から工程を選ぶと、題名・状態・前提・後続を表示します。</p><div class="status-summary"><span>☐ 未着手 ${counts.pending}</span><span>▶ 作業中 ${counts['in-progress']}</span><span>✅ 完了 ${counts.done}</span><span>⛔ ブロック中 ${counts.blocked}</span></div>${noteWarningMarkup}${dispatchSummary}${renderSeamProposalOverview(layout)}${renderPhaseProgress(readModel)}<h2>作業中</h2>${activeLinks}</section>`;
   const details = sections.map((section) => {
     const key = refKey(section.ref);
     const node = nodeByKey.get(key);
@@ -126,7 +148,8 @@ export function renderRightPane(sections, layout, presentation, readModel) {
     // Say it plainly when the reader will not find this ToDo on the diagram.
     const foldedNote = !folds.has(key) ? ''
       : '<p class="fold-note">完走済みのため図には描いていません。図に出すには <code>lattice todo gantt --scope all</code> を実行してください。</p>';
-    return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}${independenceNote}${foldedNote}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。', folds)}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。', folds)}</section><p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;
+    const workLog = notesEnabled ? renderNoteContext(section.noteContext) : '';
+    return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}${independenceNote}${foldedNote}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。', folds)}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。', folds)}</section>${workLog}<p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;
   }).join('');
   const taskIndex = renderTaskIndex(sections, lookup, folds, planActivity(readModel));
   return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>全工程一覧</button></div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を現在の状態とともに表示しています。planは動いているものを最終活動の新しい順で上に、完走したものを古い順で下にまとめ、plan内は登録順です。</p>${taskIndex}</section></div>`;

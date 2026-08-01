@@ -10,6 +10,7 @@ import {
   TODO_NOTE_EVENT_SCHEMA,
   canonicalizeTodoArtifact,
   exactRecord,
+  isTodoDigest,
   isTodoIdentifier,
   todoSelfDigest,
   validateTodoPlan,
@@ -178,17 +179,25 @@ async function withNoteLock(repoRoot, callback) {
 
 /** lifecycle artifactsへ触れず、独立note chainだけへ1 eventを追記する。 */
 export async function appendTodoNote(options = {}) {
-  if (!exactRecord(options, [
+  const keys = [
     'repoRoot', 'projectId', 'planKey', 'planVersion', 'taskId', 'actor',
     'recordedAt', 'body', 'supersedes',
-  ]) || ![options.projectId, options.planKey, options.planVersion, options.taskId]
+  ];
+  if (Object.hasOwn(options, 'eligibleSupersedes')) keys.push('eligibleSupersedes');
+  if (!exactRecord(options, keys)
+    || (options.eligibleSupersedes !== undefined
+      && (!Array.isArray(options.eligibleSupersedes)
+        || !options.eligibleSupersedes.every(isTodoDigest)))
+    || ![options.projectId, options.planKey, options.planVersion, options.taskId]
     .every(isTodoIdentifier)) throw new TypeError('todo note append options invalid');
   const repoRoot = path.resolve(options.repoRoot);
   return withNoteLock(repoRoot, async () => {
     const chain = await readTodoNoteEvents({ repoRoot, planKey: options.planKey });
     if (options.supersedes !== null) {
       const target = chain.events.find(({ event_digest: digest }) => digest === options.supersedes);
-      if (target === undefined || target.task_id !== options.taskId) {
+      const projectedToCurrentTask = options.eligibleSupersedes?.includes(options.supersedes) ?? false;
+      if (target === undefined
+        || (target.task_id !== options.taskId && !projectedToCurrentTask)) {
         fail('NOTE_SUPERSEDES_INVALID', 'superseded_note_not_in_same_task', {
           plan_key: options.planKey, task_id: options.taskId,
         });
@@ -450,4 +459,38 @@ export async function readTodoNoteContext(options = {}) {
     events: chain.events,
     migrations,
   });
+}
+
+/** Gantt用に1 planのchain/historyを一度だけ読み、全task contextへ投影する。 */
+export async function readTodoNoteContextsForPlan(options = {}) {
+  if (!exactRecord(options, ['repoRoot', 'store', 'planKey'])
+    || !isTodoIdentifier(options.planKey)
+    || options.store === null || typeof options.store !== 'object') {
+    throw new TypeError('todo note contexts read options invalid');
+  }
+  const repoRoot = path.resolve(options.repoRoot);
+  const member = options.store.members?.find(({ descriptor }) => (
+    descriptor.plan_key === options.planKey
+  ));
+  if (member === undefined) fail('NOTE_TASK_NOT_FOUND', 'note_plan_not_active', {
+    plan_key: options.planKey,
+  });
+  const chain = await readTodoNoteEvents({ repoRoot, planKey: options.planKey });
+  const migrations = await readNoteMigrations(repoRoot, options.planKey,
+    new Set(chain.events.map(({ plan_version: version }) => version)));
+  const currentTaskIds = member.plan.tasks.map(({ task_id: taskId }) => taskId);
+  const projected = member.plan.tasks.map((task) => projectTodoNoteContext({
+    projectId: member.plan.project_id,
+    planKey: options.planKey,
+    currentPlanVersion: member.plan.plan_version,
+    currentTaskId: task.task_id,
+    currentTaskIds,
+    events: chain.events,
+    migrations,
+  }));
+  return {
+    contexts: projected.map(({ context }) => context),
+    archived: projected[0]?.archived ?? [],
+    note_head_digest: chain.head_digest,
+  };
 }

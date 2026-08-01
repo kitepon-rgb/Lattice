@@ -72,6 +72,12 @@ test('追記はdense sequenceとdigest linkを形成し訂正先を同一taskへ
     taskId: 'task-002', supersedes: first.event_digest,
   })), (error) => error instanceof TodoNoteStoreError
     && error.code === 'NOTE_SUPERSEDES_INVALID');
+
+  const migratedCorrection = await appendTodoNote(input(repoRoot, {
+    taskId: 'task-002', planVersion: 'v2', supersedes: first.event_digest,
+    eligibleSupersedes: [first.event_digest],
+  }));
+  assert.equal(migratedCorrection.supersedes, first.event_digest);
 });
 
 test('1 MiBを超える追記は既存active segmentをsealしてchainを継続する', async (t) => {

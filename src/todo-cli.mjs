@@ -107,6 +107,7 @@ import {
 import {
   appendTodoNote,
   readTodoNoteContext,
+  readTodoNoteContextsForPlan,
   readTodoNoteEvents,
 } from './todo-note-store.mjs';
 
@@ -1025,6 +1026,9 @@ async function appendNote({ repoRoot, env, planKey, taskId, message, inputRef, s
   const [member] = selectMembers(store, planKey);
   const task = selectNoteTask(member, taskId);
   const body = inputRef === null ? message : await readNoteTextInput(repoRoot, inputRef);
+  const projectedBeforeAppend = await readTodoNoteContext({
+    repoRoot, store, planKey, taskId: task.task_id,
+  });
   const event = await appendTodoNote({
     repoRoot,
     projectId: store.project_id,
@@ -1035,6 +1039,7 @@ async function appendNote({ repoRoot, env, planKey, taskId, message, inputRef, s
     recordedAt: new Date().toISOString(),
     body,
     supersedes,
+    eligibleSupersedes: projectedBeforeAppend.history.map(({ event_digest: digest }) => digest),
   });
   const { context } = await readTodoNoteContext({ repoRoot, store, planKey, taskId: task.task_id });
   const result = {
@@ -1873,12 +1878,13 @@ function parseGanttDescriptor(bytes, descriptorRef) {
  * 一つの関数だけが組む。
  */
 export async function ganttLiveHeadDigest({ repoRoot, store }) {
-  const [independence, seamProposals] = await Promise.all([
+  const [independence, seamProposals, noteHeads] = await Promise.all([
     independenceForGantt({ repoRoot, store }),
     seamProposalsForGantt({ repoRoot, store }),
+    noteHeadsForGantt({ repoRoot, store }),
   ]);
   return digestTodoArtifact({
-    schema: 'lattice.todo_gantt_live_head.v1',
+    schema: 'lattice.todo_gantt_live_head.v2',
     manifest_digest: store.manifest.manifest_digest,
     independence: independence === null ? null : independence.map((entry) => ({
       plan_key: entry.plan_key,
@@ -1890,7 +1896,44 @@ export async function ganttLiveHeadDigest({ repoRoot, store }) {
       coverage: entry.coverage,
       projection_digest: digestTodoArtifact(entry),
     })),
+    note_heads: noteHeads,
   });
+}
+
+async function noteHeadsForGantt({ repoRoot, store }) {
+  const bindings = [];
+  for (const member of store.members) {
+    try {
+      const chain = await readTodoNoteEvents({ repoRoot, planKey: member.plan.plan_key });
+      bindings.push({ plan_key: member.plan.plan_key, note_head_digest: chain.head_digest, error: null });
+    } catch (error) {
+      if (typeof error?.code !== 'string' || !error.code.startsWith('NOTE_')) throw error;
+      bindings.push({ plan_key: member.plan.plan_key, note_head_digest: null, error: error.code });
+    }
+  }
+  return bindings;
+}
+
+async function notesForGantt({ repoRoot, store }) {
+  const contexts = [];
+  const warnings = [];
+  const headBindings = [];
+  for (const member of store.members) {
+    try {
+      const projected = await readTodoNoteContextsForPlan({
+        repoRoot, store, planKey: member.plan.plan_key,
+      });
+      contexts.push(...projected.contexts);
+      headBindings.push({
+        plan_key: member.plan.plan_key, note_head_digest: projected.note_head_digest,
+      });
+    } catch (error) {
+      if (typeof error?.code !== 'string' || !error.code.startsWith('NOTE_')) throw error;
+      warnings.push({ plan_key: member.plan.plan_key, code: error.code, message: error.message });
+      headBindings.push({ plan_key: member.plan.plan_key, note_head_digest: null });
+    }
+  }
+  return { contexts, warnings, headBindings };
 }
 
 async function independenceForGantt({ repoRoot, store }) {
@@ -1981,7 +2024,7 @@ async function seamProposalsForGantt({ repoRoot, store }) {
 
 export async function renderTodoGanttForProject({
   repoRoot, stable = false, displayName = null, env = process.env, readModel = null,
-  scope = DEFAULT_GANTT_SCOPE,
+  scope = DEFAULT_GANTT_SCOPE, includeNotes = true,
 }) {
   const store = readModel
     ?? (stable ? await readTodoStoreStable({ repoRoot }) : await readTodoStore({ repoRoot }));
@@ -1991,9 +2034,11 @@ export async function renderTodoGanttForProject({
   const presentation = await loadTodoGanttPresentation({ repoRoot, readModel: store });
   const topology = mergedTopology(store);
   const chain = projectTodoChainV1(topology);
-  const [independence, seamProposals] = await Promise.all([
+  const [independence, seamProposals, notes] = await Promise.all([
     independenceForGantt({ repoRoot, store }),
     seamProposalsForGantt({ repoRoot, store }),
+    includeNotes ? notesForGantt({ repoRoot, store })
+      : { contexts: null, warnings: [], headBindings: [] },
   ]);
   const layout = layoutTodoGantt(store, chain, { scope, independence, seamProposals });
   // When the diagram hides history, the page also carries the full diagram so
@@ -2027,6 +2072,7 @@ export async function renderTodoGanttForProject({
     presentation_digest: presentation.presentation_digest,
     chain_digest: digestTodoArtifact(chain),
     layout_digest: digestTodoArtifact(layout),
+    note_bindings_digest: digestTodoArtifact(notes.headBindings),
     renderer_version: TODO_GANTT_RENDERER_VERSION,
     project_display_name: identity.displayName,
     folded_task_count: layout.scope.folded_task_count,
@@ -2039,6 +2085,8 @@ export async function renderTodoGanttForProject({
     anchorOutcomes,
     presentation,
     metadata,
+    noteContexts: notes.contexts,
+    noteWarnings: notes.warnings,
   });
   return { store, metadata, memberBindings, rendered };
 }
@@ -2129,6 +2177,7 @@ async function serveGantt({ repoRoot, port, stdout, env, scope = DEFAULT_GANTT_S
       const store = await readTodoStoreStable({ repoRoot });
       const { rendered } = await renderTodoGanttForProject({
         repoRoot, stable: true, displayName: identity.displayName, scope, readModel: store,
+        includeNotes: false,
       });
       return { html: rendered.html, head_digest: await ganttLiveHeadDigest({ repoRoot, store }) };
     },

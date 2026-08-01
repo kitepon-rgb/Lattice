@@ -56,6 +56,12 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .active-list,.relation-list{margin:0;padding:0;list-style:none}.active-list li+li,.relation-list li+li{margin-top:8px}
 .active-list button{width:100%}.anchor-status,.readiness-note,.category-description,.relation-empty{color:var(--text-secondary)}
 .task-detail>header{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px}.detail-status,.detail-reference{font-size:12px;font-weight:600}.detail-reference{color:var(--text-secondary)}
+.work-log{margin-top:24px;padding-top:1px;border-top:1px solid var(--border)}
+.work-log-entry{margin-top:10px;padding:12px;border:1px solid var(--border);border-left:4px solid var(--accent);background:var(--surface-2)}
+.work-log-entry>header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 12px;color:var(--text-secondary);font-size:12px;font-weight:600}
+.work-log-body{overflow-wrap:anywhere}.work-log-body pre{max-width:100%;overflow:auto;padding:8px;background:var(--surface-1)}.work-log-body code{overflow-wrap:anywhere}
+.work-log-origin,.work-log-head,.note-warning{color:var(--text-secondary);font-size:12px;overflow-wrap:anywhere}.note-warning{color:var(--critical)}
+.gantt-warning{margin:16px 0;padding:12px;border:1px solid var(--critical);background:var(--surface-2)}.gantt-warning h2{margin:0 0 8px}.gantt-warning ul{margin:0;padding-left:20px}
 .relation-list button{display:flex;width:100%;flex-direction:column}.relation-list button span{font-weight:400}.relation-kind{display:block;margin-top:4px;color:var(--text-secondary);font-size:12px}
 .task-diagnostics{margin:16px 0;color:var(--text-secondary);font-size:12px}.task-diagnostics summary{cursor:pointer;color:var(--text-primary);font-weight:600}.task-diagnostics dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px}.task-diagnostics dd{margin:0;overflow-wrap:anywhere}
 .task-index>h1{margin:0 0 8px;font-size:19px;font-weight:650;line-height:1.45}.task-index>p{margin:0 0 24px;color:var(--text-secondary)}
