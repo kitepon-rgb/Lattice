@@ -18,6 +18,8 @@
   typed argument error、Phase guidance、reconciliation自己記述、`todo verify` v3を揃えた。
 - **dashboard registryのproject root競合を自動上書きしなくした。** 同じproject IDの別rootは
   `PROJECT_ROOT_CONFLICT`で拒否し、明示actorを伴う`todo dashboard adopt`だけが配信元を切り替える。
+- **native sensorでも小文字の共有値をseam閉包へ含めるようにした。** `counter`や`cache`を大文字名だけの
+  gateで落としていたnative TS/JS／Go／Python／Java経路をWASM契約へ揃え、変換後の切断参照誤検出を防ぐ。
 
 ### アップグレード注意
 

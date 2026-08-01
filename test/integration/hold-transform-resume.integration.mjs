@@ -109,9 +109,10 @@ function buildPhaseRevision({ projectId, planKey, predecessor, predecessorReconc
   // operationのsource_refは置き換えたlive側を指す。archive側のrefは`todoCutoverArchiveSourceRef`が
   // 決めるので、こちらで名前を作らない。
   const archived = (index) => todoCutoverArchiveSourceRef({ archive_ref: archiveRef }, index);
-  const desiredInput = { schema: 'lattice.todo_plan.v5', project_id: projectId, plan_key: planKey,
+  const desiredInput = { schema: 'lattice.todo_plan.v7', project_id: projectId, plan_key: planKey,
     plan_version: 'pending', predecessor_plan_digest: predecessor.plan_digest,
     tasks: ['T1', 'T2'].map((taskId, index) => ({ task_id: taskId, title: taskId, lane: 'main',
+      design_memo: `${taskId}が所有する面をseam split後も維持し、双方を再開する。`,
       narrative_ref: archived(index), narrative_anchor: null,
       compile_binding: null, parent_task_id: null, phase_id: 'phase-1' })),
     phases: [{ phase_id: 'phase-1', title: 'Phase 1', gate_policy: 'heavy',
@@ -187,13 +188,14 @@ test('双方を止め、変換で生まれた面をそれぞれ所有させて�
   git('add', '.');
   git('commit', '--quiet', '-m', 'widget');
   // seam splitは工程の改訂なので、projectがLattice工程管理下にある必要がある。
-  const planInput = { schema: 'lattice.plan_create_input.v3', project_id: 'seamproject',
+  const planInput = { schema: 'lattice.plan_create_input.v4', project_id: 'seamproject',
     plan_key: 'main', plan_version: 'v1',
     actor: { host: 'fixture', session: 'fixture', agent: 'fixture' },
     recorded_at: '2026-07-28T00:00:00.000Z',
     // 既にcutover済みの形で立てる。`carry`はtask記録の完全一致を要求するので、後の改訂で
     // narrative_refが動くと`carry_semantics_changed`になる。
     tasks: ['T1', 'T2'].map((taskId, index) => ({ task_id: taskId, title: taskId, lane: 'main',
+      design_memo: `${taskId}が所有する面をseam split後も維持し、双方を再開する。`,
       narrative_ref: `docs/archive/seam.md#L${index + 6}`, narrative_anchor: null,
       compile_binding: null, parent_task_id: null, phase_id: 'phase-1' })),
     phases: [{ phase_id: 'phase-1', title: 'Phase 1', gate_policy: 'heavy',

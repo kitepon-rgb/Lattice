@@ -35,9 +35,6 @@ re!(
     vue_store_signal,
     r"\bdefineStore\b|\bcreateStore\b|\bVuex\b|\bmutations\b|\bactions\b|\bgetters\b|\bnamespaced\b"
 );
-// value-ref target-name distinctiveness: /[A-Z_]/
-re!(has_upper_or_underscore, r"[A-Z_]");
-
 /// isGeneratedFile (src/extraction/generated-detection.ts) — full pattern list
 /// ported so future language walkers share it.
 pub fn is_generated_file(file_path: &str) -> bool {

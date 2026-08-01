@@ -375,10 +375,7 @@ impl<'t> Walker<'t> {
 
     fn capture_value_ref_scope(&mut self, kind: &'static str, name: &str, row: u32, node: Node<'t>) {
         let target_kind_ok = kind == "constant" || kind == "variable";
-        if target_kind_ok
-            && util::utf16_len(name) >= 3
-            && util::has_upper_or_underscore().is_match(name)
-        {
+        if target_kind_ok && util::utf16_len(name) >= 3 {
             let parent_ok = self
                 .stack
                 .last()

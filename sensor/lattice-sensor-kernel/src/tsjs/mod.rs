@@ -420,10 +420,9 @@ impl<'t> Walker<'t> {
             return;
         }
         let target_kind_ok = kind == "constant" || kind == "variable";
-        if target_kind_ok
-            && util::utf16_len(name) >= 3
-            && util::has_upper_or_underscore().is_match(name)
-        {
+        // TS側と同じく長さだけで絞る。大文字／underscore gateは`counter`や`cache`のような
+        // file-scope値をnative経路だけ落とし、seam閉包を経路依存にしていた。
+        if target_kind_ok && util::utf16_len(name) >= 3 {
             let parent_ok = self
                 .stack
                 .last()

@@ -154,6 +154,33 @@ describe.skipIf(!kernelBuilt)('kernel TS/JS extraction parity', () => {
     assertParity(filePath, source, language);
   });
 
+  it.each([
+    ['typescript', 'lowercase.ts', [
+      'const counter = 1;',
+      'export function readCounter() { return counter; }',
+      'export function readCounterAgain() { return counter + 1; }',
+    ].join('\n')],
+    ['go', 'lowercase.go', [
+      'package state',
+      'var counter = 1',
+      'func readCounter() int { return counter }',
+      'func readCounterAgain() int { return counter + 1 }',
+    ].join('\n')],
+    ['python', 'lowercase.py', [
+      'counter = 1',
+      'def read_counter(): return counter',
+      'def read_counter_again(): return counter + 1',
+    ].join('\n')],
+    ['java', 'Lowercase.java', [
+      'class Lowercase {',
+      '  static int counter = 1;',
+      '  int readCounter() { return counter; }',
+      '}',
+    ].join('\n')],
+  ] as const)('lowercase value-reference target parity (%s)', (language, filePath, source) => {
+    assertParity(filePath, source, language);
+  });
+
   it.each(REAL_SOURCES)('real source parity: %s', (rel) => {
     const file = path.join(__dirname, '..', rel);
     assertParity(rel, fs.readFileSync(file, 'utf8'), 'typescript');

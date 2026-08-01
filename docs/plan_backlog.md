@@ -1070,3 +1070,15 @@ compile_binding付きtaskだけを投影するため、通常のplanでは `{"bi
 - [ ] revise / revise-set / revise-phase / migrate に `--schema --json` を生やす
 - [ ] スキーマ違反時の detail に、違反したフィールド名（配列名・ソート違反の位置）を載せる
 - [ ] `lattice plan show <key>` を追加し、bindings が空を返すことでの誤読を解消する
+
+## 配布対象外native sensorのWASM parity（2026-08-01実測）
+
+git管理外のDarwin native prebuildを使って全parity testを走らせると、既存fixture 15件でWASMとの差が
+残っている。npm packageはnative prebuildを含まず、正規配布経路は`./sensor/dist`のWASMである。
+v0.39.0で修正した小文字共有値はTypeScript／Go／Python／Javaの4言語で一致を確認したが、native版を
+将来配布対象へ加える条件は全parityのgreenであり、現状のprebuildを配布済みと扱ってはならない。
+
+### 工程
+
+- [ ] native／WASMの既存fixture 15件の差分を分類し、仕様差と実装欠陥を分ける
+- [ ] 全parityがgreenになった後だけnative prebuildの配布可否を裁定する
