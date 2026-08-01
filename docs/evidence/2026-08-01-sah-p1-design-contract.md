@@ -2,9 +2,9 @@
 
 - 記録: 2026-08-01 / Control `sensor-awareness-hooks-20260801`
 - 起草: claude-fable-parent（F: 端末設定書換え契約・公開契約は親直轄）
-- 入力: P0 baseline証拠・構造調査（terra×medium）・反証1巡目12件全採用・2巡目11件全採用・
-  3巡目12件中10件採用/1件棄却/1件部分採用
-- 版: r4（3巡目反証を反映。旧版の欠陥は末尾の裁定記録が正）
+- 入力: P0 baseline証拠・構造調査（terra×medium）・反証4巡（通算37 finding: 35採用・
+  1棄却・1部分採用。経緯は末尾の裁定記録が正）
+- 版: **r5（最終・設計gate通過）**
 
 ## 調査ダイジェスト（設計の根拠事実）
 
@@ -116,8 +116,10 @@
    `git --no-optional-locks -C <検証済みcwd> rev-parse --show-toplevel`（timeout 2s）。
    **exit非0（非git）だけ沈黙**。spawn失敗・timeout・その他I/O失敗は記録＋可視診断。
 5. `<root>/.lattice/sensor/` の判定: `ENOENT`/`ENOTDIR`だけ沈黙。EACCES/EIO等は記録＋可視診断。
-6. 通知claim（r4）: **先に同名`.shown`（7日以内）の存在を確認し、あれば沈黙**。無ければ
+6. 通知claim（r5）: **先に同名`.shown`（7日以内）の存在を確認し、あれば沈黙**。無ければ
    `<state>/lattice/hooks/<sha256(session)>.<sha256(root)>.claim` を`wx`で作成（EEXIST→沈黙）→
+   **claim取得後に`.shown`（7日以内）を再確認し、存在すれば自claimを削除して沈黙**
+   （precheck〜claim間に他プロセスが完走した場合の二重表示を閉じる）→
    案内をstdoutへ出力→出力成功後に`.shown`へrename。出力失敗はclaimを削除（永久抑止を
    作らない）。**出力成功後のrename失敗**は可視記録し、`.shown`の直接`wx`作成を試みる
    （両方失敗なら後の再表示を受容・記録）。stale claim（1時間超）は回収する——claim内容には
@@ -131,9 +133,10 @@
 
 - 専用binstub追加・`--home`引数・index無し案内: r1どおり非採用。
 - regex／basename heuristicのidentity: 反証1・2巡目により廃止（receipt照合へ）。
-- 「CAS」を名乗る置換: POSIXに真のfile CASが無いため僭称を廃止し、displaced-preimage方式で
-  「競合内容は消えない」を契約化（残余窓の存在は明記の上で受容——backup・displaced・
-  read-backの三重で回収可能性を保証する）。
+- 「CAS」を名乗る置換: POSIXに真のfile CASが無いため僭称を廃止。displaced-preimage方式が
+  保全するのは**当方が検証した置換直前inodeだけ**であり、inode再検証後のhost atomic
+  replacementの消失はC3-7の明記受容に従う（r5でC3-7と整合化。「あらゆる競合内容が消えない」
+  という保証はしない）。
 - Windows native対応: v1はtyped unsupported。対応する場合は`commandWindows`形の固定を含む
   独立工程として起票する。
 
@@ -186,6 +189,12 @@ state dir初回/並行claim、fail-visible矛盾、PATH非依存の偽（絶対N
     かかわらず利用者資産を任意に破壊できるため脅威モデル外。lstat＋owner＋mode検査で
     誤設定・非敵対事故は防げている。Node標準に*at系が無い点も棄却を支持）
 
-### 4巡目（r4の確定バグ修正4件＋#5新機構への最終確認）
+### 4巡目（同refuter・r4修正5点への最終確認）
 
-（完了後に追記）
+残存2 finding・**両採用**→r5改訂。①`.shown` precheck〜claim間のTOCTOU（claim取得後の
+`.shown`再確認で閉鎖）②C7がC3-7の残余受容と矛盾する「消えない」保証を残していた
+（整合化）。指定点の#4・#11・#2・#5本体は「殺せず」。refuterの収束宣言
+「上記2件を契約上で閉じれば設計gate通過可能」に基づき、r5をもって**設計gate通過**と
+親裁定する。以後の機械的filesystem挙動の検証はP2 characterizationが実測で受け持つ。
+
+- 版更新: 本書はr5が最終（4巡・通算37 finding: 35採用・1棄却・1部分採用）。
