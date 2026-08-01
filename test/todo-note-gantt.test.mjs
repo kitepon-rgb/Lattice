@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { ganttLiveHeadDigest, renderTodoGanttForProject } from '../src/todo-cli.mjs';
+import {
+  ganttLiveHeadDigest, renderPublicTodoGanttForProject, renderTodoGanttForProject,
+} from '../src/todo-cli.mjs';
 import { appendTodoNote } from '../src/todo-note-store.mjs';
 import {
   createTodoStoreWriter, initializeTodoStore, readTodoStore,
@@ -58,8 +60,8 @@ test('ローカルGantt詳細は安全なnote本文と来歴を表示し公開re
   assert.doesNotMatch(local.rendered.html, /<script>alert\(1\)<\/script>/u);
   assert.doesNotMatch(local.rendered.html, /javascript:/u);
 
-  const publicRender = await renderTodoGanttForProject({
-    repoRoot, readModel: store, displayName: 'Fixture', includeNotes: false,
+  const publicRender = await renderPublicTodoGanttForProject({
+    repoRoot, readModel: store, displayName: 'Fixture', includeNotes: true,
   });
   assert.doesNotMatch(publicRender.rendered.html, new RegExp(secret, 'u'));
   assert.doesNotMatch(publicRender.rendered.html, /<h2>作業記録<\/h2>/u);

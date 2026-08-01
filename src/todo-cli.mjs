@@ -2091,6 +2091,11 @@ export async function renderTodoGanttForProject({
   return { store, metadata, memberBindings, rendered };
 }
 
+/** 公開配信面は呼び出し側の既定値忘れに依存せず、常にnote本文を除外する。 */
+export async function renderPublicTodoGanttForProject(options = {}) {
+  return renderTodoGanttForProject({ ...options, includeNotes: false });
+}
+
 async function gantt({ repoRoot, outputRef, env, scope = DEFAULT_GANTT_SCOPE }) {
   const { store, metadata, memberBindings, rendered } = await renderTodoGanttForProject({
     repoRoot, env, scope,
@@ -2175,9 +2180,8 @@ async function serveGantt({ repoRoot, port, stdout, env, scope = DEFAULT_GANTT_S
     port,
     render: async () => {
       const store = await readTodoStoreStable({ repoRoot });
-      const { rendered } = await renderTodoGanttForProject({
+      const { rendered } = await renderPublicTodoGanttForProject({
         repoRoot, stable: true, displayName: identity.displayName, scope, readModel: store,
-        includeNotes: false,
       });
       return { html: rendered.html, head_digest: await ganttLiveHeadDigest({ repoRoot, store }) };
     },
