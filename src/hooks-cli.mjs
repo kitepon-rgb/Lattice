@@ -1,113 +1,985 @@
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { mkdir, open, readFile, realpath, readdir, rename, lstat, link, unlink, writeFile } from 'node:fs/promises';
+import {
+  access, lstat, link, mkdir, open, readFile, readdir, realpath, rename, stat, unlink,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const INFO = 'INFO: このrepoにはLattice sensor index（.lattice/sensor/）があります。コード構造の調査はsensor入口（MCP: lattice_sensor_explore 等／CLI: lattice sensor）を優先できます。';
 const HOSTS = new Set(['claude', 'codex']);
+const MAX_STDIN_BYTES = 64 * 1024;
+const SHOWN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const CLAIM_MAX_AGE_MS = 60 * 60 * 1000;
+const RECEIPT_LOCK_MAX_AGE_MS = 30 * 1000;
 const binPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bin/lattice.mjs');
 const hash = (value) => createHash('sha256').update(value).digest('hex');
-const failure = (stdout, code, message, exit = 1) => { stdout.write(`${JSON.stringify({ schema: 'lattice.hooks_error.v1', code, message })}\n`); return exit; };
-const configPath = (home, host) => path.join(home, host === 'claude' ? '.claude/settings.json' : '.codex/hooks.json');
-const stateBase = (env) => path.isAbsolute(env.XDG_STATE_HOME ?? '') ? env.XDG_STATE_HOME : path.join(env.HOME ?? os.homedir(), '.local/state');
-const receiptPath = (env, host) => path.join(stateBase(env), 'lattice', 'hooks', 'installs', `${host}.json`);
+const unique = () => `${Date.now()}-${process.pid}-${randomBytes(8).toString('hex')}`;
+const ownUid = () => typeof process.getuid === 'function' ? process.getuid() : null;
+
+function writeJson(stdout, value) {
+  stdout.write(`${JSON.stringify(value)}\n`);
+}
+
+function failure(stdout, code, message, exit = 1) {
+  writeJson(stdout, { schema: 'lattice.hooks_error.v1', code, message });
+  return exit;
+}
+
+function configPath(home, host) {
+  return path.join(home, host === 'claude' ? '.claude/settings.json' : '.codex/hooks.json');
+}
+
+function stateBase(env) {
+  if (path.isAbsolute(env.XDG_STATE_HOME ?? '')) return path.resolve(env.XDG_STATE_HOME);
+  return path.join(env.HOME ?? os.homedir(), '.local', 'state');
+}
 
 function words(command) {
-  const out = []; let word = ''; let quote = null; let escaped = false;
+  const out = [];
+  let word = '';
+  let quote = null;
+  let escaped = false;
+  let started = false;
   for (const char of command) {
-    if (escaped) { word += char; escaped = false; continue; }
-    if (char === '\\' && quote !== "'") { escaped = true; continue; }
-    if ((char === "'" || char === '"') && (!quote || quote === char)) { quote = quote ? null : char; continue; }
-    if (/\s/u.test(char) && !quote) { if (word) out.push(word); word = ''; } else word += char;
+    if (escaped) { word += char; escaped = false; started = true; continue; }
+    if (char === '\\' && quote !== "'") { escaped = true; started = true; continue; }
+    if ((char === "'" || char === '"') && (!quote || quote === char)) {
+      quote = quote ? null : char;
+      started = true;
+      continue;
+    }
+    if (/\s/u.test(char) && !quote) {
+      if (started) out.push(word);
+      word = '';
+      started = false;
+    } else {
+      word += char;
+      started = true;
+    }
   }
   if (quote || escaped) return null;
-  if (word) out.push(word);
+  if (started) out.push(word);
   return out;
 }
-function shell(argv) { return argv.map((item) => `'${item.replaceAll("'", "'\\\"'\\\"'")}'`).join(' '); }
-function commandIs(command, identities) { const parsed = words(command); return parsed !== null && identities.some((identity) => identity.length === parsed.length && identity.every((part, index) => part === parsed[index])); }
-async function readReceipt(env, host) { try { const value = JSON.parse(await readFile(receiptPath(env, host), 'utf8')); return Array.isArray(value.entries) ? value.entries.map((entry) => entry.argv).filter(Array.isArray) : []; } catch { return []; } }
-async function saveReceipt(env, host, argv) {
-  const target = receiptPath(env, host); await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  const old = await readReceipt(env, host); const entries = [...old, argv].filter((item, index, all) => all.findIndex((other) => JSON.stringify(other) === JSON.stringify(item)) === index);
-  const tmp = `${target}.tmp-${process.pid}-${Date.now()}`; await writeFile(tmp, JSON.stringify({ schema: 'lattice.hooks_install_receipt.v1', entries: entries.map((item) => ({ argv: item, status: 'committed' })) }) + '\n', { mode: 0o600 }); await rename(tmp, target);
+
+function shell(argv) {
+  return argv.map((item) => `'${item.replaceAll("'", "'\\\"'\\\"'")}'`).join(' ');
 }
-async function fsyncDir(directory) { const handle = await open(directory, fsConstants.O_RDONLY); try { await handle.sync(); } finally { await handle.close(); } }
-async function readConfig(target) {
-  try { const info = await lstat(target); if (info.isSymbolicLink()) throw Object.assign(new Error('symlink'), { code: 'SYMLINK' }); const bytes = await readFile(target); return { existed: true, mode: info.mode & 0o777, bytes, value: JSON.parse(bytes) }; } catch (error) {
-    if (error?.code === 'ENOENT') return { existed: false, mode: 0o600, bytes: Buffer.alloc(0), value: {} };
-    throw error;
+
+function sameArgv(left, right) {
+  return left.length === right.length && left.every((part, index) => part === right[index]);
+}
+
+function commandIs(command, identities) {
+  const parsed = words(command);
+  return parsed !== null && identities.some((identity) => sameArgv(identity, parsed));
+}
+
+function emitCandidate(command, host) {
+  const parsed = words(command);
+  if (parsed === null) return false;
+  return parsed.some((part, index) => part === 'hooks' && parsed[index + 1] === 'emit'
+    && parsed[index + 2] === '--host' && parsed[index + 3] === host);
+}
+
+async function fsyncDir(directory) {
+  const handle = await open(directory, fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0));
+  try { await handle.sync(); } finally { await handle.close(); }
+}
+
+function validateDirectory(info, label) {
+  if (info.isSymbolicLink() || !info.isDirectory()) {
+    throw Object.assign(new Error(`${label} is not a real directory`), { code: 'STATE_UNSAFE' });
+  }
+  const uid = ownUid();
+  if ((uid !== null && info.uid !== uid) || (info.mode & 0o022) !== 0) {
+    throw Object.assign(new Error(`${label} has unsafe ownership or mode`), { code: 'STATE_UNSAFE' });
   }
 }
-function hooksList(value) { if (!value.hooks || typeof value.hooks !== 'object' || Array.isArray(value.hooks)) value.hooks = {}; if (!Array.isArray(value.hooks.UserPromptSubmit)) value.hooks.UserPromptSubmit = []; return value.hooks.UserPromptSubmit; }
+
+/** Resolve the deepest existing ancestor before creating one component at a time. */
+async function secureStateDirectory(env, components = [], { create = true } = {}) {
+  const requestedBase = stateBase(env);
+  let ancestor = requestedBase;
+  const missing = [];
+  while (true) {
+    try {
+      const info = await lstat(ancestor);
+      validateDirectory(info, ancestor);
+      break;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      if (ancestor === path.parse(ancestor).root) throw error;
+      missing.unshift(path.basename(ancestor));
+      ancestor = path.dirname(ancestor);
+    }
+  }
+  if (!create && missing.length > 0) return null;
+  const pinnedAncestor = await realpath(ancestor);
+  validateDirectory(await lstat(pinnedAncestor), pinnedAncestor);
+  let cursor = pinnedAncestor;
+  for (const component of missing) {
+    cursor = path.join(cursor, component);
+    try {
+      await mkdir(cursor, { mode: 0o700 });
+      await fsyncDir(path.dirname(cursor));
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+    validateDirectory(await lstat(cursor), cursor);
+  }
+  for (const component of components) {
+    cursor = path.join(cursor, component);
+    try {
+      validateDirectory(await lstat(cursor), cursor);
+      continue;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      if (!create) return null;
+    }
+    try {
+      await mkdir(cursor, { mode: 0o700 });
+      await fsyncDir(path.dirname(cursor));
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+    validateDirectory(await lstat(cursor), cursor);
+  }
+  return cursor;
+}
+
+function receiptFile(directory, host) {
+  return path.join(directory, 'installs', `${host}.json`);
+}
+
+function validateRegularOwnerMode(info, mode, code) {
+  const uid = ownUid();
+  if (!info.isFile() || (uid !== null && info.uid !== uid) || (info.mode & 0o777) !== mode) {
+    throw Object.assign(new Error('unsafe owned file'), { code });
+  }
+}
+
+async function readOwnedFile(target, { absent = null, code = 'UNSAFE_FILE' } = {}) {
+  let handle;
+  try {
+    handle = await open(target, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return absent;
+    throw Object.assign(error, { code });
+  }
+  try {
+    validateRegularOwnerMode(await handle.stat(), 0o600, code);
+    return await handle.readFile();
+  } finally {
+    await handle.close();
+  }
+}
+
+function parseReceipt(bytes) {
+  if (bytes === null) return { schema: 'lattice.hooks_install_receipt.v1', entries: [] };
+  let value;
+  try { value = JSON.parse(bytes); } catch {
+    throw Object.assign(new Error('receipt is not JSON'), { code: 'INSTALL_RECEIPT_UNSAFE' });
+  }
+  if (value?.schema !== 'lattice.hooks_install_receipt.v1' || !Array.isArray(value.entries)
+    || value.entries.some((entry) => !Array.isArray(entry?.argv)
+      || !entry.argv.every((part) => typeof part === 'string')
+      || !['pending', 'committed'].includes(entry.status))) {
+    throw Object.assign(new Error('receipt shape is invalid'), { code: 'INSTALL_RECEIPT_UNSAFE' });
+  }
+  return value;
+}
+
+async function receiptLocation(env, host, create) {
+  const hooksDirectory = await secureStateDirectory(env, ['lattice', 'hooks'], { create });
+  if (hooksDirectory === null) return null;
+  const installs = path.join(hooksDirectory, 'installs');
+  if (create) {
+    try { await mkdir(installs, { mode: 0o700 }); await fsyncDir(hooksDirectory); } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+    validateDirectory(await lstat(installs), installs);
+  } else {
+    try { validateDirectory(await lstat(installs), installs); } catch (error) {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+  return receiptFile(hooksDirectory, host);
+}
+
+async function readReceipt(env, host) {
+  const target = await receiptLocation(env, host, false);
+  if (target === null) return { target: null, value: parseReceipt(null) };
+  return {
+    target,
+    value: parseReceipt(await readOwnedFile(target, {
+      absent: null, code: 'INSTALL_RECEIPT_UNSAFE',
+    })),
+  };
+}
+
+async function writeReceiptUnlocked(target, value) {
+  const directory = path.dirname(target);
+  const existing = await readOwnedFile(target, { absent: null, code: 'INSTALL_RECEIPT_UNSAFE' });
+  if (existing !== null) parseReceipt(existing);
+  const tmp = `${target}.tmp-lattice-hooks-${unique()}`;
+  let handle;
+  try {
+    handle = await open(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL
+      | fsConstants.O_NOFOLLOW, 0o600);
+    await handle.chmod(0o600);
+    await handle.writeFile(`${JSON.stringify(value)}\n`);
+    await handle.sync();
+    await handle?.close();
+    handle = null;
+    const beforeRename = await readOwnedFile(target, {
+      absent: null, code: 'INSTALL_RECEIPT_UNSAFE',
+    });
+    if ((existing === null) !== (beforeRename === null)
+      || (existing !== null && !existing.equals(beforeRename))) {
+      throw Object.assign(new Error('receipt changed concurrently'), { code: 'INSTALL_RECEIPT_BUSY' });
+    }
+    await rename(tmp, target);
+    await fsyncDir(directory);
+    parseReceipt(await readOwnedFile(target, { code: 'INSTALL_RECEIPT_UNSAFE' }));
+  } finally {
+    await handle?.close().catch(() => {});
+    await removeArtifact(tmp).catch(() => {});
+  }
+}
+
+async function withReceiptLock(env, host, operation) {
+  const target = await receiptLocation(env, host, true);
+  const lockPath = `${target}.lock`;
+  let lock;
+  let acquired = false;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    let created = false;
+    try {
+      lock = await open(lockPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL
+        | fsConstants.O_NOFOLLOW, 0o600);
+      created = true;
+      await lock.chmod(0o600);
+      await lock.writeFile(`${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`);
+      await lock.sync();
+      await lock.close();
+      lock = null;
+      await fsyncDir(path.dirname(lockPath));
+      acquired = true;
+      break;
+    } catch (error) {
+      await lock?.close().catch(() => {});
+      lock = null;
+      if (created) await removeArtifact(lockPath).catch(() => {});
+      if (error?.code !== 'EEXIST') throw error;
+      try {
+        if (Date.now() - (await lstat(lockPath)).mtimeMs > RECEIPT_LOCK_MAX_AGE_MS) {
+          await unlink(lockPath);
+          await fsyncDir(path.dirname(lockPath));
+          continue;
+        }
+      } catch (statError) {
+        if (statError?.code === 'ENOENT') continue;
+        throw statError;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  if (!acquired) {
+    throw Object.assign(new Error('receipt lock unavailable'), { code: 'INSTALL_RECEIPT_BUSY' });
+  }
+  try {
+    const bytes = await readOwnedFile(target, { absent: null, code: 'INSTALL_RECEIPT_UNSAFE' });
+    return await operation(parseReceipt(bytes), target);
+  } finally {
+    await unlink(lockPath).catch(() => {});
+    await fsyncDir(path.dirname(lockPath)).catch(() => {});
+  }
+}
+
+function allHandlers(value) {
+  const list = value?.hooks?.UserPromptSubmit;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((wrapper) => Array.isArray(wrapper?.hooks) ? wrapper.hooks : []);
+}
+
+function configContains(value, argv) {
+  return allHandlers(value).some((item) => item?.type === 'command'
+    && typeof item.command === 'string' && commandIs(item.command, [argv]));
+}
+
+async function recoverReceipt(env, host, config) {
+  const current = await readReceipt(env, host);
+  if (current.target === null || !current.value.entries.some((entry) => entry.status === 'pending')) {
+    return current.value;
+  }
+  return withReceiptLock(env, host, async (receipt, target) => {
+    const entries = receipt.entries.flatMap((entry) => {
+      if (entry.status !== 'pending') return [entry];
+      return configContains(config, entry.argv) ? [{ ...entry, status: 'committed' }] : [];
+    });
+    const recovered = { ...receipt, entries };
+    await writeReceiptUnlocked(target, recovered);
+    return recovered;
+  });
+}
+
+async function appendPending(env, host, argv) {
+  const operationId = unique();
+  await withReceiptLock(env, host, async (receipt, target) => {
+    const entries = [...receipt.entries];
+    entries.push({ argv, status: 'pending', operation_id: operationId, recorded_at: new Date().toISOString() });
+    await writeReceiptUnlocked(target, { ...receipt, entries });
+  });
+  return operationId;
+}
+
+async function commitPending(env, host, operationId, argv) {
+  await withReceiptLock(env, host, async (receipt, target) => {
+    let found = false;
+    const entries = receipt.entries.map((entry) => {
+      if (entry.operation_id !== operationId) return entry;
+      found = true;
+      return { ...entry, status: 'committed' };
+    });
+    if (!found) entries.push({
+      argv, status: 'committed', operation_id: operationId, recorded_at: new Date().toISOString(),
+    });
+    await writeReceiptUnlocked(target, { ...receipt, entries });
+  });
+}
+
+async function readConfig(target) {
+  let info;
+  try { info = await lstat(target); } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return { existed: false, mode: 0o600, bytes: Buffer.alloc(0), value: {} };
+    }
+    throw error;
+  }
+  if (info.isSymbolicLink()) throw Object.assign(new Error('config is symlink'), { code: 'SYMLINK' });
+  if (!info.isFile()) throw Object.assign(new Error('config is not regular'), { code: 'CONFIG_INVALID' });
+  const bytes = await readFile(target);
+  let value;
+  try { value = JSON.parse(bytes); } catch {
+    throw Object.assign(new Error('config is not JSON'), { code: 'CONFIG_INVALID' });
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw Object.assign(new Error('config root is not an object'), { code: 'CONFIG_INVALID' });
+  }
+  if (value.hooks !== undefined && (value.hooks === null || typeof value.hooks !== 'object'
+    || Array.isArray(value.hooks))) {
+    throw Object.assign(new Error('hooks is not an object'), { code: 'CONFIG_INVALID' });
+  }
+  if (value.hooks?.UserPromptSubmit !== undefined && !Array.isArray(value.hooks.UserPromptSubmit)) {
+    throw Object.assign(new Error('UserPromptSubmit is not an array'), { code: 'CONFIG_INVALID' });
+  }
+  return { existed: true, mode: info.mode & 0o777, bytes, value };
+}
+
+function hooksList(value) {
+  if (value.hooks === undefined) value.hooks = {};
+  if (value.hooks.UserPromptSubmit === undefined) value.hooks.UserPromptSubmit = [];
+  return value.hooks.UserPromptSubmit;
+}
+
 function stripIdentity(value, identities) {
-  let removed = 0; const list = hooksList(value);
+  let removed = 0;
+  const list = hooksList(value);
   value.hooks.UserPromptSubmit = list.flatMap((wrapper) => {
     if (!wrapper || !Array.isArray(wrapper.hooks)) return [wrapper];
-    const hooks = wrapper.hooks.filter((handler) => { const owned = handler?.type === 'command' && typeof handler.command === 'string' && commandIs(handler.command, identities); if (owned) removed += 1; return !owned; });
-    return hooks.length ? [{ ...wrapper, hooks }] : [];
+    const handlers = wrapper.hooks.filter((item) => {
+      const owned = item?.type === 'command' && typeof item.command === 'string'
+        && commandIs(item.command, identities);
+      if (owned) removed += 1;
+      return !owned;
+    });
+    return handlers.length > 0 ? [{ ...wrapper, hooks: handlers }] : [];
   });
   return removed;
 }
-async function backup(target, prestate) {
-  if (!prestate.existed) return null;
-  const ref = `${target}.bak-lattice-hooks-${new Date().toISOString().replaceAll(/[:.]/gu, '-')}-${process.pid}-${Math.random().toString(16).slice(2)}`;
-  const handle = await open(ref, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o600); try { await handle.writeFile(prestate.bytes); await handle.sync(); } finally { await handle.close(); } await fsyncDir(path.dirname(target)); return ref;
+
+function hostHandler(host, command) {
+  return host === 'claude'
+    ? { type: 'command', command, timeout: 5 }
+    : { type: 'command', command, timeout: 5, async: false, statusMessage: null };
 }
-async function commitConfig(target, prestate, value) {
-  const serialized = Buffer.from(`${JSON.stringify(value, null, 2)}\n`); JSON.parse(serialized);
-  const tmp = `${target}.tmp-lattice-hooks-${process.pid}-${Math.random().toString(16).slice(2)}`;
-  const handle = await open(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, prestate.existed ? prestate.mode : 0o600);
-  try { await handle.writeFile(serialized); await handle.sync(); } finally { await handle.close(); }
-  if (prestate.existed) {
-    const now = await readFile(target); if (!now.equals(prestate.bytes)) { await unlink(tmp); throw Object.assign(new Error('preimage changed'), { code: 'PREIMAGE_CHANGED' }); }
-    const displaced = `${target}.pre-lattice-hooks-${Date.now()}-${process.pid}`; await link(target, displaced); const before = await lstat(target); const saved = await lstat(displaced); if (before.dev !== saved.dev || before.ino !== saved.ino) { await unlink(tmp); throw Object.assign(new Error('target replaced'), { code: 'PREIMAGE_CHANGED' }); }
-    await rename(tmp, target); await fsyncDir(path.dirname(target));
-  } else { try { await link(tmp, target); } catch (error) { await unlink(tmp).catch(() => {}); throw error; } await unlink(tmp); await fsyncDir(path.dirname(target)); }
-  const check = await readFile(target); if (!check.equals(serialized)) throw Object.assign(new Error('read-back failed'), { code: 'RESTORE_FAILED' });
-}
-async function canonical(host) { return [process.execPath, await realpath(binPath), 'hooks', 'emit', '--host', host]; }
-function handler(host, command) { return host === 'claude' ? { type: 'command', command, timeout: 5 } : { type: 'command', command, timeout: 5, async: false, statusMessage: null }; }
-async function mutate(host, env, stdout, uninstall) {
-  const home = env.HOME ?? os.homedir(); const directory = path.dirname(configPath(home, host));
-  try { if (!(await lstat(directory)).isDirectory()) return failure(stdout, 'HOST_NOT_PRESENT', 'host home directory is not present'); } catch { return failure(stdout, 'HOST_NOT_PRESENT', 'host home directory is not present'); }
-  const target = configPath(home, host); let prestate;
-  try { prestate = await readConfig(target); } catch (error) { return failure(stdout, error.code === 'SYMLINK' ? 'CONFIG_SYMLINK_UNSUPPORTED' : 'CONFIG_UNREADABLE', 'configuration cannot be read'); }
-  const current = await canonical(host); const identities = [current, ...await readReceipt(env, host)]; const removed = stripIdentity(prestate.value, identities);
-  if (!uninstall) hooksList(prestate.value).push({ hooks: [handler(host, shell(current))] });
-  if ((uninstall && removed === 0) || (!uninstall && removed === 1 && JSON.stringify(prestate.value) === JSON.stringify((await readConfig(target)).value))) {
-    stdout.write(`${JSON.stringify(uninstall ? { schema: 'lattice.hooks_uninstall_result.v1', host, removed_count: 0 } : { schema: 'lattice.hooks_install_result.v1', host, state: 'already_wired' })}\n`); return 0;
+
+async function resolveCanonical(host, source) {
+  if (!path.isAbsolute(source.execPath) || !path.isAbsolute(source.binPath)) {
+    throw Object.assign(new Error('install source is not absolute'), { code: 'INSTALL_SOURCE_UNRESOLVED' });
   }
-  try { await backup(target, prestate); await commitConfig(target, prestate, prestate.value); if (!uninstall) await saveReceipt(env, host, current); } catch (error) { return failure(stdout, error.code === 'RESTORE_FAILED' ? 'RESTORE_FAILED' : 'CONFIG_WRITE_FAILED', 'configuration cannot be safely written'); }
-  stdout.write(`${JSON.stringify(uninstall ? { schema: 'lattice.hooks_uninstall_result.v1', host, removed_count: removed } : { schema: 'lattice.hooks_install_result.v1', host, state: 'wired' })}\n`); return 0;
+  try {
+    await access(source.execPath, fsConstants.X_OK);
+    const script = await realpath(source.binPath);
+    await access(script, fsConstants.R_OK | fsConstants.X_OK);
+    return [source.execPath, script, 'hooks', 'emit', '--host', host];
+  } catch (error) {
+    throw Object.assign(error, { code: 'INSTALL_SOURCE_UNRESOLVED' });
+  }
 }
-async function status(host, env, stdout) {
-  const home = env.HOME ?? os.homedir(); const target = configPath(home, host); const argv = await canonical(host); let config;
-  try { config = await readConfig(target); } catch { return failure(stdout, 'CONFIG_UNREADABLE', 'configuration cannot be read'); }
-  const identities = [argv, ...await readReceipt(env, host)]; let matches = 0; let foreign = 0;
-  for (const wrapper of hooksList(config.value)) for (const item of wrapper?.hooks ?? []) if (item?.type === 'command' && typeof item.command === 'string') { if (commandIs(item.command, identities)) matches += 1; else if (words(item.command)?.join(' ').includes('hooks emit --host')) foreign += 1; }
-  const executableOk = await Promise.all(argv.slice(0, 2).map(async (entry) => { try { return (await lstat(entry)).isFile(); } catch { return false; } })).then((value) => value.every(Boolean));
-  const state = matches === 1 && commandIs(shell(argv), [argv]) && executableOk && foreign === 0 ? 'wired' : matches ? 'drift' : 'not_wired';
-  stdout.write(`${JSON.stringify({ schema: 'lattice.hooks_status_result.v1', host, config_path: target, state, canonical_command: shell(argv), matched_handler_count: matches, executable_ok: executableOk, next_action: state === 'wired' ? null : 'lattice hooks install --host ' + host })}\n`); return 0;
+
+async function createBackup(target, prestate) {
+  if (!prestate.existed) return null;
+  const ref = `${target}.bak-lattice-hooks-${new Date().toISOString().replaceAll(/[:.]/gu, '-')}-${unique()}`;
+  let handle;
+  try {
+    handle = await open(ref, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL
+      | fsConstants.O_NOFOLLOW, 0o600);
+    await handle.chmod(0o600);
+    await handle.writeFile(prestate.bytes);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await fsyncDir(path.dirname(target));
+    return ref;
+  } catch (error) {
+    await handle?.close().catch(() => {});
+    await removeArtifact(ref).catch(() => {});
+    throw error;
+  }
 }
-async function stateDirectory(env) { const root = stateBase(env); await mkdir(root, { recursive: true, mode: 0o700 }); let cursor = root; for (const component of ['lattice', 'hooks']) { cursor = path.join(cursor, component); try { if ((await lstat(cursor)).isSymbolicLink()) throw new Error('symlink'); } catch (error) { if (error.code !== 'ENOENT') throw error; await mkdir(cursor, { mode: 0o700 }); } } return cursor; }
-async function emit(host, env, stdin, stdout) {
-  if (env.LATTICE_HOOKS === 'off') return 0; let state;
-  try { state = await stateDirectory(env); } catch { stdout.write('Lattice hooks: state directory unavailable\n'); return 0; }
-  let input = ''; for await (const chunk of stdin) { input += chunk; if (Buffer.byteLength(input) > 65536) break; }
-  let event; try { event = JSON.parse(input); if (!event.session_id || !event.cwd || Buffer.byteLength(input) > 65536) throw new Error('invalid'); } catch { try { await writeFile(path.join(state, 'errors.log'), 'invalid hook stdin\n', { flag: 'a', mode: 0o600 }); } catch { stdout.write('Lattice hooks: cannot record invalid stdin\n'); } return 0; }
-  const root = await new Promise((resolve, reject) => { const child = spawn('git', ['--no-optional-locks', '-C', event.cwd, 'rev-parse', '--show-toplevel']); let out = ''; child.stdout.on('data', (data) => { out += data; }); child.on('error', reject); child.on('close', (code) => code === 0 ? resolve(out.trim()) : resolve(null)); setTimeout(() => { child.kill(); reject(new Error('timeout')); }, 2000).unref(); }).catch(() => undefined);
-  if (!root) return 0; try { await lstat(path.join(root, '.lattice', 'sensor')); } catch (error) { if (['ENOENT', 'ENOTDIR'].includes(error.code)) return 0; stdout.write('Lattice hooks: sensor index unavailable\n'); return 0; }
-  const key = `${hash(event.session_id)}.${hash(root)}`; const shown = path.join(state, `${key}.shown`); try { if (Date.now() - (await lstat(shown)).mtimeMs < 7 * 864e5) return 0; } catch {}
-  const claim = path.join(state, `${key}.claim`); try { await writeFile(claim, `${process.pid}\n`, { flag: 'wx', mode: 0o600 }); } catch (error) { if (error.code === 'EEXIST') return 0; stdout.write('Lattice hooks: notification claim unavailable\n'); return 0; }
-  try { if (Date.now() - (await lstat(shown)).mtimeMs < 7 * 864e5) { await unlink(claim); return 0; } } catch {}
-  stdout.write(host === 'claude' ? `${INFO}\n` : `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: INFO } })}\n`); try { await rename(claim, shown); } catch { await writeFile(shown, '', { flag: 'wx', mode: 0o600 }).catch(() => {}); } return 0;
+
+async function removeArtifact(target) {
+  if (target === null) return;
+  try { await unlink(target); await fsyncDir(path.dirname(target)); } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
 }
-export async function runHooksCli({ argv, stdout, stdin = process.stdin, env = process.env }) {
-  if (argv.length !== 3 || !['install', 'status', 'uninstall', 'emit'].includes(argv[0]) || argv[1] !== '--host' || !HOSTS.has(argv[2])) return failure(stdout, 'USAGE', 'usage: lattice hooks <install|status|uninstall|emit> --host <claude|codex>', 2);
-  const [command, , host] = argv; if (process.platform === 'win32' && command !== 'emit') return failure(stdout, 'HOST_PLATFORM_UNSUPPORTED', 'native Windows hooks are unsupported');
-  if (command === 'install') return mutate(host, env, stdout, false); if (command === 'uninstall') return mutate(host, env, stdout, true); if (command === 'status') return status(host, env, stdout); return emit(host, env, stdin, stdout);
+
+async function pruneGenerations(target) {
+  const directory = path.dirname(target);
+  const basename = path.basename(target);
+  for (const marker of ['bak-lattice-hooks-', 'pre-lattice-hooks-']) {
+    const prefix = `${basename}.${marker}`;
+    const entries = [];
+    for (const name of await readdir(directory)) {
+      if (!name.startsWith(prefix)) continue;
+      const full = path.join(directory, name);
+      try { entries.push({ full, mtimeMs: (await lstat(full)).mtimeMs }); } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+    }
+    entries.sort((left, right) => right.mtimeMs - left.mtimeMs || right.full.localeCompare(left.full));
+    for (const entry of entries.slice(5)) await removeArtifact(entry.full);
+  }
+}
+
+async function writeTmp(target, bytes, mode, tag = 'tmp') {
+  const tmp = `${target}.${tag}-lattice-hooks-${unique()}`;
+  let handle;
+  try {
+    handle = await open(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL
+      | fsConstants.O_NOFOLLOW, mode);
+    await handle.chmod(mode);
+    await handle.writeFile(bytes);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    return tmp;
+  } catch (error) {
+    await handle?.close().catch(() => {});
+    await removeArtifact(tmp).catch(() => {});
+    throw error;
+  }
+}
+
+async function restoreExisting(target, displaced, mode) {
+  const bytes = await readFile(displaced);
+  const tmp = await writeTmp(target, bytes, mode, 'restore');
+  try {
+    await rename(tmp, target);
+    await fsyncDir(path.dirname(target));
+    if (!(await readFile(target)).equals(bytes)) throw new Error('restore read-back mismatch');
+  } finally {
+    await unlink(tmp).catch(() => {});
+  }
+}
+
+async function rollbackAbsent(target, tmp) {
+  const targetInfo = await lstat(target);
+  const tmpInfo = await lstat(tmp);
+  if (targetInfo.dev !== tmpInfo.dev || targetInfo.ino !== tmpInfo.ino) {
+    throw new Error('created target was replaced before rollback');
+  }
+  await unlink(target);
+  await fsyncDir(path.dirname(target));
+  try { await lstat(target); throw new Error('absent rollback read-back failed'); } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+}
+
+async function commitConfig(target, prestate, value) {
+  const serialized = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+  JSON.parse(serialized);
+  const tmp = await writeTmp(target, serialized, prestate.existed ? prestate.mode : 0o600);
+  let displaced = null;
+  let committed = false;
+  let complete = false;
+  try {
+    if (prestate.existed) {
+      const current = await readConfig(target);
+      if (!current.existed || !current.bytes.equals(prestate.bytes)) {
+        throw Object.assign(new Error('preimage changed'), { code: 'PREIMAGE_CHANGED' });
+      }
+      displaced = `${target}.pre-lattice-hooks-${new Date().toISOString().replaceAll(/[:.]/gu, '-')}-${unique()}`;
+      await link(target, displaced);
+      await fsyncDir(path.dirname(target));
+      const before = await lstat(target);
+      const saved = await lstat(displaced);
+      if (!before.isFile() || before.dev !== saved.dev || before.ino !== saved.ino) {
+        throw Object.assign(new Error('target inode changed'), { code: 'PREIMAGE_CHANGED' });
+      }
+      await rename(tmp, target);
+      committed = true;
+      await fsyncDir(path.dirname(target));
+    } else {
+      try { await link(tmp, target); } catch (error) {
+        if (error?.code === 'EEXIST') {
+          throw Object.assign(error, { code: 'PREIMAGE_CHANGED' });
+        }
+        throw error;
+      }
+      committed = true;
+      await fsyncDir(path.dirname(target));
+    }
+    if (!(await readFile(target)).equals(serialized)) throw new Error('config read-back mismatch');
+    complete = true;
+    return displaced;
+  } catch (error) {
+    if (committed) {
+      try {
+        if (prestate.existed) await restoreExisting(target, displaced, prestate.mode);
+        else await rollbackAbsent(target, tmp);
+      } catch (restoreError) {
+        throw Object.assign(new Error(`restore failed: ${restoreError.message}`), {
+          code: 'RESTORE_FAILED', cause: error,
+        });
+      }
+    }
+    throw error;
+  } finally {
+    await removeArtifact(tmp).catch(() => {});
+    if (!complete) await removeArtifact(displaced).catch(() => {});
+  }
+}
+
+function committedIdentities(receipt) {
+  return receipt.entries.filter((entry) => entry.status === 'committed').map((entry) => entry.argv);
+}
+
+function exactHandler(item, expected) {
+  return JSON.stringify(item) === JSON.stringify(expected);
+}
+
+async function hostDirectory(home, host) {
+  const directory = path.dirname(configPath(home, host));
+  try {
+    const info = await lstat(directory);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('not a directory');
+    return directory;
+  } catch {
+    return null;
+  }
+}
+
+async function mutate(host, env, stdout, uninstall, source) {
+  const home = env.HOME ?? os.homedir();
+  if (await hostDirectory(home, host) === null) {
+    return failure(stdout, 'HOST_NOT_PRESENT', 'host home directory is not present');
+  }
+  let current;
+  try { current = await resolveCanonical(host, source); } catch {
+    return failure(stdout, 'INSTALL_SOURCE_UNRESOLVED', 'install source cannot be resolved');
+  }
+  const target = configPath(home, host);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let prestate;
+    try { prestate = await readConfig(target); } catch (error) {
+      return failure(stdout, error?.code === 'SYMLINK' ? 'CONFIG_SYMLINK_UNSUPPORTED'
+        : 'CONFIG_UNREADABLE', 'configuration cannot be read');
+    }
+    let receipt;
+    try { receipt = await recoverReceipt(env, host, prestate.value); } catch {
+      return failure(stdout, 'INSTALL_RECEIPT_UNSAFE', 'install receipt cannot be safely read');
+    }
+    const identities = [current, ...committedIdentities(receipt)];
+    const next = structuredClone(prestate.value);
+    const removed = stripIdentity(next, identities);
+    if (!uninstall) hooksList(next).push({ hooks: [hostHandler(host, shell(current))] });
+
+    const currentHandlers = allHandlers(prestate.value).filter((item) => item?.type === 'command'
+      && typeof item.command === 'string' && commandIs(item.command, identities));
+    const alreadyWired = !uninstall && currentHandlers.length === 1
+      && commandIs(currentHandlers[0].command, [current])
+      && exactHandler(currentHandlers[0], hostHandler(host, shell(current)));
+    if ((uninstall && removed === 0) || alreadyWired) {
+      writeJson(stdout, uninstall
+        ? { schema: 'lattice.hooks_uninstall_result.v1', host, removed_count: 0 }
+        : { schema: 'lattice.hooks_install_result.v1', host, state: 'already_wired' });
+      return 0;
+    }
+
+    let pendingId = null;
+    let backup = null;
+    let configCommitted = false;
+    try {
+      if (!uninstall) pendingId = await appendPending(env, host, current);
+      backup = await createBackup(target, prestate);
+      await commitConfig(target, prestate, next);
+      configCommitted = true;
+      if (!uninstall) await commitPending(env, host, pendingId, current);
+      await pruneGenerations(target);
+      writeJson(stdout, uninstall
+        ? { schema: 'lattice.hooks_uninstall_result.v1', host, removed_count: removed }
+        : { schema: 'lattice.hooks_install_result.v1', host, state: 'wired' });
+      return 0;
+    } catch (error) {
+      if (!configCommitted) await removeArtifact(backup).catch(() => {});
+      if (!configCommitted && error?.code === 'PREIMAGE_CHANGED' && attempt === 0) continue;
+      return failure(stdout, error?.code === 'RESTORE_FAILED' ? 'RESTORE_FAILED'
+        : ['INSTALL_RECEIPT_UNSAFE', 'INSTALL_RECEIPT_BUSY'].includes(error?.code)
+          ? 'INSTALL_RECEIPT_UNSAFE'
+          : 'CONFIG_WRITE_FAILED', 'configuration cannot be safely written');
+    }
+  }
+  return failure(stdout, 'CONFIG_WRITE_FAILED', 'configuration changed concurrently');
+}
+
+function statusResult(host, target, canonicalCommand, state, matches, executableOk,
+  foreignCandidateCount) {
+  return {
+    schema: 'lattice.hooks_status_result.v1',
+    host,
+    config_path: target,
+    state,
+    canonical_command: canonicalCommand,
+    matched_handler_count: matches,
+    foreign_candidate_count: foreignCandidateCount,
+    executable_ok: executableOk,
+    next_action: state === 'wired' ? null : `lattice hooks install --host ${host}`,
+  };
+}
+
+async function status(host, env, stdout, source, platform) {
+  const home = env.HOME ?? os.homedir();
+  const target = configPath(home, host);
+  let argv;
+  try { argv = await resolveCanonical(host, source); } catch {
+    writeJson(stdout, statusResult(host, target, null, 'unreadable', 0, false, 0));
+    return 1;
+  }
+  if (platform === 'win32' || await hostDirectory(home, host) === null) {
+    writeJson(stdout, statusResult(host, target, shell(argv), 'unreadable', 0, false, 0));
+    return 1;
+  }
+  let config;
+  try { config = await readConfig(target); } catch {
+    writeJson(stdout, statusResult(host, target, shell(argv), 'unreadable', 0, false, 0));
+    return 1;
+  }
+  let receipt;
+  try { receipt = await recoverReceipt(env, host, config.value); } catch {
+    writeJson(stdout, statusResult(host, target, shell(argv), 'unreadable', 0, false, 0));
+    return 1;
+  }
+  const identities = [argv, ...committedIdentities(receipt)];
+  let matches = 0;
+  let canonicalMatches = 0;
+  let foreign = 0;
+  let canonicalShape = false;
+  for (const item of allHandlers(config.value)) {
+    if (item?.type !== 'command' || typeof item.command !== 'string') continue;
+    if (commandIs(item.command, identities)) {
+      matches += 1;
+      if (commandIs(item.command, [argv])) {
+        canonicalMatches += 1;
+        canonicalShape = exactHandler(item, hostHandler(host, shell(argv)));
+      }
+    } else if (emitCandidate(item.command, host)) foreign += 1;
+  }
+  const executableOk = await Promise.all(argv.slice(0, 2).map(async (entry) => {
+    try { await access(entry, fsConstants.X_OK); return (await stat(entry)).isFile(); } catch { return false; }
+  })).then((values) => values.every(Boolean));
+  let state = 'drift';
+  if (matches === 0 && foreign === 0) state = 'not_wired';
+  else if (matches === 1 && canonicalMatches === 1 && canonicalShape && executableOk && foreign === 0) {
+    state = 'wired';
+  }
+  writeJson(stdout, statusResult(host, target, shell(argv), state, matches, executableOk, foreign));
+  return 0;
+}
+
+async function appendError(state, message) {
+  const target = path.join(state, 'errors.log');
+  try {
+    const created = await open(target, fsConstants.O_WRONLY | fsConstants.O_CREAT
+      | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
+    try { await created.chmod(0o600); await created.sync(); } finally { await created.close(); }
+    await fsyncDir(state);
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
+  }
+  const handle = await open(target, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT
+    | fsConstants.O_NOFOLLOW, 0o600);
+  try {
+    validateRegularOwnerMode(await handle.stat(), 0o600, 'ERROR_LOG_UNSAFE');
+    await handle.writeFile(`${new Date().toISOString()} ${message}\n`);
+    await handle.sync();
+  } finally { await handle.close(); }
+}
+
+async function recordOrDiagnose(state, stdout, message, diagnostic) {
+  try { await appendError(state, message); } catch { stdout.write(`Lattice hooks: ${diagnostic}\n`); }
+}
+
+async function diagnose(state, stdout, message, diagnostic) {
+  try { await appendError(state, message); } catch {}
+  stdout.write(`Lattice hooks: ${diagnostic}\n`);
+}
+
+async function readHookInput(stdin) {
+  const chunks = [];
+  let length = 0;
+  let tooLarge = false;
+  for await (const chunk of stdin) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    length += bytes.length;
+    if (length <= MAX_STDIN_BYTES) chunks.push(bytes);
+    else tooLarge = true;
+  }
+  if (tooLarge) throw new Error('hook stdin exceeds 64KiB');
+  let event;
+  try { event = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch {
+    throw new Error('hook stdin is not strict JSON');
+  }
+  if (typeof event?.session_id !== 'string' || event.session_id.length === 0
+    || typeof event.cwd !== 'string' || !path.isAbsolute(event.cwd)) {
+    throw new Error('hook stdin requires session_id and absolute cwd');
+  }
+  try {
+    const cwd = await realpath(event.cwd);
+    if (!(await lstat(cwd)).isDirectory()) throw new Error('cwd is not a directory');
+    return { ...event, cwd };
+  } catch {
+    throw new Error('hook cwd is unavailable');
+  }
+}
+
+async function gitRoot(cwd, spawnImpl, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let out = '';
+    let child;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    try {
+      child = spawnImpl('git', ['--no-optional-locks', '-C', cwd, 'rev-parse', '--show-toplevel'], {
+        shell: false, stdio: ['ignore', 'pipe', 'ignore'],
+      });
+    } catch (error) {
+      resolve({ kind: 'error', error });
+      return;
+    }
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish({ kind: 'error', error: new Error('git root lookup timed out') });
+    }, timeoutMs);
+    child.once('error', (error) => finish({ kind: 'error', error }));
+    child.stdout.on('error', (error) => finish({ kind: 'error', error }));
+    child.stdout.on('data', (data) => {
+      out += data;
+      if (Buffer.byteLength(out) > MAX_STDIN_BYTES) {
+        child.kill('SIGKILL');
+        finish({ kind: 'error', error: new Error('git output too large') });
+      }
+    });
+    child.once('close', (code, signal) => {
+      if (code !== 0) {
+        finish(signal === null ? { kind: 'not_git' }
+          : { kind: 'error', error: new Error(`git terminated by ${signal}`) });
+        return;
+      }
+      const root = out.trim();
+      finish(path.isAbsolute(root) ? { kind: 'root', root }
+        : { kind: 'error', error: new Error('git returned a non-absolute root') });
+    });
+  });
+}
+
+const ownNotificationPattern = /^[a-f0-9]{64}\.[a-f0-9]{64}\.(?:shown|claim)$/u;
+
+async function gcNotifications(state) {
+  const now = Date.now();
+  for (const name of await readdir(state)) {
+    if (!ownNotificationPattern.test(name)) continue;
+    const target = path.join(state, name);
+    let info;
+    try { info = await lstat(target); } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      throw error;
+    }
+    const maximum = name.endsWith('.claim') ? CLAIM_MAX_AGE_MS : SHOWN_MAX_AGE_MS;
+    if (now - info.mtimeMs > maximum) await removeArtifact(target);
+  }
+}
+
+async function freshShown(shown) {
+  try { return Date.now() - (await lstat(shown)).mtimeMs <= SHOWN_MAX_AGE_MS; } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+async function acquireClaim(claim) {
+  let handle;
+  let created = false;
+  try {
+    handle = await open(claim, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL
+      | fsConstants.O_NOFOLLOW, 0o600);
+    created = true;
+    await handle.chmod(0o600);
+    await handle.writeFile(`${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await fsyncDir(path.dirname(claim));
+    return true;
+  } catch (error) {
+    await handle?.close().catch(() => {});
+    if (created) await removeArtifact(claim).catch(() => {});
+    if (error?.code === 'EEXIST') return false;
+    throw error;
+  }
+}
+
+function outputLine(host) {
+  return host === 'claude' ? `${INFO}\n` : `${JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: INFO },
+  })}\n`;
+}
+
+async function writeOutput(stdout, line) {
+  await new Promise((resolve, reject) => {
+    try { stdout.write(line, (error) => error ? reject(error) : resolve()); } catch (error) { reject(error); }
+  });
+}
+
+async function emit(host, env, stdin, stdout, spawnImpl, gitTimeoutMs) {
+  if (env.LATTICE_HOOKS === 'off') return 0;
+  let state;
+  try { state = await secureStateDirectory(env, ['lattice', 'hooks']); } catch {
+    stdout.write('Lattice hooks: state directory unavailable\n');
+    return 0;
+  }
+  let event;
+  try { event = await readHookInput(stdin); } catch (error) {
+    await recordOrDiagnose(state, stdout, error.message, 'cannot record invalid stdin');
+    return 0;
+  }
+  const git = await gitRoot(event.cwd, spawnImpl, gitTimeoutMs);
+  if (git.kind === 'not_git') return 0;
+  if (git.kind === 'error') {
+    await diagnose(state, stdout, git.error.message, 'git root lookup failed');
+    return 0;
+  }
+  const sensor = path.join(git.root, '.lattice', 'sensor');
+  try {
+    if (!(await lstat(sensor)).isDirectory()) return 0;
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return 0;
+    await diagnose(state, stdout, `sensor lookup failed: ${error.message}`, 'sensor index unavailable');
+    return 0;
+  }
+  try { await gcNotifications(state); } catch (error) {
+    await diagnose(state, stdout, `notification gc failed: ${error.message}`, 'notification state unavailable');
+    return 0;
+  }
+  const key = `${hash(event.session_id)}.${hash(git.root)}`;
+  const shown = path.join(state, `${key}.shown`);
+  const claim = path.join(state, `${key}.claim`);
+  try {
+    if (await freshShown(shown)) return 0;
+  } catch (error) {
+    await diagnose(state, stdout, `shown precheck failed: ${error.message}`, 'notification state unavailable');
+    return 0;
+  }
+  try {
+    if (!await acquireClaim(claim)) return 0;
+  } catch (error) {
+    await diagnose(state, stdout, `claim failed: ${error.message}`, 'notification claim unavailable');
+    return 0;
+  }
+  try {
+    if (await freshShown(shown)) {
+      await removeArtifact(claim);
+      return 0;
+    }
+  } catch (error) {
+    await removeArtifact(claim).catch(() => {});
+    await diagnose(state, stdout, `shown recheck failed: ${error.message}`, 'notification state unavailable');
+    return 0;
+  }
+  try {
+    await writeOutput(stdout, outputLine(host));
+  } catch (error) {
+    await removeArtifact(claim).catch(() => {});
+    await recordOrDiagnose(state, stdout, `notification output failed: ${error.message}`,
+      'notification output failed');
+    return 0;
+  }
+  try {
+    await rename(claim, shown);
+    await fsyncDir(state);
+  } catch (error) {
+    await recordOrDiagnose(state, stdout, `claim promotion failed: ${error.message}`,
+      'notification record failed');
+    try {
+      const handle = await open(shown, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL
+        | fsConstants.O_NOFOLLOW, 0o600);
+      await handle.chmod(0o600);
+      await handle.sync();
+      await handle.close();
+      await fsyncDir(state);
+    } catch (fallbackError) {
+      await recordOrDiagnose(state, stdout, `shown fallback failed: ${fallbackError.message}`,
+        'notification record failed');
+    }
+    await removeArtifact(claim).catch(() => {});
+  }
+  return 0;
+}
+
+export async function runHooksCli({
+  argv,
+  stdout,
+  stdin = process.stdin,
+  env = process.env,
+  platform = process.platform,
+  source = { execPath: process.execPath, binPath },
+  spawnImpl = spawn,
+  gitTimeoutMs = 2000,
+}) {
+  if (argv.length !== 3 || !['install', 'status', 'uninstall', 'emit'].includes(argv[0])
+    || argv[1] !== '--host' || !HOSTS.has(argv[2])) {
+    return failure(stdout, 'USAGE',
+      'usage: lattice hooks <install|status|uninstall|emit> --host <claude|codex>', 2);
+  }
+  const [command, , host] = argv;
+  if (platform === 'win32') {
+    if (command === 'status') return status(host, env, stdout, source, platform);
+    return failure(stdout, 'HOST_PLATFORM_UNSUPPORTED', 'native Windows hooks are unsupported');
+  }
+  if (command === 'install') return mutate(host, env, stdout, false, source);
+  if (command === 'uninstall') return mutate(host, env, stdout, true, source);
+  if (command === 'status') return status(host, env, stdout, source, platform);
+  return emit(host, env, stdin, stdout, spawnImpl, gitTimeoutMs);
 }
