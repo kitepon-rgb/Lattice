@@ -13,6 +13,7 @@ Commands:
   factory-diagnostics --json    Check native factory integration
   runtime-errors <command>      Inspect the local runtime error store
   bridge <command>              Configure the optional network bridge
+  hooks <command>               Install and run sensor-awareness hooks
 
 Options:
   -h, --help                    Show help
@@ -144,6 +145,8 @@ Commands:
 registerはLATTICE_BRIDGE_REGISTRAR_SSH_HOSTとLATTICE_BRIDGE_REGISTRAR_SCRIPTが
 両方設定されている時だけ動く。アドレスは送らず、remote側がssh送信元から決める。
 `,
+  hooks: `Usage: lattice hooks <install|status|uninstall|emit> --host <claude|codex>
+`,
 });
 
 const SUBCOMMAND_USAGE = Object.freeze({
@@ -218,6 +221,10 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'bridge status': 'bridge status --json',
   'bridge disable': 'bridge disable --json',
   'bridge register': 'bridge register --json',
+  'hooks install': 'hooks install --host <claude|codex>',
+  'hooks status': 'hooks status --host <claude|codex>',
+  'hooks uninstall': 'hooks uninstall --host <claude|codex>',
+  'hooks emit': 'hooks emit --host <claude|codex>',
 });
 
 function requestedNamespace(argv) {

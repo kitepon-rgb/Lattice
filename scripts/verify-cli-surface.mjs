@@ -50,6 +50,7 @@ const COMMANDS = [
   ['runtime-errors', 'resolve'], ['runtime-errors', 'reopen'], ['runtime-errors', 'compact'],
   ['bridge', 'setup'], ['bridge', 'reconfigure'], ['bridge', 'status'],
   ['bridge', 'disable'], ['bridge', 'register'],
+  ['hooks', 'install'], ['hooks', 'status'], ['hooks', 'uninstall'], ['hooks', 'emit'],
 ];
 
 /** argvを受けるCLI入口。ここを通らないtestは、引数解析とexit契約を確かめていない。 */
@@ -61,6 +62,7 @@ const CLI_ENTRY = /lattice\.mjs|invokeSensorCli|LATTICE_BIN|latticeBin|run(?:Tod
  */
 const GROUP_ENTRY = Object.freeze({
   bridge: /runBridgeCli/u,
+  hooks: /runHooksCli/u,
   todo: /runTodoCli/u,
   run: /runRuntimeCli/u,
   plan: /runRuntimeCli/u,

@@ -90,6 +90,11 @@ if (help !== null) {
   process.exitCode = await runBridgeCli({
     argv: args.slice(1), stdout: process.stdout, stderr: process.stderr, env: process.env,
   });
+} else if (args[0] === 'hooks') {
+  const { runHooksCli } = await import('../src/hooks-cli.mjs');
+  process.exitCode = await runHooksCli({
+    argv: args.slice(1), stdout: process.stdout, stdin: process.stdin, env: process.env,
+  });
 } else {
   try {
     process.exitCode = await runRuntimeCli({
