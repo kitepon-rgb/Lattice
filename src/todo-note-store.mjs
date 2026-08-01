@@ -6,13 +6,17 @@ import path from 'node:path';
 
 import {
   TODO_LIMITS,
+  TODO_NOTE_CONTEXT_SCHEMA,
   TODO_NOTE_EVENT_SCHEMA,
   canonicalizeTodoArtifact,
   exactRecord,
   isTodoIdentifier,
   todoSelfDigest,
+  validateTodoPlan,
+  validateTodoNoteContext,
   validateTodoNoteEvent,
 } from './todo-contracts.mjs';
+import { validatePhaseTodoRevision, validateTodoRevision } from './todo-revision.mjs';
 
 const NOTE_ROOT_REF = '.lattice/todo/notes';
 const SEALED_NAME = /^(\d{12})-(\d{12})-([0-9a-f]{64})-([0-9a-f]{64})\.jsonl$/u;
@@ -223,5 +227,227 @@ export async function appendTodoNote(options = {}) {
       await atomicWrite(paths.active, Buffer.concat([chain.active_bytes, eventBytes]));
     }
     return event;
+  });
+}
+
+function noteProjectionEntry(event, supersededBy) {
+  return {
+    event_digest: event.event_digest,
+    origin_plan_version: event.plan_version,
+    origin_task_id: event.task_id,
+    actor: event.actor,
+    recorded_at: event.recorded_at,
+    body: event.body,
+    supersedes: event.supersedes,
+    superseded_by: supersededBy ?? null,
+    correction_state: supersededBy === undefined ? 'current' : 'superseded',
+  };
+}
+
+function migrationIndex(migrations) {
+  if (!Array.isArray(migrations)) throw new TypeError('todo note migrations must be an array');
+  const index = new Map();
+  for (const migration of migrations) {
+    if (!exactRecord(migration, ['from_plan_version', 'to_plan_version', 'task_migration'])
+      || !isTodoIdentifier(migration.from_plan_version)
+      || !isTodoIdentifier(migration.to_plan_version)
+      || migration.from_plan_version === migration.to_plan_version
+      || !Array.isArray(migration.task_migration)
+      || index.has(migration.from_plan_version)) {
+      fail('NOTE_PROJECTION_INVALID', 'note_migration_history_invalid');
+    }
+    const taskMap = new Map();
+    for (const entry of migration.task_migration) {
+      if (!exactRecord(entry, ['from_task_id', 'to_task_id'])
+        || !isTodoIdentifier(entry.from_task_id)
+        || !(entry.to_task_id === null || isTodoIdentifier(entry.to_task_id))
+        || taskMap.has(entry.from_task_id)) {
+        fail('NOTE_PROJECTION_INVALID', 'note_task_migration_invalid');
+      }
+      taskMap.set(entry.from_task_id, entry.to_task_id);
+    }
+    index.set(migration.from_plan_version, {
+      toPlanVersion: migration.to_plan_version, taskMap,
+    });
+  }
+  return index;
+}
+
+function resolveNoteTarget(event, { currentPlanVersion, currentTaskIds, migrations }) {
+  let version = event.plan_version;
+  let taskId = event.task_id;
+  const seen = new Set();
+  while (version !== currentPlanVersion) {
+    if (seen.has(version)) fail('NOTE_PROJECTION_INVALID', 'note_migration_cycle');
+    seen.add(version);
+    const step = migrations.get(version);
+    if (step === undefined) return { kind: 'archived' };
+    const nextTaskId = step.taskMap.get(taskId);
+    if (nextTaskId === undefined || nextTaskId === null) return { kind: 'archived' };
+    version = step.toPlanVersion;
+    taskId = nextTaskId;
+  }
+  return currentTaskIds.has(taskId) ? { kind: 'active', taskId } : { kind: 'archived' };
+}
+
+/**
+ * 既存task_migrationを合成し、現行taskへ渡すbounded contextとremoved taskのarchived束を作る。
+ * note listはこの全履歴を使えるが、通常詳細/startはcontextを自動同梱する。
+ */
+export function projectTodoNoteContext(options = {}) {
+  if (!exactRecord(options, [
+    'projectId', 'planKey', 'currentPlanVersion', 'currentTaskId',
+    'currentTaskIds', 'events', 'migrations',
+  ]) || ![options.projectId, options.planKey, options.currentPlanVersion, options.currentTaskId]
+    .every(isTodoIdentifier) || !Array.isArray(options.currentTaskIds)
+    || !options.currentTaskIds.every(isTodoIdentifier)
+    || !options.currentTaskIds.includes(options.currentTaskId)
+    || !Array.isArray(options.events) || !options.events.every(validateTodoNoteEvent)) {
+    throw new TypeError('todo note projection options invalid');
+  }
+  const currentTaskIds = new Set(options.currentTaskIds);
+  const migrations = migrationIndex(options.migrations);
+  const supersededBy = new Map();
+  for (const event of options.events) {
+    if (event.project_id !== options.projectId || event.plan_key !== options.planKey) {
+      fail('NOTE_LOG_CORRUPT', 'note_identity_mismatch');
+    }
+    if (event.supersedes !== null) supersededBy.set(event.supersedes, event.event_digest);
+  }
+
+  const current = [];
+  const archived = [];
+  const sequenceByDigest = new Map(options.events.map((event) => [event.event_digest, event.sequence]));
+  for (const event of options.events) {
+    const target = resolveNoteTarget(event, {
+      currentPlanVersion: options.currentPlanVersion, currentTaskIds, migrations,
+    });
+    const entry = noteProjectionEntry(event, supersededBy.get(event.event_digest));
+    if (target.kind === 'archived') archived.push(entry);
+    else if (target.taskId === options.currentTaskId) current.push(entry);
+  }
+  current.sort((left, right) => sequenceByDigest.get(right.event_digest)
+    - sequenceByDigest.get(left.event_digest));
+  archived.reverse();
+
+  const notes = [];
+  let usedBytes = 0;
+  for (const entry of current) {
+    const bytes = Buffer.byteLength(entry.body, 'utf8');
+    if (usedBytes + bytes > TODO_LIMITS.noteContextBytes) continue;
+    notes.push(entry);
+    usedBytes += bytes;
+  }
+  const context = {
+    schema: TODO_NOTE_CONTEXT_SCHEMA,
+    project_id: options.projectId,
+    plan_key: options.planKey,
+    task_id: options.currentTaskId,
+    notes,
+    note_head_digest: current[0]?.event_digest ?? null,
+    overflow_count: current.length - notes.length,
+    full_history_command: `lattice todo note list --plan ${options.planKey}`
+      + ` --task ${options.currentTaskId} --json`,
+    context_digest: '',
+  };
+  context.context_digest = todoSelfDigest(context, 'context_digest');
+  if (!validateTodoNoteContext(context)) {
+    fail('NOTE_PROJECTION_INVALID', 'note_context_invalid');
+  }
+  return { context, archived };
+}
+
+async function readCanonicalJson(ref, { missing = false } = {}) {
+  let bytes;
+  try {
+    const metadata = await stat(ref);
+    if (!metadata.isFile() || metadata.size > TODO_LIMITS.snapshotBytes) {
+      fail('NOTE_PROJECTION_INVALID', 'note_projection_artifact_invalid', { ref });
+    }
+    bytes = await readFile(ref);
+  } catch (error) {
+    if (error instanceof TodoNoteStoreError) throw error;
+    if (missing && error?.code === 'ENOENT') return null;
+    fail('NOTE_PROJECTION_INVALID', 'note_projection_artifact_unreadable', { ref });
+  }
+  let value;
+  try { value = JSON.parse(bytes.toString('utf8')); }
+  catch { fail('NOTE_PROJECTION_INVALID', 'note_projection_json_invalid', { ref }); }
+  if (!bytes.equals(canonicalLine(value))) {
+    fail('NOTE_PROJECTION_INVALID', 'note_projection_artifact_not_canonical', { ref });
+  }
+  return value;
+}
+
+async function readNoteMigrations(repoRoot, planKey, eventVersions) {
+  const base = path.resolve(repoRoot, '.lattice/todo/plans', planKey);
+  let entries;
+  try { entries = await readdir(base, { withFileTypes: true }); }
+  catch (error) {
+    if (error?.code === 'ENOENT' && eventVersions.size === 0) return [];
+    fail('NOTE_PROJECTION_INVALID', 'note_plan_history_unreadable', { plan_key: planKey });
+  }
+  const versions = new Set();
+  const migrations = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !isTodoIdentifier(entry.name)) {
+      fail('NOTE_PROJECTION_INVALID', 'note_plan_history_inventory_invalid', { plan_key: planKey });
+    }
+    const versionRoot = path.join(base, entry.name);
+    const plan = await readCanonicalJson(path.join(versionRoot, 'plan.json'));
+    if (!validateTodoPlan(plan) || plan.plan_key !== planKey || plan.plan_version !== entry.name) {
+      fail('NOTE_PROJECTION_INVALID', 'note_historical_plan_invalid', { plan_version: entry.name });
+    }
+    versions.add(entry.name);
+    const revision = await readCanonicalJson(path.join(versionRoot, 'revision.json'), { missing: true });
+    if (revision === null) continue;
+    if (!(validateTodoRevision(revision) || validatePhaseTodoRevision(revision))
+      || revision.plan_key !== planKey || revision.predecessor?.plan_version === undefined
+      || !Array.isArray(revision.task_migration)) {
+      fail('NOTE_PROJECTION_INVALID', 'note_historical_revision_invalid', { plan_version: entry.name });
+    }
+    migrations.push({
+      from_plan_version: revision.predecessor.plan_version,
+      to_plan_version: entry.name,
+      task_migration: revision.task_migration.map(({ from_task_id: fromTaskId, to_task_id: toTaskId }) => ({
+        from_task_id: fromTaskId, to_task_id: toTaskId,
+      })),
+    });
+  }
+  if ([...eventVersions].some((version) => !versions.has(version))) {
+    fail('NOTE_PROJECTION_INVALID', 'note_origin_plan_version_unknown');
+  }
+  return migrations;
+}
+
+/** active store memberと歴史revisionから、通常供給用contextを一回で読む。 */
+export async function readTodoNoteContext(options = {}) {
+  if (!exactRecord(options, ['repoRoot', 'store', 'planKey', 'taskId'])
+    || !isTodoIdentifier(options.planKey) || !isTodoIdentifier(options.taskId)
+    || options.store === null || typeof options.store !== 'object') {
+    throw new TypeError('todo note context read options invalid');
+  }
+  const repoRoot = path.resolve(options.repoRoot);
+  const member = options.store.members?.find(({ descriptor }) => (
+    descriptor.plan_key === options.planKey
+  ));
+  if (member === undefined) fail('NOTE_TASK_NOT_FOUND', 'note_plan_not_active', {
+    plan_key: options.planKey,
+  });
+  const task = member.plan.tasks.find(({ task_id: taskId }) => taskId === options.taskId);
+  if (task === undefined) fail('NOTE_TASK_NOT_FOUND', 'note_task_not_active', {
+    plan_key: options.planKey, task_id: options.taskId,
+  });
+  const chain = await readTodoNoteEvents({ repoRoot, planKey: options.planKey });
+  const migrations = await readNoteMigrations(repoRoot, options.planKey,
+    new Set(chain.events.map(({ plan_version: version }) => version)));
+  return projectTodoNoteContext({
+    projectId: member.plan.project_id,
+    planKey: options.planKey,
+    currentPlanVersion: member.plan.plan_version,
+    currentTaskId: task.task_id,
+    currentTaskIds: member.plan.tasks.map(({ task_id: taskId }) => taskId),
+    events: chain.events,
+    migrations,
   });
 }
