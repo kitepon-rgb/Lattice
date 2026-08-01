@@ -318,9 +318,7 @@
           { "expect": { "kind": "affected", "path": "src/todo-note-store.mjs" }, "query_id": "q-note-store" }
         ]
       },
-      "state_effects": [
-        ".lattice/todo/notes/<plan_key>/active.jsonl"
-      ],
+      "state_effects": [],
       "unknowns": [],
       "writes": [
         "src/todo-cli.mjs",
@@ -331,5 +329,5 @@
       ]
     }
   },
-  "witness_set_digest": "4d73a5a9f701f4849a246bcce6d45e7f9b03e4df95e86d464caa2cafbd940aef"
+  "witness_set_digest": "06f866154429e1dba7adbb459899d9c4e60b89ac9daacb32d744d95e30097b1c"
 }
