@@ -1,0 +1,31 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 5,
+  "task": {
+    "task_id": "ttn-004",
+    "title": "通常ToDo詳細とtodo startへnote contextを自動同梱する",
+    "classification": "F",
+    "effect": "write",
+    "doc_ref": "docs/plan_todo-task-notes.md",
+    "role": "implementer",
+    "lane": "behavior-change",
+    "depends_on": ["ttn-003"],
+    "required_capabilities": ["automatic-context-delivery", "task-detail", "start-result-versioning"],
+    "isolation": "none",
+    "context_policy": {"share_objective": true, "share_current_candidate": true, "share_existing_findings": true, "share_failed_approaches": true, "share_test_results": true},
+    "validation": [
+      "通常の個別ToDo詳細が別途note listなしでnote contextを返す",
+      "todo start成功resultが同じnote contextを必ず返す",
+      "最新note群・来歴・訂正状態・head digest・overflowを欠落させない",
+      "note取得不能を空配列へ丸めない"
+    ],
+    "non_goals": ["Gantt描画", "公開serve"],
+    "known_traps": ["既存mutation result v2へkeyを足すとexact consumerを壊す", "start後にnoteを読むとlifecycleだけ進んだ部分成功になる"],
+    "read_scope": [{"kind": "file", "path": "src/todo-cli.mjs"}, {"kind": "file", "path": "src/todo-note-store.mjs"}, {"kind": "file", "path": "src/todo-status.mjs"}],
+    "write_scope": [{"kind": "file", "path": "src/todo-cli.mjs"}, {"kind": "file", "path": "test/todo-note-auto-context.test.mjs"}, {"kind": "directory", "path": "docs/evidence"}],
+    "approval": null,
+    "alternative_group": null
+  }
+}
