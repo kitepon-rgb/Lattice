@@ -1,0 +1,54 @@
+{
+  "schema": "lattice.todo_witness_set.v2",
+  "project_id": "lattice",
+  "plan_key": "todo-task-notes",
+  "capacity": {
+    "executors": 1
+  },
+  "sensor_query_set": {
+    "queries": [
+      {
+        "id": "q-contracts",
+        "operation": "affected",
+        "target": "src/todo-contracts.mjs"
+      },
+      {
+        "id": "q-status",
+        "operation": "status"
+      }
+    ]
+  },
+  "manual_witness": {
+    "ttn-001": {
+      "affected_tests": [
+        "test/todo-contracts.test.mjs",
+        "test/todo-note-contracts.test.mjs"
+      ],
+      "owns": [
+        {
+          "kind": "path",
+          "target": "src/todo-contracts.mjs"
+        }
+      ],
+      "reads": [],
+      "resources": [],
+      "sensor_provenance": {
+        "queries": [
+          {
+            "expect": {
+              "kind": "affected",
+              "path": "src/todo-contracts.mjs"
+            },
+            "query_id": "q-contracts"
+          }
+        ]
+      },
+      "state_effects": [],
+      "unknowns": [],
+      "writes": [
+        "src/todo-contracts.mjs"
+      ]
+    }
+  },
+  "witness_set_digest": "51b45b3f527b0bf186ce1deca0f45f420067b505c6378071971576cb22154236"
+}

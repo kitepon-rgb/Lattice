@@ -1,0 +1,58 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 1,
+  "task": {
+    "task_id": "ttn-001",
+    "title": "独立note chainとbounded contextの公開契約を固定する",
+    "classification": "F",
+    "effect": "write",
+    "doc_ref": "docs/plan_todo-task-notes.md",
+    "role": "implementer",
+    "lane": "behavior-change",
+    "depends_on": [],
+    "required_capabilities": [
+      "todo-contracts",
+      "journal-separation",
+      "automatic-context-delivery"
+    ],
+    "isolation": "none",
+    "context_policy": {
+      "share_objective": true,
+      "share_current_candidate": true,
+      "share_existing_findings": true,
+      "share_failed_approaches": true,
+      "share_test_results": true
+    },
+    "validation": [
+      "noteは既存lifecycle journal・snapshot・manifestへ混入しない",
+      "通常の個別ToDo詳細とtodo startが別途note listなしでbounded note contextを返す",
+      "note取得不能を空配列へ丸めない"
+    ],
+    "non_goals": [
+      "会話全文を自動保存する",
+      "noteを機械判定やdone evidenceへ使う",
+      "push・publish・deployを行う"
+    ],
+    "known_traps": [
+      "既存TODO_EVENT_KINDSへnoteを足すとlifecycle専有とrotationを壊す",
+      "snapshotへnoteを足すとclosed schemaと8 MiB上限を壊す",
+      "note listの別実行をAIへ要求するとオーナー要求を満たさない"
+    ],
+    "read_scope": [
+      {"kind": "file", "path": "src/todo-contracts.mjs"},
+      {"kind": "file", "path": "src/todo-store.mjs"},
+      {"kind": "file", "path": "src/todo-cli.mjs"},
+      {"kind": "directory", "path": "test"},
+      {"kind": "directory", "path": "docs"}
+    ],
+    "write_scope": [
+      {"kind": "file", "path": "src/todo-contracts.mjs"},
+      {"kind": "directory", "path": "test"},
+      {"kind": "directory", "path": "docs/evidence"}
+    ],
+    "approval": null,
+    "alternative_group": null
+  }
+}
