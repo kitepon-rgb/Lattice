@@ -354,7 +354,7 @@ export function projectTodoNoteContext(options = {}) {
   if (!validateTodoNoteContext(context)) {
     fail('NOTE_PROJECTION_INVALID', 'note_context_invalid');
   }
-  return { context, archived };
+  return { context, archived, history: current };
 }
 
 async function readCanonicalJson(ref, { missing = false } = {}) {

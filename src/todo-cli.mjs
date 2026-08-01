@@ -104,6 +104,11 @@ import {
   parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
   validateTodoRevision, validateTodoRevisionSet,
 } from './todo-revision.mjs';
+import {
+  appendTodoNote,
+  readTodoNoteContext,
+  readTodoNoteEvents,
+} from './todo-note-store.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_REF = '.lattice/generated/gantt.html';
@@ -111,6 +116,7 @@ const GANTT_DESCRIPTOR_SUFFIX = '.status.json';
 const MAX_GANTT_DESCRIPTOR_BYTES = 65_536;
 const DEFAULT_GANTT_SCOPE = 'live';
 const MAX_MIGRATION_INPUT_BYTES = 8_388_608;
+const MAX_NOTE_INPUT_BYTES = 16_384;
 const ACTOR_ENV_KEYS = Object.freeze([
   'LATTICE_TODO_ACTOR_HOST',
   'LATTICE_TODO_ACTOR_SESSION',
@@ -181,6 +187,43 @@ function selectMembers(store, requestedPlanKey) {
     throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active');
   }
   return [member];
+}
+
+function selectNoteTask(member, requestedTaskId) {
+  const exact = member.plan.tasks.find(({ task_id: taskId }) => taskId === requestedTaskId);
+  if (exact !== undefined) return exact;
+  const folded = requestedTaskId.toLowerCase();
+  const matches = member.plan.tasks.filter(({ task_id: taskId }) => taskId.toLowerCase() === folded);
+  if (matches.length !== 1) {
+    throw new TodoStoreError('NOTE_TASK_NOT_FOUND', 'note_task_not_active', undefined, {
+      plan_key: member.plan.plan_key, task_id: requestedTaskId,
+    });
+  }
+  return matches[0];
+}
+
+async function readNoteTextInput(repoRoot, inputRef) {
+  if (!isTodoRef(inputRef)) throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo');
+  const canonicalRoot = await realpath(repoRoot);
+  const absolute = path.resolve(canonicalRoot, inputRef);
+  if (!within(canonicalRoot, absolute) || absolute === canonicalRoot) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo');
+  }
+  let metadata;
+  try { metadata = await lstat(absolute); } catch {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_missing');
+  }
+  if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > MAX_NOTE_INPUT_BYTES) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'unsafe_or_oversized_note_input');
+  }
+  const resolved = await realpath(absolute);
+  if (resolved !== absolute || !within(canonicalRoot, resolved)) {
+    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_alias_or_escape');
+  }
+  const bytes = await readFile(resolved);
+  if (bytes.length > MAX_NOTE_INPUT_BYTES) throw new TodoStoreError('INPUT_TOO_LARGE', 'note_input_too_large');
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch { throw new TodoStoreError('INPUT_UNREADABLE', 'note_input_invalid_utf8'); }
 }
 
 function taskRef(plan, taskId) {
@@ -926,6 +969,66 @@ async function revisePhase({ repoRoot, env, planKey, inputRef }) {
 
 async function status({ repoRoot }) {
   return projectTodoStatus(await readTodoStore({ repoRoot }));
+}
+
+async function appendNote({ repoRoot, env, planKey, taskId, message, inputRef, supersedes }) {
+  const store = await readTodoStore({ repoRoot });
+  const [member] = selectMembers(store, planKey);
+  const task = selectNoteTask(member, taskId);
+  const body = inputRef === null ? message : await readNoteTextInput(repoRoot, inputRef);
+  const event = await appendTodoNote({
+    repoRoot,
+    projectId: store.project_id,
+    planKey,
+    planVersion: member.plan.plan_version,
+    taskId: task.task_id,
+    actor: mutationActor(env),
+    recordedAt: new Date().toISOString(),
+    body,
+    supersedes,
+  });
+  const { context } = await readTodoNoteContext({ repoRoot, store, planKey, taskId: task.task_id });
+  const result = {
+    schema: 'lattice.todo_note_append_result.v1',
+    project_id: store.project_id,
+    plan_key: planKey,
+    task_id: task.task_id,
+    event,
+    note_context: context,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
+async function listNotes({ repoRoot, planKey, taskId }) {
+  const store = await readTodoStore({ repoRoot });
+  const [member] = selectMembers(store, planKey);
+  const chain = await readTodoNoteEvents({ repoRoot, planKey });
+  let notes = chain.events;
+  let archived = [];
+  let resolvedTaskId = null;
+  if (taskId !== null) {
+    const task = selectNoteTask(member, taskId);
+    resolvedTaskId = task.task_id;
+    const projected = await readTodoNoteContext({
+      repoRoot, store, planKey, taskId: task.task_id,
+    });
+    notes = projected.history;
+    archived = projected.archived;
+  }
+  const result = {
+    schema: 'lattice.todo_note_list_result.v1',
+    project_id: store.project_id,
+    plan_key: planKey,
+    requested_task_id: resolvedTaskId,
+    notes,
+    archived,
+    note_head_digest: chain.head_digest,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
 }
 
 async function bindings({ repoRoot, requestedPlanKey }) {
@@ -2020,6 +2123,10 @@ async function ensureActiveProjectDashboard({ repoRoot, env }) {
 async function verify({ repoRoot, requestedPlanKey }) {
   const store = await readTodoStore({ repoRoot });
   const members = selectMembers(store, requestedPlanKey);
+  // note chainはlifecycle storeと独立だが、verifyは両方を検査する。破損を空扱いしない。
+  for (const member of members) {
+    await readTodoNoteEvents({ repoRoot, planKey: member.plan.plan_key });
+  }
   const verifiedSourceInventories = new Map();
   for (const member of members) {
     const unverified = member.tasks.find((task) => task.evidence_unverified);
@@ -2143,6 +2250,26 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && (argv.length === 3 || argv[3] === '--json')) {
     action = (repoRoot) => bindings({ repoRoot, requestedPlanKey: argv[2] });
+  } else if ((argv.length === 7 || argv.length === 9) && argv[0] === 'note'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--task' && isTodoIdentifier(argv[4])
+    && ['--message', '--input'].includes(argv[5])
+    && ((argv[5] === '--message' && argv[6].length > 0)
+      || (argv[5] === '--input' && isTodoRef(argv[6])))
+    && (argv.length === 7 || (argv[7] === '--supersedes' && isTodoDigest(argv[8])))) {
+    action = (repoRoot) => appendNote({
+      repoRoot, env, planKey: argv[2], taskId: argv[4],
+      message: argv[5] === '--message' ? argv[6] : null,
+      inputRef: argv[5] === '--input' ? argv[6] : null,
+      supersedes: argv[8] ?? null,
+    });
+  } else if (argv.length === 5 && argv[0] === 'note' && argv[1] === 'list'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--json') {
+    action = (repoRoot) => listNotes({ repoRoot, planKey: argv[3], taskId: null });
+  } else if (argv.length === 7 && argv[0] === 'note' && argv[1] === 'list'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--task' && isTodoIdentifier(argv[5]) && argv[6] === '--json') {
+    action = (repoRoot) => listNotes({ repoRoot, planKey: argv[3], taskId: argv[5] });
   } else if (argv.length === 5 && argv[0] === 'independence' && argv[1] === 'witness'
     && argv[2] === 'migrate' && argv[3] === '--plan' && isTodoIdentifier(argv[4])) {
     action = (repoRoot) => independenceWitnessMigrate({ repoRoot, planKey: argv[4] });
