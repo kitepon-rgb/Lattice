@@ -1,0 +1,9 @@
+{
+  "evidence_id": "todo-note-public-contract",
+  "repo_id": "self",
+  "path": "src/todo-contracts.mjs",
+  "git_blob_oid": "5b61be2f42d63b5008372283cb41d9ea474523f2",
+  "content_digest": "a771f4b4681f1d50d47369e17e6c8ca8cc114fed425368d11f8101db454314f5",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
