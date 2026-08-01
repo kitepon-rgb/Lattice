@@ -81,7 +81,9 @@
         "test/todo-independence-store.test.mjs",
         "test/todo-independence-witness.test.mjs",
         "test/todo-migration.test.mjs",
+        "test/todo-note-cli.test.mjs",
         "test/todo-note-contracts.test.mjs",
+        "test/todo-note-projection.test.mjs",
         "test/todo-note-store.test.mjs",
         "test/todo-phase-baseline.test.mjs",
         "test/todo-phase-revision-v3.test.mjs",
@@ -122,7 +124,14 @@
     },
     "ttn-002": {
       "affected_tests": [
-        "test/todo-note-store.test.mjs"
+        "test/todo-cli-schema-command.test.mjs",
+        "test/todo-dashboard-registry.test.mjs",
+        "test/todo-explain-diagnostics.test.mjs",
+        "test/todo-independence-cli.test.mjs",
+        "test/todo-note-projection.test.mjs",
+        "test/todo-note-store.test.mjs",
+        "test/todo-phase-baseline.test.mjs",
+        "test/todo-revision-set.test.mjs"
       ],
       "owns": [
         {
@@ -154,7 +163,14 @@
     },
     "ttn-003": {
       "affected_tests": [
-        "test/todo-note-store.test.mjs"
+        "test/todo-cli-schema-command.test.mjs",
+        "test/todo-dashboard-registry.test.mjs",
+        "test/todo-explain-diagnostics.test.mjs",
+        "test/todo-independence-cli.test.mjs",
+        "test/todo-note-projection.test.mjs",
+        "test/todo-note-store.test.mjs",
+        "test/todo-phase-baseline.test.mjs",
+        "test/todo-revision-set.test.mjs"
       ],
       "owns": [
         {
@@ -259,5 +275,5 @@
       ]
     }
   },
-  "witness_set_digest": "4248b3e6940d33a838a72abaaebb5a3e284554337eff319a32faace0b6b6ec6a"
+  "witness_set_digest": "2659c3fea21cef3e4525cf4949427ecc7bc73e2a3145a4102e3ba8e3280663c1"
 }
