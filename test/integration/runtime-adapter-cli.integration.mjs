@@ -4,7 +4,6 @@ import {
   mkdir,
   mkdtemp,
   realpath,
-  rm,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { selfDigest } from '../../src/runtime-contracts.mjs';
+import { registerManagedDaemonFixture } from '../helpers/managed-daemon-fixture.mjs';
 
 // ADR 0125受入。disposable repoで公開CLIだけを使い、adapter未登録の行き止まりが
 // controller起動段階の失敗へ進むことを実測する。
@@ -58,7 +58,7 @@ const managedDaemon = {
 
 test('公開CLIだけでregister後のrun activateはADAPTER_NOT_REGISTEREDを越える', managedDaemon, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-adapter-acceptance-'));
-  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  registerManagedDaemonFixture(t, temporaryRoot);
   const repoRoot = path.join(temporaryRoot, 'repo');
   await mkdir(path.join(repoRoot, 'src'), { recursive: true });
   await mkdir(path.join(repoRoot, 'test'), { recursive: true });

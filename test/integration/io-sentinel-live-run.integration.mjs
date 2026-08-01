@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { selfDigest } from '../../src/runtime-contracts.mjs';
+import { registerManagedDaemonFixture } from '../helpers/managed-daemon-fixture.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = path.join(ROOT, 'bin', 'lattice.mjs');
@@ -55,7 +56,7 @@ const unitTest = (symbol) => `import assert from 'node:assert/strict';\nimport t
 // worktree分離とworkerの非同期化で、実runの走行中に書き込みを観測できることを実測で固定する。
 test('実runで、宣言scope外の書き込みを走行中に観測して警報する', managedDaemon, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-io-sentinel-live-'));
-  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  registerManagedDaemonFixture(t, temporaryRoot);
   const repoRoot = path.join(temporaryRoot, 'repo');
   await mkdir(path.join(repoRoot, 'src'), { recursive: true });
   await writeFile(path.join(repoRoot, '.gitignore'), '.lattice/\n');

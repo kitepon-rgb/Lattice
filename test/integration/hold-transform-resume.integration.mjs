@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 
 import { selfDigest } from '../../src/runtime-contracts.mjs';
+import { registerManagedDaemonFixture } from '../helpers/managed-daemon-fixture.mjs';
 import {
   canonicalizeTodoArtifact, digestTodoArtifact, todoSelfDigest,
 } from '../../src/todo-contracts.mjs';
@@ -161,7 +162,7 @@ function buildPhaseRevision({ projectId, planKey, predecessor, predecessorReconc
 // 着地と再indexを自分で行い、そのあとでseam_split modeの再計画を出す。
 test('双方を止め、変換で生まれた面をそれぞれ所有させて双方を再開する', managedDaemon, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-hold-transform-'));
-  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  registerManagedDaemonFixture(t, temporaryRoot);
   const repoRoot = path.join(temporaryRoot, 'repo');
   await mkdir(path.join(repoRoot, 'src'), { recursive: true });
   await mkdir(path.join(repoRoot, 'test'), { recursive: true });

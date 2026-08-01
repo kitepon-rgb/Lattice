@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 
 import { selfDigest } from '../../src/runtime-contracts.mjs';
+import { registerManagedDaemonFixture } from '../helpers/managed-daemon-fixture.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = path.join(ROOT, 'bin', 'lattice.mjs');
@@ -57,7 +58,7 @@ const unitTest = (symbol) => `import assert from 'node:assert/strict';\nimport t
 // processへ反映しなければ、続けてよいと判定した作業も止まったままになる。
 test('holdで止めた相手を後継epochへ繋ぎ直し、そこで再開する', managedDaemon, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-hold-resume-'));
-  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  registerManagedDaemonFixture(t, temporaryRoot);
   const repoRoot = path.join(temporaryRoot, 'repo');
   await mkdir(path.join(repoRoot, 'src'), { recursive: true });
   await mkdir(path.join(repoRoot, 'test'), { recursive: true });

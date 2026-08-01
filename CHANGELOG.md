@@ -17,6 +17,8 @@
   lifecycleを保持する。単体・Phase・revision setの全入口でmemo無しschemaへの後退を拒否する。
 - **migrate dry-runと移行参照をfail closedにした。** 循環時のnull参照を除き、topologyとstore／I/O障害を
   分離した。登録taskから除外taskへのparent／dependency／join参照はcompile前に位置付きで拒否する。
+- 実daemon integration testの後始末を共通fixture helperへ統一し、停止中workerも起こして
+  SIGTERMからSIGKILLへ上げ、fixture配下の孤児processがゼロであることを各test終了時に検証する。
 - schema、製品契約、現行extraction文書を16,384文字・UTF-8 16,384 bytes、v3、`NO_PLAN`、
   動的viewer一本化へ統一した。誤って受理した旧終端監査証拠は撤回済みとして保持する。
 

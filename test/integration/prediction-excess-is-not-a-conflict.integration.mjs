@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ import test from 'node:test';
 
 import { digestArtifact } from '../../src/artifact-contracts.mjs';
 import { selfDigest } from '../../src/runtime-contracts.mjs';
+import { registerManagedDaemonFixture } from '../helpers/managed-daemon-fixture.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = path.join(ROOT, 'bin', 'lattice.mjs');
@@ -62,7 +63,7 @@ const unitTest = (symbol) => `import assert from 'node:assert/strict';\nimport t
 // 出た2つのfindingが、別々に扱われることでそれが見える。
 test('同じ書き込みでも、1者しか名指さない観測はfreezeへ運べない', managedDaemon, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-prediction-excess-'));
-  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  registerManagedDaemonFixture(t, temporaryRoot);
   const repoRoot = path.join(temporaryRoot, 'repo');
   await mkdir(path.join(repoRoot, 'src'), { recursive: true });
   await mkdir(path.join(repoRoot, 'test'), { recursive: true });
