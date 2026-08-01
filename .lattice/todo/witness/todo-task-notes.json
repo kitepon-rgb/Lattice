@@ -340,7 +340,44 @@
         "src/todo-gantt-html-style.mjs",
         "src/todo-note-store.mjs"
       ]
+    },
+    "ttn-007": {
+      "affected_tests": [
+        "test/todo-cli-schema-command.test.mjs",
+        "test/todo-dashboard-registry.test.mjs",
+        "test/todo-explain-diagnostics.test.mjs",
+        "test/todo-gantt-independence.test.mjs",
+        "test/todo-gantt-render.test.mjs",
+        "test/todo-gantt-selfcontained.test.mjs",
+        "test/todo-independence-cli.test.mjs",
+        "test/todo-note-gantt.test.mjs",
+        "test/todo-note-projection.test.mjs",
+        "test/todo-note-store.test.mjs",
+        "test/todo-phase-baseline.test.mjs",
+        "test/todo-revision-set.test.mjs"
+      ],
+      "owns": [],
+      "reads": [
+        "src/todo-cli.mjs",
+        "src/todo-gantt-html.mjs",
+        "src/todo-gantt-html-independence.mjs",
+        "src/todo-gantt-html-style.mjs",
+        "src/todo-note-store.mjs"
+      ],
+      "resources": [],
+      "sensor_provenance": {
+        "queries": [
+          { "expect": { "kind": "affected", "path": "src/todo-cli.mjs" }, "query_id": "q-cli" },
+          { "expect": { "kind": "affected", "path": "src/todo-gantt-html.mjs" }, "query_id": "q-gantt-html" },
+          { "expect": { "kind": "affected", "path": "src/todo-gantt-html-independence.mjs" }, "query_id": "q-gantt-detail" },
+          { "expect": { "kind": "affected", "path": "src/todo-gantt-html-style.mjs" }, "query_id": "q-gantt-style" },
+          { "expect": { "kind": "affected", "path": "src/todo-note-store.mjs" }, "query_id": "q-note-store" }
+        ]
+      },
+      "state_effects": [],
+      "unknowns": [],
+      "writes": []
     }
   },
-  "witness_set_digest": "34d0927988a637289e2b9a6137559cc8ef84f5a40a72ce2066f81052e0cbca66"
+  "witness_set_digest": "422bbab0382beac55220545e906feb5a938a176bc5b03b8085a6d249c2487a36"
 }
