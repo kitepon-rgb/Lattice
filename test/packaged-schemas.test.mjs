@@ -34,3 +34,17 @@ test('CLIが読むschemaはすべて配布物のfilesへ列挙されている', 
   const missing = [...referenced].filter((ref) => !listed.has(ref)).sort();
   assert.deepEqual(missing, [], `配布物のfilesへ未列挙のschema: ${missing.join(', ')}`);
 });
+
+test('revision公開schemaはruntimeが受理するacquire_phaseを列挙する', async () => {
+  for (const file of [
+    'lattice.todo_revision.v2.schema.json',
+    'lattice.todo_revision_set.v3.schema.json',
+    'lattice.phase_todo_revision.v3.schema.json',
+  ]) {
+    const schema = JSON.parse(await readFile(new URL(`../docs/schemas/${file}`, import.meta.url), 'utf8'));
+    assert.ok(
+      schema.$defs.taskMigrationEntry.properties.state_policy.enum.includes('acquire_phase'),
+      `${file} がruntime受理値acquire_phaseを公開していない`,
+    );
+  }
+});

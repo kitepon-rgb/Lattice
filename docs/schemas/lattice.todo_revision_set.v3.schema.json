@@ -209,7 +209,7 @@
       "properties": {
         "from_task_id": { "$ref": "#/$defs/identifier" },
         "to_task_id": { "oneOf": [{ "const": "removed" }, { "$ref": "#/$defs/identifier" }] },
-        "state_policy": { "enum": ["carry", "carry_reconciled_metadata", "reset_pending", "removed"] }
+        "state_policy": { "enum": ["carry", "carry_reconciled_metadata", "acquire_phase", "reset_pending", "removed"] }
       }
     },
     "phaseMigrationEntry": {

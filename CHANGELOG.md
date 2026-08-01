@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.39.3 — 2026-08-01
+
+### 修正
+
+- **revision公開schemaとruntime validatorの`acquire_phase`契約を一致させた。**
+  `todo revise`、`revise-set`、`revise-phase`が配布する3つのJSON Schemaへruntime受理値を列挙し、
+  AIがschemaを正しく読んだ時だけこの正規policyを生成できない状態を解消した。3面の一致を回帰試験で固定した。
+- **初回activate完了後にsocket応答だけを失った同一requestを二重実行しない。**
+  restart pointerが無い初回daemonでは、durable ledgerのexact completed responseを返す。
+  5.5秒遅延回帰の環境値も対象processだけへ閉じ、並行suiteへ漏らさない。
+
 ## 0.39.2 — 2026-08-01
 
 ### 修正

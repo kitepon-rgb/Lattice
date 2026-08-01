@@ -3313,6 +3313,17 @@ export async function runManagedSupervisorDaemon({
       return buildControlResponse(controlRequest, 'unknown', result,
         journal.at(-1)?.event_digest ?? null);
     }
+    // 初回daemonにはrestart candidate pointerが無い。完了後に元socketの応答だけを失った
+    // 同一requestをpointer recoveryへ流すと、既存activationをもう一度executeしてRUN_BUSYになる。
+    // ledgerのexact request digestへ束縛されたcompleted responseをそのまま返す。
+    if (known?.state === 'completed' && controlRequest.operation === 'activate'
+      && !restarting) {
+      if (known.request_digest !== controlRequest.request_digest) {
+        throw new ManagedRuntimeError('REQUEST_ID_CONFLICT',
+          '同一activate request_idへ異なるrequest digest');
+      }
+      return known.response;
+    }
     if (known !== null && controlRequest.operation === 'activate') {
       const active = await resolveActiveRuntimePaths({ runDir }).catch(() => null);
       if (active?.pointer?.activation_request_id === controlRequest.request_id

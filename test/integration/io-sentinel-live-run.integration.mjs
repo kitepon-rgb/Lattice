@@ -19,16 +19,17 @@ const managedDaemon = {
   skip: process.platform === 'darwin' ? false : 'managed runtime daemon is verified on macOS only',
 };
 
-function invoke(command, args, cwd) {
+function invoke(command, args, cwd, extraEnv = {}) {
   const result = spawnSync(command, args, {
     cwd, encoding: 'utf8', timeout: 120_000,
-    env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1', LATTICE_DASHBOARD_AUTOSTART: '0' },
+    env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1',
+      LATTICE_DASHBOARD_AUTOSTART: '0', ...extraEnv },
   });
   assert.equal(result.error, undefined);
   return result;
 }
 
-const cli = (args, cwd) => invoke(process.execPath, [CLI, ...args], cwd);
+const cli = (args, cwd, extraEnv = {}) => invoke(process.execPath, [CLI, ...args], cwd, extraEnv);
 
 function ok(result, label) {
   assert.equal(result.status, 0, `${label}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
@@ -115,17 +116,10 @@ test('実runで、宣言scope外の書き込みを走行中に観測して警報
 
   // activation socketの5秒timeoutを意図的に越え、同一request_id再照会が二重activateの
   // RUN_BUSYにならず、in-progressを待って元の結果へ収束することも同時に固定する。
-  const previousActivationDelay = process.env.LATTICE_INTERNAL_TEST_ACTIVATION_DELAY_MS;
-  process.env.LATTICE_INTERNAL_TEST_ACTIVATION_DELAY_MS = '5500';
-  t.after(() => {
-    if (previousActivationDelay === undefined) {
-      delete process.env.LATTICE_INTERNAL_TEST_ACTIVATION_DELAY_MS;
-    } else {
-      process.env.LATTICE_INTERNAL_TEST_ACTIVATION_DELAY_MS = previousActivationDelay;
-    }
-  });
   const startedAt = Date.now();
-  ok(cli(['run', 'activate', '--run', runRef], repoRoot), 'run activate');
+  ok(cli(['run', 'activate', '--run', runRef], repoRoot, {
+    NODE_ENV: 'test', LATTICE_INTERNAL_TEST_ACTIVATION_DELAY_MS: '5500',
+  }), 'run activate');
   const activateMs = Date.now() - startedAt;
 
   const runDir = path.join(repoRoot, ...runRef.split('/'));
