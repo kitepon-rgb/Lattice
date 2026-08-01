@@ -96,8 +96,10 @@
         "test/todo-independence-store.test.mjs",
         "test/todo-independence-witness.test.mjs",
         "test/todo-migration.test.mjs",
+        "test/todo-note-auto-context.test.mjs",
         "test/todo-note-cli.test.mjs",
         "test/todo-note-contracts.test.mjs",
+        "test/todo-note-gantt.test.mjs",
         "test/todo-note-projection.test.mjs",
         "test/todo-note-store.test.mjs",
         "test/todo-phase-baseline.test.mjs",
@@ -143,6 +145,7 @@
         "test/todo-dashboard-registry.test.mjs",
         "test/todo-explain-diagnostics.test.mjs",
         "test/todo-independence-cli.test.mjs",
+        "test/todo-note-gantt.test.mjs",
         "test/todo-note-projection.test.mjs",
         "test/todo-note-store.test.mjs",
         "test/todo-phase-baseline.test.mjs",
@@ -182,6 +185,7 @@
         "test/todo-dashboard-registry.test.mjs",
         "test/todo-explain-diagnostics.test.mjs",
         "test/todo-independence-cli.test.mjs",
+        "test/todo-note-gantt.test.mjs",
         "test/todo-note-projection.test.mjs",
         "test/todo-note-store.test.mjs",
         "test/todo-phase-baseline.test.mjs",
@@ -222,6 +226,7 @@
         "test/todo-dashboard-registry.test.mjs",
         "test/todo-explain-diagnostics.test.mjs",
         "test/todo-independence-cli.test.mjs",
+        "test/todo-note-gantt.test.mjs",
         "test/todo-phase-baseline.test.mjs",
         "test/todo-revision-set.test.mjs"
       ],
@@ -259,6 +264,7 @@
         "test/todo-dashboard-registry.test.mjs",
         "test/todo-explain-diagnostics.test.mjs",
         "test/todo-independence-cli.test.mjs",
+        "test/todo-note-gantt.test.mjs",
         "test/todo-phase-baseline.test.mjs",
         "test/todo-revision-set.test.mjs"
       ],
@@ -291,11 +297,18 @@
     },
     "ttn-006": {
       "affected_tests": [
+        "test/todo-cli-schema-command.test.mjs",
+        "test/todo-dashboard-registry.test.mjs",
+        "test/todo-explain-diagnostics.test.mjs",
         "test/todo-gantt-independence.test.mjs",
         "test/todo-gantt-render.test.mjs",
         "test/todo-gantt-selfcontained.test.mjs",
+        "test/todo-independence-cli.test.mjs",
         "test/todo-note-gantt.test.mjs",
-        "test/todo-note-store.test.mjs"
+        "test/todo-note-projection.test.mjs",
+        "test/todo-note-store.test.mjs",
+        "test/todo-phase-baseline.test.mjs",
+        "test/todo-revision-set.test.mjs"
       ],
       "owns": [
         { "kind": "path", "target": "src/todo-cli.mjs" },
@@ -329,5 +342,5 @@
       ]
     }
   },
-  "witness_set_digest": "06f866154429e1dba7adbb459899d9c4e60b89ac9daacb32d744d95e30097b1c"
+  "witness_set_digest": "34d0927988a637289e2b9a6137559cc8ef84f5a40a72ce2066f81052e0cbca66"
 }
