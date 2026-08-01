@@ -16,10 +16,10 @@
 
 - [x] 関連する英日README、公開契約、統合索引、UI仕様、ADR追補、backlog、CHANGELOGを現行実装へ揃える。
 - [x] package versionを0.39.0へ上げ、focused test、pack dry-run、完全CIを通す。
-- [ ] 対象限定commitをmainへpushし、release commit gateを通す。
-- [ ] `@quolu/lattice@0.39.0`をnpmへpublishする。
-- [ ] 公開版をversion pinでglobal installし、bridge／dashboard常駐実体を載せ替える。
-- [ ] CLI、ローカルbridge、公開Lattice／Bingo工程表をsmokeし、evidenceへ固定する。
+- [x] 対象限定commitをmainへpushし、release commit gateを通す。
+- [x] `@quolu/lattice@0.39.0`をnpmへpublishする。
+- [x] 公開版をversion pinでglobal installし、bridge／dashboard常駐実体を載せ替える。
+- [x] CLI、ローカルbridge、公開Lattice／Bingo工程表をsmokeし、evidenceへ固定する。
 
 ## 受入条件
 
