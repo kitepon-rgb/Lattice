@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.40.0 — 2026-08-01
+
+### 変更
+
+- **Claude CodeとCodexへsensor気づかせhookを安全に配線できるようにした。**
+  `lattice hooks install|status|uninstall|emit --host <claude|codex>`を追加し、絶対argvのreceipt完全一致だけを
+  Lattice所有entryとして扱う。foreign entryとmetadataを保持し、Codexのtimeout keyは`timeout`を使う。
+- **端末設定の更新をcrash・競合・復元失敗へ耐えるtransactionにした。** 0600 backup、pending→committed
+  receipt、preimageとinodeの再検証、no-clobber commit、fsync、read-back、復元を実装した。
+  commit後の復元失敗ではbackupとdisplaced preimageを保持し、手動復旧pathをtyped errorへ返す。
+- **通知をPOSIX owner／mode検証済みstateとsession×repoの7日窓へ閉じた。** git repoに`.lattice/sensor/`がある時だけ
+  Claudeのplain INFOまたはCodexの`hookSpecificOutput`を出し、`LATTICE_HOOKS=off`ではstateを作らない。
+  CLI・transaction・通知・実shell往復を46件のhermetic testで固定した。
+
 ## 0.39.3 — 2026-08-01
 
 ### 修正
