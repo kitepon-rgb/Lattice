@@ -1,0 +1,26 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 8,
+  "task": {
+    "task_id": "ttn-007-remediation",
+    "title": "最終反証で実在したnote投影・公開配信欠陥を是正する",
+    "classification": "F",
+    "effect": "write",
+    "doc_ref": "docs/plan_todo-task-notes.md",
+    "role": "implementer",
+    "lane": "behavior-change",
+    "depends_on": ["ttn-006"],
+    "required_capabilities": ["revision-projection", "supersede-authorization", "serve-redaction"],
+    "isolation": "none",
+    "context_policy": {"share_objective": true, "share_current_candidate": true, "share_existing_findings": true, "share_failed_approaches": true, "share_test_results": true},
+    "validation": ["task ID再利用で別論理taskを訂正できない", "removed sentinelをarchivedへ投影する", "破損Gantt詳細を記録なしと表示しない", "全公開Gantt経路でnote本文を除外する"],
+    "non_goals": ["stale lock回復機構", "note schema拡張"],
+    "known_traps": ["raw task_id一致を論理task同一性に使わない", "revisionのremoved sentinelを通常IDとして扱わない", "公開呼出側ごとにincludeNotes指定を複製しない"],
+    "read_scope": [{"kind": "file", "path": "src/todo-note-store.mjs"}, {"kind": "file", "path": "src/todo-cli.mjs"}, {"kind": "file", "path": "src/todo-gantt-html-independence.mjs"}, {"kind": "file", "path": "bin/lattice-dashboard.mjs"}],
+    "write_scope": [{"kind": "directory", "path": "src"}, {"kind": "directory", "path": "bin"}, {"kind": "directory", "path": "test"}, {"kind": "directory", "path": "docs"}],
+    "approval": null,
+    "alternative_group": null
+  }
+}
