@@ -57,6 +57,21 @@ OQ2は保留を維持しつつ発火条件を「`multiple_incomparable_candidate
 自動導出でなく宣言とした——実装は下記`creation-boundary`工程が持つ。
 測定中に判定反転の欠陥を1件見つけて修理した（[実行記録](evidence/2026-07-27-bk-005-open-question-readjudication.md)）。
 
+### 6. sensor気づかせ導線のinstall契約新設
+
+旧Codegraphはinstall時にUserPromptSubmit hook（`codegraph prompt-hook`）を配線し、AIへsensorの存在を
+気づかせていた。Codegraph吸収時にsensor本体（`lattice-mcp`）と工程表のSessionStart hookは継承したが、
+この導線だけは契約化も退役処理もされず、dotagents側の端末で死に配線として発見された。そのため、
+Spotterを導入していないLattice単体ユーザーにはsensorへの気づき導線が無い。
+
+**裁定済み（2026-08-01・オーナー裁定）。** Latticeがinstall時に自前の導線を配る。参照モデルは
+製品自身がhookを所有・管理するSpotter方式とし、`lattice hooks install --host claude|codex`が導線hookと
+permissions断片を端末settingsへ冪等マージし、`lattice hooks status`で検証できる契約を候補とする。
+Spotter併載端末で提案が二重になることは許容し、住み分け設計は行わない。契約の正典は
+`docs/01_integration-package.md`に置く。dotagents側のonboardingとverify-installの追従はdotagents側waveが
+所有し、本課題の範囲外とする。campaign級なので、着手時に専用planを起こし、backlogのToDoはその起票を
+もって完了とする。
+
 ## 工程
 
 工程の状態・依存・完了証拠はLattice storeの`backlog` planが正本。以下は対応表である。
@@ -66,6 +81,7 @@ OQ2は保留を維持しつつ発火条件を「`multiple_incomparable_candidate
 - [x] seam evidence receiptの複数path解決を裁定する
 - [x] bridge daemonのdescriptor読み取りへretryを入れる
 - [x] ADR 0132 Open questions 2〜4を再裁定する
+- [ ] sensor気づかせ導線のinstall契約を専用campaignとして起票する
 
 ## 導線
 
