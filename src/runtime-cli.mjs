@@ -2287,6 +2287,11 @@ export async function runManagedSupervisorDaemon({
         }
         activation = await activateController({ repoRoot, runId: request.request_id,
           adapterKind: legacyMeta.executor_adapter });
+        const activationDelayMs = process.env.NODE_ENV === 'test'
+          ? Number(process.env.LATTICE_INTERNAL_TEST_ACTIVATION_DELAY_MS ?? 0) : 0;
+        if (Number.isSafeInteger(activationDelayMs) && activationDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, activationDelayMs));
+        }
         if (process.env.NODE_ENV === 'test'
           && process.env.LATTICE_INTERNAL_TEST_CONTROLLER_COUNT === '2') {
           additionalActivations = [await activateController({ repoRoot, runId: request.request_id,
@@ -3292,6 +3297,21 @@ export async function runManagedSupervisorDaemon({
         sessionRecoveryResponse = known.response;
         known = { ...known, state: 'in_progress', response: null };
       }
+    }
+    // 初回activateがsocket timeoutを超えても、同一request_idの再照会を二重activateとして
+    // 実行しない。初回daemon（run_meta.v1）に残るin_progressは、activation代入前後のどちらでも
+    // 同じ処理がまだ走っている状態なのでunknownを返す。daemon再起動後（run_meta.v2）の
+    // in_progressだけは、直後のrecovery分岐がdurable ledgerから処理を再開する。
+    if (known?.state === 'in_progress' && controlRequest.operation === 'activate'
+      && !restarting) {
+      const events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events').catch(() => []);
+      const journal = await eventStore.readEvents();
+      const result = buildControlResult({ operation: controlRequest.operation, outcome: 'unknown',
+        eventHeadDigest: events.at(-1)?.event_digest ?? null,
+        controlHeadDigest: journal.at(-1)?.event_digest ?? null, activeEpoch: 1,
+        unmet: ['RUN_OUTCOME_UNKNOWN', '同一request_idのactivateはまだ処理中'] });
+      return buildControlResponse(controlRequest, 'unknown', result,
+        journal.at(-1)?.event_digest ?? null);
     }
     if (known !== null && controlRequest.operation === 'activate') {
       const active = await resolveActiveRuntimePaths({ runDir }).catch(() => null);

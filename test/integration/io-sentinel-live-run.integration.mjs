@@ -113,6 +113,17 @@ test('実runで、宣言scope外の書き込みを走行中に観測して警報
   ok(cli(['run', 'adapter', 'register', '--input', path.join(temporaryRoot, 'adapter.json')],
     repoRoot), 'adapter register');
 
+  // activation socketの5秒timeoutを意図的に越え、同一request_id再照会が二重activateの
+  // RUN_BUSYにならず、in-progressを待って元の結果へ収束することも同時に固定する。
+  const previousActivationDelay = process.env.LATTICE_INTERNAL_TEST_ACTIVATION_DELAY_MS;
+  process.env.LATTICE_INTERNAL_TEST_ACTIVATION_DELAY_MS = '5500';
+  t.after(() => {
+    if (previousActivationDelay === undefined) {
+      delete process.env.LATTICE_INTERNAL_TEST_ACTIVATION_DELAY_MS;
+    } else {
+      process.env.LATTICE_INTERNAL_TEST_ACTIVATION_DELAY_MS = previousActivationDelay;
+    }
+  });
   const startedAt = Date.now();
   ok(cli(['run', 'activate', '--run', runRef], repoRoot), 'run activate');
   const activateMs = Date.now() - startedAt;

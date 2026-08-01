@@ -485,6 +485,31 @@ test('既存design_memo変更は通常carryを拒否し明示reconcileだけがs
   'carry_reconciled_metadata');
 });
 
+test('通常revisionのacquire_phaseも既存design_memoの黙った置換を拒否する', async (context) => {
+  const root = await fixture(context);
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await apply(root, await revisionFor(root, { planSchema: 'lattice.todo_plan.v6' }));
+
+  const changed = await revisionFor(root, {
+    planSchema: 'lattice.todo_plan.v6',
+    designMemoByTask: { T1: '## 改訂方針\n\nacquire_phase経路から本文を更新する。' },
+    migrationPolicies: { T1: 'acquire_phase' },
+  });
+  await assert.rejects(apply(root, changed), (error) => error instanceof TodoStoreError
+    && error.code === 'REVISION_INVALID' && error.detail.reason === 'carry_semantics_changed');
+
+  const unchanged = await revisionFor(root, {
+    planSchema: 'lattice.todo_plan.v6', migrationPolicies: { T1: 'acquire_phase' },
+  });
+  await apply(root, unchanged);
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  assert.equal(member.tasks.find(({ task_id }) => task_id === 'T1').status, 'in-progress');
+  assert.equal(member.journal.events[0].state_migration
+    .find(({ from_task_id }) => from_task_id === 'T1').state_policy, 'acquire_phase');
+});
+
 test('設計メモを持つplanからmemo無しschemaへの後退はrevision入口でtyped拒否する', async (context) => {
   const root = await fixture(context);
   await apply(root, await revisionFor(root, { planSchema: 'lattice.todo_plan.v6' }));

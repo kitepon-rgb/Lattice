@@ -2110,8 +2110,13 @@ function stateMigrationFor(previous, revision) {
       if (revision.schema === 'lattice.phase_todo_revision.v3') {
         validateAcquirePhaseCarry(previous, revision, migration, idMap);
       } else {
-        const before = taskSemantics(previous.plan, migration.from_task_id, idMap, {});
-        const after = taskSemantics(revision.desired_plan, migration.to_task_id, new Map(), {});
+        const predecessorTask = previous.plan.tasks
+          .find(({ task_id }) => task_id === migration.from_task_id);
+        const includeDesignMemo = typeof predecessorTask?.design_memo === 'string';
+        const before = taskSemantics(previous.plan, migration.from_task_id, idMap,
+          { includeDesignMemo });
+        const after = taskSemantics(revision.desired_plan, migration.to_task_id, new Map(),
+          { includeDesignMemo });
         if (canonicalizeTodoArtifact(before) !== canonicalizeTodoArtifact(after)) {
           fail('REVISION_INVALID', 'carry_semantics_changed', { from_task_id: migration.from_task_id });
         }

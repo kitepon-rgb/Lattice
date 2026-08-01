@@ -262,7 +262,8 @@ phase eventを一度も持たないPhaseをまとめて宣言し、除外・対�
 phase無しで作ったplanへ後からPhaseを被せる救済経路は、`revise-phase`の
 `state_policy: acquire_phase`が所有する。未割当（`phase_id`なし）→割当の向きだけを許し、
 既にphaseを持つtaskの付け替えは拒否する。設計メモをまだ持たないlegacy taskが初めて
-`design_memo`を獲得する時だけ通常`carry`を許す。一度メモを持ったtaskの本文変更は通常`carry`で拒否し、
+`design_memo`を獲得する時だけ通常`carry`を許す。一度メモを持ったtaskの本文変更は、通常`carry`だけでなく
+互換入力された`acquire_phase`でも拒否し、
 明示`carry_reconciled_metadata`だけがstateを保持して変更できる。そのpolicyは後継genesisの
 `state_migration`へ記録する。v6／v7から設計メモを持たないschemaへの後退は、単体・Phase・revision setの
 全activation入口で拒否する。

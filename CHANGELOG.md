@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.39.2 — 2026-08-01
+
+### 修正
+
+- **通常revisionへ互換入力された`acquire_phase`でも、既存設計メモの黙った置換を拒否する。**
+  `carry`と同じ意味論比較に既存`design_memo`を含め、本文を変える場合は
+  `carry_reconciled_metadata`の明示とjournal記録を必須にした。独立終端再監査が見つけた
+  v0.39.1の残存経路であり、回帰試験を追加してpatch releaseした。
+- **長い初回activateの同一request再照会を二重実行しない。** 5秒のsocket timeout後も
+  durable ledgerの`in_progress`を`unknown`として待ち、同じdaemonへ二重activateして
+  `RUN_BUSY`にする負荷時競合を解消した。5.5秒の決定的回帰で固定した。
+
 ## 0.39.1 — 2026-08-01
 
 ### 修正
