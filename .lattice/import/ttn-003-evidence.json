@@ -1,0 +1,9 @@
+{
+  "evidence_id": "todo-note-revision-projection",
+  "repo_id": "self",
+  "path": "src/todo-note-store.mjs",
+  "git_blob_oid": "0edcfbe21b58f9df9a1195e2b912e0556fd518cc",
+  "content_digest": "2482b7ec23714d7cd336d67d431831130810871f388a9ead5c51127c39e21506",
+  "media_type": "text/javascript",
+  "anchor_digest": null
+}
