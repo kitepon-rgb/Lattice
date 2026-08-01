@@ -1,0 +1,174 @@
+{
+  "schema": "lattice.todo_extraction.v3",
+  "project_id": "lattice",
+  "plan_key": "ai-safe-terminal-audit-fixes",
+  "plan_version": "v1",
+  "actor": {
+    "host": "kaito-macbook-air",
+    "session": "codex-final-audit-20260801",
+    "agent": "bell-codex"
+  },
+  "recorded_at": "2026-08-01T11:03:30.000Z",
+  "tasks": [
+    {
+      "task_id": "audit-01-phase-visibility-retention",
+      "title": "監査未受理工程を図と公開dashboardに残す",
+      "lane": "dashboard",
+      "design_memo": "## 背景\n全ToDoがdoneでも終端監査がgate_readyまたはreviewingなら工程は完了していない。現状はv7をfold対象から除外せず、暗黙terminal-auditをPhase進捗にも出さず、active taskが無いprojectをTTL後に配信対象から外すため、未受理工程が完走済みに見える。\n\n## 実装方針\n- v7の監査待ちtaskをlive graphへ固定する。\n- member.phasesを正本に、暗黙terminal-auditを含むPhase状態・理由・次の一手を公開画面へ表示する。\n- gate_ready/reviewing/rejectedを配信継続条件へ加え、closed_unauditedは決着済みとして扱う。\n- 同一ページで展開できる時は二台目serverの起動を案内しない。\n\n## 受入条件\n全ToDo doneかつ監査未受理のv6/v7 planが図とPhase進捗に残り、TTL判定でも消えないfocused testが通る。",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring_terminal-audit.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring_terminal-audit.md",
+        "origin_line": 68,
+        "source_commit": "e7576efc3e04595fdf3fd0332d89d48c7fd0b5b0",
+        "heading_path": ["受入ゲート"],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": ["独立Find D1/D5/D6/D7/D8を統合"]
+      }
+    },
+    {
+      "task_id": "audit-02-cli-diagnostics-recovery",
+      "title": "authoringとdashboardの診断・復旧導線を構造化する",
+      "lane": "cli",
+      "design_memo": "## 背景\nPROJECT_ROOT_CONFLICTが内部失敗へ化け、唯一の復旧入口dashboard adoptはhelpとCLI surface gateから欠落している。plan createのschema違反とdesign_memoのbyte超過も、pointer・expected・actualを持たない誤診断になる。廃止したstatic ganttのcatch-allはserveの引数誤りまで退役扱いし、動的viewerへ誘導しない。\n\n## 実装方針\n- root conflictのcode/detail/安全なnext_actionをwrapperとstatusで保持する。\n- dashboard adoptとgantt serveのhelp・surface verifier・CLI testを追加する。\n- design_memoを内容非露出のtype/blank/byte/control診断へ分解し、plan createとmigrate dry-runへpointer付きdetailを返す。\n- gantt serveの不正引数はINVALID_ARGUMENTS、static ganttは動的serveをnext_actionにし、拒否前にdaemonを起動しない。\n- 古いschema版はreference-onlyと明示し、既定版表記と製品契約を現行v4/v7へ揃える。\n\n## 受入条件\n各負例がtyped code、pointer、期待値、実値、復旧コマンドを返し、help/surface gateが新入口を実行到達まで検査する。",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring_terminal-audit.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring_terminal-audit.md",
+        "origin_line": 70,
+        "source_commit": "e7576efc3e04595fdf3fd0332d89d48c7fd0b5b0",
+        "heading_path": ["受入ゲート"],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": ["独立Find C1-C8、D2-D4、M4-M6を統合"]
+      }
+    },
+    {
+      "task_id": "audit-03-migration-integrity-carry",
+      "title": "設計メモ追加時のstate carryとmigration負例を修正する",
+      "lane": "store",
+      "design_memo": "## 背景\n既存Phase planへdesign_memoを追加するとcarry semanticsが本文差分まで同一性へ含めるためlifecycleを保持できない。migrate dry-runは循環時にplannedPlanだけ残してdispatchShapeのnullを参照し、除外taskを親に持つ登録taskはvalidationを通過してbuild時にTypeErrorになる。\n\n## 実装方針\n- design_memoはidentity/topologyではなく更新対象本文としてcarry比較から除外し、状態・依存・Phase割当の不変条件は維持する。\n- planとdispatch shapeを両方作れた時だけplanned結果を公開する。\n- 登録taskのparent/dependency/joinが除外taskを参照する入力をcompile前にtyped violationとして拒否する。\n\n## 受入条件\nv5からv7へのmemo追加とv7 memo更新でstate carryが成功し、循環・除外親のdry-runがcrashせず具体的violationを返す。",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring_terminal-audit.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring_terminal-audit.md",
+        "origin_line": 71,
+        "source_commit": "e7576efc3e04595fdf3fd0332d89d48c7fd0b5b0",
+        "heading_path": ["受入ゲート"],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": ["独立Find M1-M3を統合"]
+      }
+    },
+    {
+      "task_id": "audit-04-regression-docs",
+      "title": "監査所見・回帰試験・製品契約を一致させる",
+      "lane": "verification",
+      "design_memo": "## 背景\n修正だけでは、元指摘が黙って消えたか、棄却理由が妥当か、公開契約が実装と一致したかを後から検証できない。\n\n## 実装方針\nFindの全指摘をDedup IDへ写像し、Verifyで確認・部分確認・棄却を証拠付きで固定する。各修正のfocused test後に関連testとnpm run ciを一度だけ通し、製品契約・CHANGELOG・versionを実装へ揃える。\n\n## 受入条件\n全raw findingに行き先があり、確認済み所見はtestで固定され、棄却は反証を持ち、完全gateがgreenになる。",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring_terminal-audit.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring_terminal-audit.md",
+        "origin_line": 73,
+        "source_commit": "e7576efc3e04595fdf3fd0332d89d48c7fd0b5b0",
+        "heading_path": ["受入ゲート"],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": "audit-01から03の修正完了後",
+        "evidence_refs": [],
+        "notes": ["Find-Dedup-Verify-Criticの全裁定を保存"]
+      }
+    },
+    {
+      "task_id": "audit-05-release-terminal-reaudit",
+      "title": "公開releaseと再監査を終えてから工程を閉じる",
+      "lane": "release",
+      "design_memo": "## 背景\nrepo内greenだけでは利用面へ届いていない。以前は既存証拠の再掲を終端監査と誤称して受理した。\n\n## 実装方針\n修正commitをmainへpushし、npm publish、利用環境へのnpm install、daemon再起動、公開Lattice/Bingo smokeを実施する。公開面で設計メモ、監査待ちPhase、復旧helpを確認し、Criticを含む新証拠commitを作る。そのimmutable commitを入力にterminal reviewを再実行し、成功条件が揃った場合だけ元planと本planをacceptする。\n\n## 受入条件\n公開versionが更新され、公開URLとinstall済みCLIのsmokeがgreenで、再監査に未解消の契約重大findingが無く、証拠commitから全結果を再現できる。",
+      "narrative_ref": "docs/plan_ai-safe-todo-authoring_terminal-audit.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_ai-safe-todo-authoring_terminal-audit.md",
+        "origin_line": 76,
+        "source_commit": "e7576efc3e04595fdf3fd0332d89d48c7fd0b5b0",
+        "heading_path": ["受入ゲート"],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": "回帰試験と証拠固定が完了していること",
+        "evidence_refs": [],
+        "notes": ["既存証拠の再掲ではなく新しい公開smokeを取る"]
+      }
+    }
+  ],
+  "hard_dependencies": [
+    {
+      "from": { "project_id": "lattice", "plan_key": "ai-safe-terminal-audit-fixes", "task_id": "audit-01-phase-visibility-retention" },
+      "to": { "project_id": "lattice", "plan_key": "ai-safe-terminal-audit-fixes", "task_id": "audit-04-regression-docs" }
+    },
+    {
+      "from": { "project_id": "lattice", "plan_key": "ai-safe-terminal-audit-fixes", "task_id": "audit-02-cli-diagnostics-recovery" },
+      "to": { "project_id": "lattice", "plan_key": "ai-safe-terminal-audit-fixes", "task_id": "audit-04-regression-docs" }
+    },
+    {
+      "from": { "project_id": "lattice", "plan_key": "ai-safe-terminal-audit-fixes", "task_id": "audit-03-migration-integrity-carry" },
+      "to": { "project_id": "lattice", "plan_key": "ai-safe-terminal-audit-fixes", "task_id": "audit-04-regression-docs" }
+    },
+    {
+      "from": { "project_id": "lattice", "plan_key": "ai-safe-terminal-audit-fixes", "task_id": "audit-04-regression-docs" },
+      "to": { "project_id": "lattice", "plan_key": "ai-safe-terminal-audit-fixes", "task_id": "audit-05-release-terminal-reaudit" }
+    }
+  ],
+  "joins": [],
+  "extraction_digest": "23b94ebec388acb8fe855288c9ad386d2a35ade0efff08b8db00584142f7fd6c"
+}
