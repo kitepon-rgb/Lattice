@@ -144,6 +144,15 @@ test('ADR 0148: closed_unauditedはAUDIT_PENDING_PHASE_STATUSESに含まれず�
       `phase_status=${phaseStatus}は監査待ちのまま図から消えてはいけない`);
   }
 
+  for (const schema of ['lattice.todo_plan.v6', 'lattice.todo_plan.v7']) {
+    const nodes = baseNodes('gate_ready').map((node, index) => (
+      index === 0 ? { ...node, plan_schema: schema } : node
+    ));
+    const result = projectTodoGanttScope({ nodes, edges, wave });
+    assert.equal(result.foldedKeys.has('f1'), false,
+      `${schema}の暗黙終端監査待ちも図から消えてはいけない`);
+  }
+
   const closedResult = projectTodoGanttScope({ nodes: baseNodes('closed_unaudited'), edges, wave });
   assert.equal(closedResult.foldedKeys.has('f1'), true,
     'closed_unauditedは監査待ちではないので通常どおり畳まれる(ADR 0148裁定4)');

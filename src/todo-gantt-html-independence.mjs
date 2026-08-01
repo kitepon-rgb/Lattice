@@ -95,7 +95,7 @@ export function renderIndependenceNote(ref, node, summary) {
 }
 
 export function renderRightPane(
-  sections, layout, presentation, readModel, notesEnabled = false, noteWarnings = [],
+  sections, layout, presentation, readModel, notesEnabled = false, noteWarnings = [], expandable = false,
 ) {
   const lookup = presentationLookup(presentation);
   const sectionByKey = new Map(sections.map((section) => [refKey(section.ref), section]));
@@ -160,7 +160,9 @@ export function renderRightPane(
     const independenceNote = renderIndependenceNote(section.ref, node, independenceSummary);
     // Say it plainly when the reader will not find this ToDo on the diagram.
     const foldedNote = !folds.has(key) ? ''
-      : '<p class="fold-note">完走済みのため図には描いていません。図に出すには動的dashboardを <code>lattice todo gantt serve --port &lt;port&gt; --scope all</code> で起動してください。</p>';
+      : expandable
+        ? '<p class="fold-note">完走済みのため既定の図には描いていません。左上の「完走済み」バッジを押すと、このページ内で表示できます。</p>'
+        : '<p class="fold-note">完走済みのため図には描いていません。図に出すには動的dashboardを <code>lattice todo gantt serve --port &lt;port&gt; --scope all</code> で起動してください。</p>';
     const workLog = notesEnabled ? renderNoteContext(section.noteContext) : '';
     const designMemo = renderDesignMemo(section.task);
     return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}${independenceNote}${foldedNote}${designMemo}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。', folds)}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。', folds)}</section>${workLog}<p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;

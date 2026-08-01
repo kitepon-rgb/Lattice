@@ -140,6 +140,10 @@ test('非表示バッジを押すと外した工程も含む図へ切り替わ�
   assert.equal((expanded.match(/data-node-key=/gu) ?? []).length, 4, '展開図は全工程を描く');
   assert.doesNotMatch(live, /data-task-id="T0000"/u);
   assert.match(expanded, /data-task-id="T0000"/u);
+  const foldedDetail = detailPanelOf(html, 'T0001');
+  assert.match(foldedDetail, /このページ内で表示できます/u);
+  assert.doesNotMatch(foldedDetail, /gantt serve/u,
+    '展開図を同梱した動的viewerから二台目serverへ誘導しない');
 });
 
 test('外した工程が無ければ切り替えboxもbuttonも出さない', () => {
@@ -208,6 +212,32 @@ test('決着済みPhaseは概要の先頭を占領しない', () => {
   // 進行中のPhaseは畳まず、畳んだ群より前に置く。
   assert.ok(overview.indexOf('進行中の実装') < settledStart);
   assert.ok(overview.indexOf('受理済みの重監査') > settledStart);
+});
+
+test('暗黙terminal-auditをderived phaseから表示し理由と次の一歩を示す', () => {
+  const read = readFixture(2);
+  const member = read.members[0];
+  member.plan.schema = 'lattice.todo_plan.v6';
+  member.plan.plan_key = 'audit-plan';
+  member.plan.tasks = member.plan.tasks.map((task) => ({ ...task, design_memo: '実装方針' }));
+  member.tasks = member.tasks.map((task) => ({ ...task, status: 'done' }));
+  member.phases = [{ phase_id: 'terminal-audit', status: 'gate_ready' }];
+  const { html } = renderFixture(read);
+  assert.match(html, /終端監査（暗黙）/u);
+  assert.match(html, /全ToDoは完了していますが、終端監査がまだ受理されていません/u);
+  assert.match(html, /lattice todo phase review --plan audit-plan --phase terminal-audit/u);
+});
+
+test('Phase metadataとderived stateが不一致でもderived phaseを正本に描く', () => {
+  const read = readFixture(1);
+  const member = read.members[0];
+  member.plan.schema = 'lattice.todo_plan.v5';
+  member.plan.phases = [{ phase_id: 'metadata-only', title: '古いmetadata', gate_policy: 'heavy' }];
+  member.phases = [{ phase_id: 'derived-only', status: 'reviewing' }];
+  const { html } = renderFixture(read);
+  assert.match(html, /derived-only/u);
+  assert.match(html, /終端監査を実施中です/u);
+  assert.doesNotMatch(html, /古いmetadata/u);
 });
 
 test('v5 GanttはPhaseを通常ToDoのschedule gateとして説明しない', () => {
@@ -758,4 +788,17 @@ test('aggregate prose limit accepts N-1/N and rejects N+1', { timeout: 15_000 },
     (error) => error instanceof TodoGanttRenderError && error.code === 'TODO_SCALE_EXCEEDED'
       && error.detail.prose_bytes === TODO_GANTT_PROSE_MAX_BYTES + 1);
   assert.equal(oneSection.length, TODO_MARKDOWN_SECTION_MAX_BYTES);
+});
+
+test('design_memoもaggregate prose limitへ計上する', { timeout: 15_000 }, () => {
+  const read = readFixture(33);
+  const section = 'a'.repeat(TODO_MARKDOWN_SECTION_MAX_BYTES);
+  read.members[0].plan.tasks = read.members[0].plan.tasks.map((task, index) => (
+    index < 32 ? { ...task, design_memo: section } : task
+  ));
+  assert.equal(renderFixture(read).prose_bytes, TODO_GANTT_PROSE_MAX_BYTES);
+  read.members[0].plan.tasks[32].design_memo = 'a';
+  assert.throws(() => renderFixture(read),
+    (error) => error instanceof TodoGanttRenderError && error.code === 'TODO_SCALE_EXCEEDED'
+      && error.detail.prose_bytes === TODO_GANTT_PROSE_MAX_BYTES + 1);
 });

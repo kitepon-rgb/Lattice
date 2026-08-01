@@ -8,6 +8,7 @@ import { projectTodoStatus } from '../src/todo-status.mjs';
 import { ganttLiveHeadDigest, renderPublicTodoGanttForProject } from '../src/todo-cli.mjs';
 import {
   readVisibleTodoDashboardProjects,
+  todoDashboardMemberNeedsVisibility,
   writeTodoDashboardDaemonDescriptor,
 } from '../src/todo-dashboard-registry.mjs';
 import {
@@ -58,7 +59,9 @@ async function synchronize() {
   const active = await readVisibleTodoDashboardProjects({ env,
     projectHasActiveRun: async (entry) => {
       try {
-        const active = projectTodoStatus(await readCachedStore(entry.repo_root)).active_set.length > 0;
+        const store = await readCachedStore(entry.repo_root);
+        const active = projectTodoStatus(store).active_set.length > 0
+          || store.members.some(todoDashboardMemberNeedsVisibility);
         reportedStoreReadFailures.delete(entry.project_id);
         return active;
       } catch (error) {

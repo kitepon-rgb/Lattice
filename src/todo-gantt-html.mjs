@@ -56,6 +56,14 @@ function normalizeSections(readModel, narratives, anchorOutcomes, noteContexts) 
       const narrative = supplied.get(refKey(ref));
       const markdown = narrative?.markdown ?? '';
       const narrativeRef = narrative?.narrative_ref ?? task.narrative_ref;
+      if (typeof task.design_memo === 'string') {
+        proseBytes += Buffer.byteLength(task.design_memo, 'utf8');
+        if (proseBytes > TODO_GANTT_PROSE_MAX_BYTES) {
+          throw new TodoGanttRenderError('TODO_SCALE_EXCEEDED', 'todo gantt embedded prose limit exceeded', {
+            prose_bytes: proseBytes, prose_limit: TODO_GANTT_PROSE_MAX_BYTES,
+          });
+        }
+      }
       // ToDos that share one narrative document count its bytes once.
       const documentKey = narrativeRef === null
         ? refKey(ref) : JSON.stringify([member.plan.plan_key, narrativeRef, digest(markdown)]);
@@ -175,6 +183,7 @@ export function renderTodoGanttHtml({
     : `<div data-diagram="live">${svg}</div><div data-diagram="expanded" hidden>${expandedSvg}</div>`;
   const rightPane = renderRightPane(
     normalized.sections, layout, presentation, readModel, noteContexts !== null, noteWarnings,
+    expandedSvg !== '',
   );
   const staticData = serializeJsonForScript({
     renderer_version: TODO_GANTT_RENDERER_VERSION,

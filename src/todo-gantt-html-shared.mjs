@@ -110,22 +110,46 @@ export function renderRelationList(relations, sectionByKey, lookup, emptyText, f
 }
 
 /** Phase states that are over: nothing is dispatched or judged under them again. */
-export const SETTLED_PHASE_STATUS = Object.freeze(['accepted', 'rejected']);
+export const SETTLED_PHASE_STATUS = Object.freeze(['accepted', 'closed_unaudited']);
+
+function phaseGuidance(planKey, phase) {
+  if (phase.status === 'gate_ready') return {
+    reason: '全ToDoは完了していますが、終端監査がまだ受理されていません。',
+    next: `lattice todo phase review --plan ${planKey} --phase ${phase.phase_id} --reason <text>`,
+  };
+  if (phase.status === 'reviewing') return {
+    reason: '終端監査を実施中です。受理または棄却の判断がまだ記録されていません。',
+    next: `lattice todo phase accept --plan ${planKey} --phase ${phase.phase_id} --input <file>`,
+  };
+  if (phase.status === 'rejected') return {
+    reason: '終端監査で棄却され、修正または再監査が必要です。',
+    next: `lattice todo phase reopen --plan ${planKey} --phase ${phase.phase_id} --reason <text>`,
+  };
+  return null;
+}
 
 export function renderPhaseProgress(readModel) {
   const rows = [];
   const settledRows = [];
   for (const member of readModel.members) {
-    if (!['lattice.todo_plan.v4', 'lattice.todo_plan.v5', 'lattice.todo_plan.v7']
-      .includes(member.plan.schema)) continue;
-    // snapshot artifactの形式には縛られない導出ビュー(member.phases)を読む(ADR 0147)。
-    const phases = new Map(member.phases.map((phase) => [phase.phase_id, phase]));
-    for (const phase of member.plan.phases) {
-      const tasks = member.plan.tasks.filter((task) => task.phase_id === phase.phase_id);
+    // snapshot artifactの形式には縛られない導出ビュー(member.phases)を正本にする(ADR 0147)。
+    // plan.phasesは表示metadataだけを補い、暗黙terminal-auditやmetadata欠落を落とさない。
+    const metadata = new Map((member.plan.phases ?? []).map((phase) => [phase.phase_id, phase]));
+    for (const state of member.phases ?? []) {
+      const phase = metadata.get(state.phase_id) ?? {
+        phase_id: state.phase_id,
+        title: state.phase_id === 'terminal-audit' ? '終端監査（暗黙）' : state.phase_id,
+        gate_policy: 'heavy',
+      };
+      const tasks = metadata.has(state.phase_id)
+        ? member.plan.tasks.filter((task) => task.phase_id === state.phase_id)
+        : member.plan.tasks;
       const states = new Map(member.tasks.map((task) => [task.task_id, task.status]));
       const done = tasks.filter((task) => states.get(task.task_id) === 'done').length;
-      const state = phases.get(phase.phase_id);
-      const row = `<li class="phase-progress status-${escapeHtmlAttribute(state.status)}"><header><strong>${escapeHtmlText(phase.title ?? phase.phase_id)}</strong><span>${escapeHtmlText(state.status)}</span></header><p><code>${escapeHtmlText(`${member.plan.plan_key}/${phase.phase_id}`)}</code> — policy <code>${escapeHtmlText(phase.gate_policy)}</code> — ToDo ${done}/${tasks.length}</p><progress max="${tasks.length}" value="${done}">${done}/${tasks.length}</progress></li>`;
+      const guidance = phaseGuidance(member.plan.plan_key, state);
+      const guidanceMarkup = guidance === null ? ''
+        : `<p><strong>状態の意味:</strong> ${escapeHtmlText(guidance.reason)}</p><p><strong>次の一歩:</strong> <code>${escapeHtmlText(guidance.next)}</code></p>`;
+      const row = `<li class="phase-progress status-${escapeHtmlAttribute(state.status)}"><header><strong>${escapeHtmlText(phase.title ?? phase.phase_id)}</strong><span>${escapeHtmlText(state.status)}</span></header><p><code>${escapeHtmlText(`${member.plan.plan_key}/${phase.phase_id}`)}</code> — policy <code>${escapeHtmlText(phase.gate_policy)}</code> — ToDo ${done}/${tasks.length}</p>${guidanceMarkup}<progress max="${tasks.length}" value="${done}">${done}/${tasks.length}</progress></li>`;
       // A settled Phase is history. It stays reachable, but it does not push the
       // live ones off the first screen.
       (SETTLED_PHASE_STATUS.includes(state.status) ? settledRows : rows).push(row);

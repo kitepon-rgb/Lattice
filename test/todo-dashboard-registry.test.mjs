@@ -14,9 +14,20 @@ import {
   readActiveTodoDashboardProjects,
   readVisibleTodoDashboardProjects,
   registerTodoDashboardActivity,
+  todoDashboardMemberNeedsVisibility,
   TODO_DASHBOARD_CODE_VERSION,
   TODO_DASHBOARD_STALE_MS,
 } from '../src/todo-dashboard-registry.mjs';
+
+test('監査判断待ちと棄却済みPhaseはactive taskが無くてもdashboardへ残す', () => {
+  for (const status of ['gate_ready', 'reviewing', 'rejected']) {
+    assert.equal(todoDashboardMemberNeedsVisibility({ phases: [{ phase_id: 'audit', status }] }), true);
+  }
+  for (const status of ['accepted', 'closed_unaudited']) {
+    assert.equal(todoDashboardMemberNeedsVisibility({ phases: [{ phase_id: 'audit', status }] }), false);
+  }
+  assert.equal(todoDashboardMemberNeedsVisibility({}), false);
+});
 
 async function healthServer(body) {
   const server = createServer((request, response) => {
