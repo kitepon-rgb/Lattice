@@ -1,5 +1,5 @@
 {
-  "schema": "lattice.todo_witness_set.v2",
+  "schema": "lattice.todo_witness_set.v3",
   "project_id": "lattice",
   "plan_key": "todo-task-notes",
   "capacity": {
@@ -71,6 +71,7 @@
         "test/todo-independence-store.test.mjs",
         "test/todo-independence-witness.test.mjs",
         "test/todo-migration.test.mjs",
+        "test/todo-note-contracts.test.mjs",
         "test/todo-phase-baseline.test.mjs",
         "test/todo-phase-revision-v3.test.mjs",
         "test/todo-ready-frontier.test.mjs",
@@ -107,7 +108,30 @@
       "writes": [
         "src/todo-contracts.mjs"
       ]
+    },
+    "ttn-002": {
+      "affected_tests": [],
+      "owns": [
+        {
+          "kind": "path",
+          "target": "src/todo-note-store.mjs",
+          "creates": true
+        }
+      ],
+      "reads": [
+        "src/todo-contracts.mjs",
+        "src/todo-store.mjs"
+      ],
+      "resources": [],
+      "sensor_provenance": {
+        "queries": []
+      },
+      "state_effects": [],
+      "unknowns": [],
+      "writes": [
+        "src/todo-note-store.mjs"
+      ]
     }
   },
-  "witness_set_digest": "14b63df706176666554956e75f53a5365f5bd6646cb228d3e2bfd87b7887589e"
+  "witness_set_digest": "a3d3a1a7d5ffb218cb3b210fe7dc36bd63dab25daf814d44481cfd4e3d9b4690"
 }
