@@ -9,6 +9,8 @@ export const TODO_EVENT_KINDS = Object.freeze([
   // 新しいevent schema版は作らない。
   'phase_close_unaudited',
 ]);
+export const TODO_NOTE_EVENT_SCHEMA = 'lattice.todo_note_event.v1';
+export const TODO_NOTE_CONTEXT_SCHEMA = 'lattice.todo_note_context.v1';
 export const TODO_LIMITS = Object.freeze({
   tasksPerPlan: 512,
   edgesPerPlan: 2_048,
@@ -16,11 +18,14 @@ export const TODO_LIMITS = Object.freeze({
   journalSegmentBytes: 1_048_576,
   snapshotBytes: 8_388_608,
   narrativeSectionBytes: 262_144,
+  noteBodyBytes: 16_384,
+  noteContextBytes: 65_536,
 });
 
 const DIGEST = /^[0-9a-f]{64}$/;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
 const CONTROL = /[\u0000-\u001f\u007f]/u;
+const NOTE_FORBIDDEN_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
 
 export const isTodoDigest = (value) => typeof value === 'string' && DIGEST.test(value);
 export const isTodoIdentifier = (value) => typeof value === 'string' && IDENTIFIER.test(value);
@@ -87,6 +92,67 @@ export function todoSelfDigest(value, field) {
   const projection = {};
   for (const key of Object.keys(value)) if (key !== field) projection[key] = value[key];
   return digestTodoArtifact(projection);
+}
+
+const noteBody = (value) => typeof value === 'string' && value.length > 0
+  && Buffer.byteLength(value, 'utf8') <= TODO_LIMITS.noteBodyBytes
+  && !NOTE_FORBIDDEN_CONTROL.test(value);
+
+/** lifecycle journalとは独立したtask note event v1を検証する。 */
+export function validateTodoNoteEvent(value) {
+  try {
+    return exactRecord(value, [
+      'schema', 'project_id', 'plan_key', 'task_id', 'plan_version', 'sequence',
+      'previous_digest', 'actor', 'recorded_at', 'body', 'supersedes', 'event_digest',
+    ]) && value.schema === TODO_NOTE_EVENT_SCHEMA
+      && isTodoIdentifier(value.project_id) && isTodoIdentifier(value.plan_key)
+      && isTodoIdentifier(value.task_id) && isTodoIdentifier(value.plan_version)
+      && Number.isSafeInteger(value.sequence) && value.sequence >= 1
+      && (value.sequence === 1 ? value.previous_digest === null : isTodoDigest(value.previous_digest))
+      && actor(value.actor) && isStrictTodoTimestamp(value.recorded_at) && noteBody(value.body)
+      && (value.supersedes === null || isTodoDigest(value.supersedes))
+      && isTodoDigest(value.event_digest) && value.supersedes !== value.event_digest
+      && value.event_digest === todoSelfDigest(value, 'event_digest');
+  } catch {
+    return false;
+  }
+}
+
+function noteContextEntry(value) {
+  return exactRecord(value, [
+    'event_digest', 'origin_plan_version', 'origin_task_id', 'actor', 'recorded_at',
+    'body', 'supersedes', 'superseded_by', 'correction_state',
+  ]) && isTodoDigest(value.event_digest) && isTodoIdentifier(value.origin_plan_version)
+    && isTodoIdentifier(value.origin_task_id) && actor(value.actor)
+    && isStrictTodoTimestamp(value.recorded_at) && noteBody(value.body)
+    && (value.supersedes === null || isTodoDigest(value.supersedes))
+    && (value.superseded_by === null || isTodoDigest(value.superseded_by))
+    && ['current', 'superseded'].includes(value.correction_state)
+    && ((value.correction_state === 'current' && value.superseded_by === null)
+      || (value.correction_state === 'superseded' && isTodoDigest(value.superseded_by)));
+}
+
+/** 個別ToDo詳細とstart結果へ必ず同梱するbounded note contextを検証する。 */
+export function validateTodoNoteContext(value) {
+  try {
+    if (!exactRecord(value, [
+      'schema', 'project_id', 'plan_key', 'task_id', 'notes', 'note_head_digest',
+      'overflow_count', 'full_history_command', 'context_digest',
+    ]) || value.schema !== TODO_NOTE_CONTEXT_SCHEMA
+      || !isTodoIdentifier(value.project_id) || !isTodoIdentifier(value.plan_key)
+      || !isTodoIdentifier(value.task_id) || !Array.isArray(value.notes)
+      || value.notes.length > TODO_LIMITS.tasksPerPlan || !value.notes.every(noteContextEntry)
+      || !(value.note_head_digest === null || isTodoDigest(value.note_head_digest))
+      || !isNonNegativeSafeInteger(value.overflow_count)
+      || value.full_history_command !== `lattice todo note list --plan ${value.plan_key} --task ${value.task_id} --json`
+      || !isTodoDigest(value.context_digest)
+      || value.context_digest !== todoSelfDigest(value, 'context_digest')) return false;
+    if ((value.notes.length === 0) !== (value.note_head_digest === null)) return false;
+    return value.notes.reduce((bytes, note) => bytes + Buffer.byteLength(note.body, 'utf8'), 0)
+      <= TODO_LIMITS.noteContextBytes;
+  } catch {
+    return false;
+  }
 }
 
 const nullableDigest = (value) => value === null || isTodoDigest(value);
