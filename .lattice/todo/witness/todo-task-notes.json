@@ -8,6 +8,11 @@
   "sensor_query_set": {
     "queries": [
       {
+        "id": "q-cli",
+        "operation": "affected",
+        "target": "src/todo-cli.mjs"
+      },
+      {
         "id": "q-contracts",
         "operation": "affected",
         "target": "src/todo-contracts.mjs"
@@ -146,7 +151,69 @@
       "writes": [
         "src/todo-note-store.mjs"
       ]
+    },
+    "ttn-003": {
+      "affected_tests": [
+        "test/todo-note-store.test.mjs"
+      ],
+      "owns": [
+        {
+          "kind": "path",
+          "target": "src/todo-note-store.mjs"
+        }
+      ],
+      "reads": [
+        "src/todo-contracts.mjs",
+        "src/todo-revision.mjs",
+        "src/todo-store.mjs"
+      ],
+      "resources": [],
+      "sensor_provenance": {
+        "queries": [
+          {
+            "expect": {
+              "kind": "affected",
+              "path": "src/todo-note-store.mjs"
+            },
+            "query_id": "q-note-store"
+          }
+        ]
+      },
+      "state_effects": [],
+      "unknowns": [],
+      "writes": [
+        "src/todo-note-store.mjs"
+      ]
+    },
+    "ttn-005": {
+      "affected_tests": [],
+      "owns": [
+        {
+          "kind": "path",
+          "target": "src/todo-cli.mjs"
+        }
+      ],
+      "reads": [
+        "src/todo-note-store.mjs"
+      ],
+      "resources": [],
+      "sensor_provenance": {
+        "queries": [
+          {
+            "expect": {
+              "kind": "affected",
+              "path": "src/todo-cli.mjs"
+            },
+            "query_id": "q-cli"
+          }
+        ]
+      },
+      "state_effects": [],
+      "unknowns": [],
+      "writes": [
+        "src/todo-cli.mjs"
+      ]
     }
   },
-  "witness_set_digest": "113f4874e8ab9a9492ebf5fb184bf561c703fc3e8ca02b84ff6711ffd9df893f"
+  "witness_set_digest": "0d4fa825531c804ae5cbc2b28880249cab378f70d07fa33c390097aa61f90fa7"
 }
