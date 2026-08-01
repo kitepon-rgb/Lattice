@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const FIXTURE_MODULE = '../research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs';
-const ORACLE_MODULE = '../src/rc2-delivery-policy-oracle.mjs';
+import { resolveDeliveryPolicy } from '../research/fixtures/delivery-policy-registry/src/delivery-policy-registry.mjs';
+import {
+  expectedRc2DeliveryPolicyOracleReceipt,
+  runRc2DeliveryPolicyOracle,
+} from '../src/rc2-delivery-policy-oracle.mjs';
 
 const CASES = [
   {
@@ -38,15 +41,12 @@ const CASES = [
 ];
 
 for (const fixtureCase of CASES) {
-  test(`delivery policy fixture returns the exact ${fixtureCase.id} behavior`, async () => {
-    const { resolveDeliveryPolicy } = await import(FIXTURE_MODULE);
+  test(`delivery policy fixture returns the exact ${fixtureCase.id} behavior`, () => {
     assert.deepEqual(resolveDeliveryPolicy(fixtureCase.input), fixtureCase.expected);
   });
 }
 
-test('delivery policy fixture rejects non-exact input shapes', async () => {
-  const { resolveDeliveryPolicy } = await import(FIXTURE_MODULE);
-
+test('delivery policy fixture rejects non-exact input shapes', () => {
   assert.throws(() => resolveDeliveryPolicy(null), { name: 'TypeError' });
   assert.throws(() => resolveDeliveryPolicy({ channel: 'email' }), { name: 'TypeError' });
   assert.throws(
@@ -55,18 +55,14 @@ test('delivery policy fixture rejects non-exact input shapes', async () => {
   );
 });
 
-test('delivery policy fixture rejects an unknown channel as RangeError', async () => {
-  const { resolveDeliveryPolicy } = await import(FIXTURE_MODULE);
-
+test('delivery policy fixture rejects an unknown channel as RangeError', () => {
   assert.throws(
     () => resolveDeliveryPolicy({ channel: 'webhook', urgency: 'routine' }),
     { name: 'RangeError' },
   );
 });
 
-test('delivery policy fixture rejects an unknown urgency as RangeError', async () => {
-  const { resolveDeliveryPolicy } = await import(FIXTURE_MODULE);
-
+test('delivery policy fixture rejects an unknown urgency as RangeError', () => {
   assert.throws(
     () => resolveDeliveryPolicy({ channel: 'email', urgency: 'later' }),
     { name: 'RangeError' },
@@ -74,10 +70,6 @@ test('delivery policy fixture rejects an unknown urgency as RangeError', async (
 });
 
 test('delivery policy oracle black-boxes the same table from the supplied repoRoot', async () => {
-  const {
-    expectedRc2DeliveryPolicyOracleReceipt,
-    runRc2DeliveryPolicyOracle,
-  } = await import(ORACLE_MODULE);
   const receipt = await runRc2DeliveryPolicyOracle({ repoRoot: process.cwd() });
 
   assert.deepEqual(receipt, expectedRc2DeliveryPolicyOracleReceipt());

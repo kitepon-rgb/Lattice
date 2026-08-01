@@ -86,7 +86,8 @@ test('動的rendererの既定scopeは完走した枝を畳み、allは全件描�
   assert.doesNotMatch(allHtml, /<div data-diagram="expanded"/u);
   // 外していることと戻し方が図の上で読める。
   assert.match(liveHtml, /完走済み 1件を非表示/u);
-  assert.match(liveHtml, /--scope all/u);
+  assert.match(liveHtml, /完走済み 1件を非表示（押すと表示）/u);
+  assert.doesNotMatch(liveHtml, /--scope all/u);
   // 総数は畳み込み前のまま。
   assert.match(liveHtml, /aria-label="main — 3 ToDo"/u);
   // 一覧からは消さず、畳んだ群としてまとめる。
@@ -120,6 +121,6 @@ test('静的gantt生成とstatusはtypedに廃止し動的dashboardを案内す�
     assert.equal(result.status, 1);
     const failure = JSON.parse(result.stderr);
     assert.equal(failure.code, 'STATIC_GANTT_RETIRED');
-    assert.equal(failure.detail.next_action, 'lattice todo status --json');
+    assert.equal(failure.detail.next_action, 'lattice todo gantt serve --port 0');
   }
 });

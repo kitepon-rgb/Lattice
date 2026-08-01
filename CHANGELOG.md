@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.39.1 — 2026-08-01
+
+### 修正
+
+- **全ToDoがdoneでも、終端監査が未受理のplanとprojectを動的工程表へ残す。** 明示Phaseと暗黙
+  `terminal-audit`の`gate_ready`／`reviewing`／`rejected`をderived stateから表示し、TTL切れでも
+  dashboard一覧から消さない。畳んだ工程は同じページの件数バッジから展開する。
+- **AIが失敗から自力復旧できるCLI診断へ揃えた。** `PROJECT_ROOT_CONFLICT`は
+  `todo dashboard adopt`を保持し、plan createとmigrateは設計メモのtype／blank／too_large／controlを
+  本文非露出のpointer付きで返す。`dashboard adopt`と`gantt serve`の個別helpもsurface gateへ加えた。
+- **静的Gantt退役を副作用なしにした。** 廃止コマンドはdashboardを起動せず動的viewerだけを案内し、
+  `gantt serve`の不正portは`STATIC_GANTT_RETIRED`へ誤分類せず`INVALID_ARGUMENTS`で拒否する。
+- **設計メモ改訂のstate carryを明示契約化した。** legacy taskへの初回memo追加は通常carryできる。
+  既存memoの変更は通常carryで拒否し、`carry_reconciled_metadata`を明示した時だけpolicyをjournalへ残して
+  lifecycleを保持する。単体・Phase・revision setの全入口でmemo無しschemaへの後退を拒否する。
+- **migrate dry-runと移行参照をfail closedにした。** 循環時のnull参照を除き、topologyとstore／I/O障害を
+  分離した。登録taskから除外taskへのparent／dependency／join参照はcompile前に位置付きで拒否する。
+- schema、製品契約、現行extraction文書を16,384文字・UTF-8 16,384 bytes、v3、`NO_PLAN`、
+  動的viewer一本化へ統一した。誤って受理した旧終端監査証拠は撤回済みとして保持する。
+
 ## 0.39.0 — 2026-08-01
 
 ### 変更
@@ -7,7 +27,7 @@
 - **新しいToDoへ初期設計メモを必須化した。** `plan create`、`todo migrate`、通常／Phase revisionの
   各authoring契約が非空Markdownの`design_memo`を受理し、空欄やファイル参照だけの本文を拒否する。
   本当に方針が無い場合だけ正確なsentinel `NO_PLAN`を許可し、authoring guidanceは
-  「If you have not thought through this ToDo, write exactly `NO_PLAN` in its design memo.」と問い返す。
+  「あなたがこのToDoに対して、何も考えていないならば、設計メモに `NO_PLAN` と書いてください」と問い返す。
 - **通常詳細と着手結果へ初期設計メモを自動同梱した。** `todo show`と成功する`todo start`は
   append-only noteとは別に、ToDo本体へ束縛された設計メモを返す。revision後もtask migrationに従って運ぶ。
 - **ローカル／公開の動的工程表右ペインへ設計メモを表示した。** 公開面から除くのは作業開始後の

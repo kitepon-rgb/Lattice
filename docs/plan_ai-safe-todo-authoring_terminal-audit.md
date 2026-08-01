@@ -65,12 +65,12 @@ AI安全ToDo authoring v0.39.0について、既存テストの再実行を監�
 
 ## Gate
 
-- [ ] 誤った`terminal-audit`受理をreopenし、理由を記録する
-- [ ] 第1ラウンドFindを8観点で完了する
-- [ ] 全指摘のDedup写像を固定する
-- [ ] 全指摘を再現・反証してVerify裁定を固定する
+- [x] 誤った`terminal-audit`受理をreopenし、理由を記録する
+- [x] 第1ラウンドFindを8観点で完了する
+- [x] 全指摘のDedup写像を固定する
+- [x] 全指摘を再現・反証してVerify裁定を固定する
 - [ ] 独立Criticを完了し、盲点を解消する
-- [ ] 確認済み欠陥の修正とfocused testを完了する
+- [x] 確認済み欠陥の修正とfocused testを完了する
 - [ ] 関連testと`npm run ci`を完了する
 - [ ] 全指摘・裁定・修正・残存リスクを監査報告へ固定する
 - [ ] 証拠commitを根拠にterminal reviewを再実行する
