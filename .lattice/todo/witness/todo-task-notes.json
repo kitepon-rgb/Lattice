@@ -48,6 +48,16 @@
         "target": "test/todo-note-gantt.test.mjs"
       },
       {
+        "id": "q-note-projection-test",
+        "operation": "affected",
+        "target": "test/todo-note-projection.test.mjs"
+      },
+      {
+        "id": "q-note-store-test",
+        "operation": "affected",
+        "target": "test/todo-note-store.test.mjs"
+      },
+      {
         "id": "q-status",
         "operation": "status"
       }
@@ -369,7 +379,11 @@
       "owns": [
         { "kind": "path", "target": "bin/lattice-dashboard.mjs" },
         { "kind": "path", "target": "src/todo-cli.mjs" },
-        { "kind": "path", "target": "test/todo-note-gantt.test.mjs" }
+        { "kind": "path", "target": "src/todo-gantt-html-independence.mjs" },
+        { "kind": "path", "target": "src/todo-note-store.mjs" },
+        { "kind": "path", "target": "test/todo-note-gantt.test.mjs" },
+        { "kind": "path", "target": "test/todo-note-projection.test.mjs" },
+        { "kind": "path", "target": "test/todo-note-store.test.mjs" }
       ],
       "reads": [
         "src/todo-cli.mjs",
@@ -388,6 +402,8 @@
           { "expect": { "kind": "affected", "path": "src/todo-gantt-html-style.mjs" }, "query_id": "q-gantt-style" },
           { "expect": { "kind": "affected", "path": "bin/lattice-dashboard.mjs" }, "query_id": "q-dashboard" },
           { "expect": { "kind": "affected", "path": "test/todo-note-gantt.test.mjs" }, "query_id": "q-note-gantt-test" },
+          { "expect": { "kind": "affected", "path": "test/todo-note-projection.test.mjs" }, "query_id": "q-note-projection-test" },
+          { "expect": { "kind": "affected", "path": "test/todo-note-store.test.mjs" }, "query_id": "q-note-store-test" },
           { "expect": { "kind": "affected", "path": "src/todo-note-store.mjs" }, "query_id": "q-note-store" }
         ]
       },
@@ -396,9 +412,13 @@
       "writes": [
         "bin/lattice-dashboard.mjs",
         "src/todo-cli.mjs",
-        "test/todo-note-gantt.test.mjs"
+        "src/todo-gantt-html-independence.mjs",
+        "src/todo-note-store.mjs",
+        "test/todo-note-gantt.test.mjs",
+        "test/todo-note-projection.test.mjs",
+        "test/todo-note-store.test.mjs"
       ]
     }
   },
-  "witness_set_digest": "6d36e0e02595e79e694da857204b3287a9ff2c4d99a7dbf48a478c2cac50a5d4"
+  "witness_set_digest": "6e0cad1f71136457e77591f2608758acbe45a3f73c3043baaf0059cebd3a1332"
 }
