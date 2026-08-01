@@ -12,6 +12,7 @@
 - [operations/lattice-kitepon-deployment.md](operations/lattice-kitepon-deployment.md): `lattice.kitepon.dev`の現行配備構成と運用記録
 - [adr/0063-ready-frontier-dispatch-contract.md](adr/0063-ready-frontier-dispatch-contract.md): ready全件を並列既定にする開始契約
 - [adr/0068-gantt-routes-run-between-the-columns.md](adr/0068-gantt-routes-run-between-the-columns.md): 依存線の配線規約（ADR 0066 Decision 7を置き換え）
+- [adr/0149-task-notes-are-a-third-layer.md](adr/0149-task-notes-are-a-third-layer.md): ToDo作業記憶の永続化・自動供給・公開境界
 - [../PLAN.md](../PLAN.md): 製品思想と研究方向
 - [../CHANGELOG.md](../CHANGELOG.md): 公開版ごとの差分
 

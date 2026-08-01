@@ -43,6 +43,21 @@ planを再コンパイルします。共有面が共有でなくなるので、�
 
 人が手で切ったのではありません。**工程を並列化するために製品が切りました。**
 
+### 作業記憶はToDoと一緒に渡る
+
+AIは、次の担当が作業を続けるために必要な方針、棄却案、調査結果、注意、未解決事項をToDoへ追記できます。
+通常の`lattice todo show`と、成功するすべての`lattice todo start`は、元version／元task、訂正状態、
+note chain head、overflow、全履歴コマンドを含む最新のbounded `note_context`を自動で返します。
+次のAIが別のnote読取コマンドを知っている必要はありません。
+
+```bash
+lattice todo note --plan <key> --task <id> --message "既存parserを使い、fallbackは追加しない"
+lattice todo show --plan <key> --task <id> --json
+```
+
+ローカルGanttでは、選択したToDoの右ペインへ同じ作業記録を表示します。公開Gantt／dashboardは契約として
+note本文を含めません。
+
 ### 変換の受入五条件
 
 **5つすべて**を満たしたときだけ採用します。1つでも欠ければ棄却です。

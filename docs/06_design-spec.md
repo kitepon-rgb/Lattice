@@ -1,4 +1,4 @@
-# todo gantt デザイン仕様（renderer v16＋live viewer）
+# todo gantt デザイン仕様（renderer v18＋live viewer）
 
 出典: Claude Code dataviz skill（validated reference palette）。以下の値は検証済みパレットからの転記であり、独自発明しない。
 
@@ -85,10 +85,14 @@
 - **概要**: 状態集計、着手候補、Phase進捗、作業中一覧。工程未選択時の初期面。
 - **選択工程**: 題名、カテゴリ、正規ID、前提工程、後続工程、元planの行対応、開発者向け診断。
   図のnodeまたは一覧の行を選ぶと開く。同時に開くのは1件だけ。
+- **作業記録**: 選択工程は通常詳細読取と同じbounded `note_context`を表示する。本文に加えて旧版由来、
+  訂正状態、overflow、全履歴導線を示す。note chainを読めない時は「記録なし」とせず、読取不能を明示する。
 - **全工程**: 全ToDo一覧。planごとに区切り、図から除いたToDoは既定closedの`details`へまとめる。
   planの並びは、動いているplanを最終活動の新しい順で上、全ToDoが図から外れた完走planを古い順で下。
   plan内のToDo順は登録順を保つ。
 - 幅上限 72ch（読みやすさ）。どの面からもToDoの詳細へ到達でき、到達先の無い選択ボタンを出さない。
+- note本文はlocal Ganttだけへ含める。`gantt serve`と常設dashboardの公開rendererは`includeNotes: false`を
+  強制し、HTML sourceにも本文を入れない。
 - 各task行の状態マーク（☐/▶/✅/⛔）だけが「生きた」要素。**Status/Lane/時刻/wave表/Evidence等の
   メタデータブロックは置かない**（左の図と重複するため）。
 

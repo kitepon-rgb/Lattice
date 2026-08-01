@@ -61,6 +61,8 @@ Commands:
 
 Read commands:
   status [--json]
+  show --plan <key> --task <id> --json  # 個別ToDoと最新bounded note contextを追加操作なしで返す
+  note list --plan <key> [--task <id>] --json  # note全履歴の診断面（通常read/startでは不要）
   bindings [--plan <key>] [--json]   # compile_binding付きTaskをTODO identityつきで投影する
   independence [--plan <key>] [--json]  # readyを検証済み並列・要直列・未検査へ分けて投影する
   seam-profile --plan <key> --file <path> [--json]  # 係争fileの切断コスト内訳を投影する（read-only）
@@ -73,6 +75,8 @@ Read commands:
   phase status --plan <key>
 
 Write commands:
+  note --plan <key> --task <id> (--message <text>|--input <file>)
+      # ToDoへ作業継続に必要な方針・調査結果・注意をappend-onlyで追記する
   migrate --input <extraction.json> [--serialization-reviewed]
       # 既存storeへplanを追加する（plan createは空store初期化専用）。
       # 依存グラフがほぼ一直線なら一度突き返し、再考後の --serialization-reviewed で通す
@@ -168,6 +172,9 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'run seam resolve': 'run seam resolve --run .lattice/runs/<id> --finding <digest> --input <seam-request.json>',
   'event verify': 'event verify --run .lattice/runs/<id>',
   'todo status': 'todo status [--json]',
+  'todo show': 'todo show --plan <key> --task <id> --json',
+  'todo note': 'todo note --plan <key> --task <id> (--message <text>|--input <file>) | list --plan <key> [--task <id>] --json',
+  'todo note list': 'todo note list --plan <key> [--task <id>] --json',
   'todo bindings': 'todo bindings [--plan <key>] [--json]',
   'todo independence': 'todo independence [--plan <key>] [--json] | compile --plan <key> --input <file> | witness migrate --plan <key>',
   'todo seam-profile': 'todo seam-profile --plan <key> --file <path> [--json]',

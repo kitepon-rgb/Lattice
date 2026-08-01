@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.38.0 — 2026-08-01
+
+### 変更
+
+- **ToDoへ作業記憶を追記できるようにした。** 方針、調査結果、採用／棄却理由、注意、未解決事項を
+  task-scopedなappend-only note chainへ保存する。lifecycle journal／snapshotとは分離し、note追記が
+  工程状態を変えない。
+- **別の読取commandを要求せず、通常詳細と着手結果へnoteを自動同梱する。** `todo show`と成功する
+  `todo start`が、最新bounded note群、元plan version／元task、訂正状態、head digest、overflow、
+  全履歴commandを`note_context`として返す。note chain破損時は空へ丸めず、`todo start`はevent追記前に止まる。
+- **plan revisionを跨いだ来歴を保つ。** `task_migration`だけを根拠に旧版noteを現行ToDoへ投影し、
+  removed taskはarchived束として読める。raw task IDの偶然の一致では継承しない。
+- **ローカルGantt右ペインへ「作業記録」を追加した。** Markdownは安全に描画し、来歴・overflow・読取不能も
+  区別する。公開serve／常設dashboardは共通public rendererでnote本文を除外する。
+- **CLI発見面を揃えた。** `lattice todo --help`と個別helpから`todo show`、note追記、`note list`へ到達できる。
+
+### 導入時の注意
+
+`npm install -g`は既に動いているLaunchAgentを載せ替えない。global install後はbridgeを再起動し、
+ローカルbridgeと公開dashboardの双方をsmokeする。
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/dev.kitepon.lattice.bridge"
+```
+
 ## 0.37.0 — 2026-07-30
 
 ### アップグレード注意（0.36.0 / 0.36.1 から上げる場合は必ず読む）

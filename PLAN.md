@@ -51,6 +51,11 @@ frontier、宣言、理由、現在のactive状態を機械可読にする。
 4. **Seam transformer**: 並列性を解放するcode変換を生成・隔離実行・検証する。
 5. **Plan compiler**: accepted artifactとversion barrierから次の実行graphを生成する。
 
+各ToDoはlifecycle stateとは分離したtask-scopedな作業記憶を持てる。AIが会話から選んだ方針、調査結果、
+棄却理由、注意、未解決事項はappend-only noteとして累積し、通常の個別ToDo読取と着手結果へ自動同梱する。
+これは推定や文章生成を製品へ移すものではない。操作AIの判断を次のAIへ渡すための記録・版・読取契約を
+Latticeが所有する。
+
 ## 4. 内蔵sensorとの境界
 
 Latticeは旧上流由来実装をMIT attribution付きの内蔵sensorとして吸収し、sensorのruntime、配布、

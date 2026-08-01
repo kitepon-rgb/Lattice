@@ -33,7 +33,7 @@ test('公開namespace helpは正規構文をstore非依存で表示する', () =
     ['plan', /create --input <file>/u],
     ['run', /start --request <request\.json> --executor <adapter>/u],
     ['event', /event verify/u],
-    ['todo', /--parallel-frontier/u],
+    ['todo', /show --plan <key> --task <id> --json/u],
     ['sensor', /sensor <init\|sync>/u],
     ['factory-diagnostics', /factory-diagnostics --json/u],
     ['runtime-errors', /snapshot \[--after-cursor <n>\]/u],
@@ -58,6 +58,9 @@ test('未知namespace helpは従来どおりusage違反として拒否する', (
 
 test('公開subcommand helpは正規構文をstore非依存で表示する', () => {
   const cases = [
+    [['todo', 'show', '--help'], /show --plan <key> --task <id> --json/u],
+    [['todo', 'note', '--help'], /--message <text>\|--input <file>/u],
+    [['help', 'todo', 'note', 'list'], /note list --plan <key> \[--task <id>\] --json/u],
     [['todo', 'reopen', '--help'], /--override-reason <text>/u],
     [['todo', 'phase', 'accept', '-h'], /--input <file>/u],
     [['help', 'todo', 'done'], /--evidence <file>/u],

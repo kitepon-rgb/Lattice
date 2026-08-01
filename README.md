@@ -58,6 +58,22 @@ the same parallel group.
 
 Nobody hand-refactored that file. The product cut it so the work could parallelize.
 
+### Task memory travels with the task
+
+An agent can append the decisions, rejected approaches, findings, cautions, and open questions needed
+to continue a ToDo. A normal `lattice todo show` and every successful `lattice todo start` return the
+latest bounded `note_context` automatically, including origin, correction state, chain head, overflow,
+and the full-history command. The next agent does not need to discover or remember a separate note
+lookup command.
+
+```bash
+lattice todo note --plan <key> --task <id> --message "Use the existing parser; do not add a fallback"
+lattice todo show --plan <key> --task <id> --json
+```
+
+The same context appears in the selected ToDo's detail pane in a local Gantt. Public Gantt and
+dashboard rendering exclude note bodies by contract.
+
 ### The five acceptance conditions
 
 A transform is adopted only when **all five** hold. One missing condition rejects it:

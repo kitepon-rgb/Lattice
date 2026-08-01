@@ -142,6 +142,18 @@ Taskだけを`project_id`／`plan_key`／`plan_version`／`task_id`つきで投�
 `compiled_plan_digest`から`runtime_plan.v1`→`executor_packet.v1`→`executor_receipt.v1`まで辿れる。
 `todo_status_result.v4`は変更せず、加算の別面とする。
 
+ToDoの作業記憶はlifecycle journal／snapshotと分離したtask-scoped append-only note chainが正本である
+（ADR 0149）。追記は`todo note --plan <key> --task <id> (--message <text>|--input <file>)`、全履歴の
+診断面は`todo note list --plan <key> [--task <id>] --json`とする。ただし、操作AIがこの診断commandを
+知っていることを通常経路の前提にしない。`todo show --plan <key> --task <id> --json`と、成功する
+`todo start`は、最新bounded note群、元plan version／元task、訂正状態、note head digest、overflow、
+全履歴commandを`note_context`として必ず自動同梱する。note chainを読めない時は空配列へ丸めず、
+`todo start`はlifecycle event追記前にfail closedする。revisionを跨ぐ投影は`task_migration`だけを根拠にし、
+removed taskのnoteはarchived束へ分離する。
+
+ローカルGanttは個別ToDo右ペインの「作業記録」へ同じbounded contextを表示する。公開serveと常設dashboardは
+note本文を含めず、公開renderer入口で`includeNotes: false`を強制する。
+
 依存edgeの不在は順序制約の無申告であって、書き込み境界の非干渉ではない。両者を公開面で区別するため、
 `todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v2`の宣言と
 実sensor観測から並列可否を判定し、`lattice.todo_independence.v3`をplan versionディレクトリへ並置記録する
