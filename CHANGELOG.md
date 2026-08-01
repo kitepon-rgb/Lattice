@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.38.1 — 2026-08-01
+
+### 変更
+
+- **valueRefのread/write判定をGo／Python／Javaへ広げた。** 代入、複合代入、member／subscript mutation、
+  updateを`metadata.write`へ出し、先にreadして後でwriteするscopeもwriteを失わない。
+- **WASMとnative kernelのmirrorを同じfixtureで固定した。** TS/JSを含むRust kernel 4実装も
+  write metadataを出し、Go／Python／JavaのWASM結果とbyte-equivalentにする。
+- **Pythonのmember assignmentをlocal shadowと誤認しないようにした。** `CONFIG["x"] = ...`は
+  bindingの再宣言ではなく値のmutationとして残す。
+- **native kernelのwire contract driftを修復した。** `EDGE_KINDS`へ既存の`invokes`をappendし、
+  ビルド済みkernelがloaderの契約検査で全拒否される状態を解消した。
+- `seam profile`の`confidence.write_distinction`は対応範囲を
+  `ts-js-arkts-go-python-java-all-routes`として申告する。その他のvalueRef対応言語は引き続き
+  `metadata.write`未配線であり、absenceをread-onlyとは扱わない。
+
 ## 0.38.0 — 2026-08-01
 
 ### 変更

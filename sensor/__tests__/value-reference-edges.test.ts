@@ -723,17 +723,24 @@ describe('value-reference edges', () => {
   });
 });
 
-describe('value-reference write flag (TS/JS)', () => {
+describe('value-reference write flag', () => {
   let dir: string;
   let cg: LatticeSensor | undefined;
+  let savedKernel: string | undefined;
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-valuewrite-'));
+    savedKernel = process.env.LATTICE_SENSOR_KERNEL;
+    // This suite pins wasm semantics. Native parity has a separate gate that
+    // becomes mandatory whenever a kernel binary is staged.
+    process.env.LATTICE_SENSOR_KERNEL = '0';
   });
   afterEach(() => {
     cg?.destroy();
     cg = undefined;
     fs.rmSync(dir, { recursive: true, force: true });
+    if (savedKernel === undefined) delete process.env.LATTICE_SENSOR_KERNEL;
+    else process.env.LATTICE_SENSOR_KERNEL = savedKernel;
   });
 
   function writeFlags(g: LatticeSensor, constName: string): Record<string, boolean> {
@@ -772,6 +779,70 @@ describe('value-reference write flag (TS/JS)', () => {
     expect(writeFlags(g, 'HIT_TABLE')).toEqual({ readOnly: false, mutateMember: true });
     expect(writeFlags(g, 'REBIND_TARGET')).toEqual({
       readOnly: false, rebind: true, bump: true, readThenWrite: true,
+    });
+  });
+
+  it('marks Go assignment, member mutation, and update as writes', async () => {
+    fs.writeFileSync(
+      path.join(dir, 'state.go'),
+      [
+        'package state',
+        'var HIT_TABLE = struct{ N int }{0}',
+        'func readOnly() int { return HIT_TABLE.N }',
+        'func mutateMember() { HIT_TABLE.N += 1 }',
+        'func bump() { HIT_TABLE.N++ }',
+        'func readThenWrite() { n := HIT_TABLE.N; HIT_TABLE.N = n + 1 }',
+      ].join('\n'),
+    );
+    const g = LatticeSensor.initSync(dir, { config: { include: ['**/*.go'], exclude: [] } });
+    cg = g;
+    await g.indexAll();
+
+    expect(writeFlags(g, 'HIT_TABLE')).toEqual({
+      readOnly: false, mutateMember: true, bump: true, readThenWrite: true,
+    });
+  });
+
+  it('marks Python attribute/subscript mutation as a write without treating it as shadowing', async () => {
+    fs.writeFileSync(
+      path.join(dir, 'state.py'),
+      [
+        'HIT_TABLE = {"n": 0}',
+        'def read_only(): return HIT_TABLE["n"]',
+        'def mutate_member(): HIT_TABLE["n"] += 1',
+        'def read_then_write():',
+        '    n = HIT_TABLE["n"]',
+        '    HIT_TABLE["n"] = n + 1',
+      ].join('\n'),
+    );
+    const g = LatticeSensor.initSync(dir, { config: { include: ['**/*.py'], exclude: [] } });
+    cg = g;
+    await g.indexAll();
+
+    expect(writeFlags(g, 'HIT_TABLE')).toEqual({
+      read_only: false, mutate_member: true, read_then_write: true,
+    });
+  });
+
+  it('marks Java array assignment and update as writes', async () => {
+    fs.writeFileSync(
+      path.join(dir, 'State.java'),
+      [
+        'class State {',
+        '  static final int[] HIT_TABLE = { 0 };',
+        '  int readOnly() { return HIT_TABLE[0]; }',
+        '  void mutateMember() { HIT_TABLE[0] += 1; }',
+        '  void bump() { HIT_TABLE[0]++; }',
+        '  void readThenWrite() { int n = HIT_TABLE[0]; HIT_TABLE[0] = n + 1; }',
+        '}',
+      ].join('\n'),
+    );
+    const g = LatticeSensor.initSync(dir, { config: { include: ['**/*.java'], exclude: [] } });
+    cg = g;
+    await g.indexAll();
+
+    expect(writeFlags(g, 'HIT_TABLE')).toEqual({
+      readOnly: false, mutateMember: true, bump: true, readThenWrite: true,
     });
   });
 });

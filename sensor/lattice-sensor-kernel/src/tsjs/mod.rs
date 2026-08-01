@@ -494,7 +494,9 @@ impl<'t> Walker<'t> {
         for scope in &scopes {
             // Self-skip and per-scope dedupe compare node ID STRINGS (which
             // collide for same-(kind, name, line) nodes), matching the TS side.
-            let mut seen: HashSet<&str> = HashSet::new();
+            let scope_id = self.node_ids[scope.row as usize].clone();
+            let mut seen: HashMap<String, usize> = HashMap::new();
+            let mut observed: Vec<(u32, bool)> = Vec::new();
             let mut stack: Vec<Node> = vec![scope.node];
             let mut visited = 0usize;
             while let Some(n) = stack.pop() {
@@ -505,24 +507,15 @@ impl<'t> Walker<'t> {
                 if matches!(n.kind(), "identifier" | "constant" | "name" | "simple_identifier") {
                     let ref_name = self.text(n);
                     if let Some(&target_row) = targets.get(ref_name) {
-                        let target_id = self.node_ids[target_row as usize].as_str();
-                        if target_id != self.node_ids[scope.row as usize]
-                            && ref_name != scope.name
-                            && !seen.contains(&target_id)
-                        {
-                            seen.insert(target_id);
-                            let meta = self.arena.put(r#"{"valueRef":true}"#);
-                            self.tables.push_edge(&EdgeRow {
-                                source_idx: scope.row,
-                                target_idx: target_row,
-                                kind: refs_kind,
-                                provenance: 0,
-                                line: NONE,
-                                column: NONE,
-                                metadata_json: meta,
-                                source_id_str: NONE_STR,
-                                target_id_str: NONE_STR,
-                            });
+                        let target_id = self.node_ids[target_row as usize].clone();
+                        if target_id != scope_id && ref_name != scope.name {
+                            let write = is_value_write_ref(n);
+                            if let Some(&index) = seen.get(&target_id) {
+                                observed[index].1 |= write;
+                            } else {
+                                seen.insert(target_id, observed.len());
+                                observed.push((target_row, write));
+                            }
                         }
                     }
                 }
@@ -531,6 +524,24 @@ impl<'t> Walker<'t> {
                         stack.push(c);
                     }
                 }
+            }
+            for (target_row, write) in observed {
+                let meta = self.arena.put(if write {
+                    r#"{"valueRef":true,"write":true}"#
+                } else {
+                    r#"{"valueRef":true,"write":false}"#
+                });
+                self.tables.push_edge(&EdgeRow {
+                    source_idx: scope.row,
+                    target_idx: target_row,
+                    kind: refs_kind,
+                    provenance: 0,
+                    line: NONE,
+                    column: NONE,
+                    metadata_json: meta,
+                    source_id_str: NONE_STR,
+                    target_id_str: NONE_STR,
+                });
             }
         }
     }
@@ -832,6 +843,31 @@ impl<'t> Walker<'t> {
     }
 
     // (extract_* functions continue in impl blocks below)
+}
+
+fn same_span(left: Node, right: Node) -> bool {
+    left.start_byte() == right.start_byte() && left.end_byte() == right.end_byte()
+}
+
+fn is_value_write_ref(mut node: Node) -> bool {
+    let mut parent = node.parent();
+    while let Some(owner) = parent {
+        if matches!(owner.kind(), "member_expression" | "subscript_expression") {
+            let Some(root) = owner.child_by_field_name("object") else { break };
+            if !same_span(root, node) {
+                break;
+            }
+            node = owner;
+            parent = node.parent();
+            continue;
+        }
+        break;
+    }
+    let Some(owner) = parent else { return false };
+    if matches!(owner.kind(), "assignment_expression" | "augmented_assignment_expression") {
+        return owner.child_by_field_name("left").is_some_and(|left| same_span(left, node));
+    }
+    owner.kind() == "update_expression"
 }
 
 /// classifyTsClassMember (#808): a class field is a METHOD only when its value

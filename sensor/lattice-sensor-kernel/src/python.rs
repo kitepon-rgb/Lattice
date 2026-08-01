@@ -868,7 +868,9 @@ impl<'t> Walker<'t> {
                         if targets.contains_key(nm) {
                             *decl_counts.entry(nm).or_insert(0) += 1;
                         }
-                    } else {
+                    } else if matches!(left.kind(), "pattern_list" | "tuple" | "list" | "list_pattern") {
+                        // Attribute/subscript assignment mutates the existing
+                        // binding; only destructuring patterns bind names.
                         for i in 0..left.named_child_count() {
                             if let Some(c) = left.named_child(i) {
                                 if c.kind() == "identifier" {
@@ -902,7 +904,9 @@ impl<'t> Walker<'t> {
 
         let refs_kind = edge_kind_index("references").unwrap();
         for scope in &scopes {
-            let mut seen: HashSet<&str> = HashSet::new();
+            let scope_id = self.node_ids[scope.row as usize].clone();
+            let mut seen: HashMap<String, usize> = HashMap::new();
+            let mut observed: Vec<(u32, bool)> = Vec::new();
             let mut stack: Vec<Node> = vec![scope.node];
             let mut visited = 0usize;
             while let Some(n) = stack.pop() {
@@ -913,24 +917,15 @@ impl<'t> Walker<'t> {
                 if matches!(n.kind(), "identifier" | "constant" | "name" | "simple_identifier") {
                     let ref_name = self.text(n);
                     if let Some(&target_row) = targets.get(ref_name) {
-                        let target_id = self.node_ids[target_row as usize].as_str();
-                        if target_id != self.node_ids[scope.row as usize]
-                            && ref_name != scope.name
-                            && !seen.contains(&target_id)
-                        {
-                            seen.insert(target_id);
-                            let meta = self.arena.put(r#"{"valueRef":true}"#);
-                            self.tables.push_edge(&EdgeRow {
-                                source_idx: scope.row,
-                                target_idx: target_row,
-                                kind: refs_kind,
-                                provenance: 0,
-                                line: NONE,
-                                column: NONE,
-                                metadata_json: meta,
-                                source_id_str: NONE_STR,
-                                target_id_str: NONE_STR,
-                            });
+                        let target_id = self.node_ids[target_row as usize].clone();
+                        if target_id != scope_id && ref_name != scope.name {
+                            let write = is_value_write_ref(n);
+                            if let Some(&index) = seen.get(&target_id) {
+                                observed[index].1 |= write;
+                            } else {
+                                seen.insert(target_id, observed.len());
+                                observed.push((target_row, write));
+                            }
                         }
                     }
                 }
@@ -940,8 +935,59 @@ impl<'t> Walker<'t> {
                     }
                 }
             }
+            for (target_row, write) in observed {
+                let meta = self.arena.put(if write {
+                    r#"{"valueRef":true,"write":true}"#
+                } else {
+                    r#"{"valueRef":true,"write":false}"#
+                });
+                self.tables.push_edge(&EdgeRow {
+                    source_idx: scope.row,
+                    target_idx: target_row,
+                    kind: refs_kind,
+                    provenance: 0,
+                    line: NONE,
+                    column: NONE,
+                    metadata_json: meta,
+                    source_id_str: NONE_STR,
+                    target_id_str: NONE_STR,
+                });
+            }
         }
     }
+}
+
+fn same_span(left: Node, right: Node) -> bool {
+    left.start_byte() == right.start_byte() && left.end_byte() == right.end_byte()
+}
+
+fn is_value_write_ref(mut node: Node) -> bool {
+    let mut parent = node.parent();
+    while let Some(owner) = parent {
+        let root_field = match owner.kind() {
+            "attribute" => Some("object"),
+            "subscript" => Some("value"),
+            _ => None,
+        };
+        let Some(field) = root_field else { break };
+        let Some(root) = owner.child_by_field_name(field) else { break };
+        if !same_span(root, node) {
+            break;
+        }
+        node = owner;
+        parent = node.parent();
+    }
+    let Some(owner) = parent else { return false };
+    if matches!(owner.kind(), "assignment" | "augmented_assignment") {
+        return owner.child_by_field_name("left").is_some_and(|left| same_span(left, node));
+    }
+    if owner.kind() == "named_expression" {
+        return owner
+            .child_by_field_name("name")
+            .or_else(|| owner.child_by_field_name("left"))
+            .is_some_and(|left| same_span(left, node));
+    }
+    false
 }
 
 /// NAME_STOPLIST (function-ref.ts).

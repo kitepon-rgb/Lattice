@@ -130,7 +130,7 @@ test('盲点をconfidenceで申告する——打ち切り・本文不明・辺�
   assert.deepEqual(profile.confidence.body_missing, ['ghostSymbol']);
   assert.equal(profile.confidence.value_ref_name_filter,
     'names-under-3-chars-invisible-in-edges');
-  assert.equal(profile.confidence.write_distinction, 'ts-js-wasm-pipeline-only');
+    assert.equal(profile.confidence.write_distinction, 'ts-js-arkts-go-python-java-all-routes');
   assert.equal(profile.confidence.imports_analysis, 'esm-only');
 });
 

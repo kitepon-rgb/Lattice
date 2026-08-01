@@ -120,6 +120,40 @@ describe.skipIf(!kernelBuilt)('kernel TS/JS extraction parity', () => {
     assertParity('fixtures/torture.go', fs.readFileSync(file, 'utf8'), 'go');
   });
 
+  it.each([
+    ['typescript', 'state.ts', [
+      'export const HIT_TABLE = { n: 0 };',
+      'export function readOnly() { return HIT_TABLE.n; }',
+      'export function mutateMember() { HIT_TABLE.n += 1; }',
+      'export function readThenWrite() { const n = HIT_TABLE.n; HIT_TABLE.n = n + 1; }',
+    ].join('\n')],
+    ['go', 'state.go', [
+      'package state',
+      'var HIT_TABLE = struct{ N int }{0}',
+      'func readOnly() int { return HIT_TABLE.N }',
+      'func mutateMember() { HIT_TABLE.N += 1 }',
+      'func readThenWrite() { n := HIT_TABLE.N; HIT_TABLE.N = n + 1 }',
+    ].join('\n')],
+    ['python', 'state.py', [
+      'HIT_TABLE = {"n": 0}',
+      'def read_only(): return HIT_TABLE["n"]',
+      'def mutate_member(): HIT_TABLE["n"] += 1',
+      'def read_then_write():',
+      '    n = HIT_TABLE["n"]',
+      '    HIT_TABLE["n"] = n + 1',
+    ].join('\n')],
+    ['java', 'State.java', [
+      'class State {',
+      '  static final int[] HIT_TABLE = { 0 };',
+      '  int readOnly() { return HIT_TABLE[0]; }',
+      '  void mutateMember() { HIT_TABLE[0] += 1; }',
+      '  void readThenWrite() { int n = HIT_TABLE[0]; HIT_TABLE[0] = n + 1; }',
+      '}',
+    ].join('\n')],
+  ] as const)('value-reference write metadata parity (%s)', (language, filePath, source) => {
+    assertParity(filePath, source, language);
+  });
+
   it.each(REAL_SOURCES)('real source parity: %s', (rel) => {
     const file = path.join(__dirname, '..', rel);
     assertParity(rel, fs.readFileSync(file, 'utf8'), 'typescript');

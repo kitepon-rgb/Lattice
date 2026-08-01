@@ -82,8 +82,8 @@ sensor は材料を既に持っている。「関数 → module 変数」の辺�
 - [x] sensor の callers/callees へ辺種別と valueRef を出す（--limit 200も。既定20件で実際に3件切られていた）
 - [x] 切断コストの内訳を計算する seam-cost module を作る
 - [x] seam profile コマンドを作る（plan/run の両モード・投影のみ）
-- [x] valueRef へ read/write の区別を足す（TS/JS 先行。kernel経路は未配線でconfidence申告、ミラーはsc-007=要Rust toolchain）
-- [ ] read/write の区別を go/python/java のミラーへ広げる
+- [x] valueRef へ read/write の区別を足す（TS/JS/ArkTS/Go/Python/Java。WASMとkernelの両経路を同じfixtureで照合）
+- [x] read/write の区別を go/python/java のミラーへ広げる（sc-007。read後writeの合成、member/subscript mutation、kernel wire contractを実buildで確認）
 - [x] sensor の名前フィルタを緩めて実測する（+232本/+8.8%、時間・DB差なし。sc-001のfixtureは死角=3文字未満へ移し、counterは正の対照へ）
 - [x] import 束縛の区別（default/named/namespace）を保持する（schema v10。migration記録の冪等性bugも発見・修正）
 - [x] 装飾込みの開始行を出す（v11。Rust attribute_itemが一度も拾えていなかった2欠陥も修正）

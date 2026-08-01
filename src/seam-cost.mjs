@@ -244,9 +244,9 @@ export function classifySeamCost({
       // 盲点の申告（計画の不変条件4）。見えていないものを「共有なし」と言わない。
       // 3文字未満の名前（i, db等）はloop/parameterのnoiseが支配的なので辺にしない。
       value_ref_name_filter: 'names-under-3-chars-invisible-in-edges',
-      // 書き込み判定はTS/JS族のwasm経路だけが持つ。kernel経路（Rust）は未配線で、
-      // その索引では書き込みが読みに見える——盲点として申告する（sc-007で解消）。
-      write_distinction: 'ts-js-wasm-pipeline-only',
+      // TS/JS/ArkTS/Go/Python/Javaはwasmとkernelの両経路で同じwrite判定を持つ。
+      // それ以外のvalue-ref対応言語はmetadata.writeが未配線なので、範囲を明記する。
+      write_distinction: 'ts-js-arkts-go-python-java-all-routes',
       imports_analysis: 'esm-only',
       callees_truncated: [...new Set(truncatedSymbols)].sort(compareText),
       body_missing: [...new Set(bodyMissing)].sort(compareText),

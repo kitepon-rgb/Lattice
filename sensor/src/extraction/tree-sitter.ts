@@ -836,7 +836,11 @@ export class TreeSitterExtractor {
           case 'assignment': {          // Python `X = …` / `X: T = …` / `A, B = …`
             const left = getChildByField(n, 'left') ?? getChildByField(n, 'pattern') ?? n.namedChild(0);
             if (left?.type === 'identifier') bump(left);
-            else if (left) for (const c of left.namedChildren) bump(c);
+            // Attribute/subscript assignment mutates an existing binding's
+            // value; only destructuring patterns introduce/rebind names.
+            else if (left && ['expression_list', 'pattern_list', 'tuple', 'list', 'list_pattern'].includes(left.type)) {
+              for (const c of left.namedChildren) bump(c);
+            }
             break;
           }
           case 'init_declarator':       // C  `T X = …` (file-scope const AND the local that shadows it)
@@ -884,28 +888,70 @@ export class TreeSitterExtractor {
       if (targets.size === 0) return;
     }
 
-    // Write detection is wired for the TS/JS family only (assignment/augmented/
-    // update, including member mutation like `cache.x = 1`). Other value-ref
-    // languages keep read-only edges until their grammars get the same wiring —
-    // consumers must not read an absent flag as "read-only" for those languages.
-    const writeAware = ['typescript', 'javascript', 'tsx', 'jsx', 'arkts'].includes(this.language);
+    // Write detection is wired for every language that also has a native-kernel
+    // value-ref mirror. Languages outside this set keep an absent flag — callers
+    // must not interpret absence as read-only.
+    const writeAware = [
+      'typescript', 'javascript', 'tsx', 'jsx', 'arkts', 'go', 'python', 'java',
+    ].includes(this.language);
     const isWriteReference = (n: SyntaxNode): boolean => {
-      // Climb the leftmost object path: `cache.x.y = 1` / `cache[k] = 1` mutate
+      // Climb the binding-root path: `cache.x.y = 1` / `cache[k] = 1` mutate
       // the binding's value even though the identifier itself is not re-bound.
       let node: SyntaxNode = n;
       let parent = node.parent;
-      while (parent && (parent.type === 'member_expression' || parent.type === 'subscript_expression')) {
-        const object = getChildByField(parent, 'object');
-        if (!object || object.startIndex !== node.startIndex || object.endIndex !== node.endIndex) break;
-        node = parent;
-        parent = node.parent;
+      while (parent) {
+        const rootField = (() => {
+          if (parent.type === 'member_expression' || parent.type === 'subscript_expression') return 'object';
+          if (this.language === 'go'
+            && ['selector_expression', 'index_expression', 'slice_expression'].includes(parent.type)) return 'operand';
+          if (this.language === 'python' && parent.type === 'attribute') return 'object';
+          if (this.language === 'python' && parent.type === 'subscript') return 'value';
+          if (this.language === 'java' && parent.type === 'field_access') return 'object';
+          if (this.language === 'java' && parent.type === 'array_access') return 'array';
+          return null;
+        })();
+        if (rootField !== null) {
+          const root = getChildByField(parent, rootField);
+          if (!root || root.startIndex !== node.startIndex || root.endIndex !== node.endIndex) break;
+          node = parent;
+          parent = node.parent;
+          continue;
+        }
+        // Go's assignment LHS is wrapped in an expression_list.
+        if (this.language === 'go' && parent.type === 'expression_list') {
+          node = parent;
+          parent = node.parent;
+          continue;
+        }
+        break;
       }
       if (!parent) return false;
-      if (parent.type === 'assignment_expression' || parent.type === 'augmented_assignment_expression') {
-        const left = getChildByField(parent, 'left');
+
+      const isLeft = (owner: SyntaxNode, fields: string[]): boolean => fields.some((field) => {
+        const left = getChildByField(owner, field);
         return left !== null && left.startIndex === node.startIndex && left.endIndex === node.endIndex;
+      });
+      if (['typescript', 'javascript', 'tsx', 'jsx', 'arkts'].includes(this.language)) {
+        if (parent.type === 'assignment_expression' || parent.type === 'augmented_assignment_expression') {
+          return isLeft(parent, ['left']);
+        }
+        return parent.type === 'update_expression';
       }
-      return parent.type === 'update_expression';
+      if (this.language === 'go') {
+        if (parent.type === 'assignment_statement') return isLeft(parent, ['left']);
+        return parent.type === 'inc_statement' || parent.type === 'dec_statement';
+      }
+      if (this.language === 'python') {
+        if (parent.type === 'assignment' || parent.type === 'augmented_assignment') {
+          return isLeft(parent, ['left']);
+        }
+        return parent.type === 'named_expression' && isLeft(parent, ['name', 'left']);
+      }
+      if (this.language === 'java') {
+        if (parent.type === 'assignment_expression') return isLeft(parent, ['left']);
+        return parent.type === 'update_expression';
+      }
+      return false;
     };
 
     for (const scope of scopes) {
