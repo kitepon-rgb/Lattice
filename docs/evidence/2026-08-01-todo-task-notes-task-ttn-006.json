@@ -1,0 +1,26 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "todo-task-notes-20260801",
+  "actor_id": "codex-parent-20260801",
+  "expected_revision": 6,
+  "task": {
+    "task_id": "ttn-006",
+    "title": "Gantt右ペインへ安全に表示し公開serveから除外する",
+    "classification": "F",
+    "effect": "write",
+    "doc_ref": "docs/plan_todo-task-notes.md",
+    "role": "implementer",
+    "lane": "behavior-change",
+    "depends_on": ["ttn-004", "ttn-005"],
+    "required_capabilities": ["gantt-detail-pane", "safe-markdown", "serve-redaction"],
+    "isolation": "none",
+    "context_policy": {"share_objective": true, "share_current_candidate": true, "share_existing_findings": true, "share_failed_approaches": true, "share_test_results": true},
+    "validation": ["右ペインへ同じbounded note contextを表示する", "既存Markdown allow-listを使いXSSを拒否する", "公開serveへnote本文を含めない", "note破損をWARN表示し空にしない"],
+    "non_goals": ["公開serveでのnote閲覧", "新Markdown parserの実装"],
+    "known_traps": ["raw innerHTMLへ本文を渡さない", "live headからnote digestを落とすと更新されない"],
+    "read_scope": [{"kind": "file", "path": "src/todo-gantt-presentation.mjs"}, {"kind": "file", "path": "src/todo-gantt-html.mjs"}, {"kind": "file", "path": "src/todo-gantt-live.mjs"}, {"kind": "file", "path": "src/todo-markdown-renderer.mjs"}],
+    "write_scope": [{"kind": "file", "path": "src/todo-cli.mjs"}, {"kind": "directory", "path": "src"}, {"kind": "directory", "path": "test"}, {"kind": "directory", "path": "docs/evidence"}],
+    "approval": null,
+    "alternative_group": null
+  }
+}
