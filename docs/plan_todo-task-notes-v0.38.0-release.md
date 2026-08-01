@@ -17,10 +17,10 @@ ToDoへ蓄積した作業記憶を、追加コマンドを要求せず通常詳�
 
 - [x] 関連文書とversionを更新する。
 - [x] CIとpackage収載検査を通す。
-- [ ] release commitを`origin/main`へpushし、release commit gateを通す。
-- [ ] `@quolu/lattice@0.38.0`をnpmへpublishする。
-- [ ] 公開版をglobal installし、常駐実体を載せ替える。
-- [ ] CLI／ローカル／公開面をsmokeし、受入証拠を記録する。
+- [x] release commitを`origin/main`へpushし、release commit gateを通す。
+- [x] `@quolu/lattice@0.38.0`をnpmへpublishする。
+- [x] 公開版をglobal installし、常駐実体を載せ替える。
+- [x] CLI／ローカル／公開面をsmokeし、受入証拠を記録する。
 
 ## 受入条件
 
