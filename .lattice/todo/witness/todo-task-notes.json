@@ -186,7 +186,14 @@
       ]
     },
     "ttn-005": {
-      "affected_tests": [],
+      "affected_tests": [
+        "test/todo-cli-schema-command.test.mjs",
+        "test/todo-dashboard-registry.test.mjs",
+        "test/todo-explain-diagnostics.test.mjs",
+        "test/todo-independence-cli.test.mjs",
+        "test/todo-phase-baseline.test.mjs",
+        "test/todo-revision-set.test.mjs"
+      ],
       "owns": [
         {
           "kind": "path",
@@ -215,5 +222,5 @@
       ]
     }
   },
-  "witness_set_digest": "0d4fa825531c804ae5cbc2b28880249cab378f70d07fa33c390097aa61f90fa7"
+  "witness_set_digest": "575f1a61b14c471dafc99d5a3b4d86187843b8d58aa08d989997a1254c03b3f8"
 }
