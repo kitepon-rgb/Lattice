@@ -2,123 +2,143 @@
 
 - 記録: 2026-08-01 / Control `sensor-awareness-hooks-20260801`
 - 起草: claude-fable-parent（F: 端末設定書換え契約・公開契約は親直轄）
-- 入力: P0 baseline証拠・read-only構造調査（Codex terra×medium）・反証1巡目（Codex sol×high・12 finding全採用）
-- 版: r2（1巡目反証を反映した改訂版。r1の欠陥は本文末尾の裁定記録が正）
+- 入力: P0 baseline証拠・構造調査（terra×medium）・反証1巡目12件全採用・反証2巡目11件全採用
+- 版: r3（2巡目反証を反映。旧版の欠陥は末尾の裁定記録が正）
 
 ## 調査ダイジェスト（設計の根拠事実）
 
 - CLI: `bin/lattice.mjs` はtop-level tokenで動的import dispatch。新設は `hooks`→`src/hooks-cli.mjs`
-  （`runHooksCli`）が同型。help3層（`src/cli-help.mjs`）と `scripts/verify-cli-surface.mjs` の
-  `COMMANDS`、実CLI経由testが出荷条件。
-- 配布: `files`は`bin`/`src`全体を含む＝hook本体は`src/hooks-*.mjs`で追加配布設定不要。
-- typed契約: 各CLI module局所の`typedFailure`（usage=exit 2・実行失敗=exit 1・成功はschema先頭の一行JSON）。
+  （`runHooksCli`）。help3層・`scripts/verify-cli-surface.mjs` の`COMMANDS`・実CLI経由testが出荷条件。
+- 配布: `files`は`bin`/`src`全体を含む。
+- typed契約: module局所`typedFailure`（usage=exit 2・実行失敗=exit 1・成功はschema先頭一行JSON）。
 - host entry形（一次資料確定）: Claude=`hooks.UserPromptSubmit[]`要素
   `{"hooks":[{"type":"command","command":…,"timeout":5}]}`。
-  **Codex=keyは`timeout`（秒・既定600）**。`timeoutSec`はCodex 0.146.0のschemaに存在しない
-  （serde `rename="timeout"`・公式manual既定600秒——反証finding 7の一次資料）。
+  **Codex=keyは`timeout`（秒・既定600）。`timeoutSec`は無効キー**（caveat:
+  codex-hooks-json-hook-timeout-key-timeout-timeoutsec-600）。
 - test慣行: 一時workspace＋`spawnSync`実binary起動・stdout JSONのexact key/schema検査。
 
-## 設計契約（r2）
+## 設計契約（r3）
 
 ### C1. CLI surface
 
-`lattice hooks <install|status|uninstall|emit> --host <claude|codex>`（4つとも公開surface。
-help3層・`COMMANDS`・実CLI経由test同時追加）。statusの出力は機械可読JSONを既定とする。
+`lattice hooks <install|status|uninstall|emit> --host <claude|codex>`。**emitも同一構文
+`hooks emit --host <host>`**（canonical commandもこの形。位置引数形は存在しない）。
+4 subcommandとも公開surface（help3層・`COMMANDS`・実CLI経由test同時追加）。
 
-### C2. canonical entryとidentity（r2で全面改訂）
+### C2. canonical entryとidentity（r3改訂）
 
-- canonical commandは install時に解決した **絶対Node実行体＋絶対script** で構成する:
-  `"<process.execPath絶対path>" "<bin/lattice.mjs絶対realpath>" hooks emit <host>`。
-  どちらかが解決不能なら `INSTALL_SOURCE_UNRESOLVED` exit 1（相対・PATH依存形へfallbackしない）。
-- **identity判定はregexでなくtokenize＋argv構造比較**: host別parser（POSIX shell-words／将来のWindows形は
-  実装時にexact-argv比較で扱う）でcommandをargv列へ分解し、「実行scriptが`lattice.mjs`（basename一致かつ
-  存在すればrealpath一致）で、後続argvが `hooks emit <claude|codex>` に完全一致」する場合だけ自entryと
-  みなす。tokenize不能なcommandは**自entryとみなさない**（他人のentryを壊さない側へ倒す）。
-- **除去・置換の単位はinner handler**（`{"hooks":[…]}` wrapper内の1 handler object）。同一wrapper内の
-  他handlerとwrapper metadataは保持し、除去で純粋wrapperが空になった時だけwrapperを落とす
-  （apply-codex-configの参照実装と同じ規律）。
+- 対応platform: v1は**POSIXのみ**。Windows native（PowerShell command形）は
+  `HOST_PLATFORM_UNSUPPORTED` のtyped errorで拒否し、対応はplanの明示的な後続工程とする
+  （半端なcommand形を書き込まない）。
+- canonical command: install時に解決した絶対path対
+  `"<process.execPath絶対path>" "<bin/lattice.mjs絶対realpath>" hooks emit --host <host>`。
+  解決不能は `INSTALL_SOURCE_UNRESOLVED` exit 1。
+- **identity＝install receipt照合**（basename等のheuristic推定は廃止）: 自分が配線したargvは
+  state rootの `installs/<host>.json`（owner receipt・追記型）へ記録する。ある既存handlerが
+  自entryとみなされるのは、POSIX shell-wordsでtokenizeしたargv列が
+  (a) 現canonical、または (b) receiptに記録された過去のinstall argv、のどちらかと**完全一致**する
+  場合だけ。tokenize不能・不一致entryは他人の所有物として一切触れない
+  （他人のdead entryも消さない——誤爆より取り逃しへ倒し、取り逃しはstatusのdriftで可視化する）。
+- 除去・置換の単位はinner handler。同一wrapper内の他handlerとmetadataは保持し、除去で
+  純粋wrapperが空になった時だけwrapperを落とす。
 - 単一canonical不変: installは自identity handlerを全除去→canonical handler 1件を追加。
-- Codex側handlerは `{"type":"command","command":…,"timeout":5,"async":false,"statusMessage":null}`
-  ——**`timeout`キー**（finding 7）。Claude側は `{"type":"command","command":…,"timeout":5}`。
+- handler形: Claude `{"type":"command","command":…,"timeout":5}`／
+  Codex `{"type":"command","command":…,"timeout":5,"async":false,"statusMessage":null}`。
 
-### C3. install書換え契約（不変条件＝P2 characterizationの対象・r2改訂）
+### C3. install書換え契約（不変条件＝P2 characterizationの対象・r3改訂）
 
-1. 対象host home dir不在 → `HOST_NOT_PRESENT` exit 1。dirは作らない。
+1. host home dir不在 → `HOST_NOT_PRESENT` exit 1。dirは作らない。
 2. 設定ファイルがsymlink → `CONFIG_SYMLINK_UNSUPPORTED` exit 1。
 3. 不正JSON → `CONFIG_UNREADABLE` exit 1・一切書かない。
-4. **prestate記録**: 変更前に `{existed, mode, bytes}` を取得する。ファイル不在（dir在り）は
-   `existed:false` とし空objectから開始。
-5. **backup**: 変更が生じる場合だけ、`<name>.bak-lattice-hooks-<UTC>-<random>` を `O_EXCL` で作成
-   （既存backupを上書きする経路を持たない）。`existed:false` ならbackupは作らず、rollbackは
-   atomic unlinkと定義する。backup失敗→中止・無変更。
+4. prestate記録: `{existed, mode, bytes}`。不在（dir在り）は`existed:false`・空objectから開始。
+5. backup（変更が生じる場合だけ）: `<name>.bak-lattice-hooks-<UTC>-<random>` を **`O_EXCL`かつ
+   mode 0600** で作成し、write→fsync→close完了をもって有効とする。既存backupの上書き経路を
+   持たない。`existed:false`はbackup無し・rollback＝atomic unlink。backup失敗→中止・無変更。
 6. merge対象は自identity handlerだけ（C2）。他handler・他key・並び順不変、追加は末尾。
-7. **書出しとCAS**: serialize→re-parse検証→同dirへ`O_EXCL`・元modeでtmp作成（`existed:false`は0600）→
-   fsync→**rename直前にpreimage再読込しbytes一致を検証（CAS）**。不一致＝並行書込み検出→abort・
-   tmp削除・再読込から再merge（1回だけ再試行、再衝突はtyped errorで停止）。rename→read-back検証。
-   read-back失敗は `existed:true`→backupから復元／`existed:false`→unlinkで復元。
-   全失敗経路で `finally` によりtmpを削除する。
+7. **置換手順（r3・displaced-preimage方式）**: serialize→re-parse検証→同dirへ`O_EXCL`・
+   元mode（新規は0600）でtmp作成→fsync→直前preimage再読込で一致検証→
+   **`link(target, "<name>.pre-lattice-hooks-<UTC>-<random>")` で置換直前inodeを退避**（link失敗は中止）→
+   `rename(tmp→target)`→read-back検証。
+   - 一致検証とrenameの間の残余競合窓は排除できないが、その窓でhostが書いた内容は
+     displaced fileのinodeに**必ず残る**（「消えない」を契約とし、CASを僭称しない）。
+   - preimage不一致検出時は abort・tmp削除→再読込から1回だけre-merge。**retry時はprestateと
+     rollback源を再読preimageへ更新する**（旧backupで新しいhost書込みを巻き戻さない）。
+   - read-back失敗の復元は `existed:true`→直近preimage（displaced優先）から、`existed:false`→unlink。
+     **復元自体もtmp→fsync→rename→read-back規律**で行い、復元失敗は `RESTORE_FAILED` の
+     typed fatalとして残骸pathを明示する。
+   - 全失敗経路で`finally`によりtmpを削除。成功時、backup/displacedは残す（利用者の回収面）。
 8. 冪等: 既にcanonicalなら無変更・backup無し・`already_wired`。
 
-### C4. status契約（r2改訂）
+### C4. status契約
 
 `lattice.hooks_status_result.v1`:
 `{schema, host, config_path, state, canonical_command, matched_handler_count, executable_ok, next_action}`
-- `wired` := 自identity handlerが**ちょうど1件**かつcanonical完全一致**かつ**Node実行体とscriptが
+- `wired` := 自identity handlerが**ちょうど1件**かつcanonical完全一致かつNode実行体・scriptが
   存在し実行可能（`executable_ok:true`）。
-- それ以外でmatched>0（旧path残存・重複・実行体不能を含む）→ `drift`。
-- matched=0 → `not_wired`。dir/file不能・symlink・不正JSON → `unreadable`（exit 1。他はexit 0）。
+- それ以外でmatched>0 → `drift`。matched=0 → `not_wired`。
+- dir/file不能・symlink・不正JSON・platform非対応 → `unreadable`（exit 1。他はexit 0）。
 
 ### C5. uninstall契約
 
-自identity handlerだけ除去（C3の安全則1-3,5,7を共有）。ファイル不在・handler無しは
+自identity handlerだけ除去（C3の1-3,5,7と同じ安全則・receipt照合）。ファイル不在・handler無しは
 `removed_count:0` のtyped成功。
 
-### C6. emit（導線hook本体）実行時契約（r2改訂）
+### C6. emit（導線hook本体）実行時契約（r3改訂）
 
 判定順:
 1. `LATTICE_HOOKS=off` → 沈黙 exit 0。
-2. state root解決: `XDG_STATE_HOME`が絶対pathならそれ、無ければ`os.homedir()/.local/state`。
-   `lattice/hooks/` を owner確認付き `mkdir -p`（mode 0700）。**解決・作成不能なら1行の可視診断を
-   stdoutへ出して exit 0**（fail-visibleの最終経路。無記録の沈黙はしない）。
-3. stdin（64KiB上限・strict JSON・`session_id`/`cwd`必須）不成立 → `errors.log`へ記録して沈黙。
-4. git root解決（`--no-optional-locks rev-parse --show-toplevel`・timeout 2s）:
-   **exit非0（非git）だけ沈黙**。spawn失敗・timeoutは`errors.log`記録＋1行可視診断（planの
-   fail-visible契約——非対象の沈黙と異常の可視を分ける）。
-5. `<root>/.lattice/sensor/` がdirでない → 沈黙。
-6. marker `<state>/lattice/hooks/<sha256(session)>.<sha256(root)>.shown` を **`wx`でatomic作成**。
-   既存（EEXIST）→沈黙（並行promptの二重表示はこのclaimで裁定される）。作成成功→案内を出力。
-   自pattern（`*.shown`）かつ7日超だけgc。
+2. state root解決: `XDG_STATE_HOME`（絶対pathの時のみ採用）または`os.homedir()/.local/state`を
+   **realpathで固定**し、`lattice`・`hooks`各componentを`lstat`でsymlink拒否・owner確認しつつ
+   mode 0700で作成。以後のmarker/GC/receipt操作は**このdir fd基準**で行う。解決・作成不能は
+   1行可視診断をstdoutへ出して exit 0（無記録の沈黙禁止）。
+3. stdin（64KiB上限・strict JSON・`session_id`/`cwd`必須）不成立 → `errors.log`記録＋沈黙。
+   **log書込み自体の失敗は可視診断へfallback**。
+4. git root解決: shell非経由の固定argv
+   `git --no-optional-locks -C <検証済みcwd> rev-parse --show-toplevel`（timeout 2s）。
+   **exit非0（非git）だけ沈黙**。spawn失敗・timeout・その他I/O失敗は記録＋可視診断。
+5. `<root>/.lattice/sensor/` の判定: `ENOENT`/`ENOTDIR`だけ沈黙。EACCES/EIO等は記録＋可視診断。
+6. 通知claim: `<state>/lattice/hooks/<sha256(session)>.<sha256(root)>.claim` を`wx`で作成
+   （EEXIST→沈黙）→案内をstdoutへ出力→**出力成功後に`.shown`へrename**。出力失敗はclaimを
+   削除（永久抑止を作らない）。stale claim（1時間超）は回収する。gcは自pattern
+   （`*.shown`/`*.claim`）かつ7日超だけ・dir fd基準。
 - 出力形: claude=plain 1行／codex=`hookSpecificOutput` envelope（ASCII）。
 - 文面: `INFO: このrepoにはLattice sensor index（.lattice/sensor/）があります。コード構造の調査はsensor入口（MCP: lattice_sensor_explore 等／CLI: lattice sensor）を優先できます。`
 
 ### C7. 非採用と理由
 
-- 専用binstub追加: 既存binstub＋subcommandで足りる。
-- `--home`引数: testはHOME/XDG環境変数差替えで足りる。
-- index無しrepoでの案内: 非目標（空砲の禁止）。
-- regex identity: 反証1巡目finding 1/2により廃止（tokenize＋argv比較へ）。
+- 専用binstub追加・`--home`引数・index無し案内: r1どおり非採用。
+- regex／basename heuristicのidentity: 反証1・2巡目により廃止（receipt照合へ）。
+- 「CAS」を名乗る置換: POSIXに真のfile CASが無いため僭称を廃止し、displaced-preimage方式で
+  「競合内容は消えない」を契約化（残余窓の存在は明記の上で受容——backup・displaced・
+  read-backの三重で回収可能性を保証する）。
+- Windows native対応: v1はtyped unsupported。対応する場合は`commandWindows`形の固定を含む
+  独立工程として起票する。
 
 ## 反証結果と親裁定
 
 ### 1巡目（Codex sol×high・2026-08-01）
 
-12 finding（high 9・medium 3）。**全採用・棄却なし**。判定「実装へ進めてはいけない」を受け、
-本契約をr2へ改訂した。要点:
+12 finding（high 9・medium 3）・**全採用**→r2改訂。要点: regex identity誤爆/取り逃し、
+wrapper/handler除去単位、absent復元経路、backup衝突、tmp残骸/mode、**Codex keyは`timeout`**
+（dotagents apply-codex-configの同欠陥はP6で修理・caveat登録済み）、wired/drift非決定、
+state dir初回/並行claim、fail-visible矛盾、PATH非依存の偽（絶対Node化）、並行書込みTOCTOU。
 
-1. regex identityの誤爆（採用→C2 tokenize化）
-2. quoted/space/Windows形の取り逃し（採用→C2 argv比較）
-3. 除去単位のwrapper/handler混同（採用→C2 inner handler単位）
-4. 新規作成ファイルの復元経路欠落（採用→C3 prestate＋unlink rollback）
-5. backup同名衝突（採用→C3 `O_EXCL`＋random suffix）
-6. tmp残骸・mode保持（採用→C3 finally削除・元mode）
-7. **Codex keyは`timeout`・`timeoutSec`は無効**（採用→C2。dotagents apply-codex-configの同欠陥は
-   P6 dotagents追従waveの修理対象として登録）
-8. wired/drift非決定（採用→C4 exact-1-canonical定義）
-9. state dir初回不在・並行claim（採用→C6 mkdir -p＋`wx` claim）
-10. fail-visible矛盾（採用→C6 非対象沈黙と異常可視の分離・無記録沈黙の禁止）
-11. 「PATH非依存」が偽（採用→C2 絶対Node＋絶対script・C4 executable_ok検証）
-12. 並行書込みTOCTOU（採用→C3 CAS＋1回re-merge）
+### 2巡目（同refuter・r2への再攻撃）
 
-### 2巡目（改訂版への再反証）
+11 finding（high 9・medium 2）・**全採用**→r3改訂。裁定メモ:
+
+1. C1/C2構文不整合（採用→emit構文を`--host`へ統一）
+2. basename identityの双方向誤り（採用→install receipt照合へ全面置換）
+3. Windows canonical未固定（採用・裁定: v1はtyped unsupported。半端対応を書き込まない）
+4. backup mode漏洩（採用→0600・fsync/close完了で有効）
+5. 偽CAS（採用・裁定: CAS僭称を廃止しhardlink退避で「消えない」契約へ変換。残余窓は明記受容）
+6. retry rollback源のstale化（採用→prestate/rollback源を再読preimageへ更新）
+7. 復元経路の原子性未規定（採用→復元も同規律・`RESTORE_FAILED` typed fatal）
+8. state root symlink・GC所有権（採用→realpath固定・component lstat・dir fd基準）
+9. claim後出力失敗の永久抑止（採用→`.claim`→出力成功→`.shown` rename・stale回収）
+10. log失敗・stat異常の無記録沈黙（採用→ENOENT/ENOTDIR以外は可視診断fallback）
+11. git rootがstdin cwdへ未束縛（採用→`-C <cwd>`固定argv）
+
+### 3巡目（r3の変更機構への再反証）
 
 （完了後に追記）
