@@ -248,7 +248,9 @@ test('component 0件と未生成はguidance正本のcode・message・next_action
   assert.match(output.html, new RegExp(missing.guidance.code, 'u'));
   assert.match(output.html, new RegExp(missing.guidance.message, 'u'));
   assert.match(output.html, new RegExp(missing.guidance.next_action, 'u'));
-  assert.doesNotMatch(output.html, /競合が無い/u);
+  // seam guidanceは未検査を「競合なし」と言い換えない。個別ToDoの並列可否は
+  // 詳細パネル側の担当なので、ここでは概要パネルだけを見る。
+  assert.doesNotMatch(output.html.split('<article class="task-detail')[0], /競合が無い/u);
 });
 
 test('SVGはバッジ記号とクラスを描き、カード寸法を変えない', () => {
@@ -274,4 +276,63 @@ test('SVGはバッジ記号とクラスを描き、カード寸法を変えな�
   // 記録の無い図にはバッジを出さない。
   const plainSvg = renderTodoGanttSvg(plain, { lanes: new Map(), taskNumbers: new Map() });
   assert.equal(plainSvg.includes('independence-badge'), false);
+});
+
+/** 詳細パネルは工程ごとに1つ。task_idで切り出さないと他工程の文言を拾う。 */
+function detailPanelOf(html, taskId) {
+  return html.split('<article class="task-detail')
+    .find((chunk) => chunk.startsWith('" data-detail-key="')
+      && chunk.slice(0, 200).includes(`&quot;${taskId}&quot;]"`)) ?? null;
+}
+
+// 作業中の工程はready frontierに居ないため、conflictの相手側としてしか現れない。
+// 枠ごと消すと「競合なし」と読まれるので、着手済の側からも並列可否を述べる。
+test('作業中の工程は自分が塞いでいる着手候補を並列可否として述べる', () => {
+  const read = readModel(['A', 'B']);
+  Object.assign(read.members[0].tasks[0], { status: 'in-progress' });
+  const layout = layoutTodoGantt(read, chain, {
+    scope: 'all',
+    independence: projectionFor({
+      parallel_groups: [],
+      serialize_pairs: [],
+      conflicts_with_active: [{
+        ready_task_id: 'B', active_task_id: 'A', type: 'conflict',
+        detail: 'src/shared.mjs', kind: 'path', severability: 'code_seam',
+      }],
+      unknown: [],
+    }),
+  });
+  const { html } = renderTodoGanttHtml({
+    readModel: read, layout, narratives: [], anchorOutcomes: [],
+    presentation: projectTodoGanttPresentation(read, null), metadata: {},
+  });
+
+  const active = detailPanelOf(html, 'A');
+  assert.match(active, /この工程が作業中のあいだ、次の着手候補は同時に始められません/u);
+  assert.match(active, /<li>B — .*（資源 src\/shared\.mjs）<\/li>/u);
+  // ready側は従来どおり要直列として相手を挙げる。
+  const ready = detailPanelOf(html, 'B');
+  assert.match(ready, /<strong>並列可否:<\/strong> 要直列です。/u);
+  assert.match(ready, /<li>A（作業中） — /u);
+});
+
+// 記録が無い状態こそ最も警告が要る。黙って枠を消すと「競合なし」と読まれる。
+test('記録が無い工程は状態別に未検査または判定前だと述べる', () => {
+  const read = readModel(['A', 'B', 'C']);
+  Object.assign(read.members[0].tasks[0], { status: 'in-progress' });
+  Object.assign(read.members[0].tasks[2], { status: 'done', done_at: '2026-08-01T00:00:00.000Z' });
+  const { html } = renderTodoGanttHtml({
+    readModel: read, layout: layoutTodoGantt(read, chain, { scope: 'all' }),
+    narratives: [], anchorOutcomes: [],
+    presentation: projectTodoGanttPresentation(read, null), metadata: {},
+  });
+
+  for (const taskId of ['A', 'B']) {
+    assert.match(detailPanelOf(html, taskId),
+      /<strong>並列可否:<\/strong> 未検査です。競合が無いのではなく、まだ判定していません。このplanには独立性の記録がまだありません。/u);
+    assert.match(detailPanelOf(html, taskId),
+      /lattice todo independence compile --plan main --input &lt;ref&gt;/u);
+  }
+  // 完了した工程は同時着手の判断材料ではない。ここだけは黙ってよい。
+  assert.doesNotMatch(detailPanelOf(html, 'C'), /並列可否/u);
 });

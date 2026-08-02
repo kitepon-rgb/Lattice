@@ -60,20 +60,59 @@ export function dispatchBasis(summary) {
   return `${parts.join('、')}。未検査は依存線が無くても並列可の根拠になりません。`;
 }
 
+const COVERAGE_REASON = Object.freeze({
+  missing: 'このplanには独立性の記録がまだありません。',
+  stale: '記録はありますが、その後のdiffで失効しています。',
+  superseded: '記録は旧plan versionのもので、現在のtopologyには読めません。',
+});
+
+/**
+ * 未検査を黙って消さない。記録が無い状態こそ最も警告が要る（ADR 0127）。
+ *
+ * 枠ごと消すと「競合なし」と読まれる。判定していないことと、次の一手を必ず言う。
+ */
+function unverifiedIndependence(planKey, coverage) {
+  const reason = COVERAGE_REASON[coverage] ?? COVERAGE_REASON.missing;
+  return `<p class="readiness-note"><strong>並列可否:</strong> 未検査です。競合が無いのではなく、まだ判定していません。${escapeHtmlText(reason)}宣言を書いて <code>lattice todo independence compile --plan ${escapeHtmlText(planKey)} --input &lt;ref&gt;</code> を通すと判定できます。</p>`;
+}
+
+function conflictItems(pairs) {
+  return pairs.map((pair) => `<li>${escapeHtmlText(pair.other)} — ${escapeHtmlText(SEVERABILITY_LABEL[pair.severability] ?? pair.severability)}（資源 ${escapeHtmlText(pair.detail)}）</li>`).join('');
+}
+
+/**
+ * 作業中の工程は自分がready frontierに居ないため、conflictの相手側として現れる。
+ * 「今これを動かしている間、何が同時に始められないか」がその工程での並列可否である。
+ */
+function activeIndependence(plan, taskId) {
+  const blocked = plan.conflicts_with_active
+    .filter((entry) => entry.active_task_id === taskId)
+    .map((entry) => ({
+      other: entry.ready_task_id, severability: entry.severability, detail: entry.detail,
+    }));
+  if (blocked.length > 0) {
+    return `<p class="readiness-note"><strong>並列可否:</strong> この工程が作業中のあいだ、次の着手候補は同時に始められません。</p><ul class="independence-conflicts">${conflictItems(blocked)}</ul>`;
+  }
+  if (plan.coverage !== 'verified') return unverifiedIndependence(plan.plan_key, plan.coverage);
+  return '<p class="readiness-note"><strong>並列可否:</strong> 着手済のため同時着手の判定対象ではありません。現在の着手候補に、この工程と競合するものはありません。</p>';
+}
+
 /** 個別ToDoについて、競合相手と切断可能性を言葉で示す。 */
-export function renderIndependenceNote(ref, node, summary) {
-  if (summary === null || node === undefined) return '';
-  const plan = summary.byPlan.get(ref.plan_key);
-  if (plan === undefined) return '';
+export function renderIndependenceNote(ref, node, summary, status) {
+  // 完了した工程は同時着手の判断材料ではない。ここだけは黙ってよい。
+  if (status === 'done') return '';
+  const plan = summary === null ? undefined : summary.byPlan.get(ref.plan_key);
+  if (plan === undefined) return unverifiedIndependence(ref.plan_key, 'missing');
   const taskId = ref.task_id;
-  const state = node.visibility.independence;
-  if (state === null) return '';
+  const state = node?.visibility?.independence ?? null;
+  if (state === null) {
+    if (status === 'in-progress') return activeIndependence(plan, taskId);
+    return '<p class="readiness-note"><strong>並列可否:</strong> まだ着手候補ではないため判定していません。前提工程が片付いて着手候補に入った時点で判定します。</p>';
+  }
   if (state === 'verified') {
     return '<p class="readiness-note"><strong>並列可否:</strong> 独立検証済です。記録時点の宣言境界では他のready工程と干渉しません。</p>';
   }
-  if (state === 'unknown') {
-    return '<p class="readiness-note"><strong>並列可否:</strong> 未検査です。競合が無いのではなく、まだ判定していません。</p>';
-  }
+  if (state === 'unknown') return unverifiedIndependence(plan.plan_key, plan.coverage);
   const pairs = [
     ...plan.serialize_pairs
       .filter((pair) => pair.task_ids.includes(taskId))
@@ -90,8 +129,7 @@ export function renderIndependenceNote(ref, node, summary) {
         detail: entry.detail,
       })),
   ];
-  const items = pairs.map((pair) => `<li>${escapeHtmlText(pair.other)} — ${escapeHtmlText(SEVERABILITY_LABEL[pair.severability] ?? pair.severability)}（資源 ${escapeHtmlText(pair.detail)}）</li>`).join('');
-  return `<p class="readiness-note"><strong>並列可否:</strong> 要直列です。</p><ul class="independence-conflicts">${items}</ul>`;
+  return `<p class="readiness-note"><strong>並列可否:</strong> 要直列です。</p><ul class="independence-conflicts">${conflictItems(pairs)}</ul>`;
 }
 
 export function renderRightPane(
@@ -157,7 +195,9 @@ export function renderRightPane(
     const readiness = node?.visibility.next_ready
       ? `<p class="readiness-note">ready frontierの一員です。${ready.length > 1 ? '他のready工程と同時着手できるかは下の並列可否で判断してください。' : '現在の唯一の着手候補です。'}</p>`
       : incoming.get(key).length === 0 ? '<p class="readiness-note">登録済みの前提工程はありません。図だけではdispatch可否を判定しません。</p>' : '';
-    const independenceNote = renderIndependenceNote(section.ref, node, independenceSummary);
+    const independenceNote = renderIndependenceNote(
+      section.ref, node, independenceSummary, section.state.status,
+    );
     // Say it plainly when the reader will not find this ToDo on the diagram.
     const foldedNote = !folds.has(key) ? ''
       : expandable
