@@ -215,7 +215,8 @@ async function replaceDurableJson(directory, name, value) {
 }
 
 function validateLegacyInputs({ request, compileArtifact, legacyMeta }) {
-  const compileKeys = ['schema', 'request_digest', 'plan', 'manifests', 'schedule', 'graph_digest', 'result_digest'];
+  const compileKeys = ['schema', 'request_digest', 'plan', 'manifests', 'schedule', 'graph_digest',
+    'todo_plan_binding', 'result_digest'];
   const metaKeys = ['schema', 'run_id', 'executor_adapter', 'plan_digest'];
   const compileBody = { ...compileArtifact };
   delete compileBody.result_digest;

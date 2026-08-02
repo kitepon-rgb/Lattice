@@ -81,6 +81,8 @@ import { createRuntimeControlRequest, validateRuntimeControlResponse } from './r
 import { createRuntimeControlStore } from './runtime-control-store.mjs';
 import { createRuntimeGateStore } from './runtime-gate-store.mjs';
 import { acquireRuntimeLifecycleLock } from './runtime-lifecycle-lock.mjs';
+import { readTodoIndependenceArtifact, readTodoStore } from './todo-store.mjs';
+import { projectIndependenceFrontier } from './todo-independence.mjs';
 import {
   AdapterRegistryError,
   listRuntimeAdapters,
@@ -130,6 +132,47 @@ const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const RUN_STORE_ROOT = ['.lattice', 'runs'];
 const RUN_REF = /^\.lattice\/runs\/([0-9A-Za-z](?:[0-9A-Za-z._-]{0,127}))$/u;
 const KNOWN_ADAPTERS = Object.freeze(['scripted', 'isolated-worktree', 'actual-agent']);
+
+function sameTextSet(left, right) {
+  return Array.isArray(left) && Array.isArray(right)
+    && left.length === right.length
+    && [...left].sort().every((value, index) => value === [...right].sort()[index]);
+}
+
+function compileArtifactBodyIsValid(artifact, request) {
+  const keys = ['schema', 'request_digest', 'plan', 'manifests', 'schedule', 'graph_digest',
+    'todo_plan_binding', 'result_digest'];
+  if (artifact === null || typeof artifact !== 'object' || Array.isArray(artifact)
+    || Object.keys(artifact).sort().join('\0') !== keys.sort().join('\0')
+    || artifact.schema !== COMPILE_RESULT_SCHEMA) return false;
+  const { result_digest: claimedDigest, ...body } = artifact;
+  if (claimedDigest !== digestArtifact(body) || artifact.request_digest !== request.request_digest
+    || !validateRuntimePlan(artifact.plan)
+    || !verifyRuntimePlanBinding({ plan: artifact.plan, request })) return false;
+  const nodeIds = artifact.plan.nodes.map((node) => node.todo_id);
+  if (artifact.manifests === null || typeof artifact.manifests !== 'object'
+    || Array.isArray(artifact.manifests)
+    || !sameTextSet(Object.keys(artifact.manifests), nodeIds)) return false;
+  return nodeIds.every((todoId) => validateRuntimeBoundaryManifest(artifact.manifests[todoId])
+    && artifact.manifests[todoId].manifest_digest === artifact.plan.manifest_digests[todoId]);
+}
+
+function todoPlanBindingFor(member) {
+  return {
+    project_id: member.plan.project_id,
+    plan_key: member.plan.plan_key,
+    plan_version: member.plan.plan_version,
+    topology_digest: member.plan.topology_digest,
+    plan_digest: member.plan.plan_digest,
+  };
+}
+
+function sameTodoPlanBinding(left, right) {
+  return left !== null && typeof left === 'object' && !Array.isArray(left)
+    && Object.keys(left).sort().join('\0') === ['project_id', 'plan_key', 'plan_version',
+      'topology_digest', 'plan_digest'].sort().join('\0')
+    && Object.entries(right).every(([key, value]) => left[key] === value);
+}
 /**
  * 自動escalationがlifecycle lockを待つ上限（ADR 0143）。
  *
@@ -396,9 +439,27 @@ async function compileFromRepo({ request, cwd, planRef, planEpoch, predecessorRe
   });
 }
 
-async function planCompile({ requestPath, cwd, stdout }) {
+async function planCompile({ requestPath, todoPlanKey = null, cwd, stdout }) {
   const request = await loadRequest(requestPath);
   await resolveRepoBinding(cwd, request);
+  let todoPlanBinding = null;
+  if (todoPlanKey !== null) {
+    const store = await readTodoStore({ repoRoot: cwd });
+    const member = store.members.find(({ descriptor }) => descriptor.plan_key === todoPlanKey);
+    if (member === undefined) {
+      throw new CliContractError('TODO_PLAN_NOT_ACTIVE', '指定されたTODO planはactiveではない', {
+        plan_key: todoPlanKey, next_action: 'select_an_active_todo_plan',
+      });
+    }
+    if (!sameTextSet(member.plan.tasks.map(({ task_id: taskId }) => taskId),
+      request.todos.map(({ todo_id: todoId }) => todoId))) {
+      throw new CliContractError('TODO_PLAN_TASK_MISMATCH',
+        'run requestのTODO集合がactive TODO planと一致しない', {
+          plan_key: todoPlanKey, next_action: 'compile_a_request_for_the_current_plan_revision',
+        });
+    }
+    todoPlanBinding = todoPlanBindingFor(member);
+  }
   const result = await compileFromRepo({
     request,
     cwd,
@@ -416,6 +477,7 @@ async function planCompile({ requestPath, cwd, stdout }) {
     manifests: result.manifests,
     schedule: result.schedule,
     graph_digest: result.graph_digest,
+    todo_plan_binding: todoPlanBinding,
   };
   artifact.result_digest = digestArtifact(artifact);
   stdout.write(`${JSON.stringify(artifact)}\n`);
@@ -526,7 +588,8 @@ async function readRunStore(runDir) {
     path.join(runDir, 'plan-compile-result.json'), 'plan compile result',
   );
   const request = await readBoundedJson(path.join(runDir, 'request.json'), 'run request');
-  const compileKeys = ['schema', 'request_digest', 'plan', 'manifests', 'schedule', 'graph_digest', 'result_digest'];
+  const compileKeys = ['schema', 'request_digest', 'plan', 'manifests', 'schedule', 'graph_digest',
+    'todo_plan_binding', 'result_digest'];
   const metaKeys = ['schema', 'run_id', 'executor_adapter', 'plan_digest'];
   const { result_digest: claimedCompileDigest, ...compileBody } = compileArtifact ?? {};
   const legacyMetaValid = meta !== null && typeof meta === 'object' && !Array.isArray(meta)
@@ -1090,7 +1153,76 @@ function isDistributedScriptedControllerActivation(activation) {
     ));
 }
 
-async function runStart({ requestPath, executorAdapter, cwd, stdout }) {
+async function verifyRunStartGate({ request, compileArtifact, repoRoot }) {
+  if (!compileArtifactBodyIsValid(compileArtifact, request)) {
+    throw new CliContractError('INVALID_PLAN_ARTIFACT',
+      'compile artifactのdigest・request binding・plan/manifest bindingが不正', {
+        next_action: 'rerun_lattice_plan_compile_then_pass_its_artifact',
+      });
+  }
+  if (compileArtifact.todo_plan_binding === null) {
+    throw new CliContractError('COMPILE_ARTIFACT_UNBOUND',
+      'compile artifactがTODO plan revisionへ束縛されていない', {
+        next_action: 'rerun_lattice_plan_compile_with_todo_plan',
+      });
+  }
+  const store = await readTodoStore({ repoRoot });
+  const binding = compileArtifact.todo_plan_binding;
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === binding.plan_key);
+  if (member === undefined || !sameTodoPlanBinding(binding, todoPlanBindingFor(member))) {
+    throw new CliContractError('STALE_TODO_PLAN_BINDING',
+      'compile artifactのTODO plan version/digestが現在のactive revisionと一致しない', {
+        plan_key: binding.plan_key,
+        next_action: 'recompile_for_the_current_todo_plan_revision',
+      });
+  }
+  const taskIds = compileArtifact.plan.nodes.map(({ todo_id: todoId }) => todoId);
+  if (!sameTextSet(member.plan.tasks.map(({ task_id: taskId }) => taskId), taskIds)) {
+    throw new CliContractError('TODO_PLAN_TASK_MISMATCH',
+      'compile artifactのtask集合が現在のTODO planと一致しない', {
+        plan_key: binding.plan_key,
+        next_action: 'recompile_for_the_current_todo_plan_revision',
+      });
+  }
+  const independenceArtifact = await readTodoIndependenceArtifact({
+    repoRoot, store, planKey: binding.plan_key,
+  });
+  const currentHead = await runGit(['rev-parse', 'HEAD'], repoRoot);
+  if (currentHead.code !== 0) throw new CliContractError('REPO_UNRESOLVED', 'cwdのgit HEADを解決できない');
+  const currentBaseSha = currentHead.stdout.trim();
+  const projected = projectIndependenceFrontier({
+    artifact: independenceArtifact,
+    readyTaskIds: taskIds,
+    activeTaskIds: [],
+    plan: member.plan,
+    currentBaseSha,
+    changedPaths: null,
+  });
+  if (projected.coverage !== 'verified') {
+    throw new CliContractError('PARALLEL_GROUP_UNVERIFIED',
+      'TODO independence recordがverifiedではないため並列writerを起動できない', {
+        coverage: projected.coverage,
+        next_action: 'lattice todo independence compile --plan ' + binding.plan_key + ' --input <witness.json>',
+      });
+  }
+  for (const wave of compileArtifact.schedule.waves) {
+    if (wave.todo_ids.length < 2) continue;
+    const verified = projected.frontier.parallel_groups.some((group) => (
+      sameTextSet(group.task_ids, wave.todo_ids)
+    ));
+    if (!verified) {
+      throw new CliContractError('PARALLEL_GROUP_UNVERIFIED',
+        'compile artifactが同時dispatchするtask群はverified parallel groupではない', {
+          task_ids: wave.todo_ids,
+          coverage: projected.coverage,
+          unknown: projected.frontier.unknown,
+          next_action: 'compile_independence_for_the_current_plan_then_recompile_the_run_plan',
+        });
+    }
+  }
+}
+
+async function runStart({ requestPath, planPath = null, executorAdapter, cwd, stdout }) {
   // --executor省略時の暗黙fallbackは持たない（Decision 8）。未知adapterはtyped reject。
   if (!KNOWN_ADAPTERS.includes(executorAdapter)) {
     throw new CliContractError('UNKNOWN_ADAPTER', `未知のexecutor adapter: ${executorAdapter}`);
@@ -1104,30 +1236,32 @@ async function runStart({ requestPath, executorAdapter, cwd, stdout }) {
   await requireSafeRunAncestors(repoRoot);
   await requireIgnoredRunStore(repoRoot);
   await resolveRepoBinding(repoRoot, request);
-  const result = await compileFromRepo({
-    request,
-    cwd: repoRoot,
-    planRef: `plan-${request.request_id}-e1`,
-    planEpoch: 1,
-    predecessorRefs: [],
-  });
-  if (result.outcome !== 'dispatchable') {
-    throw new CliContractError(result.code, 'dispatchable planを発行できない', result.detail);
+  let compileArtifact;
+  if (planPath === null) {
+    // 旧public入口はartifactを消費しないため、このgateの対象ではない。互換入口を
+    // 改変せず残し、TODO storeを持つ統合経路は下の--plan必須入口を使う。
+    const result = await compileFromRepo({
+      request, cwd: repoRoot, planRef: `plan-${request.request_id}-e1`, planEpoch: 1,
+      predecessorRefs: [],
+    });
+    if (result.outcome !== 'dispatchable') {
+      throw new CliContractError(result.code, 'dispatchable planを発行できない', result.detail);
+    }
+    compileArtifact = {
+      schema: COMPILE_RESULT_SCHEMA, request_digest: request.request_digest, plan: result.plan,
+      manifests: result.manifests, schedule: result.schedule, graph_digest: result.graph_digest,
+      todo_plan_binding: null,
+    };
+    compileArtifact.result_digest = digestArtifact(compileArtifact);
+  } else {
+    compileArtifact = await readBoundedJson(planPath, 'plan artifact');
+    await verifyRunStartGate({ request, compileArtifact, repoRoot });
   }
-  const compileArtifact = {
-    schema: COMPILE_RESULT_SCHEMA,
-    request_digest: request.request_digest,
-    plan: result.plan,
-    manifests: result.manifests,
-    schedule: result.schedule,
-    graph_digest: result.graph_digest,
-  };
-  compileArtifact.result_digest = digestArtifact(compileArtifact);
   const events = initializeRunEvents({
     runId: request.request_id,
     request,
-    plan: result.plan,
-    manifests: result.manifests,
+    plan: compileArtifact.plan,
+    manifests: compileArtifact.manifests,
     recordedAt: new Date().toISOString().replace(/\.\d+Z$/u, '.000Z'),
   });
   const runDir = runStorePath(repoRoot, request.request_id);
@@ -1145,7 +1279,7 @@ async function runStart({ requestPath, executorAdapter, cwd, stdout }) {
     schema: 'lattice.run_meta.v1',
     run_id: request.request_id,
     executor_adapter: executorAdapter,
-    plan_digest: result.plan.plan_digest,
+    plan_digest: compileArtifact.plan.plan_digest,
   };
   try {
     await writeJsonFile(path.join(temporaryDir, 'request.json'), request);
@@ -1165,7 +1299,7 @@ async function runStart({ requestPath, executorAdapter, cwd, stdout }) {
     run_id: request.request_id,
     run_dir: path.relative(repoRoot, runDir),
     executor_adapter: executorAdapter,
-    plan_digest: result.plan.plan_digest,
+    plan_digest: compileArtifact.plan.plan_digest,
     events_digest: digestArtifact(events.map(({ event_digest: digest }) => digest)),
   };
   output.result_digest = digestArtifact(output);
@@ -3902,6 +4036,13 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && typeof argv[3] === 'string' && argv[3].length > 0) {
     action = () => planCompile({ requestPath: path.resolve(cwd, argv[3]), cwd, stdout });
   } else if (argv.length === 6
+    && argv[0] === 'plan' && argv[1] === 'compile' && argv[2] === '--request'
+    && typeof argv[3] === 'string' && argv[3].length > 0
+    && argv[4] === '--todo-plan' && typeof argv[5] === 'string' && argv[5].length > 0) {
+    action = () => planCompile({
+      requestPath: path.resolve(cwd, argv[3]), todoPlanKey: argv[5], cwd, stdout,
+    });
+  } else if (argv.length === 6
     && argv[0] === 'plan' && argv[1] === 'verify'
     && argv[2] === '--request' && typeof argv[3] === 'string' && argv[3].length > 0
     && argv[4] === '--plan' && typeof argv[5] === 'string' && argv[5].length > 0) {
@@ -3920,6 +4061,15 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
       executorAdapter: argv[5],
       cwd,
       stdout,
+    });
+  } else if (argv.length === 8
+    && argv[0] === 'run' && argv[1] === 'start'
+    && argv[2] === '--request' && typeof argv[3] === 'string' && argv[3].length > 0
+    && argv[4] === '--plan' && typeof argv[5] === 'string' && argv[5].length > 0
+    && argv[6] === '--executor' && typeof argv[7] === 'string' && argv[7].length > 0) {
+    action = () => runStart({
+      requestPath: path.resolve(cwd, argv[3]), planPath: path.resolve(cwd, argv[5]),
+      executorAdapter: argv[7], cwd, stdout,
     });
   } else if (argv.length === 4
     && argv[0] === 'run' && argv[1] === 'activate'
