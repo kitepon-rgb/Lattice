@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { readTodoStoreStable } from '../src/todo-store.mjs';
 import { projectTodoStatus } from '../src/todo-status.mjs';
-import { ganttLiveHeadDigest, renderPublicTodoGanttForProject } from '../src/todo-cli.mjs';
+import { ganttLiveHeadDigest, renderTodoGanttForProject } from '../src/todo-cli.mjs';
 import {
   readVisibleTodoDashboardProjects,
   todoDashboardMemberNeedsVisibility,
@@ -90,7 +90,7 @@ async function synchronize() {
       displayName: entry.display_name,
       render: async ({ displayName }) => {
         const store = await readCachedStore(entry.repo_root);
-        const result = await renderPublicTodoGanttForProject({ repoRoot: entry.repo_root,
+        const result = await renderTodoGanttForProject({ repoRoot: entry.repo_root,
           stable: true, displayName, readModel: store });
         return {
           html: result.rendered.html,

@@ -2292,7 +2292,12 @@ export async function renderTodoGanttForProject({
   return { store, metadata, memberBindings, rendered };
 }
 
-/** 公開配信面はToDo本体の設計メモを表示し、append-only作業記録は除外する。 */
+/**
+ * 公開配信面はToDo本体の設計メモを表示し、append-only作業記録は除外する。
+ *
+ * loopbackのdashboardと`gantt serve`は公開配信面ではない。作業者本人が読む面なので
+ * 記録込みで描く。この入口はrepo外へHTMLを出す面が生えた時に使う。
+ */
 export async function renderPublicTodoGanttForProject(options = {}) {
   return renderTodoGanttForProject({ ...options, includeNotes: false });
 }
@@ -2306,7 +2311,7 @@ async function serveGantt({ repoRoot, port, stdout, env, scope = DEFAULT_GANTT_S
     port,
     render: async () => {
       const store = await readTodoStoreStable({ repoRoot });
-      const { rendered } = await renderPublicTodoGanttForProject({
+      const { rendered } = await renderTodoGanttForProject({
         repoRoot, stable: true, displayName: identity.displayName, scope, readModel: store,
       });
       return { html: rendered.html, head_digest: await ganttLiveHeadDigest({ repoRoot, store }) };
