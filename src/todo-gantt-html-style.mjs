@@ -63,6 +63,7 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .work-log-origin,.work-log-head,.note-warning{color:var(--text-secondary);font-size:12px;overflow-wrap:anywhere}.note-warning{color:var(--critical)}
 .gantt-warning{margin:16px 0;padding:12px;border:1px solid var(--critical);background:var(--surface-2)}.gantt-warning h2{margin:0 0 8px}.gantt-warning ul{margin:0;padding-left:20px}
 .relation-list button{display:flex;width:100%;flex-direction:column}.relation-list button span{font-weight:400}.relation-kind{display:block;margin-top:4px;color:var(--text-secondary);font-size:12px}
+.relation-head{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}.relation-status{color:var(--text-secondary);font-size:12px;font-weight:600;white-space:nowrap}.relation-status.status-in-progress{color:var(--accent)}.relation-status.status-done{color:var(--good)}.relation-status.status-blocked{color:var(--critical)}
 .task-diagnostics{margin:16px 0;color:var(--text-secondary);font-size:12px}.task-diagnostics summary{cursor:pointer;color:var(--text-primary);font-weight:600}.task-diagnostics dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px}.task-diagnostics dd{margin:0;overflow-wrap:anywhere}
 .task-index>h1{margin:0 0 8px;font-size:19px;font-weight:650;line-height:1.45}.task-index>p{margin:0 0 24px;color:var(--text-secondary)}
 .task-index-plan+.task-index-plan{margin-top:32px}.task-index-plan h2{margin:0 0 12px;font-size:16px;font-weight:600}.task-index-plan h2 code{font-size:inherit}

@@ -105,7 +105,10 @@ export function renderRelationList(relations, sectionByKey, lookup, emptyText, f
     // Say which ones the diagram does not draw, so the reader stops looking.
     const reference = folds.has(targetKey)
       ? `${taskReference(target, lookup)}（図では非表示）` : taskReference(target, lookup);
-    return `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(targetKey)}"><strong>${escapeHtmlText(reference)}</strong><span>${escapeHtmlText(target.task.title)}</span></button>${join}</li>`;
+    // 前提が終わっているか、後続が動き出せるかは、相手の状態を見ないと判断できない。
+    const status = DOCUMENT_STATUS[target.state.status] ?? { mark: '?', label: '状態不明' };
+    const badge = `<span class="relation-status status-${escapeHtmlAttribute(target.state.status)}">${escapeHtmlText(`${status.mark} ${status.label}`)}</span>`;
+    return `<li><button type="button" data-select-node-key="${escapeHtmlAttribute(targetKey)}"><span class="relation-head">${badge}<strong>${escapeHtmlText(reference)}</strong></span><span>${escapeHtmlText(target.task.title)}</span></button>${join}</li>`;
   }).join('')}</ul>`;
 }
 

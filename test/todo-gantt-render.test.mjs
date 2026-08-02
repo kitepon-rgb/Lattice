@@ -565,6 +565,30 @@ test('静的custom output指定も廃止済みとして一律拒否する', asyn
   }
 });
 
+// 前提が終わっているか、後続が動き出せるかは、相手の状態を見ないと判断できない。
+test('前提工程・後続工程は相手の状態を4種すべて表示する', () => {
+  const read = readFixture(4, [
+    { from: ref('T0000'), to: ref('T0001') },
+    { from: ref('T0001'), to: ref('T0002') },
+    { from: ref('T0002'), to: ref('T0003') },
+  ]);
+  Object.assign(read.members[0].tasks[1], { status: 'in-progress', started_at: NOW });
+  Object.assign(read.members[0].tasks[2], { status: 'done', done_at: NOW });
+  Object.assign(read.members[0].tasks[3], { status: 'blocked', blocked_reason: '外部待ち' });
+  const { html } = renderFixture(read);
+
+  // T0001の詳細: 前提は未着手、後続は完了。
+  const active = detailPanelOf(html, 'T0001');
+  assert.match(active, /<span class="relation-status status-pending">☐ 未着手<\/span><strong>/u);
+  assert.match(active, /<span class="relation-status status-done">✅ 完了<\/span><strong>/u);
+  // T0002の詳細: 前提は作業中、後続はブロック中。
+  const settled = detailPanelOf(html, 'T0002');
+  assert.match(settled, /<span class="relation-status status-in-progress">▶ 作業中<\/span><strong>/u);
+  assert.match(settled, /<span class="relation-status status-blocked">⛔ ブロック中<\/span><strong>/u);
+  // 状態は相手ごとに引く。詳細ヘッダの自分の状態を流用しない。
+  assert.doesNotMatch(active, /relation-status status-blocked/u);
+});
+
 test('right pane exposes overview/detail/current task index states while retaining navigation controls', () => {
   const read = readFixture(2, [{ from: ref('T0000'), to: ref('T0001') }]);
   for (const task of read.members[0].plan.tasks) task.narrative_ref = 'plan.md';
