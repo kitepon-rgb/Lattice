@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -80,6 +80,34 @@ test('note無しでも詳細/startは明示的な空contextを返す', async (t)
   const started = JSON.parse(run(root,
     ['todo', 'start', '--plan', 'main', '--task', 'T1']).stdout);
   assert.deepEqual(started.note_context.notes, []);
+});
+
+test('manifest非参照でplan.jsonを持たないrevisionスタブはnote/start投影から除外する', async (t) => {
+  const root = await workspace(t);
+  const stub = path.join(root, '.lattice/todo/plans/main/rev-interrupted');
+  await mkdir(path.join(stub, 'journal'), { recursive: true });
+  await writeFile(path.join(stub, 'journal', 'active.jsonl'), '');
+
+  const noted = run(root,
+    ['todo', 'note', '--plan', 'main', '--task', 'T1', '--message', 'stubがあっても記録する']);
+  assert.equal(noted.status, 0, noted.stderr);
+  const started = run(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']);
+  assert.equal(started.status, 0, started.stderr);
+  assert.equal(JSON.parse(started.stdout).note_context.notes[0].body, 'stubがあっても記録する');
+});
+
+test('manifestが参照する正規plan artifactの欠落はnote/startでもfail closedする', async (t) => {
+  const root = await workspace(t);
+  const plan = path.join(root, '.lattice/todo/plans/main/v1/plan.json');
+  await rm(plan);
+
+  const noted = run(root,
+    ['todo', 'note', '--plan', 'main', '--task', 'T1', '--message', '停止する']);
+  assert.equal(noted.status, 1);
+  assert.equal(JSON.parse(noted.stderr).code, 'STORE_INCONSISTENT');
+  const started = run(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']);
+  assert.equal(started.status, 1);
+  assert.equal(JSON.parse(started.stderr).code, 'STORE_INCONSISTENT');
 });
 
 test('note取得不能ならstart前にtyped failureしlifecycleを部分進行させない', async (t) => {

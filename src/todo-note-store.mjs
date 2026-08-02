@@ -399,7 +399,13 @@ async function readNoteMigrations(repoRoot, planKey, eventVersions) {
       fail('NOTE_PROJECTION_INVALID', 'note_plan_history_inventory_invalid', { plan_key: planKey });
     }
     const versionRoot = path.join(base, entry.name);
-    const plan = await readCanonicalJson(path.join(versionRoot, 'plan.json'));
+    // A revision directory is published before manifest activation.  A crash during
+    // that window can leave an unreferenced directory containing only a journal
+    // stub.  It is not a historical plan until its canonical plan artifact exists.
+    // Do not make that unreachable residue poison note projection; if a note event
+    // names this version, the origin-version check below still fails closed.
+    const plan = await readCanonicalJson(path.join(versionRoot, 'plan.json'), { missing: true });
+    if (plan === null) continue;
     if (!validateTodoPlan(plan) || plan.plan_key !== planKey || plan.plan_version !== entry.name) {
       fail('NOTE_PROJECTION_INVALID', 'note_historical_plan_invalid', { plan_version: entry.name });
     }
