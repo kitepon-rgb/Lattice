@@ -7,15 +7,6 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { selfDigest } from '../../src/runtime-contracts.mjs';
-import {
-  buildTodoPlan,
-  createTodoStoreWriter,
-  initializeTodoStore,
-  readTodoStore,
-  writeTodoIndependenceArtifact,
-} from '../../src/todo-store.mjs';
-import { TODO_INDEPENDENCE_SCHEMA } from '../../src/todo-independence-contracts.mjs';
-import { todoSelfDigest } from '../../src/todo-contracts.mjs';
 
 // RC3-J integration（ADR 0044 Decision 8 完全実装・Decision 10.1 run store）。
 // disposable repo＋実CLI processで、run start/observe/status・event verifyの
@@ -42,8 +33,6 @@ let temporaryRoot;
 let repoRoot;
 let baseSha;
 let requestPath;
-let gateRequestPath;
-let todoPlan;
 
 test.before(async () => {
   temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-rc3-run-cli-'));
@@ -88,25 +77,6 @@ test.before(async () => {
   request.request_digest = selfDigest(request, 'request_digest');
   requestPath = path.join(temporaryRoot, 'run-request.json');
   await writeFile(requestPath, `${JSON.stringify(request)}\n`);
-
-  const planned = buildTodoPlan({
-    schema: 'lattice.todo_plan.v1', project_id: 'runtime-gate', plan_key: 'main',
-    plan_version: 'v1', predecessor_plan_digest: null,
-    tasks: ['T1', 'T2'].map((task_id) => ({
-      task_id, title: task_id, lane: 'main', narrative_ref: null, compile_binding: null,
-    })), hard_dependencies: [], joins: [],
-  });
-  await initializeTodoStore({
-    repoRoot, writer: createTodoStoreWriter({ caller: 'g4-migration' }), projectId: 'runtime-gate',
-    repositories: [{ repo_id: 'self', path: '.' }],
-    plans: [{ plan: planned, genesis: { actor: { host: 'test', session: 'test', agent: 'test' },
-      recorded_at: '2026-08-02T00:00:00.000Z' } }],
-  });
-  todoPlan = (await readTodoStore({ repoRoot })).members[0].plan;
-  const gateRequest = { ...request, request_id: 'run-cli-gate' };
-  gateRequest.request_digest = selfDigest(gateRequest, 'request_digest');
-  gateRequestPath = path.join(temporaryRoot, 'gate-run-request.json');
-  await writeFile(gateRequestPath, `${JSON.stringify(gateRequest)}\n`);
 });
 
 test.after(async () => {
@@ -186,51 +156,6 @@ test('既存run storeへのrun startはtyped rejectされる', () => {
   const dup = runCli(['run', 'start', '--request', requestPath, '--executor', 'scripted'], repoRoot);
   assert.equal(dup.status, 1);
   assert.equal(JSON.parse(dup.stderr).code, 'RUN_EXISTS');
-});
-
-test('artifact-consuming run startは未検査並列を拒否し、verified groupだけを通す', async () => {
-  const compiled = runCli(['plan', 'compile', '--request', gateRequestPath, '--todo-plan', 'main'], repoRoot);
-  assert.equal(compiled.status, 0, compiled.stderr);
-  const planPath = path.join(temporaryRoot, 'gate-plan.json');
-  await writeFile(planPath, compiled.stdout);
-
-  const forgedPath = path.join(temporaryRoot, 'forged-gate-plan.json');
-  const forged = JSON.parse(compiled.stdout);
-  forged.result_digest = '0'.repeat(64);
-  await writeFile(forgedPath, `${JSON.stringify(forged)}\n`);
-  const forgedStart = runCli([
-    'run', 'start', '--request', gateRequestPath, '--plan', forgedPath, '--executor', 'scripted',
-  ], repoRoot);
-  assert.equal(forgedStart.status, 1);
-  assert.equal(JSON.parse(forgedStart.stderr).code, 'INVALID_PLAN_ARTIFACT');
-
-  const missing = runCli([
-    'run', 'start', '--request', gateRequestPath, '--plan', planPath, '--executor', 'scripted',
-  ], repoRoot);
-  assert.equal(missing.status, 1);
-  assert.equal(JSON.parse(missing.stderr).code, 'PARALLEL_GROUP_UNVERIFIED');
-
-  const independence = {
-    schema: TODO_INDEPENDENCE_SCHEMA, project_id: todoPlan.project_id, plan_key: todoPlan.plan_key,
-    plan_version: todoPlan.plan_version, topology_digest: todoPlan.topology_digest, base_sha: baseSha,
-    witness_set_digest: 'a'.repeat(64), compiled_at: '2026-08-02T00:00:00.000Z',
-    task_ids: ['T1', 'T2'],
-    task_boundaries: [{ task_id: 'T1', paths: ['src/alpha.mjs'] }, { task_id: 'T2', paths: ['src/beta.mjs'] }],
-    conflict_resources: [], conflicts: [], precedences: [], unknowns: [],
-    wave_plan: { waves: [{ task_ids: ['T1', 'T2'] }], minimum_feasible_waves: 1 },
-    outcome: 'compiled', result_digest: '',
-  };
-  independence.result_digest = todoSelfDigest(independence, 'result_digest');
-  await writeTodoIndependenceArtifact({ repoRoot, artifact: independence });
-
-  const started = runCli([
-    'run', 'start', '--request', gateRequestPath, '--plan', planPath, '--executor', 'scripted',
-  ], repoRoot);
-  assert.equal(started.status, 0, started.stderr);
-  const abandoned = runCli([
-    'run', 'abandon', '--run', '.lattice/runs/run-cli-gate', '--reason', 'gate fixture cleanup',
-  ], repoRoot);
-  assert.equal(abandoned.status, 0, abandoned.stderr);
 });
 
 test('resumeはbase bindingを検証し、未完了closeはfail closedに拒否する', () => {

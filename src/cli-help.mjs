@@ -30,18 +30,14 @@ Commands:
   create --schema --json             # 既定は最新版（v4）のJSON Schemaを返す
   create --schema-version <1|2|3|4> --json
   show <plan_key> --json             # task・依存・phase・状態をplan本体から1コマンドで投影する
-  compile --request <request.json> [--todo-plan <key>]
+  compile --request <request.json>
   compile --schema --json            # lattice.run_request.v1 の JSON Schema を出す
   verify --request <request.json> --plan <plan.json>
 `,
   run: `Usage: lattice run <command> [options]
 
 Commands:
-  start --request <request.json> --plan <compile-artifact.json> --executor <adapter>
-      # TODO storeと連携して同一repo writerを並列起動する場合のgate付き入口。
-      # artifactはplan compile --todo-plan <key>で現revisionへ束縛して発行する
   start --request <request.json> --executor <adapter>
-      # artifactを消費しない既存runtime互換入口
   start --schema --json              # lattice.run_request.v1 の JSON Schema を出す
   adapter register --input <descriptor.json>
   adapter register --schema --json   # 登録入力の JSON Schema を出す
