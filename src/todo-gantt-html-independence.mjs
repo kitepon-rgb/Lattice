@@ -14,7 +14,9 @@ function renderNoteContext(context) {
       : '<p class="note-warning">安全上表示できない要素を除外しました。</p>';
     const correction = note.correction_state === 'superseded'
       ? `訂正済み（後継 ${note.superseded_by.slice(0, 12)}…）` : '現行';
-    return `<article class="work-log-entry"><header><span>${escapeHtmlText(note.recorded_at)}</span><span>${escapeHtmlText(correction)}</span></header><div class="work-log-body">${rendered.html}</div>${filtering}<p class="work-log-origin">来歴: ${escapeHtmlText(note.origin_plan_version)}/${escapeHtmlText(note.origin_task_id)}・記録者 ${escapeHtmlText(`${note.actor.host}/${note.actor.agent}`)}</p></article>`;
+    // UTCのまま埋め、閲覧者の現地時刻への変換はブラウザ側へ委ねる（title属性に原文を残す）。
+    const stamp = `<time datetime="${escapeHtmlAttribute(note.recorded_at)}" title="${escapeHtmlAttribute(note.recorded_at)}" data-utc-stamp>${escapeHtmlText(note.recorded_at)}</time>`;
+    return `<article class="work-log-entry"><header>${stamp}<span>${escapeHtmlText(correction)}</span></header><div class="work-log-body">${rendered.html}</div>${filtering}<p class="work-log-origin">来歴: ${escapeHtmlText(note.origin_plan_version)}/${escapeHtmlText(note.origin_task_id)}・記録者 ${escapeHtmlText(`${note.actor.host}/${note.actor.agent}`)}</p></article>`;
   }).join('');
   const overflow = context.overflow_count === 0 ? ''
     : `<p class="note-warning">ほか ${context.overflow_count}件は上限のため省略。全履歴: <code>${escapeHtmlText(context.full_history_command)}</code></p>`;

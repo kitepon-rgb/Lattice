@@ -136,6 +136,21 @@ test('loopbackの gantt serve は作業記録込みでHTMLを配信する', asyn
   assert.match(html, new RegExp(marker, 'u'));
 });
 
+// HTMLを作る側は閲覧者の地域を知らない。UTCのまま埋め、変換はブラウザへ委ねる。
+test('作業記録の時刻はUTCを保持したままブラウザで現地時刻へ直す', async (t) => {
+  const repoRoot = await workspace(t);
+  await append(repoRoot, '時刻表示の確認', '2026-08-01T14:08:23.766Z');
+  const { rendered } = await renderTodoGanttForProject({
+    repoRoot, readModel: await readTodoStore({ repoRoot }), displayName: 'Fixture',
+  });
+
+  // 機械可読なUTCはdatetimeとtitleへ残す。scriptが動かなければ本文のUTCがそのまま読める。
+  assert.match(rendered.html, /<time datetime="2026-08-01T14:08:23\.766Z" title="2026-08-01T14:08:23\.766Z" data-utc-stamp>2026-08-01T14:08:23\.766Z<\/time>/u);
+  // 変換は閲覧者のlocaleに従う。生成時のサーバTZを焼き込まない。
+  assert.match(rendered.html, /querySelectorAll\('time\[data-utc-stamp\]'\)/u);
+  assert.match(rendered.html, /stamp\.textContent=parsed\.toLocaleString\(\)/u);
+});
+
 test('Ganttのnote chain破損は明示警告になりlive headも破損を反映する', async (t) => {
   const repoRoot = await workspace(t);
   await append(repoRoot, '破損前');

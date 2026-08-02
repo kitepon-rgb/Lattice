@@ -150,6 +150,12 @@ const CONTROLLER = `
   root.addEventListener('pointermove',event=>{if(event.pointerId===resizePointerId)setSplit(event.clientX);});
   root.addEventListener('pointerup',finishResize);root.addEventListener('pointercancel',finishResize);
   root.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();showOverview();applyLane(null);return;}const laneChip=event.target.closest('.summary-lane[data-lane-key]');if(laneChip&&(event.key==='Enter'||event.key===' ')){event.preventDefault();toggleLane(laneChip.dataset.laneKey);return;}const node=event.target.closest('[data-node-key]');if(node&&(event.key==='Enter'||event.key===' ')){event.preventDefault();select(node.dataset.nodeKey);}});
+  // 記録時刻はUTCで埋まっている。閲覧者の地域とlocaleを知っているのはブラウザだけなので、
+  // ここで現地時刻へ直す。scriptが動かなければ埋め込んだUTCがそのまま読める。
+  for(const stamp of root.querySelectorAll('time[data-utc-stamp]')){
+    const parsed=new Date(stamp.getAttribute('datetime'));
+    if(!Number.isNaN(parsed.getTime()))stamp.textContent=parsed.toLocaleString();
+  }
   showPanel('overview');
 })();
 `;
