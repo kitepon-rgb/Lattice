@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.43.0 — 2026-08-03
+
+### 修正
+
+- **native kernelがwasm側の索引契約へ追従していなかった穴を埋めた（ADR 0154）。** 7月末から8月初めに
+  TypeScript側へ入った5つの索引が、Rust側へ一度も書かれていなかった——装飾込みの開始行
+  （`extentStartLine`、schema v11）、import束縛の形（`bindingForm`）と元の名前（`importedName`）、
+  動的`import()`／`require()`のspecifier定数畳み込み、child_process spawn系の`invokes`辺。
+  この状態でnativeを使うと、装飾やimportの形や動的依存が欠けたグラフになる。native kernelは
+  開発機にだけ置かれ配布物には載らないため、npmから入れた利用者の索引結果は元から正しい。
+- **`kernel-tsjs-parity`の26件が常時赤で、gateとして機能していなかった。** 上の欠落はその赤に
+  紛れていた。赤を無視しない運用へ戻すため、native側へ5つすべてを実装して`npm run ci`をgreenにした。
+
+### 変更
+
+- **kernel ABIを1から2へ上げた。** ref rowを40→48 bytesへ広げ、node rowと同じ`extraJson`の逃げ道を
+  足した。import束縛の形をrefへ載せるための拡張で、Rust側とTypeScript側のlayout・decodeを同時に
+  更新している。loaderは知らない版を拒んでwasmへ落ちるので、古いprebuildが混ざっても結果は壊れない。
+
 ## 0.42.1 — 2026-08-02
 
 ### 変更
