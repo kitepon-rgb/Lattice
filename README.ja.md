@@ -61,8 +61,9 @@ lattice todo note --plan <key> --task <id> --message "既存parserを使い、fa
 lattice todo show --plan <key> --task <id> --json
 ```
 
-ローカル／公開の動的工程表は、選択したToDoの右ペインへ初期設計メモを表示します。追記note本文は
-ローカルだけに表示し、公開dashboardには含めません。project別HTMLの生成や再生成は不要です。
+動的工程表は、選択したToDoの右ペインへ初期設計メモと追記noteの本文を表示します。あわせて前提工程・
+後続工程それぞれの状態（未着手／作業中／完了／ブロック中）と、その工程の並列可否を示します。
+note本文を落とすのはrepo外へHTMLを出す公開配信面だけです。project別HTMLの生成や再生成は不要です。
 
 ### 変換の受入五条件
 

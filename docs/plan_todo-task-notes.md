@@ -44,6 +44,9 @@ note head digest、overflowを自動同梱しなければ、本planの目的は�
 会話全文の自動保存、分類・タグ・全文検索、編集削除、通知、機械判定への利用、snapshot/status一覧への混入、
 公開serveへのnote本文露出は初版へ入れない。
 
+> 追補（2026-08-02）: 最後の項目はADR 0153で範囲を絞った。loopbackへ閉じた`gantt serve`と常駐dashboardは
+> 記録込みで描き、除外はrepo外へHTMLを出す公開配信面だけに残る。上の記述は初版時点の非目標である。
+
 ## 検証
 
 baselineは2026-08-01に`npm test`全1182件green（92.7秒）。実装中は契約、store、CLI、Ganttのfocused testを

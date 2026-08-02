@@ -74,9 +74,11 @@ lattice todo note --plan <key> --task <id> --message "Use the existing parser; d
 lattice todo show --plan <key> --task <id> --json
 ```
 
-The initial design memo appears in the selected ToDo's detail pane on both local and public dynamic
-dashboards. Public rendering excludes append-only note bodies by contract. Static per-project HTML is
-not generated; `lattice todo gantt serve` and the shared dashboard read the store dynamically.
+The selected ToDo's detail pane shows the initial design memo and the append-only note bodies, plus the
+status of each prerequisite and dependent ToDo (pending, in progress, done, blocked) and whether the ToDo
+can run in parallel. Only a public distribution surface — HTML served outside the repository — drops note
+bodies. Static per-project HTML is not generated; `lattice todo gantt serve` and the shared dashboard
+read the store dynamically.
 
 ### The five acceptance conditions
 

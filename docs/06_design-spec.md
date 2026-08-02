@@ -86,14 +86,20 @@
 - **選択工程**: 題名、カテゴリ、正規ID、前提工程、後続工程、元planの行対応、開発者向け診断、
   ToDo本体へ束縛した初期設計メモ。
   図のnodeまたは一覧の行を選ぶと開く。同時に開くのは1件だけ。
+- **前提工程・後続工程**: 相手ごとにstoreの状態を引き、未着手／作業中／完了／ブロック中を記号と和名で
+  添える。選択中の工程の状態を流用しない。前提が片付いているかは相手の状態でしか判断できない。
+- **並列可否**: 完了工程を除き、状態によらず必ず述べる。記録が無い・失効・旧versionの時は「未検査」と
+  その理由、判定へ進むcompile commandを示す。欄を消さない——消えた欄は「競合なし」と読まれる。
+  ready frontierの工程は検証済／要直列を、着手済の工程は自分が塞いでいる着手候補を示す。
 - **作業記録**: 選択工程は通常詳細読取と同じbounded `note_context`を表示する。本文に加えて旧版由来、
   訂正状態、overflow、全履歴導線を示す。note chainを読めない時は「記録なし」とせず、読取不能を明示する。
 - **全工程**: 全ToDo一覧。planごとに区切り、図から除いたToDoは既定closedの`details`へまとめる。
   planの並びは、動いているplanを最終活動の新しい順で上、全ToDoが図から外れた完走planを古い順で下。
   plan内のToDo順は登録順を保つ。
 - 幅上限 72ch（読みやすさ）。どの面からもToDoの詳細へ到達でき、到達先の無い選択ボタンを出さない。
-- 初期設計メモはlocal／publicの動的viewerへ含める。append-only note本文はlocal viewerだけへ含め、
-  `gantt serve`と常設dashboardの公開rendererは`includeNotes: false`を強制し、HTML sourceにもnote本文を入れない。
+- 初期設計メモはあらゆる動的viewerへ含める。append-only note本文はloopbackへ閉じた面——`gantt serve`と
+  常設dashboard——へ含める。repo外へHTMLを出す公開配信面だけが`includeNotes: false`を強制し、HTML source
+  にもnote本文を入れない。公開配信面は現時点で存在せず、入口だけを残す。
 - 各task行の状態マーク（☐/▶/✅/⛔）だけが「生きた」要素。**Status/Lane/時刻/wave表/Evidence等の
   メタデータブロックは置かない**（左の図と重複するため）。
 

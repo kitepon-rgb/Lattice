@@ -152,8 +152,9 @@ ToDoの作業記憶はlifecycle journal／snapshotと分離したtask-scoped app
 `todo start`はlifecycle event追記前にfail closedする。revisionを跨ぐ投影は`task_migration`だけを根拠にし、
 removed taskのnoteはarchived束へ分離する。
 
-ローカルGanttは個別ToDo右ペインの「作業記録」へ同じbounded contextを表示する。公開serveと常設dashboardは
-note本文を含めず、公開renderer入口で`includeNotes: false`を強制する。
+個別ToDo右ペインの「作業記録」は同じbounded contextを表示する。loopbackへ閉じた`gantt serve`と常設
+dashboardは作業者本人が読む面なので記録込みで描く。note本文を落とすのはrepo外へHTMLを出す公開配信面
+だけとし、その入口が`includeNotes: false`を強制する。公開配信面は現時点で存在せず、入口だけを残す。
 
 依存edgeの不在は順序制約の無申告であって、書き込み境界の非干渉ではない。両者を公開面で区別するため、
 `todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v2`の宣言と
