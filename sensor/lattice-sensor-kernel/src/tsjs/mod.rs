@@ -9,7 +9,9 @@
 //! parity gate fails. Positions are emitted in UTF-16 code units (what
 //! web-tree-sitter reports), see util::col16.
 
+mod dynamic_import;
 mod extractors;
+mod spawn_invokes;
 mod fnref;
 use crate::textutil as util;
 
@@ -162,6 +164,8 @@ pub struct Walker<'t> {
     fs_value_counts: HashMap<String, u32>,
     value_scopes: Vec<ValueScope<'t>>,
     vue_store_file: Option<bool>,
+    /// Per-file memoized `child_process` spawn-family binding table (ADR 0048).
+    child_process_bindings: Option<spawn_invokes::ChildProcessBindings>,
 }
 
 const MAX_VALUE_REF_NODES: usize = 20_000;
@@ -210,6 +214,7 @@ pub fn extract(file_path: &str, source: &str, language: &str) -> Result<EmitOut,
         fs_value_counts: HashMap::new(),
         value_scopes: Vec::new(),
         vue_store_file: None,
+        child_process_bindings: None,
     };
 
     // File node (TreeSitterExtractor.extract): id `file:<path>`, endLine =

@@ -4,6 +4,8 @@
 //! port. Bug-for-bug fidelity is deliberate — fix the TS side first.
 
 use crate::textutil as util;
+use super::dynamic_import::{self, DYNAMIC_IMPORT_UNRESOLVED_MARKER};
+use super::spawn_invokes;
 use super::{
     body_of, is_builtin_type, is_literal_receiver, is_react_hoc, is_variable_type,
     is_vue_collection_name, Extra, Scope, Walker,
@@ -1055,6 +1057,63 @@ impl<'t> Walker<'t> {
         if self.stack.is_empty() {
             return;
         }
+
+        // JS/TS dynamic `import(<expr>)` and CommonJS `require(<expr>)` (ADR
+        // 0048). extract_call is the single dispatch point both call walkers
+        // funnel through, so branching here also reaches a dynamic import
+        // nested inside any function/arrow body.
+        if dynamic_import::is_dynamic_import_call(node)
+            || dynamic_import::is_require_call(node, self.src)
+        {
+            let folded = dynamic_import::fold_dynamic_import_arg(node, self.src, self.file_path);
+            let raw_text: String = self.text(node).trim().chars().take(100).collect();
+            // Folding failure is NOT silently dropped: a visible `import` node
+            // records the raw call text, and the unresolved reference uses a
+            // sentinel that can never accidentally name-match a real symbol —
+            // it always parks as failed rather than fabricating an edge.
+            let reference_name =
+                folded.unwrap_or_else(|| DYNAMIC_IMPORT_UNRESOLVED_MARKER.to_string());
+            self.create_node(
+                "import",
+                &reference_name,
+                node,
+                Extra { signature: Some(raw_text), ..Extra::default() },
+            );
+            let caller = self.top_row();
+            self.push_ref(caller, &reference_name, edge_kind_index("imports").unwrap(), node);
+            // Claimed — do not fall through to the generic call-reference logic,
+            // which would otherwise emit a bogus `calls` ref to "require".
+            return;
+        }
+
+        // `child_process` spawn-family `invokes` edges (ADR 0048). Unlike the
+        // dynamic-import branch this does NOT claim the node: the generic
+        // call-reference logic below still emits its normal `calls` ref to the
+        // local callee name — `invokes` is an ADDITIONAL edge.
+        if node.kind() == "call_expression" {
+            if self.child_process_bindings.is_none() {
+                self.child_process_bindings =
+                    Some(spawn_invokes::collect_child_process_bindings(node, self.src));
+            }
+            let canonical = self
+                .child_process_bindings
+                .as_ref()
+                .and_then(|b| spawn_invokes::resolve_child_process_callee(node, self.src, b));
+            if let Some(canonical) = canonical {
+                let targets = spawn_invokes::resolve_invokes_targets(
+                    &canonical,
+                    node,
+                    self.src,
+                    self.file_path,
+                );
+                let caller = self.top_row();
+                let invokes = edge_kind_index("invokes").unwrap();
+                for target in targets {
+                    self.push_ref(caller, &target, invokes, node);
+                }
+            }
+        }
+
         let func = node
             .child_by_field_name("function")
             .or_else(|| node.named_child(0));
