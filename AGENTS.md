@@ -106,6 +106,11 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 - sensorはLatticeが所有し、配布物内の`./sensor/dist`からのみ起動する。PATH上の独立CLI、
   npx配布物、外部SDKへfallbackしない。MIT attributionは`./sensor/LICENSE`と
   `./sensor/NOTICE`で維持する。
+- **抽出器は二重実装であり、native kernelはwasm側へ追従する（ADR 0154）。** 配布に載るのはwasm経路で、
+  Rustのnative kernelは同じ結果を速く出すためだけに在る。node／edge／refのフィールド、新しいnode種別、
+  新しい辺をTypeScript側へ足したら、同じ作業のうちにRust側へも足す。`kernel-tsjs-parity`が赤いまま
+  他の作業を続けない——赤は「開発機の索引結果が配布物と違う」という意味である。揃える方向は常に
+  native→wasmとし、TS側を削って一致させない。ABIを変える時は両側と`KERNEL_ABI_VERSION`を同時に動かす。
 - **licenseは二層である。** 製品本体は`PolyForm-Noncommercial-1.0.0`（非商用は無償、商用は
   別途許諾）で、`sensor/`はupstream由来のMITのまま。**`sensor/`のlicenseを書き換えない**——
   第三者コードは再ライセンスできず、帰属表示の保持義務がある。製品をOSI承認licenseへ
