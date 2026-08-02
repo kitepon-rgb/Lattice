@@ -163,6 +163,10 @@ export function decodeExtractBuffers(
     };
     const candidates = strList(arena, row, REF.candidates);
     if (candidates !== undefined) ref.candidates = candidates;
+    const extraJson = str(arena, row, REF.extraJson);
+    if (extraJson !== undefined) {
+      Object.assign(ref, JSON.parse(extraJson) as Partial<UnresolvedReference>);
+    }
     unresolvedReferences[i] = ref;
   }
 

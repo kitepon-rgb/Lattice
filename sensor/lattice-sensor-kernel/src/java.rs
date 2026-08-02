@@ -279,6 +279,7 @@ impl<'t> Walker<'t> {
             reference_name: name_ref,
             candidates: NONE_STR,
             from_id_str: NONE_STR,
+            extra_json: NONE_STR,
         });
         if kind_code == edge_kind_index("imports").unwrap() {
             if util::simple_name().is_match(name) {
@@ -1265,6 +1266,7 @@ impl<'t> Walker<'t> {
                 reference_name: name_ref,
                 candidates: NONE_STR,
                 from_id_str: NONE_STR,
+                extra_json: NONE_STR,
             });
         }
     }

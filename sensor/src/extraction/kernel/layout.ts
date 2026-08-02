@@ -17,7 +17,7 @@
  * path instead of mis-decoding.
  */
 
-export const KERNEL_ABI_VERSION = 1;
+export const KERNEL_ABI_VERSION = 2;
 
 /** Sentinel for "absent" in u32 slots and string-ref offsets. */
 export const NONE = 0xffffffff;
@@ -25,7 +25,7 @@ export const NONE = 0xffffffff;
 export const META_SIZE = 36;
 export const NODE_ROW_SIZE = 96;
 export const EDGE_ROW_SIZE = 44;
-export const REF_ROW_SIZE = 40;
+export const REF_ROW_SIZE = 48;
 
 /** meta byte offsets */
 export const META = {
@@ -82,6 +82,7 @@ export const REF = {
   referenceName: 16, // str
   candidates: 24, // str — NUL-joined list
   fromIdStr: 32, // str
+  extraJson: 40, // str — JSON of extra ref props (bindingForm, importedName)
 } as const;
 
 /** ReferenceKind wire code for the internal-only `function_ref` (#756). */

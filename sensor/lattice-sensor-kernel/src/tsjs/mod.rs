@@ -301,10 +301,44 @@ impl<'t> Walker<'t> {
             reference_name: name_ref,
             candidates: NONE_STR,
             from_id_str: NONE_STR,
+            extra_json: NONE_STR,
         });
         if kind_code == edge_kind_index("imports").unwrap() {
             // Feed the fn-ref flush gate the same way flushFnRefCandidates
             // derives importedNames from `imports` refs.
+            if util::simple_name().is_match(name) {
+                self.imported_names.insert(name.to_string());
+            } else if let Some(c) = util::qualified_import().captures(name) {
+                self.imported_names.insert(c[1].to_string());
+            }
+        }
+    }
+
+    /// `push_ref` carrying extra reference props (import binding metadata).
+    ///
+    /// The arena slot is filled by the caller because the JSON is built from
+    /// borrowed node text; taking it pre-encoded keeps this free of the
+    /// borrow dance.
+    fn push_ref_extra(
+        &mut self,
+        from_row: u32,
+        name: &str,
+        kind_code: u8,
+        node: Node,
+        extra_json: StrRef,
+    ) {
+        let name_ref = self.arena.put(name);
+        self.tables.push_ref(&RefRow {
+            from_idx: from_row,
+            kind: kind_code,
+            line: self.line_of(node),
+            column: self.col_of(node),
+            reference_name: name_ref,
+            candidates: NONE_STR,
+            from_id_str: NONE_STR,
+            extra_json,
+        });
+        if kind_code == edge_kind_index("imports").unwrap() {
             if util::simple_name().is_match(name) {
                 self.imported_names.insert(name.to_string());
             } else if let Some(c) = util::qualified_import().captures(name) {
@@ -610,6 +644,7 @@ impl<'t> Walker<'t> {
                 reference_name: name_ref,
                 candidates: NONE_STR,
                 from_id_str: NONE_STR,
+                extra_json: NONE_STR,
             });
         }
     }

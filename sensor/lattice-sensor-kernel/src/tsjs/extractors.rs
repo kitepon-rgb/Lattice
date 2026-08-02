@@ -972,38 +972,55 @@ impl<'t> Walker<'t> {
         let Some(clause) = clause else { return }; // side-effect import
 
         let imports_kind = edge_kind_index("imports").unwrap();
-        let push = |w: &mut Self, name_node: Option<Node>| {
+        // The binding shape is knowledge this walker already holds — the three
+        // branches below. Flattening them into indistinct refs made rewrite
+        // tooling re-parse import text downstream; carry the shape instead.
+        let push = |w: &mut Self, name_node: Option<Node>, binding_form: &str, imported: Option<String>| {
             let Some(n) = name_node else { return };
             let name = w.text(n).to_string();
             if name.is_empty() {
                 return;
             }
-            w.push_ref(from_row, &name, imports_kind, n);
+            // `importedName` only when the source-side name differs from the
+            // local alias — matching the TS emitter's spread condition.
+            let json = match imported {
+                Some(ref source_name) if *source_name != name => format!(
+                    "{{\"bindingForm\":\"{binding_form}\",\"importedName\":{}}}",
+                    util::json_string(source_name)
+                ),
+                _ => format!("{{\"bindingForm\":\"{binding_form}\"}}"),
+            };
+            let extra = w.arena.put(&json);
+            w.push_ref_extra(from_row, &name, imports_kind, n, extra);
         };
 
         for i in 0..clause.named_child_count() {
             let Some(child) = clause.named_child(i) else { continue };
             match child.kind() {
-                "identifier" => push(self, Some(child)),
+                // `import Foo from './x'`
+                "identifier" => push(self, Some(child), "default", None),
+                // `import { A, B as C } from './x'` — link the LOCAL name, keep
+                // the source-side name so `C` traces back to `B`.
                 "named_imports" => {
                     for j in 0..child.named_child_count() {
                         let Some(spec) = child.named_child(j) else { continue };
                         if spec.kind() != "import_specifier" {
                             continue;
                         }
-                        let n = spec
-                            .child_by_field_name("alias")
-                            .or_else(|| spec.child_by_field_name("name"))
-                            .or_else(|| spec.named_child(0));
-                        push(self, n);
+                        let name_node =
+                            spec.child_by_field_name("name").or_else(|| spec.named_child(0));
+                        let alias = spec.child_by_field_name("alias");
+                        let imported = name_node.map(|n| self.text(n).to_string());
+                        push(self, alias.or(name_node), "named", imported);
                     }
                 }
+                // `import * as NS from './x'`
                 "namespace_import" => {
                     let n = (0..child.named_child_count())
                         .filter_map(|k| child.named_child(k))
                         .find(|c| c.kind() == "identifier")
                         .or_else(|| child.named_child(0));
-                    push(self, n);
+                    push(self, n, "namespace", None);
                 }
                 _ => {}
             }

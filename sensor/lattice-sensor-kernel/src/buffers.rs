@@ -54,7 +54,7 @@
 //!   28  str  sourceIdStr
 //!   36  str  targetIdStr
 //!
-//! ref row (40 bytes):
+//! ref row (48 bytes, v2):
 //!   0   u32  fromNode row index (NONE → use fromNodeIdStr)
 //!   4   u8   ReferenceKind (EDGE_KINDS index, or 200 = function_ref)
 //!   5   [3]  pad
@@ -63,8 +63,10 @@
 //!   16  str  referenceName
 //!   24  str  candidates (NUL-joined list)
 //!   32  str  fromNodeIdStr
+//!   40  str  extraJson (escape hatch: JSON of any extra reference props —
+//!            bindingForm, importedName)
 
-pub const KERNEL_ABI_VERSION: u8 = 1;
+pub const KERNEL_ABI_VERSION: u8 = 2;
 pub const NONE: u32 = 0xFFFF_FFFF;
 
 pub const META_SIZE: usize = 36;
@@ -72,7 +74,7 @@ pub const NODE_ROW_SIZE: usize = 96;
 /// Byte offset of the node row's `extraJson` StrRef — see the layout above.
 pub const NODE_EXTRA_JSON_OFFSET: usize = 84;
 pub const EDGE_ROW_SIZE: usize = 44;
-pub const REF_ROW_SIZE: usize = 40;
+pub const REF_ROW_SIZE: usize = 48;
 
 /// Mirror of NODE_KINDS in src/types.ts — order is the wire contract.
 pub const NODE_KINDS: [&str; 22] = [
@@ -236,6 +238,10 @@ pub struct RefRow {
     pub reference_name: StrRef,
     pub candidates: StrRef,
     pub from_id_str: StrRef,
+    /// JSON of any extra reference props (bindingForm, importedName). Mirrors
+    /// the node row's escape hatch so import-binding metadata rides the wire
+    /// without a dedicated column per property.
+    pub extra_json: StrRef,
 }
 
 fn push_str_ref(buf: &mut Vec<u8>, r: StrRef) {
@@ -343,6 +349,7 @@ impl Tables {
         push_str_ref(buf, r.reference_name);
         push_str_ref(buf, r.candidates);
         push_str_ref(buf, r.from_id_str);
+        push_str_ref(buf, r.extra_json);
         self.ref_count += 1;
     }
 }
@@ -419,6 +426,7 @@ mod tests {
             reference_name: name,
             candidates: NONE_STR,
             from_id_str: NONE_STR,
+            extra_json: NONE_STR,
         });
         assert_eq!(t.refs.len(), REF_ROW_SIZE);
         let meta = build_meta(&t, a.len(), NONE_STR, 0.0);
