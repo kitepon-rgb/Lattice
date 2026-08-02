@@ -1138,14 +1138,28 @@ impl<'t> Walker<'t> {
     // --- extractDecoratorsFor --------------------------------------------------------------
 
     pub(super) fn extract_decorators_for(&mut self, decl: Node<'t>, decorated_row: u32) {
+        // First line INCLUDING decorators (schema v11). `startLine` stays the
+        // declaration itself — it participates in node identity — so the
+        // widened extent lives in its own field, carried over the wire in the
+        // node row's extraJson escape hatch.
+        let mut extent: Option<u32> = None;
+        let mut mark = |row: u32, extent: &mut Option<u32>| {
+            if extent.is_none_or(|current| row < current) {
+                *extent = Some(row);
+            }
+        };
         // 1. Direct children (method/property style).
         for i in 0..decl.named_child_count() {
             let Some(child) = decl.named_child(i) else { continue };
-            self.consider_decorator(child, decorated_row);
+            if let Some(row) = self.consider_decorator(child, decorated_row) {
+                mark(row, &mut extent);
+            }
             if child.kind() == "modifiers" {
                 for j in 0..child.named_child_count() {
                     if let Some(m) = child.named_child(j) {
-                        self.consider_decorator(m, decorated_row);
+                        if let Some(row) = self.consider_decorator(m, decorated_row) {
+                            mark(row, &mut extent);
+                        }
                     }
                 }
             }
@@ -1153,36 +1167,58 @@ impl<'t> Walker<'t> {
         // 2. Preceding siblings (TypeScript class style), stopping at the
         //    first non-decorator so an earlier declaration's decorators never
         //    leak in. Matching by startIndex, not object identity.
-        let Some(parent) = decl.parent() else { return };
-        let decl_start = decl.start_byte();
-        let mut decl_idx: isize = -1;
-        for i in 0..parent.named_child_count() {
-            if let Some(sib) = parent.named_child(i) {
-                if sib.start_byte() == decl_start {
-                    decl_idx = i as isize;
-                    break;
+        if let Some(parent) = decl.parent() {
+            let decl_start = decl.start_byte();
+            let mut decl_idx: isize = -1;
+            for i in 0..parent.named_child_count() {
+                if let Some(sib) = parent.named_child(i) {
+                    if sib.start_byte() == decl_start {
+                        decl_idx = i as isize;
+                        break;
+                    }
+                }
+            }
+            if decl_idx > 0 {
+                let mut j = decl_idx - 1;
+                while j >= 0 {
+                    let Some(sib) = parent.named_child(j as usize) else {
+                        j -= 1;
+                        continue;
+                    };
+                    if !matches!(
+                        sib.kind(),
+                        "decorator" | "annotation" | "marker_annotation" | "attribute" | "attribute_item"
+                    ) {
+                        break;
+                    }
+                    if let Some(row) = self.consider_decorator(sib, decorated_row) {
+                        mark(row, &mut extent);
+                    }
+                    j -= 1;
                 }
             }
         }
-        if decl_idx > 0 {
-            let mut j = decl_idx - 1;
-            while j >= 0 {
-                let Some(sib) = parent.named_child(j as usize) else {
-                    j -= 1;
-                    continue;
-                };
-                if !matches!(sib.kind(), "decorator" | "annotation" | "marker_annotation") {
-                    break;
-                }
-                self.consider_decorator(sib, decorated_row);
-                j -= 1;
+
+        if let Some(row) = extent {
+            if row < self.tables.node_start_line(decorated_row) {
+                let json = format!("{{\"extentStartLine\":{row}}}");
+                let slot = self.arena.put(&json);
+                self.tables.set_node_extra_json(decorated_row, slot);
             }
         }
     }
 
-    fn consider_decorator(&mut self, n: Node<'t>, decorated_row: u32) {
+    /// Returns the decorator's start line when it widens the declaration's
+    /// extent — including `attribute_item`, whose dependency semantics are
+    /// unmodeled but whose lines must still be covered: cutting a struct away
+    /// from its `#[derive]` silently changes behavior.
+    fn consider_decorator(&mut self, n: Node<'t>, decorated_row: u32) -> Option<u32> {
+        let row = n.start_position().row as u32 + 1;
+        if n.kind() == "attribute_item" {
+            return Some(row);
+        }
         if !matches!(n.kind(), "decorator" | "annotation" | "marker_annotation" | "attribute") {
-            return;
+            return None;
         }
         let mut target: Option<Node> = None;
         for i in 0..n.named_child_count() {
@@ -1202,7 +1238,9 @@ impl<'t> Walker<'t> {
                 break;
             }
         }
-        let Some(target) = target else { return };
+        // The extent is already earned by being a decorator — a missing target
+        // or empty name only skips the `decorates` ref, never the widening.
+        let Some(target) = target else { return Some(row) };
         let mut name = self.text(target).to_string();
         if let Some(lt) = name.find('<') {
             if lt > 0 {
@@ -1222,9 +1260,10 @@ impl<'t> Walker<'t> {
         }
         let name = name.trim().to_string();
         if name.is_empty() {
-            return;
+            return Some(row);
         }
         self.push_ref(decorated_row, &name, edge_kind_index("decorates").unwrap(), n);
+        Some(row)
     }
 
     // --- extractInheritance (TS/JS clauses) ---------------------------------------------------

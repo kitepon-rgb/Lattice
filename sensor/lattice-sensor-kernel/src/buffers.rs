@@ -69,6 +69,8 @@ pub const NONE: u32 = 0xFFFF_FFFF;
 
 pub const META_SIZE: usize = 36;
 pub const NODE_ROW_SIZE: usize = 96;
+/// Byte offset of the node row's `extraJson` StrRef — see the layout above.
+pub const NODE_EXTRA_JSON_OFFSET: usize = 84;
 pub const EDGE_ROW_SIZE: usize = 44;
 pub const REF_ROW_SIZE: usize = 40;
 
@@ -286,6 +288,34 @@ impl Tables {
         let idx = self.node_count;
         self.node_count += 1;
         idx
+    }
+
+    /// `startLine` of an already-pushed node row.
+    ///
+    /// The decorator extent only widens the node when it sits ABOVE the
+    /// declaration, so the comparison needs the row's own start line back.
+    pub fn node_start_line(&self, idx: u32) -> u32 {
+        let at = idx as usize * NODE_ROW_SIZE + 4;
+        if at + 4 > self.nodes.len() {
+            return 0;
+        }
+        u32::from_le_bytes([self.nodes[at], self.nodes[at + 1], self.nodes[at + 2], self.nodes[at + 3]])
+    }
+
+    /// Overwrite an already-pushed node's `extraJson` slot.
+    ///
+    /// Decorator extents are only known after the declaration node exists —
+    /// the walker emits the node first, then looks upward for decorators. The
+    /// TS walker mutates the node object it kept a handle on; here the row is
+    /// already serialized, so patch the slot in place instead of deferring
+    /// every node's emission.
+    pub fn set_node_extra_json(&mut self, idx: u32, r: StrRef) {
+        let at = idx as usize * NODE_ROW_SIZE + NODE_EXTRA_JSON_OFFSET;
+        if at + 8 > self.nodes.len() {
+            return;
+        }
+        self.nodes[at..at + 4].copy_from_slice(&r.0.to_le_bytes());
+        self.nodes[at + 4..at + 8].copy_from_slice(&r.1.to_le_bytes());
     }
 
     pub fn push_edge(&mut self, r: &EdgeRow) {

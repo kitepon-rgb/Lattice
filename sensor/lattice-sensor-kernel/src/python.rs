@@ -620,41 +620,69 @@ impl<'t> Walker<'t> {
     /// (python's `call` kind isn't `call_expression`, and `attribute` isn't in
     /// the target-kind list — mirrored exactly).
     fn extract_decorators_for(&mut self, decl: Node<'t>, decorated_row: u32) {
+        // `startLine` stays the declaration (it participates in node identity);
+        // the decorator-inclusive first line rides in its own field (v11).
+        let mut extent: Option<u32> = None;
+        let mut mark = |row: u32, extent: &mut Option<u32>| {
+            if extent.is_none_or(|current| row < current) {
+                *extent = Some(row);
+            }
+        };
         for i in 0..decl.named_child_count() {
             if let Some(child) = decl.named_child(i) {
-                self.consider_decorator(child, decorated_row);
-            }
-        }
-        let Some(parent) = decl.parent() else { return };
-        let decl_start = decl.start_byte();
-        let mut decl_idx: isize = -1;
-        for i in 0..parent.named_child_count() {
-            if let Some(sib) = parent.named_child(i) {
-                if sib.start_byte() == decl_start {
-                    decl_idx = i as isize;
-                    break;
+                if let Some(row) = self.consider_decorator(child, decorated_row) {
+                    mark(row, &mut extent);
                 }
             }
         }
-        if decl_idx > 0 {
-            let mut j = decl_idx - 1;
-            while j >= 0 {
-                let Some(sib) = parent.named_child(j as usize) else {
+        if let Some(parent) = decl.parent() {
+            let decl_start = decl.start_byte();
+            let mut decl_idx: isize = -1;
+            for i in 0..parent.named_child_count() {
+                if let Some(sib) = parent.named_child(i) {
+                    if sib.start_byte() == decl_start {
+                        decl_idx = i as isize;
+                        break;
+                    }
+                }
+            }
+            if decl_idx > 0 {
+                let mut j = decl_idx - 1;
+                while j >= 0 {
+                    let Some(sib) = parent.named_child(j as usize) else {
+                        j -= 1;
+                        continue;
+                    };
+                    if !matches!(
+                        sib.kind(),
+                        "decorator" | "annotation" | "marker_annotation" | "attribute" | "attribute_item"
+                    ) {
+                        break;
+                    }
+                    if let Some(row) = self.consider_decorator(sib, decorated_row) {
+                        mark(row, &mut extent);
+                    }
                     j -= 1;
-                    continue;
-                };
-                if !matches!(sib.kind(), "decorator" | "annotation" | "marker_annotation") {
-                    break;
                 }
-                self.consider_decorator(sib, decorated_row);
-                j -= 1;
+            }
+        }
+
+        if let Some(row) = extent {
+            if row < self.tables.node_start_line(decorated_row) {
+                let json = format!("{{\"extentStartLine\":{row}}}");
+                let slot = self.arena.put(&json);
+                self.tables.set_node_extra_json(decorated_row, slot);
             }
         }
     }
 
-    fn consider_decorator(&mut self, n: Node<'t>, decorated_row: u32) {
+    fn consider_decorator(&mut self, n: Node<'t>, decorated_row: u32) -> Option<u32> {
+        let row = n.start_position().row as u32 + 1;
+        if n.kind() == "attribute_item" {
+            return Some(row);
+        }
         if !matches!(n.kind(), "decorator" | "annotation" | "marker_annotation" | "attribute") {
-            return;
+            return None;
         }
         let mut target: Option<Node> = None;
         for i in 0..n.named_child_count() {
@@ -674,7 +702,9 @@ impl<'t> Walker<'t> {
                 break;
             }
         }
-        let Some(target) = target else { return };
+        // A missing target or empty name only skips the `decorates` ref — the
+        // decorator's lines still belong to the declaration's extent.
+        let Some(target) = target else { return Some(row) };
         let mut name = self.text(target).to_string();
         if let Some(lt) = name.find('<') {
             if lt > 0 {
@@ -694,9 +724,10 @@ impl<'t> Walker<'t> {
         }
         let name = name.trim().to_string();
         if name.is_empty() {
-            return;
+            return Some(row);
         }
         self.push_ref_at(decorated_row, &name, edge_kind_index("decorates").unwrap(), n);
+        Some(row)
     }
 
     // --- fn refs (PYTHON_SPEC) ------------------------------------------------------
