@@ -81,6 +81,20 @@ export function registerDaemon(rec: DaemonRecord): void {
   } catch {
     /* best-effort — list's liveness prune tolerates a missing record */
   }
+  // Registration is the one moment every daemon reaches, so it is where the
+  // registry gets swept. `listDaemons` already knows how to drop dead records;
+  // until this call it only ran when a human typed `daemon list`/`stop`, which
+  // nobody does — so the directory grew without bound. Records are keyed by
+  // project root, and every integration-test temp repo is its own root, so a
+  // test run mints records whose roots are deleted seconds later and whose
+  // records then outlive them forever (978 records / 967 dead, oldest 17 days,
+  // measured 2026-08-03). Sweeping here makes the directory self-limiting: it
+  // can only hold live daemons plus those that died since the last registration.
+  try {
+    listDaemons();
+  } catch {
+    /* best-effort — a failed sweep must never stop a daemon from starting */
+  }
 }
 
 /** Best-effort: drop this daemon's record on graceful shutdown. */

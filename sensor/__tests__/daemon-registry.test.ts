@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawn } from 'child_process';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -23,6 +24,18 @@ async function deadPid(): Promise<number> {
 
 function rec(root: string, pid: number, startedAt = Date.now()): DaemonRecord {
   return { root, pid, version: '1.0.0', socketPath: `${root}/.lattice/sensor/daemon.sock`, startedAt };
+}
+
+/**
+ * 死んだ記録をregisterDaemonを通さずに置く。本番で記録が死ぬのは登録の「後」——
+ * daemonがSIGKILLされた、あるいは一時repoごと消えた時——なので、登録時の掃除に
+ * 巻き込まれない形で作る必要がある。
+ */
+function plantDeadRecord(root: string, pid: number): void {
+  const dir = getRegistryDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const hash = createHash('sha256').update(path.resolve(root)).digest('hex').slice(0, 16);
+  fs.writeFileSync(path.join(dir, `${hash}.json`), `${JSON.stringify(rec(root, pid), null, 2)}\n`, { mode: 0o600 });
 }
 
 describe('daemon-registry', () => {
@@ -92,11 +105,31 @@ describe('daemon-registry', () => {
   });
 
   it('peeking with prune:false leaves dead records on disk', async () => {
-    const dead = await deadPid();
-    registerDaemon(rec('/proj/dead', dead));
+    // 記録を直接置く。registerDaemon経由にすると、登録時の掃除がその場で消してしまう
+    // ——本番で死ぬのは登録の「後」なので、こちらが実態に忠実である。
+    plantDeadRecord('/proj/dead', await deadPid());
     expect(listDaemons({ prune: false })).toEqual([]); // dead is filtered from results
     // ...but the file survives for the caller to inspect.
     expect(fs.readdirSync(getRegistryDir()).filter((f) => f.endsWith('.json'))).toHaveLength(1);
+  });
+
+  /**
+   * 登録は掃除の機会でもある。これが無いと、掃除は人が`daemon list`を叩いた時にしか
+   * 走らず、記録はproject rootごとに永久に積み上がる（integration testの一時repoは
+   * それぞれ別rootなので、test 1回ごとに死んだ記録が増える）。実測で978件・うち死亡967件・
+   * 最古17日前まで育っていた。
+   */
+  it('登録のたびに死んだ記録を掃除するので、登録簿が無限に育たない', async () => {
+    const dead = await deadPid();
+    for (let i = 0; i < 5; i += 1) plantDeadRecord(`/tmp/vanished-test-repo-${i}`, dead);
+    expect(fs.readdirSync(getRegistryDir()).filter((f) => f.endsWith('.json'))).toHaveLength(5);
+
+    registerDaemon(rec('/proj/live', process.pid));
+
+    // 生きている自分の記録だけが残る。
+    const remaining = fs.readdirSync(getRegistryDir()).filter((f) => f.endsWith('.json'));
+    expect(remaining).toHaveLength(1);
+    expect(listDaemons().map((d) => d.root)).toEqual(['/proj/live']);
   });
 
   it('lists multiple live daemons newest-first', () => {
