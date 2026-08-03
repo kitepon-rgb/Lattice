@@ -335,6 +335,12 @@ dashboard daemonは起動時に読み込んだ版数をhealthで名乗り、inst
 置き換える。publishとinstallを終えた版が、古いdaemonの生存を理由に配信面へ届かないままになることを
 許さない。置き換えの待ち時間は固定秒数で打ち切らず、spawnした子が生きている間は待ち、子の死で即座に
 `DASHBOARD_DAEMON_UNAVAILABLE`を返す。
+daemonの生死をdescriptor 1枚に依存させない。daemonはpidごとの記録を自分で書き、起動のたびに
+死んだ記録を掃除する。descriptorから外れた生存daemonは再認証のうえ停止し、同一runtime dirへ
+配信daemonを2本残さない。descriptorだけを失った場合は2本目を建てず、記録にある配信中のdaemonを
+引き取る。signalを送るのはその場で再認証を通った相手だけとし、応答しないpidへは送らない
+（pid再利用で無関係のprocessを停止しうる）。停止に応じない孤児は`DASHBOARD_ORPHAN_STOP_FAILED`で
+報せ、黙って見送らない。規約は[ADR 0157](adr/0157-dashboard-daemons-are-discoverable-by-record.md)が正。
 公開viewerの未知GETで`Accept`が`text/html`を含む場合は、HTTP 404のままLatticeのブランド、
 `noindex, nofollow`、`/projects/`と`https://kitepon.dev/`への戻り先を持つHTMLを返す。
 HTMLを要求しないclientには、従来の`lattice.todo_gantt_http_error.v1` JSON 404を維持する。

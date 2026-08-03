@@ -295,6 +295,12 @@ dashboard daemonは起動時に読み込んだ版数をhealthで名乗り、inst
 その間伸びます（実測: 8 project登録で約50秒台）。待ち時間は固定秒数ではなく、spawnした子が生きている
 間だけ待ち、子が死ねば即座に`DASHBOARD_DAEMON_UNAVAILABLE`を返します。既定120秒の上限は、応答を
 返さない子に対するbackstopであって正常な起動時間の見積りではありません。
+daemonの生死はdescriptor 1枚では持ちません。daemonは自分のpidの記録を書き、起動のたびに死んだ記録を
+掃除して、descriptorから外れた生存daemonを再認証のうえ停止します。入れ替えの途中でCLI側が落ちても、
+旧daemonが観測されないまま生き残ることはありません。descriptorだけを失った場合は2本目を建てず、
+配信を続けているdaemonを引き取ります。signalを送るのはその場で再認証を通った相手だけで、応答しない
+pidへは送りません（pid再利用で無関係のprocessを止めうるためです）。規約は
+[ADR 0157](docs/adr/0157-dashboard-daemons-are-discoverable-by-record.md)が正です。
 状態を書き込む`start / block / unblock / done / evidence promote / reopen / revise / revise-phase / revise-set`
 では、監査actorとして次の3環境変数をすべて設定してください。
 

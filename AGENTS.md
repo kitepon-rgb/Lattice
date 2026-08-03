@@ -79,6 +79,12 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 - 外部挙動不変のrefactorと挙動修正を分ける。安全網を先に置き、失敗をfallbackで隠さない。
 - `npm test`を局所／標準test、`npm run check`をsyntax／静的検査、`npm run ci`を完全gateの正規入口にする。
 - 実Lattice sensor、実repo、隔離worktreeを使うintegration testはunit testと分け、未実行をgreenへ丸めない。
+- **常駐processの生死を1枚のfileで持たない（ADR 0157）。** そのfileから漏れたprocessは二度と観測されず、
+  生きたまま不死になる。2026-08-03に2度踏んだ——sensorのdaemon登録簿が掃除されず978件（うち死亡967件）、
+  dashboardがdescriptorから外れた旧daemonを取り残して2重起動。直し方も同じで、pidごとの記録を
+  process自身に書かせ、**全processが必ず通る一点**（登録または起動）で死んだ記録を掃除する。掃除を
+  「人がコマンドを叩いた時」に置かない——誰も叩かないので永久に積み上がる。停止のsignalは、その場で
+  再認証を通った相手だけへ送る（応答しないpidへ送ると、pid再利用で無関係のprocessを殺す）。
 - 実daemon・実processを起動するtestは、後片付けをtestごとに手書きせず共通のfixture helperへ焼き込む。
   停止対象はdescriptorのpidでなくargvがfixtureのtemp pathを指すprocessとし、SIGTERMからSIGKILLへ上げて
   死を確認してからfixtureを消し、最後に生き残りゼロをassertする。取り残しは機械を重くして、時間予算を
