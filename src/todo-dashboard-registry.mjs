@@ -359,6 +359,17 @@ async function reapStrayDaemons(refs, keepPid, { signalProcess, isProcessAlive, 
   }
 }
 
+/** descriptorを失った時、登録簿の生存daemonから配信を続けている1つを選ぶ。 */
+async function adoptableDaemon(records, { attestationTimeoutMs }) {
+  let legacy = null;
+  for (const record of records) {
+    const attestation = await daemonAttestation(record, { timeoutMs: attestationTimeoutMs });
+    if (attestation === 'current') return { record, attestation };
+    if (attestation === 'legacy' && legacy === null) legacy = { record, attestation };
+  }
+  return legacy;
+}
+
 async function stopSpawnedReplacement(child, descriptor, {
   isProcessAlive = processIsAlive, timeoutMs = 3_000,
 } = {}) {
@@ -424,7 +435,24 @@ export async function ensureTodoDashboardDaemon({ env = process.env, spawnDaemon
       error.code = 'DASHBOARD_DAEMON_UNRESPONSIVE';
       throw error;
     }
-    const legacy = existingAttestation === 'legacy' ? existing : null;
+    let legacy = existingAttestation === 'legacy' ? existing : null;
+    if (legacy === null) {
+      // descriptorの指す先が居ない。登録簿に配信中のdaemonが残っているなら、2本目を
+      // 建てずに引き取る——descriptorだけが失われた場合の直接の修理である。
+      const adopted = await adoptableDaemon(
+        (await sweepDaemonRecords(refs, { isProcessAlive })).filter(({ pid }) => pid !== existing?.pid),
+        { attestationTimeoutMs },
+      );
+      if (adopted !== null) {
+        // 引き取った相手は生きて応答しているので、descriptorの不変条件を満たす。
+        await atomicJson(refs.descriptor, adopted.record);
+        if (adopted.attestation === 'current') {
+          await reap(adopted.record.pid);
+          return adopted.record;
+        }
+        legacy = adopted.record;
+      }
+    }
     const portText = env.LATTICE_DASHBOARD_PORT;
     const configuredPort = typeof portText === 'string' && /^(?:0|[1-9][0-9]{0,4})$/u.test(portText)
       && Number(portText) <= 65_535 ? Number(portText) : DEFAULT_PORT;

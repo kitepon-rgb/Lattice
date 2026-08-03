@@ -499,6 +499,32 @@ test('descriptorから外れた生存daemonを登録簿から見つけて停止�
   assert.deepEqual(await daemonRecordNames(runtime), [`${currentPid}.json`]);
 });
 
+test('descriptorだけが失われた時は2本目を建てず生存daemonを引き取る', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-adopt-'));
+  const runtime = path.join(root, 'runtime');
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const daemonPid = 987_703;
+  const served = await currentHealthServer(daemonPid);
+  await plantDaemonRecord(runtime, daemonDescriptor(daemonPid, served.port));
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime };
+  let spawned = 0;
+  context.after(async () => {
+    await new Promise((resolve) => served.server.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  const adopted = await ensureTodoDashboardDaemon({ env,
+    spawnDaemon() { spawned += 1; throw new Error('引き取れる相手が居るのにspawnしてはいけない'); },
+    signalProcess() { throw new Error('引き取る相手へsignalしてはいけない'); },
+    isProcessAlive: () => true,
+  });
+  assert.equal(spawned, 0);
+  assert.equal(adopted.pid, daemonPid);
+  assert.equal(adopted.port, served.port);
+  assert.equal(JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8')).pid, daemonPid,
+    'descriptorを引き取った相手で書き直す');
+  assert.deepEqual(await daemonRecordNames(runtime), [`${daemonPid}.json`]);
+});
+
 test('認証できない生存pidへはsignalせず記録を残して次の起動へ送る', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-stray-unrelated-'));
   const runtime = path.join(root, 'runtime');
