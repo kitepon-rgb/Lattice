@@ -21,3 +21,6 @@ research/runs/
 .lattice/todo/plans/*/*/seam-proposal.json
 # Project-local orchestration run state（ADR 0060）。
 .lattice/runs/
+# upstream (CodeGraph) のbare clone。scripts/upstream-sync.mjsが再取得できる派生物で、
+# 追跡すると第三者repoの全履歴をこのrepoへ抱え込むことになる。
+.lattice/upstream-cache/

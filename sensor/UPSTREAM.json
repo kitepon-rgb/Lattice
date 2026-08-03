@@ -1,0 +1,91 @@
+{
+  "schema": "lattice.sensor_upstream_manifest.v1",
+  "upstream": {
+    "repo": "https://github.com/colbymchenry/codegraph.git",
+    "license": "MIT",
+    "notice": "NOTICE"
+  },
+  "absorbed_at": {
+    "commit": "04ab45c91fff97263d2d305ecb2908bce80bd159",
+    "date": "2026-07-17",
+    "method": "git archive (pristine tree)"
+  },
+  "synced_at": {
+    "commit": "04ab45c91fff97263d2d305ecb2908bce80bd159",
+    "date": "2026-07-17"
+  },
+  "path_map": {
+    "codegraph-kernel": "lattice-sensor-kernel",
+    "CLAUDE.md": "docs/UPSTREAM-CLAUDE.md"
+  },
+  "skip": [
+    "site/",
+    "telemetry-worker/",
+    "assets/",
+    "install.sh",
+    "install.ps1",
+    "package-lock.json"
+  ],
+  "lattice_only": [
+    ".npmignore",
+    "NOTICE",
+    "UPSTREAM.json",
+    "docs/README.md",
+    "archive/upstream-self-upgrade/",
+    "src/extraction/dynamic-import.ts",
+    "src/extraction/spawn-invokes.ts",
+    "__tests__/cross-file-name-gate.test.ts",
+    "__tests__/dynamic-import.test.ts",
+    "__tests__/edge-confidence.test.ts",
+    "__tests__/extraction-version-heal.test.ts",
+    "__tests__/import-binding-metadata.test.ts",
+    "__tests__/spawn-invokes.test.ts",
+    "lattice-sensor-kernel/src/tsjs/dynamic_import.rs",
+    "lattice-sensor-kernel/src/tsjs/spawn_invokes.rs"
+  ],
+  "accepted_deletions": [],
+  "conflict_policy": [
+    {
+      "path": "package.json",
+      "resolution": "ours",
+      "why": "name/version/bin/scripts are the Lattice distribution contract. Take upstream only for genuinely new runtime dependencies, by hand."
+    },
+    {
+      "path": "src/extraction/extraction-version.ts",
+      "resolution": "manual",
+      "why": "EXTRACTION_VERSION gates the incremental re-extraction heal. Both sides bump it; the merged value must be higher than either, never a pick."
+    },
+    {
+      "path": "__tests__/installer-targets.test.ts",
+      "resolution": "ours",
+      "why": "Lattice ships no standalone installer (BUNDLING.md). Upstream installer targets do not apply."
+    },
+    {
+      "path": "docs/design/telemetry.md",
+      "resolution": "ours",
+      "why": "telemetry is disabled in Lattice; upstream's design notes describe a surface we do not run."
+    },
+    {
+      "path": "TELEMETRY.md",
+      "resolution": "ours",
+      "why": "same as docs/design/telemetry.md."
+    },
+    {
+      "path": "README.md",
+      "resolution": "ours",
+      "why": "describes the Lattice-owned sensor, not the upstream product."
+    },
+    {
+      "path": "scripts/build-kernel.sh",
+      "resolution": "manual",
+      "why": "path_map applies (codegraph-kernel -> lattice-sensor-kernel) and Lattice stages prebuilds where its own loader looks."
+    }
+  ],
+  "notes": [
+    "absorbed_at is the 3-way merge base and must never move.",
+    "synced_at advances ONLY when a sync lands with zero unresolved conflicts. A partially applied sync must leave it untouched, or the next run silently skips what was never merged.",
+    "The rename to LATTICE_SENSOR_* / lattice-sensor is carried as an ordinary local change: git resolves it as ours, so no rename rules are needed. Do not add textual substitution to the sync path — the rename is selective (some CODEGRAPH_* names are deliberately kept) and cannot be reproduced by rules.",
+    "lattice_only paths are never deleted by a sync even when absent upstream.",
+    "conflict_policy exists so a resolution is decided once, not re-litigated every sync. When a conflict is resolved by hand, add the path and the reason here — an entry that only says 'ours' without a why is worse than none."
+  ]
+}
