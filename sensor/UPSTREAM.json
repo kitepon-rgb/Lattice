@@ -24,6 +24,7 @@
   "skip": [
     "site/",
     "telemetry-worker/",
+    "telemetry-dashboard/",
     "assets/",
     "install.sh",
     "install.ps1",
@@ -90,8 +91,9 @@
     }
   ],
   "notes": [
-    "absorbed_at is the 3-way merge base and must never move.",
-    "synced_at advances ONLY when a sync lands with zero unresolved conflicts. A partially applied sync must leave it untouched, or the next run silently skips what was never merged.",
+    "absorbed_at records where sensor/ came from. It never moves, and it is NOT the merge base.",
+    "synced_at IS the 3-way merge base, and it advances ONLY when a sync lands with zero unresolved conflicts. Using absorbed_at as the base instead makes every hand-resolved conflict re-conflict on the next sync — a resolution would have no way to reach a settled state. A partially applied sync must leave the marker untouched, or the next run silently skips what was never merged.",
+    "A sync target must be a descendant of synced_at. Pointing --ref at an older commit would move the marker backwards while the tree stays new.",
     "The rename to LATTICE_SENSOR_* / lattice-sensor is carried as an ordinary local change: git resolves it as ours, so no rename rules are needed. Do not add textual substitution to the sync path — the rename is selective (some CODEGRAPH_* names are deliberately kept) and cannot be reproduced by rules.",
     "lattice_only paths are never deleted by a sync even when absent upstream.",
     "conflict_policy exists so a resolution is decided once, not re-litigated every sync. When a conflict is resolved by hand, add the path and the reason here — an entry that only says 'ours' without a why is worse than none."

@@ -1,0 +1,36 @@
+name: upstream check
+
+# sensor/ の由来である CodeGraph が進んだことに気づくための面。
+#
+# 一度これを持たずに運用した結果、54 commit・201 file 溜まってから偶然気づいた。
+# 「差分を見るコマンドを人が覚えて実行する」形では、覚えていない期間そのものが
+# 溜める期間になる。週次で回し、溜まっていれば job を落として可視化する。
+#
+# 何も書き換えない。取り込みは `node scripts/upstream-sync.mjs --apply` を人が
+# 走らせる。
+
+on:
+  schedule:
+    # 毎週月曜 09:00 JST (00:00 UTC)
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13'
+      - name: report distance from upstream
+        run: node scripts/upstream-check.mjs
+      - name: fail when upstream has moved
+        run: |
+          behind=$(node scripts/upstream-check.mjs --json | node -e \
+            'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).behind_commits))')
+          echo "behind_commits=$behind"
+          if [ "$behind" -gt 0 ]; then
+            echo "::warning::upstream is $behind commit(s) ahead — run scripts/upstream-sync.mjs"
+            exit 1
+          fi

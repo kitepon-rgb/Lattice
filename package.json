@@ -74,7 +74,9 @@
     "verify:todo-store": "node bin/lattice.mjs todo verify --json",
     "check:cli-surface": "node scripts/verify-cli-surface.mjs",
     "check:open-questions": "node scripts/verify-open-questions.mjs",
-    "check:reachability": "node scripts/verify-product-reachability.mjs"
+    "check:reachability": "node scripts/verify-product-reachability.mjs",
+    "upstream:check": "node scripts/upstream-check.mjs",
+    "upstream:sync": "node scripts/upstream-sync.mjs"
   },
   "homepage": "https://github.com/kitepon-rgb/Lattice#readme",
   "bugs": {

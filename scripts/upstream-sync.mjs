@@ -127,10 +127,25 @@ function parseArgs(argv) {
 function run() {
   const options = parseArgs(process.argv.slice(2));
   const manifest = readManifest();
-  const base = manifest.absorbed_at.commit;
+  // 3-way mergeのbaseは前回同期点である。absorbed_atで固定すると、前回manualで
+  // 解決した箇所がbase→ours と base→theirs の両方で変化した扱いになり、同期の
+  // たびに必ず再衝突する——解決が成功状態へ遷移する手段が無くなる。
+  const base = manifest.synced_at.commit;
   ensureUpstream(manifest.upstream.repo, [base, options.ref]);
 
   const target = String(git(['rev-parse', options.ref], { cwd: CACHE_DIR }).stdout).trim();
+
+  // 単調前進の強制。古いrefを指定すればmarkerを巻き戻せてしまい、treeは新しい
+  // まま marker だけ古いという不整合が残る。targetはbaseの子孫でなければならない。
+  if (target !== base) {
+    const descendant = git(['merge-base', '--is-ancestor', base, target],
+      { cwd: CACHE_DIR, allowFail: true });
+    if (descendant.status !== 0) {
+      throw new SyncError('REF_NOT_DESCENDANT',
+        'target ref is not a descendant of synced_at; syncing to it would move the marker backwards',
+        { synced_at: base, target, ref: options.ref });
+    }
+  }
   const baseTree = listTree(base, CACHE_DIR);
   const targetTree = listTree(target, CACHE_DIR);
 
@@ -161,6 +176,9 @@ function run() {
     unchanged: 0,
   };
 
+  // 適用は走査と分ける。走査中に書くと、後半で落ちた時に前半の書換えだけが
+  // 作業ツリーへ残り、どこまで進んだか分からない中途半端な状態になる。
+  const writes = [];
   const scratch = mkdtempSync(path.join(tmpdir(), 'lattice-upstream-'));
   try {
     for (const upstreamPath of new Set([...baseTree, ...targetTree])) {
@@ -202,10 +220,7 @@ function run() {
           continue;
         }
         report.added.push(localPath);
-        if (options.apply) {
-          mkdirSync(path.dirname(absolute), { recursive: true });
-          writeFileSync(absolute, theirs);
-        }
+        writes.push({ absolute, data: theirs });
         continue;
       }
 
@@ -231,7 +246,7 @@ function run() {
 
       if (merge.status === 0) {
         report.merged.push(localPath);
-        if (options.apply) writeFileSync(absolute, merge.stdout);
+        writes.push({ absolute, data: merge.stdout });
         continue;
       }
 
@@ -247,7 +262,7 @@ function run() {
           // ours は upstream の変更を意図的に捨てている。捨てた事実を毎回可視化する。
           discarded_upstream_change: policy.resolution === 'ours',
         });
-        if (options.apply && policy.resolution === 'theirs') writeFileSync(absolute, theirs);
+        if (policy.resolution === 'theirs') writes.push({ absolute, data: theirs });
         continue;
       }
 
@@ -258,10 +273,18 @@ function run() {
         policy: policy?.resolution ?? null,
         why: policy?.why ?? null,
       });
-      if (options.apply && !binary) writeFileSync(absolute, merge.stdout);
+      if (!binary) writes.push({ absolute, data: merge.stdout });
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true });
+  }
+
+  // 全件の結果が揃ってから初めて作業ツリーへ触る。
+  if (options.apply) {
+    for (const { absolute, data } of writes) {
+      mkdirSync(path.dirname(absolute), { recursive: true });
+      writeFileSync(absolute, data);
+    }
   }
 
   report.conflicted.sort((a, b) => a.path.localeCompare(b.path));
