@@ -7,3 +7,4 @@
 - [parallel-ready-planning/codegraph-artifact-identity-exclusion.md](parallel-ready-planning/codegraph-artifact-identity-exclusion.md) — immutable execution sourceがlive graphを汚染したRC2実測と、`codegraph.json` exclude／config identity bindingの設計（2026-07-16・Codegraph 1.4.1実証）
 - [network-bridge/network-bridge-deployment-research.md](network-bridge/network-bridge-deployment-research.md) — opt-in Mac bridgeをDocker Caddy／Cloudflare Tunnelへ復旧可能に接続する配備順序とgate、LAN addressリテラルの陳腐化をssh逆トンネルで消す条件（2026-07-26・公式仕様＋対象環境実測）
 - [sensor-startup/sensor-reconcile-cost-measurement.md](sensor-startup/sensor-reconcile-cost-measurement.md) — sensorのreconcileが596→10,000ファイルで42→59msにしか伸びずwalk置換の便益が無いことを示し、AIShell delta連携を不着手と裁定した実測（2026-07-25・本機実測）
+- [sensor-startup/language-coverage-verification-20260803.md](sensor-startup/language-coverage-verification-20260803.md) — upstream 49c11fc取り込み後の41言語カバレッジ実測。33言語で依存辺まで動作・作るべき不足なしの裁定と範囲（2026-08-03・本機実測）
