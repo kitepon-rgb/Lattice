@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import {
-  mkdir, open, readFile, realpath, rename, rm, writeFile,
+  mkdir, open, readdir, readFile, realpath, rename, rm, writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -41,6 +41,7 @@ function paths(env) {
     root,
     registry: path.join(root, 'projects.json'),
     descriptor: path.join(root, 'daemon.json'),
+    daemons: path.join(root, 'daemons'),
     lock: path.join(root, 'registry.lock'),
     startupLock: path.join(root, 'daemon-start.lock'),
   };
@@ -239,6 +240,52 @@ function processIsAlive(pid) {
   }
 }
 
+function daemonRecordRef(refs, pid) {
+  return path.join(refs.daemons, `${pid}.json`);
+}
+
+/**
+ * daemonごとの記録。descriptorは1枚しか無いので、そこから落ちたdaemonは二度と誰にも
+ * 観測されず、生きたまま不死になる（2026-08-03に2重起動を実測）。descriptorの所有者は
+ * 起動側のままにして、pidごとの記録だけをdaemon自身に書かせる——記録があれば、
+ * descriptorを失っても後続の起動が見つけられる。
+ */
+async function readDaemonRecords(refs) {
+  let names;
+  try { names = await readdir(refs.daemons); } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  }
+  const records = [];
+  for (const name of names) {
+    if (!/^[1-9][0-9]{0,9}\.json$/u.test(name)) continue;
+    const ref = path.join(refs.daemons, name);
+    let record = null;
+    try { record = JSON.parse(await readFile(ref, 'utf8')); } catch { record = null; }
+    // 壊れた記録、file名のpidと中身が食い違う記録は、誰の生死も語れないので捨てる。
+    // 記録はatomicJsonで置かれるので、読み手が書きかけを見ることはない。
+    if (!validDaemonDescriptor(record) || `${record.pid}.json` !== name) {
+      await rm(ref, { force: true });
+      continue;
+    }
+    records.push(record);
+  }
+  return records;
+}
+
+/**
+ * 死んだpidの記録を落とす。全daemonが必ず通る起動時に呼ぶので、登録簿は
+ * 「生きているdaemon＋前回の起動以降に死んだ分」までしか育たない。
+ */
+async function sweepDaemonRecords(refs, { isProcessAlive }) {
+  const live = [];
+  for (const record of await readDaemonRecords(refs)) {
+    if (await isProcessAlive(record.pid)) live.push(record);
+    else await rm(daemonRecordRef(refs, record.pid), { force: true });
+  }
+  return live;
+}
+
 async function stopAttestedLegacyDaemon(descriptor, {
   signalProcess = process.kill, isProcessAlive = processIsAlive, timeoutMs = 3_000,
 } = {}) {
@@ -290,9 +337,18 @@ async function stopSpawnedReplacement(child, descriptor, {
 export async function writeTodoDashboardDaemonDescriptor({ port, env = process.env }) {
   if (!Number.isSafeInteger(port) || port <= 0 || port > 65_535) throw new TypeError('daemon port invalid');
   const refs = paths(env);
-  await mkdir(refs.root, { recursive: true, mode: 0o700 });
-  await atomicJson(refs.descriptor, { schema: DAEMON_SCHEMA, pid: process.pid, port,
-    started_at: new Date().toISOString() });
+  await mkdir(refs.daemons, { recursive: true, mode: 0o700 });
+  const record = { schema: DAEMON_SCHEMA, pid: process.pid, port,
+    started_at: new Date().toISOString() };
+  // 記録を先に置く。descriptorだけが在って記録が無い瞬間を作ると、その隙に起動側が
+  // 死んだ時に、まさに直そうとしている「誰からも観測されないdaemon」が生まれる。
+  await atomicJson(daemonRecordRef(refs, process.pid), record);
+  await atomicJson(refs.descriptor, record);
+}
+
+/** 自分の記録だけを消す。descriptorは起動側が所有するので、死ぬ側からは触らない。 */
+export async function forgetTodoDashboardDaemonRecord({ env = process.env } = {}) {
+  await rm(daemonRecordRef(paths(env), process.pid), { force: true });
 }
 
 export async function ensureTodoDashboardDaemon({ env = process.env, spawnDaemon = spawn,
@@ -302,6 +358,9 @@ export async function ensureTodoDashboardDaemon({ env = process.env, spawnDaemon
   const refs = paths(env);
   await mkdir(refs.root, { recursive: true, mode: 0o700 });
   return withLock(refs.startupLock, async () => {
+    // 掃除の機会はここしかない。daemonの起動は全daemonが必ず通る一点であり、
+    // 誰かがコマンドを叩くのを待つ形にすると、記録は誰にも掃除されず積み上がる。
+    await sweepDaemonRecords(refs, { isProcessAlive });
     const existing = await readJson(refs.descriptor, null);
     const existingAttestation = await daemonAttestation(existing, { timeoutMs: attestationTimeoutMs });
     if (existingAttestation === 'current') return existing;

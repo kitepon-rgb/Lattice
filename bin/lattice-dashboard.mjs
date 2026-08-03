@@ -7,6 +7,7 @@ import { readTodoStoreStable } from '../src/todo-store.mjs';
 import { projectTodoStatus } from '../src/todo-status.mjs';
 import { ganttLiveHeadDigest, renderTodoGanttForProject } from '../src/todo-cli.mjs';
 import {
+  forgetTodoDashboardDaemonRecord,
   readVisibleTodoDashboardProjects,
   todoDashboardMemberNeedsVisibility,
   writeTodoDashboardDaemonDescriptor,
@@ -106,15 +107,33 @@ async function synchronize() {
   return active.length;
 }
 
+let closing = null;
+
+/**
+ * 終了経路はsignalだけではない——配信するprojectが尽きた時と同期に失敗した時も
+ * ここを通る。どの経路でも自分の登録簿記録を落とす。消し損ねても次のdaemon起動が
+ * 掃除するので、後始末の失敗で終了を止めない。
+ */
+function close() {
+  if (closing === null) {
+    clearInterval(timer);
+    closing = (async () => {
+      try { await forgetTodoDashboardDaemonRecord({ env }); } catch {}
+      await dashboard.close();
+    })();
+  }
+  return closing;
+}
+
+function exit(code) {
+  close().catch(() => {}).finally(() => process.exit(code));
+}
+
 await synchronize();
 const dashboard = await startTodoGanttDashboardServer({ registry, port });
 await writeTodoDashboardDaemonDescriptor({ port: dashboard.port, env });
 const timer = setInterval(() => synchronize().then((count) => {
-  if (count === 0) process.exit(0);
-}).catch(() => process.exit(1)), 1_000);
-const close = async () => {
-  clearInterval(timer);
-  await dashboard.close();
-};
-process.once('SIGINT', () => close().finally(() => process.exit(0)));
-process.once('SIGTERM', () => close().finally(() => process.exit(0)));
+  if (count === 0) exit(0);
+}).catch(() => exit(1)), 1_000);
+process.once('SIGINT', () => exit(0));
+process.once('SIGTERM', () => exit(0));

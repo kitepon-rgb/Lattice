@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -44,6 +44,37 @@ async function healthServer(body) {
 
 async function writeDaemonDescriptor(runtime, descriptor) {
   await writeFile(path.join(runtime, 'daemon.json'), `${JSON.stringify(descriptor)}\n`, { mode: 0o600 });
+}
+
+function daemonDescriptor(pid, port) {
+  return { schema: 'lattice.todo_dashboard_daemon.v1', pid, port,
+    started_at: new Date().toISOString() };
+}
+
+/**
+ * 登録簿へ記録を直接置く。本番でdaemonが観測不能になるのは記録を書いた「後」——
+ * descriptorから外された時や起動側が途中で死んだ時——なので、ensureを通さずに作る。
+ */
+async function plantDaemonRecord(runtime, record) {
+  await mkdir(path.join(runtime, 'daemons'), { recursive: true, mode: 0o700 });
+  await writeFile(path.join(runtime, 'daemons', `${record.pid}.json`),
+    `${JSON.stringify(record)}\n`, { mode: 0o600 });
+}
+
+async function daemonRecordNames(runtime) {
+  try { return (await readdir(path.join(runtime, 'daemons'))).sort(); } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+/** 現行版を名乗るhealth。'current' attestationはportの一致も見るので後から埋める。 */
+async function currentHealthServer(pid) {
+  const body = { schema: 'lattice.todo_dashboard_health.v1', pid, port: 0,
+    project_ids: ['lattice'], version: TODO_DASHBOARD_CODE_VERSION };
+  const served = await healthServer(() => body);
+  body.port = served.port;
+  return served;
 }
 
 test('dashboard --helpはdaemonやregistryを作らず終了する', async (context) => {
@@ -431,6 +462,62 @@ test('旧daemon停止失敗時はreplacementを停止確認してlegacy descript
     assert.deepEqual(JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8')), descriptor);
     assert.equal((await fetch(`http://127.0.0.1:${legacy.port}/__lattice/health`)).status, 200);
   });
+
+test('起動のたびに死んだ記録を掃除するので登録簿が無限に育たない', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-sweep-'));
+  const runtime = path.join(root, 'runtime');
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const servedPid = 987_704;
+  const served = await currentHealthServer(servedPid);
+  await writeDaemonDescriptor(runtime, daemonDescriptor(servedPid, served.port));
+  await plantDaemonRecord(runtime, daemonDescriptor(servedPid, served.port));
+  for (let index = 0; index < 5; index += 1) {
+    await plantDaemonRecord(runtime, daemonDescriptor(900_000 + index, 40_000 + index));
+  }
+  assert.equal((await daemonRecordNames(runtime)).length, 6);
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime };
+  context.after(async () => {
+    await new Promise((resolve) => served.server.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  const result = await ensureTodoDashboardDaemon({ env,
+    spawnDaemon() { throw new Error('配信中のdaemonが居るのにspawnしてはいけない'); },
+    signalProcess() { throw new Error('死んだpidへsignalしてはいけない'); },
+    isProcessAlive: (pid) => pid === servedPid,
+  });
+  assert.equal(result.pid, servedPid);
+  assert.deepEqual(await daemonRecordNames(runtime), [`${servedPid}.json`]);
+});
+
+test('daemonは自分の記録をdescriptorと同時に置き、停止時に落とす', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-record-life-'));
+  const runtime = path.join(root, 'runtime');
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime,
+    LATTICE_DASHBOARD_PORT: '0', LATTICE_DASHBOARD_AUTOSTART: '1' };
+  let daemonPid = null;
+  context.after(async () => {
+    if (daemonPid !== null) {
+      try { process.kill(daemonPid, 'SIGTERM'); } catch {}
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  await ensureTodoDashboardActivity({ repoRoot: process.cwd(), projectId: 'lattice',
+    displayName: 'Lattice', sessionId: 'session-record', env });
+  const descriptor = JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8'));
+  daemonPid = descriptor.pid;
+  const recordRef = path.join(runtime, 'daemons', `${daemonPid}.json`);
+  assert.deepEqual(await daemonRecordNames(runtime), [`${daemonPid}.json`]);
+  assert.deepEqual(JSON.parse(await readFile(recordRef, 'utf8')), descriptor);
+  assert.equal((await stat(recordRef)).mode & 0o777, 0o600);
+
+  process.kill(daemonPid, 'SIGTERM');
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline && (await daemonRecordNames(runtime)).length > 0) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.deepEqual(await daemonRecordNames(runtime), [], 'SIGTERMで自分の記録を落とす');
+  daemonPid = null;
+});
 
 test('todo CLIの通常activityが明示serveなしでproject登録とdaemon起動をensureする', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-cli-'));
