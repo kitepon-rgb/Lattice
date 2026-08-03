@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.46.0 — 2026-08-03
+
+### 修正
+
+- **dashboard daemonが観測不能なまま生き残る欠陥を直した（ADR 0157）。** 生死を持つのは
+  `daemon.json`（descriptor）1枚だけで、引き継ぎはそこに書かれたpidしか認証しない。
+  したがってdescriptorから一度外れたdaemonは、生きていても二度と誰にも観測されない。
+  v0.45.1のinstall直後に実際に起きた——旧daemonへSIGTERMを送る前に起動側が死に、
+  旧daemonが取り残された（実測: dashboard 2本が同時稼働）。
+  daemonごとの記録`daemons/<pid>.json`をdaemon自身に書かせ、全daemonが必ず通る起動時に
+  死んだ記録を掃除し、descriptorが指さない生存daemonを再認証のうえ停止する。
+  descriptorだけが失われた場合は2本目を建てず、登録簿の生存daemonを引き取る。
+  signalを送るのは、その場で再認証を通った相手だけとする（応答しないpidへ送れば、
+  pid再利用で無関係のprocessを殺しうる）。停止に応じない孤児は
+  `DASHBOARD_ORPHAN_STOP_FAILED`で報せ、黙って諦めない。
+  なお、**この修正より前に取り残されている孤児は記録を持たないので発見できない。**
+  防ぐのは以後の発生であり、過去の孤児の遡及救済ではない。
+
 ## 0.45.1 — 2026-08-03
 
 ### 修正
