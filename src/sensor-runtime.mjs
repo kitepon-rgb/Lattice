@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { lstatSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { sensorNodeRuntimeFlags } from './sensor-node-runtime.mjs';
 
 export const LATTICE_SENSOR_CLI = fileURLToPath(
   new URL('../sensor/dist/bin/lattice-sensor.js', import.meta.url),
@@ -28,7 +29,10 @@ export function sensorCliInvocation(args) {
     throw new TypeError('sensor args must be an array of strings');
   }
   assertBundledSensor();
-  return Object.freeze({ command: process.execPath, args: Object.freeze([LATTICE_SENSOR_CLI, ...args]) });
+  return Object.freeze({
+    command: process.execPath,
+    args: Object.freeze([...sensorNodeRuntimeFlags(), LATTICE_SENSOR_CLI, ...args]),
+  });
 }
 
 export function invokeSensorCli(run, args, options) {
