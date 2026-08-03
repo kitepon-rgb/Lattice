@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import sensorPackage from '../sensor/package.json' with { type: 'json' };
+import { compareSensorIndexes, parseSensorDiffArgs, SensorDiffError } from './sensor-diff.mjs';
 import { spawnSensorCli } from './sensor-runtime.mjs';
 
 const MAX_CAPTURE_BYTES = 1024 * 1024;
@@ -10,20 +11,50 @@ function writeJson(stream, value) {
   stream.write(`${JSON.stringify(value)}\n`);
 }
 
+const USAGE = 'usage: lattice sensor <init|sync> [path] --json'
+  + ' | lattice sensor diff <rootA> <rootB>'
+  + ' [--subtree-a <rel>] [--subtree-b <rel>] [--map-a <from>=<to>] [--map-b <from>=<to>]'
+  + ' [--limit <n>] --json';
+
 function usage(stderr) {
-  writeJson(stderr, {
-    schema: 'lattice.cli_error.v2',
-    code: 'USAGE',
-    message: 'usage: lattice sensor <init|sync> [path] --json',
-  });
+  writeJson(stderr, { schema: 'lattice.cli_error.v2', code: 'USAGE', message: USAGE });
   return 2;
 }
 
 function parse(argv) {
   if (argv.at(-1) !== '--json') return null;
   const words = argv.slice(0, -1);
+  if (words[0] === 'diff') {
+    const request = parseSensorDiffArgs(words.slice(1));
+    return request === null ? null : { command: 'diff', diff: request };
+  }
   if (!['init', 'sync'].includes(words[0]) || words.length > 2) return null;
   return { command: words[0], path: words[1] ?? '.' };
+}
+
+/**
+ * 2つのindexを突き合わせる。索引そのものは作らない——差分を見に来た人に、黙ってrepoの状態を
+ * 書き換える権限は与えられていない。片側が未索引なら、次の一手を添えて止まる。
+ */
+function runDiff(request, stdout, stderr) {
+  try {
+    writeJson(stdout, {
+      ...compareSensorIndexes(request),
+      sensor_version: sensorPackage.version,
+    });
+    return 0;
+  } catch (error) {
+    // 想定外の失敗もtyped errorへ落とす。素通しさせるとstack traceだけが出て、
+    // 呼んだ側は「差分が出なかった」のか「壊れた」のかを機械で区別できない。
+    const typed = error instanceof SensorDiffError;
+    writeJson(stderr, {
+      schema: 'lattice.cli_error.v2',
+      code: typed ? error.code : 'LATTICE_SENSOR_DIFF_FAILED',
+      message: typed ? error.message : 'sensor diff failed',
+      detail: typed ? error.detail : { cause: error?.message ?? 'unknown error' },
+    });
+    return 1;
+  }
 }
 
 function execute(command, projectPath) {
@@ -68,6 +99,7 @@ function execute(command, projectPath) {
 export async function runSensorCli({ argv, stdout, stderr }) {
   const request = parse(argv);
   if (!request) return usage(stderr);
+  if (request.command === 'diff') return runDiff(request.diff, stdout, stderr);
   try {
     const result = await execute(request.command, request.path);
     if (result.code !== 0 || result.signal || result.overflow) {

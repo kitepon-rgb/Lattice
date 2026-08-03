@@ -120,6 +120,20 @@ ${TODO_INDEPENDENCE_WORKFLOW.join('\n')}
 todo startのadvisoryとtodo independenceの投影が、その状況と次の一歩を返す。
 `,
   sensor: `Usage: lattice sensor <init|sync> [path] --json
+       lattice sensor diff <rootA> <rootB> [options] --json
+
+diff options:
+  --subtree-a <rel>     # A側をこの部分木だけに絞り、prefixを剥がしてから突き合わせる
+  --subtree-b <rel>     # B側の同上（例: Latticeのsensor/とupstreamのrootを揃える）
+  --map-a <from>=<to>   # A側のpath改名写像。繰り返し可（最長prefix一致で1回だけ適用）
+  --map-b <from>=<to>   # B側の同上
+  --limit <n>           # 明細1覧あたりの上限（既定200・0で無制限）。切った量はtruncationへ出る
+
+突き合わせは行番号を含まない自然キー（kind|path|qualified_name|name）で行う。node idは
+行番号を含むので、idで比べると数行のズレが全て偽の追加＋削除になる。辺も端点を自然キーへ
+解決してから比べる。比較できなかった辺（端点がsubtree外・index不整合）はexcludedへ件数で出る。
+両側のextraction versionが違う時はcomparability.statusがdegradedになる——その差分は
+codeの変化だけを意味しない。
 `,
   'factory-diagnostics': `Usage: lattice factory-diagnostics --json
 `,
@@ -210,6 +224,8 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo migrate': 'todo migrate --input <extraction.json> [--serialization-reviewed] | --input <extraction.json> --dry-run --json [--serialization-reviewed] | --schema --json',
   'sensor init': 'sensor init [path] --json',
   'sensor sync': 'sensor sync [path] --json',
+  'sensor diff': 'sensor diff <rootA> <rootB> [--subtree-a <rel>] [--subtree-b <rel>]'
+    + ' [--map-a <from>=<to>] [--map-b <from>=<to>] [--limit <n>] --json',
   'runtime-errors snapshot': 'runtime-errors snapshot [--after-cursor <n>] [--limit <n>] --json',
   'runtime-errors ack': 'runtime-errors ack <cursor> --json',
   'runtime-errors diagnostics': 'runtime-errors diagnostics --json',

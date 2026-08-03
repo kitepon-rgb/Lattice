@@ -45,7 +45,7 @@ const COMMANDS = [
   ['todo', 'start'], ['todo', 'block'], ['todo', 'unblock'],
   ['todo', 'done'], ['todo', 'reopen'], ['todo', 'evidence'], ['todo', 'revise'],
   ['todo', 'revise-phase'], ['todo', 'revise-set'], ['todo', 'migrate'],
-  ['sensor', 'init'], ['sensor', 'sync'],
+  ['sensor', 'init'], ['sensor', 'sync'], ['sensor', 'diff'],
   ['runtime-errors', 'snapshot'], ['runtime-errors', 'ack'], ['runtime-errors', 'diagnostics'],
   ['runtime-errors', 'resolve'], ['runtime-errors', 'reopen'], ['runtime-errors', 'compact'],
   ['bridge', 'setup'], ['bridge', 'reconfigure'], ['bridge', 'status'],
