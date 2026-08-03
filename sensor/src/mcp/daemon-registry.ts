@@ -36,8 +36,11 @@ export interface DaemonRecord {
 }
 
 /**
- * `~/.lattice/sensor/daemons` — GLOBAL, keyed off the home dir. (The
- * `LATTICE_SENSOR_DIR` env var only renames the per-project index dir, not this.)
+ * `~/.lattice/sensor/daemons` — GLOBAL, keyed off the home dir. (The per-project
+ * index dir is fixed at `.lattice/sensor` and has no env override — see
+ * `latticeSensorRelativeDir`. An earlier note here claimed a `LATTICE_SENSOR_DIR`
+ * variable renamed it; nothing reads such a variable, and a test was setting it
+ * believing it isolated the index.)
  *
  * ADR 0049 Decision 3(b): this used to live under the shared upstream
  * `~/.lattice/sensor/daemons`, which let a third-party LatticeSensor install's
