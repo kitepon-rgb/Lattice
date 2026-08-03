@@ -8,23 +8,12 @@ Lattice の構造 sensor として吸収したものである（Lattice ADR 0047
 - 取り込み方法: `git archive`（pristine tree。改変は吸収後の履歴が持つ）
 - 取り込み時の唯一の改変: upstream `CLAUDE.md` → `docs/UPSTREAM-CLAUDE.md` へ移動
   （Lattice 内での AI セッションへ upstream 正典が自動注入されるのを防ぐ。内容は不変）
-## upstream 追従方針（cherry-pick 基準・ADR 0048 Decision 4 の消化）
+## upstream 追従方針（ADR 0155・オーナー裁定 2026-08-03）
 
-- 既定は**選択的 cherry-pick**。全量 merge 追従はしない（sensor は Lattice 所有で、
-  改良(a)(b)(c) により upstream と意図的に分岐しているため）。
-- 取り込む: (i) グラフ構築の correctness に関わる修正（extraction / resolution /
-  storage / migration）(ii) Lattice が sensor として使う CLI 面（index / affected /
-  explore 等）の欠陥修正 (iii) security fix。
-- 取り込まない: site / telemetry / install channel / UI、および Lattice 側で置換・
-  改良済みの経路（corroboration filter・動的 import 抽出等）と衝突する変更。
-  衝突する場合は自前実装を優先し、必要なら考え方だけ手移植する。
-- 手順: upstream diff を実読 → cherry-pick または手移植 → schema migration は
-  **Lattice 採番（v9 以降は Lattice が所有。upstream の同番 migration は振替）** →
-  focused test → `npm run ci` green → 本 NOTICE 末尾の「追従記録」へ
-  upstream commit を追記。
-- 監視は定期ジョブ化しない。sensor の欠陥・機能不足に当たった時に upstream を
-  確認する（必要駆動）。
-
-## 追従記録
-
-（吸収時点 04ab45c 以降の取り込みなし）
+- 既定は**全量 3-way merge**。貰えるものは全部取り込む。旧方針（選択的 cherry-pick・
+  必要駆動の監視）は54コミット溜めた実績をもって廃止した（経緯は ADR 0155）。
+- 正本は `sensor/UPSTREAM.json`（同期点 synced_at・path 写像・skip・衝突方針・削除承認）。
+- 追従は `npm run upstream:sync`（衝突後は解決 → commit → `--mark-synced`）、
+  検知は週次の `.github/workflows/upstream-check.yml` と `npm run upstream:check`。
+- 取り込み履歴は UPSTREAM.json の synced_at と git 履歴が持つ（本 NOTICE には重複記録しない）。
+  現在の同期点: 49c11fc（2026-08-03、54コミット消化・kernel 20言語化）。

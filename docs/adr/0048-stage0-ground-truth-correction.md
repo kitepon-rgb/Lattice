@@ -2,6 +2,10 @@
 
 - Status: Accepted / Immutable
 - Date: 2026-07-17
+
+> 追補（2026-08-03）: Decision 4が求めた追従方針の明文化はNOTICEの「選択的cherry-pick」として
+> 消化されたが、[ADR 0155](0155-upstream-sync-is-full-three-way-merge.md)が全量3-way merge既定へ
+> 上書きした。本ADRの裁定本文は不変。
 - 訂正対象: [ADR 0047](0047-codegraph-absorption-and-sensor-ownership.md)（裁定は不変・根拠数値を訂正）、
   [Stage 0 evidence](../evidence/2026-07-17-rc4-stage0-witness-cost.md)
 - 根拠: 2026-07-17 HEAD実ビルド再測定（dotagents統括セッション）
