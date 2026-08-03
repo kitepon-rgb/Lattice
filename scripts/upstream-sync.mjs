@@ -23,7 +23,7 @@
 // 次回の実行がmergeされていないものを黙って飛ばす。
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,6 +65,18 @@ function readManifest() {
       throw new SyncError('MANIFEST_INVALID', `UPSTREAM.json missing "${key}"`);
     }
   }
+  const seenTargets = new Set();
+  for (const [from, to] of Object.entries(manifest.path_map)) {
+    // 値が sensor/ の外へ出る写像は、syncがrepoの任意の場所へ書けることを意味する。
+    if (to.startsWith('/') || to.split('/').includes('..')) {
+      throw new SyncError('MANIFEST_INVALID', `path_map escapes sensor/: ${from} -> ${to}`);
+    }
+    // 2つのupstream pathが同じローカルへ写ると、後勝ちで片方が黙って消える。
+    if (seenTargets.has(to)) {
+      throw new SyncError('MANIFEST_INVALID', `path_map target duplicated: ${to}`);
+    }
+    seenTargets.add(to);
+  }
   return manifest;
 }
 
@@ -83,12 +95,33 @@ function ensureUpstream(repo, refs) {
   }
 }
 
-const listTree = (ref, cwd) =>
-  new Set(String(git(['ls-tree', '-r', '--name-only', ref], { cwd }).stdout).split('\n').filter(Boolean));
+/** ref配下の {path -> mode}。modeはgitの6桁（100644/100755/120000/160000）。 */
+function listTree(ref, cwd) {
+  const out = new Map();
+  for (const line of String(git(['ls-tree', '-r', ref], { cwd }).stdout).split('\n')) {
+    if (line === '') continue;
+    const tab = line.indexOf('\t');
+    const mode = line.slice(0, 6);
+    out.set(line.slice(tab + 1), mode);
+  }
+  return out;
+}
 
+/**
+ * blobを読む。不存在（pathがtreeに無い）だけをnullにし、それ以外の失敗は
+ * throwする。区別しないと、I/O障害や壊れたobjectが「upstreamに無いファイル」
+ * として静かに削除候補へ化ける。
+ */
 const blobAt = (ref, file, cwd) => {
   const result = git(['show', `${ref}:${file}`], { cwd, allowFail: true });
-  return result.status === 0 ? result.stdout : null;
+  if (result.status === 0) return result.stdout;
+  const stderr = String(result.stderr);
+  if (/does not exist|exists on disk, but not in|invalid object name|bad revision/.test(stderr)) {
+    return null;
+  }
+  throw new SyncError('BLOB_READ_FAILED', `git show ${ref}:${file} failed`, {
+    stderr: stderr.slice(0, 500),
+  });
 };
 
 /** upstream相対path -> Lattice repo相対path。path_mapは接頭辞一致で適用する。 */
@@ -205,6 +238,7 @@ function run() {
     conflicted: [],
     policy_applied: [],
     rename_unmapped: [],
+    special_mode: [],
     upstream_deleted: [],
     skipped: 0,
     unchanged: 0,
@@ -215,7 +249,14 @@ function run() {
   const writes = [];
   const scratch = mkdtempSync(path.join(tmpdir(), 'lattice-upstream-'));
   try {
-    for (const upstreamPath of new Set([...baseTree, ...targetTree])) {
+    for (const upstreamPath of new Set([...baseTree.keys(), ...targetTree.keys()])) {
+      const mode = targetTree.get(upstreamPath) ?? baseTree.get(upstreamPath);
+      // symlinkとsubmoduleはmergeの対象外。中身を通常ファイルとして書けば
+      // link先が本文に化ける。報告して人へ渡す（現状のupstreamはどちらも無い）。
+      if (mode === '120000' || mode === '160000') {
+        report.special_mode.push({ path: upstreamPath, mode });
+        continue;
+      }
       if (matchesAny(upstreamPath, manifest.skip)) {
         report.skipped += 1;
         continue;
@@ -254,7 +295,7 @@ function run() {
           continue;
         }
         report.added.push(localPath);
-        writes.push({ absolute, data: theirs });
+        writes.push({ absolute, data: theirs, mode });
         continue;
       }
 
@@ -321,9 +362,11 @@ function run() {
 
   // 全件の結果が揃ってから初めて作業ツリーへ触る。
   if (options.apply) {
-    for (const { absolute, data } of writes) {
+    for (const { absolute, data, mode } of writes) {
       mkdirSync(path.dirname(absolute), { recursive: true });
       writeFileSync(absolute, data);
+      // upstreamの実行bitを保存する。落とすと新規追加された.shが実行不能で届く。
+      if (mode === '100755') chmodSync(absolute, 0o755);
     }
   }
 
@@ -335,7 +378,7 @@ function run() {
   // upstreamの削除も未処理に数える——「消えたことに気づかないまま印だけ進む」のが
   // まさに今回54コミット溜めた形である。承認するなら accepted_deletions へ書く。
   const clean = report.conflicted.length === 0 && report.upstream_deleted.length === 0
-    && report.rename_unmapped.length === 0;
+    && report.rename_unmapped.length === 0 && report.special_mode.length === 0;
   if (options.apply && clean) {
     manifest.synced_at = { commit: target, date: new Date().toISOString().slice(0, 10) };
     writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`);

@@ -46,6 +46,16 @@ if (!existsSync(CACHE_DIR)) {
 git(['fetch', '--quiet', 'origin', '+refs/heads/*:refs/heads/*', '--tags'], CACHE_DIR);
 
 const head = git(['rev-parse', 'main'], CACHE_DIR).trim();
+// synced..headの片方向countは、mainがsyncedの祖先へforce-pushされると0になり
+// 「level」と誤報する。祖先関係を先に確かめ、破れていれば明示する。
+const ancestry = spawnSync('git', ['merge-base', '--is-ancestor', synced, head],
+  { cwd: CACHE_DIR, encoding: 'utf8' });
+if (head !== synced && ancestry.status !== 0) {
+  process.stderr.write(`${JSON.stringify({ code: 'HISTORY_REWRITTEN',
+    message: 'upstream main no longer descends from synced_at (force-push?) — inspect by hand',
+    synced_at: synced, upstream_head: head })}\n`);
+  process.exit(2);
+}
 const behind = Number(git(['rev-list', '--count', `${synced}..${head}`], CACHE_DIR).trim());
 const files = behind === 0 ? [] : git(['diff', '--name-only', `${synced}..${head}`], CACHE_DIR).split('\n').filter(Boolean);
 const extraction = files.filter((f) => EXTRACTION_PREFIXES.some((p) => f === p || f.startsWith(p)));

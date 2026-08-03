@@ -281,3 +281,79 @@ test('conflict_policyのoursは自動決着し、捨てたupstream変更が報�
   assert.match(body, /lattice readme/u);
   assert.equal(result.report.synced_at_advanced, true);
 });
+
+test('binaryの両側変更は衝突として報告され、作業ツリーへ書かれない', async (t) => {
+  const root = await workspace(t);
+  const bin = (...bytes) => Buffer.from(bytes);
+  const up = path.join(root, 'upstream');
+  await mkdir(up, { recursive: true });
+  git(up, 'init', '-q', '-b', 'main');
+  git(up, 'config', 'user.email', 't@t'); git(up, 'config', 'user.name', 't');
+  await writeFile(path.join(up, 'blob.bin'), bin(0, 1, 2, 3));
+  git(up, 'add', '-A'); git(up, 'commit', '-qm', 'base');
+  const base = git(up, 'rev-parse', 'HEAD');
+  await writeFile(path.join(up, 'blob.bin'), bin(0, 9, 9, 3));
+  git(up, 'add', '-A'); git(up, 'commit', '-qm', 'head');
+
+  const repo = await makeLocal(root, {
+    upstreamRepo: up, syncedAt: base, files: {},
+  });
+  await writeFile(path.join(repo, 'sensor', 'blob.bin'), bin(0, 1, 7, 3));
+  git(repo, 'add', '-A'); git(repo, 'commit', '-qm', 'local-edit');
+
+  const result = runSync(repo, '--ref', 'main', '--apply');
+  assert.equal(result.status, 1);
+  const entry = result.report.conflicted.find((c) => c.path === 'sensor/blob.bin');
+  assert.ok(entry, JSON.stringify(result.report.conflicted));
+  assert.equal(entry.binary, true);
+  // binaryはマーカーを書けないので、ローカルの中身が無傷で残る。
+  const kept = await readFile(path.join(repo, 'sensor', 'blob.bin'));
+  assert.deepEqual([...kept], [0, 1, 7, 3]);
+});
+
+test('upstreamの実行bitは新規追加時に保存される', async (t) => {
+  const root = await workspace(t);
+  const up = path.join(root, 'upstream');
+  await mkdir(up, { recursive: true });
+  git(up, 'init', '-q', '-b', 'main');
+  git(up, 'config', 'user.email', 't@t'); git(up, 'config', 'user.name', 't');
+  await writeFile(path.join(up, 'seed.txt'), 'seed\n');
+  git(up, 'add', '-A'); git(up, 'commit', '-qm', 'base');
+  const base = git(up, 'rev-parse', 'HEAD');
+  await writeFile(path.join(up, 'tool.sh'), '#!/bin/sh\necho hi\n');
+  const { chmodSync } = await import('node:fs');
+  chmodSync(path.join(up, 'tool.sh'), 0o755);
+  git(up, 'add', '-A'); git(up, 'commit', '-qm', 'add tool');
+
+  const repo = await makeLocal(root, {
+    upstreamRepo: up, syncedAt: base, files: { 'seed.txt': 'seed\n' },
+  });
+  const result = runSync(repo, '--ref', 'main', '--apply');
+  assert.equal(result.status, 0, result.stderr);
+  const { statSync } = await import('node:fs');
+  const mode = statSync(path.join(repo, 'sensor', 'tool.sh')).mode & 0o111;
+  assert.notEqual(mode, 0, 'executable bit was dropped');
+});
+
+test('upstreamでadd→deleteされたファイルはこちらに無ければ何も起きない', async (t) => {
+  const root = await workspace(t);
+  const up = path.join(root, 'upstream');
+  await mkdir(up, { recursive: true });
+  git(up, 'init', '-q', '-b', 'main');
+  git(up, 'config', 'user.email', 't@t'); git(up, 'config', 'user.name', 't');
+  await writeFile(path.join(up, 'seed.txt'), 'seed\n');
+  git(up, 'add', '-A'); git(up, 'commit', '-qm', 'base');
+  const base = git(up, 'rev-parse', 'HEAD');
+  await writeFile(path.join(up, 'ephemeral.ts'), 'export const x = 1;\n');
+  git(up, 'add', '-A'); git(up, 'commit', '-qm', 'add');
+  await rm(path.join(up, 'ephemeral.ts'));
+  git(up, 'add', '-A'); git(up, 'commit', '-qm', 'delete');
+
+  const repo = await makeLocal(root, {
+    upstreamRepo: up, syncedAt: base, files: { 'seed.txt': 'seed\n' },
+  });
+  const result = runSync(repo, '--ref', 'main', '--apply');
+  assert.equal(result.status, 0, JSON.stringify(result.report));
+  assert.equal(existsSync(path.join(repo, 'sensor', 'ephemeral.ts')), false);
+  assert.deepEqual(result.report.upstream_deleted, []);
+});
