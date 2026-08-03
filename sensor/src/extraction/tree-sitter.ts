@@ -30,7 +30,7 @@ import { DfmExtractor } from './dfm-extractor';
 import { VueExtractor } from './vue-extractor';
 import { MyBatisExtractor } from './mybatis-extractor';
 import { CfmlExtractor } from './cfml-extractor';
-import { tryKernelExtract } from './kernel';
+import { tryKernelExtract, takeDeferredPreParse } from './kernel';
 import {
   isDynamicImportCall,
   isRequireCall,
@@ -442,13 +442,23 @@ export class TreeSitterExtractor {
   private fnRefCandidates: Array<FnRefCandidate & { fromNodeId: string }> = [];
   // Memoized "is this a Vue store file" verdict (per-extractor = per-file).
   private vueStoreFile: boolean | null = null;
+  // Source already went through the extractor's preParse at the kernel route
+  // point (this instance is the wasm fallback for a kernel-deferred file) —
+  // don't blank it a second time.
+  private sourceIsPreParsed = false;
 
-  constructor(filePath: string, source: string, language?: Language) {
+  constructor(
+    filePath: string,
+    source: string,
+    language?: Language,
+    options?: { sourceIsPreParsed?: boolean }
+  ) {
     this.filePath = filePath;
     this.source = source;
     this.language = language || detectLanguage(filePath, source);
     this.extractor = EXTRACTORS[this.language] || null;
     this.fnRefSpec = FN_REF_SPECS[this.language];
+    this.sourceIsPreParsed = options?.sourceIsPreParsed === true;
   }
 
   /**
@@ -497,8 +507,9 @@ export class TreeSitterExtractor {
       // grammar gaps — e.g. C# blanks conditional-compilation directive lines
       // the grammar mis-parses inside enum bodies (#237). We reassign
       // this.source so downstream getNodeText reads the same bytes the parser
-      // saw (identical outside the blanked directive lines).
-      if (this.extractor?.preParse) {
+      // saw (identical outside the blanked directive lines). Skipped when the
+      // kernel route point already applied it (sourceIsPreParsed).
+      if (this.extractor?.preParse && !this.sourceIsPreParsed) {
         this.source = this.extractor.preParse(this.source, this.filePath);
       }
       this.tree = parser.parse(this.source) ?? null;
@@ -651,6 +662,12 @@ export class TreeSitterExtractor {
     const definedHere = new Set<string>();
     for (const n of this.nodes) {
       if (n.kind === 'function' || n.kind === 'method') definedHere.add(n.name);
+      // Python only (#1478): class-as-value is a first-class idiom (DRF
+      // get_serializer_class, Meta.model, registry dicts), so same-file CLASS
+      // names pass the gate too. Other languages keep the function/method
+      // gate — TS/JS recover class references through type annotations, and
+      // resolution's kind filter would drop their class candidates anyway.
+      else if (this.language === 'python' && n.kind === 'class') definedHere.add(n.name);
     }
 
     // Import-binding names only (all binding emitters push kind 'imports').
@@ -6996,7 +7013,15 @@ export function extractFromSource(
     if (kernelResult) {
       result = kernelResult;
     } else {
-      const extractor = new TreeSitterExtractor(filePath, source, detectedLanguage);
+      // A kernel-deferred file already paid the (offset-preserving) preParse
+      // at the route point — reuse those bytes instead of blanking again.
+      const deferredPre = takeDeferredPreParse(filePath, source, detectedLanguage);
+      const extractor = new TreeSitterExtractor(
+        filePath,
+        deferredPre ?? source,
+        detectedLanguage,
+        { sourceIsPreParsed: deferredPre != null }
+      );
       result = extractor.extract();
     }
   }

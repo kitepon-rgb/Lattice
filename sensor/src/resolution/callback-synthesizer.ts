@@ -401,8 +401,23 @@ async function reactRenderEdges(queries: QueryBuilder, ctx: ResolutionContext, o
   let scanned255 = 0;
   const edges: Edge[] = [];
   const seen = new Set<string>();
+  // A class can only emit here if it CONTAINS a method named `render` — so one
+  // indexed name lookup bounds the candidate set up front, and the class scan
+  // below skips everything else before its per-class edge/node queries. On a
+  // repo with few/no render methods (any non-React codebase) this collapses
+  // the pass from every-class fan-out to ~zero DB work, with identical output:
+  // the skipped classes fail the same `render` check today, just after paying
+  // for their children. (Not a language gate: `render` + `this.setState(` in
+  // Java — e.g. Litho — legitimately matches today and still does.)
+  const renderOwners = new Set<string>();
+  for (const n of ctx.getNodesByName('render')) {
+    if (n.kind !== 'method') continue;
+    for (const e of queries.getIncomingEdges(n.id, ['contains'])) renderOwners.add(e.source);
+  }
+  if (renderOwners.size === 0) return edges;
   for (const cls of queries.iterateNodesByKind('class')) {
     if ((++scanned255 & 63) === 0) await onYield();
+    if (!renderOwners.has(cls.id)) continue;
     const children = queries.getOutgoingEdges(cls.id, ['contains'])
       .map((e) => queries.getNodeById(e.target))
       .filter((n): n is Node => !!n && n.kind === 'method');
@@ -1029,11 +1044,20 @@ async function interfaceOverrideEdges(queries: QueryBuilder, onYield: MaybeYield
   let scanned255 = 0;
   const edges: Edge[] = [];
   const seen = new Set<string>();
-  const methodsOf = (classId: string): Node[] =>
-    queries
+  // Memoized: a popular base interface's method list is otherwise re-fetched
+  // once per implementer (dubbo-style hub interfaces have hundreds), and the
+  // memo only ever serves reads. Same rows, same order — byte-identical.
+  const methodsMemo = new Map<string, Node[]>();
+  const methodsOf = (classId: string): Node[] => {
+    const hit = methodsMemo.get(classId);
+    if (hit) return hit;
+    const methods = queries
       .getOutgoingEdges(classId, ['contains'])
       .map((e) => queries.getNodeById(e.target))
       .filter((n): n is Node => !!n && n.kind === 'method');
+    methodsMemo.set(classId, methods);
+    return methods;
+  };
   // Concrete-side kinds vary by language: `class` covers Java / Kotlin /
   // C# / TS / Swift-classes / Scala-classes; `struct` covers Swift value
   // types that conform to protocols. Iterate both.
@@ -1041,9 +1065,14 @@ async function interfaceOverrideEdges(queries: QueryBuilder, onYield: MaybeYield
   for (const kind of concreteKinds) {
   for (const cls of queries.iterateNodesByKind(kind)) {
     if ((++scanned255 & 63) === 0) await onYield();
+    // A class can only emit here if it HAS a supertype edge — check that
+    // (one edge query) before materializing its methods: most classes in a
+    // typical graph extend/implement nothing and skip in one hop.
+    const sups = queries.getOutgoingEdges(cls.id, ['implements', 'extends']);
+    if (sups.length === 0) continue;
     const implMethods = methodsOf(cls.id).filter((n) => IFACE_OVERRIDE_LANGS.has(n.language));
     if (implMethods.length === 0) continue;
-    for (const sup of queries.getOutgoingEdges(cls.id, ['implements', 'extends'])) {
+    for (const sup of sups) {
       const base = queries.getNodeById(sup.target);
       if (!base || !IFACE_OVERRIDE_LANGS.has(base.language) || base.id === cls.id) continue;
       // Group impl methods by name to handle OVERLOADS: an interface `list()` and
@@ -1783,6 +1812,18 @@ async function mybatisJavaXmlEdges(queries: QueryBuilder, onYield: MaybeYield): 
   let scanned255 = 0;
   const edges: Edge[] = [];
   const seen = new Set<string>();
+  // Collect the XML side FIRST (mapper `<select id=…>` statements extracted as
+  // xml-language method nodes): if the project has none — every Java+XML repo
+  // that doesn't use MyBatis — return before paying the full java-method
+  // stream below. Same rowid stream order as matching inline, so the edge
+  // output is byte-identical when mappers do exist.
+  const xmlMethods: Node[] = [];
+  for (const m of queries.iterateNodesByKind('method')) {
+    if ((++scanned255 & 63) === 0) await onYield();
+    if (m.language === 'xml') xmlMethods.push(m);
+  }
+  if (xmlMethods.length === 0) return edges;
+
   // Index Java methods by `<ClassName>::<methodName>` for O(1) lookup.
   const javaIndex = new Map<string, Node[]>();
   for (const m of queries.iterateNodesByKind('method')) {
@@ -1797,9 +1838,8 @@ async function mybatisJavaXmlEdges(queries: QueryBuilder, onYield: MaybeYield): 
     if (arr) arr.push(m); else javaIndex.set(key, [m]);
   }
 
-  for (const xml of queries.iterateNodesByKind('method')) {
+  for (const xml of xmlMethods) {
     if ((++scanned255 & 63) === 0) await onYield();
-    if (xml.language !== 'xml') continue;
     // Qualified name: `<namespace>::<id>`. Extract the simple class name.
     const colonIdx = xml.qualifiedName.lastIndexOf('::');
     if (colonIdx < 0) continue;
@@ -3511,8 +3551,15 @@ export const SYNTH_PASSES: SynthPassDef[] = [
   { name: 'goGrpcEdges', gate: (has) => has('go'), run: (q, _c, y) => goGrpcStubImplEdges(q, y) },
   { name: 'rnEventEdgesList', gate: (has) => has(...JS_FAMILY), run: (_q, c, y) => rnEventEdges(c, y) },
   { name: 'fabricNativeEdges', gate: ALWAYS, run: (_q, c, y) => fabricNativeImplEdges(c, y) },
-  { name: 'expoXPlatEdges', gate: ALWAYS, run: (q, _c, y) => expoCrossPlatformEdges(q, y) },
-  { name: 'rnXPlatEdges', gate: ALWAYS, run: (q, _c, y) => rnCrossPlatformEdges(q, y) },
+  // Expo module nodes (`expo-module:` ids) are emitted only from .swift/.kt
+  // files, and a pair needs BOTH platforms — so without both languages the
+  // pass's only collection loop is provably empty (it was streaming every
+  // method row on pure-Java repos to find nothing).
+  { name: 'expoXPlatEdges', gate: (has) => has('swift') && has('kotlin'), run: (q, _c, y) => expoCrossPlatformEdges(q, y) },
+  // An RN cross-platform edge requires a JS-language caller on the native
+  // method (`isBridge`) — no JS-family files means no JS-language nodes, so
+  // the result is provably empty.
+  { name: 'rnXPlatEdges', gate: (has) => has(...JS_FAMILY), run: (q, _c, y) => rnCrossPlatformEdges(q, y) },
   {
     name: 'mybatisEdges',
     gate: (has) => has('java', 'kotlin') && has('xml'),
@@ -3553,7 +3600,11 @@ export async function synthesizeCallbackEdges(
   // A live resolver pool to fan the independent passes across (structural type
   // so this file never imports the pool — resolver-worker imports THIS file).
   // Null/omitted → the sequential path, byte-identical to the pool path.
-  pool?: { runSynthPass(name: string): Promise<{ edges: Edge[]; ms: number }> } | null
+  pool?: { runSynthPass(name: string): Promise<{ edges: Edge[]; ms: number }> } | null,
+  // WAL-valve writer backstop (WalCheckpointValve.backpressure), called at
+  // pool-idle points in the edge-insert loops below — the passes themselves
+  // only read; every write in this function happens with the pool idle.
+  backpressure?: () => Promise<void> | null
 ): Promise<number> {
   // Each sub-pass below is a whole-graph scan, and there are ~30 of them, all
   // running synchronously on the indexer's main thread. Their AGGREGATE can run
@@ -3618,10 +3669,18 @@ export async function synthesizeCallbackEdges(
   // otherwise orphaned from the struct, and goImplementsEdges (next) derives a
   // struct's method set from its `contains` edges — so without this it would
   // under-count the interfaces a cross-file struct satisfies. (#583)
+  // Writer-side WAL backstop for the insert loops here (see the param doc):
+  // one fstat when under the valve's hard cap, a parked full backfill past it.
+  const foldIfOver = async (): Promise<void> => {
+    const bp = backpressure?.();
+    if (bp) await bp;
+  };
+
   const goMethodContains = has('go') ? await goCrossFileMethodContainsEdges(queries, yieldToLoop) : NONE;
   for (let i = 0; i < goMethodContains.length; i += 2000) {
     queries.insertEdges(goMethodContains.slice(i, i + 2000));
     await yieldToLoop();
+    await foldIfOver();
   }
   await yieldToLoop(); __mark('goMethodContains');
 
@@ -3633,6 +3692,7 @@ export async function synthesizeCallbackEdges(
   for (let i = 0; i < goImpl.length; i += 2000) {
     queries.insertEdges(goImpl.slice(i, i + 2000));
     await yieldToLoop();
+    await foldIfOver();
   }
   await yieldToLoop(); __mark('goImplements');
 
@@ -3720,6 +3780,7 @@ export async function synthesizeCallbackEdges(
   for (let i = 0; i < merged.length; i += 2000) {
     queries.insertEdges(merged.slice(i, i + 2000));
     await yieldToLoop();
+    await foldIfOver();
   }
   __mark('insertMergedEdges');
   return merged.length + goImpl.length + goMethodContains.length;

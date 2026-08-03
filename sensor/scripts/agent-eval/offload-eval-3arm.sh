@@ -27,9 +27,9 @@ command -v claude >/dev/null || { echo "no claude on PATH"; exit 1; }
 TARGET=$(cd "$TARGET" && pwd -P)
 
 prewarm() { # path  extra-env (e.g. "FOO=bar")
-  pkill -9 -f "serve --mcp --path $1" 2>/dev/null; rm -f "$1/.lattice-sensor/daemon.sock" 2>/dev/null; sleep 0.6
+  pkill -9 -f "serve --mcp --path $1" 2>/dev/null; rm -f "$1/.lattice/sensor/daemon.sock" 2>/dev/null; sleep 0.6
   env ${2:-} LATTICE_SENSOR_DAEMON_IDLE_TIMEOUT_MS=1800000 node "$BIN" serve --mcp --path "$1" </dev/null >/dev/null 2>&1 &
-  node -e 'const fs=require("fs");let n=0;const t=setInterval(()=>{if(fs.existsSync(process.argv[1]+"/.lattice-sensor/daemon.sock")){clearInterval(t);process.exit(0)}if(n++>150){clearInterval(t);process.exit(1)}},100)' "$1" \
+  node -e 'const fs=require("fs");let n=0;const t=setInterval(()=>{if(fs.existsSync(process.argv[1]+"/.lattice/sensor/daemon.sock")){clearInterval(t);process.exit(0)}if(n++>150){clearInterval(t);process.exit(1)}},100)' "$1" \
     && echo "  daemon warm" || echo "  WARN daemon never bound"
 }
 
@@ -63,10 +63,10 @@ echo "###### repo=$REPO tier=$TIER reps=$START..$END model=${MODEL:-sonnet}/${EF
 echo "###### Q=$Q"
 echo "== ARM offload =="; prewarm "$TARGET" "LATTICE_SENSOR_OFFLOAD_USAGE_LOG=$USAGE"
 for r in $(seq "$START" "$END"); do run offload "$r" "$CFG_OFF" "$USAGE"; done
-pkill -9 -f "serve --mcp --path $TARGET" 2>/dev/null; rm -f "$TARGET/.lattice-sensor/daemon.sock" 2>/dev/null; sleep 1
+pkill -9 -f "serve --mcp --path $TARGET" 2>/dev/null; rm -f "$TARGET/.lattice/sensor/daemon.sock" 2>/dev/null; sleep 1
 echo "== ARM raw =="; prewarm "$TARGET" "LATTICE_SENSOR_OFFLOAD_DISABLE=1"
 for r in $(seq "$START" "$END"); do run raw "$r" "$CFG_RAW" "-"; done
-pkill -9 -f "serve --mcp --path $TARGET" 2>/dev/null; rm -f "$TARGET/.lattice-sensor/daemon.sock" 2>/dev/null; sleep 1
+pkill -9 -f "serve --mcp --path $TARGET" 2>/dev/null; rm -f "$TARGET/.lattice/sensor/daemon.sock" 2>/dev/null; sleep 1
 echo "== ARM nocg =="
 for r in $(seq "$START" "$END"); do run nocg "$r" "$CFG_NOCG" "-"; done
 echo "###### DONE $REPO"

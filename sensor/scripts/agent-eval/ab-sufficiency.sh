@@ -40,7 +40,7 @@ printf '{"mcpServers":{"lattice-sensor":{"command":"env","args":["LATTICE_SENSOR
 prewarm(){
   pkill -9 -f "serve --mcp --path $TGT" 2>/dev/null
   LATTICE_SENSOR_DAEMON_IDLE_TIMEOUT_MS=1800000 node "$BIN" serve --mcp --path "$TGT" </dev/null >/dev/null 2>&1 &
-  node -e 'const fs=require("fs");let n=0;const t=setInterval(()=>{if(fs.existsSync(process.argv[1]+"/.lattice-sensor/daemon.sock")){clearInterval(t);process.exit(0)}if(n++>150){clearInterval(t);process.exit(1)}},100)' "$TGT" >/dev/null 2>&1
+  node -e 'const fs=require("fs");let n=0;const t=setInterval(()=>{if(fs.existsSync(process.argv[1]+"/.lattice/sensor/daemon.sock")){clearInterval(t);process.exit(0)}if(n++>150){clearInterval(t);process.exit(1)}},100)' "$TGT" >/dev/null 2>&1
 }
 
 analyze(){

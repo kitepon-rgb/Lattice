@@ -104,7 +104,7 @@ Resolution order (first match wins):
 
 1. `DO_NOT_TRACK=1` (community standard — always honored) → off
 2. `LATTICE_SENSOR_TELEMETRY=0|1` → forced off/on for that process
-3. Global config `~/.lattice-sensor/telemetry.json` → stored user choice
+3. Global config `~/.lattice/sensor/telemetry.json` → stored user choice
 4. Default: **on**, gated by the first-run notice below
 
 Surfaces:
@@ -119,10 +119,10 @@ Surfaces:
   **stderr** and record `first_run_notice_shown`:
   `lattice-sensor collects anonymous usage stats (no code or paths) — "lattice-sensor telemetry off" or LATTICE_SENSOR_TELEMETRY=0 disables. Details: TELEMETRY.md`
 - **CLI:** `lattice-sensor telemetry status|on|off` (status prints the machine ID, current
-  state, and what decided it). Deleting `~/.lattice-sensor/telemetry.json` resets everything,
+  state, and what decided it). Deleting `~/.lattice/sensor/telemetry.json` resets everything,
   including the machine ID.
 
-`~/.lattice-sensor/telemetry.json`:
+`~/.lattice/sensor/telemetry.json`:
 
 ```json
 {
@@ -134,8 +134,8 @@ Surfaces:
 }
 ```
 
-(`~/.lattice-sensor/` is new — today nothing global exists. Coexists by filename if a user ever
-indexes `$HOME` itself, since per-project data lives in `<project>/.lattice-sensor/` with fixed
+(`~/.lattice/sensor/` is new — today nothing global exists. Coexists by filename if a user ever
+indexes `$HOME` itself, since per-project data lives in `<project>/.lattice/sensor/` with fixed
 other filenames.)
 
 ## Client architecture
@@ -145,7 +145,7 @@ New module `src/telemetry/` (single small module, no deps):
 - **Counters in memory** — recording a tool call/CLI command is an in-memory increment.
   Nothing on the hot path touches disk or network. MCP tool handlers call
   `telemetry.count('mcp_tool', name, ok)` and move on.
-- **Buffer** — counters persist (debounced, async) to `~/.lattice-sensor/telemetry-queue.jsonl`.
+- **Buffer** — counters persist (debounced, async) to `~/.lattice/sensor/telemetry-queue.jsonl`.
   Hard cap ~256 KB; on overflow drop oldest lines. Corrupt buffer → truncate, never throw.
 - **Flush** — many CLI actions end via `process.exit()`, where `beforeExit` never fires
   and async sends die, so the design is: a tiny **synchronous append** on `process.on('exit')`

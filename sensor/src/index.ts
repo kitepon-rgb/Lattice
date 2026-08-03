@@ -26,7 +26,7 @@ import {
   UnresolvedReference,
 } from './types';
 import { DatabaseConnection, getDatabasePath, removeDatabaseFiles } from './db';
-import { WalCheckpointValve } from './db/wal-valve';
+import { WalCheckpointValve, resolveWalValveMb } from './db/wal-valve';
 import { QueryBuilder } from './db/queries';
 import {
   isInitialized,
@@ -128,6 +128,8 @@ export interface IndexOptions {
 
   /** Enable verbose logging (worker lifecycle, memory, timeouts) */
   verbose?: boolean;
+  /** Watcher fast path: reconcile ONLY these project-relative paths (see ExtractionOrchestrator.sync). */
+  paths?: string[];
 }
 
 /**
@@ -473,7 +475,7 @@ export class LatticeSensor {
         this.db.setWalAutocheckpoint(0);
         walValve = new WalCheckpointValve(
           this.db,
-          undefined,
+          resolveWalValveMb(process.env.LATTICE_SENSOR_WAL_VALVE_MB, this.db.getDbFileSizeBytes()),
           undefined,
           options.verbose ? (m) => console.log(`[wal-valve] ${m}`) : undefined
         );
@@ -494,6 +496,11 @@ export class LatticeSensor {
         // triggers, rebuild nodes_fts once from the nodes table afterwards.
         // Crash inside the window is healed on the next DatabaseConnection.open.
         this.db.beginBulkNodeLoad();
+        // Fresh-init only: also drop the parse-lane secondary indexes for the
+        // mass insert (the store-writer's B-tree-maintenance floor, plan §4d)
+        // and rebuild each in one scan afterwards. Incremental runs keep them
+        // — they delete per-file rows mid-phase through the file_path indexes.
+        if (freshDb) this.db.beginBulkParseLoad();
         let result: IndexResult;
         try {
           result = await this.orchestrator.indexAll(
@@ -507,6 +514,11 @@ export class LatticeSensor {
             freshDb ? { dbPath: this.db.getPath(), fastInit } : null
           );
         } finally {
+          if (freshDb) {
+            const tIdx = Date.now();
+            await this.db.endBulkParseLoad();
+            if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] parse-index-rebuild: ${Date.now() - tIdx}ms`);
+          }
           const tFts = Date.now();
           this.db.endBulkNodeLoad();
           if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] fts-rebuild: ${Date.now() - tFts}ms`);
@@ -592,7 +604,8 @@ export class LatticeSensor {
                 current: done,
                 total: totalPasses,
               });
-            }
+            },
+            walValve ? () => walValve!.backpressure() : undefined
           );
           if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) console.error(`[phase-timing] resolution: ${Date.now() - tResolve}ms`);
 
@@ -753,7 +766,7 @@ export class LatticeSensor {
         this.db.setWalAutocheckpoint(0);
         walValve = new WalCheckpointValve(
           this.db,
-          undefined,
+          resolveWalValveMb(process.env.LATTICE_SENSOR_WAL_VALVE_MB, this.db.getDbFileSizeBytes()),
           undefined,
           options.verbose ? (m) => console.log(`[wal-valve] ${m}`) : undefined
         );
@@ -768,7 +781,7 @@ export class LatticeSensor {
           try { return this.queries.isNameSegmentVocabEmpty(); } catch { return false; }
         })();
 
-        const result = await this.orchestrator.sync(options.onProgress);
+        const result = await this.orchestrator.sync(options.onProgress, options.paths);
 
         // Fold the store phase's WAL BEFORE the post-store reads below
         // (resolution reads on the main thread) — same rationale as
@@ -978,8 +991,8 @@ export class LatticeSensor {
 
     this.watcher = new FileWatcher(
       this.projectRoot,
-      async () => {
-        const result = await this.sync();
+      async (paths?: string[]) => {
+        const result = await this.sync({ paths });
         // sync() returns this exact zero-shape iff it failed to acquire the
         // file lock (a real empty sync always has filesChecked > 0 because
         // scanDirectory ran). Surface that to the watcher as a typed error
@@ -1146,7 +1159,13 @@ export class LatticeSensor {
    */
   async resolveReferencesBatched(
     onProgress?: (current: number, total: number) => void,
-    onSynthesisProgress?: (done: number, total: number) => void
+    onSynthesisProgress?: (done: number, total: number) => void,
+    // The WAL valve's writer-side backstop, threaded into the batch loop's
+    // pool-idle boundaries. Without it the valve's only lever during
+    // resolution is timer-driven passive checkpoints, which the pool's
+    // continuous reads keep perpetually partial — the WAL then accretes the
+    // whole phase's write volume (22GB on a 4.6GB DB at kernel scale).
+    backpressure?: () => Promise<void> | null
   ): Promise<ResolutionResult> {
     return this.resolver.resolveAndPersistBatched(onProgress, undefined, onSynthesisProgress, {
       dbPath: this.db.getPath(),
@@ -1159,6 +1178,11 @@ export class LatticeSensor {
         begin: () => this.db.beginBulkEdgeLoad(),
         end: () => this.db.endBulkEdgeLoad(),
       },
+      refIndexLoad: {
+        begin: () => this.db.beginBulkRefLoad(),
+        end: () => this.db.endBulkRefLoad(),
+      },
+      backpressure,
     });
   }
 
@@ -1197,6 +1221,7 @@ export class LatticeSensor {
   getStats(): GraphStats {
     const stats = this.queries.getStats();
     stats.dbSizeBytes = this.db.getSize();
+    stats.walSizeBytes = this.db.getWalSizeBytes();
     return stats;
   }
 

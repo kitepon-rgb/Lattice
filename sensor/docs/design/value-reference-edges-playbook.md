@@ -283,7 +283,7 @@ rm -rf "$ON" "$OFF"; mkdir -p "$WORK"
 rsync -a --exclude='.git' "$SRC/" "$ON/"; rsync -a --exclude='.git' "$SRC/" "$OFF/"
 node "$CG" init "$ON"  2>&1 | grep -E "nodes,|Indexed"
 LATTICE_SENSOR_VALUE_REFS=0 node "$CG" init "$OFF" 2>&1 | grep -E "nodes,|Indexed"
-OND="$ON/.lattice-sensor/lattice-sensor.db"; OFD="$OFF/.lattice-sensor/lattice-sensor.db"
+OND="$ON/.lattice/sensor/lattice-sensor.db"; OFD="$OFF/.lattice/sensor/lattice-sensor.db"
 echo "nodes on/off: $(sqlite3 "$OND" 'select count(*) from nodes') / $(sqlite3 "$OFD" 'select count(*) from nodes')  (MUST MATCH)"
 # PRECISE filter — do NOT use LIKE '%valueRef%' (it matches filenames like
 # textModelValueReference.ts; see §7). Always: kind='references' AND the exact key.

@@ -15,6 +15,7 @@ import * as path from 'path';
 import * as os from 'os';
 import type { Edge, UnresolvedReference } from '../types';
 import type { ResolvedRef, UnresolvedRef } from './types';
+import { memoryBudgetBytes } from './memory-budget';
 
 /** One synthesis pass's output: its edge list + worker-measured wall clock. */
 export interface SynthPassResult {
@@ -62,19 +63,82 @@ export class ResolverPool {
   private nextId = 0;
   private waiters = new Map<number, { resolve: (r: ChunkResult) => void; reject: (e: Error) => void }>();
   private synthWaiters = new Map<number, { resolve: (r: SynthPassResult) => void; reject: (e: Error) => void }>();
+  private recycleWaiters = new Map<number, () => void>();
   private failed: Error | null = null;
+
+  /**
+   * Pool size from CPU headroom, memory headroom, and the explicit override.
+   * Pure — every input injected — so the whole matrix is unit-testable.
+   *
+   * CPU term: `availableParallelism` (cpuset/affinity-honest — `os.cpus()`
+   * enumerates the host's CPUs and sized SIX workers inside a 2-CPU cpuset,
+   * §7a.1's false-premise finding), minus one for the persisting main thread,
+   * floored at 2 so a true 2-core box keeps the pool's ~2× on synthesis,
+   * capped at the long-standing 6.
+   *
+   * Memory term: workers hold real heap at scale (~1GB each against a 4.6GB
+   * kernel-scale DB — six of them OOM-killed a 7GB container once real
+   * 8-core concurrency let them peak simultaneously). Estimate per-worker
+   * cost from the DB size, keep 30% of the budget for the main thread, and
+   * let the smaller term win. Below 2 workers the pool isn't worth its boot
+   * cost — callers get null and stay sequential.
+   */
+  static resolvePoolSize(opts: {
+    explicit?: string;
+    availableParallelism: number;
+    memoryBudget: number;
+    dbSizeBytes: number;
+  }): number | null {
+    if (opts.explicit !== undefined && opts.explicit !== '') {
+      const n = Number.parseInt(opts.explicit, 10);
+      if (Number.isFinite(n)) {
+        if (n <= 0) return null;
+        return Math.min(n, 16);
+      }
+    }
+    // No floor: at ap=2 the pool LOSES to sequential outright — measured on
+    // the kernel-scale 2-cpuset envelope: resolution 853s sequential vs
+    // 1,150s pooled-6-on-2 (§7a.1), and synthesis is Amdahl-bound by its
+    // dominant pass (cFnPtrEdges 306s of 358s) so pooling it bought nothing.
+    // ap−1 < 2 ⇒ sequential is the fast path, not a fallback.
+    const cpuCap = Math.min(opts.availableParallelism - 1, 6);
+    const perWorker = Math.min(Math.max(opts.dbSizeBytes * 0.2, 256 * 1024 * 1024), 1.5 * 1024 * 1024 * 1024);
+    const memCap = Math.floor((opts.memoryBudget * 0.7) / perWorker);
+    const size = Math.min(cpuCap, memCap);
+    return size >= 2 ? size : null;
+  }
 
   /**
    * Create a pool when the compiled worker exists (absent when running from
    * source in tests → callers use the sequential path), the kill switch is
-   * off, and the machine has cores to spare. Returns null otherwise.
+   * off, and the machine has the cores AND memory to carry it. Returns null
+   * otherwise. `LATTICE_SENSOR_RESOLVE_WORKERS` overrides the computed size
+   * (0 disables the pool; values are capped at 16).
    */
   static tryCreate(dbPath: string, projectRoot: string): ResolverPool | null {
     if (process.env.LATTICE_SENSOR_NO_PARALLEL_RESOLVE === '1') return null;
     const workerScript = path.join(__dirname, 'resolver-worker.js');
     if (!fs.existsSync(workerScript)) return null;
-    const size = Math.max(1, Math.min(os.cpus().length - 2, 6));
-    if (size < 2) return null;
+    let dbSizeBytes = 0;
+    try {
+      dbSizeBytes = fs.statSync(dbPath).size;
+    } catch { /* fresh/missing file — the 256MB per-worker floor applies */ }
+    const ap = os.availableParallelism();
+    const budget = memoryBudgetBytes();
+    const size = ResolverPool.resolvePoolSize({
+      explicit: process.env.LATTICE_SENSOR_RESOLVE_WORKERS,
+      availableParallelism: ap,
+      memoryBudget: budget,
+      dbSizeBytes,
+    });
+    // Both outcomes log under SYNTH_TIMINGS — a silent null is how §7a.1's
+    // diagnostic run hid the memory-term misfire for a whole 25-minute cycle.
+    if (process.env.LATTICE_SENSOR_SYNTH_TIMINGS) {
+      console.error(
+        `[pool-timing] pool ${size === null ? 'disabled' : `size=${size}`} (ap=${ap} budget=${Math.round(budget / 1024 / 1024)}MB db=${Math.round(dbSizeBytes / 1024 / 1024)}MB)`
+      );
+    }
+    if (size === null) return null;
     try {
       return new ResolverPool(workerScript, dbPath, projectRoot, size);
     } catch {
@@ -111,6 +175,10 @@ export class ResolverPool {
           const waiter = this.synthWaiters.get(msg.id);
           this.synthWaiters.delete(msg.id);
           waiter?.resolve({ edges: msg.edges ?? [], ms: msg.ms ?? 0 });
+        } else if (msg.type === 'recycled' && msg.id !== undefined) {
+          const waiter = this.recycleWaiters.get(msg.id);
+          this.recycleWaiters.delete(msg.id);
+          waiter?.();
         } else if (msg.type === 'error') {
           pw.busy--;
           const err = new Error(`resolver worker: ${msg.message}`);
@@ -148,6 +216,10 @@ export class ResolverPool {
     this.waiters.clear();
     for (const [, waiter] of this.synthWaiters) waiter.reject(this.failed);
     this.synthWaiters.clear();
+    // Pending recycles resolve rather than reject: their per-call timeout
+    // owns rejection, and the recycle caller checks this.failed next round.
+    for (const [, done] of this.recycleWaiters) done();
+    this.recycleWaiters.clear();
   }
 
   /** Whether this batch is worth fanning out. */
@@ -208,6 +280,43 @@ export class ResolverPool {
       this.synthWaiters.set(id, { resolve, reject });
       pw.worker.postMessage({ type: 'synth', id, pass: passName });
     });
+  }
+
+  /**
+   * Ask every worker to close and reopen its read-only connection, and wait
+   * for all acks. MUST be called only at the pool-idle boundary (all fanned
+   * chunks settled, next batch not yet dispatched) — the workers close their
+   * connections in place. Why: a long-lived reader pins WAL checkpoint
+   * progress, and the deep WAL behind it taxes every main-thread B-tree
+   * page operation (writes-under-readers, plan §7a.6 — deletes 42.6→118.8s
+   * from 0 to 4 attached readers). Releasing the read marks periodically
+   * lets the existing checkpoints advance, keeping the WAL shallow WITHOUT
+   * the full-park folds an aggressive valve pays (+129s measured at 64MB).
+   * A recycle failure fails the pool — the caller's sequential fallback
+   * covers the rest of the run.
+   */
+  async recycleWorkers(): Promise<void> {
+    if (this.failed) throw this.failed;
+    await Promise.all(
+      this.workers.map(
+        (pw) =>
+          new Promise<void>((resolve, reject) => {
+            const id = this.nextId++;
+            const t = setTimeout(() => {
+              if (this.recycleWaiters.delete(id)) {
+                const err = new Error('resolver worker recycle timed out');
+                this.fail(err);
+                reject(err);
+              }
+            }, 10_000);
+            this.recycleWaiters.set(id, () => {
+              clearTimeout(t);
+              resolve();
+            });
+            pw.worker.postMessage({ type: 'recycle', id });
+          })
+      )
+    );
   }
 
   async destroy(): Promise<void> {

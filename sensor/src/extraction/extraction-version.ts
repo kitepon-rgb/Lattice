@@ -25,4 +25,8 @@
 // (+8.8% value-ref edges), import binding metadata (default/named/namespace +
 // alias), decorator/attribute-inclusive extents (extent_start_line), Rust
 // attribute_item collection — all change extraction output for unchanged text.
-export const EXTRACTION_VERSION = 25;
+// 26 (2026-08-03): upstream sync 04ab45c..49c11fc. Lattice and upstream had each
+// bumped to 25 independently, so the two "25"s meant different output — 26 is
+// the first value that means one thing. Carries upstream's extraction changes
+// across 54 commits plus its native kernel work.
+export const EXTRACTION_VERSION = 26;

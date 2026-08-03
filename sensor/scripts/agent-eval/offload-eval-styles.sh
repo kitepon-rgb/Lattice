@@ -28,12 +28,12 @@ command -v claude >/dev/null || { echo "no claude on PATH"; exit 1; }
 TARGET=$(cd "$TARGET" && pwd -P)
 
 prewarm() { # path  extra-env
-  pkill -9 -f "serve --mcp --path $1" 2>/dev/null; rm -f "$1/.lattice-sensor/daemon.sock" 2>/dev/null; sleep 0.6
+  pkill -9 -f "serve --mcp --path $1" 2>/dev/null; rm -f "$1/.lattice/sensor/daemon.sock" 2>/dev/null; sleep 0.6
   env ${2:-} LATTICE_SENSOR_DAEMON_IDLE_TIMEOUT_MS=1800000 node "$BIN" serve --mcp --path "$1" </dev/null >/dev/null 2>&1 &
-  node -e 'const fs=require("fs");let n=0;const t=setInterval(()=>{if(fs.existsSync(process.argv[1]+"/.lattice-sensor/daemon.sock")){clearInterval(t);process.exit(0)}if(n++>150){clearInterval(t);process.exit(1)}},100)' "$1" \
+  node -e 'const fs=require("fs");let n=0;const t=setInterval(()=>{if(fs.existsSync(process.argv[1]+"/.lattice/sensor/daemon.sock")){clearInterval(t);process.exit(0)}if(n++>150){clearInterval(t);process.exit(1)}},100)' "$1" \
     && echo "  daemon warm" || echo "  WARN daemon never bound"
 }
-kill_daemon() { pkill -9 -f "serve --mcp --path $TARGET" 2>/dev/null; rm -f "$TARGET/.lattice-sensor/daemon.sock" 2>/dev/null; sleep 1; }
+kill_daemon() { pkill -9 -f "serve --mcp --path $TARGET" 2>/dev/null; rm -f "$TARGET/.lattice/sensor/daemon.sock" 2>/dev/null; sleep 1; }
 
 run() { # arm rep mcp-config usage-log-or-dash
   local arm="$1" rep="$2" cfg="$3" usage="$4" tag="$REPO-$1-$2"

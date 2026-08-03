@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Dump a .lattice-sensor/lattice-sensor.db graph by NATURAL KEYS (no rowids, no
+ * Dump a .lattice/sensor/lattice-sensor.db graph by NATURAL KEYS (no rowids, no
  * timestamps), sorted — two dumps diff clean iff the graphs are semantically
  * identical. The byte-identical gate used by every perf/kernel PR:
  *

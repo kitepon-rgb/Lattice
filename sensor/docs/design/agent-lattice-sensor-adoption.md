@@ -72,7 +72,7 @@ artifact (`scripts/agent-eval/redirect-read-hook.sh` + `ab-hook.sh`).
    - Ship a **recommended (opt-in) hook**: on `Read` (or `Grep`) of a path that's *indexed*, inject "this file is indexed — `lattice-sensor_node {file}` returns it + its blast radius for fewer tokens; treat its output as already-Read." Soft nudge (don't hard-block, or it'll frustrate users on configs/docs lattice-sensor doesn't index).
    - The installer (`src/installer/targets/claude.ts`) could offer to add this hook (opt-in, like the auto-allow permissions).
    - **Validate** with `ab-new-vs-baseline.sh` (Read count, with vs without the hook). This is the experiment most likely to move the needle.
-   - Open Qs: how to know a path is indexed from inside a hook (query `lattice-sensor files`/`status`, or a fast local check against `.lattice-sensor`); avoiding noise on non-indexed files; per-language false positives.
+   - Open Qs: how to know a path is indexed from inside a hook (query `lattice-sensor files`/`status`, or a fast local check against `.lattice/sensor`); avoiding noise on non-indexed files; per-language false positives.
 
 2. **Sufficiency: make the file-view the obvious Read replacement so the agent *wants* it.**
    - The A/B showed the agent never passed a `file` to `lattice-sensor_node`. Why? It doesn't think "Read this file" → "lattice-sensor_node file=X". Investigate: is the file-view's value (symbols + dependents + bodies) actually *better than Read* for the agent's next step (an `Edit`)? It returns bodies — but does it return enough surrounding context to `Edit` confidently? If not, the agent Reads anyway.

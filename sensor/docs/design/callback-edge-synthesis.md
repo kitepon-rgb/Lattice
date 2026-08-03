@@ -39,7 +39,7 @@ npm run build
 rm -rf /tmp/lattice-sensor-corpus/excalidraw/.lattice-sensor
 ( cd /tmp/lattice-sensor-corpus/excalidraw && lattice-sensor init -i )
 # synthesized edges (provenance='heuristic', metadata.synthesizedBy in {callback,event-emitter}):
-sqlite3 /tmp/lattice-sensor-corpus/excalidraw/.lattice-sensor/lattice-sensor.db \
+sqlite3 /tmp/lattice-sensor-corpus/excalidraw/.lattice/sensor/lattice-sensor.db \
   "select s.name||' → '||t.name||'  '||coalesce(e.metadata,'') from edges e \
    join nodes s on e.source=s.id join nodes t on e.target=t.id where e.provenance='heuristic';"
 # end-to-end flow (the synthesized edge shows up in explore's Flow section + node trail):

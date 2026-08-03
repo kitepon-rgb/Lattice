@@ -190,7 +190,7 @@ were found). Confirm it's dynamic by reading the break symbol's body.
    bridged hop. The previously-broken hop is closed.
 2. **Precision:** count + spot-check synthesized/resolved edges — no explosion, correct targets:
    ```bash
-   sqlite3 <repo>/.lattice-sensor/lattice-sensor.db \
+   sqlite3 <repo>/.lattice/sensor/lattice-sensor.db \
      "select s.name||' → '||t.name||'  '||coalesce(e.metadata,'') from edges e \
       join nodes s on e.source=s.id join nodes t on e.target=t.id where e.provenance='heuristic';"
    ```
@@ -226,7 +226,7 @@ were found). Confirm it's dynamic by reading the break symbol's body.
 | `scripts/agent-eval/probe-context.mjs <repo> "<task>"` | context output incl. call-paths |
 | `scripts/agent-eval/probe-explore.mjs <repo> "<query>"` | explore output |
 | `scripts/agent-eval/{audit,run-agent,itrun}.sh` | agent A/B (headless + interactive); also the `/agent-eval` skill |
-| `sqlite3 <repo>/.lattice-sensor/lattice-sensor.db` | direct edge/node inspection (provenance, metadata, counts) |
+| `sqlite3 <repo>/.lattice/sensor/lattice-sensor.db` | direct edge/node inspection (provenance, metadata, counts) |
 
 Probe scripts use the built `dist/` — run `npm run build` first. Reindex after any
 extraction or resolution change (`rm -rf <repo>/.lattice-sensor && lattice-sensor init -i`) — the
