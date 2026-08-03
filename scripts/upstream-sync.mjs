@@ -21,7 +21,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// LATTICE_UPSTREAM_SYNC_ROOT はtest用のroot差し替えである。hermetic testは
+// 一時repoを作ってそこで全経路を回す——実repoと実upstreamに対してしか動かない
+// 作りでは、削除・巻き戻し・中断の経路を安全に検証できない。
+const REPO_ROOT = process.env.LATTICE_UPSTREAM_SYNC_ROOT
+  ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MANIFEST_PATH = path.join(REPO_ROOT, 'sensor', 'UPSTREAM.json');
 const CACHE_DIR = path.join(REPO_ROOT, '.lattice', 'upstream-cache');
 
@@ -245,6 +249,12 @@ function run() {
         files.ours, files.base, files.theirs], { allowFail: true });
 
       if (merge.status === 0) {
+        // 改名などローカル変更だけの差はmerge結果がoursと一致する。書く必要が
+        // 無いものをmergedへ数えると、毎回のsyncが偽の作業量を報告し続ける。
+        if (merge.stdout.equals(ours)) {
+          report.unchanged += 1;
+          continue;
+        }
         report.merged.push(localPath);
         writes.push({ absolute, data: merge.stdout });
         continue;

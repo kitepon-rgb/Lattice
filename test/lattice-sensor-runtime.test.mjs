@@ -56,10 +56,20 @@ test('現行実行・配布・test・active contract面へ廃止名を再混入�
     'src', 'bin', 'scripts', 'test',
     'sensor/src', 'sensor/scripts', 'sensor/docs',
   ];
+  // upstream追従の境界層だけは廃止名を名指しできる。sensor/の由来である
+  // CodeGraphとのpath対応・repo URLを扱うのが仕事であり、名を伏せると
+  // 写像が書けない。境界の正本はsensor/UPSTREAM.jsonで、ここはその読者。
+  // この3ファイル以外への再混入は引き続き違反である。
+  const upstreamBoundary = new Set([
+    'scripts/upstream-sync.mjs',
+    'scripts/upstream-check.mjs',
+    'test/upstream-sync.test.mjs',
+  ]);
   const violations = [];
   for (const root of roots) {
     for (const file of await filesBelow(path.join(ROOT, root))) {
       if (file === SELF) continue;
+      if (upstreamBoundary.has(path.relative(ROOT, file))) continue;
       const relative = path.relative(ROOT, file);
       const source = await readFile(file, 'utf8');
       if (relative.toLowerCase().includes(RETIRED_NAME)
