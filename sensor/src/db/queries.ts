@@ -2257,6 +2257,13 @@ export class QueryBuilder {
       filePath: row.file_path,
       language: row.language as Language,
       rowId: row.id,
+      // The upstream keyset reader predates Lattice's import-binding columns
+      // (v10). Every other unresolved_refs mapper carries them — dropping them
+      // here silently strips `binding`/`importedName` from every resolved
+      // import edge's metadata, because THIS is the reader the batched
+      // resolution loop actually uses.
+      bindingForm: (row.binding_form ?? undefined) as UnresolvedReference['bindingForm'],
+      importedName: row.imported_name ?? undefined,
     }));
   }
 

@@ -47,7 +47,7 @@ describe.runIf(nativeAvailable)('cFnPtr sweep: native vs JS differential', () =>
   };
 
   const indexAndCollect = async (): Promise<{ edges: EdgeRow[]; nodes: number }> => {
-    fs.rmSync(path.join(dir, '.lattice-sensor'), { recursive: true, force: true });
+    fs.rmSync(path.join(dir, '.lattice', 'sensor'), { recursive: true, force: true });
     const cg = await LatticeSensor.init(dir, { silent: true });
     await cg.indexAll();
     const db = (cg as any).db.db;
