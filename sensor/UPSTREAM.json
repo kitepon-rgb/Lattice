@@ -47,7 +47,9 @@
     "lattice-sensor-kernel/src/tsjs/dynamic_import.rs",
     "lattice-sensor-kernel/src/tsjs/spawn_invokes.rs"
   ],
-  "accepted_deletions": [],
+  "accepted_deletions": [
+    ".kommandr/"
+  ],
   "conflict_policy": [
     {
       "path": "package.json",
