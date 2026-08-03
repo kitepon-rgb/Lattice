@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.44.0 — 2026-08-03
+
+### 変更
+
+- **sensorをupstream（吸収元）の54コミット分へ追従させた（04ab45c→49c11fc）。** 抽出・解決の
+  改善——availableParallelismベースのworker数、adaptive resolver pool、staleファイル警告、
+  watchdogログのタイムスタンプ化、macOS署名キャッシュ起因のSIGKILL回避（kernelビルド）など——を
+  取り込んだ。EXTRACTION_VERSIONは26へ（両側が独立に25を名乗っていたため、初めて一意な値になる）。
+  既存indexは次回syncで増分再抽出される。
+- **native kernelが7言語から20言語になった。** upstreamの12言語port（C/C++・C#・Dart・Kotlin・
+  Lua/Luau・PHP・R・Ruby・Rust・Scala・Swift）を取り込み、Lattice独自の索引——装飾込み開始行、
+  import束縛metadata、動的import/require、spawn系invokes辺、value-ref書き込み区別——を全言語へ
+  追従させた。kernel parity 13ファイル・143テストでnative＝wasmの一致を固定。ABIはv3
+  （upstreamのv2とレイアウトが異なるため番号を跨いで進めた。loaderは版違いをwasmへ落とす）。
+- **解決済みimport辺のmetadataからbinding/importedNameが消えていた欠落を修正。** upstreamの
+  keyset読取（バッチ解決が実際に使う読取）がLatticeのv10列より古く、mapperが2列を写して
+  いなかった。書込み側・他の全読取は正しく、読み手の1箇所だけが落としていた。
+- **upstream追従が仕組みになった。** `sensor/UPSTREAM.json`（同期点・path写像・衝突方針の正本）、
+  `npm run upstream:sync`（3-way merge、実行bit保存、symlink/削除は報告で停止、`--mark-synced`で
+  手動解決を完了宣言）、`npm run upstream:check`（週次Actionsでも実行。新しいkernel言語・
+  extractorを名指しで報告し、force-push検知で誤報を止める）。hermetic test 10経路で固定。
+
 ## 0.43.0 — 2026-08-03
 
 ### 修正
