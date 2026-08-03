@@ -6,8 +6,15 @@
 //   node scripts/upstream-sync.mjs --ref <ref>     # 対象refを指定
 //   node scripts/upstream-sync.mjs --apply         # 作業ツリーへ適用
 //   node scripts/upstream-sync.mjs --apply --json  # 機械可読の結果
+//   node scripts/upstream-sync.mjs --ref <ref> --mark-synced
+//                                    # 手動解決の完了を宣言し、markerだけ進める
 //
-// 3-way mergeのbaseは `sensor/UPSTREAM.json` の absorbed_at 固定である。Lattice側の
+// 衝突が出たapplyの後の正しい手順は「解決 → commit → --mark-synced → commit」。
+// markerを進めずに同じrefへ--applyを再実行してはならない——oursもtheirsも
+// baseから動いているため全部が再衝突し、解決済みファイルへ衝突マーカーを
+// 注入する（実際に起きた）。--mark-syncedがその再実行を不要にする。
+//
+// 3-way mergeのbaseは `sensor/UPSTREAM.json` の synced_at（前回同期点）である。Lattice側の
 // 改名（LATTICE_SENSOR_* 等）はbaseからの通常のローカル変更として扱われるので、
 // upstreamが同じ行を触らない限り衝突しない。置換規則は持たない——改名は選択的で、
 // 規則では再現できない（UPSTREAM.json の notes を見よ）。
@@ -113,10 +120,11 @@ function policyFor(localPath, policies) {
 const AUTO_RESOLUTIONS = new Set(['ours', 'theirs']);
 
 function parseArgs(argv) {
-  const options = { ref: 'main', apply: false, json: false, force: false };
+  const options = { ref: 'main', apply: false, json: false, force: false, markSynced: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--apply') options.apply = true;
+    else if (arg === '--mark-synced') options.markSynced = true;
     else if (arg === '--json') options.json = true;
     else if (arg === '--force') options.force = true;
     else if (arg === '--ref') {
@@ -150,6 +158,28 @@ function run() {
         { synced_at: base, target, ref: options.ref });
     }
   }
+  // 手動解決の完了宣言。3-way mergeはせず、markerをtargetへ進めるだけ。
+  // 衝突解決がcommit済みであることを要求する（dirtyなtreeで進めると、
+  // 何を解決としてmarkしたのか後から特定できない）。
+  if (options.markSynced) {
+    const dirty = String(git(['status', '--porcelain', '--', 'sensor']).stdout).trim();
+    if (dirty !== '') {
+      throw new SyncError('WORKTREE_DIRTY',
+        'commit the resolved tree before --mark-synced', {});
+    }
+    const markers = spawnSync('git', ['grep', '-l', '^<<<<<<< lattice', '--', 'sensor'],
+      { cwd: REPO_ROOT, encoding: 'utf8' });
+    if (markers.status === 0 && markers.stdout.trim() !== '') {
+      throw new SyncError('CONFLICT_MARKERS_REMAIN',
+        'conflict markers are still committed in sensor/ — resolve them first',
+        { files: markers.stdout.trim().split('\n').slice(0, 10) });
+    }
+    manifest.synced_at = { commit: target, date: new Date().toISOString().slice(0, 10) };
+    writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`);
+    process.stdout.write(`synced_at advanced to ${target.slice(0, 12)} (manual resolution declared).\n`);
+    return 0;
+  }
+
   const baseTree = listTree(base, CACHE_DIR);
   const targetTree = listTree(target, CACHE_DIR);
 
