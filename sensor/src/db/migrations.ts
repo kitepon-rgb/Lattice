@@ -153,7 +153,7 @@ const migrations: Migration[] = [
   {
     version: 12,
     description:
-      'files.extraction_version — EXTRACTION_VERSION of the engine that wrote each row (DEFAULT 0 = pre-stamp). Sync re-extracts rows whose stamp differs from the running engine, so extractor upgrades heal incrementally instead of relying on a manual full re-index that the status hint merely recommends',
+      'files.extraction_version — EXTRACTION_VERSION of the engine that wrote each row (DEFAULT 0 = pre-stamp). Sync re-extracts rows whose stamp is BELOW the running engine, so extractor upgrades heal incrementally instead of relying on a manual full re-index that the status hint merely recommends. Rows stamped above the running engine are left untouched: rewriting them would downgrade the index',
     up: (db) => {
       const cols = db.prepare('PRAGMA table_info(files)').all() as Array<{ name: string }>;
       if (!cols.some((c) => c.name === 'extraction_version')) {

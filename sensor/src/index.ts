@@ -1128,6 +1128,18 @@ export class LatticeSensor {
   }
 
   /**
+   * The mirror image of `isIndexStale`: how many tracked files were written by
+   * an extractor NEWER than the one now running. Non-zero means this process is
+   * behind the index it is attached to — typically a long-running daemon that
+   * still holds pre-upgrade code in memory. Those rows are deliberately left
+   * alone (rewriting them would downgrade the index), so without surfacing this
+   * the operator sees an index that simply never converges and no reason why.
+   */
+  getEngineBehindIndexFileCount(): number {
+    return this.queries.getExtractionAheadFileCount(EXTRACTION_VERSION);
+  }
+
+  /**
    * Extract nodes and edges from source code (without storing)
    */
   extractFromSource(filePath: string, source: string): ExtractionResult {

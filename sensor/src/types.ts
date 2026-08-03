@@ -266,9 +266,10 @@ export interface FileRecord {
   nodeCount: number;
 
   /**
-   * EXTRACTION_VERSION of the engine that wrote this row. Sync treats a
-   * mismatch as a pending change, so extractor upgrades heal incrementally
-   * instead of requiring a manual full re-index.
+   * EXTRACTION_VERSION of the engine that wrote this row. Sync treats a stamp
+   * BELOW the running engine's as a pending change, so extractor upgrades heal
+   * incrementally instead of requiring a manual full re-index. A stamp above it
+   * is left alone — rewriting a newer engine's row would downgrade the index.
    */
   extractionVersion: number;
 

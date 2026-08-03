@@ -931,6 +931,8 @@ program
 
       const buildInfo = cg.getIndexBuildInfo();
       const reindexRecommended = cg.isIndexStale();
+      // Non-zero means THIS process is older than the index it is attached to.
+      const engineBehindIndexFiles = cg.getEngineBehindIndexFileCount();
       const indexState = cg.getIndexState();
       // Zero on a healthy index; non-zero at rest means a resolution pass was
       // interrupted, so some files' call edges are missing (#1187).
@@ -967,6 +969,11 @@ program
             builtWithExtractionVersion: buildInfo.extractionVersion,
             currentExtractionVersion: EXTRACTION_VERSION,
             reindexRecommended,
+            // Files written by a NEWER extractor than this process. Non-zero
+            // means this process is behind the index; it leaves those rows
+            // alone rather than downgrading them, so the gap persists until
+            // the older process is restarted on the current build.
+            engineBehindIndexFiles,
             // 'complete' | 'partial' (files silently dropped) | 'indexing'
             // (a run was killed mid-index — the index is truncated) |
             // 'failed' | null (predates the marker).
@@ -1078,6 +1085,17 @@ program
         const builtWith = buildInfo.version ? `v${buildInfo.version.replace(/^v/, '')}` : 'an earlier version';
         warn(`Index was built by ${builtWith}; re-index to pick up this engine's improvements.`);
         info('Run "lattice sensor index" (full rebuild) or "lattice sensor sync"');
+        console.log();
+      }
+
+      // The opposite direction, and the one that used to be invisible: this
+      // process is older than the index. Those rows are left untouched on
+      // purpose, so nothing converges until the stale process is restarted.
+      if (engineBehindIndexFiles > 0) {
+        warn(`${engineBehindIndexFiles} file(s) were indexed by a NEWER extractor than this process`
+          + ` (running extraction v${EXTRACTION_VERSION}).`);
+        info('This process is behind the index and will not rewrite those rows.'
+          + ' Restart any long-running sensor process on the current build.');
         console.log();
       }
 

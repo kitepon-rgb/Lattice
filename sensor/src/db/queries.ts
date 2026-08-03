@@ -1989,23 +1989,45 @@ export class QueryBuilder {
   }
 
   /**
-   * Number of tracked files whose rows were written by an extractor other
-   * than the one now running. Zero means the whole index reflects current
-   * extraction semantics — the condition for advancing the global stamp.
+   * Stale means written by an extractor OLDER than the one now running — never
+   * a newer one. A row a newer engine wrote is not stale; it holds output this
+   * engine cannot produce, so re-extracting it here would DOWNGRADE the index.
+   * That is not hypothetical: a long-running daemon holding pre-upgrade code in
+   * memory kept rewriting a healed index back to its own older stamp, silently
+   * undoing every `sync`. Comparing with `!=` makes healing bidirectional, which
+   * turns two engines on one index into an endless mutual overwrite.
    */
-  /** Paths of tracked files whose rows were written by a different extractor. */
+  /** Paths of tracked files whose rows were written by an older extractor. */
   getExtractionStalePaths(currentVersion: number): string[] {
     const rows = this.db
-      .prepare('SELECT path FROM files WHERE extraction_version != ? ORDER BY path')
+      .prepare('SELECT path FROM files WHERE extraction_version < ? ORDER BY path')
       .all(currentVersion) as Array<{ path: string }>;
     return rows.map((row) => row.path);
   }
 
+  /**
+   * Number of tracked files whose rows were written by an older extractor.
+   * Zero means nothing on disk is behind the running engine — the condition for
+   * advancing the global stamp.
+   */
   getExtractionStaleFileCount(currentVersion: number): number {
     const row = this.db
-      .prepare('SELECT COUNT(*) AS stale FROM files WHERE extraction_version != ?')
+      .prepare('SELECT COUNT(*) AS stale FROM files WHERE extraction_version < ?')
       .get(currentVersion) as { stale: number };
     return row.stale;
+  }
+
+  /**
+   * Number of tracked files written by a NEWER extractor than the one running.
+   * Non-zero means this engine is behind the index it is attached to — it must
+   * not rewrite those rows, and the operator should be told rather than left to
+   * wonder why the index never converges.
+   */
+  getExtractionAheadFileCount(currentVersion: number): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS ahead FROM files WHERE extraction_version > ?')
+      .get(currentVersion) as { ahead: number };
+    return row.ahead;
   }
 
   /**

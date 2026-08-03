@@ -76,4 +76,57 @@ describe('extraction-version heal', () => {
     const again = await g2.sync();
     expect(again.extractionHealed).toBe(0);
   });
+
+  /**
+   * The other direction, and the one that actually bit us: an engine attached to
+   * an index a NEWER extractor wrote must leave those rows alone. Healing on
+   * `!=` instead of `<` made it bidirectional, so a long-running daemon holding
+   * pre-upgrade code kept rewriting a freshly-healed index back to its own older
+   * stamp — every `sync` was silently undone and the index never converged
+   * (2026-08-03, found by `lattice sensor diff` reporting comparability degraded).
+   */
+  it('leaves rows written by a NEWER extractor untouched instead of downgrading them', async () => {
+    fs.writeFileSync(path.join(dir, 'a.ts'), 'export function alpha() { return 1; }\n');
+    fs.writeFileSync(path.join(dir, 'b.ts'), 'export function beta() { return 2; }\n');
+    const g = LatticeSensor.initSync(dir, { config: { include: ['**/*.ts'], exclude: [] } });
+    cg = g;
+    await g.indexAll();
+    g.destroy();
+    cg = undefined;
+
+    // Simulate an index a newer engine wrote, then attach this (older) engine.
+    const ahead = EXTRACTION_VERSION + 1;
+    const db = DatabaseConnection.open(getDatabasePath(dir));
+    db.getDb().prepare("UPDATE files SET extraction_version = ? WHERE path = 'a.ts'").run(ahead);
+    db.getDb().prepare("UPDATE project_metadata SET value = ? WHERE key = 'indexed_with_extraction_version'")
+      .run(String(ahead));
+    db.close();
+
+    const g2 = await LatticeSensor.open(dir);
+    cg = g2;
+    // Nothing is behind this engine, so no re-index is recommended...
+    expect(g2.isIndexStale()).toBe(false);
+    // ...but this engine is behind the index, and that is reported, not hidden.
+    expect(g2.getEngineBehindIndexFileCount()).toBe(1);
+
+    const result = await g2.sync();
+    expect(result.extractionHealed).toBe(0);
+
+    const db2 = DatabaseConnection.open(getDatabasePath(dir));
+    const rows = db2.getDb()
+      .prepare('SELECT path, extraction_version FROM files ORDER BY path')
+      .all() as Array<{ path: string; extraction_version: number }>;
+    const stamp = db2.getDb()
+      .prepare("SELECT value FROM project_metadata WHERE key = 'indexed_with_extraction_version'")
+      .get() as { value: string } | undefined;
+    db2.close();
+
+    // The newer row survives the older engine's sync...
+    expect(rows).toEqual([
+      { path: 'a.ts', extraction_version: ahead },
+      { path: 'b.ts', extraction_version: EXTRACTION_VERSION },
+    ]);
+    // ...and the global stamp is not walked backwards to this engine's value.
+    expect(stamp?.value).toBe(String(ahead));
+  });
 });

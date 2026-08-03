@@ -2275,8 +2275,12 @@ export class ExtractionOrchestrator {
     // Check if file already exists and hasn't changed
     const existingFile = this.queries.getFileByPath(filePath);
     if (existingFile && existingFile.contentHash === contentHash
-      && existingFile.extractionVersion === EXTRACTION_VERSION) {
-      return; // No changes, and the row was written by this extractor
+      && existingFile.extractionVersion >= EXTRACTION_VERSION) {
+      // Unchanged content, and the row was written by this extractor or a newer
+      // one. `>=` not `===`: rewriting a newer engine's row with this engine's
+      // output is a downgrade, and two engines sharing an index would overwrite
+      // each other forever.
+      return;
     }
 
     // Snapshot incoming cross-file edges BEFORE deleting this file's nodes.
@@ -2612,7 +2616,9 @@ export class ExtractionOrchestrator {
       // The observer changed, not the file: rows written by an older extractor
       // are pending changes regardless of content. This must run BEFORE the
       // size/mtime fast-path below, or unchanged files would never heal.
-      if (tracked && tracked.extractionVersion !== EXTRACTION_VERSION) {
+      // Strictly older only — a newer engine's rows are not stale, and rewriting
+      // them here would downgrade the index instead of healing it.
+      if (tracked && tracked.extractionVersion < EXTRACTION_VERSION) {
         filesToIndex.push(filePath);
         changedFilePaths.push(filePath);
         extractionHealed++;
@@ -2687,7 +2693,12 @@ export class ExtractionOrchestrator {
     // stale rows remain, the whole index reflects current extraction semantics
     // and the global stamp may advance — clearing the status re-index hint
     // without anyone running a manual full re-index.
-    if (this.queries.getExtractionStaleFileCount(EXTRACTION_VERSION) === 0) {
+    // ...but only when nothing on disk is AHEAD of this engine either. With rows
+    // a newer extractor wrote, stamping the global marker with this engine's
+    // older value would announce a downgrade that never happened and hide the
+    // real state: this engine is behind the index it is attached to.
+    if (this.queries.getExtractionStaleFileCount(EXTRACTION_VERSION) === 0
+      && this.queries.getExtractionAheadFileCount(EXTRACTION_VERSION) === 0) {
       try {
         this.queries.setMetadata('indexed_with_extraction_version', String(EXTRACTION_VERSION));
       } catch { /* metadata is advisory — never fail a sync over it */ }
@@ -2799,7 +2810,9 @@ export class ExtractionOrchestrator {
       if (!tracked) {
         added.push(filePath);
       } else if (tracked.contentHash !== contentHash
-        || tracked.extractionVersion !== EXTRACTION_VERSION) {
+        || tracked.extractionVersion < EXTRACTION_VERSION) {
+        // 版は「古い時だけ」変更扱い。新しい版で書かれた行を変更扱いにすると、
+        // 古いengineが自分の出力で上書きし、indexが後退する。
         modified.push(filePath);
       }
     }
