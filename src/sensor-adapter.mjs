@@ -80,6 +80,9 @@ function outcomeFromStatus(status) {
       'builtWithExtractionVersion',
       'currentExtractionVersion',
       'reindexRecommended',
+      // 非ゼロは「この索引を書いたengineより、今のengineが古い」。reindexRecommendedの逆向きで、
+      // こちら側は放っておくと索引が収束しない理由が誰にも見えない。
+      'engineBehindIndexFiles',
       'state',
       'pendingRefs',
     ])
@@ -89,6 +92,7 @@ function outcomeFromStatus(status) {
     || !isNonNegativeInteger(status.index.currentExtractionVersion)
     || typeof status.index.state !== 'string'
     || typeof status.index.reindexRecommended !== 'boolean'
+    || !isNonNegativeInteger(status.index.engineBehindIndexFiles)
     || !isNonNegativeInteger(status.index.pendingRefs)
     || (status.worktreeMismatch !== null && !isPlainObject(status.worktreeMismatch))) {
     return 'unresolved';

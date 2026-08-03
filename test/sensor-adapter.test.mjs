@@ -19,6 +19,7 @@ const READY_STATUS = JSON.stringify({
     builtWithExtractionVersion: 7,
     currentExtractionVersion: 7,
     reindexRecommended: false,
+    engineBehindIndexFiles: 0,
     state: 'complete',
     pendingRefs: 0,
   },
@@ -385,6 +386,15 @@ test('fails loud for stale, unresolved, and unsupported status', async () => {
       index: { ...JSON.parse(READY_STATUS).index, state: 'indexing' },
     }],
     ['unresolved', { ...JSON.parse(READY_STATUS), worktreeMismatch: false }],
+    // 索引の素性を語る欄が欠けた／壊れたstatusは、readyへ丸めず未解決として扱う。
+    ['unresolved', {
+      ...JSON.parse(READY_STATUS),
+      index: { ...JSON.parse(READY_STATUS).index, engineBehindIndexFiles: -1 },
+    }],
+    ['unresolved', {
+      ...JSON.parse(READY_STATUS),
+      index: (({ engineBehindIndexFiles, ...rest }) => rest)(JSON.parse(READY_STATUS).index),
+    }],
     ['unsupported', { ...JSON.parse(READY_STATUS), version: null }],
   ];
 

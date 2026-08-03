@@ -414,6 +414,7 @@ test('collectorはcollectSensorEvidence経路を使いfixture executorを注入�
             builtWithExtractionVersion: 1,
             currentExtractionVersion: 1,
             reindexRecommended: false,
+            engineBehindIndexFiles: 0,
             state: 'complete',
             pendingRefs: 0,
           },

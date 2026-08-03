@@ -165,6 +165,7 @@ function portable(querySet, treatment, fuzzy = false) {
             builtWithExtractionVersion: 24,
             currentExtractionVersion: 24,
             reindexRecommended: false,
+            engineBehindIndexFiles: 0,
             state: 'complete',
             pendingRefs: 0,
           },
