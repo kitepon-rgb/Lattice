@@ -350,7 +350,7 @@ function run() {
   }
 
   const lines = [
-    `base   ${report.base.slice(0, 12)}  (absorbed_at — never moves)`,
+    `base   ${report.base.slice(0, 12)}  (synced_at — the merge base)`,
     `target ${report.target.slice(0, 12)}  (${report.ref})`,
     '',
     `auto-merged ${report.merged.length}   added ${report.added.length}   unchanged ${report.unchanged}   skipped ${report.skipped}`,
