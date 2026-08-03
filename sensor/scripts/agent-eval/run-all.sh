@@ -26,7 +26,7 @@ mkdir -p "$OUT"
 export LATTICE_SENSOR_NO_PROMPT_HOOK=1
 
 [ -n "$CG_BIN" ] || { echo "no lattice-sensor binary on PATH (set CG_BIN)"; exit 1; }
-[ -d "$REPO/.lattice-sensor" ] || { echo "no .lattice-sensor index at $REPO — index it first"; exit 1; }
+[ -d "$REPO/.lattice/sensor" ] || { echo "no .lattice/sensor index at $REPO — index it first"; exit 1; }
 case "$MODE" in headless|tmux|all) ;; *) echo "mode must be headless|tmux|all (got '$MODE')"; exit 1;; esac
 
 # MCP config files (path form avoids inline-JSON quoting through tmux).

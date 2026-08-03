@@ -37,10 +37,10 @@ dbg('gate: structural PASS');
 // Find the index: cwd, then walk up a few levels.
 let root = cwd, found = null;
 for (let i = 0; i < 6 && root; i++) {
-  if (existsSync(join(root, '.lattice-sensor'))) { found = root; break; }
+  if (existsSync(join(root, '.lattice/sensor'))) { found = root; break; }
   const parent = resolve(root, '..'); if (parent === root) break; root = parent;
 }
-if (!found) { dbg(`no .lattice-sensor found from cwd=${cwd}`); process.exit(0); }
+if (!found) { dbg(`no .lattice/sensor found from cwd=${cwd}`); process.exit(0); }
 dbg(`found index at ${found}`);
 
 try {

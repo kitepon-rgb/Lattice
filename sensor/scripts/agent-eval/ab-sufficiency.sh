@@ -20,7 +20,7 @@ BIN="$ENGINE/dist/bin/lattice-sensor.js"
 OUT="${AGENT_EVAL_OUT:-/tmp/ab-sufficiency}"
 TGT="$OUT/target"
 command -v claude >/dev/null || { echo "claude CLI not on PATH"; exit 1; }
-[ -d "$REPO/.lattice-sensor" ] || { echo "no .lattice-sensor index at $REPO"; exit 1; }
+[ -d "$REPO/.lattice/sensor" ] || { echo "no .lattice/sensor index at $REPO"; exit 1; }
 cleanup(){ pkill -9 -f "serve --mcp --path $TGT" 2>/dev/null; }
 trap cleanup EXIT
 mkdir -p "$OUT"
@@ -29,7 +29,7 @@ mkdir -p "$OUT"
 # Throwaway copy + fresh index (the agent works here; a read-only question won't
 # edit, but isolate anyway). Excludes the source repo's index/build/vcs.
 rm -rf "$TGT"
-rsync -a --exclude node_modules --exclude .git --exclude dist --exclude .lattice-sensor "$REPO/" "$TGT/"
+rsync -a --exclude node_modules --exclude .git --exclude dist --exclude .lattice "$REPO/" "$TGT/"
 node "$BIN" init "$TGT" >/dev/null 2>&1 && echo "indexed copy ($(node "$BIN" status --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).fileCount+" files")}catch{console.log("?")}})' 2>/dev/null || echo '?'))"
 
 echo "###### repo=$REPO  runs/arm=$RUNS"

@@ -14,7 +14,7 @@ EXTRACT="$HERE/offload-eval-metrics.mjs"
 RESULTS="${RESULTS:-$OUT/results-fl.jsonl}"
 REPO=$(basename "$TARGET")
 mkdir -p "$RUNS"
-[ -d "$TARGET/.lattice-sensor" ] || { echo "not indexed: $TARGET"; exit 1; }
+[ -d "$TARGET/.lattice/sensor" ] || { echo "not indexed: $TARGET"; exit 1; }
 TARGET=$(cd "$TARGET" && pwd -P)
 
 CFG="$RUNS/mcp-fl-$REPO.json"

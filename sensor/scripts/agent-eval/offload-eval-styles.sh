@@ -24,7 +24,7 @@ DISALLOW="${DISALLOW-Agent}"   # default: block delegation. `DISALLOW= ` to allo
 START="${REP_START:-1}"; END=$((START + REPS - 1))
 mkdir -p "$RUNS"
 command -v claude >/dev/null || { echo "no claude on PATH"; exit 1; }
-[ -d "$TARGET/.lattice-sensor" ] || { echo "not indexed: $TARGET"; exit 1; }
+[ -d "$TARGET/.lattice/sensor" ] || { echo "not indexed: $TARGET"; exit 1; }
 TARGET=$(cd "$TARGET" && pwd -P)
 
 prewarm() { # path  extra-env

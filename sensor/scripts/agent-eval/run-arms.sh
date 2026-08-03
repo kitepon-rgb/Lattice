@@ -21,7 +21,7 @@ CG_BIN="${CG_BIN:-$(command -v lattice-sensor)}"
 OUT="${ARMS_OUT:-/tmp/arms}/$(basename "$REPO")"
 mkdir -p "$OUT"
 [ -n "$CG_BIN" ] || { echo "no lattice-sensor binary (set CG_BIN)"; exit 1; }
-[ -d "$REPO/.lattice-sensor" ] || { echo "no .lattice-sensor index at $REPO"; exit 1; }
+[ -d "$REPO/.lattice/sensor" ] || { echo "no .lattice/sensor index at $REPO"; exit 1; }
 
 STEER='Flow questions ("how does X reach/become Y", "trace the flow", request to handler, state to render): call lattice_sensor_trace(from,to) FIRST — one call returns the whole path. Use lattice_sensor_context/search only to locate the two endpoint symbols if you do not know them. Do NOT reconstruct the path with repeated search/callers/explore.'
 KEEP_NO_EXPLORE="trace,search,node,context,callers,callees,impact,files,status"

@@ -120,6 +120,6 @@ than faked.
 Canonical harness: `scripts/agent-eval/run-all.sh <repo> "<question>" headless` (with = lattice-sensor-only
 MCP, without = empty MCP), parsed from the stream-json logs. The throwaway matrix driver + parser used
 for this table live in `/tmp/ab-matrix/`: `run.sh` (the `lang|size|repo|question` matrix — each cell does
-`rm -rf .lattice-sensor && lattice-sensor init -i` then both arms), `parse-matrix.mjs` (cells → this table), and
+`rm -rf .lattice/sensor && lattice-sensor init -i` then both arms), `parse-matrix.mjs` (cells → this table), and
 `compare.mjs` (old-vs-new diff + aggregates). Build `dist/` from the target commit first so the MCP
 server loads the code under test (`lattice-sensor` on PATH is `npm link`ed to the dev `dist/`).

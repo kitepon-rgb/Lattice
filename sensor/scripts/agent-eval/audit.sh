@@ -49,8 +49,8 @@ fi
 
 # 3. Wipe + re-index with THIS version (the index must be built by the same
 #    binary that serves it — different versions extract differently).
-echo "→ [3/4] wiping .lattice-sensor and re-indexing with $ACTUAL"
-rm -rf "$REPO/.lattice-sensor"
+echo "→ [3/4] wiping .lattice/sensor and re-indexing with $ACTUAL"
+rm -rf "$REPO/.lattice/sensor"
 ( cd "$REPO" && lattice-sensor init -i ) || { echo "indexing failed"; exit 1; }
 
 # 4. Run the with/without A/B.

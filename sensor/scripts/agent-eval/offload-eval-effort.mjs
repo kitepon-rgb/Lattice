@@ -60,7 +60,7 @@ const records = [];
 for (const repo of Object.keys(GT)) {
   if (ONLY && !ONLY.has(repo)) continue;
   const dir = join(REPOS, repo);
-  if (!existsSync(join(dir, '.lattice-sensor'))) { console.error('skip (not indexed):', repo); continue; }
+  if (!existsSync(join(dir, '.lattice/sensor'))) { console.error('skip (not indexed):', repo); continue; }
   const cg = Lattice sensor.openSync(dir);
   const h = new ToolHandler(cg);
   for (const effort of EFFORTS) {

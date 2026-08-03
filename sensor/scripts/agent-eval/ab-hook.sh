@@ -14,7 +14,7 @@
 # not claude's init snapshot (which can read pending even when it then connects).
 #
 # Usage: ab-hook.sh <indexed-repo> "<implementation task>" [runs-per-arm]
-#   <indexed-repo>  a repo with a .lattice-sensor index (copied per arm; never mutated)
+#   <indexed-repo>  a repo with a .lattice/sensor index (copied per arm; never mutated)
 #   "<task>"        a GENUINELY-NEW implementation task (verify it isn't already done)
 #   [runs-per-arm]  default 2 (n=1 is noisy — the doctrine says >=2)
 # Env: AGENT_EVAL_OUT (default: /tmp/ab-hook)
@@ -31,7 +31,7 @@ PARSE="$ENGINE/scripts/agent-eval/parse-run.mjs"
 
 command -v claude >/dev/null || { echo "claude CLI not on PATH"; exit 1; }
 command -v jq >/dev/null || { echo "jq not on PATH (the hook needs it)"; exit 1; }
-[ -d "$TARGET/.lattice-sensor" ] || { echo "target not indexed: run 'lattice-sensor init $TARGET' first"; exit 1; }
+[ -d "$TARGET/.lattice/sensor" ] || { echo "target not indexed: run 'lattice-sensor init $TARGET' first"; exit 1; }
 chmod +x "$HOOK"
 
 cleanup() { pkill -9 -f "serve --mcp --path $OUT/" 2>/dev/null; }
@@ -61,7 +61,7 @@ run_one() { # arm-label, run-index, use-hook(0|1)
   local label="$1" idx="$2" hook="$3"
   local tgt="$OUT/t-$label-$idx" c="$OUT/mcp-$label.json"
   rm -rf "$tgt"
-  rsync -a --exclude node_modules --exclude .git --exclude dist --exclude .lattice-sensor "$TARGET/" "$tgt/"
+  rsync -a --exclude node_modules --exclude .git --exclude dist --exclude .lattice "$TARGET/" "$tgt/"
   node "$BIN" init "$tgt" >/dev/null 2>&1
   printf '{"mcpServers":{"lattice-sensor":{"command":"env","args":["LATTICE_SENSOR_WASM_RELAUNCHED=1","node","%s","serve","--mcp","--path","%s"]}}}' "$BIN" "$tgt" > "$c"
   prewarm "$tgt"

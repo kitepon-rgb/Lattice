@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Probe lattice_sensor_trace against an index using the built dist.
-// Usage: node probe-trace.mjs <repo-with-.lattice-sensor> <from> <to>
+// Usage: node probe-trace.mjs <repo-with-.lattice/sensor> <from> <to>
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 

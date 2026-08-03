@@ -80,7 +80,7 @@ function collect(p, out) {
   }
   if (st.isDirectory()) {
     const base = path.basename(p);
-    if (base === 'node_modules' || base === '.git' || base === 'dist' || base === '.lattice-sensor') return;
+    if (base === 'node_modules' || base === '.git' || base === 'dist' || base === '.lattice') return;
     for (const e of fs.readdirSync(p)) collect(path.join(p, e), out);
   } else if (EXTS.has(path.extname(p).toLowerCase())) {
     // Lowercased to match the real indexer's routing (detectLanguage

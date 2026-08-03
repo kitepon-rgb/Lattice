@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Probe lattice_sensor_context (with call-paths) against an index using the built dist.
-// Usage: node probe-context.mjs <repo-with-.lattice-sensor> <task words...>
+// Usage: node probe-context.mjs <repo-with-.lattice/sensor> <task words...>
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 

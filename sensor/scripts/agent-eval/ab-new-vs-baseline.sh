@@ -18,7 +18,7 @@
 # parse-run.mjs's "by type", not the init line.
 #
 # Usage: ab-new-vs-baseline.sh <indexed-repo> "<task>" [baseline-ref]
-#   <indexed-repo>  a repo with a .lattice-sensor index (copied per arm)
+#   <indexed-repo>  a repo with a .lattice/sensor index (copied per arm)
 #   "<task>"        an implementation task, e.g. "Add X to Y and wire it through"
 #   [baseline-ref]  git ref for the BEFORE build (default: HEAD~1)
 # Env: AGENT_EVAL_OUT (default: /tmp/ab-new-vs-baseline)
@@ -33,7 +33,7 @@ OUT="${AGENT_EVAL_OUT:-/tmp/ab-new-vs-baseline}"
 PARSE="$ENGINE/scripts/agent-eval/parse-run.mjs"
 
 command -v claude >/dev/null || { echo "claude CLI not on PATH"; exit 1; }
-[ -d "$TARGET/.lattice-sensor" ] || { echo "target not indexed: run 'lattice-sensor init $TARGET' first"; exit 1; }
+[ -d "$TARGET/.lattice/sensor" ] || { echo "target not indexed: run 'lattice-sensor init $TARGET' first"; exit 1; }
 if ! git -C "$ENGINE" diff --quiet || ! git -C "$ENGINE" diff --cached --quiet; then
   echo "engine repo has uncommitted changes — commit or stash first (this script checks files out)"; exit 1
 fi
@@ -57,7 +57,7 @@ echo
 
 # Two pristine copies so each arm starts clean (the agent edits its own copy).
 rm -rf "$OUT/t-new" "$OUT/t-base"
-rsync -a --exclude node_modules --exclude .git --exclude dist --exclude .lattice-sensor "$TARGET/" "$OUT/t-new/"
+rsync -a --exclude node_modules --exclude .git --exclude dist --exclude .lattice "$TARGET/" "$OUT/t-new/"
 cp -R "$OUT/t-new" "$OUT/t-base"
 
 prewarm() { # target — spawn a persistent daemon (current $BIN) and wait for its socket

@@ -18,7 +18,7 @@ ENGINE="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN="$ENGINE/dist/bin/lattice-sensor.js"
 OUT="${AGENT_EVAL_OUT:-/tmp/ab-impl}"
 command -v claude >/dev/null || { echo "claude CLI not on PATH"; exit 1; }
-[ -d "$REPO/.lattice-sensor" ] || { echo "no .lattice-sensor index at $REPO"; exit 1; }
+[ -d "$REPO/.lattice/sensor" ] || { echo "no .lattice/sensor index at $REPO"; exit 1; }
 cleanup(){ pkill -9 -f "serve --mcp --path $OUT/" 2>/dev/null; }
 trap cleanup EXIT
 mkdir -p "$OUT"
@@ -57,7 +57,7 @@ run(){ # label, withLattice sensor(0/1)
   for i in $(seq 1 "$RUNS"); do
     local tgt="$OUT/t-$label-$i" cfg="$OUT/mcp-$label.json"
     rm -rf "$tgt"
-    rsync -a --exclude node_modules --exclude .git --exclude dist --exclude .lattice-sensor "$REPO/" "$tgt/"
+    rsync -a --exclude node_modules --exclude .git --exclude dist --exclude .lattice "$REPO/" "$tgt/"
     node "$BIN" init "$tgt" >/dev/null 2>&1
     if [ "$wcg" = "1" ]; then
       printf '{"mcpServers":{"lattice-sensor":{"command":"env","args":["LATTICE_SENSOR_WASM_RELAUNCHED=1","node","%s","serve","--mcp","--path","%s"]}}}' "$BIN" "$tgt" > "$cfg"

@@ -38,8 +38,8 @@ else
 fi
 
 # 2. Wipe + index with the binary under test.
-echo "→ wiping .lattice-sensor and indexing"
-rm -rf "$REPO/.lattice-sensor"
+echo "→ wiping .lattice/sensor and indexing"
+rm -rf "$REPO/.lattice/sensor"
 ( cd "$REPO" && lattice-sensor init -i ) || { echo "indexing failed"; exit 1; }
 
 # 3. Verify extraction (cheap guard before the paid A/B).

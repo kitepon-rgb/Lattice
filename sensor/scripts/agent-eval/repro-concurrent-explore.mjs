@@ -10,7 +10,7 @@
 //     real daemon a blocked loop can't flush a finished response or read the
 //     next request, so this gap is what starves the MCP transport.
 //
-// Usage: node repro-concurrent-explore.mjs <repo-with-.lattice-sensor> <N> [timeoutMs]
+// Usage: node repro-concurrent-explore.mjs <repo-with-.lattice/sensor> <N> [timeoutMs]
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';

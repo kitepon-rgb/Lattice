@@ -20,7 +20,7 @@ RESULTS="${RESULTS:-$OUT/results.jsonl}"
 REPO=$(basename "$TARGET")
 mkdir -p "$RUNS"
 command -v claude >/dev/null || { echo "no claude on PATH"; exit 1; }
-[ -d "$TARGET/.lattice-sensor" ] || { echo "not indexed: $TARGET (run offload-eval-setup.sh first)"; exit 1; }
+[ -d "$TARGET/.lattice/sensor" ] || { echo "not indexed: $TARGET (run offload-eval-setup.sh first)"; exit 1; }
 # Physical path so pkill matches the daemon's real cmdline (macOS /tmp->/private/tmp symlink
 # otherwise makes the kill miss the daemon, and the next arm connects to the SURVIVING daemon
 # — contaminating the raw arm with offload).

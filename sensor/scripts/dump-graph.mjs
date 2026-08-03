@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Dump a .lattice/sensor/lattice-sensor.db graph by NATURAL KEYS (no rowids, no
+ * Dump a .lattice/sensor/sensor.db graph by NATURAL KEYS (no rowids, no
  * timestamps), sorted — two dumps diff clean iff the graphs are semantically
  * identical. The byte-identical gate used by every perf/kernel PR:
  *
@@ -26,7 +26,7 @@ if (!arg) {
 }
 let dbPath = arg;
 if (fs.statSync(arg).isDirectory()) {
-  dbPath = path.join(arg, '.lattice-sensor', 'lattice-sensor.db');
+  dbPath = path.join(arg, '.lattice', 'sensor', 'sensor.db');
 }
 const db = new DatabaseSync(dbPath, { readOnly: true });
 
