@@ -463,6 +463,102 @@ test('旧daemon停止失敗時はreplacementを停止確認してlegacy descript
     assert.equal((await fetch(`http://127.0.0.1:${legacy.port}/__lattice/health`)).status, 200);
   });
 
+test('descriptorから外れた生存daemonを登録簿から見つけて停止する', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-stray-'));
+  const runtime = path.join(root, 'runtime');
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const currentPid = 987_701;
+  const strayPid = 987_702;
+  const current = await currentHealthServer(currentPid);
+  // 置換の途中で起動側が死ぬと、旧daemonは生きたままdescriptorから外れる。descriptor
+  // しか見ない引き継ぎでは、この時点で二度と観測できなくなる（2026-08-03の実機再現）。
+  const stray = await healthServer({ schema: 'lattice.todo_dashboard_health.v1',
+    pid: strayPid, project_ids: ['lattice'] });
+  await writeDaemonDescriptor(runtime, daemonDescriptor(currentPid, current.port));
+  await plantDaemonRecord(runtime, daemonDescriptor(currentPid, current.port));
+  await plantDaemonRecord(runtime, daemonDescriptor(strayPid, stray.port));
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime };
+  let signaled = false;
+  context.after(async () => {
+    await new Promise((resolve) => current.server.close(resolve));
+    await new Promise((resolve) => stray.server.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  const served = await ensureTodoDashboardDaemon({ env,
+    spawnDaemon() { throw new Error('配信中のdaemonが居るのにspawnしてはいけない'); },
+    signalProcess(pid, signal) {
+      assert.equal(pid, strayPid);
+      assert.equal(signal, 'SIGTERM');
+      signaled = true;
+      stray.server.close();
+    },
+    isProcessAlive: (pid) => (pid === strayPid ? !signaled : true),
+  });
+  assert.equal(served.pid, currentPid, '配信中のdaemonはそのまま使う');
+  assert.equal(signaled, true, '孤児を停止する');
+  assert.deepEqual(await daemonRecordNames(runtime), [`${currentPid}.json`]);
+});
+
+test('認証できない生存pidへはsignalせず記録を残して次の起動へ送る', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-stray-unrelated-'));
+  const runtime = path.join(root, 'runtime');
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const servedPid = 987_705;
+  const strayPid = 987_706;
+  const served = await currentHealthServer(servedPid);
+  // pidが食い違うhealth＝記録のpidが再利用され、無関係のserviceがportに居る形。
+  const unrelated = await healthServer({ schema: 'lattice.todo_dashboard_health.v1',
+    pid: 222_222, project_ids: [] });
+  await writeDaemonDescriptor(runtime, daemonDescriptor(servedPid, served.port));
+  await plantDaemonRecord(runtime, daemonDescriptor(servedPid, served.port));
+  await plantDaemonRecord(runtime, daemonDescriptor(strayPid, unrelated.port));
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime };
+  context.after(async () => {
+    await new Promise((resolve) => served.server.close(resolve));
+    await new Promise((resolve) => unrelated.server.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  const result = await ensureTodoDashboardDaemon({ env,
+    spawnDaemon() { throw new Error('配信中のdaemonが居るのにspawnしてはいけない'); },
+    signalProcess() { throw new Error('認証できないpidへsignalしてはいけない'); },
+    isProcessAlive: () => true,
+  });
+  assert.equal(result.pid, servedPid);
+  assert.deepEqual(await daemonRecordNames(runtime), [`${servedPid}.json`, `${strayPid}.json`],
+    '生きているが認証できないpidの記録は捨てない');
+  assert.equal((await fetch(`http://127.0.0.1:${unrelated.port}/__lattice/health`)).status, 200);
+});
+
+test('停止に応じない孤児はtyped errorで報せ、descriptorの整合は保つ', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-stray-stuck-'));
+  const runtime = path.join(root, 'runtime');
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const servedPid = 987_707;
+  const strayPid = 987_708;
+  const served = await currentHealthServer(servedPid);
+  const stray = await healthServer({ schema: 'lattice.todo_dashboard_health.v1',
+    pid: strayPid, project_ids: ['lattice'] });
+  const descriptor = daemonDescriptor(servedPid, served.port);
+  await writeDaemonDescriptor(runtime, descriptor);
+  await plantDaemonRecord(runtime, descriptor);
+  await plantDaemonRecord(runtime, daemonDescriptor(strayPid, stray.port));
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime };
+  const signals = [];
+  context.after(async () => {
+    await new Promise((resolve) => served.server.close(resolve));
+    await new Promise((resolve) => stray.server.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  await assert.rejects(ensureTodoDashboardDaemon({ env, strayStopTimeoutMs: 120,
+    spawnDaemon() { throw new Error('配信中のdaemonが居るのにspawnしてはいけない'); },
+    signalProcess(pid, signal) { signals.push([pid, signal]); },
+    isProcessAlive: () => true,
+  }), (error) => error.code === 'DASHBOARD_ORPHAN_STOP_FAILED');
+  assert.deepEqual(signals, [[strayPid, 'SIGTERM'], [strayPid, 'SIGKILL']], 'SIGTERMからSIGKILLへ上げる');
+  assert.deepEqual(JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8')), descriptor);
+  assert.equal((await fetch(`http://127.0.0.1:${served.port}/__lattice/health`)).status, 200);
+});
+
 test('起動のたびに死んだ記録を掃除するので登録簿が無限に育たない', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-sweep-'));
   const runtime = path.join(root, 'runtime');

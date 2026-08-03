@@ -276,14 +276,33 @@ async function readDaemonRecords(refs) {
 /**
  * 死んだpidの記録を落とす。全daemonが必ず通る起動時に呼ぶので、登録簿は
  * 「生きているdaemon＋前回の起動以降に死んだ分」までしか育たない。
+ * keepはhealth応答で生存を確認済みのdaemon——process.kill(0)より強い証拠を
+ * 既に持っているので、その記録は生死判定に掛けない。
  */
-async function sweepDaemonRecords(refs, { isProcessAlive }) {
+async function sweepDaemonRecords(refs, { isProcessAlive, keep = null }) {
   const live = [];
   for (const record of await readDaemonRecords(refs)) {
-    if (await isProcessAlive(record.pid)) live.push(record);
+    if (record.pid === keep || await isProcessAlive(record.pid)) live.push(record);
     else await rm(daemonRecordRef(refs, record.pid), { force: true });
   }
   return live;
+}
+
+async function awaitDaemonStopped(descriptor, { isProcessAlive, deadline }) {
+  for (;;) {
+    const alive = await isProcessAlive(descriptor.pid);
+    const stillServing = await daemonAttestation(descriptor) !== null;
+    if (!alive && !stillServing) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** 相手が既に死んでいるのは停止の成功であって失敗ではない。 */
+function signalIfPresent(signalProcess, pid, signal) {
+  try { signalProcess(pid, signal); } catch (error) {
+    if (error?.code !== 'ESRCH') throw error;
+  }
 }
 
 async function stopAttestedLegacyDaemon(descriptor, {
@@ -297,16 +316,47 @@ async function stopAttestedLegacyDaemon(descriptor, {
     throw error;
   }
   signalProcess(descriptor.pid, 'SIGTERM');
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const alive = await isProcessAlive(descriptor.pid);
-    const stillServing = await daemonAttestation(descriptor) !== null;
-    if (!alive && !stillServing) return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
+  if (await awaitDaemonStopped(descriptor, { isProcessAlive, deadline: Date.now() + timeoutMs })) return;
   const error = new Error('legacy dashboard daemon did not stop');
   error.code = 'DASHBOARD_LEGACY_STOP_FAILED';
   throw error;
+}
+
+/**
+ * descriptorの外に居るdaemonを止める。signalを送るのは、いま再認証を通った相手だけ——
+ * 応答しないpidへ送れば、pid再利用で無関係のprocessを殺しうる。認証できない生存pidは
+ * 記録を残したまま見送り、次の起動が判定し直す。
+ * 認証を通った相手はLattice自身のdaemonなので、SIGTERMで死ななければSIGKILLへ上げる。
+ * 置換前のlegacy停止と1つの関数へ畳まない——あちらは認証を失ったこと自体がerror
+ * （版を入れ替える確証が要る）で、こちらは見送ってよい。契約が違う。
+ */
+async function stopStrayDaemon(descriptor, {
+  signalProcess = process.kill, isProcessAlive = processIsAlive, timeoutMs = 3_000,
+} = {}) {
+  if (await daemonAttestation(descriptor) === null) return false;
+  signalIfPresent(signalProcess, descriptor.pid, 'SIGTERM');
+  const half = Math.ceil(timeoutMs / 2);
+  if (await awaitDaemonStopped(descriptor, { isProcessAlive, deadline: Date.now() + half })) return true;
+  signalIfPresent(signalProcess, descriptor.pid, 'SIGKILL');
+  if (await awaitDaemonStopped(descriptor, {
+    isProcessAlive, deadline: Date.now() + (timeoutMs - half),
+  })) return true;
+  const error = new Error('stray dashboard daemon did not stop');
+  error.code = 'DASHBOARD_ORPHAN_STOP_FAILED';
+  throw error;
+}
+
+/**
+ * descriptorが指すdaemon以外を掃除する。呼ぶのはdescriptorの整合が確立した後だけ——
+ * 失敗経路で呼べば、可用性を守るrollback契約より先に生きたdaemonを消してしまう。
+ */
+async function reapStrayDaemons(refs, keepPid, { signalProcess, isProcessAlive, timeoutMs }) {
+  for (const record of await sweepDaemonRecords(refs, { isProcessAlive, keep: keepPid })) {
+    if (record.pid === keepPid) continue;
+    if (await stopStrayDaemon(record, { signalProcess, isProcessAlive, timeoutMs })) {
+      await rm(daemonRecordRef(refs, record.pid), { force: true });
+    }
+  }
 }
 
 async function stopSpawnedReplacement(child, descriptor, {
@@ -354,16 +404,20 @@ export async function forgetTodoDashboardDaemonRecord({ env = process.env } = {}
 export async function ensureTodoDashboardDaemon({ env = process.env, spawnDaemon = spawn,
   signalProcess = process.kill, isProcessAlive = processIsAlive, startupTimeoutMs = 120_000,
   legacyStopTimeoutMs = 3_000, replacementIsProcessAlive = processIsAlive,
-  attestationTimeoutMs = 2_000 } = {}) {
+  attestationTimeoutMs = 2_000, strayStopTimeoutMs = 3_000 } = {}) {
   const refs = paths(env);
   await mkdir(refs.root, { recursive: true, mode: 0o700 });
+  // 掃除と孤児の始末の機会はここしかない。daemonの起動は全daemonが必ず通る一点であり、
+  // 誰かがコマンドを叩くのを待つ形にすると、記録は誰にも掃除されず積み上がる。
+  const reap = (keepPid) => reapStrayDaemons(refs, keepPid,
+    { signalProcess, isProcessAlive, timeoutMs: strayStopTimeoutMs });
   return withLock(refs.startupLock, async () => {
-    // 掃除の機会はここしかない。daemonの起動は全daemonが必ず通る一点であり、
-    // 誰かがコマンドを叩くのを待つ形にすると、記録は誰にも掃除されず積み上がる。
-    await sweepDaemonRecords(refs, { isProcessAlive });
     const existing = await readJson(refs.descriptor, null);
     const existingAttestation = await daemonAttestation(existing, { timeoutMs: attestationTimeoutMs });
-    if (existingAttestation === 'current') return existing;
+    if (existingAttestation === 'current') {
+      await reap(existing.pid);
+      return existing;
+    }
     if (validDaemonDescriptor(existing) && existingAttestation === null
       && await isProcessAlive(existing.pid)) {
       const error = new Error('dashboard daemon is alive but temporarily unresponsive');
@@ -407,6 +461,7 @@ export async function ensureTodoDashboardDaemon({ env = process.env, spawnDaemon
             throw error;
           }
         }
+        await reap(descriptor.pid);
         return descriptor;
       }
     }
