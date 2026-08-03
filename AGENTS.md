@@ -111,6 +111,12 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
   新しい辺をTypeScript側へ足したら、同じ作業のうちにRust側へも足す。`kernel-tsjs-parity`が赤いまま
   他の作業を続けない——赤は「開発機の索引結果が配布物と違う」という意味である。揃える方向は常に
   native→wasmとし、TS側を削って一致させない。ABIを変える時は両側と`KERNEL_ABI_VERSION`を同時に動かす。
+- **upstream（CodeGraph）から貰えるものが増えたら取り込む（オーナー裁定 2026-08-03）。** 正本は
+  `sensor/UPSTREAM.json`、追従は`npm run upstream:sync`（3-way merge・衝突後は解決→commit→
+  `--mark-synced`）、検知は週次の`.github/workflows/upstream-check.yml`と`npm run upstream:check`が
+  行い、新しいkernel言語・wasm extractorは名指しで報告される。kernelの新言語は「取り込み＋
+  Lattice独自機能（extent・動的import等）の追従＋parity green」までが1単位の作業である。
+  markerを進めずに同じrefへ`--apply`を再実行しない——解決済みtreeへ衝突マーカーが再注入される。
 - **licenseは二層である。** 製品本体は`PolyForm-Noncommercial-1.0.0`（非商用は無償、商用は
   別途許諾）で、`sensor/`はupstream由来のMITのまま。**`sensor/`のlicenseを書き換えない**——
   第三者コードは再ライセンスできず、帰属表示の保持義務がある。製品をOSI承認licenseへ

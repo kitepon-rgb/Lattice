@@ -50,6 +50,17 @@ const behind = Number(git(['rev-list', '--count', `${synced}..${head}`], CACHE_D
 const files = behind === 0 ? [] : git(['diff', '--name-only', `${synced}..${head}`], CACHE_DIR).split('\n').filter(Boolean);
 const extraction = files.filter((f) => EXTRACTION_PREFIXES.some((p) => f === p || f.startsWith(p)));
 
+// 「貰えるものが増えた」の検知（オーナー裁定 2026-08-03: 増えたら取り込む）。
+// kernelの新言語walker・新grammarは、取り込み+Lattice機能追従+parity green
+// までが1単位の作業になる。増分の存在を名指しで知らせる。
+const addedUpstream = behind === 0 ? [] : git(
+  ['diff', '--name-only', '--diff-filter=A', `${synced}..${head}`], CACHE_DIR
+).split('\n').filter(Boolean);
+const newKernelLangs = [...new Set(addedUpstream
+  .filter((f) => /^codegraph-kernel\/src\/[a-z]+\.rs$/.test(f) || /^codegraph-kernel\/grammars\//.test(f))
+  .map((f) => f.split('/')[2].replace('.rs', '')))];
+const newWasmLangs = addedUpstream.filter((f) => /^src\/extraction\/languages\/[a-z-]+\.ts$/.test(f));
+
 const report = {
   schema: 'lattice.sensor_upstream_check_result.v1',
   synced_at: synced,
@@ -57,6 +68,8 @@ const report = {
   behind_commits: behind,
   changed_files: files.length,
   extraction_files: extraction.length,
+  new_kernel_language_files: newKernelLangs,
+  new_wasm_language_files: newWasmLangs,
   next_action: behind === 0 ? null : 'node scripts/upstream-sync.mjs --ref main',
 };
 
@@ -71,6 +84,12 @@ if (json) {
     '',
     `behind by ${behind} commit(s), ${files.length} file(s).`,
     `of those, ${extraction.length} touch extraction / language interpretation.`,
+    ...(newKernelLangs.length > 0
+      ? ['', `NEW upstream kernel material (take it — owner rule 2026-08-03): ${newKernelLangs.join(', ')}`]
+      : []),
+    ...(newWasmLangs.length > 0
+      ? [`NEW upstream wasm language extractors: ${newWasmLangs.join(', ')}`]
+      : []),
     '',
     `next: ${report.next_action}`,
   ].join('\n') + '\n');
