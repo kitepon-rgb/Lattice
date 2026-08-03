@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+### 追加
+
+- **`lattice sensor diff <rootA> <rootB> --json` を新設した（ADR 0156）。** 2つのtreeの構造グラフを
+  突き合わせ、node・辺・fileの差分を機械列挙する。upstream追従で「54コミットでどのsymbolのグラフが
+  変わったか」を人のgrepで数えていた面を置き換える。突き合わせは行番号を含まない自然キー
+  （`kind|path|qualified_name|name`）で行い、辺も端点を自然キーへ解決してから比べる——node idは
+  行番号を含むので、idで比べると数行のズレが差分を埋め尽くす。行だけの移動は`moved`へ落ちる。
+  `--subtree-a/-b`と`--map-a/-b`が2つのtreeの階層と改名を吸収する（`sensor/UPSTREAM.json`の
+  `path_map`をそのまま写せる）。実装はLattice本体側にあり、`sensor/`は変更していない。
+- **差分が信じられない条件を、差分と一緒に返す。** 両側のschema versionの違い、同じfileが違う
+  extraction versionで抽出されている件数、抽出errorを記録したfileの件数を`comparability`が
+  `degraded`として名指しする。比較から外した辺（端点がsubtree外・index不整合）は`excluded`へ
+  種別ごとに、明細を切った量は`truncation`へ出る。件数summaryは切らない。
+  必要な列を欠く古いindex、写像が2つのfileを同じpathへ潰す指定、片側の未索引は、いずれも
+  typed errorで止まる——勝手に索引せず、片方を黙って捨てない。
+
+### 修正
+
+- **古いengineが新しいindexを書き戻す欠陥を修正した。** 抽出版のheal判定が「版が違えば
+  再抽出」（`!=`）だったため、healが双方向になっていた。結果、upgrade前のコードを抱えた
+  常駐processが、`sync`で揃えたindexを自分の古い版へ書き戻し続け、indexが永久に収束しない。
+  判定を「自分より古い時だけ」（`<`）へ直し、内容未変更かつ新しい版で書かれた行は触らない。
+  global stampも、自分より新しい行が残っている間は進めない（進めると、起きていない
+  downgradeを宣言して実態を隠す）。この欠陥は新設した`lattice sensor diff`が
+  `comparability: degraded`を出したことで見つかった。
+- **`lattice sensor status`が「engineがindexより古い」を報告するようになった。** 逆向き
+  （indexがengineより古い）は前から再indexを勧めていたが、こちら向きは無言だった。
+  無言だと、収束しないindexの理由が誰にも見えない。JSONは`index.engineBehindIndexFiles`で、
+  boundary compilerが読むstatus契約（`src/sensor-adapter.mjs`）の必須欄でもある——欄が
+  欠けたstatusはreadyへ丸めず未解決として扱う。
+- **一括改名で取り残された索引pathの参照を直した。** `sensor/scripts/dump-graph.mjs`は
+  存在しない`.lattice-sensor/lattice-sensor.db`を開こうとし、kernel parityの走査は
+  `.lattice`を除外できず、agent-eval一式は「索引が無い」と誤判定して全部止まっていた。
+  正本は`.lattice/sensor/sensor.db`である。
+- **効かないenv varに頼っていたtestを直した。** `LATTICE_SENSOR_DIR`はどこからも読まれて
+  いないのに、integration testが索引の隔離に使っていた（隔離は実際にはworktreeが担っていた）。
+  それを事実として書いていたコメントも訂正した。
+
 ## 0.44.0 — 2026-08-03
 
 ### 変更

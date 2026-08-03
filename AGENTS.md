@@ -106,6 +106,11 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 - sensorはLatticeが所有し、配布物内の`./sensor/dist`からのみ起動する。PATH上の独立CLI、
   npx配布物、外部SDKへfallbackしない。MIT attributionは`./sensor/LICENSE`と
   `./sensor/NOTICE`で維持する。
+- **抽出版のhealは片方向である。** 再抽出するのは自分より**古い**版で書かれた行だけで、
+  新しい版で書かれた行には触らない。「版が違えば再抽出」にすると、upgrade前のコードを抱えた
+  常駐processが揃えたindexを書き戻し続け、indexが永久に収束しない（2026-08-03に実際に起きた）。
+  indexが収束しない時は`lattice sensor status`の`index.engineBehindIndexFiles`を見る——
+  非ゼロなら、そのprocessがindexより古い。止めて現行buildで上げ直すのが直し方である。
 - **抽出器は二重実装であり、native kernelはwasm側へ追従する（ADR 0154）。** 配布に載るのはwasm経路で、
   Rustのnative kernelは同じ結果を速く出すためだけに在る。node／edge／refのフィールド、新しいnode種別、
   新しい辺をTypeScript側へ足したら、同じ作業のうちにRust側へも足す。`kernel-tsjs-parity`が赤いまま
@@ -117,6 +122,13 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
   行い、新しいkernel言語・wasm extractorは名指しで報告される。kernelの新言語は「取り込み＋
   Lattice独自機能（extent・動的import等）の追従＋parity green」までが1単位の作業である。
   markerを進めずに同じrefへ`--apply`を再実行しない——解決済みtreeへ衝突マーカーが再注入される。
+- **2つのtreeの構造差分は`lattice sensor diff`で取る（ADR 0156）。** 追従では対象refを
+  worktreeへ出して`lattice sensor init`し、`lattice sensor diff . <worktree> --subtree-a sensor
+  --map-b <upstream名>=<Lattice名> --json`で突き合わせる。手のgrepで数えない——node idは
+  行番号を含むので、grepでもidでも行ズレが差分を埋める。突き合わせは行番号を含まない自然キーで
+  行われ、行だけの移動は`moved`へ落ちる。`comparability.status`が`degraded`の時、その差分は
+  codeの変化だけを意味しない（両側のextraction versionが違う）ので、先に`lattice sensor sync`で
+  揃えてから読む。
 - **licenseは二層である。** 製品本体は`PolyForm-Noncommercial-1.0.0`（非商用は無償、商用は
   別途許諾）で、`sensor/`はupstream由来のMITのまま。**`sensor/`のlicenseを書き換えない**——
   第三者コードは再ライセンスできず、帰属表示の保持義務がある。製品をOSI承認licenseへ
