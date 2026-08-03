@@ -1,5 +1,7 @@
 <p align="center">
-  <img src=".github/og.png" alt="Lattice — 見かけだけの競合で作業を直列化しない" width="100%">
+  <img src=".github/og.png" alt="Lattice — 閉ざされて見えた山岳地形から複数の進行経路が現れる" width="100%">
+  <br>
+  <sub><em>この画像は、閉ざされているように見えた場所から複数の進行経路が現れ、自律した実行者たちが協調して動き出す瞬間を表しています。</em></sub>
 </p>
 
 # Lattice

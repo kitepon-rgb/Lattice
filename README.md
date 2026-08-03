@@ -1,5 +1,7 @@
 <p align="center">
-  <img src=".github/og.png" alt="Lattice — stop serializing work that only looks like it conflicts" width="100%">
+  <img src=".github/og.png" alt="Lattice — several viable routes emerging through an apparently blocked mountain valley" width="100%">
+  <br>
+  <sub><em>This image represents several viable paths emerging from terrain that first appeared blocked, as autonomous executors begin moving in coordination.</em></sub>
 </p>
 
 # Lattice
