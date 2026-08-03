@@ -111,7 +111,7 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
   新しい辺をTypeScript側へ足したら、同じ作業のうちにRust側へも足す。`kernel-tsjs-parity`が赤いまま
   他の作業を続けない——赤は「開発機の索引結果が配布物と違う」という意味である。揃える方向は常に
   native→wasmとし、TS側を削って一致させない。ABIを変える時は両側と`KERNEL_ABI_VERSION`を同時に動かす。
-- **upstream（CodeGraph）から貰えるものが増えたら取り込む（オーナー裁定 2026-08-03）。** 正本は
+- **upstreamから貰えるものが増えたら取り込む（オーナー裁定 2026-08-03）。** 正本は
   `sensor/UPSTREAM.json`、追従は`npm run upstream:sync`（3-way merge・衝突後は解決→commit→
   `--mark-synced`）、検知は週次の`.github/workflows/upstream-check.yml`と`npm run upstream:check`が
   行い、新しいkernel言語・wasm extractorは名指しで報告される。kernelの新言語は「取り込み＋
