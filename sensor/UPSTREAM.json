@@ -16,7 +16,10 @@
   },
   "path_map": {
     "codegraph-kernel": "lattice-sensor-kernel",
-    "CLAUDE.md": "docs/UPSTREAM-CLAUDE.md"
+    "CLAUDE.md": "docs/UPSTREAM-CLAUDE.md",
+    "src/bin/codegraph.ts": "src/bin/lattice-sensor.ts",
+    "docs/benchmarks/codegraph-ab-matrix.md": "docs/benchmarks/lattice-sensor-ab-matrix.md",
+    "docs/design/agent-codegraph-adoption.md": "docs/design/agent-lattice-sensor-adoption.md"
   },
   "skip": [
     "site/",
@@ -53,7 +56,12 @@
     {
       "path": "src/extraction/extraction-version.ts",
       "resolution": "manual",
-      "why": "EXTRACTION_VERSION gates the incremental re-extraction heal. Both sides bump it; the merged value must be higher than either, never a pick."
+      "why": "EXTRACTION_VERSION gates the incremental re-extraction heal. Both sides bump it independently, so the two values can name different output — the merged value must be higher than either, never a pick."
+    },
+    {
+      "path": "lattice-sensor-kernel/src/buffers.rs",
+      "resolution": "manual",
+      "why": "KERNEL_ABI_VERSION collides: upstream v2 is a 40-byte ref row with a flags byte; Lattice layers extraJson on top for 48. Same number, different layout — the loader's version check would pass while decode mis-reads. After a sync that touches the layout, advance Lattice's number PAST upstream's, and move layout.ts in the same commit."
     },
     {
       "path": "__tests__/installer-targets.test.ts",

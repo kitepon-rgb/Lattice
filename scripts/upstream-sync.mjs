@@ -155,6 +155,7 @@ function run() {
     added: [],
     conflicted: [],
     policy_applied: [],
+    rename_unmapped: [],
     upstream_deleted: [],
     skipped: 0,
     unchanged: 0,
@@ -190,7 +191,16 @@ function run() {
       }
 
       // upstreamの新規ファイル。Lattice側に無ければそのまま置ける。
+      //
+      // ただしbaseに在ってoursに無いなら、それは「upstreamの新規」ではなく
+      // 「Latticeがリネーム/削除した」ものである。path_mapへ写像を書かずに追加
+      // すると、リネーム前の名前が復活して両方が並ぶ（実際に src/bin/codegraph.ts
+      // で起きた）。baseに在るものは新規として置かず、写像漏れとして報告する。
       if (!existsSync(absolute)) {
+        if (baseBlob !== null) {
+          report.rename_unmapped.push(localPath);
+          continue;
+        }
         report.added.push(localPath);
         if (options.apply) {
           mkdirSync(path.dirname(absolute), { recursive: true });
@@ -261,7 +271,8 @@ function run() {
   // 未処理が1つでも残るなら印を進めない。進めれば次回がここを飛ばす。
   // upstreamの削除も未処理に数える——「消えたことに気づかないまま印だけ進む」のが
   // まさに今回54コミット溜めた形である。承認するなら accepted_deletions へ書く。
-  const clean = report.conflicted.length === 0 && report.upstream_deleted.length === 0;
+  const clean = report.conflicted.length === 0 && report.upstream_deleted.length === 0
+    && report.rename_unmapped.length === 0;
   if (options.apply && clean) {
     manifest.synced_at = { commit: target, date: new Date().toISOString().slice(0, 10) };
     writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -292,6 +303,11 @@ function run() {
     const decided = entry.policy ? `policy=${entry.policy}` : 'UNDECIDED — record it in UPSTREAM.json';
     lines.push(`  ${entry.binary ? 'binary' : `${entry.hunks} hunk(s)`.padEnd(10)} ${entry.path}  [${decided}]`);
     if (entry.why) lines.push(`      ${entry.why}`);
+  }
+  if (report.rename_unmapped.length > 0) {
+    lines.push('', `RENAME NOT MAPPED — present in base, absent locally: ${report.rename_unmapped.length}`);
+    lines.push('  Lattice renamed or deleted these. Add the mapping to path_map, or the old name comes back.');
+    for (const p of report.rename_unmapped) lines.push(`  ${p}`);
   }
   if (report.upstream_deleted.length > 0) {
     lines.push('', `upstream deleted (kept locally — decide by hand): ${report.upstream_deleted.length}`);
