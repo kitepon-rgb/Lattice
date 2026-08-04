@@ -22,7 +22,7 @@
       ],
       "resources": [],
       "state_effects": [],
-      "unknowns": ["runtime-cliのhold呼出面は実装時の呼出追跡で必要なら予測へ追加する"],
+      "unknowns": [],
       "sensor_provenance": {
         "queries": [{"query_id": "witness-affected-000", "expect": {"kind": "affected", "path": "src/runtime-managed-supervisor.mjs"}}]
       }
@@ -34,5 +34,5 @@
       {"id": "witness-affected-000", "operation": "affected", "target": "src/runtime-managed-supervisor.mjs"}
     ]
   },
-  "witness_set_digest": "59303b1ac0fb8bd48f4c3ee41e4fd218ade3ac858c8fb89476ed4f776e427b0f"
+  "witness_set_digest": "17bc3bfa7fdb3c7da79b7550ff52b9dad09381491be1582b71b4d19d9bd54133"
 }
