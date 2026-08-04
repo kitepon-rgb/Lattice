@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.46.2 — 2026-08-04
+
+### 修正
+
+- **Claude CodeのhookがHomebrew更新後に起動不能になる欠陥を直した。** hook installerが
+  `process.execPath`をそのまま永続化し、`/opt/homebrew/Cellar/node/<version>/bin/node`という
+  更新時に削除される版付きパスを`~/.claude/settings.json`へ書いていた。同じNode実体を指すことを
+  確認できる場合だけ`/opt/homebrew/bin/node`または`/usr/local/bin/node`へ正規化し、別実体なら
+  元の実行パスを維持する。これによりNodeのpatch更新で`UserPromptSubmit` hookが壊れない。
+
 ## 0.46.1 — 2026-08-04
 
 ### ドキュメント
