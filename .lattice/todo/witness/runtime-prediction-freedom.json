@@ -1,64 +1,38 @@
 {
-  "schema": "lattice.todo_witness_set.v3",
+  "schema": "lattice.todo_witness_set.v4",
   "project_id": "lattice",
   "plan_key": "runtime-prediction-freedom",
   "capacity": {"executors": 1},
   "manual_witness": {
-    "rpf-002": {
-      "owns": [{"kind": "path", "target": "src/runtime-front-end.mjs"}],
-      "reads": [
-        "src/runtime-contracts.mjs",
-        "src/runtime-engine.mjs",
-        "src/todo-independence-contracts.mjs",
-        "src/todo-independence-guidance.mjs",
-        "src/witness-scaffold.mjs"
-      ],
-      "writes": ["src/runtime-front-end.mjs"],
+    "rpf-004": {
+      "owns": [{"kind": "path", "target": "src/runtime-managed-supervisor.mjs"}],
+      "reads": [],
+      "writes": ["src/runtime-managed-supervisor.mjs"],
       "affected_tests": [
         "test/integration/aishell-runtime-conflict-dogfood.integration.mjs",
-        "test/integration/rc3-actual-dogfood.integration.mjs",
-        "test/integration/rc3-scripted-campaign.integration.mjs",
-        "test/integration/rc4-stage1-dogfood.integration.mjs",
-        "test/integration/runtime-seam-transform.integration.mjs",
         "test/project-cli.test.mjs",
-        "test/rc3-front-end.test.mjs",
         "test/runtime-adapter-registry-cli.test.mjs",
         "test/runtime-canonical-write-coverage.test.mjs",
         "test/runtime-conflict-cli.test.mjs",
         "test/runtime-lifecycle-lock.test.mjs",
         "test/runtime-managed-supervisor.test.mjs",
         "test/runtime-scripted-adapter-controller.test.mjs",
-        "test/runtime-seam-resolve.test.mjs",
-        "test/seam-proposal.test.mjs",
         "test/session-context.test.mjs",
-        "test/todo-cli-schema-command.test.mjs",
-        "test/todo-close-unaudited.test.mjs",
-        "test/todo-dashboard-registry.test.mjs",
-        "test/todo-design-memo.test.mjs",
-        "test/todo-explain-diagnostics.test.mjs",
-        "test/todo-gantt-render.test.mjs",
-        "test/todo-gantt-scope-cli.test.mjs",
-        "test/todo-independence-cli.test.mjs",
-        "test/todo-independence-compile.test.mjs",
-        "test/todo-independence-witness.test.mjs",
-        "test/todo-note-gantt.test.mjs",
-        "test/todo-phase-baseline.test.mjs",
-        "test/todo-revision-set.test.mjs",
-        "test/todo-terminal-audit.test.mjs"
+        "test/todo-note-gantt.test.mjs"
       ],
       "resources": [],
       "state_effects": [],
-      "unknowns": [],
+      "unknowns": ["runtime-cliのhold呼出面は実装時の呼出追跡で必要なら予測へ追加する"],
       "sensor_provenance": {
-        "queries": [{"query_id": "witness-affected-000", "expect": {"kind": "affected", "path": "src/runtime-front-end.mjs"}}]
+        "queries": [{"query_id": "witness-affected-000", "expect": {"kind": "affected", "path": "src/runtime-managed-supervisor.mjs"}}]
       }
     }
   },
   "sensor_query_set": {
     "queries": [
       {"id": "witness-status", "operation": "status"},
-      {"id": "witness-affected-000", "operation": "affected", "target": "src/runtime-front-end.mjs"}
+      {"id": "witness-affected-000", "operation": "affected", "target": "src/runtime-managed-supervisor.mjs"}
     ]
   },
-  "witness_set_digest": "66e3a49bbfbcddb158f2f101190ce04e8b034a23dd909580afcf7c73d5dc4dd6"
+  "witness_set_digest": "59303b1ac0fb8bd48f4c3ee41e4fd218ade3ac858c8fb89476ed4f776e427b0f"
 }
