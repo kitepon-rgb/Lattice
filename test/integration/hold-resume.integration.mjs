@@ -55,7 +55,7 @@ const unitTest = (symbol) => `import assert from 'node:assert/strict';\nimport t
 
 // 請求項7・8の再開側。barrierは競合の影響群だけを止め、`continue_set`のworkerは
 // origin bindingを保ったまま走り続ける。後継epochへ移すのは`hold_set`だけである。
-test('競合群だけをholdし、無関係workerはoriginのまま継続する', managedDaemon, async (t) => {
+test('競合群の後継を先に起動し、無関係workerの旧epoch成果を受理する', managedDaemon, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-hold-resume-'));
   registerManagedDaemonFixture(t, temporaryRoot);
   const repoRoot = path.join(temporaryRoot, 'repo');
@@ -68,7 +68,8 @@ test('競合群だけをholdし、無関係workerはoriginのまま継続する'
   }
   // T2が宣言外のsrc/alpha.mjs——T1のscope——へも書く。T3は無関係なのでcontinue_setへ落ちる。
   await writeFile(path.join(repoRoot, 'adapter-config.json'),
-    `${JSON.stringify({ mode: 'deterministic', hold_ms: 10_000, extra_writes: ['src/alpha.mjs'] })}\n`);
+    `${JSON.stringify({ mode: 'deterministic', hold_ms: 10_000,
+      extra_writes_by_todo: { T2: ['src/alpha.mjs'] } })}\n`);
 
   const git = (...args) => ok(invoke('git', ['-c', 'user.email=a@example.invalid',
     '-c', 'user.name=a', ...args], repoRoot), `git ${args[0]}`);
@@ -163,8 +164,8 @@ test('競合群だけをholdし、無関係workerはoriginのまま継続する'
   recompile.request_digest = selfDigest(recompile, 'request_digest');
   const recompilePath = path.join(temporaryRoot, 'recompile.json');
   await writeFile(recompilePath, `${JSON.stringify(recompile)}\n`);
-  const recompiled = ok(cli(['run', 'recompile', '--run', runRef, '--input', recompilePath],
-    repoRoot), 'run recompile');
+  const recompileResult = cli(['run', 'recompile', '--run', runRef, '--input', recompilePath], repoRoot);
+  const recompiled = ok(recompileResult, 'run recompile');
   assert.equal(JSON.parse(recompiled.stdout).outcome, 'recompiled');
 
   const afterRecompile = JSON.parse(await readFile(path.join(runDir, 'control-events.json'), 'utf8'));
@@ -173,22 +174,49 @@ test('競合群だけをholdし、無関係workerはoriginのまま継続する'
   assert.equal(afterRecompile.find((event) => event.kind === 'workers_resumed'),
     undefined, '止めていないworkerへresumeを発行している');
 
-  // 無関係workerはoriginのまま継続し、競合当事者だけが止まったまま残る。
+  // 対象群のsuccessorは、無関係workerのterminalを待たずにdispatchされる。
+  // 無関係workerは再dispatchもrebindもされず、origin receiptを後継planが受理する。
   const afterEvents = JSON.parse(await readFile(path.join(runDir, 'events.json'), 'utf8'));
   assert.equal(afterEvents.some((event) => event.kind === 'epoch_rebound'), false,
     '無関係workerを別epochへ付け替えている');
+  const continueId = decided.payload.continue_set[0];
+  const originContinue = runEvents.find((event) => event.kind === 'executor_dispatched'
+    && event.subject?.ref === continueId);
+  const successorDispatches = afterEvents.filter((event) => event.kind === 'executor_dispatched'
+    && event.plan_epoch === 2 && decided.payload.hold_set.includes(event.subject?.ref));
+  assert.ok(successorDispatches.length > 0, '対象群のsuccessorがdispatchされていない');
+  const continueTerminal = afterEvents.find((event) => event.kind === 'executor_terminal'
+    && event.subject?.ref === continueId && event.sequence > originContinue.sequence);
+  assert.notEqual(continueTerminal, undefined, '無関係workerのterminalが観測されていない');
+  assert.ok(successorDispatches[0].sequence < continueTerminal.sequence,
+    '対象群のsuccessorが無関係workerのterminalを待っている');
+  const continueDispatches = afterEvents.filter((event) => event.kind === 'executor_dispatched'
+    && event.subject?.ref === continueId);
+  assert.equal(continueDispatches.length, 1, '無関係workerを再dispatchしている');
+  assert.equal(afterEvents.some((event) => event.kind === 'context_invalidated'
+    && event.subject?.ref === continueId), false, '無関係workerのcontextを失効している');
+  const originReceipt = afterEvents.find((event) => event.kind === 'receipt_recorded'
+    && event.subject?.ref === continueId);
+  assert.notEqual(originReceipt, undefined, '無関係workerのorigin receiptが無い');
+  assert.equal(originReceipt.plan_epoch, 1);
+  assert.equal(originReceipt.payload.executor_handle, originContinue.payload.executor_handle);
+  assert.notEqual(afterEvents.find((event) => event.kind === 'receipt_accepted'
+    && event.subject?.ref === continueId && event.plan_epoch === 2), undefined,
+  '無関係workerの旧epoch receiptが受理されていない');
+  const verified = JSON.parse(ok(cli(['event', 'verify', '--run', runRef], repoRoot),
+    'event verify').stdout);
+  assert.equal(verified.valid, true, JSON.stringify(verified.failed_conditions));
+
+  // 旧attemptはsuccessor起動時に終了し、停止processとして残さない。
   for (const todoId of decided.payload.hold_set) {
-    assert.equal(stateOf(pidOf(todoId)).startsWith('T'), true, `当事者が止まっていない: ${todoId}`);
+    assert.equal(stateOf(pidOf(todoId)), '', `旧attempt processが残っている: ${todoId}`);
   }
   for (const todoId of decided.payload.continue_set) {
-    assert.equal(stateOf(pidOf(todoId)).startsWith('T'), false, `無関係workerが停止した: ${todoId}`);
+    assert.equal(stateOf(pidOf(todoId)), '', `完了した無関係worker processが残っている: ${todoId}`);
   }
 
   ok(cli(['run', 'abandon', '--run', runRef, '--reason', 'acceptance'], repoRoot), 'run abandon');
-  // 破棄の決定として終了が記録され、processが残らないこと。
-  const after = JSON.parse(await readFile(path.join(runDir, 'control-events.json'), 'utf8'));
-  assert.notEqual(after.find((event) => event.kind === 'worker_processes_terminated'), undefined,
-    '破棄の記録が無い');
+  // 破棄後にもprocessが残らないこと。
   for (const todoId of [...decided.payload.hold_set, ...decided.payload.continue_set]) {
     assert.equal(stateOf(pidOf(todoId)), '', `worker processが残っている: ${todoId}`);
   }

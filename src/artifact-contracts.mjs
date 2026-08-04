@@ -111,9 +111,6 @@ function inspectArray(value, state, depth) {
   if (Object.getPrototypeOf(value) !== Array.prototype) {
     invalidArtifact('array prototypeが不正');
   }
-  if (value.length > MAX_COLLECTION_ITEMS) {
-    invalidArtifact('array item数が上限を超えている');
-  }
 
   const ownKeys = Reflect.ownKeys(value);
   if (ownKeys.some((key) => typeof key !== 'string')) {

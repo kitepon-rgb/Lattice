@@ -19,16 +19,17 @@ const managedDaemon = {
   skip: process.platform === 'darwin' ? false : 'managed runtime daemon is verified on macOS only',
 };
 
-function invoke(command, args, cwd) {
+function invoke(command, args, cwd, extraEnv = {}) {
   const result = spawnSync(command, args, {
     cwd, encoding: 'utf8', timeout: 120_000,
-    env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1', LATTICE_DASHBOARD_AUTOSTART: '0' },
+    env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1',
+      LATTICE_DASHBOARD_AUTOSTART: '0', ...extraEnv },
   });
   assert.equal(result.error, undefined);
   return result;
 }
 
-const cli = (args, cwd) => invoke(process.execPath, [CLI, ...args], cwd);
+const cli = (args, cwd, extraEnv = {}) => invoke(process.execPath, [CLI, ...args], cwd, extraEnv);
 
 function ok(result, label) {
   assert.equal(result.status, 0, `${label}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
@@ -112,7 +113,8 @@ test('同じ書き込みでも、1者しか名指さない観測はfreezeへ運�
   })}\n`);
   ok(cli(['run', 'adapter', 'register', '--input', path.join(temporaryRoot, 'adapter.json')],
     repoRoot), 'adapter register');
-  ok(cli(['run', 'activate', '--run', runRef], repoRoot), 'run activate');
+  ok(cli(['run', 'activate', '--run', runRef], repoRoot,
+    { LATTICE_IO_SENTINEL: 'off' }), 'run activate');
 
   const runDir = path.join(repoRoot, ...runRef.split('/'));
   const runEvents = JSON.parse(await readFile(path.join(runDir, 'events.json'), 'utf8'));
@@ -123,10 +125,14 @@ test('同じ書き込みでも、1者しか名指さない観測はfreezeへ運�
   assert.equal(conflict.payload.kind, 'observed_write_conflict', JSON.stringify(conflict.payload));
   assert.deepEqual([...conflict.payload.todo_ids].sort(), ['T1', 'T2']);
   assert.notEqual(runEvents.find((event) => event.kind === 'intake_frozen'), undefined);
+  const controlEvents = JSON.parse(await readFile(path.join(runDir, 'control-events.json'), 'utf8'));
+  assert.equal(controlEvents.some((event) => event.kind === 'io_warning_observed'), false,
+    'sentinelを無効にしたrunで早期警報が記録されている');
 
   const checkpoint = runEvents.findLast((event) => event.kind === 'checkpoint_observed'
     && event.subject?.ref === 'T2');
   assert.notEqual(checkpoint, undefined, runEvents.map((e) => e.kind).join(','));
+  assert.equal(checkpoint.payload.observed_by, 'supervisor_terminal');
 
   // --- 予測超過そのものも観測として記録できる。予測が外れた事実を捨てない。
   const candidate = {

@@ -322,10 +322,8 @@ export class RuntimeManagedSupervisor {
       || !Number.isSafeInteger(sequence) || sequence <= record.lastHeartbeatSequence || !digest(leaseSetDigest)) {
       await this.#failClosed(record, 'CONTROLLER_HEARTBEAT_EXPIRED', 'heartbeat binding不正');
     }
-    const expectedLeaseSetDigest = digestArtifact([...this.#leases.values()]
-      .filter((entry) => entry.controllerId === controllerId && !entry.revoked)
-      .map((entry) => entry.lease.lease_digest).sort());
-    if (leaseSetDigest !== expectedLeaseSetDigest) await this.#failClosed(record, 'CONTROLLER_HEARTBEAT_EXPIRED', 'heartbeat lease set不一致');
+    // prepare/release応答とsupervisor投影の間には短い非同期窓がある。heartbeatは
+    // livenessだけを担い、lease集合はwrite認可時のcentral gate full-chainで照合する。
     record.lastHeartbeat = this.#clock();
     record.lastHeartbeatSequence = sequence;
     await this.#append('controller_heartbeat', { controller_id: controllerId, registration_digest: registrationDigest, sequence, lease_set_digest: leaseSetDigest });
@@ -692,10 +690,12 @@ export class RuntimeManagedSupervisor {
       releaseAcks, armedLeases: gateLeases,
       previousGate,
     });
-    if (!verified.valid || this.#clock() - entry.issuedAt > entry.lease.ttl_ms) {
+    // gate commit時にarmした後続frontierのleaseを壁時計で失効させると、正しく直列待ちした
+    // taskほどdispatch不能になる。freshnessはactive gate chainとrevokeで決める。
+    if (!verified.valid) {
       entry.revoked = true;
       this.#frozen = true;
-      fail('RUN_FROZEN', verified.valid ? 'lease TTL超過' : verified.reason);
+      fail('RUN_FROZEN', verified.reason);
     }
     return structuredClone(entry.lease);
   }

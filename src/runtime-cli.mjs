@@ -792,7 +792,7 @@ async function reapRunWorkerProcesses({ events }) {
   return { reaped, skipped };
 }
 
-async function driveInitialScriptedManagedEpoch({
+async function driveScriptedManagedEpoch({
   runDir,
   repoRoot,
   request,
@@ -805,20 +805,21 @@ async function driveInitialScriptedManagedEpoch({
   preDispatchBindings = null,
   drainEscalations = null,
   escalateTerminalConflict = null,
+  preactivated = null,
 }) {
   let events = [...initialEvents];
   const { plan, manifests, executor_packets: packets } = committed.bundle;
   const controllerId = activation.controllerDescriptor.controller_id;
   const registrationDigest = activation.registration.registration_digest;
   const sessionNonceDigest = digestArtifact(activation.sessionNonce);
+  const preactivatedByPacket = new Map((preactivated?.armedLeases ?? []).map((lease) => [
+    lease.packet_digest,
+    lease,
+  ]));
   for (;;) {
     const frontier = computeReadyFrontier({ plan, events }).dispatchable;
     if (frontier.length === 0) break;
-    await managedSupervisor.barrierAll({
-      barrierId: `dispatch-${plan.plan_epoch}-${events.length}`,
-      reason: 'initial_scripted_dispatch',
-      frozenEventDigest: events.at(-1).event_digest,
-    });
+    const alreadyRunning = projectRuntimeState({ events }).running;
     const issuedControlDigest = controlEvents().at(-1)?.event_digest;
     if (typeof issuedControlDigest !== 'string') {
       throw new ManagedRuntimeError(
@@ -841,47 +842,63 @@ async function driveInitialScriptedManagedEpoch({
     }
     syncSentinelWatches({ sentinel, runningTodoIds: [...frontier],
       rootOf: (todoId) => worktreeByTodo.get(todoId) });
-    const stagedLeases = [];
-    for (const todoId of frontier) {
-      const packet = packets[todoId];
-      const staged = {
-        schema: 'lattice.runtime_write_lease.v1',
-        lease_id: `lease-${packet.packet_digest.slice(0, 24)}`,
-        run_id: request.request_id,
-        todo_id: todoId,
-        plan_epoch: plan.plan_epoch,
-        packet_digest: packet.packet_digest,
-        controller_registration_digest: registrationDigest,
-        supervisor_session_nonce_digest: sessionNonceDigest,
-        state: 'staged',
-        ttl_ms: 60_000,
-        issued_control_digest: issuedControlDigest,
-        lease_digest: '',
-      };
-      staged.lease_digest = selfDigest(staged, 'lease_digest');
-      await managedSupervisor.prepareController({
-        controllerId,
-        executorPacket: packet,
-        stagedLease: staged,
+    let activated = frontier.every((todoId) => preactivatedByPacket.has(packets[todoId].packet_digest))
+      ? { armedLeases: frontier.map((todoId) => {
+        const packetDigest = packets[todoId].packet_digest;
+        const lease = preactivatedByPacket.get(packetDigest);
+        preactivatedByPacket.delete(packetDigest);
+        return lease;
+      }) }
+      : null;
+    if (activated === null) {
+      await managedSupervisor.barrierAll({
+        barrierId: `dispatch-${plan.plan_epoch}-${events.length}`,
+        reason: 'scripted_dispatch',
+        frozenEventDigest: events.at(-1).event_digest,
       });
-      stagedLeases.push(staged);
+      const stagedLeases = [];
+      for (const todoId of frontier) {
+        const packet = packets[todoId];
+        const staged = {
+          schema: 'lattice.runtime_write_lease.v1',
+          lease_id: `lease-${packet.packet_digest.slice(0, 24)}`,
+          run_id: request.request_id,
+          todo_id: todoId,
+          plan_epoch: plan.plan_epoch,
+          packet_digest: packet.packet_digest,
+          controller_registration_digest: registrationDigest,
+          supervisor_session_nonce_digest: sessionNonceDigest,
+          state: 'staged',
+          ttl_ms: 60_000,
+          issued_control_digest: issuedControlDigest,
+          lease_digest: '',
+        };
+        staged.lease_digest = selfDigest(staged, 'lease_digest');
+        await managedSupervisor.prepareController({
+          controllerId,
+          executorPacket: packet,
+          stagedLease: staged,
+        });
+        stagedLeases.push(staged);
+      }
+      const activationDigest = digestArtifact({
+        schema: 'lattice.scripted_activation.v1',
+        committed_epoch_pointer_digest: committed.pointer.pointer_digest,
+        staged_lease_digests: stagedLeases.map((lease) => lease.lease_digest).sort(),
+      });
+      activated = await managedSupervisor.commitWriteGate({
+        planEpoch: plan.plan_epoch,
+        committedEpochDigest: committed.pointer.pointer_digest,
+        activationDigest,
+        commitReleaseBarrier: (barrier) => commitReleaseEpochBarrier({ runDir, barrier }),
+        committedAt: canonicalNow(),
+      });
     }
-    const activationDigest = digestArtifact({
-      schema: 'lattice.initial_scripted_activation.v1',
-      committed_epoch_pointer_digest: committed.pointer.pointer_digest,
-      staged_lease_digests: stagedLeases.map((lease) => lease.lease_digest).sort(),
-    });
-    const activated = await managedSupervisor.commitWriteGate({
-      planEpoch: plan.plan_epoch,
-      committedEpochDigest: committed.pointer.pointer_digest,
-      activationDigest,
-      commitReleaseBarrier: (barrier) => commitReleaseEpochBarrier({ runDir, barrier }),
-      committedAt: canonicalNow(),
-    });
     const armedByPacket = new Map(activated.armedLeases.map((lease) => [
       lease.packet_digest,
       lease,
     ]));
+    const terminalCheckpointByHandle = new Map();
     const managedAdapter = {
       async dispatch({ packet }) {
         const lease = armedByPacket.get(packet.packet_digest);
@@ -962,8 +979,10 @@ async function driveInitialScriptedManagedEpoch({
         const checkpoint = await captureWorktreeDiff({
           worktreePath: binding.worktree_path, baseSha: binding.base_sha,
         });
-        return { state: 'terminal', receipt,
-          checkpoint: { ...checkpoint, observed_by: 'supervisor_terminal' } };
+        // receiptのcheckpointはexecutor申告、これはsupervisorの独立観測でdigest schemaも異なる。
+        // 同じeventへ混ぜず、receipt記録後に別checkpointとして追記する。
+        terminalCheckpointByHandle.set(executorHandle, checkpoint);
+        return { state: 'terminal', receipt };
       },
     };
     const dispatched = await dispatchReadyFrontier({
@@ -992,7 +1011,8 @@ async function driveInitialScriptedManagedEpoch({
     // **workerが走っている間だけが、実行時競合を掴める窓である。** 観測を1件ずつ待たずに
     // 回し、その合間に早期警報のescalationを捌く。捌くのは`replaceEventsAtomically`の
     // 直後だけ——そこでしかdiskとメモリのeventsが一致していない。
-    const awaiting = new Set(dispatched.dispatched);
+    const awaiting = new Set([...dispatched.dispatched, ...alreadyRunning]);
+    const completedReceiptIds = new Set();
     const observeDeadline = Date.now() + SCRIPTED_OBSERVE_TIMEOUT_MS;
     let frozen = false;
     while (awaiting.size > 0) {
@@ -1014,6 +1034,29 @@ async function driveInitialScriptedManagedEpoch({
         if (observed.observation.state === 'running') continue;
         events = observed.events;
         if (observed.observation.state === 'terminal') {
+          const dispatchForTerminal = events.findLast((event) => (
+            event.kind === 'executor_dispatched'
+            && event.subject?.kind === 'todo' && event.subject.ref === todoId
+          ));
+          const terminalCheckpoint = terminalCheckpointByHandle
+            .get(dispatchForTerminal.payload.executor_handle);
+          if (terminalCheckpoint === undefined) {
+            throw new ManagedRuntimeError('ADAPTER_CONTROLLER_UNAVAILABLE',
+              `terminal diffが保存されていない: ${todoId}`);
+          }
+          terminalCheckpointByHandle.delete(dispatchForTerminal.payload.executor_handle);
+          events.push(buildNextRunEvent({
+            events,
+            runId: request.request_id,
+            kind: 'checkpoint_observed',
+            planEpoch: plan.plan_epoch,
+            subject: { kind: 'todo', ref: todoId },
+            payload: { ...terminalCheckpoint, observed_by: 'supervisor_terminal' },
+            recordedAt: canonicalNow(),
+          }));
+          const recordedReceipt = events.findLast((event) => event.kind === 'receipt_recorded'
+            && event.subject?.kind === 'todo' && event.subject.ref === todoId);
+          completedReceiptIds.add(recordedReceipt.payload.receipt_id);
           const terminalEvent = events.findLast((event) => event.kind === 'executor_terminal'
             && event.subject?.kind === 'todo' && event.subject.ref === todoId);
           const currentDispatch = events.findLast((event) => event.kind === 'executor_dispatched'
@@ -1032,11 +1075,11 @@ async function driveInitialScriptedManagedEpoch({
               return otherTerminal === undefined || otherTerminal.sequence > currentDispatch.sequence;
             });
           const relevantTodoIds = [todoId, ...overlappingTodoIds];
-          const terminalCheckpoint = events.findLast((event) => event.kind === 'checkpoint_observed'
+          const terminalCheckpointEvent = events.findLast((event) => event.kind === 'checkpoint_observed'
             && event.subject?.kind === 'todo' && event.subject.ref === todoId
             && event.payload?.observed_by === 'supervisor_terminal');
           const observations = [{ todo_id: todoId,
-            paths: terminalCheckpoint.payload.diff.entries.map((entry) => entry.path) }];
+            paths: terminalCheckpointEvent.payload.diff.entries.map((entry) => entry.path) }];
           for (const peerId of overlappingTodoIds) {
             const peerCheckpoint = events.findLast((event) => event.kind === 'checkpoint_observed'
               && event.subject?.kind === 'todo' && event.subject.ref === peerId
@@ -1054,7 +1097,7 @@ async function driveInitialScriptedManagedEpoch({
             }
             await replaceEventsAtomically(runDir, events);
             events = await escalateTerminalConflict({ finding: actionable[0],
-              checkpointDigest: terminalCheckpoint.payload.checkpoint_digest });
+              checkpointDigest: terminalCheckpointEvent.payload.checkpoint_digest });
             frozen = true;
           }
         }
@@ -1088,10 +1131,14 @@ async function driveInitialScriptedManagedEpoch({
       events,
       recordedAt: canonicalNow(),
     });
-    if (adjudicated.decisions.some((decision) => decision.decision !== 'accepted')) {
+    const rejectedCompleted = adjudicated.decisions.filter((decision) => (
+      completedReceiptIds.has(decision.receipt_id) && decision.decision !== 'accepted'
+    ));
+    if (rejectedCompleted.length > 0) {
       throw new ManagedRuntimeError(
         'ADAPTER_CONTROLLER_UNAVAILABLE',
-        'scripted controller receiptが受理されなかった',
+        `scripted controller receiptが受理されなかった: ${rejectedCompleted
+          .map((decision) => `${decision.receipt_id}:${decision.detail}`).join(',')}`,
       );
     }
     events = adjudicated.events;
@@ -2245,6 +2292,49 @@ export async function runManagedSupervisorDaemon({
     return current;
   };
 
+  const escalateTerminalConflict = async ({ finding, checkpointDigest }) => {
+    const activeEpoch = await readCommittedEpochStore(runDir);
+    const candidate = {
+      schema: 'lattice.runtime_finding_candidate.v1',
+      proposed_kind: finding.kind,
+      todo_ids: [...finding.todo_ids].sort(),
+      path: finding.path,
+      resource_id: null,
+      evidence_digests: [checkpointDigest],
+      candidate_digest: '',
+    };
+    candidate.candidate_digest = selfDigest(candidate, 'candidate_digest');
+    const submit = (operation, { artifact = null, artifactDigest = null,
+      checkpoint = null } = {}) => executeControl(createRuntimeControlRequest({
+      requestId: `terminal-${randomUUID()}-${operation.replace(/_/gu, '-')}`,
+      runId: request.request_id, operation, sessionNonce,
+      payload: controlOperationPayload({ operation, runRef: request.request_id,
+        artifact, artifactDigest, checkpointDigest: checkpoint,
+        expectedEpoch: activeEpoch.pointer.plan_epoch,
+        expectedQueueDigest: null }),
+    }));
+    const recorded = await submit('finding_record', {
+      artifact: candidate, artifactDigest: digestArtifact(candidate),
+      checkpoint: checkpointDigest,
+    });
+    if (recorded.outcome !== 'completed') {
+      throw new ManagedRuntimeError('FINDING_UNRESOLVED',
+        'terminal findingを耐久化できない');
+    }
+    const findingDigest = recorded.result.finding_digest;
+    const conflicted = await submit('conflict', { artifactDigest: findingDigest });
+    if (conflicted.outcome !== 'completed') {
+      throw new ManagedRuntimeError('FINDING_UNRESOLVED',
+        'terminal findingをfreezeへ運べない');
+    }
+    const held = await submit('hold');
+    if (held.outcome !== 'completed') {
+      throw new ManagedRuntimeError('HOLD_ACKS_INCOMPLETE',
+        'terminal conflictの対象barrierが完了しない');
+    }
+    return readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+  };
+
   /** 警報の処理を直列化する鎖。`onWarning`はここへ繋ぐだけにする。 */
   let escalationChain = Promise.resolve();
 
@@ -2384,7 +2474,7 @@ export async function runManagedSupervisorDaemon({
           });
           epochDriveActive = true;
           try {
-            await driveInitialScriptedManagedEpoch({
+            await driveScriptedManagedEpoch({
               runDir,
               repoRoot,
               request,
@@ -2396,48 +2486,7 @@ export async function runManagedSupervisorDaemon({
               controlEvents: () => controlEvents,
               preDispatchBindings,
               drainEscalations: drainPendingEscalations,
-              escalateTerminalConflict: async ({ finding, checkpointDigest }) => {
-                const activeEpoch = await readCommittedEpochStore(runDir);
-                const candidate = {
-                  schema: 'lattice.runtime_finding_candidate.v1',
-                  proposed_kind: finding.kind,
-                  todo_ids: [...finding.todo_ids].sort(),
-                  path: finding.path,
-                  resource_id: null,
-                  evidence_digests: [checkpointDigest],
-                  candidate_digest: '',
-                };
-                candidate.candidate_digest = selfDigest(candidate, 'candidate_digest');
-                const submit = (operation, { artifact = null, artifactDigest = null,
-                  checkpoint = null } = {}) => executeControl(createRuntimeControlRequest({
-                  requestId: `terminal-${randomUUID()}-${operation.replace(/_/gu, '-')}`,
-                  runId: request.request_id, operation, sessionNonce,
-                  payload: controlOperationPayload({ operation, runRef: request.request_id,
-                    artifact, artifactDigest, checkpointDigest: checkpoint,
-                    expectedEpoch: activeEpoch.pointer.plan_epoch,
-                    expectedQueueDigest: null }),
-                }));
-                const recorded = await submit('finding_record', {
-                  artifact: candidate, artifactDigest: digestArtifact(candidate),
-                  checkpoint: checkpointDigest,
-                });
-                if (recorded.outcome !== 'completed') {
-                  throw new ManagedRuntimeError('FINDING_UNRESOLVED',
-                    'terminal findingを耐久化できない');
-                }
-                const findingDigest = recorded.result.finding_digest;
-                const conflicted = await submit('conflict', { artifactDigest: findingDigest });
-                if (conflicted.outcome !== 'completed') {
-                  throw new ManagedRuntimeError('FINDING_UNRESOLVED',
-                    'terminal findingをfreezeへ運べない');
-                }
-                const held = await submit('hold');
-                if (held.outcome !== 'completed') {
-                  throw new ManagedRuntimeError('HOLD_ACKS_INCOMPLETE',
-                    'terminal conflictの対象barrierが完了しない');
-                }
-                return readBoundedJson(path.join(runDir, 'events.json'), 'run events');
-              },
+              escalateTerminalConflict,
             });
           } finally {
             epochDriveActive = false;
@@ -3149,6 +3198,28 @@ export async function runManagedSupervisorDaemon({
           request_id: controlRequest.request_id, gate_digest: activated.gate.gate_digest,
           event_digest: events.at(-1).event_digest,
         });
+        if (isDistributedScriptedControllerActivation(activation)) {
+          epochDriveActive = true;
+          try {
+            events = await driveScriptedManagedEpoch({
+              runDir,
+              repoRoot,
+              request: committed.bundle.request,
+              committed,
+              activation,
+              managedSupervisor,
+              initialEvents: events,
+              controlEvents: () => controlEvents,
+              sentinel,
+              preDispatchBindings,
+              drainEscalations: drainPendingEscalations,
+              escalateTerminalConflict,
+              preactivated: activated,
+            });
+          } finally {
+            epochDriveActive = false;
+          }
+        }
         const result = buildControlResult({ operation: 'recompile', outcome: 'recompiled',
           eventHeadDigest: events.at(-1).event_digest,
           controlHeadDigest: (await eventStore.readEvents()).at(-1).event_digest,

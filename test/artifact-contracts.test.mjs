@@ -348,11 +348,15 @@ test('canonical serialization rejects non-JSON, unsafe, and oversized values', (
     cyclic,
     accessor,
     'x'.repeat(16_385),
-    Array.from({ length: 257 }, () => null),
   ]) {
     assert.throws(() => canonicalizeArtifact(value), { name: 'TypeError' });
   }
   assert.equal(getterCalls, 0);
+});
+
+test('canonical serializationはschemaが許す256件超のjournal配列を保持する', () => {
+  const journal = Array.from({ length: 300 }, (_, index) => ({ sequence: index + 1 }));
+  assert.equal(JSON.parse(canonicalizeArtifact(journal)).length, 300);
 });
 
 test('plan input accepts the fixed RC1 fixture and rejects drift', async () => {

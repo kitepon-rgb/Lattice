@@ -340,7 +340,8 @@ async function readAndValidateGate(runDir, writeLease) {
  *
  * 読むのは3つだけ:
  * - `hold_ms`: 書き込み後にworkerが走り続ける時間。実行時観測が成立する窓を作る。
- * - `extra_writes`: 宣言scope外へのwrite。競合検知そのものを検証するために要る。
+ * - `extra_writes`: 全TODOに共通する宣言scope外write。
+ * - `extra_writes_by_todo`: 競合当事者だけへscope外writeを与える実daemon fixture用設定。
  * - `mode`: 既存の`deterministic`のみ。未知の値は黙って無視せず止める。
  */
 async function readScriptedBehavior(repoRoot) {
@@ -351,10 +352,10 @@ async function readScriptedBehavior(repoRoot) {
     descriptor = JSON.parse(await readFile(descriptorPath, 'utf8'));
   } catch {
     // 未登録のまま走らせる経路（unit test等）は既定の振る舞いで動かす。
-    return { hold_ms: 0, extra_writes: [] };
+    return { hold_ms: 0, extra_writes: [], extra_writes_by_todo: {} };
   }
   if (typeof descriptor?.config_ref !== 'string' || typeof descriptor.config_digest !== 'string') {
-    return { hold_ms: 0, extra_writes: [] };
+    return { hold_ms: 0, extra_writes: [], extra_writes_by_todo: {} };
   }
   const configPath = path.join(repoRoot, ...descriptor.config_ref.split('/'));
   let bytes;
@@ -387,7 +388,15 @@ async function readScriptedBehavior(repoRoot) {
   if (!Array.isArray(extraWrites) || extraWrites.some((entry) => !safeWritePath(entry))) {
     fail('SCRIPTED_BOOTSTRAP_INVALID', 'extra_writesが不正');
   }
-  return { hold_ms: holdMs, extra_writes: [...extraWrites] };
+  const extraWritesByTodo = config?.extra_writes_by_todo ?? {};
+  if (!plain(extraWritesByTodo) || Object.entries(extraWritesByTodo).some(([todoId, entries]) => (
+    !ID.test(todoId) || !Array.isArray(entries) || entries.some((entry) => !safeWritePath(entry))
+  ))) {
+    fail('SCRIPTED_BOOTSTRAP_INVALID', 'extra_writes_by_todoが不正');
+  }
+  return { hold_ms: holdMs, extra_writes: [...extraWrites],
+    extra_writes_by_todo: Object.fromEntries(Object.entries(extraWritesByTodo)
+      .map(([todoId, entries]) => [todoId, [...entries]])) };
 }
 
 const WORKER_ENTRYPOINT = fileURLToPath(new URL('../bin/lattice-scripted-worker.mjs', import.meta.url));
@@ -675,20 +684,34 @@ export async function createScriptedAdapterController({
       const priorHandle = todoToHandle.get(packet.todo_id);
       if (priorHandle !== undefined) {
         const prior = tasks.get(priorHandle);
-        if (prior.packet.packet_digest !== packet.packet_digest
-          || prior.lease.lease_digest !== writeLease.lease_digest) {
+        if (prior.packet.packet_digest === packet.packet_digest
+          && prior.lease.lease_digest === writeLease.lease_digest) {
+          return sign({
+            schema: 'lattice.adapter_dispatch_response.v2',
+            request_id: request.request_id,
+            executor_handle: prior.executorHandle,
+            worktree_id: prior.worktreeId,
+            packet_digest: packet.packet_digest,
+            lease_digest: writeLease.lease_digest,
+            worker_process: workerProcessOf(prior),
+            response_digest: '',
+          }, 'response_digest');
+        }
+        if (prior.state !== 'held') {
           fail('SCRIPTED_DUPLICATE_DISPATCH', '同じTODOへ異なるpacketをdispatchできない');
         }
-        return sign({
-          schema: 'lattice.adapter_dispatch_response.v2',
-          request_id: request.request_id,
-          executor_handle: prior.executorHandle,
-          worktree_id: prior.worktreeId,
-          packet_digest: packet.packet_digest,
-          lease_digest: writeLease.lease_digest,
-          worker_process: workerProcessOf(prior),
-          response_digest: '',
-        }, 'response_digest');
+        // 対象限定holdで失効したattemptだけを畳み、同じTODOのsuccessorを起動する。
+        // closure外attemptはtodoToHandleを保持するので、この経路へ入らない。
+        try { process.kill(-prior.worker.process_group_id, 'SIGKILL'); }
+        catch (error) {
+          if (error?.code !== 'ESRCH') {
+            fail('SCRIPTED_EXECUTION_FAILED', '旧attemptを終了できない', {
+              pid: prior.worker.pid, reason: String(error?.code ?? error?.message ?? error),
+            });
+          }
+        }
+        prior.state = 'superseded';
+        todoToHandle.delete(packet.todo_id);
       }
       await readAndValidateGate(canonicalRunDir, writeLease);
       // canonical repoではなく自分の木へ書く。共有rootでは、書き込みの帰属をrootから
@@ -722,7 +745,8 @@ export async function createScriptedAdapterController({
       // `detached`で独立process groupへ置く。同じgroupにcontrollerが居ると、直接OS観測が
       // 「未記録process group memberを検出」として正しく落とす。
       const spawned = await spawnScriptedWorker({
-        packet, worktreePath: worktreeReal, extraWrites: behavior.extra_writes,
+        packet, worktreePath: worktreeReal,
+        extraWrites: behavior.extra_writes_by_todo[packet.todo_id] ?? behavior.extra_writes,
         holdMs: behavior.hold_ms, controllerId, runDir: canonicalRunDir,
       });
       const task = {
@@ -1038,9 +1062,9 @@ export async function runScriptedAdapterController({
     registrationDigest = digest;
     if (heartbeatTimer !== null) return;
     heartbeatTimer = setInterval(() => {
-      if (socket.destroyed) return;
+      if (persistentSocket === null || persistentSocket.destroyed) return;
       heartbeatSequence += 1;
-      send(socket, sign({
+      send(persistentSocket, sign({
         schema: 'lattice.adapter_controller_heartbeat.v1',
         controller_id: controller.controllerId,
         registration_digest: registrationDigest,

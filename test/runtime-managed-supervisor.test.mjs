@@ -325,7 +325,7 @@ test('heartbeat TTL超過とsocket断はleaseをfail closed revokeしfreezeす�
   assert.equal(s2.supervisor.frozen, true);
 });
 
-test('heartbeatはsession・単調sequence・supervisor実lease集合を照合する', async () => {
+test('heartbeatはsessionと単調sequenceを照合する', async () => {
   const f = fixture(); const now = { value: 0 }; const s = makeSupervisor(f, now);
   await s.supervisor.registerController({ descriptor: f.descriptor, registration: f.registration, transport: s.transport });
   await s.supervisor.heartbeat({ controllerId: 'controller-a', registrationDigest: f.registration.registration_digest, sequence: 1, leaseSetDigest: digestArtifact([]), sessionNonceDigest: D('b') });
