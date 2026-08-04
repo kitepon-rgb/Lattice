@@ -4,10 +4,10 @@
   "plan_key": "runtime-prediction-freedom",
   "capacity": {"executors": 1},
   "manual_witness": {
-    "rpf-004": {
-      "owns": [{"kind": "path", "target": "src/runtime-managed-supervisor.mjs"}],
+    "rpf-005": {
+      "owns": [{"kind": "path", "target": "src/runtime-cli.mjs"}],
       "reads": [],
-      "writes": ["src/runtime-managed-supervisor.mjs"],
+      "writes": ["src/runtime-cli.mjs"],
       "affected_tests": [
         "test/integration/aishell-runtime-conflict-dogfood.integration.mjs",
         "test/project-cli.test.mjs",
@@ -24,15 +24,15 @@
       "state_effects": [],
       "unknowns": [],
       "sensor_provenance": {
-        "queries": [{"query_id": "witness-affected-000", "expect": {"kind": "affected", "path": "src/runtime-managed-supervisor.mjs"}}]
+        "queries": [{"query_id": "witness-affected-000", "expect": {"kind": "affected", "path": "src/runtime-cli.mjs"}}]
       }
     }
   },
   "sensor_query_set": {
     "queries": [
       {"id": "witness-status", "operation": "status"},
-      {"id": "witness-affected-000", "operation": "affected", "target": "src/runtime-managed-supervisor.mjs"}
+      {"id": "witness-affected-000", "operation": "affected", "target": "src/runtime-cli.mjs"}
     ]
   },
-  "witness_set_digest": "17bc3bfa7fdb3c7da79b7550ff52b9dad09381491be1582b71b4d19d9bd54133"
+  "witness_set_digest": "bbfb59db6e0f69971c32531c5baefe7285e191fe75c34f0eb9f07d9f60ad8bfb"
 }
