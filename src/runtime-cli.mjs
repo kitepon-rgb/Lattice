@@ -3198,7 +3198,8 @@ export async function runManagedSupervisorDaemon({
           request_id: controlRequest.request_id, gate_digest: activated.gate.gate_digest,
           event_digest: events.at(-1).event_digest,
         });
-        if (isDistributedScriptedControllerActivation(activation)) {
+        if (recompileRequest.mode === 'intentional_serial'
+          && isDistributedScriptedControllerActivation(activation)) {
           epochDriveActive = true;
           try {
             events = await driveScriptedManagedEpoch({
