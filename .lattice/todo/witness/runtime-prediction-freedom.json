@@ -1,0 +1,85 @@
+{
+  "schema": "lattice.todo_witness_set.v3",
+  "project_id": "lattice",
+  "plan_key": "runtime-prediction-freedom",
+  "capacity": {"executors": 1},
+  "manual_witness": {
+    "rpf-003": {
+      "owns": [
+        {"kind": "path", "target": "src/runtime-seam-resolve.mjs"},
+        {"kind": "path", "target": "src/seam-apply.mjs"},
+        {"kind": "path", "target": "src/seam-verification.mjs"},
+        {"kind": "path", "target": "src/todo-cli.mjs"},
+        {"kind": "path", "target": "test/integration/runtime-seam-transform.integration.mjs"},
+        {"kind": "path", "target": "test/seam-verification.test.mjs"}
+      ],
+      "reads": [
+        "src/runtime-seam-treatment.mjs",
+        "src/schedulability-compiler-v2.mjs",
+        "src/todo-contracts.mjs",
+        "src/todo-store.mjs"
+      ],
+      "writes": [
+        "src/runtime-seam-resolve.mjs",
+        "src/seam-apply.mjs",
+        "src/seam-verification.mjs",
+        "src/todo-cli.mjs",
+        "test/integration/runtime-seam-transform.integration.mjs",
+        "test/seam-verification.test.mjs"
+      ],
+      "affected_tests": [
+        "test/integration/aishell-runtime-conflict-dogfood.integration.mjs",
+        "test/integration/runtime-seam-transform.integration.mjs",
+        "test/project-cli.test.mjs",
+        "test/runtime-adapter-registry-cli.test.mjs",
+        "test/runtime-canonical-write-coverage.test.mjs",
+        "test/runtime-conflict-cli.test.mjs",
+        "test/runtime-lifecycle-lock.test.mjs",
+        "test/runtime-managed-supervisor.test.mjs",
+        "test/runtime-scripted-adapter-controller.test.mjs",
+        "test/runtime-seam-resolve.test.mjs",
+        "test/runtime-seam-treatment.test.mjs",
+        "test/seam-conflict-input.test.mjs",
+        "test/seam-verification.test.mjs",
+        "test/session-context.test.mjs",
+        "test/todo-cli-schema-command.test.mjs",
+        "test/todo-close-unaudited.test.mjs",
+        "test/todo-dashboard-registry.test.mjs",
+        "test/todo-design-memo.test.mjs",
+        "test/todo-explain-diagnostics.test.mjs",
+        "test/todo-gantt-render.test.mjs",
+        "test/todo-gantt-scope-cli.test.mjs",
+        "test/todo-independence-cli.test.mjs",
+        "test/todo-note-gantt.test.mjs",
+        "test/todo-phase-baseline.test.mjs",
+        "test/todo-revision-set.test.mjs",
+        "test/todo-terminal-audit.test.mjs"
+      ],
+      "resources": [],
+      "state_effects": [],
+      "unknowns": [],
+      "sensor_provenance": {
+        "queries": [
+          {"query_id": "witness-affected-000", "expect": {"kind": "affected", "path": "src/runtime-seam-resolve.mjs"}},
+          {"query_id": "witness-affected-001", "expect": {"kind": "affected", "path": "src/seam-apply.mjs"}},
+          {"query_id": "witness-affected-002", "expect": {"kind": "affected", "path": "src/seam-verification.mjs"}},
+          {"query_id": "witness-affected-003", "expect": {"kind": "affected", "path": "src/todo-cli.mjs"}},
+          {"query_id": "witness-affected-004", "expect": {"kind": "affected", "path": "test/integration/runtime-seam-transform.integration.mjs"}},
+          {"query_id": "witness-affected-005", "expect": {"kind": "affected", "path": "test/seam-verification.test.mjs"}}
+        ]
+      }
+    }
+  },
+  "sensor_query_set": {
+    "queries": [
+      {"id": "witness-status", "operation": "status"},
+      {"id": "witness-affected-000", "operation": "affected", "target": "src/runtime-seam-resolve.mjs"},
+      {"id": "witness-affected-001", "operation": "affected", "target": "src/seam-apply.mjs"},
+      {"id": "witness-affected-002", "operation": "affected", "target": "src/seam-verification.mjs"},
+      {"id": "witness-affected-003", "operation": "affected", "target": "src/todo-cli.mjs"},
+      {"id": "witness-affected-004", "operation": "affected", "target": "test/integration/runtime-seam-transform.integration.mjs"},
+      {"id": "witness-affected-005", "operation": "affected", "target": "test/seam-verification.test.mjs"}
+    ]
+  },
+  "witness_set_digest": "44ae9b9a0f36ac9fa67b44b8ac1e8e4a7d6d74549b4764163cce8a582933f1ea"
+}
