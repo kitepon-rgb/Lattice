@@ -467,31 +467,30 @@ async function runScopeViolation({ scaffold }) {
     runId, plan, events, packets, todoId: 'TA', detect: detectCheckpointFindings, recordedAt: RUN_TIMESTAMP,
   });
   events = classified.events;
-  const held = decideHoldAndCarryOver({
-    runId, request, plan, manifests, packets, events, recordedAt: RUN_TIMESTAMP,
-  });
-  events = held.events;
+  events = await driveToClose({ runId, plan, events, packets, manifests, adapter });
+  const state = projectRuntimeState({ events });
   return {
     request,
     plan,
     manifests,
-    holdDecision: held.holdDecision,
     events,
     record: conditionRecord({
       condition: 'scope_violation',
-      // offenderとそのaffected closure（ここではTAのみ）をhold。closure外のTBは
-      // witnessを実証してcontinueする（plan条件表「offenderとaffected closure hold」）。
+      // directory名はRC3 artifact互換のため維持する。現契約では単独の予測超過は
+      // conflictではなく、観測を残したまま有効なreceiptを受理する。
       expected: {
-        finding_kinds: ['undeclared_write'],
-        hold_includes_offender: true,
-        hold: ['TA'],
-        continue: ['TB'],
+        observation_kinds: ['prediction_excess'],
+        conflict_finding_kinds: [],
+        frozen: false,
+        accepted: ['TA', 'TB'],
+        closed: true,
       },
       actual: {
-        finding_kinds: [...new Set(classified.findings.map(({ kind }) => kind))],
-        hold_includes_offender: held.holdDecision.hold_set.includes('TA'),
-        hold: held.holdDecision.hold_set,
-        continue: held.holdDecision.continue_set,
+        observation_kinds: [...new Set(classified.observations.map(({ kind }) => kind))],
+        conflict_finding_kinds: [...new Set(classified.findings.map(({ kind }) => kind))],
+        frozen: state.freeze !== null,
+        accepted: state.accepted,
+        closed: state.closed,
       },
       events,
       plan,
@@ -1334,7 +1333,7 @@ export async function runRc3ScriptedCampaign(options = {}) {
   const clean = await timed('clean_parallel', () => runCleanParallel({ scaffold }));
   const late = await timed('late_path_conflict', () => runLateConflict({ scaffold }));
   // 条件名`scope_violation`はRC3 manifestのdirectory名として凍結されているので動かさない。
-  // 中で期待するfinding種別だけが製品に追従して`undeclared_write`になる。
+  // 中では単独の予測超過を観測し、conflictへ昇格しない現契約を検証する。
   const scope = await timed('scope_violation', () => runScopeViolation({ scaffold }));
   const semantic = await timed('semantic_unknown', () => runSemanticUnknown({ scaffold }));
   const stale = await timed('stale_receipt', () => runStaleReceipt({ scaffold }));
