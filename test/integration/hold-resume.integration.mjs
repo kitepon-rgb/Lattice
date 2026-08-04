@@ -53,10 +53,9 @@ function witness(symbol) {
 const unitTest = (symbol) => `import assert from 'node:assert/strict';\nimport test from 'node:test';\n`
   + `import { ${symbol} } from '../src/${symbol}.mjs';\ntest('${symbol}', () => assert.ok(${symbol}));\n`;
 
-// 請求項7・8の再開側。**barrierは全workerを止める**——静止の証明はrun全体に対して要るからで
-// ある。だがhold裁定は止めた相手を`hold_set`と`continue_set`へ分ける。裁定を出しただけで
-// processへ反映しなければ、続けてよいと判定した作業も止まったままになる。
-test('holdで止めた相手を後継epochへ繋ぎ直し、そこで再開する', managedDaemon, async (t) => {
+// 請求項7・8の再開側。barrierは競合の影響群だけを止め、`continue_set`のworkerは
+// origin bindingを保ったまま走り続ける。後継epochへ移すのは`hold_set`だけである。
+test('競合群だけをholdし、無関係workerはoriginのまま継続する', managedDaemon, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-hold-resume-'));
   registerManagedDaemonFixture(t, temporaryRoot);
   const repoRoot = path.join(temporaryRoot, 'repo');
@@ -115,14 +114,15 @@ test('holdで止めた相手を後継epochへ繋ぎ直し、そこで再開す�
   assert.notEqual(decided, undefined, runEvents.map((e) => e.kind).join(','));
   assert.ok(decided.payload.continue_set.length > 0, JSON.stringify(decided.payload));
 
-  // **holdの直後は、continue_setも止まったままが正しい。** rebindは静止を要求する
-  // （`write_enabled === false`）ので、ここで再開すると後継epochへ束ね直せない。
-  // carry-overは「作業を捨てない」であって「一度も止まらない」ではない。
+  // holdの直後、競合当事者だけが停止し、無関係なcontinue_setは止まらない。
   const pidOf = (todoId) => runEvents.findLast((event) => event.kind === 'executor_dispatched'
     && event.subject?.ref === todoId)?.payload?.direct_os_observation_binding?.process_pid;
   const stateOf = (pid) => invoke('ps', ['-o', 'stat=', '-p', String(pid)], repoRoot).stdout.trim();
-  for (const todoId of [...decided.payload.hold_set, ...decided.payload.continue_set]) {
+  for (const todoId of decided.payload.hold_set) {
     assert.equal(stateOf(pidOf(todoId)).startsWith('T'), true, `hold後に止まっていない: ${todoId}`);
+  }
+  for (const todoId of decided.payload.continue_set) {
+    assert.equal(stateOf(pidOf(todoId)).startsWith('T'), false, `無関係workerまで停止した: ${todoId}`);
   }
   const beforeRecompile = JSON.parse(await readFile(path.join(runDir, 'control-events.json'), 'utf8'));
   assert.equal(beforeRecompile.find((event) => event.kind === 'workers_resumed'), undefined,
@@ -168,17 +168,20 @@ test('holdで止めた相手を後継epochへ繋ぎ直し、そこで再開す�
   assert.equal(JSON.parse(recompiled.stdout).outcome, 'recompiled');
 
   const afterRecompile = JSON.parse(await readFile(path.join(runDir, 'control-events.json'), 'utf8'));
-  assert.notEqual(afterRecompile.find((event) => event.kind === 'epoch_rebind_acknowledged'),
-    undefined, 'rebindが成立していない');
-  const resumed = afterRecompile.find((event) => event.kind === 'workers_resumed');
-  assert.notEqual(resumed, undefined, '再開の記録が無い');
-  assert.deepEqual(resumed.payload.resumed_todo_ids, [...decided.payload.continue_set].sort());
+  assert.equal(afterRecompile.find((event) => event.kind === 'epoch_rebind_acknowledged'),
+    undefined, '無関係workerをrebindしている');
+  assert.equal(afterRecompile.find((event) => event.kind === 'workers_resumed'),
+    undefined, '止めていないworkerへresumeを発行している');
 
-  // 繋ぎ直された側は動き出して仕事を終える。止めた当事者は止まったまま。
+  // 無関係workerはoriginのまま継続し、競合当事者だけが止まったまま残る。
   const afterEvents = JSON.parse(await readFile(path.join(runDir, 'events.json'), 'utf8'));
-  assert.ok(afterEvents.some((event) => event.kind === 'epoch_rebound'), 'epoch_reboundが無い');
+  assert.equal(afterEvents.some((event) => event.kind === 'epoch_rebound'), false,
+    '無関係workerを別epochへ付け替えている');
   for (const todoId of decided.payload.hold_set) {
     assert.equal(stateOf(pidOf(todoId)).startsWith('T'), true, `当事者が止まっていない: ${todoId}`);
+  }
+  for (const todoId of decided.payload.continue_set) {
+    assert.equal(stateOf(pidOf(todoId)).startsWith('T'), false, `無関係workerが停止した: ${todoId}`);
   }
 
   ok(cli(['run', 'abandon', '--run', runRef, '--reason', 'acceptance'], repoRoot), 'run abandon');

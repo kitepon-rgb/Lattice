@@ -124,12 +124,14 @@ function witnessSet(manifest, kinds) {
  * unknown findingにする。
  */
 export function classifyObservedDiff(options = {}) {
-  const { plan, manifests, observations } = options;
+  const { plan, manifests, observations, relevantTodoIds = null } = options;
   requirePlan(plan);
   if (manifests === null || typeof manifests !== 'object' || Array.isArray(manifests)
-    || !Array.isArray(observations)) {
+    || !Array.isArray(observations)
+    || !(relevantTodoIds === null || Array.isArray(relevantTodoIds))) {
     invalidVerification('manifests／observationsが不正');
   }
+  const relevant = new Set(relevantTodoIds ?? Object.keys(manifests));
 
   const findings = [];
   const observedByTodo = new Map();
@@ -187,7 +189,8 @@ export function classifyObservedDiff(options = {}) {
   for (const [todoId, paths] of observedByTodo) {
     for (const [otherId, manifest] of Object.entries(manifests)) {
       if (otherId === todoId) continue;
-      const otherDeclared = manifest.writes ?? [];
+      if (!relevant.has(otherId)) continue;
+      const otherDeclared = [...(manifest.reads ?? []), ...(manifest.writes ?? [])];
       for (const path of paths) {
         if (!declaredWriteCovers(otherDeclared, path)) continue;
         const pair = sorted([todoId, otherId]);

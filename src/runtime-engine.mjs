@@ -391,6 +391,22 @@ export async function observeExecutor(options = {}) {
     if (!validateExecutorReceipt(observation.receipt)) {
       fail(`terminal receiptがexecutor_receipt.v1 contractを満たさない: ${todoId}`);
     }
+    if (observation.checkpoint !== undefined) {
+      if (!plainRecord(observation.checkpoint)
+        || typeof observation.checkpoint.checkpoint_digest !== 'string'
+        || !/^[0-9a-f]{64}$/.test(observation.checkpoint.checkpoint_digest)) {
+        fail(`terminal checkpointにはcheckpoint_digestが必要: ${todoId}`);
+      }
+      next.push(buildNextRunEvent({
+        events: next,
+        runId,
+        kind: 'checkpoint_observed',
+        planEpoch: observation.receipt.plan_epoch,
+        subject: { kind: 'todo', ref: todoId },
+        payload: structuredClone(observation.checkpoint),
+        recordedAt,
+      }));
+    }
     next.push(buildNextRunEvent({
       events: next,
       runId,

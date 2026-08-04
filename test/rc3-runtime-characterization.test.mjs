@@ -232,6 +232,37 @@ test('宣言外writeと運転中overlapはundeclared writeとobserved write conf
   )), JSON.stringify(findings));
 });
 
+test('実writeは同時attemptの予測readとも競合し、非同時TODOへは広げない', async () => {
+  const { classifyObservedDiff } = await import(DECISION_VERIFIER_MODULE);
+  const plan = runtimePlan({ nodes: ['T1', 'T2', 'T3'] });
+  const manifests = {
+    T1: boundaryManifest({ todoId: 'T1', writes: ['src/shared.mjs'] }),
+    T2: boundaryManifest({ todoId: 'T2', reads: ['src/shared.mjs'] }),
+    T3: boundaryManifest({ todoId: 'T3', reads: ['src/shared.mjs'] }),
+  };
+  const { findings } = classifyObservedDiff({ plan, manifests,
+    observations: [{ todo_id: 'T1', paths: ['src/shared.mjs'] }],
+    relevantTodoIds: ['T1', 'T2'] });
+  assert.ok(findings.some((finding) => finding.kind === 'observed_write_conflict'
+    && finding.todo_ids.join(',') === 'T1,T2' && finding.path === 'src/shared.mjs'));
+  assert.equal(findings.some((finding) => finding.todo_ids.includes('T3')), false);
+});
+
+test('予測境界が空でも同時attemptのactual同士が重なれば競合になる', async () => {
+  const { classifyObservedDiff } = await import(DECISION_VERIFIER_MODULE);
+  const plan = runtimePlan({ nodes: ['T1', 'T2'] });
+  const manifests = {
+    T1: boundaryManifest({ todoId: 'T1' }),
+    T2: boundaryManifest({ todoId: 'T2' }),
+  };
+  const { findings } = classifyObservedDiff({ plan, manifests, observations: [
+    { todo_id: 'T1', paths: ['src/new-shared.mjs'] },
+    { todo_id: 'T2', paths: ['src/new-shared.mjs'] },
+  ], relevantTodoIds: ['T1', 'T2'] });
+  assert.ok(findings.some((finding) => finding.kind === 'observed_write_conflict'
+    && finding.todo_ids.join(',') === 'T1,T2' && finding.path === 'src/new-shared.mjs'));
+});
+
 test('別pathでも同一state witnessへ到達するwriteはsemantic conflict unknownになる', async () => {
   const { classifyObservedDiff } = await import(DECISION_VERIFIER_MODULE);
   // ADR 0044 Decision 5: 観測不能なsemantic conflictを安全と推測しない。

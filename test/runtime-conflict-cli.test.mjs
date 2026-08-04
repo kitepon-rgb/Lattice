@@ -637,7 +637,7 @@ test('実controller daemonはholdからsuccessor prepare/release/中央gate/inta
   const eventBatchPhases = await Promise.all(eventBatchReceipts.map(async (name) =>
     JSON.parse(await readFile(path.join(runDir, name))).phase));
   assert.equal(eventBatchPhases.filter((phase) => phase === 'recompile').length, 1);
-  assert.equal(eventBatchPhases.filter((phase) => phase === 'epoch_rebound').length, 1);
+  assert.equal(eventBatchPhases.filter((phase) => phase === 'epoch_rebound').length, 0);
   assert.equal(eventBatchPhases.filter((phase) => phase.startsWith('epoch_rebound_recovery_')).length, 2);
   const ledger = JSON.parse(await readFile(path.join(runDir, 'control-request-ledger.json')));
   const reprocessLedger = ledger.entries.find((entry) => entry.request_id === 'reprocess-stage-crash');

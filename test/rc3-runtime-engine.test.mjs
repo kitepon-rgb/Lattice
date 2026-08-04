@@ -146,6 +146,36 @@ function assertDispatchReplay(plan, events) {
   });
 }
 
+test('terminalの独立checkpointはreceipt記録より先に置かれ、受理境界になる', async () => {
+  const fixture = buildFixture({ todos: ['TA'], capacity: 1 });
+  const { request, plan, manifests } = fixture;
+  const packets = buildExecutorPackets({ plan, manifests });
+  const packet = packets.TA;
+  const receipt = {
+    schema: 'lattice.executor_receipt.v1', receipt_id: 'TA-terminal',
+    executor_handle: 'exec-TA', worktree_id: 'wt-TA', base_sha: packet.base_sha,
+    plan_epoch: packet.plan_epoch, packet_digest: packet.packet_digest, todo_id: 'TA',
+    checkpoint_digest: SHA256, observed_diff: [], receipt_digest: '',
+  };
+  receipt.receipt_digest = selfDigest(receipt, 'receipt_digest');
+  const adapter = {
+    dispatch: async () => ({ executor_handle: 'exec-TA', worktree_id: 'wt-TA' }),
+    observe: async () => ({ state: 'terminal', receipt,
+      checkpoint: { checkpoint_digest: SHA256, diff: { entries: [] },
+        observed_by: 'supervisor_terminal' } }),
+  };
+  let events = initializeRunEvents({ runId: RUN_ID, request, plan, manifests, recordedAt: AT });
+  events = (await dispatchReadyFrontier({ runId: RUN_ID, plan, events, packets,
+    manifests, adapter, recordedAt: AT })).events;
+  events = (await observeExecutor({ runId: RUN_ID, plan, events, adapter,
+    todoId: 'TA', recordedAt: AT })).events;
+  const checkpoint = events.findIndex((event) => event.kind === 'checkpoint_observed');
+  const recorded = events.findIndex((event) => event.kind === 'receipt_recorded');
+  assert.ok(checkpoint >= 0 && checkpoint < recorded);
+  const adjudicated = adjudicatePendingReceipts({ runId: RUN_ID, plan, events, recordedAt: AT });
+  assert.deepEqual(adjudicated.decisions, [{ receipt_id: 'TA-terminal', decision: 'accepted' }]);
+});
+
 test('非交差3 TODO・capacity 2はwave barrierなしで完走しverifier再計算と一致する', async () => {
   const fixture = buildFixture({ todos: ['TA', 'TB', 'TC'], capacity: 2 });
   const adapter = createScriptedExecutorAdapter({

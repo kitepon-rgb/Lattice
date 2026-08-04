@@ -804,6 +804,7 @@ async function driveInitialScriptedManagedEpoch({
   sentinel = null,
   preDispatchBindings = null,
   drainEscalations = null,
+  escalateTerminalConflict = null,
 }) {
   let events = [...initialEvents];
   const { plan, manifests, executor_packets: packets } = committed.bundle;
@@ -953,7 +954,16 @@ async function driveInitialScriptedManagedEpoch({
           controllerId,
           payloadDigest: response.observation.payload_digest,
         });
-        return { state: 'terminal', receipt };
+        const binding = dispatch.payload?.direct_os_observation_binding;
+        if (typeof binding?.worktree_path !== 'string' || typeof binding?.base_sha !== 'string') {
+          throw new ManagedRuntimeError('ADAPTER_CONTROLLER_UNAVAILABLE',
+            `terminal diffのorigin bindingが無い: ${dispatch.subject.ref}`);
+        }
+        const checkpoint = await captureWorktreeDiff({
+          worktreePath: binding.worktree_path, baseSha: binding.base_sha,
+        });
+        return { state: 'terminal', receipt,
+          checkpoint: { ...checkpoint, observed_by: 'supervisor_terminal' } };
       },
     };
     const dispatched = await dispatchReadyFrontier({
@@ -1003,6 +1013,51 @@ async function driveInitialScriptedManagedEpoch({
         });
         if (observed.observation.state === 'running') continue;
         events = observed.events;
+        if (observed.observation.state === 'terminal') {
+          const terminalEvent = events.findLast((event) => event.kind === 'executor_terminal'
+            && event.subject?.kind === 'todo' && event.subject.ref === todoId);
+          const currentDispatch = events.findLast((event) => event.kind === 'executor_dispatched'
+            && event.subject?.kind === 'todo' && event.subject.ref === todoId
+            && event.sequence < terminalEvent.sequence);
+          const overlappingTodoIds = plan.nodes.map((node) => node.todo_id)
+            .filter((otherId) => {
+              if (otherId === todoId) return false;
+              const otherDispatch = events.findLast((event) => event.kind === 'executor_dispatched'
+                && event.subject?.kind === 'todo' && event.subject.ref === otherId
+                && event.sequence < terminalEvent.sequence);
+              if (otherDispatch === undefined) return false;
+              const otherTerminal = events.find((event) => event.kind === 'executor_terminal'
+                && event.subject?.kind === 'todo' && event.subject.ref === otherId
+                && event.sequence > otherDispatch.sequence);
+              return otherTerminal === undefined || otherTerminal.sequence > currentDispatch.sequence;
+            });
+          const relevantTodoIds = [todoId, ...overlappingTodoIds];
+          const terminalCheckpoint = events.findLast((event) => event.kind === 'checkpoint_observed'
+            && event.subject?.kind === 'todo' && event.subject.ref === todoId
+            && event.payload?.observed_by === 'supervisor_terminal');
+          const observations = [{ todo_id: todoId,
+            paths: terminalCheckpoint.payload.diff.entries.map((entry) => entry.path) }];
+          for (const peerId of overlappingTodoIds) {
+            const peerCheckpoint = events.findLast((event) => event.kind === 'checkpoint_observed'
+              && event.subject?.kind === 'todo' && event.subject.ref === peerId
+              && event.payload?.observed_by === 'supervisor_terminal');
+            if (peerCheckpoint !== undefined) observations.push({ todo_id: peerId,
+              paths: peerCheckpoint.payload.diff.entries.map((entry) => entry.path) });
+          }
+          const actionable = classifyObservedDiff({ plan, manifests, observations,
+            relevantTodoIds }).findings.filter((finding) => finding.kind === 'observed_write_conflict'
+              && finding.todo_ids.includes(todoId));
+          if (actionable.length > 0) {
+            if (typeof escalateTerminalConflict !== 'function') {
+              throw new ManagedRuntimeError('FINDING_UNRESOLVED',
+                'terminal conflictのmanaged escalation経路が無い');
+            }
+            await replaceEventsAtomically(runDir, events);
+            events = await escalateTerminalConflict({ finding: actionable[0],
+              checkpointDigest: terminalCheckpoint.payload.checkpoint_digest });
+            frozen = true;
+          }
+        }
         await replaceEventsAtomically(runDir, events);
         syncSentinelWatches({ sentinel, runningTodoIds: projectRuntimeState({ events }).running,
           rootOf: (id) => events.findLast((event) => event.kind === 'executor_dispatched'
@@ -1010,7 +1065,9 @@ async function driveInitialScriptedManagedEpoch({
             ?.payload?.direct_os_observation_binding?.worktree_path });
         awaiting.delete(todoId);
         progressed = true;
+        if (frozen) break;
       }
+      if (frozen) break;
       if (awaiting.size === 0) break;
       if (Date.now() >= observeDeadline) {
         throw new ManagedRuntimeError(
@@ -1022,8 +1079,8 @@ async function driveInitialScriptedManagedEpoch({
         await new Promise((resolve) => { setTimeout(resolve, SCRIPTED_OBSERVE_POLL_MS); });
       }
     }
-    // holdが掛かったらdispatchを進めない。freeze後のreceiptはstaleとして拒否されるので、
-    // 裁定へ進むと「受理されなかった」で落ちるだけである。
+    // holdが掛かったらdispatchを進めない。記録済みreceiptは失わず、対象群の再compile後に
+    // origin bindingとcarry witnessを満たすものだけを後続epochで裁定する。
     if (frozen) return events;
     const adjudicated = adjudicatePendingReceipts({
       runId: request.request_id,
@@ -2339,6 +2396,48 @@ export async function runManagedSupervisorDaemon({
               controlEvents: () => controlEvents,
               preDispatchBindings,
               drainEscalations: drainPendingEscalations,
+              escalateTerminalConflict: async ({ finding, checkpointDigest }) => {
+                const activeEpoch = await readCommittedEpochStore(runDir);
+                const candidate = {
+                  schema: 'lattice.runtime_finding_candidate.v1',
+                  proposed_kind: finding.kind,
+                  todo_ids: [...finding.todo_ids].sort(),
+                  path: finding.path,
+                  resource_id: null,
+                  evidence_digests: [checkpointDigest],
+                  candidate_digest: '',
+                };
+                candidate.candidate_digest = selfDigest(candidate, 'candidate_digest');
+                const submit = (operation, { artifact = null, artifactDigest = null,
+                  checkpoint = null } = {}) => executeControl(createRuntimeControlRequest({
+                  requestId: `terminal-${randomUUID()}-${operation.replace(/_/gu, '-')}`,
+                  runId: request.request_id, operation, sessionNonce,
+                  payload: controlOperationPayload({ operation, runRef: request.request_id,
+                    artifact, artifactDigest, checkpointDigest: checkpoint,
+                    expectedEpoch: activeEpoch.pointer.plan_epoch,
+                    expectedQueueDigest: null }),
+                }));
+                const recorded = await submit('finding_record', {
+                  artifact: candidate, artifactDigest: digestArtifact(candidate),
+                  checkpoint: checkpointDigest,
+                });
+                if (recorded.outcome !== 'completed') {
+                  throw new ManagedRuntimeError('FINDING_UNRESOLVED',
+                    'terminal findingを耐久化できない');
+                }
+                const findingDigest = recorded.result.finding_digest;
+                const conflicted = await submit('conflict', { artifactDigest: findingDigest });
+                if (conflicted.outcome !== 'completed') {
+                  throw new ManagedRuntimeError('FINDING_UNRESOLVED',
+                    'terminal findingをfreezeへ運べない');
+                }
+                const held = await submit('hold');
+                if (held.outcome !== 'completed') {
+                  throw new ManagedRuntimeError('HOLD_ACKS_INCOMPLETE',
+                    'terminal conflictの対象barrierが完了しない');
+                }
+                return readBoundedJson(path.join(runDir, 'events.json'), 'run events');
+              },
             });
           } finally {
             epochDriveActive = false;
@@ -2449,10 +2548,11 @@ export async function runManagedSupervisorDaemon({
           const verified = independentlyClassified.find((findingValue) => findingValue.kind === candidate.proposed_kind
             && findingValue.path === candidate.path
             && canonicalizeArtifact(findingValue.todo_ids) === canonicalizeArtifact(candidate.todo_ids));
-          if (match === undefined || verified === undefined) throw new ManagedRuntimeError(
+          const terminalSupervisorObservation = observed.payload?.observed_by === 'supervisor_terminal';
+          if ((!terminalSupervisorObservation && match === undefined) || verified === undefined) throw new ManagedRuntimeError(
             'FINDING_UNRESOLVED', 'path findingのproducer/verifier再導出が一致しない');
-          derivedTodoIds = [...match.todo_ids];
-          derivedKind = match.kind;
+          derivedTodoIds = [...(match ?? verified).todo_ids];
+          derivedKind = (match ?? verified).kind;
         } else {
           const match = independentlyClassified.find((findingValue) => findingValue.kind === candidate.proposed_kind
             && findingValue.resource_id === candidate.resource_id
