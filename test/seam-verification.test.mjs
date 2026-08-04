@@ -7,6 +7,7 @@ import {
   evaluateSeamVerification,
   measureWaveCount,
   readExportSurface,
+  todoPlanPrecedences,
 } from '../src/seam-verification.mjs';
 
 // ADR 0138。五条件をすべて満たしたときだけ採用する。1つでも欠けたら棄却であり、
@@ -92,6 +93,44 @@ test('波数は変換前後を同じ規則で測る', () => {
 
   // 測れなかったことをwaves=0へ丸めない。
   assert.equal(measureWaveCount({ taskIds: [], conflictPairs: [], executors: 2 }).waves, null);
+});
+
+test('波数計算はtask間のprecedenceを保持する', () => {
+  const ordered = measureWaveCount({
+    taskIds: ['T1', 'T2'],
+    conflictPairs: [],
+    precedences: [{ from_todo_id: 'T1', to_todo_id: 'T2', reason: 'hard_dependency' }],
+    executors: 2,
+  });
+
+  assert.equal(ordered.waves, 2);
+});
+
+test('波数計算は対象task外のprecedenceだけを除外する', () => {
+  const scoped = measureWaveCount({
+    taskIds: ['T1', 'T2'],
+    conflictPairs: [],
+    precedences: [
+      { from_todo_id: 'T1', to_todo_id: 'T2', reason: 'hard_dependency' },
+      { from_todo_id: 'T2', to_todo_id: 'T3', reason: 'outside' },
+      { from_todo_id: 'T3', to_todo_id: 'T4', reason: 'outside' },
+    ],
+    executors: 2,
+  });
+
+  assert.equal(scoped.waves, 2);
+});
+
+test('todo planのhard dependencyとjoinを同じprecedenceへ写す', () => {
+  const ref = (taskId) => ({ project_id: 'p', plan_key: 'plan', task_id: taskId });
+  assert.deepEqual(todoPlanPrecedences({
+    hard_dependencies: [{ from: ref('T1'), to: ref('T2') }],
+    joins: [{ id: 'join-1', after: [ref('T2'), ref('T3')], before: ref('T4') }],
+  }), [
+    { from_todo_id: 'T1', to_todo_id: 'T2', reason: 'hard_dependency' },
+    { from_todo_id: 'T2', to_todo_id: 'T4', reason: 'join:join-1' },
+    { from_todo_id: 'T3', to_todo_id: 'T4', reason: 'join:join-1' },
+  ]);
 });
 
 test('変換後のwitnessは所有面を指し、宣言の中身を発明しない', () => {

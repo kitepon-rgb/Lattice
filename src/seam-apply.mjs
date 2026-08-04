@@ -356,7 +356,7 @@ export function seamConflictFromFinding({
  */
 export async function applySeamConflict({
   repoRoot, planKey, conflict, witnessSet, latticeBin, sharedPathFor,
-  executors, compileIndependence, pathNames = {},
+  executors, compileIndependence, pathNames = {}, precedences = [],
 } = {}) {
   const {
     sourcePath, taskIds, ownedSymbolsByTask, proposedPathByTask, affectedTests,
@@ -492,10 +492,10 @@ export async function applySeamConflict({
       : { targetResolved: !afterPairs.has(targetPair), before: beforePairs.size, after: afterPairs.size },
     waves: {
       before: measureWaveCount({
-        taskIds, conflictPairs: [...beforePairs].map((key) => key.split('\0')), executors,
+        taskIds, conflictPairs: [...beforePairs].map((key) => key.split('\0')), precedences, executors,
       }).waves,
       after: afterPairs === null ? null : measureWaveCount({
-        taskIds, conflictPairs: [...afterPairs].map((key) => key.split('\0')), executors,
+        taskIds, conflictPairs: [...afterPairs].map((key) => key.split('\0')), precedences, executors,
       }).waves,
     },
   });

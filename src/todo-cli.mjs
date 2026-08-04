@@ -103,6 +103,7 @@ import {
 import { compileSeamProposalArtifact, declaredConcernSymbols } from './seam-proposal.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
 import { applySeamProposal } from './seam-apply.mjs';
+import { todoPlanPrecedences } from './seam-verification.mjs';
 import {
   WITNESS_DRAFT_SCHEMA, buildWitnessObservationQuerySet, buildWitnessSet, serializeWitnessSet,
   validateWitnessDraft,
@@ -1871,6 +1872,7 @@ async function seamProposalApply({ repoRoot, planKey, pathNames = {}, land = fal
     latticeBin: fileURLToPath(new URL('../bin/lattice.mjs', import.meta.url)),
     sharedPathFor: (sourcePath) => sourcePath.replace(/(\.[^./]+)$/u, '.seam-shared$1'),
     executors: witnessSet.capacity.executors,
+    precedences: todoPlanPrecedences(member.plan),
     compileIndependence: {
       baseArtifact,
       // 変換後のworktreeで、写した宣言と再indexした索引から実compileする。

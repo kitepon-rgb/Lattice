@@ -315,6 +315,7 @@ export async function resolveRuntimeSeam({
         latticeBin,
         sharedPathFor: () => declaration.path_names.shared,
         executors: request.capacity.executors,
+        precedences: bundle.plan.precedence,
         pathNames,
         compileIndependence: {
           baseArtifact,

@@ -111,9 +111,10 @@ export function buildPostTransformWitnessSet({ witnessSet, candidate, affectedTe
  * 独自の近似を持たない。変換前後を同じ規則で測らないと、改善したという主張が
  * 測り方の差で出てしまう。
  */
-export function measureWaveCount({ taskIds, conflictPairs, executors } = {}) {
+export function measureWaveCount({ taskIds, conflictPairs, precedences = [], executors } = {}) {
   const todos = sortedUnique(taskIds ?? []);
   if (todos.length === 0) return { waves: null, reason: 'no_todos' };
+  const todoSet = new Set(todos);
   const seen = new Set();
   const conflicts = [];
   for (const pair of conflictPairs ?? []) {
@@ -124,11 +125,24 @@ export function measureWaveCount({ taskIds, conflictPairs, executors } = {}) {
     seen.add(key);
     conflicts.push({ todo_ids: [left, right], resource_id: `pair-${conflicts.length}` });
   }
+  const precedenceSeen = new Set();
+  const scopedPrecedences = [];
+  for (const edge of precedences) {
+    const from = edge?.from_todo_id;
+    const to = edge?.to_todo_id;
+    if (!todoSet.has(from) || !todoSet.has(to) || from === to) continue;
+    const reason = typeof edge.reason === 'string' && edge.reason.trim() !== ''
+      ? edge.reason : 'plan_precedence';
+    const key = `${from}\0${to}\0${reason}`;
+    if (precedenceSeen.has(key)) continue;
+    precedenceSeen.add(key);
+    scopedPrecedences.push({ from_todo_id: from, to_todo_id: to, reason });
+  }
   const compiled = compileSchedulabilityGraphV2({
     schema_version: GRAPH_SCHEMA,
     todos,
     conflicts,
-    precedences: [],
+    precedences: scopedPrecedences,
     unknowns: [],
     capacity: Number.isSafeInteger(executors) && executors >= 1 ? executors : 1,
   });
@@ -136,6 +150,28 @@ export function measureWaveCount({ taskIds, conflictPairs, executors } = {}) {
     return { waves: null, reason: compiled.code ?? compiled.outcome };
   }
   return { waves: compiled.plan.minimum_feasible_waves, reason: null };
+}
+
+/** todo planの順序制約をschedulability compilerのcanonical edgeへ写す。 */
+export function todoPlanPrecedences(plan) {
+  const edges = [];
+  for (const edge of plan?.hard_dependencies ?? []) {
+    edges.push({
+      from_todo_id: edge.from.task_id,
+      to_todo_id: edge.to.task_id,
+      reason: 'hard_dependency',
+    });
+  }
+  for (const join of plan?.joins ?? []) {
+    for (const after of join.after) {
+      edges.push({
+        from_todo_id: after.task_id,
+        to_todo_id: join.before.task_id,
+        reason: `join:${join.id}`,
+      });
+    }
+  }
+  return edges;
 }
 
 const CONDITIONS = Object.freeze([
