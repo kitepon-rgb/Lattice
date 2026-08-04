@@ -26,6 +26,32 @@
       "sensor_provenance": {
         "queries": [{"query_id": "witness-affected-000", "expect": {"kind": "affected", "path": "src/runtime-cli.mjs"}}]
       }
+    },
+    "rpf-006": {
+      "owns": [
+        {"kind": "path", "target": "src/runtime-cli.mjs"},
+        {"kind": "path", "target": "test/integration/hold-resume.integration.mjs"},
+        {"kind": "path", "target": "docs/00_product-contract.md"},
+        {"kind": "path", "target": "docs/plan_backlog.md"}
+      ],
+      "reads": [],
+      "writes": [
+        "src/runtime-cli.mjs",
+        "test/integration/hold-resume.integration.mjs",
+        "docs/00_product-contract.md",
+        "docs/plan_backlog.md"
+      ],
+      "affected_tests": [
+        "test/integration/hold-resume.integration.mjs",
+        "test/runtime-conflict-cli.test.mjs",
+        "test/runtime-managed-supervisor.test.mjs"
+      ],
+      "resources": [],
+      "state_effects": [],
+      "unknowns": [],
+      "sensor_provenance": {
+        "queries": [{"query_id": "witness-affected-000", "expect": {"kind": "affected", "path": "src/runtime-cli.mjs"}}]
+      }
     }
   },
   "sensor_query_set": {
@@ -34,5 +60,5 @@
       {"id": "witness-affected-000", "operation": "affected", "target": "src/runtime-cli.mjs"}
     ]
   },
-  "witness_set_digest": "bbfb59db6e0f69971c32531c5baefe7285e191fe75c34f0eb9f07d9f60ad8bfb"
+  "witness_set_digest": "032d48c9af5decb45c340666369a030dd73d6f535f70073ea778fa59c1ad23e0"
 }
