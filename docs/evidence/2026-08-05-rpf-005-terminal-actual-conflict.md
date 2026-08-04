@@ -6,7 +6,7 @@
 - 実際の write は、同時に稼働した attempt の予測 read／write と照合する。予測境界に無い新規 file でも、相手の実 write と重なれば actual 同士の競合として検出する。
 - 単独の予測外 write は競合に昇格せず、checkpoint に観測事実だけを残す。
 - terminal 競合は既存の `finding_record` → `conflict` → `hold` へ渡し、rpf-004 の対象作業群限定 barrier を使う。別の停止経路は追加していない。
-- checkpoint は `receipt_recorded` より前に耐久化し、receipt 自己申告を実 diff の代用にしていない。
+- supervisor の terminal checkpoint は executor の `receipt_recorded` と別eventにし、`receipt_accepted`／`receipt_rejected`の裁定より前に耐久化する。両者はdigest schemaも異なり、receipt自己申告を実diffの代用にしていない。
 
 ## 請求項との対応
 

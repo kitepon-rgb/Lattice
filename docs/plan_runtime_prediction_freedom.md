@@ -1,6 +1,6 @@
 # 予測境界の自由化と実競合の対象限定処理
 
-- Status: In progress
+- Status: Complete
 - Lane: Orchestrated（公開契約・特許請求項9/10・多段受入を変更するため）
 - Lattice plan: `runtime-prediction-freedom`
 - Patent canonical: `/Users/kite/Developer/Patent/Lattice/出願書類/03_特許請求の範囲案.md`

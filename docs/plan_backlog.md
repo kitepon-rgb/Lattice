@@ -551,8 +551,8 @@ renderer側の検査時点を公開契約へ明示するかを裁定する。静
 | 6 前後比較と再推定 | **実装済み** | 五条件が外部挙動同等性（原pathの公開面＋切断参照の網、ADR 0145）・focused test・再index・重複解消（対象競合の消滅とplan全体の競合対の非増加）・実行段階数の改善を測る。1つでも欠けたら棄却 |
 | 7 一方停止・他方commit・再開 | **確定の手段が入った** | 停止と再開は実装済み。各TODOは隔離worktreeで走り、freeze後は影響閉包内だけhold、閉包外は`carry_over_witness`（`todo_input`／`boundary_manifest`／`validator`／`context_content`のdigest＋非重複証拠＋receipt binding）を実証できた場合だけ継続する。請求項が版管理commitで果たす「他方の確定」を、隔離worktree＋暗号学的witnessで果たしている。`commit`が`FORBIDDEN_OPERATIONS`なのは公開契約の「承認なしに外部effectを行わない」に由来するので、明示承認付きのcommit経路を足せば思想と衝突しない |
 | 8 双方停止・限定変換・双方再開 | **実装済み・実runで一気通貫** | 実行時に観測した競合から変換候補を導出し、隔離worktreeで五条件を通して`runtime_seam_split`を組む（[記録](evidence/2026-07-27-xf-003-runtime-transform-loop.md)）。入口は`lattice run seam resolve`（宣言→観測の翻訳段`reconciled`つき）。双方hold→変換→land→phase revision再コンパイル→双方が同一waveでdispatchableまでを実store・実daemonで通した（`test/integration/hold-transform-resume.integration.mjs`）。「限定」は確実の門（ADR 0146）が正典化し、機械変換の外はtyped理由で操作AIへ渡す |
-| 9 実変更観測による実行時競合検出 | 実装済み | `detectCheckpointFindings`が`undeclared_write`と`observed_write_conflict`を返す |
-| 10 対象作業群だけ停止して再計画 | 実装済み | `computeAffectedClosure`＋`recompileNextEpochPlan` |
+| 9 実変更観測による実行時競合検出 | **実装済み・実daemonで確認** | managed supervisorがterminal時にorigin-bound worktreeの最終diffを独立観測し、actual×同時稼働attemptの予測read/write又はactual×actualを`observed_write_conflict`へ接続する。I/O sentinelを`off`にした実daemonでも検出した（[記録](evidence/2026-08-05-rpf-006-integration-and-claims.md)） |
+| 10 対象作業群だけ停止して再計画 | **実装済み・実daemonで確認** | `computeAffectedClosure`の対象だけを`barrierSelected`・context invalidation・後継dispatchへ渡す。3 worker実daemonでA/Bだけを停止し、Cは同じprocess／dispatch／lease／旧epochのまま継続、C終端前にA/B後継を開始し、Cのorigin receiptを後継epochで受理した（[記録](evidence/2026-08-05-rpf-006-integration-and-claims.md)） |
 | 11・12 | 1と同じ | |
 
 「AIが推定する」を製品内のAI呼び出しの有無で測るのは誤りである。さらに、**装置の境界を
@@ -858,6 +858,15 @@ ADRのOpen questionsは25件ある。読み直すと3種類が混ざっている
 
 # 宣言道具と創作境界の噛み合わせ
 
+**この制約は廃止済み（2026-08-05・[ADR 0158](adr/0158-planned-boundaries-are-predictions-and-runtime-recovery-is-target-scoped.md)）。**
+`creates: true`、fresh absent、exact path、affected exact一致は、新規file作成やdispatchの許可条件ではない。
+`owns`／`reads`／`writes`／`creates`は計画時の部分予測として競合配置に使い、実装AIは新規file名・件数を
+事前確定せず作成できる。予測外変更は単独では違反・成果破棄・freezeにせず、実行時の実変更観測で
+別attemptとの重なりが確認された時だけ競合として処置する。旧`scaffold-creation`工程の完了記録は、
+現行dispatch契約の根拠には使わない。
+
+## 過去記録（ADR 0158により失効）
+
 工程状態の正本はLattice storeの`scaffold-creation` plan。
 
 **2つの機能が組み合わさっていない。** [ADR 0136](adr/0136-declared-creation-boundary.md)は、まだ
@@ -874,7 +883,7 @@ ADRのOpen questionsは25件ある。読み直すと3種類が混ざっている
 実態と合っているかを確かめる側**を持つ——fresh absentであること、blast radiusが空であること、
 front endが要求する形（`changedFiles`が対象1件）であること。
 
-## 工程
+### 当時の工程
 
 - [x] 下書き契約へ創作宣言を足す
 - [x] 観測の三値を保って創作境界を検証する
