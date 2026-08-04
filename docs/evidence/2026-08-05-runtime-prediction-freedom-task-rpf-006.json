@@ -1,0 +1,26 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "runtime-prediction-freedom-20260805",
+  "actor_id": "codex-parent-20260805",
+  "expected_revision": 8,
+  "task": {
+    "task_id": "rpf-006",
+    "title": "3-worker統合試験と請求項充足を閉じる",
+    "classification": "A",
+    "effect": "write",
+    "doc_ref": "docs/plan_runtime_prediction_freedom.md",
+    "role": "implementer",
+    "lane": "behavior-change",
+    "depends_on": ["rpf-002", "rpf-003", "rpf-005"],
+    "required_capabilities": ["integration-test", "patent-audit", "documentation"],
+    "isolation": "none",
+    "context_policy": {"share_objective": true, "share_current_candidate": true, "share_existing_findings": true, "share_failed_approaches": true, "share_test_results": true},
+    "validation": ["3-worker acceptance scenarioがgreen", "npm run ciがgreen", "請求項9/10の充足表を実証拠へ合わせる"],
+    "non_goals": ["push/release/publishをしない", "特許本文を変更しない"],
+    "known_traps": ["実daemon fixtureは共通cleanupを使う", "未実行integrationをgreenに丸めない"],
+    "read_scope": [{"kind": "directory", "path": "src"}, {"kind": "directory", "path": "test"}, {"kind": "directory", "path": "docs"}],
+    "write_scope": [{"kind": "directory", "path": "test"}, {"kind": "file", "path": "docs/00_product-contract.md"}, {"kind": "file", "path": "docs/plan_backlog.md"}, {"kind": "directory", "path": "docs/evidence"}, {"kind": "file", "path": "docs/plan_runtime_prediction_freedom.md"}],
+    "approval": null,
+    "alternative_group": null
+  }
+}

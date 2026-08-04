@@ -1,0 +1,26 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "runtime-prediction-freedom-20260805",
+  "actor_id": "codex-parent-20260805",
+  "expected_revision": 6,
+  "task": {
+    "task_id": "rpf-004",
+    "title": "競合時barrierとbindingを対象attemptへ限定する",
+    "classification": "F",
+    "effect": "write",
+    "doc_ref": "docs/plan_runtime_prediction_freedom.md",
+    "role": "implementer",
+    "lane": "behavior-change",
+    "depends_on": [],
+    "required_capabilities": ["lattice-sensor", "runtime-supervisor", "lease-binding", "focused-test"],
+    "isolation": "none",
+    "context_policy": {"share_objective": true, "share_current_candidate": true, "share_existing_findings": true, "share_failed_approaches": true, "share_test_results": true},
+    "validation": ["A/Bだけを停止しCを同じbindingで継続する", "A/B successorをC terminal前に開始する", "C旧revision receiptをorigin bindingで受理する"],
+    "non_goals": ["startup/shutdown/recoveryのbarrierAllを削らない", "strict crash無停止protocolを追加しない"],
+    "known_traps": ["global epoch gateのままCだけ走らせるとwrite leaseが失効する", "todo_idだけのrouteは旧terminalが新attemptを消す"],
+    "read_scope": [{"kind": "directory", "path": "src"}, {"kind": "directory", "path": "test"}],
+    "write_scope": [{"kind": "file", "path": "src/runtime-managed-supervisor.mjs"}, {"kind": "file", "path": "src/runtime-controller-protocol.mjs"}, {"kind": "file", "path": "src/runtime-scripted-adapter-controller.mjs"}, {"kind": "file", "path": "src/runtime-hold-recompile.mjs"}, {"kind": "file", "path": "src/runtime-multi-epoch-store.mjs"}, {"kind": "file", "path": "src/runtime-engine.mjs"}, {"kind": "file", "path": "src/runtime-cli.mjs"}, {"kind": "directory", "path": "test"}],
+    "approval": null,
+    "alternative_group": null
+  }
+}

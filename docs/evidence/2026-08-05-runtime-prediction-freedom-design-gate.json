@@ -1,0 +1,22 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "runtime-prediction-freedom-20260805",
+  "actor_id": "codex-parent-20260805",
+  "expected_revision": 3,
+  "phase": "design",
+  "state": "completed",
+  "evidence": [
+    {
+      "type": "file",
+      "ref": "docs/plan_runtime_prediction_freedom.md",
+      "digest": "7111438adb846942c41f7bf2d18d61b2a823404de097097e4f2c0543920f8739",
+      "observed_at": "2026-08-04T17:23:35.000Z"
+    }
+  ],
+  "decision": {
+    "type": "decision",
+    "ref": "docs/adr/0158-planned-boundaries-are-predictions-and-runtime-recovery-is-target-scoped.md",
+    "digest": "3e08c75ece8d0e831ee64864cb93e8b089f789fe205fcc6dc15da8a462e48de1",
+    "observed_at": "2026-08-04T17:23:35.000Z"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "runtime-prediction-freedom-20260805",
+  "actor_id": "codex-parent-20260805",
+  "expected_revision": 7,
+  "task": {
+    "task_id": "rpf-005",
+    "title": "terminal receipt受理前へ独立実diff観測を配線する",
+    "classification": "F",
+    "effect": "write",
+    "doc_ref": "docs/plan_runtime_prediction_freedom.md",
+    "role": "implementer",
+    "lane": "behavior-change",
+    "depends_on": ["rpf-004"],
+    "required_capabilities": ["lattice-sensor", "runtime-diff", "receipt-binding", "focused-test"],
+    "isolation": "none",
+    "context_policy": {"share_objective": true, "share_current_candidate": true, "share_existing_findings": true, "share_failed_approaches": true, "share_test_results": true},
+    "validation": ["final diffをreceipt受理前にsupervisorが独立取得する", "actualと他task予測read/writeを照合する", "同時稼働attemptのunknown actual同士を検出する"],
+    "non_goals": ["receipt自己申告を実diffにしない", "新しい自己申告一致gateを作らない"],
+    "known_traps": ["running peerのevent cutをterminal化前に保持する", "sentinelとの二重findingは既存digestでまとめる"],
+    "read_scope": [{"kind": "directory", "path": "src"}, {"kind": "directory", "path": "test"}],
+    "write_scope": [{"kind": "file", "path": "src/runtime-cli.mjs"}, {"kind": "file", "path": "src/runtime-engine.mjs"}, {"kind": "file", "path": "src/runtime-diff-observer.mjs"}, {"kind": "directory", "path": "test"}],
+    "approval": null,
+    "alternative_group": null
+  }
+}

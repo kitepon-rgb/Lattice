@@ -1,0 +1,172 @@
+{
+  "schema": "lattice.todo_extraction.v3",
+  "project_id": "lattice",
+  "plan_key": "runtime-prediction-freedom",
+  "plan_version": "v1",
+  "actor": {
+    "host": "KaitonoMacBook-Air",
+    "session": "codex-019fcd78",
+    "agent": "codex-parent"
+  },
+  "recorded_at": "2026-08-04T17:18:36.000Z",
+  "tasks": [
+    {
+      "task_id": "rpf-002",
+      "title": "writesとcreatesを不完全な予測へ戻す",
+      "lane": "implementation",
+      "design_memo": "latest writerとfront-endからcreates:true・exact absent・nonempty/exact owns・affected exact一致のdispatch gateを外す。旧readerは残し、exact_minimumの意味を黙って変更しない。単独prediction excessは観測のみでfreeze/receipt rejectへ流さず、既知の予測重複はserial conflictとして使う。",
+      "narrative_ref": "docs/plan_runtime_prediction_freedom.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_runtime_prediction_freedom.md",
+        "origin_line": 30,
+        "source_commit": "8dff68a778f87d57a3c6eeca834d9827f5ef2ea6",
+        "heading_path": ["実装単位", "1. 予測contractとauthoring"],
+        "markdown_depth": 3,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": ["docs/adr/0144-prediction-excess-is-not-a-conflict.md"],
+        "notes": ["新しいopen-resource機構を追加しない", "限定seam transactionのallowedPathsは対象外"]
+      }
+    },
+    {
+      "task_id": "rpf-003",
+      "title": "seam wave計測へcanonical precedenceを配線する",
+      "lane": "implementation",
+      "design_memo": "active planのhard_dependenciesとjoinsからcanonical precedenceを一度導出し、対象task集合へprojectして変換前後のmeasureWaveCountへ同じ集合を渡す。waveから偽precedenceを作らず同期barrierへ変えない。",
+      "narrative_ref": "docs/plan_runtime_prediction_freedom.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_runtime_prediction_freedom.md",
+        "origin_line": 36,
+        "source_commit": "8dff68a778f87d57a3c6eeca834d9827f5ef2ea6",
+        "heading_path": ["実装単位", "2. precedenceを含むwave計測"],
+        "markdown_depth": 3,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": ["docs/adr/0138-transform-acceptance-five-conditions.md"],
+        "notes": ["同じtask集合・capacity・precedenceでbefore/afterを比較する"]
+      }
+    },
+    {
+      "task_id": "rpf-004",
+      "title": "競合時barrierとbindingを対象attemptへ限定する",
+      "lane": "implementation",
+      "design_memo": "既存hold/continue裁定の対象bindingだけをquiesceし、無関係attemptを同じprocess/context/origin leaseで継続する。plan revisionは全体連番のまま、active route/write authorization/receipt lookupをattempt bindingへscopeし、旧revisionのCと新revisionのA/Bを同時に有効化する。recoveryで外部process状態を再構成できない場合だけbarrierAllへ上げる。",
+      "narrative_ref": "docs/plan_runtime_prediction_freedom.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_runtime_prediction_freedom.md",
+        "origin_line": 41,
+        "source_commit": "8dff68a778f87d57a3c6eeca834d9827f5ef2ea6",
+        "heading_path": ["実装単位", "3. 対象限定barrierとtask-scoped execution binding"],
+        "markdown_depth": 3,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": "/Users/kite/Developer/Patent/Lattice/出願書類/03_特許請求の範囲案.md#請求項10",
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": ["docs/adr/0064-runtime-hold-public-bridge.md", "docs/adr/0158-planned-boundaries-are-predictions-and-runtime-recovery-is-target-scoped.md"],
+        "notes": ["A/B successorはC terminalを待たない", "Cへrebind/invalidation/resumeを発行しない"]
+      }
+    },
+    {
+      "task_id": "rpf-005",
+      "title": "terminal receipt受理前へ独立実diff観測を配線する",
+      "lane": "implementation",
+      "design_memo": "terminal応答のorigin bindingを既存規則で検証した後、receipt受理前にsupervisorがretained worktreeの最終diffを取得・耐久化する。actual×他task予測read/writeと、同時稼働intervalを持つattemptのactual×actualを分類し、actionable conflictだけをrpf-004の対象限定処理へ渡す。receipt自己申告をprobeへ代用せず、新しい自己申告一致gateを作らない。",
+      "narrative_ref": "docs/plan_runtime_prediction_freedom.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_runtime_prediction_freedom.md",
+        "origin_line": 47,
+        "source_commit": "8dff68a778f87d57a3c6eeca834d9827f5ef2ea6",
+        "heading_path": ["実装単位", "4. terminal実diff観測"],
+        "markdown_depth": 3,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": "/Users/kite/Developer/Patent/Lattice/出願書類/03_特許請求の範囲案.md#請求項9",
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": ["docs/adr/0143-io-sentinel-is-an-early-warning-not-a-finding.md"],
+        "notes": ["sentinelは早期検出、terminal probeは最終観測", "unpredicted×unpredictedを実行interval付きで検出する"]
+      }
+    },
+    {
+      "task_id": "rpf-006",
+      "title": "3-worker統合試験と請求項充足を閉じる",
+      "lane": "integration",
+      "design_memo": "A/B/C実daemon fixtureでA/Bだけの停止、Cのprocess/binding不変、C terminal前のA/B successor開始、C旧revision receipt受理をproducer/verifier双方で確認する。unknown×unknown、actual×predicted read、sentinel無効terminal検出を固定し、公開契約・ADR・plan_backlogを実装証拠へ合わせ、最後にnpm run ciを一度通す。",
+      "narrative_ref": "docs/plan_runtime_prediction_freedom.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_runtime_prediction_freedom.md",
+        "origin_line": 53,
+        "source_commit": "8dff68a778f87d57a3c6eeca834d9827f5ef2ea6",
+        "heading_path": ["実装単位", "5. 統合・請求項監査"],
+        "markdown_depth": 3,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": "/Users/kite/Developer/Patent/Lattice/出願書類/03_特許請求の範囲案.md",
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": ["docs/00_product-contract.md", "docs/plan_backlog.md"],
+        "notes": ["請求項本文は変更しない", "push/release/publishは範囲外"]
+      }
+    }
+  ],
+  "hard_dependencies": [
+    {
+      "from": {"project_id": "lattice", "plan_key": "runtime-prediction-freedom", "task_id": "rpf-004"},
+      "to": {"project_id": "lattice", "plan_key": "runtime-prediction-freedom", "task_id": "rpf-005"}
+    }
+  ],
+  "joins": [
+    {
+      "id": "rpf-join-integration",
+      "after": [
+        {"project_id": "lattice", "plan_key": "runtime-prediction-freedom", "task_id": "rpf-002"},
+        {"project_id": "lattice", "plan_key": "runtime-prediction-freedom", "task_id": "rpf-003"},
+        {"project_id": "lattice", "plan_key": "runtime-prediction-freedom", "task_id": "rpf-005"}
+      ],
+      "before": {"project_id": "lattice", "plan_key": "runtime-prediction-freedom", "task_id": "rpf-006"}
+    }
+  ],
+  "extraction_digest": "86a672d731b04db774f9beaa7a0d06493460dc0839c89085099b2da142af8091"
+}

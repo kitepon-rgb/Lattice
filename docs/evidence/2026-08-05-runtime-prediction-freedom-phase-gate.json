@@ -1,0 +1,8 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "runtime-prediction-freedom-20260805",
+  "actor_id": "codex-parent-20260805",
+  "expected_revision": 0,
+  "risk": "high",
+  "behavior_lane": "behavior-change"
+}

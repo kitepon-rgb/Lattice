@@ -1,0 +1,17 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice",
+  "control_id": "runtime-prediction-freedom-20260805",
+  "actor_id": "codex-parent-20260805",
+  "expected_revision": 2,
+  "phase": "discovery",
+  "state": "completed",
+  "evidence": [
+    {
+      "type": "file",
+      "ref": "docs/evidence/2026-08-05-runtime-prediction-freedom-discovery.md",
+      "digest": "a53edb51544db2046682a681b51988fe9452d81deff3d63b4a4bfb1670e36d09",
+      "observed_at": "2026-08-04T17:23:35.000Z"
+    }
+  ],
+  "decision": null
+}
