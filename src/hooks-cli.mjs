@@ -427,18 +427,41 @@ function hostHandler(host, command) {
     : { type: 'command', command, timeout: 5, async: false, statusMessage: null };
 }
 
-async function resolveCanonical(host, source) {
+export async function resolveStableNodePath(execPath, {
+  platform = process.platform,
+  accessImpl = access,
+  realpathImpl = realpath,
+} = {}) {
+  await accessImpl(execPath, fsConstants.X_OK);
+  if (platform !== 'darwin') return execPath;
+  const match = execPath.match(/^\/(opt\/homebrew|usr\/local)\/Cellar\/([^/]+)\/[^/]+\/bin\/node$/u);
+  if (match === null) return execPath;
+  const prefix = `/${match[1]}`;
+  const candidates = [path.join(prefix, 'bin/node'), path.join(prefix, 'opt', match[2], 'bin/node')];
+  const resolvedExec = await realpathImpl(execPath);
+  for (const candidate of candidates) {
+    try {
+      await accessImpl(candidate, fsConstants.X_OK);
+      if (await realpathImpl(candidate) === resolvedExec) return candidate;
+    } catch {
+      // A candidate is usable only when it exists and resolves to this running Node binary.
+    }
+  }
+  return execPath;
+}
+
+async function resolveCanonical(host, source, platform) {
   const sourcePaths = [source.execPath, source.binPath];
   if (sourcePaths.some((entry) => typeof entry !== 'string' || !path.isAbsolute(entry)
     || /[\0\r\n]/u.test(entry))) {
     throw Object.assign(new Error('install source is not absolute'), { code: 'INSTALL_SOURCE_UNRESOLVED' });
   }
   try {
-    await access(source.execPath, fsConstants.X_OK);
+    const executable = await resolveStableNodePath(source.execPath, { platform });
     const script = await realpath(source.binPath);
     if (/[\0\r\n]/u.test(script)) throw new Error('resolved install source has unsafe characters');
     await access(script, fsConstants.R_OK | fsConstants.X_OK);
-    return [source.execPath, script, 'hooks', 'emit', '--host', host];
+    return [executable, script, 'hooks', 'emit', '--host', host];
   } catch (error) {
     throw Object.assign(error, { code: 'INSTALL_SOURCE_UNRESOLVED' });
   }
@@ -613,13 +636,13 @@ async function hostDirectory(home, host) {
   }
 }
 
-async function mutate(host, env, stdout, uninstall, source, testHooks) {
+async function mutate(host, env, stdout, uninstall, source, platform, testHooks) {
   const home = env.HOME ?? os.homedir();
   if (await hostDirectory(home, host) === null) {
     return failure(stdout, 'HOST_NOT_PRESENT', 'host home directory is not present');
   }
   let current;
-  try { current = await resolveCanonical(host, source); } catch {
+  try { current = await resolveCanonical(host, source, platform); } catch {
     return failure(stdout, 'INSTALL_SOURCE_UNRESOLVED', 'install source cannot be resolved');
   }
   const target = configPath(home, host);
@@ -708,7 +731,7 @@ async function status(host, env, stdout, source, platform, testHooks) {
   const home = env.HOME ?? os.homedir();
   const target = configPath(home, host);
   let argv;
-  try { argv = await resolveCanonical(host, source); } catch {
+  try { argv = await resolveCanonical(host, source, platform); } catch {
     writeJson(stdout, statusResult(host, target, null, 'unreadable', 0, false, 0));
     return 1;
   }
@@ -1023,8 +1046,8 @@ export async function runHooksCli({
     if (command === 'status') return status(host, env, stdout, source, platform, testHooks);
     return failure(stdout, 'HOST_PLATFORM_UNSUPPORTED', 'native Windows hooks are unsupported');
   }
-  if (command === 'install') return mutate(host, env, stdout, false, source, testHooks);
-  if (command === 'uninstall') return mutate(host, env, stdout, true, source, testHooks);
+  if (command === 'install') return mutate(host, env, stdout, false, source, platform, testHooks);
+  if (command === 'uninstall') return mutate(host, env, stdout, true, source, platform, testHooks);
   if (command === 'status') return status(host, env, stdout, source, platform, testHooks);
   return emit(host, env, stdin, stdout, spawnImpl, gitTimeoutMs, testHooks);
 }

@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test, { after, before } from 'node:test';
-import { runHooksCli } from '../src/hooks-cli.mjs';
+import { resolveStableNodePath, runHooksCli } from '../src/hooks-cli.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
@@ -164,7 +164,7 @@ const FOREIGN_CODEX_HOOKS = JSON.stringify({
 }, null, 2);
 
 async function canonical(host) {
-  return [process.execPath, await realpath(CLI), 'hooks', 'emit', '--host', host];
+  return [await resolveStableNodePath(process.execPath), await realpath(CLI), 'hooks', 'emit', '--host', host];
 }
 
 function commandArgv(command) {
@@ -299,6 +299,42 @@ test('P3 C2: install は Claude のcanonical commandを絶対node/絶対mjs/hook
   assert.deepEqual(self[0], { type: 'command', command: self[0].command, timeout: 5 });
   assert.equal(path.isAbsolute((await canonical('claude'))[0]), true);
   assert.equal(path.isAbsolute((await canonical('claude'))[1]), true);
+});
+
+test('P3 C2: Homebrew Cellarの版付きNodeは同一実体を指す安定symlinkへ正規化する', async () => {
+  const cellar = '/opt/homebrew/Cellar/node/26.5.1/bin/node';
+  const stable = '/opt/homebrew/bin/node';
+  const resolved = '/opt/homebrew/Cellar/node/26.5.1/bin/node';
+  const accessImpl = async (target) => {
+    if (![cellar, stable].includes(target)) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+  };
+  const realpathImpl = async (target) => {
+    if (target === cellar || target === stable) return resolved;
+    throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+  };
+  assert.equal(await resolveStableNodePath(cellar, {
+    platform: 'darwin', accessImpl, realpathImpl,
+  }), stable);
+  assert.equal(await resolveStableNodePath(cellar, {
+    platform: 'linux', accessImpl, realpathImpl,
+  }), cellar);
+});
+
+test('P3 C2: Homebrew安定symlinkが別実体ならCellarのNodeを維持する', async () => {
+  const cellar = '/usr/local/Cellar/node@22/22.18.0/bin/node';
+  const stable = '/usr/local/bin/node';
+  const optStable = '/usr/local/opt/node@22/bin/node';
+  const accessImpl = async (target) => {
+    if (![cellar, stable, optStable].includes(target)) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+  };
+  const realpathImpl = async (target) => {
+    if (target === cellar) return cellar;
+    if (target === stable || target === optStable) return '/usr/local/Cellar/node/26.5.1/bin/node';
+    throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+  };
+  assert.equal(await resolveStableNodePath(cellar, {
+    platform: 'darwin', accessImpl, realpathImpl,
+  }), cellar);
 });
 
 // C2: canonical argv は絶対node・絶対realpath mjs・hooks emit --host <host> の完全列である。
