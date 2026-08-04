@@ -103,8 +103,10 @@ checkpointから再導出できた時だけである。計画時の境界は既�
 - [ ] `owe-03-runtime-wiring`: sentinel、checkpoint producer、finding再導出を実checkpoint同士へ一本化する
 - [ ] `owe-04-versioned-cutover`: packet／finding／legacy readerをversionedにcut overし、旧記録のreplayを保つ
 - [ ] `owe-05-result-verification`: 実変更pathから受入testとfresh sensor証拠を組み、編集自由と検証を分離する
-- [ ] `owe-06-integration-dogfood`: 未宣言の新規・既存fileを含む実run、sentinel off、衝突・非衝突を実証する
-- [ ] `owe-07-delivery`: 契約、help、CHANGELOG、version、公開物を揃え、承認後にrelease／install smokeまで届ける
+- [ ] `owe-06-conflict-dogfood`: 未宣言の新規・既存file競合とsentinel offを実runで実証する
+- [ ] `owe-06-freedom-dogfood`: 未宣言の自由編集が非衝突時に止まらないことを実runで実証する
+- [ ] `owe-07-surface-contract`: ADR、help、schema、MCP案内、CHANGELOGを新しい意味へ揃える
+- [ ] `owe-08-delivery`: versionと公開物を揃え、承認後にrelease／install smokeまで届ける
 
 ## 受入シナリオ
 
@@ -127,5 +129,5 @@ checkpointから再導出できた時だけである。計画時の境界は既�
 
 ## 実行上の停止点
 
-- `owe-01`から`owe-06`はrepo内実装・検証。計画承認後に開始できる。
-- push、npm publish、利用環境install、daemon再起動は`owe-07`のH操作であり、実行直前に明示承認を取る。
+- `owe-01`から`owe-07`はrepo内実装・検証。計画承認後に開始できる。
+- push、npm publish、利用環境install、daemon再起動は`owe-08`のH操作であり、実行直前に明示承認を取る。
