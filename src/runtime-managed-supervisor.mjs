@@ -262,6 +262,7 @@ export class RuntimeManagedSupervisor {
   #gate = null;
   #previousGate = null;
   #releaseAcks = [];
+  #gateRecords = new Map();
   #frozen = false;
   #gateGeneration = 0;
 
@@ -366,13 +367,30 @@ export class RuntimeManagedSupervisor {
 
   /** 全running bindingを一件も省略せずbarrierし、controller ackと独立OS観測を照合する。 */
   async barrierAll({ barrierId, reason, frozenEventDigest }) {
+    return this.#barrier({ barrierId, reason, frozenEventDigest, targetTodoIds: null });
+  }
+
+  /** findingの影響群だけを静止し、無関係なrunning bindingはそのまま通す。 */
+  async barrierSelected({ barrierId, reason, frozenEventDigest, todoIds }) {
+    if (!Array.isArray(todoIds) || todoIds.length === 0
+      || todoIds.some((todoId) => !identifier(todoId))
+      || new Set(todoIds).size !== todoIds.length) {
+      fail('HOLD_ACKS_INCOMPLETE', '対象barrierのTODO集合が不正');
+    }
+    return this.#barrier({ barrierId, reason, frozenEventDigest,
+      targetTodoIds: new Set(todoIds) });
+  }
+
+  async #barrier({ barrierId, reason, frozenEventDigest, targetTodoIds }) {
     const durableBindings = await this.#runningBindingResolver({ runId: this.#runId, frozenEventDigest });
     if (!identifier(barrierId) || typeof reason !== 'string' || reason.length === 0
       || !digest(frozenEventDigest) || !Array.isArray(durableBindings)
       || !durableBindings.every(validateRunningBinding)) fail('HOLD_ACKS_INCOMPLETE', 'durable running binding不正');
     await this.assertControllerHealth();
     this.#frozen = true;
-    const runningBindings = await this.#resolveRunningUnion({ durableBindings, frozenEventDigest });
+    const allRunningBindings = await this.#resolveRunningUnion({ durableBindings, frozenEventDigest });
+    const runningBindings = targetTodoIds === null ? allRunningBindings
+      : allRunningBindings.filter((binding) => targetTodoIds.has(binding.todo_id));
     const unique = new Set(runningBindings.map((binding) => binding.todo_id));
     if (unique.size !== runningBindings.length) fail('HOLD_ACKS_INCOMPLETE', 'running TODO重複');
     const barrierControlDigest = await this.#append('barrier_requested', { barrier_id: barrierId,
@@ -413,7 +431,9 @@ export class RuntimeManagedSupervisor {
       }
     }
     if (acknowledgements.length !== runningBindings.length) fail('HOLD_ACKS_INCOMPLETE', '未登録controller所有bindingあり');
-    const residualBindings = await this.#collectControllerRunning({ frozenEventDigest });
+    const observedAfterBarrier = await this.#collectControllerRunning({ frozenEventDigest });
+    const residualBindings = targetTodoIds === null ? observedAfterBarrier
+      : observedAfterBarrier.filter((binding) => targetTodoIds.has(binding.todo_id));
     if (residualBindings.length !== 0) {
       fail('HOLD_ACKS_INCOMPLETE', `barrier後もrunning executor残存: ${residualBindings.map((binding) => binding.todo_id).join(',')}`);
     }
@@ -460,10 +480,14 @@ export class RuntimeManagedSupervisor {
     return observed;
   }
 
-  /** finding/store永続化後に呼ぶtyped hold閉路。全running quiescence以外はheldを返さない。 */
-  async holdConflict({ findingDigest, frozenEventDigest, barrierId, reason, recordedAt }) {
+  /** finding/store永続化後に呼ぶtyped hold閉路。対象群のquiescence完了後だけheldを返す。 */
+  async holdConflict({ findingDigest, frozenEventDigest, barrierId, reason, recordedAt,
+    todoIds = null }) {
     if (!digest(findingDigest) || typeof recordedAt !== 'string' || Number.isNaN(Date.parse(recordedAt))) fail('FINDING_UNRESOLVED', 'hold finding binding不正');
-    const acknowledgements = await this.barrierAll({ barrierId, reason, frozenEventDigest });
+    const acknowledgements = todoIds === null
+      ? await this.barrierAll({ barrierId, reason, frozenEventDigest })
+      : await this.barrierSelected({ barrierId, reason, frozenEventDigest,
+        todoIds });
     const result = {
       schema: 'lattice.runtime_hold_result.v1', run_id: this.#runId,
       finding_digest: findingDigest, barrier_id: barrierId,
@@ -635,6 +659,10 @@ export class RuntimeManagedSupervisor {
     this.#previousGate = this.#gate;
     this.#gate = gate;
     this.#releaseAcks = releaseAcks.map((ack) => structuredClone(ack));
+    this.#gateRecords.set(gate.gate_generation, {
+      gate: structuredClone(gate),
+      releaseAcks: releaseAcks.map((ack) => structuredClone(ack)),
+    });
     this.#gateGeneration = nextGeneration;
     this.#frozen = false;
     return { gate: structuredClone(gate), armedLeases: armed.map((lease) => structuredClone(lease)) };
@@ -644,14 +672,25 @@ export class RuntimeManagedSupervisor {
   async authorizeWrite({ leaseDigest }) {
     await this.assertControllerHealth();
     const entry = this.#leases.get(leaseDigest);
-    if (this.#frozen || !entry || entry.revoked || !validateArmedWriteLease(entry.lease) || this.#gate === null) fail('RUN_FROZEN', '有効なarmed leaseなし');
+    if (this.#frozen || !entry || entry.revoked || !validateArmedWriteLease(entry.lease)) fail('RUN_FROZEN', '有効なarmed leaseなし');
+    const gateRecord = this.#gateRecords.get(entry.lease.gate_generation);
+    const gate = gateRecord?.gate ?? (this.#gate?.gate_generation === entry.lease.gate_generation
+      ? this.#gate : null);
+    const releaseAcks = gateRecord?.releaseAcks ?? (gate === this.#gate ? this.#releaseAcks : []);
+    if (gate === null) fail('RUN_FROZEN', 'leaseのorigin gateが無い');
+    const previousGate = this.#gateRecords.get(gate.gate_generation - 1)?.gate
+      ?? (gate === this.#gate ? this.#previousGate : null);
+    const gateLeases = [...this.#leases.values()]
+      .filter((item) => !item.revoked && validateArmedWriteLease(item.lease)
+        && item.lease.gate_generation === gate.gate_generation)
+      .map((item) => item.lease);
     const verified = verifyCentralWriteGate({
-      gate: this.#gate, runId: this.#runId, planEpoch: entry.lease.plan_epoch,
+      gate, runId: this.#runId, planEpoch: entry.lease.plan_epoch,
       releaseBarrierDigest: entry.lease.release_barrier_digest, sessionNonceDigest: this.#sessionNonceDigest,
       registrations: [...this.#controllers.values()].map((record) => record.registration),
       controllers: [...this.#controllers.values()].map((record) => record.descriptor),
-      releaseAcks: this.#releaseAcks, armedLeases: [...this.#leases.values()].filter((item) => !item.revoked && validateArmedWriteLease(item.lease)).map((item) => item.lease),
-      previousGate: this.#previousGate,
+      releaseAcks, armedLeases: gateLeases,
+      previousGate,
     });
     if (!verified.valid || this.#clock() - entry.issuedAt > entry.lease.ttl_ms) {
       entry.revoked = true;

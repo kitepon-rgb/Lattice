@@ -453,6 +453,24 @@ export function recomputeReceiptDecisions(options = {}) {
     const dispatch = dispatchEventForReceipt === undefined
       ? undefined
       : { sequence: dispatchEventForReceipt.sequence, payload: dispatchEventForReceipt.payload };
+    const originBindingRetained = (() => {
+      if (!Number.isSafeInteger(receipt.plan_epoch) || receipt.plan_epoch >= plan.plan_epoch) return false;
+      for (let epoch = receipt.plan_epoch; epoch < plan.plan_epoch; epoch += 1) {
+        const witnessed = events.some((event) => event.sequence < receipt.sequence
+          && event.kind === 'carry_over_witnessed' && event.plan_epoch === epoch
+          && event.subject?.kind === 'todo' && event.subject.ref === receipt.todo_id);
+        const continued = events.some((event) => event.sequence < receipt.sequence
+          && event.kind === 'hold_decided' && event.plan_epoch === epoch
+          && event.payload?.continue_set?.includes(receipt.todo_id));
+        const recompiled = events.some((event) => event.sequence < receipt.sequence
+          && event.kind === 'plan_recompiled' && event.plan_epoch === epoch + 1);
+        const invalidated = events.some((event) => event.sequence < receipt.sequence
+          && event.kind === 'context_invalidated' && event.plan_epoch === epoch + 1
+          && event.subject?.kind === 'todo' && event.subject.ref === receipt.todo_id);
+        if (!witnessed || !continued || !recompiled || invalidated) return false;
+      }
+      return true;
+    })();
     if (dispatch === undefined) {
       return reject('not_dispatched');
     }
@@ -465,12 +483,12 @@ export function recomputeReceiptDecisions(options = {}) {
     if (typeof plan.base_sha === 'string' && payload.base_sha !== plan.base_sha) {
       return reject('base_mismatch');
     }
-    if (receipt.plan_epoch !== plan.plan_epoch) {
+    if (receipt.plan_epoch !== plan.plan_epoch && !originBindingRetained) {
       return reject('epoch_mismatch');
     }
     // dispatchが旧epochのTODOが現epoch receiptを名乗る場合はepoch_rebound必須
     // （rebindなしのepoch自称を受理しない。Decision 7.3/7.4）。
-    if (dispatchEventForReceipt.plan_epoch !== plan.plan_epoch) {
+    if (dispatchEventForReceipt.plan_epoch !== plan.plan_epoch && !originBindingRetained) {
       const rebound = state.rebinds[receipt.todo_id];
       if (rebound === undefined
         || rebound.payload?.new_plan_epoch !== plan.plan_epoch

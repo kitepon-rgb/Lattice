@@ -38,13 +38,27 @@ function response(operation, request, f) {
   if (operation === 'inventory') return sign({ schema: 'lattice.adapter_running_inventory_response.v1', request_id: request.request_id, running_bindings: [], inventory_digest: digestArtifact([]), response_digest: '' }, 'response_digest');
   if (operation === 'barrier') return sign({ schema: 'lattice.adapter_barrier_response.v1', request_id: request.request_id, barrier_id: request.barrier_id, quiescence_acks: [f.quiescenceAck], response_digest: '' }, 'response_digest');
   if (operation === 'rebind') return sign({ schema: 'lattice.adapter_rebind_response.v1', request_id: request.request_id, rebind_ack: f.rebindAck, staged_lease_digest: f.staged.lease_digest, response_digest: '' }, 'response_digest');
+  if (operation === 'prepare') {
+    const ack = sign({ schema: 'lattice.adapter_prepare_ack.v1',
+      ack_id: `prepare-${request.executor_packet.todo_id}`,
+      registration_digest: f.registration.registration_digest,
+      controller_id: f.descriptor.controller_id, run_id: 'run-a',
+      todo_id: request.executor_packet.todo_id,
+      plan_epoch: request.executor_packet.plan_epoch,
+      packet_digest: request.executor_packet.packet_digest,
+      staged_lease_digest: request.staged_lease.lease_digest,
+      supervisor_session_nonce_digest: D('b'), ack_digest: '' }, 'ack_digest');
+    return sign({ schema: 'lattice.adapter_prepare_response.v1', request_id: request.request_id,
+      prepare_ack: ack, staged_lease_digest: request.staged_lease.lease_digest,
+      response_digest: '' }, 'response_digest');
+  }
   if (operation === 'activate') {
-    const readyAck = sign({ schema: 'lattice.adapter_ready_ack.v1', ack_id: 'ready-a', registration_digest: f.registration.registration_digest, controller_id: 'controller-a', run_id: 'run-a', plan_epoch: 2, activation_digest: request.activation_digest, staged_lease_digests: request.staged_lease_digests, supervisor_session_nonce_digest: D('b'), ack_digest: '' }, 'ack_digest');
+    const readyAck = sign({ schema: 'lattice.adapter_ready_ack.v1', ack_id: 'ready-a', registration_digest: f.registration.registration_digest, controller_id: 'controller-a', run_id: 'run-a', plan_epoch: f.staged.plan_epoch, activation_digest: request.activation_digest, staged_lease_digests: request.staged_lease_digests, supervisor_session_nonce_digest: D('b'), ack_digest: '' }, 'ack_digest');
     return sign({ schema: 'lattice.adapter_activate_response.v1', request_id: request.request_id, ready_ack: readyAck, observed_pointer_digest: request.committed_epoch_digest, response_digest: '' }, 'response_digest');
   }
   if (operation === 'release') {
     const armed = armStagedWriteLease(f.staged, { releaseBarrierDigest: request.release_barrier_digest, gateGeneration: request.gate_generation });
-    f.releaseAck = sign({ schema: 'lattice.adapter_release_ack.v1', ack_id: 'release-a', registration_digest: f.registration.registration_digest, controller_id: 'controller-a', run_id: 'run-a', plan_epoch: 2, release_barrier_digest: request.release_barrier_digest, gate_generation: request.gate_generation, armed_lease_digests: [armed.lease_digest], supervisor_session_nonce_digest: D('b'), ack_digest: '' }, 'ack_digest');
+    f.releaseAck = sign({ schema: 'lattice.adapter_release_ack.v1', ack_id: 'release-a', registration_digest: f.registration.registration_digest, controller_id: 'controller-a', run_id: 'run-a', plan_epoch: f.staged.plan_epoch, release_barrier_digest: request.release_barrier_digest, gate_generation: request.gate_generation, armed_lease_digests: [armed.lease_digest], supervisor_session_nonce_digest: D('b'), ack_digest: '' }, 'ack_digest');
     return sign({ schema: 'lattice.adapter_release_response.v1', request_id: request.request_id, release_ack: f.releaseAck, armed_lease_digests: [armed.lease_digest], observed_gate_generation: request.gate_generation, response_digest: '' }, 'response_digest');
   }
   if (operation === 'revoke') return sign({ schema: 'lattice.adapter_revoke_response.v1', request_id: request.request_id, revoked_lease_digests: request.lease_digests, residual_processes: [], response_digest: '' }, 'response_digest');
@@ -74,6 +88,40 @@ test('全running barrierはcontroller直接ackとOS再観測の一致を要求�
   assert.equal(acks.length, 1);
   assert.equal(s.supervisor.frozen, true);
   assert.deepEqual(s.events.filter((event) => event.kind === 'executor_quiesced').map((event) => event.payload.todo_id), ['T1']);
+});
+
+test('対象barrierは競合群だけを止め、無関係なrunning bindingを残す', async () => {
+  const f = fixture();
+  const unaffected = { ...f.binding, todo_id: 'T2', executor_handle: 'exec-b',
+    worktree_id: 'wt-b', packet_digest: D('2'), write_lease_id: 'old-lease-b' };
+  let inventoryCount = 0;
+  let barrierTodoIds = [];
+  const supervisor = new RuntimeManagedSupervisor({
+    runId: 'run-a', sessionNonceDigest: D('b'), clock: () => 0,
+    processObserver: async () => structuredClone(f.directObservation),
+    runningBindingResolver: async () => [f.binding, unaffected],
+    journal: { append: async (event) => event.kind === 'barrier_requested' ? D('d') : D('9') },
+    gateWriter: { commit: async () => {} },
+  });
+  const transport = { request: async (operation, request) => {
+    if (operation === 'inventory') {
+      const bindings = inventoryCount++ === 0 ? [f.binding, unaffected] : [unaffected];
+      return sign({ schema: 'lattice.adapter_running_inventory_response.v1',
+        request_id: request.request_id, running_bindings: bindings,
+        inventory_digest: digestArtifact(bindings), response_digest: '' }, 'response_digest');
+    }
+    if (operation === 'barrier') {
+      barrierTodoIds = request.running_bindings.map((binding) => binding.todo_id);
+    }
+    return response(operation, request, f);
+  } };
+  await supervisor.registerController({ descriptor: f.descriptor,
+    registration: f.registration, transport });
+  const acks = await supervisor.barrierSelected({ barrierId: 'barrier-selected',
+    reason: 'conflict', frozenEventDigest: D('8'), todoIds: ['T1'] });
+  assert.deepEqual(acks.map((ack) => ack.todo_id), ['T1']);
+  assert.deepEqual(barrierTodoIds, ['T1']);
+  assert.equal(supervisor.frozen, true);
 });
 
 test('restart barrierはdurable storeと複数controller inventoryのrunning和集合を全件停止する', async () => {
@@ -215,6 +263,54 @@ test('direct rebind ack後もstaged leaseは中央gate commitまでwrite不能',
   assert.equal(s.supervisor.frozen, false);
   now.value = 1;
   assert.equal((await s.supervisor.authorizeWrite({ leaseDigest: committed.armedLeases[0].lease_digest })).state, 'armed');
+});
+
+test('部分replan後も対象外TODOのorigin leaseを元gateで認可できる', async () => {
+  const f = fixture(); const now = { value: 0 }; const s = makeSupervisor(f, now);
+  await s.supervisor.registerController({ descriptor: f.descriptor,
+    registration: f.registration, transport: s.transport });
+  await s.supervisor.barrierAll({ barrierId: 'barrier-first', reason: 'initial',
+    frozenEventDigest: D('8') });
+  await s.supervisor.rebindController({ controllerId: 'controller-a',
+    rebindPacket: f.rebindPacket, stagedLease: f.staged,
+    expected: { todo_id: 'T1', executor_handle: 'exec-a', worktree_id: 'wt-a',
+      predecessor_packet_digest: D('c'), rebind_packet_digest: f.rebindPacket.packet_digest } });
+  const first = await s.supervisor.commitWriteGate({ planEpoch: 2,
+    committedEpochDigest: D('4'), activationDigest: D('6'),
+    commitReleaseBarrier: async (barrier) => ({ release_digest: barrier.release_digest }),
+    committedAt: '2026-07-21T00:00:01.000Z' });
+  const originLease = first.armedLeases[0];
+
+  await s.supervisor.barrierSelected({ barrierId: 'barrier-second', reason: 'other-conflict',
+    frozenEventDigest: D('8'), todoIds: ['T2'] });
+  f.rebindPacket = sign({ schema: 'lattice.epoch_rebind_packet.v1',
+    packet_id: 'rebind-packet-second', todo_id: 'T1', executor_handle: 'exec-a',
+    worktree_id: 'wt-a', witness_digest: D('4'), context_content_digest: D('5'),
+    authorized_checkpoint_digest: D('6'), old_plan_ref: 'plan-v2',
+    new_plan_ref: 'plan-v3', new_plan_epoch: 3, packet_digest: '' }, 'packet_digest');
+  f.staged = sign({ schema: 'lattice.runtime_write_lease.v1', lease_id: 'lease-t2',
+    run_id: 'run-a', todo_id: 'T1', plan_epoch: 3,
+    packet_digest: f.rebindPacket.packet_digest,
+    controller_registration_digest: f.registration.registration_digest,
+    supervisor_session_nonce_digest: D('b'), state: 'staged', ttl_ms: 500,
+    issued_control_digest: D('3'), lease_digest: '' }, 'lease_digest');
+  f.rebindAck = sign({ schema: 'lattice.executor_epoch_rebind_ack.v1',
+    ack_id: 'rebind-second', run_id: 'run-a', todo_id: 'T1', executor_handle: 'exec-a',
+    worktree_id: 'wt-a', predecessor_epoch: 2, successor_epoch: 3,
+    predecessor_packet_digest: D('c'), rebind_packet_digest: f.rebindPacket.packet_digest,
+    new_write_lease_id: f.staged.lease_id, supervisor_session_nonce_digest: D('b'),
+    ack_digest: '' }, 'ack_digest');
+  await s.supervisor.rebindController({ controllerId: 'controller-a',
+    rebindPacket: f.rebindPacket, stagedLease: f.staged,
+    expected: { todo_id: 'T1', executor_handle: 'exec-a', worktree_id: 'wt-a',
+      predecessor_packet_digest: D('c'), rebind_packet_digest: f.rebindPacket.packet_digest } });
+  await s.supervisor.commitWriteGate({ planEpoch: 3,
+    committedEpochDigest: D('5'), activationDigest: D('7'),
+    commitReleaseBarrier: async (barrier) => ({ release_digest: barrier.release_digest }),
+    committedAt: '2026-07-21T00:00:02.000Z' });
+
+  assert.equal((await s.supervisor.authorizeWrite({
+    leaseDigest: originLease.lease_digest })).lease_digest, originLease.lease_digest);
 });
 
 test('heartbeat TTL超過とsocket断はleaseをfail closed revokeしfreezeする', async () => {

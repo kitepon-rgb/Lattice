@@ -301,6 +301,11 @@ function computeAffectedClosure(plan, manifests, seedTodoIds) {
   return closure;
 }
 
+/** runtime findingから、停止・再計画する作業群だけを取り出す。 */
+export function affectedTodoIds(plan, manifests, seedTodoIds) {
+  return sorted(computeAffectedClosure(plan, manifests, seedTodoIds));
+}
+
 /**
  * carry-over witness documentを構築し、提供sourcesに対して自己実証する。
  * 実証できない場合はnullでなくreasons付きの失敗を返す（呼び出し側がholdへ戻す）。
@@ -754,9 +759,9 @@ export function recompileNextEpochPlan(options = {}) {
     recordedAt,
   }));
 
-  // 旧contextの全失効（Decision 7: 例外なく一斉失効。carried-overは失効後に
-  // rebindで「内容同一性を証明した新epochへの再認可」を受ける）。
-  for (const todoId of sorted([...holdDecision.hold_set, ...holdDecision.continue_set])) {
+  // 失効するのは停止・再計画対象だけ。closure外のrunning TODOはorigin bindingのまま
+  // 継続するため、contextもpartial patchも無効化しない。
+  for (const todoId of sorted(holdDecision.hold_set)) {
     next.push(buildNextRunEvent({
       events: next,
       runId,
@@ -766,7 +771,7 @@ export function recompileNextEpochPlan(options = {}) {
       payload: {
         old_plan_ref: plan.plan_ref,
         invalidated: ['agent_context', 'partial_patch', 'interface_assumption', 'boundary_evidence'],
-        reauthorized_via: holdDecision.continue_set.includes(todoId) ? 'epoch_rebind' : 'redispatch',
+        reauthorized_via: 'redispatch',
       },
       recordedAt,
     }));
@@ -788,7 +793,8 @@ export function recompileNextEpochPlan(options = {}) {
     .map((event) => event.sequence)
     .sort((left, right) => left - right)[0] ?? null;
 
-  // carried-over TODOへのepoch rebind packet（content不変・epoch/plan refだけ更新）。
+  // restart時は全process barrierになるため、その場合だけcarry-overを現epochへ復元できる
+  // rebind packetをbundleへ残す。通常のrecompileでは使わずorigin bindingを維持する。
   const rebindPackets = {};
   for (const todoId of holdDecision.continue_set) {
     const packet = packets[todoId];

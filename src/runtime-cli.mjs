@@ -59,6 +59,7 @@ import {
 import { verifyRunEventChain } from './runtime-event-store.mjs';
 import { projectRuntimeState, projectRuntimeStatusOverlays } from './runtime-projection.mjs';
 import {
+  affectedTodoIds,
   decideHoldAndCarryOver,
   recompileNextEpochPlan,
   validateRuntimeRecompileRequest,
@@ -755,46 +756,6 @@ async function readScriptedControllerReceipt({
     );
   }
   return receipt;
-}
-
-/**
- * hold裁定をworker processへ反映する（請求項7・8の再開側）。
- *
- * **barrierは全workerを止める。** 静止の証明はrun全体に対して要るからである。hold裁定は
- * 止めた相手を`hold_set`と`continue_set`へ分け、後者は「影響閉包の外なので作業を捨てない」
- * と判定されたものである。
- *
- * **carry-overは「一度も止まらない」ではない。** rebindは静止を要求する
- * （`write_enabled === false`）ので、holdの直後に再開すると後継epochへ束ね直せず
- * `EPOCH_REBIND_INCOMPLETE`で落ちる。止まり、繋がれ、そこで動き出すのが正しい順序である。
- * よってこの関数を呼ぶのはrebindが済んだ後だけとする。
- *
- * pidだけで再開しない。pidは再利用されるので、start identityを照合して記録と同じprocessで
- * あることを確かめる——別のprocessをSIGCONTするのは、止めるのと同じくらい危険である。
- */
-async function resumeContinuedWorkers({ events, todoIds }) {
-  if (!Array.isArray(todoIds) || todoIds.length === 0) return { resumed: [], skipped: [] };
-  const resumed = [];
-  const skipped = [];
-  for (const todoId of todoIds) {
-    const dispatch = events.findLast((event) => event.kind === 'executor_dispatched'
-      && event.subject?.kind === 'todo' && event.subject.ref === todoId);
-    const binding = dispatch?.payload?.direct_os_observation_binding;
-    const pid = binding?.process_pid;
-    const recorded = binding?.process_start_identity?.identity_digest;
-    if (!Number.isSafeInteger(pid) || typeof recorded !== 'string') continue;
-    // pidは再利用される。記録と同じprocessであることを確かめてから再開する——
-    // 別のprocessをSIGCONTするのは、止めるのと同じくらい危険である。
-    const observed = await observeManagedProcessStartIdentity(pid).catch(() => null);
-    if (observed === null || observed.identity_digest !== recorded) {
-      skipped.push({ todo_id: todoId, reason: observed === null ? 'process不在' : 'start identity不一致' });
-      continue;
-    }
-    try { process.kill(pid, 'SIGCONT'); resumed.push(todoId); } catch {
-      skipped.push({ todo_id: todoId, reason: 'SIGCONT失敗' });
-    }
-  }
-  return { resumed, skipped };
 }
 
 /**
@@ -2603,6 +2564,9 @@ export async function runManagedSupervisorDaemon({
         let events = await readBoundedJson(path.join(runDir, 'events.json'), 'run events');
         const conflict = events.findLast((event) => event.kind === 'conflict_found');
         if (!conflict) throw new ManagedRuntimeError('FINDING_UNRESOLVED', '保存済みconflictなし');
+        const active = await readCommittedEpochStore(runDir);
+        const holdTodoIds = affectedTodoIds(active.bundle.plan, active.bundle.manifests,
+          conflict.payload.todo_ids);
         const holdBarrierId = `barrier-${randomUUID()}`;
         const holdRecordedAt = canonicalNow();
         await appendControl({ run_id: request.request_id, kind: 'hold_prepared',
@@ -2615,7 +2579,7 @@ export async function runManagedSupervisorDaemon({
         const held = await managedSupervisor.holdConflict({
           findingDigest: conflict.payload.finding_digest, frozenEventDigest: events.at(-1).event_digest,
           barrierId: holdBarrierId, reason: conflict.payload.kind,
-          recordedAt: holdRecordedAt,
+          recordedAt: holdRecordedAt, todoIds: holdTodoIds,
         });
         controlEvents = await eventStore.readEvents();
         const quiesced = controlEvents.filter((event) => event.kind === 'executor_quiesced'
@@ -2629,7 +2593,6 @@ export async function runManagedSupervisorDaemon({
               barrier_evidence_digest: evidence.payload.evidence_digest },
             recordedAt: holdRecordedAt }));
         }
-        const active = await readCommittedEpochStore(runDir);
         const decided = decideHoldAndCarryOver({ runId: request.request_id,
           request: active.bundle.request, plan: active.bundle.plan,
           manifests: active.bundle.manifests, packets: active.bundle.executor_packets,
@@ -3018,39 +2981,11 @@ export async function runManagedSupervisorDaemon({
           lease.lease_digest = selfDigest(lease, 'lease_digest');
           return lease;
         };
-        const rebound = new Set(Object.keys(rebindPackets));
-        const rebindEvidence = new Map();
         const preparedSuccessors = new Set();
-        for (const [todoId, packet] of Object.entries(rebindPackets)) {
-          const owner = controllerForTodo(todoId);
-          const dispatch = projectRuntimeState({ events }).dispatches[todoId];
-          const evidence = await managedSupervisor.rebindController({ controllerId: owner.controllerDescriptor.controller_id, rebindPacket: packet,
-            stagedLease: stagedLease(todoId, packet.packet_digest, owner), expected: { todo_id: todoId,
-              executor_handle: dispatch.payload.executor_handle, worktree_id: dispatch.payload.worktree_id,
-              predecessor_packet_digest: active.bundle.executor_packets[todoId].packet_digest,
-              rebind_packet_digest: packet.packet_digest } });
-          rebindEvidence.set(todoId, { ...evidence,
-            controller_registration_digest: owner.registration.registration_digest });
-        }
-        // **ここが再開の位置である。** rebindは静止を要求する（`write_enabled === false`）ので、
-        // holdの直後に再開すると後継epochへ束ね直せない。carry-overは「作業を捨てない」で
-        // あって「一度も止まらない」ではない——barrierで止まり、rebindで新epochへ繋がれ、
-        // そこで初めて動き出す。
-        if (rebound.size > 0) {
-          const resumed = await resumeContinuedWorkers({ events, todoIds: [...rebound] });
-          if (resumed.resumed.length > 0 || resumed.skipped.length > 0) {
-            await appendControl({ run_id: request.request_id, kind: 'workers_resumed',
-              session_nonce_digest: digestArtifact(sessionNonce), payload: {
-                resumed_todo_ids: [...resumed.resumed].sort(),
-                skipped_count: resumed.skipped.length,
-              } });
-          }
-        }
         for (const todoId of core.planDiff.redispatched) {
           const successors = recompileRequest.task_migration.entries
             .find((entry) => entry.predecessor_task_id === todoId)?.successor_task_ids ?? [];
           for (const successorId of successors) {
-            if (rebound.has(successorId)) continue;
             const packet = executorPackets[successorId];
             const owner = controllerForTodo(successorId);
             if (packet !== undefined) await managedSupervisor.prepareController({
@@ -3064,36 +2999,13 @@ export async function runManagedSupervisorDaemon({
           .filter((receipt) => receipt.accepted_sequence !== null
             && acceptedCheckpointDigests.has(receipt.payload?.checkpoint_digest))
           .map((receipt) => receipt.todo_id));
+        const carriedTodoIds = new Set(planDiff.carried_over);
         const expectedLiveTodoIds = newPlan.nodes.map((node) => node.todo_id)
-          .filter((todoId) => !acceptedTodoIds.has(todoId)).sort();
-        const activatedTodoIds = [...new Set([...rebound, ...preparedSuccessors])].sort();
+          .filter((todoId) => !acceptedTodoIds.has(todoId) && !carriedTodoIds.has(todoId)).sort();
+        const activatedTodoIds = [...preparedSuccessors].sort();
         if (canonicalizeArtifact(expectedLiveTodoIds) !== canonicalizeArtifact(activatedTodoIds)) {
           throw new ManagedRuntimeError('EPOCH_REBIND_INCOMPLETE', 'successor live taskのrebind/prepare集合が完全でない');
         }
-        // 全direct ack後だけepoch_reboundをexact-once batchで保存する。
-        const reboundRecordedAt = canonicalNow();
-        const proposedReboundBatch = [];
-        let proposedReboundEvents = [...events];
-        for (const [todoId, packet] of Object.entries(rebindPackets)
-          .sort(([left], [right]) => left.localeCompare(right))) {
-          const event = buildNextRunEvent({ events: proposedReboundEvents,
-            runId: active.meta.run_id, kind: 'epoch_rebound', planEpoch: nextEpoch,
-            subject: { kind: 'todo', ref: todoId }, payload: { ...packet,
-              rebind_ack_digest: rebindEvidence.get(todoId).ack.ack_digest,
-              control_event_digest: rebindEvidence.get(todoId).control_event_digest,
-              controller_registration_digest: rebindEvidence.get(todoId).controller_registration_digest },
-            recordedAt: reboundRecordedAt });
-          proposedReboundEvents.push(event);
-          proposedReboundBatch.push(event);
-        }
-        events = await publishRuntimeEventBatch({ runDir,
-          transactionId: recompileRequest.request_id, phase: 'epoch_rebound', planEpoch: nextEpoch,
-          bindingDigest: digestArtifact({ successor_epoch: nextEpoch,
-            successor_bundle_digest: staged.bundle_digest,
-            ordered_rebind_packet_digests: Object.entries(rebindPackets)
-              .sort(([left], [right]) => left.localeCompare(right))
-              .map(([, packet]) => packet.packet_digest) }),
-          currentEvents: events, proposedBatch: proposedReboundBatch, crashInjector });
         controlEvents = await eventStore.readEvents();
         const committed = await commitStagedSuccessorEpoch({ runDir,
           transactionId: staged.transaction_id,

@@ -207,7 +207,7 @@ test('後発path conflictはexact affected集合のholdとwitness付きcontinue�
   assert.ok(refuted.reasons.includes('carry_over_unprovable'));
 });
 
-test('plan vN+1 producerはack前にfreezeを維持し、ack後の明示activationで完走する', async () => {
+test('plan vN+1 producerは対象だけを失効し、無関係TODOのorigin bindingを維持して完走する', async () => {
   const { fixture, packets, adapter, events: heldEvents, held } = await runLateConflictScenario();
   const { request, plan, manifests } = fixture;
 
@@ -233,18 +233,14 @@ test('plan vN+1 producerはack前にfreezeを維持し、ack後の明示activati
   assert.deepEqual(Object.keys(recompiled.rebindPackets), ['T3']);
   assert.deepEqual(Object.keys(recompiled.redispatchPackets).sort(), ['T1', 'T2']);
 
-  // rebindはcontent不変・epochだけ更新（Decision 7.1/7.3）。
+  // rebind packetはsupervisor restart時の全体barrierから復元する時だけ使う。
   const rebind = recompiled.rebindPackets.T3;
   assert.equal(rebind.context_content_digest, packets.T3.context_content_digest);
   assert.equal(rebind.new_plan_epoch, 2);
-  await adapter.rebind({ executor_handle: 'scripted-T3-h1', rebind });
 
-  // pure producerはack前eventを出さない。ここからはlegacy scripted harnessが
-  // controller ack＋activation gate完了を明示的に模擬する。
+  // 通常replanではT3を止めず、rebind eventも作らない。
   assert.notEqual(projectRuntimeState({ events }).freeze, null);
   assert.deepEqual(sortedTodoRefs(events, 'epoch_rebound'), []);
-  events.push(buildNextRunEvent({ events, runId: RUN_ID, kind: 'epoch_rebound', planEpoch: 2,
-    subject: { kind: 'todo', ref: 'T3' }, payload: rebind, recordedAt: AT }));
   events.push(buildNextRunEvent({ events, runId: RUN_ID, kind: 'intake_resumed', planEpoch: 2,
     subject: { kind: 'runtime_plan', ref: newPlan.plan_ref },
     payload: { plan_diff_digest: recompiled.planDiff.diff_digest }, recordedAt: AT }));
@@ -252,10 +248,9 @@ test('plan vN+1 producerはack前にfreezeを維持し、ack後の明示activati
   // 失効・終端・resumeがevent chainへ保存されている。
   const state = projectRuntimeState({ events });
   assert.equal(state.freeze, null, 'intakeは再開済み');
-  // Decision 7: contextは全TODOで一斉失効し、carried-overはrebindで再認可される。
-  assert.equal(state.invalidated_contexts.length, 3);
-  assert.deepEqual(sortedTodoRefs(events, 'context_invalidated'), ['T1', 'T2', 'T3']);
-  assert.deepEqual(sortedTodoRefs(events, 'epoch_rebound'), ['T3']);
+  assert.equal(state.invalidated_contexts.length, 2);
+  assert.deepEqual(sortedTodoRefs(events, 'context_invalidated'), ['T1', 'T2']);
+  assert.deepEqual(sortedTodoRefs(events, 'epoch_rebound'), []);
 
   // 新epochのfrontier: T1/T2はredispatch可能だがconflict pairなので1件ずつ。
   // T3はrunning継続のためredispatchされない。verifier再計算と一致。
@@ -277,7 +272,7 @@ test('plan vN+1 producerはack前にfreezeを維持し、ack後の明示activati
   });
   assert.deepEqual(frontierCheck.dispatchable, ['T1']);
 
-  // T1完走→受理→T2 redispatch→完走→T3 terminal（rebind済みepoch 2 receipt）→全受理→close。
+  // T1完走→受理→T2 redispatch→完走→T3のorigin epoch receipt→全受理→close。
   const t1Terminal = await observeExecutor({ runId: RUN_ID, plan: newPlan, events, adapter: epoch2Adapter, todoId: 'T1', recordedAt: AT });
   events = t1Terminal.events;
   let adjudicated = adjudicatePendingReceipts({ runId: RUN_ID, plan: newPlan, events, recordedAt: AT });
@@ -293,7 +288,7 @@ test('plan vN+1 producerはack前にfreezeを維持し、ack後の明示activati
   const t2Terminal = await observeExecutor({ runId: RUN_ID, plan: newPlan, events, adapter: epoch2Adapter, todoId: 'T2', recordedAt: AT });
   events = t2Terminal.events;
 
-  // T3はstall（unknown、同一handle回収）を経てterminal。rebind済みなのでepoch 2。
+  // T3はstall（unknown、同一handle回収）を経てterminal。bindingはepoch 1のまま。
   const t3Stall = await observeExecutor({ runId: RUN_ID, plan: newPlan, events, adapter, todoId: 'T3', recordedAt: AT });
   events = t3Stall.events;
   assert.equal(t3Stall.observation.state, 'unknown');
@@ -322,7 +317,7 @@ test('plan vN+1 producerはack前にfreezeを維持し、ack後の明示activati
   }
 });
 
-test('rebindされないvN epoch receiptはvN+1でepoch mismatchとしてrejectされる', async () => {
+test('非affected TODOのvN receiptはorigin bindingの成果としてvN+1で受理される', async () => {
   const { fixture, packets, adapter, events: heldEvents, held } = await runLateConflictScenario();
   const { request, plan, manifests } = fixture;
   const recompiled = recompileNextEpochPlan({
@@ -330,19 +325,17 @@ test('rebindされないvN epoch receiptはvN+1でepoch mismatchとしてreject�
     holdDecision: held.holdDecision, additionalConflicts: [], recordedAt: AT,
   });
   let events = recompiled.events;
-  // rebindを適用しないままT3をterminalまで進める（stall→terminal、旧epoch 1のreceipt）。
+  // T3は止めず、旧epoch 1のbindingのままterminalまで進める。
   const stalled = await observeExecutor({ runId: RUN_ID, plan: recompiled.newPlan, events, adapter, todoId: 'T3', recordedAt: AT });
   events = stalled.events;
   const terminal = await observeExecutor({ runId: RUN_ID, plan: recompiled.newPlan, events, adapter, todoId: 'T3', recordedAt: AT });
   events = terminal.events;
   const adjudicated = adjudicatePendingReceipts({ runId: RUN_ID, plan: recompiled.newPlan, events, recordedAt: AT });
   assert.equal(adjudicated.decisions.length, 1);
-  assert.equal(adjudicated.decisions[0].decision, 'rejected');
-  assert.equal(adjudicated.decisions[0].detail, 'epoch_mismatch');
+  assert.equal(adjudicated.decisions[0].decision, 'accepted');
   const recomputed = recomputeReceiptDecisions({ plan: recompiled.newPlan, events });
   const t3Decision = recomputed.decisions.find((d) => d.todo_id === 'T3');
-  assert.equal(t3Decision.decision, 'rejected');
-  assert.equal(t3Decision.detail, 'epoch_mismatch');
+  assert.equal(t3Decision.decision, 'accepted');
 });
 
 test('packet欠落のclosure外TODOはwitness構築不能としてholdへ戻る', async () => {

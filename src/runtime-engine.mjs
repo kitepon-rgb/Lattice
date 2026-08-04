@@ -555,6 +555,25 @@ function witnessProvenReceiptBinding(state, receipt) {
   ));
 }
 
+function retainsOriginBinding(events, receipt, currentEpoch) {
+  if (!Number.isSafeInteger(receipt.plan_epoch) || receipt.plan_epoch >= currentEpoch) return false;
+  for (let epoch = receipt.plan_epoch; epoch < currentEpoch; epoch += 1) {
+    const witnessed = events.some((event) => event.sequence < receipt.sequence
+      && event.kind === 'carry_over_witnessed' && event.plan_epoch === epoch
+      && event.subject?.kind === 'todo' && event.subject.ref === receipt.todo_id);
+    const continued = events.some((event) => event.sequence < receipt.sequence
+      && event.kind === 'hold_decided' && event.plan_epoch === epoch
+      && event.payload?.continue_set?.includes(receipt.todo_id));
+    const recompiled = events.some((event) => event.sequence < receipt.sequence
+      && event.kind === 'plan_recompiled' && event.plan_epoch === epoch + 1);
+    const invalidated = events.some((event) => event.sequence < receipt.sequence
+      && event.kind === 'context_invalidated' && event.plan_epoch === epoch + 1
+      && event.subject?.kind === 'todo' && event.subject.ref === receipt.todo_id);
+    if (!witnessed || !continued || !recompiled || invalidated) return false;
+  }
+  return true;
+}
+
 export function adjudicatePendingReceipts(options = {}) {
   if (!exactRecord(options, ['runId', 'plan', 'events', 'recordedAt'])) {
     fail('adjudicatePendingReceipts optionsがexact shapeでない');
@@ -583,6 +602,7 @@ export function adjudicatePendingReceipts(options = {}) {
     if (receipt.accepted_sequence !== null || receipt.rejected_sequence !== null) continue;
     const payload = receipt.payload ?? {};
     const dispatch = state.dispatches[receipt.todo_id];
+    const originBindingRetained = retainsOriginBinding(events, receipt, plan.plan_epoch);
     let rejection = null;
     if (seenReceiptIds.has(receipt.receipt_id)) {
       rejection = 'duplicate_receipt_id';
@@ -596,7 +616,7 @@ export function adjudicatePendingReceipts(options = {}) {
       rejection = 'binding_mismatch';
     } else if (payload.base_sha !== plan.base_sha) {
       rejection = 'base_mismatch';
-    } else if (receipt.plan_epoch !== plan.plan_epoch) {
+    } else if (receipt.plan_epoch !== plan.plan_epoch && !originBindingRetained) {
       rejection = 'epoch_mismatch';
     } else if ((() => {
       // dispatchが旧epochのTODOが現epochのreceiptを名乗る場合、epoch_rebound
@@ -608,7 +628,8 @@ export function adjudicatePendingReceipts(options = {}) {
         && event.subject.ref === receipt.todo_id
         && event.sequence === dispatch.sequence
       ));
-      if (dispatchEvent === undefined || dispatchEvent.plan_epoch === plan.plan_epoch) return false;
+      if (originBindingRetained || dispatchEvent === undefined
+        || dispatchEvent.plan_epoch === plan.plan_epoch) return false;
       const rebound = state.rebinds[receipt.todo_id];
       return rebound === undefined
         || rebound.payload?.new_plan_epoch !== plan.plan_epoch
