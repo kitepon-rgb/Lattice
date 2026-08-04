@@ -7,6 +7,7 @@ import { compileSchedulabilityGraphV2 } from './schedulability-compiler-v2.mjs';
 import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
 import {
   BOUNDARY_MANIFEST_SCHEMA,
+  RUN_REQUEST_SCHEMA,
   SENSOR_EXPECT_KINDS,
   SENSOR_QUERY_OPERATIONS,
   selfDigest,
@@ -447,6 +448,7 @@ export function compileRuntimePlanV1(options = {}) {
   const outcomeByQueryId = normalizeEvidence(sensorEvidence, queryById);
 
   const todoIds = request.todos.map((todo) => todo.todo_id);
+  const predictionsOnly = request.schema === RUN_REQUEST_SCHEMA;
 
   // witnessの束縛を解決する。query set外の参照と、expect↔query targetの
   // 不一致（別targetのreceiptへの再ラベル）はQUERY_DRIFT。
@@ -458,7 +460,7 @@ export function compileRuntimePlanV1(options = {}) {
     const creating = new Set(witness.owns
       .filter((own) => own.creates === true).map((own) => own.target));
     const bindings = normalizeProvenanceQueries(witness, todoId)
-      .map((binding) => (creating.size > 0
+      .map((binding) => (!predictionsOnly && creating.size > 0
         && [...creating].some((target) => bindingCoversOwn(binding, { kind: 'path', target }))
         ? { ...binding, creates: true } : binding));
     for (const binding of bindings) {
@@ -498,7 +500,7 @@ export function compileRuntimePlanV1(options = {}) {
   for (const todoId of todoIds) {
     for (const binding of bindingsByTodo.get(todoId)) {
       const resolved = resolveBindingStatus(binding, outcomeByQueryId.get(binding.query_id));
-      if (resolved !== 'ready') {
+      if (!predictionsOnly && resolved !== 'ready') {
         unknowns.push({ todo_id: todoId, kind: `sensor_${resolved}`, ref: binding.query_id });
       }
     }
@@ -544,7 +546,7 @@ export function compileRuntimePlanV1(options = {}) {
       });
     }
   }
-  if (affectedDrift.length > 0) {
+  if (!predictionsOnly && affectedDrift.length > 0) {
     return nonDispatchable('AFFECTED_TEST_DRIFT', { mismatches: affectedDrift });
   }
 
@@ -570,14 +572,16 @@ export function compileRuntimePlanV1(options = {}) {
           ambiguous.push({ target: own.target, query_ids: [seen, binding.query_id].sort(compareText) });
         }
       }
-      if (covering.length === 0) {
+      if (!predictionsOnly && covering.length === 0) {
         unknowns.push({ todo_id: todoId, kind: 'sensor_unbound', ref: `${own.kind}:${own.target}` });
       }
     }
   }
   if (ambiguous.length > 0) return nonDispatchable('QUERY_DRIFT', { ambiguous_targets: ambiguous });
 
-  // 宣言write scopeの交差はownership解決なしでは安全と推測できない（unknownへ）。
+  // 最新契約ではwrite scopeは予測である。既知の交差はserial conflictへ使うが、
+  // 予測が足りないこと自体はunknownへ落とさない。
+  const predictedWriteGroups = [];
   for (let left = 0; left < todoIds.length; left += 1) {
     for (let right = left + 1; right < todoIds.length; right += 1) {
       const leftWitness = request.manual_witness[todoIds[left]];
@@ -591,16 +595,21 @@ export function compileRuntimePlanV1(options = {}) {
           // resource経由で扱われる。owns解決のない交差だけをunknownにする。
           if (leftOwnPaths.has(leftPath) && rightOwnPaths.has(rightPath)
             && leftPath === rightPath) continue;
-          unknowns.push({
-            todo_id: todoIds[left],
-            kind: 'undeclared_write_overlap',
-            ref: `${leftPath} ${rightPath}`,
-          });
-          unknowns.push({
-            todo_id: todoIds[right],
-            kind: 'undeclared_write_overlap',
-            ref: `${leftPath} ${rightPath}`,
-          });
+          if (predictionsOnly) {
+            predictedWriteGroups.push({
+              target: [leftPath, rightPath].sort(compareText).join(' ↔ '),
+              todoIds: [todoIds[left], todoIds[right]],
+            });
+          } else {
+            unknowns.push({
+              todo_id: todoIds[left], kind: 'undeclared_write_overlap',
+              ref: `${leftPath} ${rightPath}`,
+            });
+            unknowns.push({
+              todo_id: todoIds[right], kind: 'undeclared_write_overlap',
+              ref: `${leftPath} ${rightPath}`,
+            });
+          }
         }
       }
     }
@@ -661,6 +670,7 @@ export function compileRuntimePlanV1(options = {}) {
       if (representative !== undefined) break;
     }
     if (representative === undefined) fail(`covering binding不整合: ${group.own.target}`);
+    if (predictionsOnly && resolveBindingStatus(representative, outcome) !== 'ready') continue;
     const status = statusOutcome.status !== 'ready'
       ? statusOutcome.status
       : resolveBindingStatus(representative, outcome);
@@ -719,6 +729,15 @@ export function compileRuntimePlanV1(options = {}) {
       kind: 'state',
       target: writePath,
       todo_ids: [...todos].sort(compareText),
+      provenance: [manualProvenance(request)],
+    });
+  }
+  for (const [index, group] of predictedWriteGroups.entries()) {
+    resources.push({
+      resource_id: `predicted-ww-${sha16(`${group.target}:${index}`)}`,
+      kind: 'state',
+      target: group.target,
+      todo_ids: group.todoIds,
       provenance: [manualProvenance(request)],
     });
   }

@@ -113,47 +113,28 @@ export function buildWitnessSet({ draft, observationByPath } = {}) {
     const entries = draftOwnEntries(task, draft.schema) ?? [];
     const owns = [...new Map(entries.map((entry) => [entry.target, entry])).values()]
       .sort((left, right) => compareText(left.target, right.target));
-    if (owns.length === 0) { reasons.push(`owns_empty:${taskId}`); continue; }
-    // affected_testsは宣言とfresh観測をbinding単位でexact比較する。複数pathを所有すると
-    // 観測集合が一致しない限り必ず落ちるので、今の契約では表現できない（2026-07-27の実測）。
-    if (owns.length > 1) { reasons.push(`multiple_owned_paths_unsupported:${taskId}`); continue; }
-    const [own] = owns;
-    const target = own.target;
-    const observed = observationByPath?.[target];
-    // 観測できていないことを空配列へ丸めない。丸めるとdriftでcompileが落ちる。
-    if (observed === undefined) { reasons.push(`affected_tests_unobserved:${target}`); continue; }
-    if (own.creates) {
-      // 宣言が実態と合っているかを確かめるのが道具の役目である。front endが要求する形
-      // （fresh absent・blast radiusが空・changedFilesが対象1件）をここで満たしておかないと、
-      // 通る宣言を作ったつもりでcompileで落ちる（ADR 0136）。
-      if (observed.state !== 'absent') { reasons.push(`creates_path_present:${target}`); continue; }
-      if (observed.affectedTests.length !== 0
-        || observed.changedFiles.length !== 1
-        || observed.changedFiles[0] !== target) {
-        reasons.push(`creates_unverified:${target}`); continue;
-      }
-    } else if (observed.state === 'absent') {
-      // 不存在のpathを黙って通さない。作るつもりならそう宣言する、が次の一手である。
-      reasons.push(`path_absent_declare_creates:${target}`); continue;
-    }
-    const affected = own.creates ? [] : observed.affectedTests;
+    const ownedTargets = new Set(owns.map(({ target }) => target));
+    const affected = sortedUnique(owns.flatMap(({ target }) => (
+      observationByPath?.[target]?.affectedTests ?? []
+    )));
     for (const anchor of task.concern_anchors ?? []) {
       // `within`は自分が所有している資源に限る。所有していない資源の内側に担当を主張させない。
-      if (anchor.within !== target) reasons.push(`anchor_outside_owned:${taskId}:${anchor.within}`);
+      if (!ownedTargets.has(anchor.within)) reasons.push(`anchor_outside_owned:${taskId}:${anchor.within}`);
     }
     manualWitness[taskId] = {
-      owns: [own.creates ? { kind: 'path', target, creates: true } : { kind: 'path', target }],
+      owns: owns.map(({ target, creates }) => (
+        creates ? { kind: 'path', target, creates: true } : { kind: 'path', target }
+      )),
       reads: sortedUnique(task.reads ?? []),
-      writes: [target],
+      writes: owns.map(({ target }) => target),
       resources: [],
       state_effects: [],
       sensor_provenance: {
-        queries: [{
-          query_id: queryIdByPath.get(target),
-          expect: { kind: 'affected', path: target },
-        }],
+        queries: owns.map(({ target }) => ({
+          query_id: queryIdByPath.get(target), expect: { kind: 'affected', path: target },
+        })),
       },
-      affected_tests: sortedUnique(affected),
+      affected_tests: affected,
       // 明示unknownは下書きが持つ。観測で埋まる欄ではなく、書き手が「ここは確定していない」と
       // 述べる欄なので、道具が発明も削除もしない。
       unknowns: [...(task.unknowns ?? [])]

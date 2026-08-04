@@ -61,23 +61,25 @@ test('書き出すbytesはcanonicalで末尾LFを持つ', () => {
   assert.equal(bytes, `${canonicalizeTodoArtifact(JSON.parse(bytes))}\n`);
 });
 
-test('観測できていないpathを空配列へ丸めない', () => {
+test('観測できていないpathがあっても予測宣言を組める', () => {
   const { witnessSet, reasons } = buildWitnessSet({
     draft: draft(), observationByPath: { 'src/page.mjs': present('src/page.mjs', []) },
   });
-  assert.equal(witnessSet, null);
-  assert.deepEqual(reasons, ['affected_tests_unobserved:src/style.mjs']);
+  assert.deepEqual(reasons, []);
+  assert.equal(validateTodoWitnessSet(witnessSet), true);
+  assert.deepEqual(witnessSet.manual_witness.T2.affected_tests, []);
 });
 
-test('複数pathを所有する宣言は、今の契約で表現できないので断る', () => {
-  // affected_testsは宣言とfresh観測をbinding単位でexact比較する。観測集合が一致しない限り
-  // 必ず落ちるので、書けたことにしない。
+test('複数pathの予測をそのまま宣言できる', () => {
   const { witnessSet, reasons } = buildWitnessSet({
     draft: draft({ tasks: { T1: { owns: ['src/page.mjs', 'src/style.mjs'] } } }),
     observationByPath: observed,
   });
-  assert.equal(witnessSet, null);
-  assert.deepEqual(reasons, ['multiple_owned_paths_unsupported:T1']);
+  assert.deepEqual(reasons, []);
+  assert.equal(validateTodoWitnessSet(witnessSet), true);
+  assert.deepEqual(witnessSet.manual_witness.T1.writes, ['src/page.mjs', 'src/style.mjs']);
+  assert.deepEqual(witnessSet.manual_witness.T1.affected_tests,
+    ['test/all.test.mjs', 'test/page.test.mjs']);
 });
 
 test('所有していない資源の内側へ担当を主張させない', () => {
@@ -152,18 +154,16 @@ test('創作を宣言したpathは、不在と観測できていれば裏付け�
   assert.deepEqual(witnessSet.manual_witness.T1.affected_tests, []);
 });
 
-test('既に在るpathへ創作を宣言したら断る', () => {
-  // 実害は無いが、宣言が実態とずれている。ずれたまま通すと、判定の前提が壊れる。
+test('createsは予測情報なので既存pathでもdispatch gateにしない', () => {
   const { witnessSet, reasons } = buildWitnessSet({
     draft: creationDraft(),
     observationByPath: { 'scripts/new-gate.mjs': present('scripts/new-gate.mjs', ['test/a.test.mjs']) },
   });
-  assert.equal(witnessSet, null);
-  assert.deepEqual(reasons, ['creates_path_present:scripts/new-gate.mjs']);
+  assert.deepEqual(reasons, []);
+  assert.equal(validateTodoWitnessSet(witnessSet), true);
 });
 
-test('不在なのに創作を宣言していないpathは、次の一手を添えて断る', () => {
-  // 「観測できていない」ではなく「作るならそう宣言する」が正しい案内である。
+test('不在pathはcreatesを明示しなくても予測宣言へ載せられる', () => {
   const { witnessSet, reasons } = buildWitnessSet({
     draft: creationDraft({
       schema: 'lattice.todo_witness_draft.v2',
@@ -171,21 +171,21 @@ test('不在なのに創作を宣言していないpathは、次の一手を添�
     }),
     observationByPath: { 'scripts/new-gate.mjs': absent('scripts/new-gate.mjs') },
   });
-  assert.equal(witnessSet, null);
-  assert.deepEqual(reasons, ['path_absent_declare_creates:scripts/new-gate.mjs']);
+  assert.deepEqual(reasons, []);
+  assert.equal(validateTodoWitnessSet(witnessSet), true);
+  assert.deepEqual(witnessSet.manual_witness.T1.owns,
+    [{ kind: 'path', target: 'scripts/new-gate.mjs' }]);
 });
 
-test('front endが要求する形を満たさない観測では創作を裏付けない', () => {
-  // changedFilesが対象1件でなければ、front endのcreationBoundaryStatusがcreates_unverifiedを返す。
-  // 通る宣言を作ったつもりでcompileで落ちる状態を、道具の側で止める。
+test('不完全な観測でもcreates予測を拒否しない', () => {
   const { witnessSet, reasons } = buildWitnessSet({
     draft: creationDraft(),
     observationByPath: {
       'scripts/new-gate.mjs': { state: 'absent', affectedTests: [], changedFiles: [] },
     },
   });
-  assert.equal(witnessSet, null);
-  assert.deepEqual(reasons, ['creates_unverified:scripts/new-gate.mjs']);
+  assert.deepEqual(reasons, []);
+  assert.equal(validateTodoWitnessSet(witnessSet), true);
 });
 
 test('v1の下書きは創作宣言を表現できない', () => {

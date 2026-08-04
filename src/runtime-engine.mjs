@@ -481,13 +481,19 @@ export function classifyCheckpointObservation(options = {}) {
   const checkpoints = state.checkpoints.filter((entry) => entry.todo_id === todoId);
   if (checkpoints.length === 0) fail(`checkpoint未観測のTODOを分類できない: ${todoId}`);
   const checkpoint = checkpoints[checkpoints.length - 1].payload;
-  const { findings } = detect({
+  const { findings: detectedFindings } = detect({
     todoId,
     checkpoint,
     packets,
     runningTodoIds: state.running,
   });
-  if (!Array.isArray(findings)) fail('detectがfindings配列を返さない');
+  if (!Array.isArray(detectedFindings)) fail('detectがfindings配列を返さない');
+  const observations = detectedFindings
+    .filter((finding) => finding.kind === 'undeclared_write' && finding.todo_ids?.length === 1)
+    .map((finding) => ({ ...finding, kind: 'prediction_excess' }));
+  const findings = detectedFindings.filter((finding) => !(
+    finding.kind === 'undeclared_write' && finding.todo_ids?.length === 1
+  ));
   // 再分類のidempotence: 既に保存済みのfinding（kind＋todo_ids＋path）は再記録しない。
   const recordedKeys = new Set(state.conflicts.map((conflict) => (
     `${conflict.kind}|${[...(conflict.todo_ids ?? [])].sort().join(',')}|${conflict.path ?? ''}`
@@ -521,7 +527,7 @@ export function classifyCheckpointObservation(options = {}) {
       recordedAt,
     }));
   }
-  return { events: next, findings: freshFindings };
+  return { events: next, findings: freshFindings, observations };
 }
 
 const RECEIPT_BINDING_FIELDS = Object.freeze([

@@ -169,7 +169,7 @@ test('worktree executorは実diffをcheckpoint化しcleanupまで完遂する', 
   assert.equal(worktrees.split('\n').filter((line) => line.startsWith('worktree ')).length, 1);
 });
 
-test('宣言scope外writeはundeclared_writeとして検出されintakeがfreezeする', async () => {
+test('予測外writeはcheckpointへ残るが単独ではintakeをfreezeしない', async () => {
   const fixture = buildFixture({
     todos: [{ id: 'V1', writes: ['src/one.mjs'] }],
     capacity: 1,
@@ -195,9 +195,9 @@ test('宣言scope外writeはundeclared_writeとして検出されintakeがfreeze
   });
   events = classified.events;
 
-  assert.equal(classified.findings.length, 1);
-  assert.equal(classified.findings[0].kind, 'undeclared_write');
-  assert.equal(classified.findings[0].path, 'src/rogue.mjs');
+  assert.deepEqual(classified.findings, []);
+  assert.equal(classified.observations[0].kind, 'prediction_excess');
+  assert.equal(classified.observations[0].path, 'src/rogue.mjs');
 
   // 再分類はidempotent（同一findingを重複記録しない）。
   const reclassified = classifyCheckpointObservation({
@@ -206,11 +206,7 @@ test('宣言scope外writeはundeclared_writeとして検出されintakeがfreeze
   assert.deepEqual(reclassified.findings, []);
   assert.equal(reclassified.events.length, events.length);
   const state = projectRuntimeState({ events });
-  assert.notEqual(state.freeze, null, '競合発見後はintakeがfreezeされる');
-
-  // freeze中のdispatchは0件（engine/verifier一致）。
-  const frontier = computeReadyFrontier({ plan, events });
-  assert.deepEqual(frontier.dispatchable, []);
+  assert.equal(state.freeze, null, '単独の予測超過でintakeをfreezeしてはならない');
 
   // 独立verifierのclassifyObservedDiffも同じ正解集合を返す（成功条件10/16）。
   const checkpointEvent = events.find((e) => e.kind === 'checkpoint_observed');
@@ -275,7 +271,7 @@ test('checkpoint観測と食い違うreceiptはcheckpoint_mismatchでrejectさ�
   assert.equal(recomputed.decisions[0].detail, 'checkpoint_mismatch');
 });
 
-test('gitignore済みpathへのwriteもdiff sensorが検出しundeclared writeになる', async () => {
+test('gitignore済みpathへのwriteもdiff sensorが予測超過として観測する', async () => {
   // baseへ.gitignoreをcommitしたrepoを別に作る（既存fixtureを汚さない）。
   const ignRoot = path.join(temporaryRoot, 'repo-ignored');
   await mkdir(path.join(ignRoot, 'src'), { recursive: true });
@@ -311,9 +307,9 @@ test('gitignore済みpathへのwriteもdiff sensorが検出しundeclared write�
     const classified = classifyCheckpointObservation({
       runId: RUN_ID, plan, events, packets, todoId: 'G1', detect: detectCheckpointFindings, recordedAt: AT,
     });
-    assert.ok(classified.findings.some((finding) => (
-      finding.kind === 'undeclared_write' && finding.path === 'ignored/rogue.txt'
-    )), JSON.stringify(classified.findings));
+    assert.ok(classified.observations.some((finding) => (
+      finding.kind === 'prediction_excess' && finding.path === 'ignored/rogue.txt'
+    )), JSON.stringify(classified.observations));
   } finally {
     baseSha = saved;
   }

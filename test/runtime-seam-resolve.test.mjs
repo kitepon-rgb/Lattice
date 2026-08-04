@@ -86,7 +86,7 @@ test('実行時witnessへconcern anchorを足してtodo witness setにする', (
     executors: 2,
   });
   assert.deepEqual(reasons, []);
-  assert.equal(witnessSet.schema, 'lattice.todo_witness_set.v3');
+  assert.equal(witnessSet.schema, 'lattice.todo_witness_set.v4');
   assert.deepEqual(witnessSet.manual_witness.T1.concern_anchors, [
     { within: { kind: 'path', target: 'src/page.mjs' }, symbols: ['renderLeft'] },
   ]);

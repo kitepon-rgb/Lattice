@@ -235,14 +235,18 @@ const WITNESS_PROVENANCE = Object.freeze([
 ]);
 
 /**
- * 現行のrun request契約。v3は`owns[].creates`だけがv1との差であり、境界宣言としては同値である。
- * 既存requestの書き換えを要求しないため、v1は読み口として残す。
+ * 現行のrun request契約。v4は計画境界を予測として扱う。v3以前の厳密なcompile契約は、
+ * 既存requestの意味を変えないため読み口として残す。
  *
  * v2はこの系列ではない。ADR 0064のepoch後継request（`predecessor_request_digest`と
  * `task_migration_digest`を持つ別shape）が既に使っている番号なので、飛ばして採番する。
  */
-export const RUN_REQUEST_SCHEMA = 'lattice.run_request.v3';
-export const RUN_REQUEST_LEGACY_SCHEMAS = Object.freeze(['lattice.run_request.v1']);
+export const RUN_REQUEST_SCHEMA = 'lattice.run_request.v4';
+export const RUN_REQUEST_DECLARATIVE_SCHEMA = 'lattice.run_request.v3';
+export const RUN_REQUEST_LEGACY_SCHEMAS = Object.freeze([
+  RUN_REQUEST_DECLARATIVE_SCHEMA,
+  'lattice.run_request.v1',
+]);
 export const RUN_REQUEST_SCHEMAS = Object.freeze([
   RUN_REQUEST_SCHEMA,
   ...RUN_REQUEST_LEGACY_SCHEMAS,
@@ -305,7 +309,7 @@ export function explainRunRequest(value) {
   if (!exactRecord(value, RUN_REQUEST_FIELDS)) return reject('unexpected_or_missing_top_level_keys', '');
   if (!RUN_REQUEST_SCHEMAS.includes(value.schema)) return reject('schema_mismatch', '/schema');
   // 創作宣言はv2から。v1のclosed shapeは余分fieldを拒否するので加算互換が成立しない。
-  const allowCreates = value.schema === RUN_REQUEST_SCHEMA;
+  const allowCreates = [RUN_REQUEST_SCHEMA, RUN_REQUEST_DECLARATIVE_SCHEMA].includes(value.schema);
   if (!identifier(value.request_id)) return reject('invalid_identifier', '/request_id');
   if (!exactRecord(value.repo, ['base_sha', 'root_kind'])) return reject('unexpected_or_missing_keys', '/repo');
   if (!gitSha(value.repo.base_sha)) return reject('invalid_git_sha', '/repo/base_sha');

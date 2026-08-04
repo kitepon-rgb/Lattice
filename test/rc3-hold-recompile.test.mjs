@@ -148,8 +148,9 @@ async function runLateConflictScenario() {
   events = classified.events;
   assert.deepEqual(
     classified.findings.map(({ kind }) => kind).sort(),
-    ['observed_write_conflict', 'undeclared_write'],
+    ['observed_write_conflict'],
   );
+  assert.deepEqual(classified.observations.map(({ kind }) => kind), ['prediction_excess']);
 
   // hold裁定: affected {T1,T2}のみhold、T3はwitness付きでcontinue。
   const held = decideHoldAndCarryOver({

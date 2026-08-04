@@ -23,6 +23,7 @@ import { affectedTestsFromEvidence } from './runtime-front-end.mjs';
 import { explainSeamGate } from './seam-gate.mjs';
 import { collectWitnessSensorEvidence, compileTodoIndependence } from './todo-independence.mjs';
 import { todoSelfDigest } from './todo-contracts.mjs';
+import { TODO_WITNESS_SET_SCHEMA } from './todo-independence-contracts.mjs';
 
 export const RUNTIME_SEAM_REQUEST_SCHEMA = 'lattice.runtime_seam_request.v1';
 // v2は翻訳段（`reconciled`）の追加である。宣言を観測へ合わせてから判定するようになったので、
@@ -184,7 +185,7 @@ export function reconcileWitnessToObservation({
 /**
  * 実行時witnessへconcern anchorを足してtodo witness setにする。
  *
- * 実行時のmanual_witnessはconcern_anchorsを持たない（`lattice.run_request.v3`）。持たせるのでなく、
+ * 実行時のmanual_witnessはconcern_anchorsを持たない（`lattice.run_request.v4`）。持たせるのでなく、
  * 宣言から足す——係争資源の中のどのsymbolを触るかは実行時に確定する情報であり、run開始時点の
  * 契約に書けるものではないからである。
  *
@@ -213,7 +214,7 @@ export function buildRuntimeSeamWitnessSet({
     };
   }
   const witnessSet = {
-    schema: 'lattice.todo_witness_set.v3',
+    schema: TODO_WITNESS_SET_SCHEMA,
     project_id: SYNTHETIC_PLAN_KEY,
     plan_key: SYNTHETIC_PLAN_KEY,
     capacity: { executors },

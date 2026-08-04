@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import {
   MANUAL_WITNESS_FIELDS,
+  RUN_REQUEST_SCHEMA,
   RUN_REQUEST_CLAIM_MODE,
   RUN_REQUEST_FIELDS,
   SENSOR_EXPECT_KINDS,
@@ -77,6 +78,12 @@ test('runtime schemaは配布物のfilesへ含まれる', async () => {
     const schema = await loadSchema(title);
     assert.equal(schema.title, title);
   }
+});
+
+test('最新run request契約の配布schemaが存在する', async () => {
+  const schema = await loadSchema(RUN_REQUEST_SCHEMA);
+  assert.equal(schema.title, RUN_REQUEST_SCHEMA);
+  assert.equal(schema.properties.schema.const, RUN_REQUEST_SCHEMA);
 });
 
 test('run_request schemaのtop-level keyはvalidatorのexact key集合と一致する', async () => {

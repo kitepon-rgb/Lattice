@@ -131,6 +131,12 @@ function compile(built, overrides = {}) {
   });
 }
 
+function usePredictionContract(built) {
+  built.request.schema = 'lattice.run_request.v4';
+  built.request.request_digest = selfDigest(built.request, 'request_digest');
+  return built;
+}
+
 const TOPOLOGY_A = Object.freeze([
   { id: 'TA1', symbol: 'alphaOne', path: 'src/alpha-one.mjs', tests: ['test/alpha-one.test.mjs'] },
   { id: 'TA2', symbol: 'alphaTwo', path: 'src/alpha-two.mjs', tests: ['test/alpha-two.test.mjs'] },
@@ -275,6 +281,43 @@ test('affected観測とwitness宣言の不一致はAFFECTED_TEST_DRIFTになる'
   assert.equal(result.code, 'AFFECTED_TEST_DRIFT');
   assert.equal(result.detail.mismatches.length, 1);
   assert.equal(result.detail.mismatches[0].todo_id, 'TA3');
+});
+
+test('v4ではaffectedとwritesは予測であり、不一致や不足をdispatch gateにしない', () => {
+  const drift = usePredictionContract(buildCase({
+    requestId: 'req-aff-drift-v4', todos: TOPOLOGY_A, affectedDrift: 'TA3',
+  }));
+  assert.equal(compile(drift).outcome, 'dispatchable');
+
+  const incomplete = usePredictionContract(buildCase({ requestId: 'req-incomplete-v4', todos: TOPOLOGY_A }));
+  incomplete.request.manual_witness.TA1.owns = [];
+  incomplete.request.manual_witness.TA1.writes = [];
+  incomplete.request.manual_witness.TA1.affected_tests = [];
+  incomplete.request.manual_witness.TA1.sensor_provenance.queries = [];
+  incomplete.request.request_digest = selfDigest(incomplete.request, 'request_digest');
+  assert.equal(compile(incomplete).outcome, 'dispatchable');
+});
+
+test('v4の既知write予測重複はunknownでなくserial conflictになる', () => {
+  const built = usePredictionContract(buildCase({ requestId: 'req-overlap-v4', todos: TOPOLOGY_A }));
+  built.request.manual_witness.TA1.writes.push('src/alpha-two.mjs');
+  built.request.request_digest = selfDigest(built.request, 'request_digest');
+  const result = compile(built);
+  assert.equal(result.outcome, 'dispatchable');
+  assert.ok(result.plan.conflicts.some(({ todo_ids: ids }) => ids.join(',') === 'TA1,TA2'));
+});
+
+test('v4は不在pathにcreates明示を要求しない', async () => {
+  const built = usePredictionContract(buildCase({
+    requestId: 'req-new-path-v4',
+    todos: [{ id: 'TA1', symbol: 'futureService', path: 'src/future-service.mjs', tests: [] }],
+  }));
+  built.request.manual_witness.TA1.owns = [{ kind: 'path', target: 'src/future-service.mjs' }];
+  built.request.manual_witness.TA1.sensor_provenance.queries = [];
+  built.request.sensor_query_set.queries = [{ id: 'q-status', operation: 'status' }];
+  built.request.request_digest = selfDigest(built.request, 'request_digest');
+  built.sensorEvidence.outcomes = [built.sensorEvidence.outcomes[0]];
+  assert.equal(compile(built).outcome, 'dispatchable');
 });
 
 test('stale index・fuzzy解決・未束縛owns・write交差はunknownとして丸められない', () => {

@@ -5,6 +5,7 @@ import {
   adjudicatePendingReceipts,
   buildExecutorPackets,
   buildNextRunEvent,
+  classifyCheckpointObservation,
   closeRunIfComplete,
   dispatchReadyFrontier,
   initializeRunEvents,
@@ -204,6 +205,40 @@ test('conflict pairは同時にrunningへ入らずserial化される', async () 
   const tcDispatch = events.find((e) => e.kind === 'executor_dispatched' && e.subject.ref === 'TC');
   assert.ok(tbDispatch.sequence < tcDispatch.sequence);
   assert.ok(tbAccepted.sequence < tcDispatch.sequence, 'TCはTB受理前にdispatchされてはならない');
+});
+
+test('単独の予測超過はcheckpointに残すがconflictやfreezeにしない', () => {
+  const fixture = buildFixture({ todos: ['TA'], capacity: 1 });
+  const packets = buildExecutorPackets({ plan: fixture.plan, manifests: fixture.manifests });
+  let events = initializeRunEvents({
+    runId: RUN_ID, request: fixture.request, plan: fixture.plan,
+    manifests: fixture.manifests, recordedAt: AT,
+  });
+  const dispatch = buildNextRunEvent({
+    events, runId: RUN_ID, kind: 'executor_dispatched', planEpoch: 1,
+    subject: { kind: 'todo', ref: 'TA' },
+    payload: {
+      executor_handle: 'exec-ta', worktree_id: 'worktree-ta',
+      packet_digest: packets.TA.packet_digest,
+    }, recordedAt: AT,
+  });
+  events = [...events, dispatch];
+  const checkpoint = {
+    checkpoint_digest: SHA256,
+    observed_diff: [{ path: 'src/unpredicted.mjs', operation: 'write' }],
+  };
+  events = [...events, buildNextRunEvent({
+    events, runId: RUN_ID, kind: 'checkpoint_observed', planEpoch: 1,
+    subject: { kind: 'todo', ref: 'TA' }, payload: checkpoint, recordedAt: AT,
+  })];
+  const result = classifyCheckpointObservation({
+    runId: RUN_ID, plan: fixture.plan, events, packets, todoId: 'TA', recordedAt: AT,
+    detect: () => ({ findings: [{ kind: 'undeclared_write', todo_ids: ['TA'], path: 'src/unpredicted.mjs' }] }),
+  });
+  assert.deepEqual(result.findings, []);
+  assert.equal(result.observations[0].kind, 'prediction_excess');
+  assert.equal(result.events.some(({ kind }) => kind === 'conflict_found'), false);
+  assert.equal(result.events.some(({ kind }) => kind === 'intake_frozen'), false);
 });
 
 test('hard precedenceはaccepted前のdispatchを塞ぐ', async () => {

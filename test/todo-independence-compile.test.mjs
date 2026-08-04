@@ -235,6 +235,8 @@ test('query drift・affected drift・plan不一致はunknownへ丸めずtyped er
       { id: 'q-srcalphamjs', operation: 'affected', target: 'src/alpha.mjs' },
     ],
   );
+  declaresTests.schema = 'lattice.todo_witness_set.v3';
+  declaresTests.witness_set_digest = todoSelfDigest(declaresTests, 'witness_set_digest');
   assert.throws(() => compileTodoIndependence({
     witnessSet: declaresTests,
     plan: plan(),
@@ -336,7 +338,7 @@ test('conflictのある組は同じ並列グループへ入らない', () => {
   assert.equal(projected.frontier.serialize_pairs[0].type, 'conflict');
 });
 
-test('判定がunknownで止まった記録は、無関係なtaskまで検証済み並列にしない', () => {
+test('不在pathの予測は判定を止めず、既知conflictだけをserial化する', () => {
   // 実conflictを持つ2 taskへ、新規file（未存在path）だけを作る3件目を足す。
   // compileはBOUNDARY_UNKNOWNで止まり、front endはpairwise verdictを1つも返さない。
   const set = witnessSet(
@@ -374,21 +376,18 @@ test('判定がunknownで止まった記録は、無関係なtaskまで検証済
       affectedOutcome('q-srcsharedmjs', 'src/shared.mjs'),
     ]),
   });
-  assert.equal(artifact.outcome, 'unknown');
-  // verdictが1件も無いのでconflictも空になる。この空を独立の証拠に読み替えない。
-  assert.deepEqual(artifact.conflicts, []);
+  assert.equal(artifact.outcome, 'compiled');
+  assert.equal(artifact.conflicts.length, 1);
+  assert.deepEqual(artifact.conflicts[0].task_ids, ['tip-001', 'tip-002']);
 
   const projected = projectIndependenceFrontier({
     artifact, readyTaskIds: ['tip-001', 'tip-002', 'tip-003'], plan: plan(),
     currentBaseSha: BASE_SHA,
   });
   assert.equal(projected.coverage, 'verified');
-  assert.deepEqual(projected.frontier.parallel_groups, []);
-  assert.deepEqual(projected.frontier.unknown.map(({ task_id: id }) => id),
-    ['tip-001', 'tip-002', 'tip-003']);
-  // 自分に固有の問題が無いtaskも、判定そのものが無いことを理由に未検査となる。
-  assert.deepEqual(projected.frontier.unknown[0].unknowns,
-    [{ kind: 'plan_verdicts_absent', ref: 'unknown' }]);
+  assert.deepEqual(projected.frontier.unknown, []);
+  assert.equal(projected.frontier.serialize_pairs.length, 1);
+  assert.deepEqual(projected.frontier.serialize_pairs[0].task_ids, ['tip-001', 'tip-002']);
 });
 
 test('宣言境界に触れないdiffではverified独立を維持する', () => {
