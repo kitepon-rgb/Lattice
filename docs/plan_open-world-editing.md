@@ -97,7 +97,8 @@ checkpointから再導出できた時だけである。計画時の境界は既�
 
 ## 受入ゲート
 
-- [ ] `owe-01-characterization`: 現行の実diff観測と実path集約をcharacterization testで固定する
+- [ ] `owe-01-planning-characterization`: 現行の計画契約と創作境界の挙動をcharacterization testで固定する
+- [ ] `owe-01-runtime-characterization`: 現行の実diff観測と実path集約をcharacterization testで固定する
 - [ ] `owe-02-planning-contract`: `creates`と事前path必須を最新の計画契約・scaffold・projectionから除く
 - [ ] `owe-03-runtime-wiring`: sentinel、checkpoint producer、finding再導出を実checkpoint同士へ一本化する
 - [ ] `owe-04-versioned-cutover`: packet／finding／legacy readerをversionedにcut overし、旧記録のreplayを保つ
