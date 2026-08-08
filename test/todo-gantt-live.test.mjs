@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { connect } from 'node:net';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 
 import { projectTodoChainV1 } from '../src/todo-chain.mjs';
 import { layoutTodoGantt } from '../src/todo-gantt-layout.mjs';
@@ -39,6 +40,104 @@ function ganttHtml() {
   });
   return renderTodoGanttHtml({ readModel, layout: layoutTodoGantt(readModel, chain) }).html;
 }
+
+test('live ganttは最新headを積んだpingを25秒ごとに送る', async (context) => {
+  const head = 'a'.repeat(64);
+  const live = await startTodoGanttLiveServer({
+    projectId: 'heartbeat-project',
+    port: 0,
+    render: async () => ({
+      html: "<!doctype html><html><head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'\"></head><body>fixture</body></html>",
+      head_digest: head,
+    }),
+    readHead: async () => head,
+  });
+  const controller = new AbortController();
+  const realNow = Date.now;
+  context.after(() => {
+    Date.now = realNow;
+    controller.abort();
+    return live.close();
+  });
+
+  const events = await fetch(live.eventsUrl, { signal: controller.signal });
+  const reader = events.body.getReader();
+  const decoder = new TextDecoder();
+  let text = decoder.decode((await reader.read()).value, { stream: true });
+  let now = realNow();
+  Date.now = () => now;
+  now += 25_000;
+  text = await Promise.race([
+    (async () => {
+      while (!text.includes('event: ping')) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        text += decoder.decode(chunk.value, { stream: true });
+      }
+      return text;
+    })(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('SSE ping was not emitted')), 1_500)),
+  ]);
+  assert.match(text, /event: ping\ndata: \{"head_digest":"a{64}"\}/u);
+});
+
+test('live gantt controllerはping差分を回収し62.5秒の途絶で接続を張り直す', async (context) => {
+  const head = 'a'.repeat(64);
+  const live = await startTodoGanttLiveServer({
+    projectId: 'watchdog-project',
+    port: 0,
+    render: async () => ({
+      html: "<!doctype html><html><head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'\"></head><body>fixture</body></html>",
+      head_digest: head,
+    }),
+    readHead: async () => head,
+  });
+  context.after(() => live.close());
+  const html = await (await fetch(live.url)).text();
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/gu)];
+  const controller = scripts.at(-1)?.[1];
+  assert.equal(typeof controller, 'string');
+
+  let now = 1_000;
+  let reloads = 0;
+  const intervals = [];
+  const streams = [];
+  class FakeEventSource {
+    constructor(url) {
+      this.url = url;
+      this.listeners = new Map();
+      this.closed = false;
+      streams.push(this);
+    }
+    addEventListener(name, listener) { this.listeners.set(name, listener); }
+    close() { this.closed = true; }
+    emit(name, data) { this.listeners.get(name)?.({ data: JSON.stringify(data) }); }
+  }
+  const badge = { setAttribute() {}, style: {}, textContent: '' };
+  runInNewContext(controller, {
+    document: { createElement: () => badge, body: { append() {} } },
+    EventSource: FakeEventSource,
+    location: { reload: () => { reloads += 1; } },
+    Date: { now: () => now },
+    JSON,
+    setInterval: (callback, milliseconds) => {
+      intervals.push({ callback, milliseconds });
+      return intervals.length;
+    },
+  });
+
+  assert.equal(streams.length, 1);
+  streams[0].emit('ping', { head_digest: head });
+  assert.equal(reloads, 0);
+  streams[0].emit('ping', { head_digest: 'b'.repeat(64) });
+  assert.equal(reloads, 1);
+  const watchdog = intervals.find(({ milliseconds }) => milliseconds === 12_500);
+  assert.ok(watchdog);
+  now += 62_501;
+  watchdog.callback();
+  assert.equal(streams[0].closed, true);
+  assert.equal(streams.length, 2);
+});
 
 test('live ganttはloopback限定でHTMLを配信しhead変更をSSE通知する', async (context) => {
   let head = 'a'.repeat(64);

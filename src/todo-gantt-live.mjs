@@ -4,6 +4,9 @@ import { TODO_DASHBOARD_CODE_VERSION } from './todo-dashboard-registry.mjs';
 
 const LOOPBACK = '127.0.0.1';
 const POLL_MS = 500;
+const SSE_HEARTBEAT_MS = 25_000;
+const SSE_STALE_MS = 62_500;
+const SSE_WATCHDOG_MS = 12_500;
 const HTTP_ERROR_SCHEMA = 'lattice.todo_gantt_http_error.v1';
 const PROJECT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
@@ -58,7 +61,7 @@ function withExternalPane(html, pane) {
 }
 
 function liveHtml(html, headDigest, eventsPath, externalPane = null) {
-  const controller = `<script>(()=>{const badge=document.createElement('div');badge.setAttribute('role','status');badge.style.cssText='position:fixed;right:12px;bottom:12px;z-index:99;padding:6px 10px;border:1px solid #d9d8d4;border-radius:4px;background:#fcfcfb;font:600 12px system-ui';badge.textContent='進捗: 接続中';document.body.append(badge);let head=${JSON.stringify(headDigest)};const stream=new EventSource(${JSON.stringify(eventsPath)});stream.addEventListener('state',event=>{const next=JSON.parse(event.data);badge.textContent='進捗: 最新';if(next.head_digest!==head){badge.textContent='進捗: 更新を反映中';location.reload();}});stream.addEventListener('lattice-error',event=>{const detail=JSON.parse(event.data);badge.textContent='進捗: エラー '+detail.code;badge.style.borderColor='#d03b3b';});stream.onerror=()=>{badge.textContent='進捗: 再接続中';};})();</script>`;
+  const controller = `<script>(()=>{const badge=document.createElement('div');badge.setAttribute('role','status');badge.style.cssText='position:fixed;right:12px;bottom:12px;z-index:99;padding:6px 10px;border:1px solid #d9d8d4;border-radius:4px;background:#fcfcfb;font:600 12px system-ui';badge.textContent='進捗: 接続中';document.body.append(badge);const head=${JSON.stringify(headDigest)};let lastReceipt=Date.now();let stream=null;const receive=event=>{const next=JSON.parse(event.data);if(typeof next.head_digest!=='string')return;lastReceipt=Date.now();badge.textContent='進捗: 最新';if(next.head_digest!==head){badge.textContent='進捗: 更新を反映中';location.reload();}};const connect=()=>{if(stream)stream.close();badge.textContent='進捗: 接続中';stream=new EventSource(${JSON.stringify(eventsPath)});stream.onopen=()=>{lastReceipt=Date.now();};stream.addEventListener('state',receive);stream.addEventListener('ping',receive);stream.addEventListener('lattice-error',event=>{const detail=JSON.parse(event.data);badge.textContent='進捗: エラー '+detail.code;badge.style.borderColor='#d03b3b';});stream.onerror=()=>{badge.textContent='進捗: 再接続中';};};connect();setInterval(()=>{if(Date.now()-lastReceipt>${SSE_STALE_MS})connect();},${SSE_WATCHDOG_MS});})();</script>`;
   const publicMetadata = '<meta name="description" content="Latticeで管理しているプロジェクトの依存工程と進捗を確認できます。"><meta name="robots" content="noindex, nofollow"><meta name="theme-color" content="#f7f3ea">';
   const publicStyle = '<style>body[data-gantt-root]{grid-template-rows:auto minmax(0,1fr)}.lattice-live-brand{z-index:10;display:flex;align-items:center;gap:8px;min-width:0;padding:10px 16px;border-bottom:1px solid #d8d0c5;background:#f7f3ea;color:#6c655d;font:600 12px/1.5 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif}.lattice-live-brand a{color:#201d19;text-decoration:none}.lattice-live-brand a:hover{color:#315cbe}.lattice-live-brand strong{color:#201d19}.lattice-live-brand-note{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lattice-live-back{margin-left:auto!important;color:#315cbe!important;font-weight:750}@media(max-width:560px){.lattice-live-brand{padding:9px 12px}.lattice-live-brand-note{display:none}}</style>';
   const publicHeader = '<header class="lattice-live-brand"><a href="https://kitepon.dev/">kitepon.dev</a><span aria-hidden="true">/</span><strong>Lattice</strong><span class="lattice-live-brand-note">公開工程表</span><a class="lattice-live-back" href="/projects/">一覧へ戻る</a></header>';
@@ -184,6 +187,7 @@ export async function startTodoGanttDashboardServer({ registry, port = 0, redire
     || typeof registry.list !== 'function') throw new TypeError('registry required');
   const clientsByProject = new Map();
   const lastHeads = new Map();
+  const lastHeartbeats = new Map();
   let eventId = 0;
   let checking = false;
   let closed = false;
@@ -194,6 +198,7 @@ export async function startTodoGanttDashboardServer({ registry, port = 0, redire
       for (const client of clients) client.end();
       clientsByProject.delete(projectId);
       lastHeads.delete(projectId);
+      lastHeartbeats.delete(projectId);
     }
   };
   const unsubscribe = typeof registry.subscribe === 'function'
@@ -255,6 +260,7 @@ export async function startTodoGanttDashboardServer({ registry, port = 0, redire
         try {
           const head = await project.readHead();
           lastHeads.set(project.projectId, head);
+          if (!lastHeartbeats.has(project.projectId)) lastHeartbeats.set(project.projectId, Date.now());
           sendEvent(response, 'state', ++eventId, { head_digest: head });
         } catch (error) {
           sendEvent(response, 'lattice-error', ++eventId, { code: error?.code ?? 'STORE_READ_FAILED' });
@@ -300,6 +306,11 @@ export async function startTodoGanttDashboardServer({ registry, port = 0, redire
           if (lastHeads.get(project.projectId) !== head) {
             lastHeads.set(project.projectId, head);
             for (const client of clients) sendEvent(client, 'state', ++eventId, { head_digest: head });
+          }
+          const now = Date.now();
+          if (now - (lastHeartbeats.get(project.projectId) ?? now) >= SSE_HEARTBEAT_MS) {
+            lastHeartbeats.set(project.projectId, now);
+            for (const client of clients) sendEvent(client, 'ping', ++eventId, { head_digest: head });
           }
         } catch (error) {
           for (const client of clients) sendEvent(client, 'lattice-error', ++eventId,
