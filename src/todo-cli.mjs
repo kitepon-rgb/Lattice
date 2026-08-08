@@ -27,7 +27,7 @@ import {
   ensureTodoDashboardActivity,
   removeTodoDashboardProject,
 } from './todo-dashboard-registry.mjs';
-import { resolveProjectIdentity } from './project-identity.mjs';
+import { readProjectExternalPane, resolveProjectIdentity } from './project-identity.mjs';
 import { layoutTodoGantt } from './todo-gantt-layout.mjs';
 import { TODO_GANTT_SCOPES } from './todo-gantt-scope.mjs';
 import { loadTodoGanttPresentation } from './todo-gantt-presentation.mjs';
@@ -2377,7 +2377,9 @@ async function serveGantt({ repoRoot, port, stdout, env, scope = DEFAULT_GANTT_S
       const { rendered } = await renderTodoGanttForProject({
         repoRoot, stable: true, displayName: identity.displayName, scope, readModel: store,
       });
-      return { html: rendered.html, head_digest: await ganttLiveHeadDigest({ repoRoot, store }) };
+      return { html: rendered.html, head_digest: await ganttLiveHeadDigest({ repoRoot, store }),
+        // ローカルの動的dashboardも公開daemonと同じ口を通す（毎描画で読むので差し外しが即反映される）。
+        external_pane: await readProjectExternalPane({ repoRoot, projectId: store.project_id }) };
     },
     readHead: async () => ganttLiveHeadDigest({
       repoRoot, store: await readTodoStoreStable({ repoRoot }),

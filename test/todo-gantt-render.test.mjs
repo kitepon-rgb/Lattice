@@ -447,6 +447,32 @@ test('manual gantt serveもproject identity fileのdisplay nameを使う', async
   assert.equal(code, 0);
 });
 
+test('manual gantt serveもexternal_paneのタブとiframeを配信する', async (context) => {
+  const root = await workspace(context);
+  await writeFile(path.join(root, '.lattice', 'project.json'), `${JSON.stringify({
+    schema: 'lattice.project_identity.v1', project_id: 'project-1', display_name: 'Manual Fixture',
+    external_pane: { title: '円卓', url: 'https://pane.example/room-a',
+      probe_url: 'https://probe.example/api/room-a/members' },
+  })}\n`);
+  const child = spawn(process.execPath, [CLI, 'todo', 'gantt', 'serve', '--port', '0'], {
+    cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, LATTICE_DASHBOARD_AUTOSTART: '0' },
+  });
+  context.after(() => { if (child.exitCode === null) child.kill('SIGTERM'); });
+  let stdout = '';
+  while (!stdout.includes('\n')) {
+    const [chunk] = await once(child.stdout, 'data');
+    stdout += chunk.toString('utf8');
+  }
+  const live = JSON.parse(stdout.split('\n')[0]);
+  const html = await (await fetch(live.url)).text();
+  assert.match(html, /connect-src 'self' https:\/\/probe\.example; frame-src https:\/\/pane\.example;/u);
+  assert.match(html, /<iframe data-src="https:\/\/pane\.example\/room-a" title="円卓">/u);
+  assert.ok(html.indexOf('data-show-external-pane') < html.indexOf('data-show-overview'));
+  child.kill('SIGTERM');
+  assert.equal((await once(child, 'exit'))[0], 0);
+});
+
 test('静的gantt生成とstatusは廃止済みとしてtyped拒否しartifactを作らない', async (context) => {
   const root = await workspace(context);
   for (const args of [['todo', 'gantt'], ['todo', 'gantt', 'status']]) {
