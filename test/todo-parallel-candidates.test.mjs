@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -94,6 +94,7 @@ test('記録が無いplanは飛ばさず、readyが未判定の候補として�
   assert.equal(entry.plan_key, 'main');
   // 「競合が無い」ではなく「まだ判定していない」。
   assert.equal(entry.coverage, 'missing');
+  assert.equal(entry.unreadable_reason, null);
   assert.deepEqual(entry.unjudged_task_ids, ['T1', 'T2']);
   assert.deepEqual(entry.verified_parallel_groups, []);
   assert.deepEqual(entry.serialize_pairs, []);
@@ -154,4 +155,24 @@ test('候補の状態が変わってもdispatchは1バイトも動かない', as
   assert.deepEqual(before.next_ready.map(({ task_id: id }) => id), ['T1', 'T2']);
   assert.equal(dispatchFacing(after), dispatchFacing(before));
   assert.equal(after.dispatch_frontier.frontier_digest, before.dispatch_frontier.frontier_digest);
+});
+
+test('読めない記録は理由つきで出し、status面ごと落とさない', async (context) => {
+  const { root, store } = await workspace(context);
+  // 壊れた記録を置く（schemaだけのartifact）。読めない記録を「記録なし」へ丸めない（ADR 0131）。
+  await writeFile(path.join(root, '.lattice/todo/plans/main/v1/independence.json'),
+    `${JSON.stringify({ schema: 'lattice.todo_independence.v2' })}\n`);
+
+  const [entry] = await candidatesOf(root, store);
+  // coverageは名乗らない。「壊れている」と「まだ判定していない」を同じ形にしない。
+  assert.equal(entry.coverage, null);
+  assert.match(entry.unreadable_reason, /INDEPENDENCE_ARTIFACT_INVALID/u);
+  assert.deepEqual(entry.unjudged_task_ids, ['T1', 'T2']);
+  assert.deepEqual(entry.next_commands,
+    ['lattice todo independence compile --plan main --input <file>']);
+
+  // 1 planの壊れで面ごと落ちない——statusは組み上がる。
+  const status = projectTodoStatus(store, { planNotes: [], parallelCandidates: [entry] });
+  assert.equal(status.parallel_candidates.length, 1);
+  assert.deepEqual(status.next_ready.map(({ task_id: id }) => id), ['T1', 'T2']);
 });

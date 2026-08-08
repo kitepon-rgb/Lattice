@@ -201,10 +201,15 @@ function coordinationEntry(value) {
  */
 function parallelCandidateEntry(value) {
   return exactRecord(value, [
-    'plan_key', 'coverage', 'unjudged_task_ids', 'verified_parallel_groups',
-    'serialize_pairs', 'next_commands',
+    'plan_key', 'coverage', 'unreadable_reason', 'unjudged_task_ids',
+    'verified_parallel_groups', 'serialize_pairs', 'next_commands',
   ]) && isTodoIdentifier(value.plan_key)
-    && TODO_INDEPENDENCE_COVERAGE.includes(value.coverage)
+    // 読めない記録は`coverage`を名乗らず理由を名乗る（ADR 0131・`summarizeIndependence`と同じ答え方）。
+    // 「壊れている」を「まだ判定していない」へ丸めない。
+    && (value.unreadable_reason === null
+      ? TODO_INDEPENDENCE_COVERAGE.includes(value.coverage)
+      : value.coverage === null
+        && isTodoStatusBoundedText(value.unreadable_reason, TODO_STATUS_REASON_LIMIT))
     && boundedList(value.unjudged_task_ids, isTodoIdentifier)
     // 1件の組は並列の情報を持たない（taskは常に自分と並列である）。生産側が落としている以上、
     // 契約側でも受けない——受けると消費者が「2件以上」を前提にできなくなる。

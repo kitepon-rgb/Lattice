@@ -33,9 +33,33 @@ export async function readTodoParallelCandidatesForStatus(options = {}) {
     const planKey = member.plan.plan_key;
     const readyTaskIds = frontier.filter((task) => task.plan_key === planKey)
       .map(({ task_id: taskId }) => taskId);
-    const artifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+    let artifact = null;
+    let unreadableReason = null;
+    try {
+      artifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+    } catch (error) {
+      // 読めない記録を「記録なし」へ丸めない（ADR 0131）。丸めると「壊れている」が
+      // 「まだ判定していない」と同じ形になり、沈黙が不在に見える。理由を載せて先へ進む
+      // ——1 planの壊れでstatus面ごと落とすと、他planの候補まで見えなくなる。
+      // `summarizeIndependence`（project-cli）と同じ答え方に揃える。
+      unreadableReason = error?.code
+        ? `${error.code}:${error.detail?.reason ?? error.message}` : 'independence_unreadable';
+    }
     // ready taskが1つも無く記録も無いplanは、判定する対象そのものが無い。entryごと出さない。
-    if (readyTaskIds.length === 0 && artifact === null) continue;
+    if (readyTaskIds.length === 0 && artifact === null && unreadableReason === null) continue;
+    if (unreadableReason !== null) {
+      candidates.push({
+        plan_key: planKey,
+        // 壊れた記録から判定は読めない。coverageは名乗らず、理由を名乗る。
+        coverage: null,
+        unreadable_reason: unreadableReason,
+        unjudged_task_ids: readyTaskIds,
+        verified_parallel_groups: [],
+        serialize_pairs: [],
+        next_commands: [`lattice todo independence compile --plan ${planKey} --input <file>`],
+      });
+      continue;
+    }
     // HEADが要るのは鮮度の判定だけである。記録が1つも無いplanでHEADを引くと、commitの無い
     // repo（初期化直後・test fixture）で`git_head_unresolved`に落ちる——判定していない
     // planを見るために、判定に使わない値の解決を要求してはいけない。
@@ -65,6 +89,7 @@ export async function readTodoParallelCandidatesForStatus(options = {}) {
     candidates.push({
       plan_key: planKey,
       coverage: projected.coverage,
+      unreadable_reason: null,
       unjudged_task_ids: unjudged,
       verified_parallel_groups: groups,
       serialize_pairs: pairs,
