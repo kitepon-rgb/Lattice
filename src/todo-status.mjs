@@ -1,4 +1,9 @@
 import {
+  AUDIT_PENDING_PHASE_STATUSES,
+  auditPendingNextCommands,
+  isAuditPendingPhaseStatus,
+} from './todo-audit-pending.mjs';
+import {
   exactRecord,
   isNonNegativeSafeInteger,
   isTodoDigest,
@@ -6,8 +11,9 @@ import {
   todoSelfDigest,
 } from './todo-contracts.mjs';
 import { todoLegacyReconciliationDigest } from './todo-revision.mjs';
+import { isPhaselessTodoPlanSchema, todoPhaseDefinitions } from './todo-store.mjs';
 
-export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v4';
+export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v5';
 export const TODO_DISPATCH_FRONTIER_SCHEMA = 'lattice.todo_dispatch_frontier.v1';
 export const TODO_STATUS_LIST_LIMIT = 2_000;
 export const TODO_STATUS_LABEL_LIMIT = 160;
@@ -97,6 +103,25 @@ function blockedEntry(value) {
     && isTodoStatusBoundedText(value.reason, TODO_STATUS_REASON_LIMIT);
 }
 
+/**
+ * 監査待ちPhase 1件。
+ *
+ * task entryと紛れないよう`status`ではなく`phase_status`にする。状態集合は
+ * `todo-audit-pending.mjs`の定義をそのまま使う（ここで書き直さない）。
+ * `next_commands`を非空必須にしたのは、監査待ちなのに次の一手が空なら次アクション面として
+ * 無意味だからである（状態集合が閉じている以上、空になる枝は無い）。
+ */
+function auditPendingEntry(value) {
+  return exactRecord(value, [
+    'plan_key', 'phase_id', 'phase_status', 'implicit', 'required_evidence_slots', 'next_commands',
+  ]) && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.phase_id)
+    && AUDIT_PENDING_PHASE_STATUSES.has(value.phase_status)
+    && typeof value.implicit === 'boolean'
+    && boundedList(value.required_evidence_slots, isTodoIdentifier)
+    && Array.isArray(value.next_commands) && value.next_commands.length > 0
+    && boundedList(value.next_commands, (command) => isTodoStatusBoundedText(command, TODO_STATUS_REASON_LIMIT));
+}
+
 function memberHead(value) {
   return exactRecord(value, [
     'plan_key', 'plan_version', 'through_sequence', 'journal_head_digest',
@@ -150,20 +175,61 @@ function dispatchFrontierEntry(value, projectId, nextReady) {
     && value.frontier_digest === expected.frontier_digest;
 }
 
-/** todo status v4 wire shapeを検証し、digestも再計算する。 */
+/** todo status v5 wire shapeを検証し、digestも再計算する。 */
 export function validateTodoStatusResult(value) {
   try {
     return exactRecord(value, [
       'schema', 'project_id', 'active_set', 'next_ready', 'dispatch_frontier',
-      'blocked', 'member_heads', 'result_digest',
+      'blocked', 'audit_pending', 'member_heads', 'result_digest',
     ]) && value.schema === TODO_STATUS_SCHEMA && isTodoIdentifier(value.project_id)
       && boundedList(value.active_set, activeTaskEntry) && boundedList(value.next_ready, taskEntry)
       && dispatchFrontierEntry(value.dispatch_frontier, value.project_id, value.next_ready)
-      && boundedList(value.blocked, blockedEntry) && boundedList(value.member_heads, memberHead)
+      && boundedList(value.blocked, blockedEntry) && boundedList(value.audit_pending, auditPendingEntry)
+      && boundedList(value.member_heads, memberHead)
       && isTodoDigest(value.result_digest)
       && value.result_digest === todoSelfDigest(value, 'result_digest');
   } catch {
     return false;
+  }
+}
+
+/**
+ * memberの監査待ちPhaseを`audit_pending` entryへ起こす。
+ *
+ * 「監査待ちか」の判定は`todo-audit-pending.mjs`、Phase定義（slots）は`todo-store.mjs`の
+ * `todoPhaseDefinitions`が正本である。`plan.phases`を直接読むとphase無しplan(v1/v2/v3)と
+ * synthetic read modelで落ちるので読まない。
+ *
+ * dispatchへは一切流さない——ここで作るのは`member.phases`だけを見る別の列であり、
+ * nodes／incomingへは入れない（ADR 0062・ADR 0147裁定5）。
+ */
+function collectAuditPending(member, sink) {
+  const declared = todoPhaseDefinitions(member.plan);
+  // Phase plan(v4/v5/v7)なのに`plan.phases`が配列でない場合はここでtypedに落とす
+  // (素のTypeErrorで抜けさせない)。phase無しplanは常に暗黙Phase 1件が返るので該当しない。
+  if (!Array.isArray(declared)) {
+    fail('TODO_STATUS_INVALID_INPUT', 'todo_status_plan_phases_invalid', { plan_key: member.plan.plan_key });
+  }
+  const definitions = new Map(declared.map((entry) => [entry.phase_id, entry]));
+  const implicit = isPhaselessTodoPlanSchema(member.plan.schema);
+  for (const phase of member.phases ?? []) {
+    if (!isAuditPendingPhaseStatus(phase?.status)) continue;
+    const definition = definitions.get(phase.phase_id);
+    // 導出ビューに在ってplanに定義が無いPhaseは、状態とplanがずれている証拠である。
+    // slotsを空へ丸めるとgateが何を要求するか嘘を吐くので、fail closedにする。
+    if (definition === undefined) {
+      fail('TODO_STATUS_INVALID_INPUT', 'todo_status_phase_definition_missing', {
+        plan_key: member.plan.plan_key, phase_id: phase.phase_id,
+      });
+    }
+    sink.push({
+      plan_key: member.plan.plan_key,
+      phase_id: phase.phase_id,
+      phase_status: phase.status,
+      implicit,
+      required_evidence_slots: [...definition.required_evidence_slots],
+      next_commands: auditPendingNextCommands(member.plan.plan_key, phase.phase_id, phase.status),
+    });
   }
 }
 
@@ -182,6 +248,7 @@ function buildTodoGraph(readModel) {
   const nodes = new Map();
   const incoming = new Map();
   const memberHeads = [];
+  const auditPending = [];
   // snapshot artifactの形式(v1にはphasesキーが無い)には縛られない導出ビューを読む
   // (readTodoStoreが常にmember.phasesとして埋める。ADR 0147)。
   const phaseStatuses = new Map(readModel.members.flatMap((member) => (
@@ -228,6 +295,7 @@ function buildTodoGraph(readModel) {
     const states = new Map(member.tasks.map((state) => [state.task_id, state]));
     // snapshot artifactの形式には縛られない導出ビュー(member.phases)を読む(ADR 0147)。
     const phases = new Map((member.phases ?? []).map((state) => [state.phase_id, state]));
+    collectAuditPending(member, auditPending);
     for (const task of member.plan.tasks) {
       const state = states.get(task.task_id);
       if (!plain(state) || !['pending', 'in-progress', 'blocked', 'done'].includes(state.status)) {
@@ -283,7 +351,11 @@ function buildTodoGraph(readModel) {
     }
   }
 
-  return { nodes, incoming, phaseAcceptIncoming, phaseStatuses, memberHeads };
+  auditPending.sort((left, right) => (
+    left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1
+      : left.phase_id < right.phase_id ? -1 : left.phase_id > right.phase_id ? 1 : 0));
+
+  return { nodes, incoming, phaseAcceptIncoming, phaseStatuses, memberHeads, auditPending };
 }
 
 /** 先行完了とphase gateを満たしたpending taskだけがreadyになる。 */
@@ -320,7 +392,7 @@ export function computeReadyFrontier(readModel) {
 /** Canonical todo read modelからSessionStart向け現在地をread-only投影する。 */
 export function projectTodoStatus(readModel) {
   const graph = buildTodoGraph(readModel);
-  const { nodes, incoming, memberHeads } = graph;
+  const { nodes, incoming, memberHeads, auditPending } = graph;
 
   const activeSet = [];
   const nextReady = [];
@@ -352,7 +424,8 @@ export function projectTodoStatus(readModel) {
   blocked.sort(compareTaskEntries);
   memberHeads.sort((left, right) => left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1 : 0);
   for (const [name, value] of [
-    ['active_set', activeSet], ['next_ready', nextReady], ['blocked', blocked], ['member_heads', memberHeads],
+    ['active_set', activeSet], ['next_ready', nextReady], ['blocked', blocked],
+    ['audit_pending', auditPending], ['member_heads', memberHeads],
   ]) enforceListLimit(name, value);
 
   const result = {
@@ -362,6 +435,9 @@ export function projectTodoStatus(readModel) {
     next_ready: nextReady,
     dispatch_frontier: dispatchFrontier(readModel.project_id, nextReady),
     blocked,
+    // 監査待ちは`member.phases`だけから作った別の列で、dispatch(next_ready/dispatch_frontier)へは
+    // 影響しない。監査が進んでもfrontier_digestは動かない。
+    audit_pending: auditPending,
     member_heads: memberHeads,
     result_digest: '',
   };
@@ -386,8 +462,8 @@ export const TODO_BINDING_PROJECTION_SCHEMA = 'lattice.todo_binding_projection.v
  * `compiled_plan_digest`で`runtime_plan.v1`を、`base_sha`でrun requestのbaseを照合し、
  * plan→`executor_packet.v1`→`executor_receipt.v1`（`packet_digest`帰属）まで辿れる。
  *
- * `todo_status_result.v4`は変更しない。binding投影は加算の別面とし、v4を受理する
- * 既存hostを壊さない。
+ * binding投影は`todo_status_result`とは独立した加算の別面である（ADR 0124）。status側の
+ * version bump（v4→v5）はこの面の形を動かさない。
  */
 export function projectTodoBindings(readModel, { requestedPlanKey = null } = {}) {
   if (!plain(readModel) || readModel.schema !== 'lattice.todo_store_read.v1'
