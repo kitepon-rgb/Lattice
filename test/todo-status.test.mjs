@@ -130,7 +130,8 @@ test('todo statusはactive/next-ready/blockedを混在投影しstore bytesを変
   const result = JSON.parse(execution.stdout);
   assertExactKeys(result, [
     'schema', 'project_id', 'active_set', 'next_ready', 'dispatch_frontier',
-    'blocked', 'audit_pending', 'plan_notes', 'coordination', 'member_heads', 'result_digest',
+    'blocked', 'audit_pending', 'plan_notes', 'coordination', 'parallel_candidates',
+    'member_heads', 'result_digest',
   ]);
   assert.equal(result.schema, 'lattice.todo_status_result.v6');
   // このstoreはまだ全taskがdoneではない(Phaseはactive)ので監査待ちは無い。
@@ -198,7 +199,7 @@ test('依存未達のin-progressはactiveのまま未完predecessorを明示す�
 test('空store projectionは全list空の固定digest resultを返す', () => {
   const result = projectTodoStatus({
     schema: 'lattice.todo_store_read.v1', project_id: 'empty-project', members: [],
-  }, { planNotes: [] });
+  }, { parallelCandidates: [], planNotes: [] });
   assert.deepEqual(result.active_set, []);
   assert.deepEqual(result.next_ready, []);
   assert.equal(result.dispatch_frontier.recommended_parallelism, 0);
@@ -273,6 +274,7 @@ function syntheticStatusResult(activeCount) {
     audit_pending: [],
     plan_notes: [],
     coordination: [],
+    parallel_candidates: [],
     member_heads: [],
     result_digest: '',
   };
@@ -283,19 +285,19 @@ function syntheticStatusResult(activeCount) {
 test('list上限2000とconsumer capture上限64 KiBをそれぞれfail closedにする', () => {
   assert.equal(validateTodoStatusResult(syntheticStatusResult(TODO_STATUS_LIST_LIMIT)), true);
   assert.equal(validateTodoStatusResult(syntheticStatusResult(TODO_STATUS_LIST_LIMIT + 1)), false);
-  assert.throws(() => projectTodoStatus(syntheticReadModel(TODO_STATUS_LIST_LIMIT + 1), { planNotes: [] }),
+  assert.throws(() => projectTodoStatus(syntheticReadModel(TODO_STATUS_LIST_LIMIT + 1), { parallelCandidates: [], planNotes: [] }),
     (error) => error instanceof TodoStatusProjectionError
       && error.code === 'TODO_SCALE_EXCEEDED'
       && error.detail.list === 'active_set'
       && error.detail.count === 2_001
       && error.detail.limit === 2_000);
-  assert.throws(() => projectTodoStatus(syntheticReadModel(TODO_STATUS_LIST_LIMIT), { planNotes: [] }),
+  assert.throws(() => projectTodoStatus(syntheticReadModel(TODO_STATUS_LIST_LIMIT), { parallelCandidates: [], planNotes: [] }),
     (error) => error instanceof TodoStatusProjectionError
       && error.code === 'TODO_SCALE_EXCEEDED'
       && error.detail.reason === 'todo_status_result_size_limit_exceeded'
       && error.detail.result_bytes > TODO_STATUS_CAPTURE_LIMIT
       && error.detail.result_limit === 65_536);
-  const capturable = projectTodoStatus(syntheticReadModel(500), { planNotes: [] });
+  const capturable = projectTodoStatus(syntheticReadModel(500), { parallelCandidates: [], planNotes: [] });
   assert.ok(Buffer.byteLength(`${JSON.stringify(capturable)}\n`) <= TODO_STATUS_CAPTURE_LIMIT);
 });
 
@@ -315,7 +317,7 @@ test('consumer境界はPython同様code point数・control拒否・safe integer�
       tasks: [], journal: { events: [{ schema: 'lattice.todo_event.v1',
         sequence: Number.MAX_SAFE_INTEGER, event_digest: 'b'.repeat(64) }] },
     }],
-  }, { planNotes: [] });
+  }, { parallelCandidates: [], planNotes: [] });
   assert.equal(maximumSequence.member_heads[0].through_sequence, 9_007_199_254_740_991);
   assert.equal(validateTodoStatusResult(maximumSequence), true);
   const invalid = structuredClone(maximumSequence);

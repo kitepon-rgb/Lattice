@@ -102,11 +102,14 @@ const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v6","project_id":"p
   + '"plan_notes":[],'
   // ob03: 調整方式は未宣言なので空。v6で足した欄はplan_notesとmember_headsの間。
   + '"coordination":[],'
+  // ob05: 並列候補。呼び出し側が渡す欄で、このtestは明示の空を渡している。挿入位置は
+  // coordinationとmember_headsの間で、dispatch側のバイトは1つも動いていない。
+  + '"parallel_candidates":[],'
   + '"member_heads":[__HEADS__],"result_digest":"__RESULT__"}';
 
 test('status v6の出力バイト列がaudit_pending・plan_notes以外変わらない', async (context) => {
   const readModel = await workspace(context);
-  const result = projectTodoStatus(readModel, { planNotes: [] });
+  const result = projectTodoStatus(readModel, { parallelCandidates: [], planNotes: [] });
   const actual = JSON.stringify(result);
 
   // digestとmember headはfixtureの時刻・digestに依存するので、構造だけを錨にする。
@@ -119,7 +122,7 @@ test('status v6の出力バイト列がaudit_pending・plan_notes以外変わら
 
 test('computeReadyFrontierはstatusのnext_readyと同一の集合を返す', async (context) => {
   const readModel = await workspace(context);
-  const status = projectTodoStatus(readModel, { planNotes: [] });
+  const status = projectTodoStatus(readModel, { parallelCandidates: [], planNotes: [] });
   const frontier = computeReadyFrontier(readModel);
 
   assert.deepEqual(frontier, status.next_ready);

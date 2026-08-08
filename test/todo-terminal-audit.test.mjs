@@ -194,13 +194,13 @@ test('終端監査gateはToDoのdispatch(next_ready/active_set/dispatch_frontier
 
   // Aがdoneになる前は、working planのPと独立taskのA/Bだけがready。Cはaudited内の
   // hard_dependency(A->C)未達で外れる——ここはPhaseでなくhard_dependencyだけで決まる。
-  const beforeA = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
+  const beforeA = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { parallelCandidates: [], planNotes: [] });
   assert.deepEqual(beforeA.next_ready.map(({ task_id }) => task_id).sort(), ['A', 'B', 'P']);
 
   await doTask(root, writer, 'A', evidenceFor(root, 'a'));
   // Aがdoneになった直後(terminal-auditはまだ'active'、B/Cが残っている)、Cはhard_dependencyだけで
   // readyになる。Phaseの状態(まだgate_readyですらない)は一切参照されない。
-  const afterA = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
+  const afterA = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { parallelCandidates: [], planNotes: [] });
   assert.deepEqual(afterA.next_ready.map(({ task_id }) => task_id).sort(), ['B', 'C', 'P']);
   const auditedAfterA = (await readTodoStore({ repoRoot: root, now: NOW })).members
     .find(({ descriptor }) => descriptor.plan_key === 'audited');
@@ -211,7 +211,7 @@ test('終端監査gateはToDoのdispatch(next_ready/active_set/dispatch_frontier
 
   // ここからworking plan側だけを固定して見る。監査未了(gate_ready) -> review -> accept と
   // audited planのPhaseが進んでも、他planのdispatchは一切動かないことを確認する。
-  const gateReadyStatus = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
+  const gateReadyStatus = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { parallelCandidates: [], planNotes: [] });
   const gateReady = workingSlice(gateReadyStatus);
   // ap06: 「dispatchが動かない」ことだけを固定すると、監査待ちが**表出していない**状態でも
   // このtestは緑のまま通る。表出と不変は片方ずつでは守れないので、同じ場所で両方を見る。
@@ -221,7 +221,7 @@ test('終端監査gateはToDoのdispatch(next_ready/active_set/dispatch_frontier
   const reviewed = await appendTodoEvent({ repoRoot: root, writer, planKey: 'audited', now: NOW,
     event: { kind: 'phase_review', phase_id: 'terminal-audit', actor: ACTOR, recorded_at: NOW,
       payload: { reason: '重監査開始' } } });
-  const reviewingStatus = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
+  const reviewingStatus = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { parallelCandidates: [], planNotes: [] });
   const reviewing = workingSlice(reviewingStatus);
   assert.deepEqual(reviewing, gateReady);
   assert.equal(reviewingStatus.audit_pending[0].phase_status, 'reviewing');
@@ -231,7 +231,7 @@ test('終端監査gateはToDoのdispatch(next_ready/active_set/dispatch_frontier
       payload: { review_event_digest: reviewed.event.event_digest,
         decision_evidence: evidenceFor(root, 'decision2'),
         evidence_slots: [{ slot_id: 'terminal-audit', evidence: evidenceFor(root, 'slot2') }] } } });
-  const afterAcceptStatus = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
+  const afterAcceptStatus = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { parallelCandidates: [], planNotes: [] });
   const acceptedStatus = workingSlice(afterAcceptStatus);
   assert.deepEqual(acceptedStatus, gateReady);
   // 監査が着けば監査欄からは消える。消えてもdispatchは1つ上のdeepEqualのとおり動かない。
@@ -239,7 +239,7 @@ test('終端監査gateはToDoのdispatch(next_ready/active_set/dispatch_frontier
 
   // dispatch_frontier全体もrecommended_parallelism以外の主要な形は変わらない
   // (next_readyが変わっていないので当然だが、projectTodoStatusの生成物として明示しておく)。
-  const finalStatus = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
+  const finalStatus = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { parallelCandidates: [], planNotes: [] });
   assert.equal(finalStatus.next_ready.some(({ task_id }) => task_id === 'P'), true);
 });
 

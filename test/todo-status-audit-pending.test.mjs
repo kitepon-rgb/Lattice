@@ -41,7 +41,7 @@ async function storeWith(context, plan) {
     content_digest: createHash('sha256').update(bytes).digest('hex'), media_type: 'text/plain', anchor_digest: null };
   const append = (event) => appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
     event: { actor: ACTOR, recorded_at: NOW, ...event } });
-  const status = async () => projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
+  const status = async () => projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { parallelCandidates: [], planNotes: [] });
   const finish = async (taskId) => {
     await append({ kind: 'start', task_id: taskId, payload: { override_reason: null } });
     await append({ kind: 'done', task_id: taskId, payload: { evidence } });

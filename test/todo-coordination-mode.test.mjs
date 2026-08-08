@@ -104,11 +104,11 @@ test('宣言はdispatchを変えない', async (context) => {
     blocked: status.blocked, dispatch_frontier: status.dispatch_frontier,
   });
 
-  const before = projectTodoStatus(await read(), { planNotes: [] });
+  const before = projectTodoStatus(await read(), { parallelCandidates: [], planNotes: [] });
   await declare('conversation', '会話で調整する');
-  const afterConversation = projectTodoStatus(await read(), { planNotes: [] });
+  const afterConversation = projectTodoStatus(await read(), { parallelCandidates: [], planNotes: [] });
   await declare('witness', 'やはり宣言して並列する');
-  const afterWitness = projectTodoStatus(await read(), { planNotes: [] });
+  const afterWitness = projectTodoStatus(await read(), { parallelCandidates: [], planNotes: [] });
 
   // 未宣言→conversation→witness と動かしても、dispatch面は1バイトも動かない。
   assert.equal(dispatchFacing(afterConversation), dispatchFacing(before));
@@ -157,14 +157,14 @@ test('statusのcoordination欄は宣言済みplanだけを列挙する', async (
 
   // 未宣言は載せない。全plan分をmode:nullで出すと、plan数ぶん常に埋まって読み飛ばされる
   // 列になる（前campaignでaudit_pendingの設計時に避けた形）。
-  const before = projectTodoStatus(await read(), { planNotes: [] });
+  const before = projectTodoStatus(await read(), { parallelCandidates: [], planNotes: [] });
   assert.equal(before.schema, 'lattice.todo_status_result.v6');
   assert.deepEqual(before.coordination, []);
   assert.deepEqual(before.member_heads.map(({ plan_key: key }) => key), ['main'],
     '未宣言はmember_headsに居てcoordinationに居ない、で引ける');
 
   await declare('conversation', '円卓の会話で調整する');
-  const after = projectTodoStatus(await read(), { planNotes: [] });
+  const after = projectTodoStatus(await read(), { parallelCandidates: [], planNotes: [] });
   assert.deepEqual(after.coordination, [{
     plan_key: 'main',
     mode: 'conversation',
@@ -175,7 +175,8 @@ test('statusのcoordination欄は宣言済みplanだけを列挙する', async (
   // 上位キーの並びは合意どおり（blocked → audit_pending → plan_notes → coordination → member_heads）。
   assert.deepEqual(Object.keys(after), [
     'schema', 'project_id', 'active_set', 'next_ready', 'dispatch_frontier',
-    'blocked', 'audit_pending', 'plan_notes', 'coordination', 'member_heads', 'result_digest',
+    'blocked', 'audit_pending', 'plan_notes', 'coordination', 'parallel_candidates',
+    'member_heads', 'result_digest',
   ]);
 });
 
