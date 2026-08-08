@@ -47,6 +47,20 @@ export async function readTodoParallelCandidatesForStatus(options = {}) {
     }
     // ready taskが1つも無く記録も無いplanは、判定する対象そのものが無い。entryごと出さない。
     if (readyTaskIds.length === 0 && artifact === null && unreadableReason === null) continue;
+    // HEADが要るのは鮮度の判定だけである。記録が1つも無いplanでHEADを引くと、commitの無い
+    // repo（初期化直後・test fixture）で`git_head_unresolved`に落ちる——判定していない
+    // planを見るために、判定に使わない値の解決を要求してはいけない。
+    if (artifact !== null && currentBaseSha === null) {
+      try {
+        currentBaseSha = gitHead(repoRoot);
+      } catch (error) {
+        // HEADが解決できない（commitが1つも無いrepo等）なら鮮度を判定できない。
+        // placeholderで代用すると「判定済みだが古い」と断言することになる——
+        // 知らないことを知っていると言わない。1 planの事情で面ごと落とさないのも同じ理由。
+        unreadableReason = error?.code
+          ? `${error.code}:${error.detail?.reason ?? error.message}` : 'independence_base_unresolved';
+      }
+    }
     if (unreadableReason !== null) {
       candidates.push({
         plan_key: planKey,
@@ -60,10 +74,6 @@ export async function readTodoParallelCandidatesForStatus(options = {}) {
       });
       continue;
     }
-    // HEADが要るのは鮮度の判定だけである。記録が1つも無いplanでHEADを引くと、commitの無い
-    // repo（初期化直後・test fixture）で`git_head_unresolved`に落ちる——判定していない
-    // planを見るために、判定に使わない値の解決を要求してはいけない。
-    if (artifact !== null && currentBaseSha === null) currentBaseSha = gitHead(repoRoot);
     const baseSha = currentBaseSha ?? PLACEHOLDER_SHA;
     const changedPaths = artifact !== null && artifact.base_sha !== null
       && artifact.base_sha !== baseSha

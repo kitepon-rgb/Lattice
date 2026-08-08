@@ -176,3 +176,23 @@ test('読めない記録は理由つきで出し、status面ごと落とさな�
   assert.equal(status.parallel_candidates.length, 1);
   assert.deepEqual(status.next_ready.map(({ task_id: id }) => id), ['T1', 'T2']);
 });
+
+test('HEADが解決できない時は鮮度を断言せず理由を載せる', async (context) => {
+  const { root, store, plan } = await workspace(context);
+  // 判定記録は在るが、fixtureはcommitを1つも持たない（すずめ room [275] の罠1）。
+  await writeTodoIndependenceArtifact({ repoRoot: root, artifact: independenceArtifact(plan), now: NOW });
+  const throwingHead = () => {
+    const error = new Error('git_head_unresolved');
+    error.code = 'INDEPENDENCE_BASE_UNRESOLVED';
+    error.detail = { reason: 'git_head_unresolved' };
+    throw error;
+  };
+
+  const candidates = await readTodoParallelCandidatesForStatus({
+    repoRoot: root, store: await readTodoStore({ repoRoot: root, now: NOW }), gitHead: throwingHead,
+  });
+  // placeholderで代用して「判定済みだが古い」と断言しない。知らないことを知っていると言わない。
+  assert.equal(candidates[0].coverage, null);
+  assert.match(candidates[0].unreadable_reason, /INDEPENDENCE_BASE_UNRESOLVED/u);
+  assert.deepEqual(candidates[0].unjudged_task_ids, ['T1', 'T2']);
+});
