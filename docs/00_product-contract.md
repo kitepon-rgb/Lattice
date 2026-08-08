@@ -160,6 +160,16 @@ ToDoの作業記憶はlifecycle journal／snapshotと分離したtask-scoped app
 `todo start`はlifecycle event追記前にfail closedする。revisionを跨ぐ投影は`task_migration`だけを根拠にし、
 removed taskのnoteはarchived束へ分離する。
 
+**工程に属する義務はplan単位noteが持つ**（ADR 0160）。`todo note --plan <key>`（`--task`省略）で書き、
+そのplanの全taskの`note_context`へ`scope: 'plan'`として届く。plan単位noteはtask noteと**別のchain file**へ
+積むので、旧CLIはその存在に気づかずtask noteだけを従来どおり返す。まだ誰も着手していない工程の義務は
+`note_context`では届かないため、`todo_status_result`の`plan_notes`欄が**存在・件数・帰属・全履歴command**を
+出す。**note本文はstatusへ載せない**——自由記述Markdownを載せるとconsumer capture limitをplan数との積で
+超え、記録するほどstatusが落ちる面ができる。在ることは常に届き、中身は`note list`へ取りに行く。
+
+`todo_status_result`の`coordination`欄は、調整方式（`witness`／`conversation`）を宣言したplanだけを
+宣言者と理由つきで列挙する（ADR 0160）。未宣言は`member_heads`との差で引ける。宣言はdispatchを変えない。
+
 個別ToDo右ペインの「作業記録」は同じbounded contextを表示する。loopbackへ閉じた`gantt serve`と常設
 dashboardは作業者本人が読む面なので記録込みで描く。note本文を落とすのはrepo外へHTMLを出す公開配信面
 だけとし、その入口が`includeNotes: false`を強制する。公開配信面は現時点で存在せず、入口だけを残す。
@@ -217,7 +227,7 @@ plan versionディレクトリへ並置し、再生成できるhost localの投�
 
 session開始時にhostが必要とする現在地は`lattice session-context --json`が
 **1プロセス・1回のstore読み**で返す（`lattice.session_context.v1`、ADR 0131）。
-`status`フィールドは`project_status.v1`、`todo`フィールドは`todo_status_result.v5`をそのまま埋め、
+`status`フィールドは`project_status.v1`、`todo`フィールドは`todo_status_result.v6`をそのまま埋め、
 `independence`はreadyのあるplanだけの並列可否要約を持つ。既存2面は不変で、これはその合成である。
 この面はdashboard活動を登録しない読み取り専用面とする。消費者へexact key検証を要求せず、
 知っているkeyだけを読んでよい——Lattice側は既存keyの意味を変えるときだけschema版を上げる。
@@ -234,10 +244,10 @@ Phase v3のactive source移転は、同じrevisionの`source_cutover_batch`が�
 predecessor source消失は`predecessor_source_silently_dropped`として拒否する。
 成功は単体通常revisionが`lattice.todo_revise_result.v1`、revision setが
 `lattice.todo_revision_set_result.v1`、statusはreconciliation identityを含む
-`lattice.todo_status_result.v5`、verifyはsource inventoryを再検査する`lattice.todo_verify_result.v3`を返す。
+`lattice.todo_status_result.v6`、verifyはsource inventoryを再検査する`lattice.todo_verify_result.v3`を返す。
 verify v3の各memberは`reconciliation_guidance`を持ち、`registered_unreconciled`がsource inventoryの
 検証状態であってlifecycle操作とdashboard表示を塞がないこと、および正規のrevision schema取得・適用commandを示す。
-status v5の`dispatch_frontier`は`next_ready`全件を既定の同時dispatch集合とし、推奨同時数、
+status v6の`dispatch_frontier`は`next_ready`全件を既定の同時dispatch集合とし、推奨同時数、
 frontier digest、subset選択時の理由要否を機械表示する。readyが複数でactive taskがない時の最初の
 `todo start`は`--parallel-frontier`による並列開始宣言、または`--override-reason <reason>`による
 意図的直列化理由のどちらかを必須とする。これはPhase、監査回数、task DAGを増やさない。

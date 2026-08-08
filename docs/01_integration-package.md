@@ -37,7 +37,8 @@
 - TODO工程: 現行authoringは`lattice.plan_create_input.v4`、planは`lattice.todo_plan.v7`、
   eventは`lattice.todo_event.v4`、snapshotは`lattice.todo_snapshot.v2`、Phase revisionは
   `lattice.phase_todo_revision.v3`、cross-plan revisionは`lattice.todo_revision_set.v3`、
-  statusは`lattice.todo_status_result.v5`を使う（`audit_pending`欄を持つ。ADR 0159）。
+  statusは`lattice.todo_status_result.v6`を使う（`audit_pending`に加えて工程に属する義務を出す
+  `plan_notes`と、調整方式の宣言を出す`coordination`を持つ。ADR 0159・ADR 0160）。
   旧schemaは既存storeの読取・移行互換としてだけ維持する。
 
 ### 2.1 ToDo設計メモと動的工程表

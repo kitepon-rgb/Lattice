@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.48.0 — 2026-08-08
+
+### 破壊的変更（host統合者向け）
+
+- **`lattice todo status --json`のwire schemaを`lattice.todo_status_result.v5`から`v6`へ上げた
+  （ADR 0160）。** 上位キーへ`plan_notes`と`coordination`が加わる（`audit_pending`と`member_heads`の間）。
+  **exact key検証をしている消費者は追従が必要**で、追従前は`version_mismatch`として拒否される。
+  「知っているkeyだけを読む」消費者は影響を受けない。`lattice session-context --json`の
+  `todo`フィールドも同じくv6になる。
+- **調整方式の宣言はstore formatの前方非互換である（wireのbumpとは別の話）。**
+  `lattice todo independence mode`で`coordination_mode` eventを1件でも書いたplanは、
+  **0.47.0以前のCLIから`todo status`も`todo start`も通らなくなる**——journalの読みは1 eventでも
+  検証に落ちればそのplanごと`STORE_CORRUPT`にし、部分的に読み飛ばす経路を持たない。
+  **wireは版を戻せば済むが、storeへ書いたものは戻らない。** 宣言していないplanは無傷である。
+  対処が違うので、上のwire bumpとは別項目として扱うこと。
+- **noteのwire schemaを上げた。** `todo_note_event.v2`（plan scope）・`todo_note_context.v2`
+  （`scope`とplan chainのhead digest）・`todo_note_append_result.v2`・`todo_note_list_result.v2`。
+  plan単位noteは**task noteと別のchain file**（`plan-active.jsonl`）へ積むので、旧CLIは存在に
+  気づかず従来どおり動く。**ただし旧CLIではplan単位noteが届かない**——`todo start`の`note_context`は
+  v1のままで、plan scopeのentryを持たない。
+
+### 追加
+
+- **plan単位note**（`lattice todo note --plan <key>`。`--task`を省略するとplan scope）。
+  taskに属さない工程の義務——順序制約、一度きりの観測、運用条件——の置き場である。
+  そのplanの全taskの`todo start`／`todo show`の`note_context`へ`scope: 'plan'`で届く。
+- **`todo status`の`plan_notes`欄。** まだ誰も着手していない工程の義務を、次アクション面が出す。
+  entryは`{plan_key, plan_note_head_digest, count, latest, next_commands}`で、**note本文は載せない**
+  （consumer capture limitを踏まないため。中身は`next_commands`が指す`note list`が持つ）。
+- **調整方式の宣言**（`lattice todo independence mode --plan <key> --set witness|conversation
+  --reason <text>`）。witness検証で並列するか会話で調整するかをplan単位で選び、eventのactorが
+  「誰が選んだか」の帰属になる。`todo status`の`coordination`欄は宣言済みのplanだけを列挙する。
+  `todo migrate`の結果は未宣言planへ宣言commandを案内する。
+
+### 不変（Protected behavior・ADR 0160）
+
+- **未判定はdispatchを塞がない。** independence記録の有無も、宣言された競合も、
+  `next_ready`／`active_set`／`dispatch_frontier`（`frontier_digest`を含む）を変えない。
+  plan noteの有無・件数も同様に変えない。
+
 ## 0.47.0 — 2026-08-08
 
 ### 破壊的変更（host統合者向け）
