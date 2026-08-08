@@ -61,3 +61,31 @@ export function auditPendingNextCommands(planKey, phaseId, status) {
   error.code = 'AUDIT_PENDING_STATUS_INVALID';
   throw error;
 }
+
+/**
+ * store read model(`lattice.todo_store_read.v1`)の中の監査待ちPhaseを列挙する。
+ *
+ * `member.phases`はstoreが常に埋める導出ビューで、phase無しplanの暗黙terminal-audit Phaseも
+ * 同じ形で入っている(ADR 0147)。planの世代で分岐しないのはそのためである。
+ *
+ * 返すのは`plan_key`・`phase_id`・`status`だけにする。消費者ごとに要る付随情報
+ * (evidence slot、次コマンド、implicitかどうか)は形が違うので、ここで先回りして
+ * 詰め込まない。並び順はplan_key→phase_idで固定する——同じstoreからは同じ列が出る。
+ *
+ * @returns {Array<{plan_key: string, phase_id: string, status: string}>}
+ */
+export function auditPendingPhasesOf(readModel) {
+  const entries = [];
+  for (const member of readModel?.members ?? []) {
+    if (!Array.isArray(member?.phases)) continue;
+    for (const phase of member.phases) {
+      if (!isAuditPendingPhaseStatus(phase?.status)) continue;
+      entries.push({
+        plan_key: member.plan.plan_key, phase_id: phase.phase_id, status: phase.status,
+      });
+    }
+  }
+  return entries.sort((left, right) => (
+    left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1
+      : left.phase_id < right.phase_id ? -1 : left.phase_id > right.phase_id ? 1 : 0));
+}

@@ -2,8 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  AUDIT_PENDING_PHASE_STATUSES, auditPendingNextCommands, isAuditPendingPhaseStatus,
+  AUDIT_PENDING_PHASE_STATUSES, auditPendingNextCommands, auditPendingPhasesOf,
+  isAuditPendingPhaseStatus,
 } from '../src/todo-audit-pending.mjs';
+
+const member = (planKey, phases) => ({
+  plan: { project_id: 'project-1', plan_key: planKey, tasks: [] },
+  tasks: [],
+  ...(phases === undefined ? {} : { phases: phases.map(([phase_id, status]) => ({ phase_id, status })) }),
+});
 
 test('監査待ちはgate_ready・reviewing・rejectedの3状態だけ', () => {
   assert.deepEqual([...AUDIT_PENDING_PHASE_STATUSES].sort(),
@@ -42,4 +49,24 @@ test('次コマンドはstoreの遷移guardが受理するものだけを案内�
 test('監査待ちでない状態は空配列へ丸めず投げる', () => {
   assert.throws(() => auditPendingNextCommands('p', 'terminal-audit', 'accepted'),
     (error) => error.code === 'AUDIT_PENDING_STATUS_INVALID');
+});
+
+test('read modelからは監査待ちPhaseだけがplan_key→phase_id順で出る', () => {
+  assert.deepEqual(auditPendingPhasesOf({
+    schema: 'lattice.todo_store_read.v1',
+    project_id: 'project-1',
+    members: [
+      member('zeta', [['terminal-audit', 'reviewing']]),
+      member('alpha', [['p2', 'rejected'], ['p1', 'gate_ready'], ['p0', 'accepted']]),
+    ],
+  }), [
+    { plan_key: 'alpha', phase_id: 'p1', status: 'gate_ready' },
+    { plan_key: 'alpha', phase_id: 'p2', status: 'rejected' },
+    { plan_key: 'zeta', phase_id: 'terminal-audit', status: 'reviewing' },
+  ]);
+});
+
+test('phasesを持たないmemberと空storeは空配列になる', () => {
+  assert.deepEqual(auditPendingPhasesOf({ members: [member('main')] }), []);
+  assert.deepEqual(auditPendingPhasesOf({ members: [] }), []);
 });
