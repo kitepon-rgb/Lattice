@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { parseTree } from 'jsonc-parser';
 
 import {
+  TODO_COORDINATION_MODES,
   TODO_DESIGN_MEMO_PROMPT,
   canonicalizeTodoArtifact,
   digestTodoArtifact,
@@ -596,6 +597,9 @@ function designMemoProjection(task) {
  */
 async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
   const artifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+  // 調整方式の宣言（ob03）。未宣言はnullで、「まだ選んでいない」を意味する。
+  const coordinationMode = store.members
+    .find(({ descriptor }) => descriptor.plan_key === planKey)?.coordination?.mode ?? null;
   if (artifact === null) {
     // 記録が無ければ鮮度を語る相手がいない。HEADを要求すると、commitがまだ無いrepoで
     // 「判定できない」でなく「startできない」になってしまう。
@@ -607,7 +611,7 @@ async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
         .filter((task) => task.plan_key === planKey).map(({ task_id: id }) => id),
       self_unknowns: [{ kind: 'witness_missing', ref: 'no_independence_record' }],
       guidance: selectIndependenceGuidance({
-        coverage: 'missing', taskDeclared: false, taskStale: false,
+        coverage: 'missing', taskDeclared: false, taskStale: false, coordinationMode,
       }),
     };
   }
@@ -656,6 +660,7 @@ async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
       conflictWithActive: conflictsWithActive[0]?.severability ?? null,
       conflictBetweenReady: readyConflict?.severability ?? null,
       verdictsAbsent: selfUnknowns.some(({ kind }) => kind === 'plan_verdicts_absent'),
+      coordinationMode,
     }),
   };
 }
@@ -830,6 +835,33 @@ async function phaseMutation({ repoRoot, env, planKey, phaseId, kind, payload })
   return result;
 }
 
+/**
+ * 調整方式を宣言する（ob03・オーナー裁定C①）。
+ *
+ * witnessが全planの暗黙義務だった時、「誰がやるか」が誰にも属さず、正確な案内が素通りされた。
+ * 起票後にこのコマンドで明示選択させ、eventのactorへ帰属を残す。宣言はdispatchを変えない
+ * ——未宣言でもready frontierは通常どおり出る（ADR 0160・ob04のProtected behavior）。
+ */
+async function independenceMode({ repoRoot, env, planKey, mode, reason }) {
+  const { event } = await appendTodoEvent({
+    repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), planKey,
+    event: { kind: 'coordination_mode', actor: mutationActor(env), payload: { mode, reason } },
+  });
+  const result = {
+    schema: 'lattice.todo_coordination_mode_result.v1', project_id: event.project_id,
+    plan_key: event.plan_key, plan_version: event.plan_version,
+    mode: event.payload.mode, reason: event.payload.reason,
+    declared_by: event.actor, declared_at: event.recorded_at,
+    // 宣言はplan-scoped chainのheadを進める。lifecycle journalのheadは動かない——
+    // 「作業が進んだ」の意味をここへ混ぜないため、journal_head_digestは返さない。
+    sequence: event.sequence, event_digest: event.event_digest,
+    plan_scoped_head_digest: event.event_digest,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
 async function phaseStatus({ repoRoot, planKey }) {
   const store = await readTodoStore({ repoRoot });
   const [member] = selectMembers(store, planKey);
@@ -976,7 +1008,8 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
 
   const imported = await appendTodoExtraction({ repoRoot, extraction });
   const result = {
-    schema: 'lattice.todo_migrate_result.v2',
+    // ob03: 調整方式の案内をv3で足す。ADR 0054のとおり既存versionへのin-place追加はしない。
+    schema: 'lattice.todo_migrate_result.v3',
     project_id: imported.plan.project_id,
     plan_key: imported.plan.plan_key,
     plan_version: imported.plan.plan_version,
@@ -1005,6 +1038,13 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
       required_state_policy: 'acquire_phase',
       next_action: `lattice todo revise-phase --plan ${imported.plan.plan_key} --input <phase-revision.json>`,
     } : null,
+    // ob03: 起票直後のplanは必ず調整方式が未宣言である。ここで案内しないと、選ぶ機会が
+    // 「誰も呼ぶ動機の無いdrilldown」にしか無くなる——前campaignの監査待ちと同じ形になる。
+    coordination_guidance: {
+      mode: null,
+      modes: [...TODO_COORDINATION_MODES],
+      next_action: `lattice todo independence mode --plan ${imported.plan.plan_key} --set <witness|conversation> --reason <text>`,
+    },
     result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
@@ -1631,6 +1671,9 @@ async function independence({ repoRoot, requestedPlanKey }) {
         .some(({ unknowns }) => unknowns.some(({ kind }) => kind === 'record_stale')),
       conflictWithActive: projected.frontier.conflicts_with_active[0]?.severability ?? null,
       conflictBetweenReady: projected.frontier.serialize_pairs[0]?.severability ?? null,
+      // 案内の正本は1つ（ADR 0130 Decision 1）。着手する人と読みに来た人が同じ状況について
+      // 違う文言を受け取らないよう、調整方式もここへ渡す。
+      coordinationMode: member?.coordination?.mode ?? null,
       verdictsAbsent: projected.frontier.unknown
         .some(({ unknowns }) => unknowns.some(({ kind }) => kind === 'plan_verdicts_absent')),
     }),
@@ -2576,6 +2619,12 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   } else if (argv.length === 5 && argv[0] === 'independence' && argv[1] === 'witness'
     && argv[2] === 'migrate' && argv[3] === '--plan' && isTodoIdentifier(argv[4])) {
     action = (repoRoot) => independenceWitnessMigrate({ repoRoot, planKey: argv[4] });
+  } else if (argv.length === 8 && argv[0] === 'independence' && argv[1] === 'mode'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--set'
+    && TODO_COORDINATION_MODES.includes(argv[5]) && argv[6] === '--reason' && argv[7].length > 0) {
+    action = (repoRoot) => independenceMode({
+      repoRoot, env, planKey: argv[3], mode: argv[5], reason: argv[7],
+    });
   } else if (argv.length === 6 && argv[0] === 'independence' && argv[1] === 'compile'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--input') {
     action = (repoRoot) => independenceCompile({
