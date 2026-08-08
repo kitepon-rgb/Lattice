@@ -46,10 +46,12 @@ async function workspace(t) {
 }
 
 function run(root, args) {
+  const env = { ...process.env };
+  delete env.FORCE_COLOR;
   return spawnSync(process.execPath, [CLI, ...args], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env,
+    env: { ...env,
       NO_COLOR: '1',
       LATTICE_DASHBOARD_AUTOSTART: '0',
       LATTICE_TODO_ACTOR_HOST: ACTOR.host,
