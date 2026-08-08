@@ -372,6 +372,10 @@ daemonの生死をdescriptor 1枚に依存させない。daemonはpidごとの�
 引き取る。signalを送るのはその場で再認証を通った相手だけとし、応答しないpidへは送らない
 （pid再利用で無関係のprocessを停止しうる）。停止に応じない孤児は`DASHBOARD_ORPHAN_STOP_FAILED`で
 報せ、黙って見送らない。規約は[ADR 0157](adr/0157-dashboard-daemons-are-discoverable-by-record.md)が正。
+project登録簿も同じ形で掃除する。activity登録のたびに`repo_root`が消えたentryを落とし（storeを
+持たないだけの生きたrepoは消さない）、実在するが不要になった登録は`todo dashboard remove
+<project_id> --json`だけが明示的に外す。removeは対象repoの解決・store読取・daemon起動を経由せず
+対象projectの外から叩け、該当が無い時は`PROJECT_NOT_REGISTERED`で拒否して暗黙成功にしない。
 公開viewerの未知GETで`Accept`が`text/html`を含む場合は、HTTP 404のままLatticeのブランド、
 `noindex, nofollow`、`/projects/`と`https://kitepon.dev/`への戻り先を持つHTMLを返す。
 HTMLを要求しないclientには、従来の`lattice.todo_gantt_http_error.v1` JSON 404を維持する。
