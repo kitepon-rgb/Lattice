@@ -567,8 +567,17 @@ export async function createWorkOrderAdapterController({
         if (prior.state !== 'held') {
           fail('WORK_ORDER_DUPLICATE_DISPATCH', '同じTODOへ異なるpacketをdispatchできない');
         }
-        fail('WORK_ORDER_REDISPATCH_UNSUPPORTED',
-          '外部workerのheld attemptを再配車する契約がまだ無い');
+        // 長寿命worker poolのprocessを殺さず、barrierで止めた同じ席を再開して
+        // successor orderへ載せ直す。process寿命は外部adapterの所有である。
+        try { process.kill(prior.worker.pid, 'SIGCONT'); }
+        catch (error) {
+          fail('WORK_ORDER_EXECUTION_FAILED', 'held workerを再開できない', {
+            pid: prior.worker.pid,
+            reason: String(error?.code ?? error?.message ?? error),
+          });
+        }
+        prior.state = 'superseded';
+        todoToHandle.delete(packet.todo_id);
       }
       await readAndValidateGate(canonicalRunDir, writeLease);
       // canonical repoではなく自分の木へ書く。共有rootでは、書き込みの帰属をrootから
