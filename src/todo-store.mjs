@@ -278,6 +278,15 @@ function phasesOf(plan) {
   return isPhaselessTodoPlanSchema(plan.schema) ? [terminalAuditPhase()] : plan.phases;
 }
 
+// 終端監査Phaseの定義(required_evidence_slotsを含む)はterminalAuditPhase()の中だけに在り、
+// store外からは読めなかった。todo-status側で再導出すると「終端監査が何を要求するか」の定義が
+// 二重化するので、phasesOfをそのまま公開して定義の正本を1つに保つ。
+// 返るのは呼び手が渡したplan自身のphases(またはその場で作る暗黙Phase)であり、新たな内部状態は
+// 露出しない。
+export function todoPhaseDefinitions(plan) {
+  return phasesOf(plan);
+}
+
 function derivedPhaseStatus(plan, taskStates, phaseStates, phaseId) {
   const state = phaseStates.get(phaseId);
   // ADR 0148: closed_unauditedも他の終端状態と同じく確定済みとして扱う。ここへ足さないと、
