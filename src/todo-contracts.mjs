@@ -10,7 +10,18 @@ export const TODO_EVENT_KINDS = Object.freeze([
   'phase_close_unaudited',
 ]);
 export const TODO_NOTE_EVENT_SCHEMA = 'lattice.todo_note_event.v1';
-export const TODO_NOTE_CONTEXT_SCHEMA = 'lattice.todo_note_context.v1';
+/**
+ * plan単位のnote event。工程レベルの義務(順序制約・一度きりの観測が在ること)は特定のtaskに
+ * 属さないので、v1の`task_id`必須では書けない。v1は書き換えない——既存chainはhash連鎖で
+ * 固定済みであり、taskノートの挙動も digest も動かさない。plan noteだけが新schemaで積まれ、
+ * 1本のchainにv1とv2が混ざる。
+ */
+export const TODO_NOTE_EVENT_V2_SCHEMA = 'lattice.todo_note_event.v2';
+/**
+ * v2でnoteの`scope`とplan noteを載せる。v1のままでは`task_id`が identifier 必須・
+ * `full_history_command`が`--task <id>`込みの文字列と完全一致で、どちらもplan noteを表せない。
+ */
+export const TODO_NOTE_CONTEXT_SCHEMA = 'lattice.todo_note_context.v2';
 export const TODO_LIMITS = Object.freeze({
   tasksPerPlan: 512,
   edgesPerPlan: 2_048,
@@ -100,15 +111,26 @@ const noteBody = (value) => typeof value === 'string' && value.length > 0
   && Buffer.byteLength(value, 'utf8') <= TODO_LIMITS.noteBodyBytes
   && !NOTE_FORBIDDEN_CONTROL.test(value);
 
-/** lifecycle journalとは独立したtask note event v1を検証する。 */
+/**
+ * lifecycle journalとは独立したnote eventを検証する。1本のchainにv1(task note)と
+ * v2(plan note)が混ざるので、schemaで分岐して両方受ける。v1は`scope`を持たない——
+ * 定義上taskであり、投影の側で明示`scope`へ正規化する。
+ */
 export function validateTodoNoteEvent(value) {
   try {
-    return exactRecord(value, [
+    const keys = [
       'schema', 'project_id', 'plan_key', 'task_id', 'plan_version', 'sequence',
       'previous_digest', 'actor', 'recorded_at', 'body', 'supersedes', 'event_digest',
-    ]) && value.schema === TODO_NOTE_EVENT_SCHEMA
+    ];
+    const planScoped = value?.schema === TODO_NOTE_EVENT_V2_SCHEMA;
+    return exactRecord(value, planScoped ? [...keys, 'scope'] : keys)
+      && (planScoped
+        // v2は今のところplan scopeだけを表す。phase scopeは配達面(audit_pending entry)を
+        // 持つtaskと同じ波で足す——書けるが届かない面を作らないため。
+        ? value.scope === 'plan' && value.task_id === null
+        : value.schema === TODO_NOTE_EVENT_SCHEMA && isTodoIdentifier(value.task_id))
       && isTodoIdentifier(value.project_id) && isTodoIdentifier(value.plan_key)
-      && isTodoIdentifier(value.task_id) && isTodoIdentifier(value.plan_version)
+      && isTodoIdentifier(value.plan_version)
       && Number.isSafeInteger(value.sequence) && value.sequence >= 1
       && (value.sequence === 1 ? value.previous_digest === null : isTodoDigest(value.previous_digest))
       && actor(value.actor) && isStrictTodoTimestamp(value.recorded_at) && noteBody(value.body)
@@ -120,12 +142,20 @@ export function validateTodoNoteEvent(value) {
   }
 }
 
+/**
+ * `scope`は投影が必ず埋める。読み手はここでv1/v2の区別を持たないので、`origin_task_id`が
+ * nullであることから「plan単位だ」を推論させない——型で表現していない区別は、exact検証を
+ * 通り抜けて受け手の解釈に落ちる。
+ */
 function noteContextEntry(value) {
   return exactRecord(value, [
-    'event_digest', 'origin_plan_version', 'origin_task_id', 'actor', 'recorded_at',
+    'event_digest', 'origin_plan_version', 'scope', 'origin_task_id', 'actor', 'recorded_at',
     'body', 'supersedes', 'superseded_by', 'correction_state',
   ]) && isTodoDigest(value.event_digest) && isTodoIdentifier(value.origin_plan_version)
-    && isTodoIdentifier(value.origin_task_id) && actor(value.actor)
+    && ['plan', 'task'].includes(value.scope)
+    && (value.scope === 'plan'
+      ? value.origin_task_id === null : isTodoIdentifier(value.origin_task_id))
+    && actor(value.actor)
     && isStrictTodoTimestamp(value.recorded_at) && noteBody(value.body)
     && (value.supersedes === null || isTodoDigest(value.supersedes))
     && (value.superseded_by === null || isTodoDigest(value.superseded_by))
@@ -146,7 +176,9 @@ export function validateTodoNoteContext(value) {
       || value.notes.length > TODO_LIMITS.tasksPerPlan || !value.notes.every(noteContextEntry)
       || !(value.note_head_digest === null || isTodoDigest(value.note_head_digest))
       || !isNonNegativeSafeInteger(value.overflow_count)
-      || value.full_history_command !== `lattice todo note list --plan ${value.plan_key} --task ${value.task_id} --json`
+      // contextはplan noteも載せるので、案内するのはplan全体を返す形でなければならない。
+      // `--task <id>`形はplan noteを落とすため、fullと名乗りながら全部を取りに行けなくなる。
+      || value.full_history_command !== `lattice todo note list --plan ${value.plan_key} --json`
       || !isTodoDigest(value.context_digest)
       || value.context_digest !== todoSelfDigest(value, 'context_digest')) return false;
     if ((value.notes.length === 0) !== (value.note_head_digest === null)) return false;

@@ -75,7 +75,7 @@ Read commands:
 
 Write commands:
   dashboard adopt --json  # 衝突したproject_idの配信元rootを現在repoへ明示的に移す
-  note --plan <key> --task <id> (--message <text>|--input <file>)
+  note --plan <key> [--task <id>] (--message <text>|--input <file>)
       # ToDoへ作業継続に必要な方針・調査結果・注意をappend-onlyで追記する
   migrate --input <extraction.json> [--serialization-reviewed]
   migrate --input <extraction.json> --dry-run --json [--serialization-reviewed]
@@ -190,7 +190,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'event verify': 'event verify --run .lattice/runs/<id>',
   'todo status': 'todo status [--json]',
   'todo show': 'todo show --plan <key> --task <id> --json',
-  'todo note': 'todo note --plan <key> --task <id> (--message <text>|--input <file>) | list --plan <key> [--task <id>] --json',
+  'todo note': 'todo note --plan <key> [--task <id>] (--message <text>|--input <file>) | list --plan <key> [--task <id>] --json',
   'todo note list': 'todo note list --plan <key> [--task <id>] --json',
   'todo bindings': 'todo bindings [--plan <key>] [--json]',
   'todo independence': 'todo independence [--plan <key>] [--json] | compile --plan <key> --input <file> | witness migrate --plan <key>',

@@ -1324,32 +1324,42 @@ async function todoDetail({ repoRoot, planKey, taskId }) {
   return result;
 }
 
+/**
+ * `taskId === null`はplan単位note。task noteと違い宛先taskが無いので、
+ * 訂正できる相手はplan noteだけ、返すcontextも特定taskのものにできない。
+ */
 async function appendNote({ repoRoot, env, planKey, taskId, message, inputRef, supersedes }) {
   const store = await readTodoStore({ repoRoot });
   const [member] = selectMembers(store, planKey);
-  const task = selectNoteTask(member, taskId);
+  const task = taskId === null ? null : selectNoteTask(member, taskId);
   const body = inputRef === null ? message : await readNoteTextInput(repoRoot, inputRef);
-  const projectedBeforeAppend = await readTodoNoteContext({
-    repoRoot, store, planKey, taskId: task.task_id,
-  });
+  const eligibleSupersedes = task === null
+    ? (await readTodoNoteEvents({ repoRoot, planKey })).events
+      .filter(({ scope }) => scope === 'plan').map(({ event_digest: digest }) => digest)
+    : (await readTodoNoteContext({ repoRoot, store, planKey, taskId: task.task_id }))
+      .history.map(({ event_digest: digest }) => digest);
   const event = await appendTodoNote({
     repoRoot,
     projectId: store.project_id,
     planKey,
     planVersion: member.plan.plan_version,
-    taskId: task.task_id,
+    taskId: task?.task_id ?? null,
     actor: mutationActor(env),
     recordedAt: new Date().toISOString(),
     body,
     supersedes,
-    eligibleSupersedes: projectedBeforeAppend.history.map(({ event_digest: digest }) => digest),
+    eligibleSupersedes,
   });
-  const { context } = await readTodoNoteContext({ repoRoot, store, planKey, taskId: task.task_id });
+  // plan noteはどのtaskのcontextにも載るので、1つを選んで返すと嘘になる。全部読むなら
+  // `note list --plan <k>`。書けたことの証拠はeventそのものが持つ。
+  const context = task === null
+    ? null : (await readTodoNoteContext({ repoRoot, store, planKey, taskId: task.task_id })).context;
   const result = {
-    schema: 'lattice.todo_note_append_result.v1',
+    schema: 'lattice.todo_note_append_result.v2',
     project_id: store.project_id,
     plan_key: planKey,
-    task_id: task.task_id,
+    scope: task === null ? 'plan' : 'task',
+    task_id: task?.task_id ?? null,
     event,
     note_context: context,
     result_digest: '',
@@ -2527,6 +2537,20 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
       message: argv[5] === '--message' ? argv[6] : null,
       inputRef: argv[5] === '--input' ? argv[6] : null,
       supersedes: argv[8] ?? null,
+    });
+  } else if ((argv.length === 5 || argv.length === 7) && argv[0] === 'note'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && ['--message', '--input'].includes(argv[3])
+    && ((argv[3] === '--message' && argv[4].length > 0)
+      || (argv[3] === '--input' && isTodoRef(argv[4])))
+    && (argv.length === 5 || (argv[5] === '--supersedes' && isTodoDigest(argv[6])))) {
+    // `--task`省略でplan単位note。工程レベルの義務(順序制約・一度きりの観測が在ること)は
+    // 特定のtaskに属さない。
+    action = (repoRoot) => appendNote({
+      repoRoot, env, planKey: argv[2], taskId: null,
+      message: argv[3] === '--message' ? argv[4] : null,
+      inputRef: argv[3] === '--input' ? argv[4] : null,
+      supersedes: argv[6] ?? null,
     });
   } else if (argv.length === 5 && argv[0] === 'note' && argv[1] === 'list'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--json') {

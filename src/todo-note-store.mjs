@@ -8,6 +8,7 @@ import {
   TODO_LIMITS,
   TODO_NOTE_CONTEXT_SCHEMA,
   TODO_NOTE_EVENT_SCHEMA,
+  TODO_NOTE_EVENT_V2_SCHEMA,
   canonicalizeTodoArtifact,
   exactRecord,
   isTodoDigest,
@@ -186,22 +187,30 @@ export async function appendTodoNote(options = {}) {
   if (!exactRecord(options, keys)
     || !Array.isArray(options.eligibleSupersedes)
     || !options.eligibleSupersedes.every(isTodoDigest)
-    || ![options.projectId, options.planKey, options.planVersion, options.taskId]
-    .every(isTodoIdentifier)) throw new TypeError('todo note append options invalid');
+    || ![options.projectId, options.planKey, options.planVersion].every(isTodoIdentifier)
+    // taskId nullがplan単位noteの指定。scopeはeventのschemaが持つ。
+    || !(options.taskId === null || isTodoIdentifier(options.taskId))) {
+    throw new TypeError('todo note append options invalid');
+  }
+  const planScoped = options.taskId === null;
   const repoRoot = path.resolve(options.repoRoot);
   return withNoteLock(repoRoot, async () => {
     const chain = await readTodoNoteEvents({ repoRoot, planKey: options.planKey });
     if (options.supersedes !== null) {
       const target = chain.events.find(({ event_digest: digest }) => digest === options.supersedes);
       if (target === undefined || !options.eligibleSupersedes.includes(options.supersedes)) {
-        fail('NOTE_SUPERSEDES_INVALID', 'superseded_note_not_in_same_task', {
+        // plan noteはplan noteだけを、task noteは同じtaskのnoteだけを訂正できる。
+        // scopeを跨ぐ訂正を許すと、届く先が違うものを同じ履歴として畳むことになる。
+        fail('NOTE_SUPERSEDES_INVALID', planScoped
+          ? 'superseded_note_not_plan_scoped' : 'superseded_note_not_in_same_task', {
           plan_key: options.planKey, task_id: options.taskId,
         });
       }
     }
     const previous = chain.events.at(-1) ?? null;
     const event = {
-      schema: TODO_NOTE_EVENT_SCHEMA,
+      schema: planScoped ? TODO_NOTE_EVENT_V2_SCHEMA : TODO_NOTE_EVENT_SCHEMA,
+      ...(planScoped ? { scope: 'plan' } : {}),
       project_id: options.projectId,
       plan_key: options.planKey,
       task_id: options.taskId,
@@ -235,10 +244,12 @@ export async function appendTodoNote(options = {}) {
   });
 }
 
+/** v1(task note)とv2(plan note)を、明示`scope`を持つ1つの形へ正規化する。 */
 function noteProjectionEntry(event, supersededBy) {
   return {
     event_digest: event.event_digest,
     origin_plan_version: event.plan_version,
+    scope: event.schema === TODO_NOTE_EVENT_V2_SCHEMA ? 'plan' : 'task',
     origin_task_id: event.task_id,
     actor: event.actor,
     recorded_at: event.recorded_at,
@@ -324,10 +335,17 @@ export function projectTodoNoteContext(options = {}) {
   const archived = [];
   const sequenceByDigest = new Map(options.events.map((event) => [event.event_digest, event.sequence]));
   for (const event of options.events) {
+    const entry = noteProjectionEntry(event, supersededBy.get(event.event_digest));
+    if (entry.scope === 'plan') {
+      // plan noteは特定のtaskに属さないので、task migrationで宛先を失うことがない。
+      // 全taskのcontextへ載せる——工程レベルの義務は「次に着手する誰か」へ届くべきもので、
+      // 誰が着手するかは書いた時点で分からない。
+      current.push(entry);
+      continue;
+    }
     const target = resolveNoteTarget(event, {
       currentPlanVersion: options.currentPlanVersion, currentTaskIds, migrations,
     });
-    const entry = noteProjectionEntry(event, supersededBy.get(event.event_digest));
     if (target.kind === 'archived') archived.push(entry);
     else if (target.taskId === options.currentTaskId) current.push(entry);
   }
@@ -351,8 +369,8 @@ export function projectTodoNoteContext(options = {}) {
     notes,
     note_head_digest: current[0]?.event_digest ?? null,
     overflow_count: current.length - notes.length,
-    full_history_command: `lattice todo note list --plan ${options.planKey}`
-      + ` --task ${options.currentTaskId} --json`,
+    // plan noteを載せる以上、案内はplan全体を返す形でなければ「full」ではない。
+    full_history_command: `lattice todo note list --plan ${options.planKey} --json`,
     context_digest: '',
   };
   context.context_digest = todoSelfDigest(context, 'context_digest');

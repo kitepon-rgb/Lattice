@@ -42,6 +42,7 @@ function noteContext(overrides = {}) {
     notes: [{
       event_digest: DIGEST('a'),
       origin_plan_version: 'v1',
+      scope: 'task',
       origin_task_id: 'task-old',
       actor: ACTOR,
       recorded_at: '2026-08-01T00:00:00.000Z',
@@ -52,7 +53,7 @@ function noteContext(overrides = {}) {
     }],
     note_head_digest: DIGEST('b'),
     overflow_count: 0,
-    full_history_command: 'lattice todo note list --plan plan-a --task task-001 --json',
+    full_history_command: 'lattice todo note list --plan plan-a --json',
     context_digest: '',
     ...overrides,
   };

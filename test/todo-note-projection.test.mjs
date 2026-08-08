@@ -104,5 +104,5 @@ test('通常供給は新しい順に本文64 KiBまでとし、残りをoverflow
   assert.equal(result.context.overflow_count, 1);
   assert.equal(result.context.note_head_digest, chain.at(-1).event_digest);
   assert.equal(result.context.full_history_command,
-    'lattice todo note list --plan plan-a --task current --json');
+    'lattice todo note list --plan plan-a --json');
 });

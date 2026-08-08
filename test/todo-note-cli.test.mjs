@@ -63,7 +63,7 @@ test('note append/listをtyped CLIで提供しlifecycle artifactを変更しな�
   const added = run(root, ['todo', 'note', '--plan', 'main', '--task', 'T1', '--message', '方針を固定']);
   assert.equal(added.status, 0, added.stderr);
   const appendResult = JSON.parse(added.stdout);
-  assert.equal(appendResult.schema, 'lattice.todo_note_append_result.v1');
+  assert.equal(appendResult.schema, 'lattice.todo_note_append_result.v2');
   assert.equal(appendResult.note_context.notes[0].body, '方針を固定');
 
   const listed = run(root, ['todo', 'note', 'list', '--plan', 'main', '--task', 'T1', '--json']);
