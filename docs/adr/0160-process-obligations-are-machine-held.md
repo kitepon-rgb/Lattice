@@ -100,6 +100,10 @@ AIが並列できそうな組を選ぶ→その組だけ境界を宣言してcom
 という進み方を`todo status`が導線として支える。判定機械（compile）と部分宣言の受理は既にあり
 （未宣言taskは「未検査」として残るだけ・ADR 0127）、足りなかったのは候補の提示と次コマンドの案内である。
 
+`todo_status_result`の`parallel_candidates`欄が、planごとに`{coverage, unjudged_task_ids,
+verified_parallel_groups, serialize_pairs, next_commands}`を返す。**判定する対象が何も無いplanは
+entryごと出さない**——空entryは「判定する対象が無い」と「判定が済んだ」を混ぜる。
+
 **新しい判定ロジックを書かない。** 既存のcompile結果を候補視点で並べ直すだけで、推定・判断をLattice内へ
 実装しない（所有境界）。候補と判定状態は`dispatch_frontier`の**外**に置く。`dispatch_frontier`は
 `validateTodoStatusResult`の中で`next_ready`を引数に取って照合される唯一の欄であり、「この欄は
@@ -110,7 +114,7 @@ AIが並列できそうな組を選ぶ→その組だけ境界を宣言してcom
 ### 5. `todo_status_result`を`v6`へ上げ、downstream先行で公開する
 
 ADR 0054・0063の前例に従い、既存versionへのfield in-place追加はしない。上位キーはexactで、
-`plan_notes`・`coordination`は`audit_pending`と`member_heads`の間に入る。
+`plan_notes`・`coordination`・`parallel_candidates`がこの順で`audit_pending`と`member_heads`の間に入る。
 
 `session_context.v1`の`todo`フィールドは`todo status`のresultそのものなので（ADR 0131）、v6は
 SessionStart面へ追加のbumpなしで届く。**破断面はcommit時点ではなくpublish時点**である——dotagentsが

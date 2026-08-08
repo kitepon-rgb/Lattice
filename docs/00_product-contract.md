@@ -170,6 +170,10 @@ removed taskのnoteはarchived束へ分離する。
 `todo_status_result`の`coordination`欄は、調整方式（`witness`／`conversation`）を宣言したplanだけを
 宣言者と理由つきで列挙する（ADR 0160）。未宣言は`member_heads`との差で引ける。宣言はdispatchを変えない。
 
+`parallel_candidates`欄は、readyかつ独立性が未判定・判定済みの組を候補視点で並べ直し、次に打つ
+compile commandまで案内する（ADR 0160）。**新しい判定はここで行わない**——既存のindependence投影の
+並べ替えである。判定する対象が無いplanはentryごと出さない。
+
 個別ToDo右ペインの「作業記録」は同じbounded contextを表示する。loopbackへ閉じた`gantt serve`と常設
 dashboardは作業者本人が読む面なので記録込みで描く。note本文を落とすのはrepo外へHTMLを出す公開配信面
 だけとし、その入口が`includeNotes: false`を強制する。公開配信面は現時点で存在せず、入口だけを残す。

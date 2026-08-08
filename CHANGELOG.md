@@ -5,7 +5,8 @@
 ### 破壊的変更（host統合者向け）
 
 - **`lattice todo status --json`のwire schemaを`lattice.todo_status_result.v5`から`v6`へ上げた
-  （ADR 0160）。** 上位キーへ`plan_notes`と`coordination`が加わる（`audit_pending`と`member_heads`の間）。
+  （ADR 0160）。** 上位キーへ`plan_notes`・`coordination`・`parallel_candidates`がこの順で加わる
+  （`audit_pending`と`member_heads`の間）。上位キーはexact 12キーになる。
   **exact key検証をしている消費者は追従が必要**で、追従前は`version_mismatch`として拒否される。
   「知っているkeyだけを読む」消費者は影響を受けない。`lattice session-context --json`の
   `todo`フィールドも同じくv6になる。
@@ -33,6 +34,9 @@
   --reason <text>`）。witness検証で並列するか会話で調整するかをplan単位で選び、eventのactorが
   「誰が選んだか」の帰属になる。`todo status`の`coordination`欄は宣言済みのplanだけを列挙する。
   `todo migrate`の結果は未宣言planへ宣言commandを案内する。
+- **`todo status`の`parallel_candidates`欄。** readyかつ独立性が未判定の組を並列候補として提示し、
+  「この組を判定するには」の次コマンドまで案内する。判定済みの組は結果（並列可／直列化が要る対）を
+  返す。**新しい判定ロジックは足していない**——既存のindependence投影を候補視点で並べ直すだけである。
 
 ### 不変（Protected behavior・ADR 0160）
 
