@@ -269,14 +269,10 @@ async function readWorkReport(reportPath, packetDigest) {
   return report;
 }
 
-async function waitForWorkReport(reportPath, packetDigest, { timeoutMs = null } = {}) {
-  const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;
+async function waitForWorkReport(reportPath, packetDigest) {
   for (;;) {
     const report = await readWorkReport(reportPath, packetDigest);
     if (report !== null) return report;
-    if (deadline !== null && Date.now() >= deadline) {
-      fail('WORK_ORDER_REPORT_TIMEOUT', 'bridgeからwork reportが届かなかった');
-    }
     await sleep(50);
   }
 }
@@ -302,7 +298,9 @@ export async function spawnWorkOrderWorker({ packet, worktreePath, spoolDir }) {
   const orderPath = path.join(spoolDir, 'orders', `${packet.packet_digest}.json`);
   const reportPath = path.join(spoolDir, 'reports', `${packet.packet_digest}.json`);
   await durableReplaceBytes(orderPath, Buffer.from(`${canonicalizeArtifact(order)}\n`));
-  const firstReport = await waitForWorkReport(reportPath, packet.packet_digest, { timeoutMs: 30_000 });
+  // 辞退はbridge内で再配車し、受諾した席が決まるまでreportを出さない。
+  // controller側の任意timeoutでactivateを失敗させず、実席pidだけをimmutable bindする。
+  const firstReport = await waitForWorkReport(reportPath, packet.packet_digest);
   const identity = await observeManagedProcessStartIdentity(firstReport.worker_pid)
     .catch(() => fail('WORK_ORDER_REPORT_INVALID', 'worker_pidのstart identityを観測できない'));
   const groupId = await processGroupId(firstReport.worker_pid);
@@ -973,8 +971,8 @@ export async function runWorkOrderAdapterController({
             if (operation === undefined) {
               fail('WORK_ORDER_UNKNOWN_OPERATION', `未知のrequest schema: ${String(request.schema)}`);
             }
-            const response = await controller.request(operation, request);
             startHeartbeat(socket, request.registration_digest);
+            const response = await controller.request(operation, request);
             send(socket, response);
           } catch (error) {
             send(socket, controllerErrorArtifact(error, request?.request_id));
