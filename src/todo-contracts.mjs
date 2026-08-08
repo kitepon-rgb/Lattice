@@ -8,7 +8,18 @@ export const TODO_EVENT_KINDS = Object.freeze([
   // phase_review/accept/reject/reopenと同じv3 tail event shape(phase_id持ち)に収め、
   // 新しいevent schema版は作らない。
   'phase_close_unaudited',
+  // ob03: 調整方式(witness検証で並列するか、会話調整で行くか)の宣言。planに帰属する事実で
+  // taskにもPhaseにも属さないため、task_idもphase_idも持たない最初のkindになる。actorが
+  // 「誰が選んだか」の帰属を持つ——witnessが全planの暗黙義務だった時に帰属が無く、正確な
+  // 案内が素通りされたことへの是正である(オーナー裁定C①)。
+  'coordination_mode',
 ]);
+
+/** planへ帰属し、taskにもPhaseにも属さないevent kind。 */
+export const TODO_PLAN_SCOPED_EVENT_KINDS = Object.freeze(['coordination_mode']);
+
+/** 調整方式。witness=独立性を宣言し検証して並列する／conversation=会話で調整する。 */
+export const TODO_COORDINATION_MODES = Object.freeze(['witness', 'conversation']);
 export const TODO_NOTE_EVENT_SCHEMA = 'lattice.todo_note_event.v1';
 /**
  * plan単位のnote event。工程レベルの義務(順序制約・一度きりの観測が在ること)は特定のtaskに
@@ -183,6 +194,7 @@ export function validateTodoNoteContext(value) {
       || !isTodoIdentifier(value.task_id) || !Array.isArray(value.notes)
       || value.notes.length > TODO_LIMITS.tasksPerPlan || !value.notes.every(noteContextEntry)
       || !(value.note_head_digest === null || isTodoDigest(value.note_head_digest))
+      || !(value.plan_note_head_digest === null || isTodoDigest(value.plan_note_head_digest))
       || !isNonNegativeSafeInteger(value.overflow_count)
       // contextはplan noteも載せるので、案内するのはplan全体を返す形でなければならない。
       // `--task <id>`形はplan noteを落とすため、fullと名乗りながら全部を取りに行けなくなる。
@@ -203,7 +215,6 @@ export function validateTodoNoteContext(value) {
       <= TODO_LIMITS.noteContextBytes;
   } catch {
     return false;
-      || !(value.plan_note_head_digest === null || isTodoDigest(value.plan_note_head_digest))
   }
 }
 
@@ -490,6 +501,11 @@ function validPayload(event) {
       && (payload.started_at === 'unknown_requires_evidence' || isStrictTodoTimestamp(payload.started_at))
       && validateTodoImportSource(payload.evidence);
   }
+  if (event.kind === 'coordination_mode') {
+    return exactRecord(payload, ['mode', 'reason'])
+      && TODO_COORDINATION_MODES.includes(payload.mode)
+      && nullableText(payload.reason) && payload.reason !== null;
+  }
   if (event.kind === 'start') return exactRecord(payload, ['override_reason']) && nullableText(payload.override_reason);
   if (event.kind === 'block') return exactRecord(payload, ['reason']) && nullableText(payload.reason) && payload.reason !== null;
   if (event.kind === 'unblock') return exactRecord(payload, []);
@@ -611,17 +627,21 @@ export function validateTodoEvent(value) {
       && validPhaseStateMigration(value.phase_state_migration);
     const phaseKind = ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen', 'phase_close_unaudited']
       .includes(value?.kind);
+    // planへ帰属するkindは、plan_genesisと同じくtask_idを持たない(v3/v4ではphase_idも持たない)。
+    // plan_genesisと違うのはjournalの途中に何度でも積めることで、最後の1件が現在の宣言になる。
+    const planScopedKind = TODO_PLAN_SCOPED_EVENT_KINDS.includes(value?.kind);
+    const planLevel = value?.kind === 'plan_genesis' || planScopedKind;
     return (v1 || v2 || v3 || v4) && isTodoIdentifier(value.project_id)
       && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.plan_version)
       && isNonNegativeSafeInteger(value.sequence) && nullableDigest(value.previous_digest)
       && TODO_EVENT_KINDS.includes(value.kind)
       && (v3 || v4
-        ? ((value.kind === 'plan_genesis' && value.task_id === null && value.phase_id === null)
+        ? ((planLevel && value.task_id === null && value.phase_id === null)
           || (phaseKind && value.task_id === null && isTodoIdentifier(value.phase_id))
-          || (!phaseKind && value.kind !== 'plan_genesis' && isTodoIdentifier(value.task_id)
+          || (!phaseKind && !planLevel && isTodoIdentifier(value.task_id)
             && value.phase_id === null))
-        : !phaseKind && ((value.kind === 'plan_genesis' && value.task_id === null)
-          || (value.kind !== 'plan_genesis' && isTodoIdentifier(value.task_id))))
+        : !phaseKind && ((planLevel && value.task_id === null)
+          || (!planLevel && isTodoIdentifier(value.task_id))))
       && actor(value.actor) && isStrictTodoTimestamp(value.recorded_at) && provenance(value.provenance)
       && validPayload(value) && isTodoDigest(value.event_digest)
       && value.event_digest === todoSelfDigest(value, 'event_digest');
