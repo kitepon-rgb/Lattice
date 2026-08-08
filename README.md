@@ -120,7 +120,8 @@ the operating AI.
 npm install -g @quolu/lattice
 ```
 
-Requires **Node.js 22.13+**. The structure sensor ships inside the package — there is nothing
+Requires **Node.js 22.13 or newer, except 25.x** (`engines: >=22.13 <25 || >=26`; Node 25's V8
+turboshaft WASM JIT breaks the bundled sensor, so it is blocked with a banner). The structure sensor ships inside the package — there is nothing
 else to install, and Lattice never falls back to a sensor on your `PATH`.
 
 ## Quick start
@@ -156,7 +157,7 @@ lattice todo seam-proposal land    --plan <key> --names names.json
 ```
 
 Full CLI surface: `lattice --help`, then
-`lattice <plan|run|event|todo|sensor|bridge|runtime-errors> --help`.
+`lattice <plan|run|event|todo|sensor|factory-diagnostics|runtime-errors|bridge|hooks> --help`.
 
 ## Design principles
 

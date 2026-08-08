@@ -75,7 +75,7 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
 
 ## 実装と検証
 
-- Node.js ESM、Node 22.13以上。runtime dependencyは必要性を説明して追加する。
+- Node.js ESM、Node 22.13以上かつ25.xを除く（`engines: >=22.13 <25 || >=26`）。runtime dependencyは必要性を説明して追加する。
 - 外部挙動不変のrefactorと挙動修正を分ける。安全網を先に置き、失敗をfallbackで隠さない。
 - `npm test`を局所／標準test、`npm run check`をsyntax／静的検査、`npm run ci`を完全gateの正規入口にする。
 - 実Lattice sensor、実repo、隔離worktreeを使うintegration testはunit testと分け、未実行をgreenへ丸めない。

@@ -51,7 +51,7 @@ planを再コンパイルします。共有面が共有でなくなるので、�
 `design_memo`を必ず持ちます。空欄やファイル参照だけでは登録できません。本当に何も考えていない場合だけ、
 正確なsentinel `NO_PLAN`を本文にします。Latticeはauthoring時に次の問いを返し、空欄のまま通しません。
 
-> If you have not thought through this ToDo, write exactly `NO_PLAN` in its design memo.
+> あなたがこのToDoに対して、何も考えていないならば、設計メモに `NO_PLAN` と書いてください
 
 通常の`lattice todo show`と、成功するすべての`lattice todo start`は、この初期設計メモを自動で返します。
 作業開始後に増えた方針、棄却案、調査結果、注意、未解決事項は、別のappend-only note chainへ追記できます。
@@ -102,7 +102,7 @@ MarkItDownは別区分の第三者CLIです。
 [docs/00_product-contract.md](docs/00_product-contract.md)を参照してください。
 
 CLIの全体像は`lattice --help`、各公開namespaceの正規構文は
-`lattice <plan|run|event|todo|sensor|factory-diagnostics|runtime-errors|bridge> --help`で確認できます。
+`lattice <plan|run|event|todo|sensor|factory-diagnostics|runtime-errors|bridge|hooks> --help`で確認できます。
 個別操作は`lattice <namespace> <subcommand> --help`または`lattice help <namespace> <subcommand>`で
 正規optionをstore非依存に確認できます。
 
@@ -126,7 +126,8 @@ codex-sidecar diagnostics --project . --preset auditor --json
 未初期化projectで`sensor sync`した場合は`LATTICE_SENSOR_NOT_INITIALIZED`と正規`next_action`を返します。
 その他のsensor失敗もexit code、signal、bounded stderrをtyped detailへ残し、原因を隠しません。
 
-Node.js 22.13以上を使用します。境界観測は配布物に同梱したLattice sensorだけを使い、PATH上の
+Node.js 22.13以上、ただし25.xを除きます（`engines: >=22.13 <25 || >=26`。Node 25.xはV8 turboshaft
+WASM JITの不具合で同梱sensorが壊れるため、bannerを出して起動を止めます）。境界観測は配布物に同梱したLattice sensorだけを使い、PATH上の
 廃止済みruntimeや旧cache/dataへfallbackしません。Spotterはproject単位で生成stateの所有境界を守ります。
 
 どのrepoでも、Latticeの導入状態はdirectoryの有無を推測せず、最初に次のtyped discoveryで判定します。
@@ -136,12 +137,12 @@ lattice status --json
 ```
 
 `state`は`uninitialized | ready | active_run | invalid`のいずれかです。`uninitialized`は
-正常な未初期化状態で、`next_action`が正規の初期authoring入口を返します。初回planは
-新規planはPhase監査とToDo schedulingを分離し、全ToDoに設計メモを持つ`lattice.plan_create_input.v4`のcanonical
-JSON+LFを用意し、次で作成します。既存v2/v4は互換契約として維持されます。
+正常な未初期化状態で、`next_action`が正規の初期authoring入口を返します。新規planはPhase監査と
+ToDo schedulingを分離し、全ToDoに設計メモを持つ`lattice.plan_create_input.v4`のcanonical
+JSON+LFを用意し、次で作成します。既存のv1〜v3は互換契約として維持され、`--schema-version`で取得できます。
 
 ```bash
-lattice plan create --schema-version 4 --json
+lattice plan create --schema-version 4 --json   # v4のJSON Schemaを取る（作成はしない）
 ```
 
 ```bash
@@ -303,8 +304,9 @@ daemonの生死はdescriptor 1枚では持ちません。daemonは自分のpid�
 配信を続けているdaemonを引き取ります。signalを送るのはその場で再認証を通った相手だけで、応答しない
 pidへは送りません（pid再利用で無関係のprocessを止めうるためです）。規約は
 [ADR 0157](docs/adr/0157-dashboard-daemons-are-discoverable-by-record.md)が正です。
-状態を書き込む`start / block / unblock / done / evidence promote / reopen / revise / revise-phase / revise-set`
-では、監査actorとして次の3環境変数をすべて設定してください。
+状態を書き込む`start / block / unblock / done / evidence promote / reopen / note / independence mode /
+revise / revise-phase / revise-set / phase review|accept|reject|reopen|close-unaudited|baseline /
+dashboard adopt`では、監査actorとして次の3環境変数をすべて設定してください。
 
 ```bash
 export LATTICE_TODO_ACTOR_HOST=<host-id>
