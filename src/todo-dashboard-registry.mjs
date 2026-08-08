@@ -7,6 +7,7 @@ import {
 import path from 'node:path';
 
 import packageJson from '../package.json' with { type: 'json' };
+import { isAuditPendingPhaseStatus } from './todo-audit-pending.mjs';
 
 /**
  * The version of the code in THIS process. A daemon loads its modules once at
@@ -20,7 +21,6 @@ const REGISTRY_SCHEMA = 'lattice.todo_dashboard_registry.v1';
 const DAEMON_SCHEMA = 'lattice.todo_dashboard_daemon.v1';
 const DEFAULT_PORT = 0;
 export const TODO_DASHBOARD_STALE_MS = 2 * 60 * 60 * 1_000;
-const TODO_DASHBOARD_ATTENTION_PHASE_STATUS = new Set(['gate_ready', 'reviewing', 'rejected']);
 const LOCK_ATTEMPTS = 240;
 const LOCK_WAIT_MS = 25;
 const LOCK_STALE_MS = 30_000;
@@ -59,7 +59,7 @@ function validEntry(entry) {
 /** active taskが無くても、監査の判断待ち・棄却後なら公開工程から消してはいけない。 */
 export function todoDashboardMemberNeedsVisibility(member) {
   return Array.isArray(member?.phases)
-    && member.phases.some(({ status }) => TODO_DASHBOARD_ATTENTION_PHASE_STATUS.has(status));
+    && member.phases.some(({ status }) => isAuditPendingPhaseStatus(status));
 }
 
 function validateRegistry(value) {

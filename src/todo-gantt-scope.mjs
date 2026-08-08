@@ -26,6 +26,8 @@
  * the real plan, and measuring them on a narrowed graph would make them lie.
  */
 
+import { isAuditPendingPhaseStatus } from './todo-audit-pending.mjs';
+
 export const TODO_GANTT_SCOPES = Object.freeze(['live', 'all']);
 
 /**
@@ -50,14 +52,16 @@ function compareText(left, right) {
  * phase無しplanのtaskにはphase_idフィールド自体が無いため、そこでは暗黙Phaseの状態を
  * 埋める。フィールドが無い/nullの入力(既存test・素のnode)は従来どおり対象外(false)になる。
  *
- * 対象は`gate_ready`(全task doneで監査待ち)・`reviewing`(監査中)・`rejected`
- * (監査が通らず要フォロー)の3状態だけに絞る。`active`(一部taskがまだpending)は、
- * 他のtaskが図に残っている限りplanが未完了だと分かるので対象にしない——ここまで
+ * 監査待ちの状態集合そのものは`todo-audit-pending.mjs`が持つ(gate_ready・reviewing・rejected)。
+ * `active`(一部taskがまだpending)が入っていないことにここも依存している——ここまで
  * 広げると、完走していない枝の通常foldまで止めてしまい既存挙動を変える。
+ *
+ * 下のv4/v5除外は共有moduleへ移さない。あれは「監査待ちとは何か」の定義ではなく、
+ * ganttがどこまでfoldを止めるかという本moduleの方針である。移すと、宣言Phase planの
+ * fold挙動を他の消費者の都合で変えてしまう。
  */
-const AUDIT_PENDING_PHASE_STATUSES = new Set(['gate_ready', 'reviewing', 'rejected']);
 function auditPending(node) {
-  if (!AUDIT_PENDING_PHASE_STATUSES.has(node.phase_status ?? null)) return false;
+  if (!isAuditPendingPhaseStatus(node.phase_status)) return false;
   const schema = node.plan_schema ?? null;
   return !['lattice.todo_plan.v4', 'lattice.todo_plan.v5'].includes(schema);
 }
