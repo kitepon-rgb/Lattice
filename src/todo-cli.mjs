@@ -1340,10 +1340,10 @@ async function appendNote({ repoRoot, env, planKey, taskId, message, inputRef, s
   const task = taskId === null ? null : selectNoteTask(member, taskId);
   const body = inputRef === null ? message : await readNoteTextInput(repoRoot, inputRef);
   const eligibleSupersedes = task === null
-    ? (await readTodoNoteEvents({ repoRoot, planKey })).events
-      .filter(({ scope }) => scope === 'plan').map(({ event_digest: digest }) => digest)
+    ? (await readTodoNoteEvents({ repoRoot, planKey, scope: 'plan' })).events
+      .map(({ event_digest: digest }) => digest)
     : (await readTodoNoteContext({ repoRoot, store, planKey, taskId: task.task_id }))
-      .history.map(({ event_digest: digest }) => digest);
+      .history.filter(({ scope }) => scope === 'task').map(({ event_digest: digest }) => digest);
   const event = await appendTodoNote({
     repoRoot,
     projectId: store.project_id,
@@ -1378,7 +1378,12 @@ async function listNotes({ repoRoot, planKey, taskId }) {
   const store = await readTodoStore({ repoRoot });
   const [member] = selectMembers(store, planKey);
   const chain = await readTodoNoteEvents({ repoRoot, planKey });
-  let notes = chain.events;
+  const planChain = await readTodoNoteEvents({ repoRoot, planKey, scope: 'plan' });
+  // plan全体の一覧は両chainを返す。`full_history_command`がこの形を指す以上、片方でも
+  // 落とせば「full」と名乗りながら全部を取りに行けない。並びはcontextと同じくplanが先。
+  let notes = [...planChain.events, ...chain.events];
+  // 訂正はscopeを跨げない。plan noteはplan chainの中だけ、task noteは自分のtaskの中だけを
+  // 訂正できる。contextはplan noteも載せるので、task側はscopeで絞らないと跨げてしまう。
   let archived = [];
   let resolvedTaskId = null;
   if (taskId !== null) {
@@ -1387,11 +1392,13 @@ async function listNotes({ repoRoot, planKey, taskId }) {
     const projected = await readTodoNoteContext({
       repoRoot, store, planKey, taskId: task.task_id,
     });
-    notes = projected.history;
+    // `--task`は「そのtaskのnote」を問う形。plan noteはtaskのものではないので混ぜない
+    // ——欲しければ`--task`を外す。
+    notes = projected.history.filter(({ scope }) => scope === 'task');
     archived = projected.archived;
   }
   const result = {
-    schema: 'lattice.todo_note_list_result.v1',
+    schema: 'lattice.todo_note_list_result.v2',
     project_id: store.project_id,
     plan_key: planKey,
     requested_task_id: resolvedTaskId,
@@ -1438,6 +1445,7 @@ function changedPathsSince(repoRoot, baseSha) {
   } catch {
     return null;
   }
+    plan_note_head_digest: planChain.head_digest,
   let output;
   try {
     output = execFileSync('git', ['diff', '--name-only', '--no-renames', `${baseSha}..HEAD`], {

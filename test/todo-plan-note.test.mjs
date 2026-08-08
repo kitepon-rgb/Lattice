@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -117,6 +117,46 @@ test('task noteとplan noteは同じcontextに並び、scopeで区別できる',
   const other = json(run(root, ['todo', 'start', '--plan', 'main', '--task', 'T2',
     '--parallel-frontier']));
   assert.deepEqual(other.note_context.notes.map(({ scope }) => scope), ['plan']);
+});
+
+// 分離の値打ちは「別fileに在る」ことではなく、**task chainのbyteが1つも動かない**ことにある。
+// 旧CLIが読むのは`active.jsonl`と`sealed/*`だけなので、そこが同一なら旧CLIの挙動は同一である。
+test('plan noteを書いてもtask chainのbyteは1つも変わらない', async (t) => {
+  const root = await workspace(t);
+  const taskChain = path.join(root, '.lattice/todo/notes/main/active.jsonl');
+  const planChain = path.join(root, '.lattice/todo/notes/main/plan-active.jsonl');
+
+  assert.equal(run(root, ['todo', 'note', '--plan', 'main', '--task', 'T1', '--message', 'T1宛']).status, 0);
+  const before = await readFile(taskChain);
+
+  assert.equal(run(root, ['todo', 'note', '--plan', 'main', '--message', 'plan宛']).status, 0);
+  assert.deepEqual(await readFile(taskChain), before, 'task chainが動いた');
+
+  // plan noteは別fileへ積まれ、そこには v2 しか居ない。
+  const planLines = (await readFile(planChain, 'utf8')).trimEnd().split('\n');
+  assert.equal(planLines.length, 1);
+  assert.equal(JSON.parse(planLines[0]).schema, 'lattice.todo_note_event.v2');
+  // task chain には v1 しか居ない。混在は読み出し時に typed に落ちる。
+  for (const line of (await readFile(taskChain, 'utf8')).trimEnd().split('\n')) {
+    assert.equal(JSON.parse(line).schema, 'lattice.todo_note_event.v1');
+  }
+});
+
+test('headはchainごとに言い、片方だけ在っても壊れと読まない', async (t) => {
+  const root = await workspace(t);
+  assert.equal(run(root, ['todo', 'note', '--plan', 'main', '--message', 'plan宛']).status, 0);
+
+  // task noteが1件も無い状態。`notes`は非空だが task chain の head は null。
+  const started = json(run(root, ['todo', 'start', '--plan', 'main', '--task', 'T1',
+    '--parallel-frontier']));
+  const context = started.note_context;
+  assert.equal(context.note_head_digest, null);
+  assert.notEqual(context.plan_note_head_digest, null);
+  assert.deepEqual(context.notes.map(({ scope }) => scope), ['plan']);
+
+  const listed = json(run(root, ['todo', 'note', 'list', '--plan', 'main', '--json']));
+  assert.equal(listed.note_head_digest, null);
+  assert.equal(listed.plan_note_head_digest, context.plan_note_head_digest);
 });
 
 test('訂正はscopeを跨げない', async (t) => {

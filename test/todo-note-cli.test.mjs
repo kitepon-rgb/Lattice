@@ -69,7 +69,7 @@ test('note append/listをtyped CLIで提供しlifecycle artifactを変更しな�
   const listed = run(root, ['todo', 'note', 'list', '--plan', 'main', '--task', 'T1', '--json']);
   assert.equal(listed.status, 0, listed.stderr);
   const listResult = JSON.parse(listed.stdout);
-  assert.equal(listResult.schema, 'lattice.todo_note_list_result.v1');
+  assert.equal(listResult.schema, 'lattice.todo_note_list_result.v2');
   assert.equal(listResult.notes.length, 1);
   assert.equal(listResult.notes[0].origin_task_id, 'T1');
   assert.deepEqual(await Promise.all(refs.map((ref) => readFile(path.join(root, ref)))), before);

@@ -52,6 +52,7 @@ function noteContext(overrides = {}) {
       correction_state: 'current',
     }],
     note_head_digest: DIGEST('b'),
+    plan_note_head_digest: null,
     overflow_count: 0,
     full_history_command: 'lattice todo note list --plan plan-a --json',
     context_digest: '',
@@ -110,7 +111,7 @@ test('訂正済みnoteはsuperseded_byを持ち、context本文は64 KiBを超�
 });
 
 test('noteが無いtaskも明示的な空contextを返し、別コマンド発見を前提にしない', () => {
-  const empty = noteContext({ notes: [], note_head_digest: null });
+  const empty = noteContext({ notes: [], note_head_digest: null, plan_note_head_digest: null });
   assert.equal(validateTodoNoteContext(empty), true);
   assert.match(empty.full_history_command, /^lattice todo note list /u);
 });

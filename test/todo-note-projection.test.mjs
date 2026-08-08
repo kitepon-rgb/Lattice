@@ -51,7 +51,7 @@ test('多段task migrationを合成し、本文と元plan version・元task id�
   ]);
   const result = projectTodoNoteContext({
     projectId: 'lattice', planKey: 'plan-a', currentPlanVersion: 'v3',
-    currentTaskId: 'current', currentTaskIds: ['current', 'removed'], events: chain, migrations,
+    currentTaskId: 'current', currentTaskIds: ['current', 'removed'], events: chain, planEvents: [], migrations,
   });
   assert.deepEqual(result.context.notes.map(({ body }) => body),
     ['現在版の判断', '中間版の注意', '最初の方針']);
@@ -70,7 +70,7 @@ test('removed taskのnoteはarchived束へ分離し現在taskの指示として�
   ]);
   const result = projectTodoNoteContext({
     projectId: 'lattice', planKey: 'plan-a', currentPlanVersion: 'v3',
-    currentTaskId: 'current', currentTaskIds: ['current'], events: chain, migrations,
+    currentTaskId: 'current', currentTaskIds: ['current'], events: chain, planEvents: [], migrations,
   });
   assert.deepEqual(result.context.notes.map(({ body }) => body), ['継続する案']);
   assert.deepEqual(result.archived.map(({ body }) => body), ['廃止した案']);
@@ -84,7 +84,7 @@ test('supersede関係を履歴のまま保持し、訂正済みnoteを明示す�
   ]);
   const result = projectTodoNoteContext({
     projectId: 'lattice', planKey: 'plan-a', currentPlanVersion: 'v3',
-    currentTaskId: 'current', currentTaskIds: ['current'], events: corrected, migrations: [],
+    currentTaskId: 'current', currentTaskIds: ['current'], events: corrected, planEvents: [], migrations: [],
   });
   assert.equal(result.context.notes[0].correction_state, 'current');
   assert.equal(result.context.notes[0].supersedes, corrected[0].event_digest);
@@ -98,7 +98,7 @@ test('通常供給は新しい順に本文64 KiBまでとし、残りをoverflow
   })));
   const result = projectTodoNoteContext({
     projectId: 'lattice', planKey: 'plan-a', currentPlanVersion: 'v3',
-    currentTaskId: 'current', currentTaskIds: ['current'], events: chain, migrations: [],
+    currentTaskId: 'current', currentTaskIds: ['current'], events: chain, planEvents: [], migrations: [],
   });
   assert.equal(result.context.notes.length, 4);
   assert.equal(result.context.overflow_count, 1);

@@ -13,8 +13,12 @@ export const TODO_NOTE_EVENT_SCHEMA = 'lattice.todo_note_event.v1';
 /**
  * plan単位のnote event。工程レベルの義務(順序制約・一度きりの観測が在ること)は特定のtaskに
  * 属さないので、v1の`task_id`必須では書けない。v1は書き換えない——既存chainはhash連鎖で
- * 固定済みであり、taskノートの挙動も digest も動かさない。plan noteだけが新schemaで積まれ、
- * 1本のchainにv1とv2が混ざる。
+ * 固定済みであり、taskノートの挙動も digest も動かさない。
+ *
+ * v2は**別のchain file**(`plan-active.jsonl`)へ積む。同じchainへ混ぜると、旧CLIは
+ * 1 eventずつのbyte検証で chain全体を壊れと読み、noteの読みを前提条件とする`todo start`が
+ * 落ちる。しかもstoreへ書いたものは戻せない。分離すれば旧CLIはfileの存在に気づかず、
+ * task noteの読み書きは1バイトも変わらない。
  */
 export const TODO_NOTE_EVENT_V2_SCHEMA = 'lattice.todo_note_event.v2';
 /**
@@ -115,9 +119,10 @@ const noteBody = (value) => typeof value === 'string' && value.length > 0
   && !NOTE_FORBIDDEN_CONTROL.test(value);
 
 /**
- * lifecycle journalとは独立したnote eventを検証する。1本のchainにv1(task note)と
- * v2(plan note)が混ざるので、schemaで分岐して両方受ける。v1は`scope`を持たない——
- * 定義上taskであり、投影の側で明示`scope`へ正規化する。
+ * lifecycle journalとは独立したnote eventを検証する。v1(task note)とv2(plan note)は
+ * 別chainへ積まれるが、検証器は両方を受ける——どちらのchainを読んでいるかはpathが決め、
+ * chainへ他scopeが混ざっていないことは`readTodoNoteEvents`が読み出し時に落とす。
+ * v1は`scope`を持たない——定義上taskであり、投影の側で明示`scope`へ正規化する。
  */
 export function validateTodoNoteEvent(value) {
   try {
@@ -172,7 +177,7 @@ export function validateTodoNoteContext(value) {
   try {
     if (!exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'task_id', 'notes', 'note_head_digest',
-      'overflow_count', 'full_history_command', 'context_digest',
+      'plan_note_head_digest', 'overflow_count', 'full_history_command', 'context_digest',
     ]) || value.schema !== TODO_NOTE_CONTEXT_SCHEMA
       || !isTodoIdentifier(value.project_id) || !isTodoIdentifier(value.plan_key)
       || !isTodoIdentifier(value.task_id) || !Array.isArray(value.notes)
@@ -184,11 +189,21 @@ export function validateTodoNoteContext(value) {
       || value.full_history_command !== `lattice todo note list --plan ${value.plan_key} --json`
       || !isTodoDigest(value.context_digest)
       || value.context_digest !== todoSelfDigest(value, 'context_digest')) return false;
-    if ((value.notes.length === 0) !== (value.note_head_digest === null)) return false;
+    // headはchainごとなので、同値もscopeで切る。task noteが空でplan noteが在る時に
+    // 「notesが非空なのにheadがnull」を壊れと読まないため。overflowで本文が落ちても
+    // headはchainの実在を述べ続ける——同値はnotesではなくoverflow込みの母集合で見る。
+    const scoped = (scope) => value.notes.some((note) => note.scope === scope);
+    if (value.overflow_count === 0) {
+      if (scoped('task') !== (value.note_head_digest !== null)) return false;
+      if (scoped('plan') !== (value.plan_note_head_digest !== null)) return false;
+    } else if (value.note_head_digest === null && value.plan_note_head_digest === null) {
+      return false;
+    }
     return value.notes.reduce((bytes, note) => bytes + Buffer.byteLength(note.body, 'utf8'), 0)
       <= TODO_LIMITS.noteContextBytes;
   } catch {
     return false;
+      || !(value.plan_note_head_digest === null || isTodoDigest(value.plan_note_head_digest))
   }
 }
 

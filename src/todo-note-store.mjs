@@ -46,10 +46,37 @@ function canonicalLine(value) {
   return Buffer.from(`${canonicalizeTodoArtifact(value)}\n`, 'utf8');
 }
 
+/**
+ * task noteとplan noteは**別のchain file**へ積む。
+ *
+ * 混ぜると、plan note(`todo_note_event.v2`)を1件書いた時点で、旧CLIにとってその planの
+ * chain全体が壊れたものになる——`parseCanonicalSegment`は1 eventずつbyte完全一致で検証し、
+ * 1件でも通らなければchainごと`NOTE_LOG_CORRUPT`で落とすためである。noteの読みは
+ * `todo start`の前提条件(fail closed)なので、**旧CLIでstartが通らなくなる**。しかも
+ * store��書いたものは戻せないので、rollbackで復旧できない。
+ *
+ * 旧readerが読むのは`active.jsonl`と`sealed/*`だけで、plan直下を列挙しない。別名のfileへ
+ * 積めば存在に気づかず、task noteの読み書きは1バイトも変わらない。旧CLIからplan noteは
+ * 見えないままだが、**旧CLIではplan noteを書けない以上、読めなくても行動が変わらない**。
+ */
 function notePaths(repoRoot, planKey) {
   if (!isTodoIdentifier(planKey)) throw new TypeError('planKey must be a todo identifier');
   const root = path.resolve(repoRoot, NOTE_ROOT_REF, planKey);
-  return { root, active: path.join(root, 'active.jsonl'), sealed: path.join(root, 'sealed') };
+  return {
+    root,
+    active: path.join(root, 'active.jsonl'),
+    sealed: path.join(root, 'sealed'),
+    planActive: path.join(root, 'plan-active.jsonl'),
+    planSealed: path.join(root, 'plan-sealed'),
+  };
+}
+
+/** chainごとのpathと、そのchainが受けるevent schema。 */
+function chainRefs(repoRoot, planKey, scope) {
+  const refs = notePaths(repoRoot, planKey);
+  return scope === 'plan'
+    ? { active: refs.planActive, sealed: refs.planSealed, schema: TODO_NOTE_EVENT_V2_SCHEMA }
+    : { active: refs.active, sealed: refs.sealed, schema: TODO_NOTE_EVENT_SCHEMA };
 }
 
 async function readOptionalBounded(ref, { missing = false } = {}) {
@@ -111,10 +138,15 @@ function validateEventChain(events, { projectId, planKey }) {
   }
 }
 
-/** planに属する独立note chainをbyte-levelで検証して読む。missingだけは空chainである。 */
+/**
+ * planに属する独立note chainをbyte-levelで検証して読む。missingだけは空chainである。
+ * `scope`で読むchainを選ぶ（既定はtask chain＝旧CLIと同じ経路・同じbyte）。
+ */
 export async function readTodoNoteEvents(options = {}) {
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
-  const { active, sealed } = notePaths(repoRoot, options.planKey);
+  const scope = options.scope ?? 'task';
+  if (!['plan', 'task'].includes(scope)) throw new TypeError('note chain scope must be plan or task');
+  const { active, sealed, schema } = chainRefs(repoRoot, options.planKey, scope);
   const names = await sealedFiles(sealed);
   const events = [];
   let previousSegmentDigest = ZERO_DIGEST;
@@ -133,6 +165,11 @@ export async function readTodoNoteEvents(options = {}) {
   }
   const activeBytes = await readOptionalBounded(active, { missing: true });
   if (activeBytes !== null) events.push(...parseCanonicalSegment(activeBytes, active));
+  // chainの分離は「そのfileへ何が積まれるか」で守る。混ざったchainは分離の意味を失うので
+  // 黙って受けず、読んだ時点でtypedに落とす。
+  if (events.some((event) => event.schema !== schema)) {
+    fail('NOTE_LOG_CORRUPT', 'note_chain_scope_mixed', { plan_key: options.planKey, scope });
+  }
   if (events.length > 0) {
     validateEventChain(events, { projectId: events[0].project_id, planKey: options.planKey });
   }
@@ -193,9 +230,11 @@ export async function appendTodoNote(options = {}) {
     throw new TypeError('todo note append options invalid');
   }
   const planScoped = options.taskId === null;
+  const scope = planScoped ? 'plan' : 'task';
   const repoRoot = path.resolve(options.repoRoot);
   return withNoteLock(repoRoot, async () => {
-    const chain = await readTodoNoteEvents({ repoRoot, planKey: options.planKey });
+    // sequenceとprevious_digestはchainごとに独立。note系の起点は1（journal系の0ではない）。
+    const chain = await readTodoNoteEvents({ repoRoot, planKey: options.planKey, scope });
     if (options.supersedes !== null) {
       const target = chain.events.find(({ event_digest: digest }) => digest === options.supersedes);
       if (target === undefined || !options.eligibleSupersedes.includes(options.supersedes)) {
@@ -226,7 +265,7 @@ export async function appendTodoNote(options = {}) {
     event.event_digest = todoSelfDigest(event, 'event_digest');
     if (!validateTodoNoteEvent(event)) throw new TypeError('todo note event input invalid');
 
-    const paths = notePaths(repoRoot, options.planKey);
+    const paths = chainRefs(repoRoot, options.planKey, scope);
     const eventBytes = canonicalLine(event);
     if (chain.active_bytes.length > 0
       && chain.active_bytes.length + eventBytes.length > TODO_LIMITS.journalSegmentBytes) {
@@ -313,44 +352,52 @@ function resolveNoteTarget(event, { currentPlanVersion, currentTaskIds, migratio
 export function projectTodoNoteContext(options = {}) {
   if (!exactRecord(options, [
     'projectId', 'planKey', 'currentPlanVersion', 'currentTaskId',
-    'currentTaskIds', 'events', 'migrations',
+    'currentTaskIds', 'events', 'planEvents', 'migrations',
   ]) || ![options.projectId, options.planKey, options.currentPlanVersion, options.currentTaskId]
     .every(isTodoIdentifier) || !Array.isArray(options.currentTaskIds)
     || !options.currentTaskIds.every(isTodoIdentifier)
     || !options.currentTaskIds.includes(options.currentTaskId)
-    || !Array.isArray(options.events) || !options.events.every(validateTodoNoteEvent)) {
+    || !Array.isArray(options.events) || !options.events.every(validateTodoNoteEvent)
+    || !Array.isArray(options.planEvents) || !options.planEvents.every(validateTodoNoteEvent)) {
     throw new TypeError('todo note projection options invalid');
   }
   const currentTaskIds = new Set(options.currentTaskIds);
   const migrations = migrationIndex(options.migrations);
+  // 訂正はscopeを跨げないので、supersedeの追跡もchainごとに閉じる。
   const supersededBy = new Map();
-  for (const event of options.events) {
+  for (const event of [...options.events, ...options.planEvents]) {
     if (event.project_id !== options.projectId || event.plan_key !== options.planKey) {
       fail('NOTE_LOG_CORRUPT', 'note_identity_mismatch');
     }
     if (event.supersedes !== null) supersededBy.set(event.supersedes, event.event_digest);
   }
 
-  const current = [];
+  const taskCurrent = [];
   const archived = [];
-  const sequenceByDigest = new Map(options.events.map((event) => [event.event_digest, event.sequence]));
+  const sequenceOf = (events) => new Map(events.map((event) => [event.event_digest, event.sequence]));
+  const taskSequence = sequenceOf(options.events);
+  const planSequence = sequenceOf(options.planEvents);
   for (const event of options.events) {
     const entry = noteProjectionEntry(event, supersededBy.get(event.event_digest));
-    if (entry.scope === 'plan') {
-      // plan noteは特定のtaskに属さないので、task migrationで宛先を失うことがない。
-      // 全taskのcontextへ載せる——工程レベルの義務は「次に着手する誰か」へ届くべきもので、
-      // 誰が着手するかは書いた時点で分からない。
-      current.push(entry);
-      continue;
-    }
     const target = resolveNoteTarget(event, {
       currentPlanVersion: options.currentPlanVersion, currentTaskIds, migrations,
     });
     if (target.kind === 'archived') archived.push(entry);
-    else if (target.taskId === options.currentTaskId) current.push(entry);
+    else if (target.taskId === options.currentTaskId) taskCurrent.push(entry);
   }
-  current.sort((left, right) => sequenceByDigest.get(right.event_digest)
-    - sequenceByDigest.get(left.event_digest));
+  // plan noteは特定のtaskに属さないので、task migrationで宛先を失うことがない。全taskの
+  // contextへ載せる——工程レベルの義務は「次に着手する誰か」へ届くべきもので、誰が着手するかは
+  // 書いた時点で分からない。
+  const planCurrent = options.planEvents
+    .map((event) => noteProjectionEntry(event, supersededBy.get(event.event_digest)));
+  taskCurrent.sort((left, right) => taskSequence.get(right.event_digest)
+    - taskSequence.get(left.event_digest));
+  planCurrent.sort((left, right) => planSequence.get(right.event_digest)
+    - planSequence.get(left.event_digest));
+  // 2本のsequenceは独立なので、混ぜた全順序は時刻にもsequenceにも作れない（時刻は
+  // future_clock_skewがある以上信用できない）。決定的な規則で並べる: plan単位の申し送りは
+  // task固有のものより文脈が広いので先に読ませる。
+  const current = [...planCurrent, ...taskCurrent];
   archived.reverse();
 
   const notes = [];
@@ -367,7 +414,11 @@ export function projectTodoNoteContext(options = {}) {
     plan_key: options.planKey,
     task_id: options.currentTaskId,
     notes,
-    note_head_digest: current[0]?.event_digest ?? null,
+    // headはchainごとに言う。合成すると「どちらのheadか」と連結順を定義する必要が生まれ、
+    // 順序が決まっていなければ同じ状態から違うdigestが出る。
+    note_head_digest: taskCurrent[0]?.event_digest ?? null,
+    plan_note_head_digest: planCurrent[0]?.event_digest ?? null,
+    // overflowはcontext全体の予算の話でchainの性質ではないので、ここは合成でよい。
     overflow_count: current.length - notes.length,
     // plan noteを載せる以上、案内はplan全体を返す形でなければ「full」ではない。
     full_history_command: `lattice todo note list --plan ${options.planKey} --json`,
@@ -468,6 +519,7 @@ export async function readTodoNoteContext(options = {}) {
     plan_key: options.planKey, task_id: options.taskId,
   });
   const chain = await readTodoNoteEvents({ repoRoot, planKey: options.planKey });
+  const planChain = await readTodoNoteEvents({ repoRoot, planKey: options.planKey, scope: 'plan' });
   const migrations = await readNoteMigrations(repoRoot, options.planKey,
     new Set(chain.events.map(({ plan_version: version }) => version)));
   return projectTodoNoteContext({
@@ -477,6 +529,7 @@ export async function readTodoNoteContext(options = {}) {
     currentTaskId: task.task_id,
     currentTaskIds: member.plan.tasks.map(({ task_id: taskId }) => taskId),
     events: chain.events,
+    planEvents: planChain.events,
     migrations,
   });
 }
@@ -505,14 +558,14 @@ export async function readTodoPlanNotesForStatus(options = {}) {
   const summaries = [];
   for (const member of options.store.members) {
     const planKey = member.plan.plan_key;
-    const chain = await readTodoNoteEvents({ repoRoot, planKey });
+    // plan noteは専用chainに在る。schemaでの選別は要らない——読む先そのものが分かれている。
+    const chain = await readTodoNoteEvents({ repoRoot, planKey, scope: 'plan' });
     const superseded = new Set(chain.events
       .filter(({ supersedes }) => supersedes !== null)
       .map(({ supersedes }) => supersedes));
     // 訂正されたnoteは数えない。数えると訂正するほど件数が増える。
     const current = chain.events
-      .filter((event) => event.schema === TODO_NOTE_EVENT_V2_SCHEMA
-        && !superseded.has(event.event_digest))
+      .filter((event) => !superseded.has(event.event_digest))
       .sort((left, right) => right.sequence - left.sequence);
     if (current.length === 0) continue;
     summaries.push({
@@ -550,6 +603,7 @@ export async function readTodoNoteContextsForPlan(options = {}) {
     plan_key: options.planKey,
   });
   const chain = await readTodoNoteEvents({ repoRoot, planKey: options.planKey });
+  const planChain = await readTodoNoteEvents({ repoRoot, planKey: options.planKey, scope: 'plan' });
   const migrations = await readNoteMigrations(repoRoot, options.planKey,
     new Set(chain.events.map(({ plan_version: version }) => version)));
   const currentTaskIds = member.plan.tasks.map(({ task_id: taskId }) => taskId);
@@ -560,6 +614,7 @@ export async function readTodoNoteContextsForPlan(options = {}) {
     currentTaskId: task.task_id,
     currentTaskIds,
     events: chain.events,
+    planEvents: planChain.events,
     migrations,
   }));
   return {
