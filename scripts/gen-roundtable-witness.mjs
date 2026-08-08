@@ -1,4 +1,4 @@
-// roundtable-exec-20260809 の witness set v4 を生成する。
+// roundtable-exec-20260809 の witness set v5 を生成する。
 // boundary compilerは一度に8 ToDoまで（schedulability-compiler-v2のMAX_TODOS）なので、
 // witnessは着手する波のsubsetだけを書き出してcompileする。
 // usage: node scripts/gen-roundtable-witness.mjs [taskId...]（省略時はWave 1: t1..t7）
@@ -25,17 +25,26 @@ const def = (id, over) => { W[id] = { ...base(), ...over } }
 def('t1', {
   owns: [
     pc('bin/lattice-work-order-adapter.mjs'), p('package-lock.json'), p('package.json'),
+    p('src/runtime-cli.mjs'), p('src/runtime-controller-protocol.mjs'),
+    p('src/runtime-direct-os-observer.mjs'),
     pc('src/runtime-work-order-contracts.mjs'), pc('src/runtime-work-order-controller.mjs'),
+    p('test/runtime-controller-protocol.test.mjs'), p('test/runtime-direct-os-observer.test.mjs'),
     pc('test/runtime-work-order-contracts.test.mjs'), pc('test/runtime-work-order-controller.test.mjs'),
     pc(EV('t1')),
   ],
   reads: ['src/runtime-adapter-registry.mjs', 'src/runtime-diff-observer.mjs', 'src/runtime-scripted-adapter-controller.mjs', 'src/runtime-scripted-worktree.mjs'],
   writes: [
     'bin/lattice-work-order-adapter.mjs', 'package-lock.json', 'package.json',
+    'src/runtime-cli.mjs', 'src/runtime-controller-protocol.mjs',
+    'src/runtime-direct-os-observer.mjs',
     'src/runtime-work-order-contracts.mjs', 'src/runtime-work-order-controller.mjs',
+    'test/runtime-controller-protocol.test.mjs', 'test/runtime-direct-os-observer.test.mjs',
     'test/runtime-work-order-contracts.test.mjs', 'test/runtime-work-order-controller.test.mjs', EV('t1'),
   ],
-  affected_tests: ['test/runtime-work-order-contracts.test.mjs', 'test/runtime-work-order-controller.test.mjs'],
+  affected_tests: [
+    'test/runtime-controller-protocol.test.mjs', 'test/runtime-direct-os-observer.test.mjs',
+    'test/runtime-work-order-contracts.test.mjs', 'test/runtime-work-order-controller.test.mjs',
+  ],
 })
 def('t2', {
   owns: [p('src/runtime-cli.mjs'), pc(EV('t2'))],
@@ -59,7 +68,7 @@ def('t12', {
     p('src/runtime-front-end.mjs'), p('src/todo-independence-contracts.mjs'),
     p('test/rc3-front-end.test.mjs'), p('test/rc3-runtime-contracts.test.mjs'),
     p('test/runtime-schema-distribution.test.mjs'), p('test/runtime-seam-resolve.test.mjs'),
-    p('test/todo-independence-contracts.test.mjs'),
+    p('test/todo-independence-contracts.test.mjs'), p(EV('t12')),
   ],
   reads: ['src/todo-independence.mjs'],
   writes: [
@@ -178,7 +187,7 @@ if (subset.length > 8) { console.error('boundary compilerの上限は8 ToDo'); p
 for (const id of subset) if (!W[id]) { console.error(`未定義task: ${id}`); process.exit(1) }
 
 const witnessSet = {
-  schema: 'lattice.todo_witness_set.v4',
+  schema: 'lattice.todo_witness_set.v5',
   project_id: 'lattice',
   plan_key: 'roundtable-exec-20260809',
   capacity: { executors: 4 },
