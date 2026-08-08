@@ -1,5 +1,30 @@
 # Changelog
 
+## 未リリース
+
+### 破壊的変更（host統合者向け）
+
+- **`lattice todo status --json`のwire schemaを`lattice.todo_status_result.v4`から`v5`へ上げた
+  （ADR 0159）。** 上位キーへ`audit_pending`が加わる（`blocked`と`member_heads`の間）。
+  **exact key検証をしている消費者は追従が必要**で、追従前は`version_mismatch`として拒否される。
+  「知っているkeyだけを読む」消費者は影響を受けない。`lattice session-context --json`の
+  `todo`フィールドも同じくv5になる。
+
+### 追加
+
+- **監査待ちPhaseを次アクション面へ表出した（ADR 0159）。** 終端監査gateはADR 0147/0148で
+  実装済みだったが、AIが「次は何をするか」を問い合わせる面が監査待ちを一切返しておらず、
+  全taskがdoneになると`lattice status`が`no_ready_task`＝残作業なしと答えていた。機械がそう答える
+  以上、AIは正しくそれを信じて完了報告する。これを直す。
+  - `todo status`の`audit_pending`欄が、監査待ち（`gate_ready`／`reviewing`／`rejected`）のPhaseを
+    `{plan_key, phase_id, phase_status, implicit, required_evidence_slots, next_commands}`で列挙する。
+    `accepted`／`closed_unaudited`は出さない。
+  - `lattice status`の`next_action.reason`が`no_ready_task`ではなく`audit_pending`になり、
+    読み取り専用の`todo phase status --plan <key>`を案内する。`state`は`ready`のまま変わらない
+    （`project_status.v1`のbumpは無い）。優先順位は`active_run`＞`next_ready`＞`audit_pending`＞なし。
+  - 工程図／dashboardのヘッダへ監査待ちの札が出る。
+  - `next_ready`・`dispatch_frontier`・`frontier_digest`は監査状態で動かない。dispatchは変えていない。
+
 ## 0.46.2 — 2026-08-04
 
 ### 修正

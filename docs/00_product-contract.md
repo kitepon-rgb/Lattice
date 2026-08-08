@@ -149,7 +149,7 @@ v2/v4は既存planの互換契約として維持する。
 Taskだけを`project_id`／`plan_key`／`plan_version`／`task_id`つきで投影し
 （`lattice.todo_binding_projection.v1`・ADR 0124）、TODO工程とruntime実行を結ぶ唯一の公開読み取り面とする。
 `compiled_plan_digest`から`runtime_plan.v1`→`executor_packet.v1`→`executor_receipt.v1`まで辿れる。
-`todo_status_result.v4`は変更せず、加算の別面とする。
+`todo_status_result`は変更せず、加算の別面とする。
 
 ToDoの作業記憶はlifecycle journal／snapshotと分離したtask-scoped append-only note chainが正本である
 （ADR 0149）。追記は`todo note --plan <key> --task <id> (--message <text>|--input <file>)`、全履歴の
@@ -217,7 +217,7 @@ plan versionディレクトリへ並置し、再生成できるhost localの投�
 
 session開始時にhostが必要とする現在地は`lattice session-context --json`が
 **1プロセス・1回のstore読み**で返す（`lattice.session_context.v1`、ADR 0131）。
-`status`フィールドは`project_status.v1`、`todo`フィールドは`todo_status_result.v4`をそのまま埋め、
+`status`フィールドは`project_status.v1`、`todo`フィールドは`todo_status_result.v5`をそのまま埋め、
 `independence`はreadyのあるplanだけの並列可否要約を持つ。既存2面は不変で、これはその合成である。
 この面はdashboard活動を登録しない読み取り専用面とする。消費者へexact key検証を要求せず、
 知っているkeyだけを読んでよい——Lattice側は既存keyの意味を変えるときだけschema版を上げる。
@@ -234,10 +234,10 @@ Phase v3のactive source移転は、同じrevisionの`source_cutover_batch`が�
 predecessor source消失は`predecessor_source_silently_dropped`として拒否する。
 成功は単体通常revisionが`lattice.todo_revise_result.v1`、revision setが
 `lattice.todo_revision_set_result.v1`、statusはreconciliation identityを含む
-`lattice.todo_status_result.v4`、verifyはsource inventoryを再検査する`lattice.todo_verify_result.v3`を返す。
+`lattice.todo_status_result.v5`、verifyはsource inventoryを再検査する`lattice.todo_verify_result.v3`を返す。
 verify v3の各memberは`reconciliation_guidance`を持ち、`registered_unreconciled`がsource inventoryの
 検証状態であってlifecycle操作とdashboard表示を塞がないこと、および正規のrevision schema取得・適用commandを示す。
-status v4の`dispatch_frontier`は`next_ready`全件を既定の同時dispatch集合とし、推奨同時数、
+status v5の`dispatch_frontier`は`next_ready`全件を既定の同時dispatch集合とし、推奨同時数、
 frontier digest、subset選択時の理由要否を機械表示する。readyが複数でactive taskがない時の最初の
 `todo start`は`--parallel-frontier`による並列開始宣言、または`--override-reason <reason>`による
 意図的直列化理由のどちらかを必須とする。これはPhase、監査回数、task DAGを増やさない。
@@ -255,6 +255,15 @@ frontier digest、subset選択時の理由要否を機械表示する。readyが
 `implicit`で機械可読に示す。**終端監査はToDoのdispatch可否へ影響しない**——ADR 0062の
 「Phase監査順とToDo schedulingの分離」を継承し、`next_ready`／`active_set`／`dispatch_frontier`は
 暗黙Phaseの状態遷移で不変である。Latticeは監査の中身を採点せず、accept記録の存在だけを見る。
+
+**監査待ちが在る限り、次アクション面は「残作業なし」と答えない**（ADR 0159）。`todo status`は
+監査待ち（`gate_ready`／`reviewing`／`rejected`）のPhaseを`audit_pending`欄へ
+`{plan_key, phase_id, phase_status, implicit, required_evidence_slots, next_commands}`として列挙し、
+`accepted`／`closed_unaudited`は出さない。`lattice status`は`state`を`ready`のまま変えず、
+`next_action.reason`を`no_ready_task`ではなく`audit_pending`とし、読み取り専用の
+`todo phase status --plan <key>`を案内する。優先順位は`active_run`＞`next_ready`＞`audit_pending`＞なしで、
+ready frontierが在る間はADR 0063の並列開始コマンドが勝つ。これはgateの追加ではなく可視性の修正であり、
+dispatchも状態機械も変えない。
 
 **監査していない歴史は「監査なしで閉じた」として閉じる**（ADR 0148）。Phaseは`accepted`／`rejected`に
 加えて`closed_unaudited`を持つ。過去の工程は監査できない——監査対象のコードが既に変化しているため、
