@@ -19,6 +19,8 @@
   消さないため。`registerTodoDashboardActivity`の戻り値へ`pruned`（除去したproject_idの配列）が
   加わる（登録簿のbytesには書かない）。
 
+## 0.48.0 — 2026-08-08
+
 ### 破壊的変更（host統合者向け）
 
 - **`lattice todo status --json`のwire schemaを`lattice.todo_status_result.v5`から`v6`へ上げた
