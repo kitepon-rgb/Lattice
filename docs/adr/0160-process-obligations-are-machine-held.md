@@ -135,6 +135,11 @@ Control saga・SessionStart hook）を先にv6受理へ動かしてから、Latt
   持たない——壊れを黙って飛ばす形にしないため）。**wireは版を戻せば済むが、storeへ書いたものは戻らない。**
   宣言していないplan・plan noteを持たないplanは無傷である。
 - plan単位noteは別chainなので、旧CLIはその存在に気づかずtask noteだけを従来どおり返す。
+- **配達は「押し出しの回数」だけでなく「読む側のCLIの版」にも依存する。** 新しいscopeの記録は、
+  古いCLIからは存在ごと見えない——前方互換の設計として意図どおりだが、**「義務を機械が持った」と
+  言えるのは、読む側がその版を持ってからである。** publishとinstallが終わるまで、記録は書けているが
+  届いていない状態にある。その間は散文（会話・room）が正で、noteは予備である。順序が逆転するのは
+  publish後である。
 - `dispatch_frontier`と`frontier_digest`は、判定状態でもplan noteの有無でも動かない。
 
 ## 非目的
