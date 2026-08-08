@@ -641,6 +641,38 @@ test('daemonは自分の記録をdescriptorと同時に置き、停止時に落�
   daemonPid = null;
 });
 
+test('登録のたびにrepo_rootが消えたentryを落とし、実在repoの登録は残す', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-prune-'));
+  const alive = path.join(root, 'alive');
+  const gone = path.join(root, 'gone');
+  const storeless = path.join(root, 'storeless');
+  await Promise.all([mkdir(alive), mkdir(gone), mkdir(storeless)]);
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_DASHBOARD_RUNTIME_DIR: path.join(root, 'runtime') };
+  const at = (minute) => new Date(`2026-08-08T00:0${minute}:00.000Z`);
+  await registerTodoDashboardActivity({ repoRoot: alive, projectId: 'alive',
+    displayName: 'Alive', sessionId: 'session-alive', env, now: at(0) });
+  await registerTodoDashboardActivity({ repoRoot: gone, projectId: 'gone',
+    displayName: 'Gone', sessionId: 'session-gone', env, now: at(1) });
+  // storeを持たないだけのrepoは生きている。`.lattice`の有無で判定していないことの確認。
+  await registerTodoDashboardActivity({ repoRoot: storeless, projectId: 'storeless',
+    displayName: 'Storeless', sessionId: 'session-storeless', env, now: at(2) });
+  await rm(gone, { recursive: true, force: true });
+
+  const registered = await registerTodoDashboardActivity({ repoRoot: alive, projectId: 'alive',
+    displayName: 'Alive', sessionId: 'session-alive-2', env, now: at(3) });
+  assert.deepEqual(registered.pruned, ['gone']);
+  const document = JSON.parse(await readFile(path.join(root, 'runtime', 'projects.json'), 'utf8'));
+  assert.deepEqual(document.projects.map(({ project_id: projectId }) => projectId),
+    ['alive', 'storeless']);
+  assert.equal(document.projects.every((entry) => Object.hasOwn(entry, 'pruned')), false,
+    'prunedは戻り値だけで、登録簿のbytesへは書かない');
+
+  const clean = await registerTodoDashboardActivity({ repoRoot: alive, projectId: 'alive',
+    displayName: 'Alive', sessionId: 'session-alive-3', env, now: at(4) });
+  assert.deepEqual(clean.pruned, [], '落とすものが無ければ空配列');
+});
+
 test('todo CLIの通常activityが明示serveなしでproject登録とdaemon起動をensureする', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-cli-'));
   const runtime = path.join(root, 'runtime');

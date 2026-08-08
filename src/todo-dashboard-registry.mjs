@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import {
-  mkdir, open, readdir, readFile, realpath, rename, rm, writeFile,
+  mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -157,6 +157,17 @@ export async function readVisibleTodoDashboardProjects({
     || left.project_id.localeCompare(right.project_id, 'en'));
 }
 
+/**
+ * 見るのはrepo_root directoryの存在だけ。`.lattice`の有無で判定すると、storeを持たない
+ * 生きたrepoまで登録簿から消える。ENOENT／ENOTDIR以外のerrorは「消えた証拠」ではないので
+ * 生存扱いのまま残す——判定できない相手を消す方が損害が大きい。
+ */
+async function repoRootPresent(ref) {
+  try { return (await stat(ref)).isDirectory(); } catch (error) {
+    return !['ENOENT', 'ENOTDIR'].includes(error?.code);
+  }
+}
+
 export async function registerTodoDashboardActivity({
   repoRoot, projectId, displayName = projectId, sessionId, env = process.env,
   now = new Date(), adopt = false,
@@ -169,6 +180,7 @@ export async function registerTodoDashboardActivity({
   const canonicalRoot = await realpath(repoRoot);
   const refs = paths(env);
   await mkdir(refs.root, { recursive: true, mode: 0o700 });
+  const pruned = [];
   await withLock(refs.lock, async () => {
     const current = validateRegistry(await readJson(refs.registry, { schema: REGISTRY_SCHEMA, projects: [] }));
     const existing = current.projects.find((entry) => entry.project_id === projectId);
@@ -183,13 +195,21 @@ export async function registerTodoDashboardActivity({
       };
       throw error;
     }
-    const projects = current.projects.filter((entry) => entry.project_id !== projectId);
+    // 死んだ登録を落とす機会はここしかない。登録は全sessionが必ず通る一点であり、
+    // 掃除を「人がコマンドを叩いた時」に置くと、誰も叩かないので永久に積み上がる。
+    const projects = [];
+    for (const entry of current.projects) {
+      if (entry.project_id === projectId) continue;
+      if (await repoRootPresent(entry.repo_root)) projects.push(entry);
+      else pruned.push(entry.project_id);
+    }
     projects.push({ project_id: projectId, display_name: displayName, repo_root: canonicalRoot,
       session_id: sessionId, last_seen_at: now.toISOString() });
     projects.sort((left, right) => left.project_id.localeCompare(right.project_id, 'en'));
+    pruned.sort((left, right) => left.localeCompare(right, 'en'));
     await atomicJson(refs.registry, { schema: REGISTRY_SCHEMA, projects });
   });
-  return { projectId, displayName, repoRoot: canonicalRoot, sessionId, adopted: adopt };
+  return { projectId, displayName, repoRoot: canonicalRoot, sessionId, adopted: adopt, pruned };
 }
 
 /** 配信元rootを移す唯一の明示入口。通常activity登録はこのflagを立てない。 */
