@@ -275,7 +275,17 @@ async function resolveProjectState({ cwd, cliVersion }) {
       : todo.next_ready.length > 0
         ? { command: `lattice todo start --plan ${todo.next_ready[0].plan_key} --task ${todo.next_ready[0].task_id}${todo.next_ready.length > 1 ? ' --parallel-frontier' : ''}`,
           reason: todo.next_ready.length > 1 ? 'parallel_frontier_present' : 'next_ready_present' }
-        : { command: 'lattice todo status', reason: 'no_ready_task' };
+        // 監査待ちが在る限り「残作業なし」と答えない。優先順位はactive_run > next_ready >
+        // audit_pending > なしで、ready frontierが在る間はADR 0063の並列開始コマンドが勝つ
+        // ——ここを監査で上書きするとdispatchが再直列化する。監査待ちはtodo statusの
+        // audit_pending欄に常在するので、順位を下げても消えない。
+        // commandはverbatim実行可能で読み取り専用のものにする。`phase review`は
+        // `--reason <text>`のplaceholderを含みjournalを書き換えるので置かない
+        // （`todo phase status`の結果には既に両分岐のguidanceが載っている）。
+        : todo.audit_pending.length > 0
+          ? { command: `lattice todo phase status --plan ${todo.audit_pending[0].plan_key}`,
+            reason: 'audit_pending' }
+          : { command: 'lattice todo status', reason: 'no_ready_task' };
     const result = statusResult({
       cli: { available: true, version: cliVersion },
       project: { root: repoRoot, git_head: gitHead(repoRoot), project_id: store.project_id },
