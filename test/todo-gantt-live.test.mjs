@@ -2,11 +2,43 @@ import assert from 'node:assert/strict';
 import { connect } from 'node:net';
 import test from 'node:test';
 
+import { projectTodoChainV1 } from '../src/todo-chain.mjs';
+import { layoutTodoGantt } from '../src/todo-gantt-layout.mjs';
+import { renderTodoGanttHtml } from '../src/todo-gantt-html.mjs';
 import {
   createTodoGanttProjectRegistry,
   startTodoGanttDashboardServer,
   startTodoGanttLiveServer,
 } from '../src/todo-gantt-live.mjs';
+
+const EXTERNAL_PANE = Object.freeze({
+  title: '円卓',
+  url: 'https://pane.example/room-a',
+  probeUrl: 'https://probe.example/api/room-a/members',
+  frameOrigin: 'https://pane.example',
+  probeOrigin: 'https://probe.example',
+});
+
+/**
+ * 注入点は描画部品が持つ実物のmarkupである。fixtureの自作HTMLでは注入点の変化を
+ * 捕まえられないので、ここだけは本物のrenderTodoGanttHtmlを通す。
+ */
+function ganttHtml() {
+  const readModel = {
+    schema: 'lattice.todo_store_read.v1',
+    project_id: 'project-1',
+    members: [{
+      plan: { project_id: 'project-1', plan_key: 'main', joins: [], hard_dependencies: [],
+        tasks: [{ task_id: 't1', title: '工程1', lane: 'dev', narrative_ref: null, compile_binding: null }] },
+      tasks: [{ task_id: 't1', status: 'pending', started_at: null, done_at: null,
+        blocked_reason: null, evidence: null, evidence_unverified: false }],
+    }],
+  };
+  const chain = projectTodoChainV1({
+    nodes: [{ project_id: 'project-1', plan_key: 'main', task_id: 't1' }], hard_edges: [], joins: [],
+  });
+  return renderTodoGanttHtml({ readModel, layout: layoutTodoGantt(readModel, chain) }).html;
+}
 
 test('live ganttはloopback限定でHTMLを配信しhead変更をSSE通知する', async (context) => {
   let head = 'a'.repeat(64);
@@ -105,6 +137,48 @@ test('dashboardはactive project一覧とproject別工程表を同じdisplay nam
   assert.equal(project.status, 200);
   assert.match(await project.text(), /AIShell/u);
   assert.deepEqual(renderCalls, [{ projectId: 'aishell', displayName: 'AIShell' }]);
+});
+
+test('外部ペイン設定があるprojectだけタブ・iframe・CSPを注入する', async (context) => {
+  const html = ganttHtml();
+  const registry = createTodoGanttProjectRegistry([
+    { projectId: 'with-pane', displayName: 'ペインあり',
+      render: async () => ({ html, head_digest: 'a', external_pane: EXTERNAL_PANE }),
+      readHead: async () => 'a' },
+    { projectId: 'plain', displayName: 'ペインなし',
+      render: async () => ({ html, head_digest: 'b' }), readHead: async () => 'b' },
+  ]);
+  const dashboard = await startTodoGanttDashboardServer({ registry, port: 0 });
+  context.after(() => dashboard.close());
+
+  const paned = await (await fetch(new URL('/projects/with-pane/', dashboard.url))).text();
+  assert.match(paned, /connect-src 'self' https:\/\/probe\.example; frame-src https:\/\/pane\.example;/u);
+  assert.match(paned, /<iframe data-src="https:\/\/pane\.example\/room-a" title="円卓">/u);
+  assert.match(paned, /data-right-panel="external" hidden/u);
+  assert.match(paned, /fetch\("https:\/\/probe\.example\/api\/room-a\/members",\{cache:'no-store'\}\)/u);
+  // タブは「概要」の左に出す。順序そのものが受入条件なので位置で確かめる。
+  assert.ok(paned.indexOf('data-show-external-pane') < paned.indexOf('data-show-overview'));
+  assert.match(paned, /\[data-right-panel="external"\]>iframe/u);
+
+  const plain = await (await fetch(new URL('/projects/plain/', dashboard.url))).text();
+  assert.match(plain, /connect-src 'self';/u);
+  assert.doesNotMatch(plain, /frame-src/u);
+  assert.doesNotMatch(plain, /data-show-external-pane/u);
+  assert.doesNotMatch(plain, /data-right-panel="external"/u);
+});
+
+test('注入点が無いHTMLへ外部ペインを差すとtyped errorで落ちる', async (context) => {
+  const registry = createTodoGanttProjectRegistry([
+    { projectId: 'no-marker', displayName: '注入点なし',
+      render: async () => ({ html: '<!doctype html><html><head></head><body>plain</body></html>',
+        head_digest: 'a', external_pane: EXTERNAL_PANE }),
+      readHead: async () => 'a' },
+  ]);
+  const dashboard = await startTodoGanttDashboardServer({ registry, port: 0 });
+  context.after(() => dashboard.close());
+  const response = await fetch(new URL('/projects/no-marker/', dashboard.url));
+  assert.equal(response.status, 500);
+  assert.equal((await response.json()).code, 'EXTERNAL_PANE_INJECTION_FAILED');
 });
 
 test('dashboardは未知project・未知path・非GETをtyped HTTP errorにしsilent fallbackしない', async (context) => {

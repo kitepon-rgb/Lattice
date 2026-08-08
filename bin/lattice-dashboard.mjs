@@ -6,6 +6,7 @@ import path from 'node:path';
 import { readTodoStoreStable } from '../src/todo-store.mjs';
 import { TODO_STATUS_DISPATCH_ONLY, projectTodoStatus } from '../src/todo-status.mjs';
 import { ganttLiveHeadDigest, renderTodoGanttForProject } from '../src/todo-cli.mjs';
+import { readProjectExternalPane } from '../src/project-identity.mjs';
 import {
   forgetTodoDashboardDaemonRecord,
   readVisibleTodoDashboardProjects,
@@ -96,6 +97,10 @@ async function synchronize() {
         return {
           html: result.rendered.html,
           head_digest: await ganttLiveHeadDigest({ repoRoot: entry.repo_root, store }),
+          // 配信のたびに読む。外部ペインを差した／外した側にdaemon再起動を要求しない。
+          external_pane: await readProjectExternalPane({
+            repoRoot: entry.repo_root, projectId: entry.project_id,
+          }),
         };
       },
       readHead: async () => ganttLiveHeadDigest({

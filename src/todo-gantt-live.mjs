@@ -11,16 +11,63 @@ function projectPath(projectId) {
   return `/projects/${encodeURIComponent(projectId)}/`;
 }
 
-function liveHtml(html, headDigest, eventsPath) {
+/**
+ * 注入点が消えていたら黙って注入をやめない。タブが出ない理由を後から追えるように、
+ * 差せなかった事実をtyped errorとして立てる（差し込み位置は描画部品の実装に依る）。
+ */
+function injectOnce(html, marker, replacement) {
+  const at = html.indexOf(marker);
+  if (at === -1 || html.indexOf(marker, at + marker.length) !== -1) {
+    const error = new Error(`external pane injection point not unique: ${marker}`);
+    error.code = 'EXTERNAL_PANE_INJECTION_FAILED';
+    error.detail = { marker };
+    throw error;
+  }
+  return `${html.slice(0, at)}${replacement}${html.slice(at + marker.length)}`;
+}
+
+const EXTERNAL_PANE_STYLE = '<style>.narrative-pane{display:flex;flex-direction:column}[data-right-panel="external"]{display:flex;flex:1 1 auto;min-height:0}[data-right-panel="external"]>iframe{flex:1 1 auto;width:100%;min-height:0;border:0;background:var(--surface-1)}</style>';
+
+/**
+ * 生存判定は「非空の一覧を返すこと」だけを根拠にする。Latticeは差された先が何の
+ * サービスかを知らないので、payloadの意味には触らない（非空配列、または配列値の
+ * プロパティが1つ以上非空）。非200・fetch失敗・空一覧はすべて概要タブのままにする。
+ */
+function externalPaneController(pane) {
+  return `<script>(()=>{const root=document.querySelector('[data-gantt-root]');const panel=root.querySelector('[data-right-panel="external"]');const frame=panel.querySelector('iframe');const content=root.querySelector('.right-content');const button=root.querySelector('[data-show-external-pane]');const show=()=>{if(frame.getAttribute('src')===null)frame.setAttribute('src',frame.dataset.src);content.hidden=true;panel.hidden=false;button.setAttribute('aria-pressed','true');root.dataset.viewState='external';};const leave=()=>{if(root.dataset.viewState==='external')return;panel.hidden=true;content.hidden=false;button.setAttribute('aria-pressed','false');};new MutationObserver(leave).observe(root,{attributeFilter:['data-view-state']});button.addEventListener('click',show);const nonEmpty=value=>Array.isArray(value)&&value.length>0;fetch(${JSON.stringify(pane.probeUrl)},{cache:'no-store'}).then(response=>response.ok?response.json():null).then(payload=>{if(nonEmpty(payload)||(payload!==null&&typeof payload==='object'&&Object.values(payload).some(nonEmpty)))show();}).catch(()=>{});})();</script>`;
+}
+
+/**
+ * projectに外部ペインが差してある時だけ、右ペインへタブ1枚とiframeを足す。
+ * Latticeは題名・埋め込み先・生存probeの3つしか知らない（差す側が明示的に書く口）。
+ */
+function withExternalPane(html, pane) {
+  const tab = `<button type="button" data-show-external-pane aria-pressed="false">${escapeHtml(pane.title)}</button>`;
+  const iframe = `<section data-right-panel="external" hidden><iframe data-src="${escapeHtml(pane.url)}" title="${escapeHtml(pane.title)}"></iframe></section>`;
+  return injectOnce(
+    injectOnce(
+      injectOnce(
+        injectOnce(html, "default-src 'none'; connect-src 'self';",
+          `default-src 'none'; connect-src 'self' ${pane.probeOrigin}; frame-src ${pane.frameOrigin};`),
+        '</head>', `${EXTERNAL_PANE_STYLE}</head>`,
+      ),
+      '<button type="button" data-show-overview>概要</button>', `${tab}<button type="button" data-show-overview>概要</button>`,
+    ),
+    '<div class="right-content">', `${iframe}<div class="right-content">`,
+  ).replace('</body>', `${externalPaneController(pane)}</body>`);
+}
+
+function liveHtml(html, headDigest, eventsPath, externalPane = null) {
   const controller = `<script>(()=>{const badge=document.createElement('div');badge.setAttribute('role','status');badge.style.cssText='position:fixed;right:12px;bottom:12px;z-index:99;padding:6px 10px;border:1px solid #d9d8d4;border-radius:4px;background:#fcfcfb;font:600 12px system-ui';badge.textContent='進捗: 接続中';document.body.append(badge);let head=${JSON.stringify(headDigest)};const stream=new EventSource(${JSON.stringify(eventsPath)});stream.addEventListener('state',event=>{const next=JSON.parse(event.data);badge.textContent='進捗: 最新';if(next.head_digest!==head){badge.textContent='進捗: 更新を反映中';location.reload();}});stream.addEventListener('lattice-error',event=>{const detail=JSON.parse(event.data);badge.textContent='進捗: エラー '+detail.code;badge.style.borderColor='#d03b3b';});stream.onerror=()=>{badge.textContent='進捗: 再接続中';};})();</script>`;
   const publicMetadata = '<meta name="description" content="Latticeで管理しているプロジェクトの依存工程と進捗を確認できます。"><meta name="robots" content="noindex, nofollow"><meta name="theme-color" content="#f7f3ea">';
   const publicStyle = '<style>body[data-gantt-root]{grid-template-rows:auto minmax(0,1fr)}.lattice-live-brand{z-index:10;display:flex;align-items:center;gap:8px;min-width:0;padding:10px 16px;border-bottom:1px solid #d8d0c5;background:#f7f3ea;color:#6c655d;font:600 12px/1.5 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif}.lattice-live-brand a{color:#201d19;text-decoration:none}.lattice-live-brand a:hover{color:#315cbe}.lattice-live-brand strong{color:#201d19}.lattice-live-brand-note{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lattice-live-back{margin-left:auto!important;color:#315cbe!important;font-weight:750}@media(max-width:560px){.lattice-live-brand{padding:9px 12px}.lattice-live-brand-note{display:none}}</style>';
   const publicHeader = '<header class="lattice-live-brand"><a href="https://kitepon.dev/">kitepon.dev</a><span aria-hidden="true">/</span><strong>Lattice</strong><span class="lattice-live-brand-note">公開工程表</span><a class="lattice-live-back" href="/projects/">一覧へ戻る</a></header>';
-  return html
+  const live = html
     .replace("default-src 'none';", "default-src 'none'; connect-src 'self';")
     .replace('</head>', `${publicMetadata}${publicStyle}</head>`)
     .replace(/<body([^>]*)>/u, `<body$1>${publicHeader}`)
     .replace('</body>', `${controller}</body>`);
+  return externalPane === null ? live : withExternalPane(live, externalPane);
 }
 
 function escapeHtml(value) {
@@ -221,7 +268,9 @@ export async function startTodoGanttDashboardServer({ registry, port = 0, redire
         displayName: project.displayName,
       });
       lastHeads.set(project.projectId, rendered.head_digest);
-      const html = liveHtml(rendered.html, rendered.head_digest, `${projectPath(project.projectId)}events`);
+      // 外部ペイン設定は描画のたびにrender側が読み直す。差した／外した側は再起動を要さない。
+      const html = liveHtml(rendered.html, rendered.head_digest,
+        `${projectPath(project.projectId)}events`, rendered.external_pane ?? null);
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8',
         'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
       response.end(html);
