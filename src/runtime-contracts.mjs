@@ -187,6 +187,33 @@ export const MANUAL_WITNESS_FIELDS = Object.freeze([
   'affected_tests',
   'unknowns',
 ]);
+export const MANUAL_WITNESS_OPTIONAL_FIELDS = Object.freeze(['lines']);
+export const LINE_ROLES = Object.freeze(['reads', 'writes']);
+
+function lineAnchor(value) {
+  if (!plainObject(value)) return false;
+  if (value.kind === 'path') {
+    return exactRecord(value, ['kind', 'path']) && repoRelativePath(value.path);
+  }
+  return value.kind === 'symbol'
+    && exactRecord(value, ['kind', 'name', 'path'])
+    && typeof value.name === 'string' && value.name.length > 0
+    && Buffer.byteLength(value.name, 'utf8') <= MAX_PATH_BYTES
+    && repoRelativePath(value.path);
+}
+
+function lineEntry(value) {
+  return plainObject(value)
+    && exactRecord(value, ['line_id', 'role', 'anchors'])
+    && identifier(value.line_id)
+    && LINE_ROLES.includes(value.role)
+    && boundedArray(value.anchors, lineAnchor, { min: 1 });
+}
+
+function lineEntries(value) {
+  return boundedArray(value, lineEntry)
+    && new Set(value.map(({ line_id: lineId }) => lineId)).size === value.length;
+}
 
 // manual witness entryの判定は`explainRunRequest`だけが所有する。
 // 同じ規則をbooleanと診断の二箇所へ持たないための単一正本化（ADR 0123）。
@@ -235,15 +262,17 @@ const WITNESS_PROVENANCE = Object.freeze([
 ]);
 
 /**
- * 現行のrun request契約。v4は計画境界を予測として扱う。v3以前の厳密なcompile契約は、
- * 既存requestの意味を変えないため読み口として残す。
+ * 現行のrun request契約。v5はpathを跨ぐ意味的な線を任意宣言できる。v4は同じ予測契約の
+ * lines無し版として残し、v3以前の厳密なcompile契約も既存requestの意味を変えずに読む。
  *
  * v2はこの系列ではない。ADR 0064のepoch後継request（`predecessor_request_digest`と
  * `task_migration_digest`を持つ別shape）が既に使っている番号なので、飛ばして採番する。
  */
-export const RUN_REQUEST_SCHEMA = 'lattice.run_request.v4';
+export const RUN_REQUEST_SCHEMA = 'lattice.run_request.v5';
+export const RUN_REQUEST_PREDICTION_SCHEMA = 'lattice.run_request.v4';
 export const RUN_REQUEST_DECLARATIVE_SCHEMA = 'lattice.run_request.v3';
 export const RUN_REQUEST_LEGACY_SCHEMAS = Object.freeze([
+  RUN_REQUEST_PREDICTION_SCHEMA,
   RUN_REQUEST_DECLARATIVE_SCHEMA,
   'lattice.run_request.v1',
 ]);
@@ -309,7 +338,10 @@ export function explainRunRequest(value) {
   if (!exactRecord(value, RUN_REQUEST_FIELDS)) return reject('unexpected_or_missing_top_level_keys', '');
   if (!RUN_REQUEST_SCHEMAS.includes(value.schema)) return reject('schema_mismatch', '/schema');
   // 創作宣言はv2から。v1のclosed shapeは余分fieldを拒否するので加算互換が成立しない。
-  const allowCreates = [RUN_REQUEST_SCHEMA, RUN_REQUEST_DECLARATIVE_SCHEMA].includes(value.schema);
+  const allowCreates = [
+    RUN_REQUEST_SCHEMA, RUN_REQUEST_PREDICTION_SCHEMA, RUN_REQUEST_DECLARATIVE_SCHEMA,
+  ].includes(value.schema);
+  const allowLines = value.schema === RUN_REQUEST_SCHEMA;
   if (!identifier(value.request_id)) return reject('invalid_identifier', '/request_id');
   if (!exactRecord(value.repo, ['base_sha', 'root_kind'])) return reject('unexpected_or_missing_keys', '/repo');
   if (!gitSha(value.repo.base_sha)) return reject('invalid_git_sha', '/repo/base_sha');
@@ -333,7 +365,13 @@ export function explainRunRequest(value) {
     const witness = value.manual_witness[todoId];
     const at = `/manual_witness/${todoId}`;
     if (!plainObject(witness)) return reject('not_an_object', at);
-    if (!exactRecord(witness, MANUAL_WITNESS_FIELDS)) return reject('unexpected_or_missing_keys', at);
+    const hasLines = Object.hasOwn(witness, 'lines');
+    const witnessFields = hasLines
+      ? [...MANUAL_WITNESS_FIELDS, ...MANUAL_WITNESS_OPTIONAL_FIELDS]
+      : MANUAL_WITNESS_FIELDS;
+    if (!exactRecord(witness, witnessFields)) return reject('unexpected_or_missing_keys', at);
+    if (hasLines && !allowLines) return reject('lines_require_run_request_v5', `${at}/lines`);
+    if (hasLines && !lineEntries(witness.lines)) return reject('invalid_line_entries', `${at}/lines`);
     if (!boundedArray(witness.owns, (own) => ownEntry(own, { allowCreates }))) {
       return reject('invalid_own_entries', `${at}/owns`);
     }
@@ -407,20 +445,23 @@ export function verifyRuntimePlanBinding(options = {}) {
 }
 
 /**
- * `lattice.boundary_manifest.v3`。witness_provenanceはresourceごとに区別する。
+ * `lattice.boundary_manifest.v4`。v4はpathを跨ぐ意味的な線を任意記録できる。
  *
  * v3は`owns[].creates`だけがv2との差である。宣言が持っていた「このpathはまだ無い」を
  * 記録側でも保つ——落とすと、manifestだけを読む消費者が既存fileと同じ扱いをする。
- * 旧v2 manifestはrun storeに残るので読み口として受理する。
+ * 旧v2/v3 manifestはrun storeに残るので読み口として受理し、linesを要求しない。
  */
-export const BOUNDARY_MANIFEST_SCHEMA = 'lattice.boundary_manifest.v3';
+export const BOUNDARY_MANIFEST_SCHEMA = 'lattice.boundary_manifest.v4';
 export const BOUNDARY_MANIFEST_SCHEMAS = Object.freeze([
   BOUNDARY_MANIFEST_SCHEMA,
+  'lattice.boundary_manifest.v3',
   'lattice.boundary_manifest.v2',
 ]);
 export function validateRuntimeBoundaryManifest(value) {
-  return validateSafely(value, (manifest) => (
-    exactRecord(manifest, [
+  return validateSafely(value, (manifest) => {
+    const hasLines = Object.hasOwn(manifest, 'lines');
+    return (
+      exactRecord(manifest, [
       'schema',
       'todo_id',
       'owns',
@@ -432,12 +473,14 @@ export function validateRuntimeBoundaryManifest(value) {
       'affected_tests',
       'graph_evidence',
       'witness_provenance',
+      ...(hasLines ? ['lines'] : []),
       'manifest_digest',
-    ])
+      ])
     && BOUNDARY_MANIFEST_SCHEMAS.includes(manifest.schema)
+    && (!hasLines || manifest.schema === BOUNDARY_MANIFEST_SCHEMA)
     && identifier(manifest.todo_id)
     && boundedArray(manifest.owns, (own) => ownEntry(own, {
-      allowCreates: manifest.schema === BOUNDARY_MANIFEST_SCHEMA,
+      allowCreates: [BOUNDARY_MANIFEST_SCHEMA, 'lattice.boundary_manifest.v3'].includes(manifest.schema),
     }))
     && repoPathArray(manifest.reads)
     && repoPathArray(manifest.writes, { allowPrefix: true })
@@ -450,8 +493,10 @@ export function validateRuntimeBoundaryManifest(value) {
     && Object.values(manifest.witness_provenance).every((entry) => (
       WITNESS_PROVENANCE.includes(entry)
     ))
+    && (!hasLines || lineEntries(manifest.lines))
     && selfDigestValid(manifest, 'manifest_digest')
-  ));
+    );
+  });
 }
 
 /** `lattice.runtime_plan.v1`。exact_minimum claimは1〜8 nodeだけを受理する（Decision 1）。 */

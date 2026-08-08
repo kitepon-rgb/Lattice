@@ -180,7 +180,7 @@ compile commandまで案内する（ADR 0160）。**新しい判定はここで�
 含める**——`gantt serve`も常設dashboardも、repo外へ出るHTMLも区別しない。除外の入口は持たない。
 
 依存edgeの不在は順序制約の無申告であって、書き込み境界の非干渉ではない。両者を公開面で区別するため、
-`todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v4`（旧v1〜v3も受理）の宣言と
+`todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v5`（旧v1〜v4も受理）の宣言と
 実sensor観測から並列可否を判定し、`lattice.todo_independence.v3`をplan versionディレクトリへ並置記録する
 （ADR 0127・0132）。conflictは`conflict_resources`のresource idを参照し、kindと衝突した実体
 （symbolまたはrepo相対path）を辞書側で一度だけ保持する。既知の旧契約で書かれた記録は`superseded`として
@@ -191,6 +191,9 @@ witness setは`concern_anchors`を任意で持てる。これは係争資源の�
 名前で宣言する束縛専用の入力であり、並列可否の判定へは写らない——判定入力へ合成する時点で落とすので、
 宣言が誤っていてもconflictを作ることも消すこともできない。concern anchorを持たない
 `lattice.todo_witness_set.v1`の宣言もそのまま受理し、書き換えを要求しない。
+v5は`lines`を任意で持ち、pathを共有しないTODO間でも、同じprotocol・stream・schemaを読む側と
+書く側を`line_id`とpath/symbol anchorで結ぶ。旧版はlines無しのまま受理し、旧版へlinesを足した入力は
+版を曖昧にせずtyped rejectする。
 `todo independence [--plan <key>] --json`はready frontierを検証済み並列グループ・要直列の組・未検査へ
 分けて投影し（`lattice.todo_independence_projection.v2`）、参照時にsensorを引かない。
 記録の鮮度は`coverage`が`verified`／`stale`／`superseded`／`missing`で示し、現在のコード状態を

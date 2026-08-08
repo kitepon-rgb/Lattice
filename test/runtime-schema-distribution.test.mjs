@@ -3,7 +3,9 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
+  LINE_ROLES,
   MANUAL_WITNESS_FIELDS,
+  MANUAL_WITNESS_OPTIONAL_FIELDS,
   RUN_REQUEST_SCHEMA,
   RUN_REQUEST_CLAIM_MODE,
   RUN_REQUEST_FIELDS,
@@ -13,6 +15,7 @@ import {
   selfDigest,
   validateRunRequest,
 } from '../src/runtime-contracts.mjs';
+import { TODO_WITNESS_SET_SCHEMA } from '../src/todo-independence-contracts.mjs';
 
 // ADR 0123。配布するJSON Schemaとruntime validatorが乖離しないことを機械検査する。
 // 「契約は公開しているが配布物に無い」「schemaで通ってから後段で落ちる」を再発させない。
@@ -84,6 +87,19 @@ test('最新run request契約の配布schemaが存在する', async () => {
   const schema = await loadSchema(RUN_REQUEST_SCHEMA);
   assert.equal(schema.title, RUN_REQUEST_SCHEMA);
   assert.equal(schema.properties.schema.const, RUN_REQUEST_SCHEMA);
+  assert.deepEqual(
+    Object.keys(schema.$defs.manualWitness.properties).sort(),
+    [...MANUAL_WITNESS_FIELDS, ...MANUAL_WITNESS_OPTIONAL_FIELDS].sort(),
+  );
+  assert.deepEqual(schema.$defs.line.properties.role.enum, [...LINE_ROLES]);
+});
+
+test('最新witness set契約の公開schemaが線宣言shapeと一致する', async () => {
+  const schema = await loadSchema(TODO_WITNESS_SET_SCHEMA);
+  assert.equal(schema.title, TODO_WITNESS_SET_SCHEMA);
+  assert.equal(schema.properties.schema.const, TODO_WITNESS_SET_SCHEMA);
+  assert.deepEqual(schema.$defs.line.properties.role.enum, [...LINE_ROLES]);
+  assert.equal(schema.$defs.witness.properties.lines.items.$ref, '#/$defs/line');
 });
 
 test('run_request schemaのtop-level keyはvalidatorのexact key集合と一致する', async () => {

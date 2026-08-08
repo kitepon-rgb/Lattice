@@ -172,6 +172,47 @@ test('concern anchorは合成run requestへ写らない', () => {
   assert.equal(set.manual_witness['tip-001'].concern_anchors.length, 1);
 });
 
+test('線宣言はv5だけが受理し、run requestへ同じshapeで届く', () => {
+  const lines = [{
+    line_id: 'room-sse-event',
+    role: 'writes',
+    anchors: [
+      { kind: 'path', path: 'src/alpha.mjs' },
+      { kind: 'symbol', name: 'emitRoomEvent', path: 'src/alpha.mjs' },
+    ],
+  }];
+  const set = witnessSet({
+    manual_witness: { 'tip-001': witness({ lines }) },
+  });
+  assert.equal(validateTodoWitnessSet(set), true);
+  const request = synthesizeWitnessRunRequest(set, {
+    baseSha: BASE_SHA, requestId: 'line-probe',
+  });
+  assert.equal(request.schema, 'lattice.run_request.v5');
+  assert.deepEqual(request.manual_witness['tip-001'].lines, lines);
+  assert.equal(validateRunRequest(request), true);
+
+  const legacy = witnessSet({
+    schema: 'lattice.todo_witness_set.v4',
+    manual_witness: { 'tip-001': witness({ lines }) },
+  });
+  assert.equal(explainTodoWitnessSet(legacy).reason, 'lines_require_witness_set_v5');
+
+  const duplicate = witnessSet({
+    manual_witness: { 'tip-001': witness({ lines: [lines[0], { ...lines[0], role: 'reads' }] }) },
+  });
+  assert.equal(explainTodoWitnessSet(duplicate).reason, 'invalid_line_entries');
+
+  const missingSymbolPath = witnessSet({
+    manual_witness: { 'tip-001': witness({
+      lines: [{ line_id: 'room-sse-event', role: 'reads', anchors: [
+        { kind: 'symbol', name: 'consumeRoomEvent' },
+      ] }],
+    }) },
+  });
+  assert.equal(explainTodoWitnessSet(missingSymbolPath).reason, 'invalid_line_entries');
+});
+
 test('創作宣言はv3から使え、判定入力へそのまま届く', () => {
   const creating = witness({
     owns: [{ kind: 'path', target: 'src/alpha.mjs', creates: true }],

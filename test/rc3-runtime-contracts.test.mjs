@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import { digestArtifact } from '../src/artifact-contracts.mjs';
 import {
+  BOUNDARY_MANIFEST_SCHEMA,
+  RUN_REQUEST_SCHEMA,
   RUN_EVENT_KINDS,
   computeContextContentDigest,
   selfDigest,
@@ -211,6 +213,33 @@ test('10 schemaのnormative exampleを全validatorが受理する', () => {
   for (const [name, validator, example] of SCHEMA_CASES) {
     assert.equal(validator(example), true, name);
   }
+});
+
+test('最新requestとboundary manifestは線宣言を受理し、旧版はfieldを拒否する', () => {
+  const lines = [{
+    line_id: 'room-sse-event', role: 'reads',
+    anchors: [{ kind: 'symbol', name: 'consumeRoomEvent', path: 'src/t1.mjs' }],
+  }];
+  const request = withSelfDigest({
+    ...RUN_REQUEST,
+    schema: RUN_REQUEST_SCHEMA,
+    manual_witness: { T1: { ...manualWitness('T1'), lines }, T2: manualWitness('T2') },
+  }, 'request_digest');
+  assert.equal(validateRunRequest(request), true);
+
+  const oldRequest = withSelfDigest({
+    ...request, schema: 'lattice.run_request.v4',
+  }, 'request_digest');
+  assert.equal(validateRunRequest(oldRequest), false);
+
+  const manifest = withSelfDigest({
+    ...BOUNDARY_MANIFEST, schema: BOUNDARY_MANIFEST_SCHEMA, lines,
+  }, 'manifest_digest');
+  assert.equal(validateRuntimeBoundaryManifest(manifest), true);
+  const oldManifest = withSelfDigest({
+    ...manifest, schema: 'lattice.boundary_manifest.v3',
+  }, 'manifest_digest');
+  assert.equal(validateRuntimeBoundaryManifest(oldManifest), false);
 });
 
 test('run_event timestampは実在する暦日のcanonical UTC millisecondsだけを受理する', () => {

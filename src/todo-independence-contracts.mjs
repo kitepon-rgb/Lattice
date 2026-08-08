@@ -9,18 +9,20 @@ import {
 import {
   RUN_REQUEST_CLAIM_MODE,
   RUN_REQUEST_DECLARATIVE_SCHEMA,
+  RUN_REQUEST_PREDICTION_SCHEMA,
   RUN_REQUEST_SCHEMA,
   explainRunRequest,
   selfDigest as runtimeSelfDigest,
 } from './runtime-contracts.mjs';
 import { TODO_INDEPENDENCE_GUIDANCE_CODES } from './todo-independence-guidance.mjs';
 
-export const TODO_WITNESS_SET_SCHEMA = 'lattice.todo_witness_set.v4';
+export const TODO_WITNESS_SET_SCHEMA = 'lattice.todo_witness_set.v5';
 /**
  * まだ受理する旧witness set契約。v3以前の厳密なcompile意味を変えず、
  * 既存宣言を書き換えさせないために読み口を残す。
  */
 export const TODO_WITNESS_SET_LEGACY_SCHEMAS = Object.freeze([
+  'lattice.todo_witness_set.v4',
   'lattice.todo_witness_set.v3',
   'lattice.todo_witness_set.v2',
   'lattice.todo_witness_set.v1',
@@ -32,10 +34,13 @@ export const TODO_WITNESS_SET_SCHEMAS = Object.freeze([
 /** 宣言できる欄はversionごとに違う。どの版から使えるかを1箇所で持つ。 */
 const CONCERN_ANCHOR_SCHEMAS = Object.freeze([
   TODO_WITNESS_SET_SCHEMA,
+  'lattice.todo_witness_set.v4',
   'lattice.todo_witness_set.v3',
   'lattice.todo_witness_set.v2',
 ]);
-const CREATES_SCHEMAS = Object.freeze([TODO_WITNESS_SET_SCHEMA, 'lattice.todo_witness_set.v3']);
+const CREATES_SCHEMAS = Object.freeze([
+  TODO_WITNESS_SET_SCHEMA, 'lattice.todo_witness_set.v4', 'lattice.todo_witness_set.v3',
+]);
 
 /** 1 taskが宣言できるconcern anchorの資源数と、資源あたりのsymbol数の上限。 */
 export const TODO_CONCERN_ANCHOR_LIMIT = 256;
@@ -131,7 +136,10 @@ export function synthesizeWitnessRunRequest(witnessSet, { baseSha, requestId }) 
   const taskIds = Object.keys(witnessSet.manual_witness).sort(compareText);
   const request = {
     schema: witnessSet.schema === TODO_WITNESS_SET_SCHEMA
-      ? RUN_REQUEST_SCHEMA : RUN_REQUEST_DECLARATIVE_SCHEMA,
+      ? RUN_REQUEST_SCHEMA
+      : witnessSet.schema === 'lattice.todo_witness_set.v4'
+        ? RUN_REQUEST_PREDICTION_SCHEMA
+        : RUN_REQUEST_DECLARATIVE_SCHEMA,
     request_id: requestId,
     repo: { base_sha: baseSha, root_kind: 'git' },
     capacity: witnessSet.capacity,
@@ -220,6 +228,13 @@ export function explainTodoWitnessSet(value) {
     if (!taskIds.every(isTodoIdentifier)) return reject('invalid_identifier', '/manual_witness');
     if (value.witness_set_digest !== todoSelfDigest(value, 'witness_set_digest')) {
       return reject('witness_set_digest_mismatch', '/witness_set_digest');
+    }
+    for (const taskId of taskIds) {
+      const witness = value.manual_witness[taskId];
+      if (plain(witness) && Object.hasOwn(witness, 'lines')
+        && value.schema !== TODO_WITNESS_SET_SCHEMA) {
+        return reject('lines_require_witness_set_v5', `/manual_witness/${taskId}/lines`);
+      }
     }
     const probe = synthesizeWitnessRunRequest(value, {
       baseSha: PROBE_BASE_SHA, requestId: 'witness-set-probe',

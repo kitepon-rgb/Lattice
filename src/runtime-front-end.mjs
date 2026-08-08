@@ -7,6 +7,7 @@ import { compileSchedulabilityGraphV2 } from './schedulability-compiler-v2.mjs';
 import { verifySchedulabilityPlanV2 } from './schedulability-verifier-v2.mjs';
 import {
   BOUNDARY_MANIFEST_SCHEMA,
+  RUN_REQUEST_PREDICTION_SCHEMA,
   RUN_REQUEST_SCHEMA,
   SENSOR_EXPECT_KINDS,
   SENSOR_QUERY_OPERATIONS,
@@ -448,7 +449,8 @@ export function compileRuntimePlanV1(options = {}) {
   const outcomeByQueryId = normalizeEvidence(sensorEvidence, queryById);
 
   const todoIds = request.todos.map((todo) => todo.todo_id);
-  const predictionsOnly = request.schema === RUN_REQUEST_SCHEMA;
+  const predictionsOnly = [RUN_REQUEST_SCHEMA, RUN_REQUEST_PREDICTION_SCHEMA]
+    .includes(request.schema);
 
   // witnessの束縛を解決する。query set外の参照と、expect↔query targetの
   // 不一致（別targetのreceiptへの再ラベル）はQUERY_DRIFT。

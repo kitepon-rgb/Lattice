@@ -1,0 +1,414 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.run_request.v5.schema.json",
+  "title": "lattice.run_request.v5",
+  "description": "Canonical run request accepted by `lattice plan compile --request` and `lattice run start --request`. v5 adds optional semantic line declarations while retaining the predictive boundary semantics of v4.",
+  "$comment": "Runtime validation additionally enforces canonical JSON bytes, the self-digest rule, unique line_id values per TODO, and closed line anchor shapes. v4 remains valid input without lines; v3 and v1 retain their original declarative semantics. The number v2 belongs to the epoch successor request lineage and is validated separately.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "request_id",
+    "repo",
+    "capacity",
+    "todos",
+    "manual_witness",
+    "sensor_query_set",
+    "executor_capability",
+    "claim_mode",
+    "request_digest"
+  ],
+  "properties": {
+    "schema": {
+      "const": "lattice.run_request.v5"
+    },
+    "request_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_sha",
+        "root_kind"
+      ],
+      "properties": {
+        "base_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "root_kind": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executors"
+      ],
+      "properties": {
+        "executors": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "todos": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "todo_id"
+        ],
+        "properties": {
+          "todo_id": {
+            "$ref": "#/$defs/identifier"
+          }
+        }
+      },
+      "$comment": "`todo_id` is chosen by the host. It is not qualified by any TODO store project/plan/revision identity."
+    },
+    "manual_witness": {
+      "type": "object",
+      "description": "Keys must be exactly the `todo_id` values listed in `todos`.",
+      "additionalProperties": {
+        "$ref": "#/$defs/manualWitness"
+      }
+    },
+    "sensor_query_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "queries"
+      ],
+      "properties": {
+        "queries": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/sensorQuery"
+          }
+        }
+      }
+    },
+    "executor_capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapters"
+      ],
+      "properties": {
+        "adapters": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        }
+      }
+    },
+    "claim_mode": {
+      "const": "exact_minimum"
+    },
+    "request_digest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "repoRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo-relative path. Absolute paths, `..` traversal, empty segments, control characters and `\\` separators are rejected.",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))[^\\u0000-\\u001f\\u007f\\\\]+$"
+    },
+    "repoRelativePathOrPrefix": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Same as `repoRelativePath` but a trailing `/` is allowed to declare a directory write prefix.",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))[^\\u0000-\\u001f\\u007f\\\\]+/?$"
+    },
+    "sensorQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "operation"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "operation": {
+          "enum": [
+            "status",
+            "query",
+            "callers",
+            "callees",
+            "impact",
+            "affected"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "$comment": "`id` must be unique across the query set."
+    },
+    "sensorExpect": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "const": "symbol"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "path": {
+              "$ref": "#/$defs/repoRelativePath"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "path",
+                "affected"
+              ]
+            },
+            "path": {
+              "$ref": "#/$defs/repoRelativePath"
+            }
+          }
+        }
+      ]
+    },
+    "lineAnchor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "const": "path" },
+            "path": { "$ref": "#/$defs/repoRelativePath" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name", "path"],
+          "properties": {
+            "kind": { "const": "symbol" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 1024 },
+            "path": { "$ref": "#/$defs/repoRelativePath" }
+          }
+        }
+      ]
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_id", "role", "anchors"],
+      "properties": {
+        "line_id": { "$ref": "#/$defs/identifier" },
+        "role": { "enum": ["reads", "writes"] },
+        "anchors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/lineAnchor" }
+        }
+      }
+    },
+    "manualWitness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owns",
+        "reads",
+        "writes",
+        "resources",
+        "state_effects",
+        "sensor_provenance",
+        "affected_tests",
+        "unknowns"
+      ],
+      "properties": {
+        "owns": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "target"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "symbol",
+                  "path"
+                ]
+              },
+              "target": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "creates": {
+                "const": true,
+                "description": "Optional. Declares that this path does not exist yet and that this TODO creates it. Only valid when kind is path. Only the value true is accepted."
+              }
+            }
+          }
+        },
+        "reads": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/repoRelativePath"
+          }
+        },
+        "writes": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/repoRelativePathOrPrefix"
+          }
+        },
+        "resources": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "state_effects": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "resource_id",
+              "kind"
+            ],
+            "properties": {
+              "resource_id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "kind": {
+                "enum": [
+                  "state",
+                  "schema",
+                  "invariant",
+                  "effect",
+                  "external_effect"
+                ]
+              }
+            }
+          }
+        },
+        "sensor_provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "queries"
+          ],
+          "properties": {
+            "queries": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "query_id",
+                  "expect"
+                ],
+                "properties": {
+                  "query_id": {
+                    "$ref": "#/$defs/identifier"
+                  },
+                  "expect": {
+                    "$ref": "#/$defs/sensorExpect"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "affected_tests": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/repoRelativePath"
+          }
+        },
+        "unknowns": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "ref"
+            ],
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/identifier"
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "lines": {
+          "type": "array",
+          "maxItems": 256,
+          "description": "Optional semantic lines read or written by this TODO. line_id values must be unique within the TODO.",
+          "items": { "$ref": "#/$defs/line" }
+        }
+      }
+    }
+  }
+}
