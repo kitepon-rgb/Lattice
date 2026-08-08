@@ -109,9 +109,23 @@ def('t13', {
   ],
 })
 def('t14', {
-  owns: [p('src/runtime-decision-verifier.mjs'), p('src/runtime-diff-observer.mjs'), pc(EV('t14'))],
-  reads: ['src/runtime-contracts.mjs', 'src/runtime-hold-recompile.mjs'],
-  writes: ['src/runtime-decision-verifier.mjs', 'src/runtime-diff-observer.mjs', EV('t14')],
+  owns: [
+    p('src/rc3-actual-dogfood.mjs'), p('src/rc3-scripted-campaign.mjs'),
+    p('src/rc4-stage1-dogfood.mjs'), p('src/runtime-cli.mjs'),
+    p('src/runtime-contracts.mjs'), p('src/runtime-decision-verifier.mjs'),
+    p('src/runtime-diff-observer.mjs'), p('src/runtime-engine.mjs'),
+    p('src/runtime-hold-recompile.mjs'), p('src/runtime-projection.mjs'),
+    pc('test/runtime-line-observation.test.mjs'), pc(EV('t14')),
+  ],
+  reads: ['src/runtime-front-end.mjs'],
+  writes: [
+    'src/rc3-actual-dogfood.mjs', 'src/rc3-scripted-campaign.mjs',
+    'src/rc4-stage1-dogfood.mjs', 'src/runtime-cli.mjs', 'src/runtime-contracts.mjs',
+    'src/runtime-decision-verifier.mjs', 'src/runtime-diff-observer.mjs',
+    'src/runtime-engine.mjs', 'src/runtime-hold-recompile.mjs',
+    'src/runtime-projection.mjs', 'test/runtime-line-observation.test.mjs', EV('t14'),
+  ],
+  affected_tests: ['test/runtime-line-observation.test.mjs'],
   lines: [{
     line_id: 'src.runtime-diff-observer.mjs--finding-kind', role: 'writes',
     anchors: [
