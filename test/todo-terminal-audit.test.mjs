@@ -211,21 +211,31 @@ test('終端監査gateはToDoのdispatch(next_ready/active_set/dispatch_frontier
 
   // ここからworking plan側だけを固定して見る。監査未了(gate_ready) -> review -> accept と
   // audited planのPhaseが進んでも、他planのdispatchは一切動かないことを確認する。
-  const gateReady = workingSlice(projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW })));
+  const gateReadyStatus = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }));
+  const gateReady = workingSlice(gateReadyStatus);
+  // ap06: 「dispatchが動かない」ことだけを固定すると、監査待ちが**表出していない**状態でも
+  // このtestは緑のまま通る。表出と不変は片方ずつでは守れないので、同じ場所で両方を見る。
+  assert.deepEqual(gateReadyStatus.audit_pending
+    .map(({ plan_key, phase_status }) => [plan_key, phase_status]), [['audited', 'gate_ready']]);
 
   const reviewed = await appendTodoEvent({ repoRoot: root, writer, planKey: 'audited', now: NOW,
     event: { kind: 'phase_review', phase_id: 'terminal-audit', actor: ACTOR, recorded_at: NOW,
       payload: { reason: '重監査開始' } } });
-  const reviewing = workingSlice(projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW })));
+  const reviewingStatus = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }));
+  const reviewing = workingSlice(reviewingStatus);
   assert.deepEqual(reviewing, gateReady);
+  assert.equal(reviewingStatus.audit_pending[0].phase_status, 'reviewing');
 
   await appendTodoEvent({ repoRoot: root, writer, planKey: 'audited', now: NOW,
     event: { kind: 'phase_accept', phase_id: 'terminal-audit', actor: ACTOR, recorded_at: NOW,
       payload: { review_event_digest: reviewed.event.event_digest,
         decision_evidence: evidenceFor(root, 'decision2'),
         evidence_slots: [{ slot_id: 'terminal-audit', evidence: evidenceFor(root, 'slot2') }] } } });
-  const acceptedStatus = workingSlice(projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW })));
+  const afterAcceptStatus = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }));
+  const acceptedStatus = workingSlice(afterAcceptStatus);
   assert.deepEqual(acceptedStatus, gateReady);
+  // 監査が着けば監査欄からは消える。消えてもdispatchは1つ上のdeepEqualのとおり動かない。
+  assert.deepEqual(afterAcceptStatus.audit_pending, []);
 
   // dispatch_frontier全体もrecommended_parallelism以外の主要な形は変わらない
   // (next_readyが変わっていないので当然だが、projectTodoStatusの生成物として明示しておく)。
