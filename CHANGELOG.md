@@ -10,7 +10,8 @@
   非空の一覧を返した時だけ外部ペインになり、probeの失敗・非200・空一覧はすべて概要へ落ちる。
   欄が無いprojectは従来どおり概要だけで、タブもCSP追記も出ない。**Latticeは差された先が何の
   サービスかを知らない**——題名・埋め込み先URL・生存probe URLの3つだけを受け取る。設定は配信の
-  たびに読むので、差すのも外すのもdaemon再起動なしに反映される。描画部品`renderTodoGanttHtml`は
+  たびに読むので、差すのも外すのもdaemon再起動なしに反映される。常設dashboardだけでなく
+  `lattice todo gantt serve`でも同じタブが出るので、手元で確かめられる。描画部品`renderTodoGanttHtml`は
   不変で、自己完結契約（外部参照ゼロ）も保たれる。CSPへは設定があるprojectだけ`frame-src`と
   `connect-src`が加わる。`external_pane`が壊れている時は`PROJECT_IDENTITY_INVALID`で落とし、
   黙って無視しない。
