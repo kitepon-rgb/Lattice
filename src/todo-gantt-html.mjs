@@ -26,18 +26,23 @@ function projectDisplayName(readModel, metadata) {
  * 全taskがdoneでも監査が済んでいなければ工程は閉じていない——図が「全部緑」に見えるのに
  * ヘッダが無言なら、読み手は完了したと読む。
  *
- * 件数は必ず出し、内訳は幅に収まらなければCSSで省略する(全文は`title`に残る)。
- * 省略されるのは内訳であって件数ではないので、監査待ちの存在自体が消えることはない。
  * 判断の着いたPhase(accepted／closed_unaudited)しか無ければ、この札は出ない。
+ *
+ * **出す文字列を有界にする。** ツールバーはpane幅で制約されていないので、長い札は縮まずに
+ * 行を押し広げ、ズーム操作を画面外へ追い出す(2026-08-08に実測)。CSSの`text-overflow`は
+ * ここでは発動しないため、頼れない。全plan名を並べる代わりに先頭1件＋残件数だけを出し、
+ * 全文は`title`に残す。件数(`監査待ち N件`)は常に見える——省略するのは内訳であって、
+ * 監査待ちの存在そのものではない。
  */
 function renderAuditPendingChip(readModel) {
   const pending = auditPendingPhasesOf(readModel);
   if (pending.length === 0) return '';
-  const detail = pending
-    .map(({ plan_key: planKey, phase_id: phaseId, status }) => `${planKey}/${phaseId} (${status})`)
-    .join(' · ');
-  const text = `監査待ち ${pending.length}件: ${detail}`;
-  return `<span class="audit-pending-chip" title="${escapeHtmlAttribute(text)}">${escapeHtmlText(text)}</span>`;
+  const label = ({ plan_key: planKey, phase_id: phaseId, status }) => `${planKey}/${phaseId} (${status})`;
+  // 残件数は書かない——先頭の`N件`が既に全体を数えており、「ほかM件」はその引き算でしかない。
+  // 幅は有限なので、同じことを二度言う分だけplan名が削れる。
+  const text = `監査待ち ${pending.length}件: ${label(pending[0])}`;
+  const full = `監査待ち ${pending.length}件: ${pending.map(label).join(' · ')}`;
+  return `<span class="audit-pending-chip" title="${escapeHtmlAttribute(full)}">${escapeHtmlText(text)}</span>`;
 }
 
 export class TodoGanttRenderError extends Error {

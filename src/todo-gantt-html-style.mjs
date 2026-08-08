@@ -20,12 +20,15 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .gantt-pane{display:grid;grid-template-rows:auto auto minmax(0,1fr);min-width:0;min-height:0;overflow:hidden;background:var(--surface-1)}
 .pane-divider{width:8px;cursor:col-resize;background:rgba(217,216,212,.5);touch-action:none}
 .diagram-toolbar{z-index:3;display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--surface-2);color:var(--text-secondary)}
-.diagram-toolbar button{min-height:32px;padding:0 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font:500 12px/1.6 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif}
+/* 監査待ちの札が入って以降、ツールバーは幅の奪い合いになる。操作系は縮ませない——
+   縮むと「等倍」「全体表示」が2行に折れて、押せるが読みにくい形になる。削るのは札の側で、
+   そちらはellipsisと件数の下限を持っている。 */
+.diagram-toolbar button{flex:0 0 auto;white-space:nowrap;min-height:32px;padding:0 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font:500 12px/1.6 system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif}
 .diagram-toolbar button:focus-visible{outline:2px solid var(--text-primary);outline-offset:2px}
 .zoom-readout{min-width:48px;text-align:center;font-size:12px;font-weight:500;font-variant-numeric:tabular-nums}
 .diagram-note{margin-left:auto;color:var(--text-secondary);font-size:12px;font-weight:500}
 .project-heading{margin-right:8px;color:var(--text-primary);font-size:13px;font-weight:650;white-space:nowrap}
-.audit-pending-chip{flex:0 1 auto;min-width:9em;overflow:hidden;padding:2px 8px;border:1px solid var(--critical);border-radius:9999px;background:var(--surface-1);color:var(--critical);font-size:12px;font-weight:650;white-space:nowrap;text-overflow:ellipsis}.status-symbol.status-in-progress{color:var(--accent)}.status-symbol.status-done{color:var(--good)}.status-symbol.status-blocked{color:var(--critical)}
+.audit-pending-chip{flex:0 1 auto;min-width:9em;max-width:30em;overflow:hidden;padding:2px 8px;border:1px solid var(--critical);border-radius:9999px;background:var(--surface-1);color:var(--critical);font-size:12px;font-weight:650;white-space:nowrap;text-overflow:ellipsis}.status-symbol.status-in-progress{color:var(--accent)}.status-symbol.status-done{color:var(--good)}.status-symbol.status-blocked{color:var(--critical)}
 .diagram-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--surface-1);color:var(--text-secondary);font-size:12px;font-weight:500}
 .diagram-legend>span{white-space:nowrap}.diagram-legend>p{flex:1 0 100%;margin:0;font-weight:400}
 .category-legend{margin-left:auto}.category-legend summary{cursor:pointer;color:var(--text-primary)}

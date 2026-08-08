@@ -49,13 +49,22 @@ function render(read) {
   return renderTodoGanttHtml({ readModel: read, layout: layoutTodoGantt(read, chain) }).html;
 }
 
+const CHIP = '<span class="audit-pending-chip"';
+
 /** ヘッダの札のテキストだけを取り出す。無ければnull。 */
 function chipText(html) {
-  const marker = '<span class="audit-pending-chip"';
-  const start = html.indexOf(marker);
+  const start = html.indexOf(CHIP);
   if (start === -1) return null;
   const open = html.indexOf('>', start);
   return html.slice(open + 1, html.indexOf('</span>', open));
+}
+
+/** 札の`title`(全件の内訳)。無ければnull。 */
+function chipTitle(html) {
+  const start = html.indexOf(CHIP);
+  if (start === -1) return null;
+  const from = html.indexOf('title="', start) + 'title="'.length;
+  return html.slice(from, html.indexOf('"', from));
 }
 
 test('gate_readyのPhaseがあればヘッダに監査待ちが出る', () => {
@@ -70,13 +79,29 @@ test('判断の着いたPhaseしか無ければ札は出ない', () => {
   }
 });
 
-test('監査待ちが複数あれば件数と内訳がplan_key順に並ぶ', () => {
+// 2026-08-08: 全件を並べていた時、札がツールバーを押し広げてズーム操作を画面外へ追い出した。
+// ツールバーはpane幅で制約されておらずCSSの`text-overflow`が発動しないので、出す文字列の側を
+// 有界にする。件数と先頭1件は常に本文、全件は`title`。
+test('監査待ちが複数あれば本文は件数と先頭1件まで、全件はtitleに残る', () => {
   const html = render(readFixture([
     { planKey: 'zeta', phases: [phase('terminal-audit', 'reviewing')] },
     { planKey: 'alpha', phases: [phase('p2', 'rejected'), phase('p1', 'gate_ready')] },
   ]));
-  assert.equal(chipText(html),
+  assert.equal(chipText(html), '監査待ち 3件: alpha/p1 (gate_ready)');
+  assert.equal(chipTitle(html),
     '監査待ち 3件: alpha/p1 (gate_ready) · alpha/p2 (rejected) · zeta/terminal-audit (reviewing)');
+});
+
+test('監査待ちが多くても札の本文長はplan名1件分で頭打ちになる', () => {
+  const many = Array.from({ length: 20 }, (unused, index) => ({
+    planKey: `plan-${String(index).padStart(2, '0')}`,
+    phases: [phase('terminal-audit', 'gate_ready')],
+  }));
+  const text = chipText(render(readFixture(many)));
+  assert.equal(text, '監査待ち 20件: plan-00/terminal-audit (gate_ready)');
+  // 1件だけの時との差は件数の桁だけ。plan数に比例して伸びない。
+  const one = chipText(render(readFixture(many.slice(0, 1))));
+  assert.ok(text.length - one.length <= 1, `${text.length} vs ${one.length}`);
 });
 
 test('phasesを持たないread modelでも描画は壊れず札も出ない', () => {
