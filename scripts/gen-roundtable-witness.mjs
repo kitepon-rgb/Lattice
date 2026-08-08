@@ -112,12 +112,26 @@ def('t14', {
   owns: [p('src/runtime-decision-verifier.mjs'), p('src/runtime-diff-observer.mjs'), pc(EV('t14'))],
   reads: ['src/runtime-contracts.mjs', 'src/runtime-hold-recompile.mjs'],
   writes: ['src/runtime-decision-verifier.mjs', 'src/runtime-diff-observer.mjs', EV('t14')],
+  lines: [{
+    line_id: 'src.runtime-diff-observer.mjs--finding-kind', role: 'writes',
+    anchors: [
+      { kind: 'path', path: 'src/runtime-diff-observer.mjs' },
+      { kind: 'path', path: 'src/runtime-decision-verifier.mjs' },
+    ],
+  }],
 })
 def('t16', {
   owns: [pc('test/integration/line-resource.integration.mjs'), pc(EV('t16'))],
   reads: ['src/runtime-decision-verifier.mjs', 'src/runtime-diff-observer.mjs', 'src/runtime-front-end.mjs', 'test/integration/hold-transform-resume.integration.mjs'],
   writes: ['test/integration/line-resource.integration.mjs', EV('t16')],
   affected_tests: ['test/integration/line-resource.integration.mjs'],
+  lines: [{
+    line_id: 'src.runtime-diff-observer.mjs--finding-kind', role: 'reads',
+    anchors: [
+      { kind: 'path', path: 'src/runtime-diff-observer.mjs' },
+      { kind: 'path', path: 'src/runtime-decision-verifier.mjs' },
+    ],
+  }],
 })
 def('t17', {
   owns: [p('src/runtime-cli.mjs'), pc(EV('t17'))],
