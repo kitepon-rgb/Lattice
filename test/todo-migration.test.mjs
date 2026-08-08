@@ -395,10 +395,16 @@ test('既存store経路のtodo migrateは検証済みJSONを一度だけ追加�
     'schema', 'project_id', 'plan_key', 'plan_version', 'extraction_digest',
     'imported_task_count', 'completed_task_count', 'plan_ref', 'journal_ref', 'snapshot_ref',
     'topology_digest', 'journal_head_digest', 'dispatch_shape', 'terminal_audit_required',
-    'phase_guidance',
+    'phase_guidance', 'coordination_guidance',
     'result_digest',
   ]);
-  assert.equal(result.schema, 'lattice.todo_migrate_result.v2');
+  assert.equal(result.schema, 'lattice.todo_migrate_result.v3');
+  // ob03: 起票直後は調整方式が未宣言。選ぶ機会をここで案内する。
+  assert.deepEqual(result.coordination_guidance, {
+    mode: null,
+    modes: ['witness', 'conversation'],
+    next_action: `lattice todo independence mode --plan ${result.plan_key} --set <witness|conversation> --reason <text>`,
+  });
   assert.equal(result.imported_task_count, 2);
   assert.equal(result.completed_task_count, 1);
   assert.deepEqual(result.dispatch_shape, {

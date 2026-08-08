@@ -130,7 +130,7 @@ test('todo statusはactive/next-ready/blockedを混在投影しstore bytesを変
   const result = JSON.parse(execution.stdout);
   assertExactKeys(result, [
     'schema', 'project_id', 'active_set', 'next_ready', 'dispatch_frontier',
-    'blocked', 'audit_pending', 'plan_notes', 'member_heads', 'result_digest',
+    'blocked', 'audit_pending', 'plan_notes', 'coordination', 'member_heads', 'result_digest',
   ]);
   assert.equal(result.schema, 'lattice.todo_status_result.v6');
   // このstoreはまだ全taskがdoneではない(Phaseはactive)ので監査待ちは無い。
@@ -272,6 +272,7 @@ function syntheticStatusResult(activeCount) {
     blocked: [],
     audit_pending: [],
     plan_notes: [],
+    coordination: [],
     member_heads: [],
     result_digest: '',
   };

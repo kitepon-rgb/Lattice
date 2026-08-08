@@ -533,11 +533,13 @@ test('witness migrateは宣言もrevisionも無い状態をfail closedにする'
 test('案内はadvisoryと投影の両方へ同じ文言で載る', async (context) => {
   const root = await workspace(context, { tasks: ['T1'] });
 
-  // 記録が無い状態: 「競合が無い」ではなく「まだ判定していない」と、判定する手順を返す。
+  // 記録が無く、調整方式も未宣言の状態（ob03）: 「witness setを宣言しろ」ではなく
+  // 「どちらで行くか選べ」を返す。誰の受入条件でもない作業を指す督促が、前campaignで
+  // 8件のToDo全部を素通りされた当のものである（オーナー裁定C①）。
   const projection = parse(runCli(root, ['independence', '--json']).stdout);
-  assert.equal(projection.guidance.code, 'independence_unrecorded');
-  assert.equal(projection.guidance.next_action, 'declare_witness_set_then_compile');
-  assert.match(projection.guidance.message, /まだ判定していない/u);
+  assert.equal(projection.guidance.code, 'coordination_mode_undeclared');
+  assert.equal(projection.guidance.next_action, 'declare_coordination_mode');
+  assert.match(projection.guidance.message, /調整方式をまだ選んでいない/u);
 
   const actorEnv = {
     LATTICE_TODO_ACTOR_HOST: 'host-1',

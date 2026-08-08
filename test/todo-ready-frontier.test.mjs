@@ -100,6 +100,8 @@ const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v6","project_id":"p
   // v6で足したplan_notes欄。このfixtureはplan単位noteを持たないので空。挿入位置は
   // audit_pendingとmember_headsの間で、dispatch側のバイトは1つも動いていない。
   + '"plan_notes":[],'
+  // ob03: 調整方式は未宣言なので空。v6で足した欄はplan_notesとmember_headsの間。
+  + '"coordination":[],'
   + '"member_heads":[__HEADS__],"result_digest":"__RESULT__"}';
 
 test('status v6の出力バイト列がaudit_pending・plan_notes以外変わらない', async (context) => {

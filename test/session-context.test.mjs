@@ -126,7 +126,8 @@ test('readyがあるplanだけ並列可否を要約し、記録が無ければ�
   const [summary] = value.independence;
   assert.equal(summary.plan_key, 'main');
   assert.equal(summary.coverage, 'missing');
-  assert.equal(summary.guidance.code, 'independence_unrecorded');
+  // ob03: 調整方式が未宣言なので、案内は未compileの督促ではなく「どちらで行くか選べ」。
+  assert.equal(summary.guidance.code, 'coordination_mode_undeclared');
   assert.equal(summary.unreadable_reason, null);
   // 記録が無い＝「競合なし」ではないので、検証済みグループを作らない。
   assert.deepEqual(summary.parallel_groups, []);
