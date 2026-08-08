@@ -206,8 +206,10 @@ function parallelCandidateEntry(value) {
   ]) && isTodoIdentifier(value.plan_key)
     && TODO_INDEPENDENCE_COVERAGE.includes(value.coverage)
     && boundedList(value.unjudged_task_ids, isTodoIdentifier)
+    // 1件の組は並列の情報を持たない（taskは常に自分と並列である）。生産側が落としている以上、
+    // 契約側でも受けない——受けると消費者が「2件以上」を前提にできなくなる。
     && boundedList(value.verified_parallel_groups, (group) => exactRecord(group, ['task_ids'])
-      && Array.isArray(group.task_ids) && group.task_ids.length > 0
+      && Array.isArray(group.task_ids) && group.task_ids.length > 1
       && group.task_ids.every(isTodoIdentifier))
     && boundedList(value.serialize_pairs, (pair) => exactRecord(pair, ['task_ids', 'type', 'detail'])
       && Array.isArray(pair.task_ids) && pair.task_ids.length === 2
