@@ -1,0 +1,169 @@
+// roundtable-exec-20260809 の witness set v4 を生成する。
+// boundary compilerは一度に8 ToDoまで（schedulability-compiler-v2のMAX_TODOS）なので、
+// witnessは着手する波のsubsetだけを書き出してcompileする。
+// usage: node scripts/gen-roundtable-witness.mjs [taskId...]（省略時はWave 1: t1..t7）
+import { writeFileSync } from 'node:fs'
+import { canonicalizeTodoArtifact, todoSelfDigest } from '../src/todo-contracts.mjs'
+import { explainTodoWitnessSet } from '../src/todo-independence-contracts.mjs'
+
+const p = t => ({ kind: 'path', target: t })
+const pc = t => ({ kind: 'path', target: t, creates: true })
+const se = (r, k) => ({ resource_id: r, kind: k })
+const unk = (k, r) => ({ kind: k, ref: r })
+const EV = id => `evidence/roundtable-exec-20260809/${id}.md`
+
+// 既定の空欄
+const base = () => ({
+  owns: [], reads: [], writes: [], resources: [], state_effects: [],
+  sensor_provenance: { queries: [] }, affected_tests: [], unknowns: [],
+})
+
+const W = {}
+const def = (id, over) => { W[id] = { ...base(), ...over } }
+
+// ---- Lattice側 ----
+def('t1', {
+  owns: [pc('src/runtime-work-order-contracts.mjs'), pc('src/runtime-work-order-controller.mjs'), pc('test/integration/work-order-controller.integration.mjs'), pc(EV('t1'))],
+  reads: ['src/runtime-adapter-registry.mjs', 'src/runtime-diff-observer.mjs', 'src/runtime-scripted-adapter-controller.mjs', 'src/runtime-scripted-worktree.mjs'],
+  writes: ['src/runtime-work-order-contracts.mjs', 'src/runtime-work-order-controller.mjs', 'test/integration/work-order-controller.integration.mjs', EV('t1')],
+  affected_tests: ['test/integration/work-order-controller.integration.mjs'],
+})
+def('t2', {
+  owns: [p('src/runtime-cli.mjs'), pc(EV('t2'))],
+  reads: ['src/runtime-engine.mjs', 'src/runtime-managed-supervisor.mjs'],
+  writes: ['src/runtime-cli.mjs', EV('t2')],
+})
+def('t3', {
+  owns: [p('src/runtime-cli.mjs'), pc(EV('t3'))],
+  reads: ['src/todo-independence-contracts.mjs'],
+  writes: ['src/runtime-cli.mjs', EV('t3')],
+})
+def('t10', {
+  owns: [pc(EV('t10'))],
+  reads: ['src/runtime-cli.mjs', 'src/runtime-engine.mjs'],
+  writes: [EV('t10')],
+  unknowns: [unk('pending_decision', 'run observe出力の要否確認の結論が出るまで書込範囲は未定。実装する場合は宣言を更新して再compileする')],
+})
+def('t12', {
+  owns: [p('docs/schemas'), p('src/runtime-contracts.mjs'), p('src/todo-independence-contracts.mjs')],
+  reads: ['src/todo-independence.mjs'],
+  writes: ['docs/schemas', 'src/runtime-contracts.mjs', 'src/todo-independence-contracts.mjs', EV('t12')],
+})
+def('t13', {
+  owns: [p('src/runtime-front-end.mjs'), p('src/todo-independence.mjs'), pc(EV('t13'))],
+  reads: ['src/runtime-contracts.mjs', 'src/todo-independence-contracts.mjs'],
+  writes: ['src/runtime-front-end.mjs', 'src/todo-independence.mjs', EV('t13')],
+})
+def('t14', {
+  owns: [p('src/runtime-decision-verifier.mjs'), p('src/runtime-diff-observer.mjs'), pc(EV('t14'))],
+  reads: ['src/runtime-contracts.mjs', 'src/runtime-hold-recompile.mjs'],
+  writes: ['src/runtime-decision-verifier.mjs', 'src/runtime-diff-observer.mjs', EV('t14')],
+})
+def('t16', {
+  owns: [pc('test/integration/line-resource.integration.mjs'), pc(EV('t16'))],
+  reads: ['src/runtime-decision-verifier.mjs', 'src/runtime-diff-observer.mjs', 'src/runtime-front-end.mjs', 'test/integration/hold-transform-resume.integration.mjs'],
+  writes: ['test/integration/line-resource.integration.mjs', EV('t16')],
+  affected_tests: ['test/integration/line-resource.integration.mjs'],
+})
+def('t17', {
+  owns: [p('src/runtime-cli.mjs'), pc(EV('t17'))],
+  reads: ['src/runtime-engine.mjs', 'src/runtime-multi-epoch-store.mjs'],
+  writes: ['src/runtime-cli.mjs', EV('t17')],
+})
+def('t20', {
+  owns: [p('CHANGELOG.md'), p('docs/00_product-contract.md'), p('package.json'), pc(EV('t20'))],
+  writes: ['CHANGELOG.md', 'docs/00_product-contract.md', 'package.json', EV('t20')],
+  state_effects: [se('npm-registry-quolu-lattice', 'state')],
+})
+
+// ---- peertable越境（実体はpeertable repoに書く。ここでは共有資源として宣言） ----
+def('t4', {
+  owns: [pc(EV('t4'))], writes: [EV('t4')],
+  resources: ['pt-run-bridge'],
+  state_effects: [se('pt-run-bridge', 'state')],
+  unknowns: [unk('external_repo', 'peertable:skill/scripts/run-bridge.mjs 新規。本storeのsensorは観測できない')],
+})
+def('t5', {
+  owns: [pc(EV('t5'))], writes: [EV('t5')],
+  resources: ['pt-member-md', 'pt-skill-md'],
+  state_effects: [se('pt-member-md', 'state'), se('pt-skill-md', 'state')],
+  unknowns: [unk('external_repo', 'peertable:.team/roles/member.md と skill/SKILL.md')],
+})
+def('t6', {
+  owns: [pc(EV('t6'))], writes: [EV('t6')],
+  resources: ['pt-setup-sh'],
+  state_effects: [se('pt-setup-sh', 'state')],
+  unknowns: [unk('external_repo', 'peertable:skill/scripts/setup.sh')],
+})
+def('t8', {
+  owns: [pc(EV('t8'))], writes: [EV('t8')],
+  resources: ['pt-run-bridge'],
+  state_effects: [se('pt-run-bridge', 'state')],
+  unknowns: [unk('external_repo', 'peertable:skill/scripts/run-bridge.mjs 複数席対応')],
+})
+def('t9', {
+  owns: [pc(EV('t9'))], writes: [EV('t9')],
+  resources: ['pt-member-md', 'pt-plan-md'],
+  state_effects: [se('pt-member-md', 'state'), se('pt-plan-md', 'state')],
+  unknowns: [unk('external_repo', 'peertable:docs/plan.md（決定25改訂）と憲章/member.md')],
+})
+def('t15', {
+  owns: [pc(EV('t15'))], writes: [EV('t15')],
+  resources: ['pt-skill-md'],
+  state_effects: [se('pt-skill-md', 'state')],
+  unknowns: [unk('external_repo', 'peertable:skill/SKILL.md witness生成手順へ線宣言書式')],
+})
+def('t18', {
+  owns: [pc(EV('t18'))], writes: [EV('t18')],
+  resources: ['pt-skill-md', 'pt-teardown-sh'],
+  state_effects: [se('pt-skill-md', 'state'), se('pt-teardown-sh', 'state')],
+  unknowns: [unk('external_repo', 'peertable:skill/scripts/teardown.sh と監査手順')],
+})
+def('t21', {
+  owns: [pc(EV('t21'))], writes: [EV('t21')],
+  resources: ['pt-plan-md'],
+  state_effects: [se('npm-registry-quolu-peertable', 'state'), se('pt-plan-md', 'state')],
+  unknowns: [unk('external_repo', 'peertable:docs/plan.md 決定追記とnpm publish')],
+})
+
+// ---- gate（受入実測。runの実験はrun storeへ触れるが宣言scopeはevidenceのみ） ----
+def('t7', {
+  owns: [pc(EV('t7'))], writes: [EV('t7')],
+  state_effects: [se('lattice-run-store', 'state')],
+  resources: ['lattice-run-store'],
+  unknowns: [unk('runtime_experiment', '実daemon・実席での一気通貫実測。.lattice/runs配下は実験ごとに生成')],
+})
+def('t11', {
+  owns: [pc(EV('t11'))], writes: [EV('t11')],
+  state_effects: [se('lattice-run-store', 'state')],
+  resources: ['lattice-run-store'],
+  unknowns: [unk('runtime_experiment', '複数席runの実測')],
+})
+def('t19', {
+  owns: [pc(EV('t19'))], writes: [EV('t19')],
+  state_effects: [se('lattice-run-store', 'state')],
+  resources: ['lattice-run-store'],
+  unknowns: [unk('runtime_experiment', '実campaign 1本のmanaged run完走')],
+})
+
+const requested = process.argv.slice(2)
+const subset = requested.length > 0 ? requested : ['t1', 't2', 't3', 't4', 't5', 't6', 't7']
+if (subset.length > 8) { console.error('boundary compilerの上限は8 ToDo'); process.exit(1) }
+for (const id of subset) if (!W[id]) { console.error(`未定義task: ${id}`); process.exit(1) }
+
+const witnessSet = {
+  schema: 'lattice.todo_witness_set.v4',
+  project_id: 'lattice',
+  plan_key: 'roundtable-exec-20260809',
+  capacity: { executors: 4 },
+  sensor_query_set: { queries: [{ id: 'witness-status', operation: 'status' }] },
+  manual_witness: Object.fromEntries([...subset].sort().map(k => [k, W[k]])),
+  witness_set_digest: '0'.repeat(64),
+}
+witnessSet.witness_set_digest = todoSelfDigest(witnessSet, 'witness_set_digest')
+
+const explained = explainTodoWitnessSet(witnessSet)
+console.log(JSON.stringify(explained))
+if (!explained.valid) process.exit(1)
+writeFileSync(new URL('../.lattice/todo/witness/roundtable-exec-20260809.json', import.meta.url), canonicalizeTodoArtifact(witnessSet) + '\n')
+console.log('written:', subset.join(','))
