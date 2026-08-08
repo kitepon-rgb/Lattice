@@ -18,7 +18,8 @@
   "bin": {
     "lattice": "bin/lattice.mjs",
     "lattice-mcp": "bin/lattice-mcp.mjs",
-    "lattice-scripted-adapter": "bin/lattice-scripted-adapter.mjs"
+    "lattice-scripted-adapter": "bin/lattice-scripted-adapter.mjs",
+    "lattice-work-order-adapter": "bin/lattice-work-order-adapter.mjs"
   },
   "files": [
     "bin",
