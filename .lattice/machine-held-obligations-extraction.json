@@ -1,0 +1,354 @@
+{
+  "schema": "lattice.todo_extraction.v3",
+  "project_id": "lattice",
+  "plan_key": "machine-held-obligations",
+  "plan_version": "v1",
+  "actor": {
+    "host": "kaito-macbook-air",
+    "session": "peertable-parent",
+    "agent": "bell"
+  },
+  "recorded_at": "2026-08-08T07:11:32.000Z",
+  "tasks": [
+    {
+      "task_id": "ob01",
+      "title": "plan／phase単位のnote書き込みを足す",
+      "lane": "core",
+      "design_memo": "## 背景\n`todo note`の書き込みは`--task`必須（`src/todo-cli.mjs:2518-2531`付近）で、読み出し\n`note list --plan <k>`はplan単位で通り`requested_task_id: null`を返す。片側実装である\n（前campaign room [88][91]の実測）。工程レベルの義務（順序制約・一度きりの観測の存在）を\n機械に書く場所がない。\n\n## 実装方針\n- 書き込みの`--task`を省略可にし、省略時はplan単位のnoteとして記録する。`--phase <id>`も\n  受けられる形が望ましいが、phase単位の需要が薄ければplan単位だけで閉じてよい（判断したら\n  roomへ一行）。\n- storeの note record／journal event の形は contracts の現行形を読み、task_id を nullable にする\n  最小差分を選ぶ。既存のtask noteの読み書き・note_context（`todo start`返り値）の挙動を変えない。\n- 消費面: `note list --plan <k>`の返りにplan noteが含まれ、既存consumerのexact-key検証を\n  壊さないこと（keyを足す場合はob02のv6と束ねる）。\n- 前campaignの実例をacceptance fixtureに使う: 「ap08をap03より先に着地させる」を\n  plan noteとして書けること。\n- **配達を書き込みと同時に設計する（room [127]）**: task noteは`todo start`の`note_context`で\n  呼ぶ動機なしに届くが、plan noteには同等の経路が無い。書けるだけでは前campaignが直した穴の\n  再生産になる。plan noteを`todo start`の`note_context`へ含める（同planの全taskのstartで届く）\n  ことをこのtaskの範囲とし、status表出はob02が持つ。\n\n## 受入条件\nplan単位noteの書込→`note list`での読出がE2Eで通る。task noteの既存test green。\n書込がjournalへ記録され、blob束縛の証跡作法（あれば）と整合する。",
+      "narrative_ref": "docs/plan_machine-held-obligations.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_machine-held-obligations.md",
+        "origin_line": 48,
+        "source_commit": "680ff765d588f2bf577fc6e09fcc9cfb8a72e290",
+        "heading_path": [
+          "ToDo"
+        ],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": []
+      }
+    },
+    {
+      "task_id": "ob02",
+      "title": "plan noteをstatus面へ表出する",
+      "lane": "core",
+      "design_memo": "## 背景\n書けるだけでは前campaignのadvisoryと同じ運命（正確に書いてあっても読まれない）。\n義務は「次は何？」の面に出て初めて機械が持ったことになる——audit_pending（ADR 0159）と同型。\n\n## 実装方針\n- `todo_status_result`をv5→v6へbump（ADR 0054の前例どおり、in-place追加はしない）。\n- 上位へ`plan_notes`相当の欄を足す。形は軽く: plan単位noteの件数と先頭数件\n  （`{plan_key, note_head_digest, count, latest: [...]}`程度）。64KiB capture limitを再計算し、\n  長文本文は載せない（本文は`note list`が持つ。audit_pendingでproseを落とした判断と同じ）。\n- 挿入位置・validator・result_digestの扱いはv5の実装（`src/todo-status.mjs`）に倣う。\n- dispatch・frontier・readinessへ一切触れない。\n- v5をpinする既存test群（前campaignで触った一覧がevidence/ap03.mdにある）の追従を同commitで。\n- **ob08（dotagents v6追従）が先に着地してからこのtaskのcommitを入れる**……ではなく、\n  commitは進めてよいがpublishが待つ（前campaignのdownstream先行protocolと同じ）。\n\n## 受入条件\nplan noteが1件あるstoreで`todo status --json`のv6欄が埋まり、無ければ空。\nfrontier_digestがnote有無で不変。既存testの追従込みで`npm test` green。",
+      "narrative_ref": "docs/plan_machine-held-obligations.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_machine-held-obligations.md",
+        "origin_line": 49,
+        "source_commit": "680ff765d588f2bf577fc6e09fcc9cfb8a72e290",
+        "heading_path": [
+          "ToDo"
+        ],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": []
+      }
+    },
+    {
+      "task_id": "ob03",
+      "title": "調整方式の起票時宣言と未宣言の表出",
+      "lane": "core",
+      "design_memo": "## 背景\nwitnessが「全planの暗黙義務」だったため帰属が無く、正確な案内が8件で素通りされた\n（前campaign room [96] #3）。オーナー裁定Cの①: plan起票時に「witness検証で並列する」か\n「会話調整で行く」かを明示選択させ、選択に帰属を作る。\n\n## 実装方針\n- extraction schemaはbumpしない（散文正本の決定）。宣言は起票後の明示コマンドで行う:\n  例 `lattice todo independence mode --plan <k> --set witness|conversation --reason <text>`。\n  記録はstoreのjournal event（新kind）として持ち、actorが帰属になる。\n- `todo migrate`の結果の`next_action`が、mode未宣言planに対して宣言コマンドを指す。\n- statusのv6で、mode未宣言のplanが分かる（ob02の欄と別枠でも同居でも、設計判断はroomで\n  一行共有して決めてよい）。**宣言が無くてもdispatchは塞がない**（ob04の不変条件）。\n- `mode=conversation`を選んだplanではwitness系advisoryの督促を出さない（選択の尊重）。\n  `mode=witness`のplanだけが「未compile」を一級表示される。\n- 既存planの扱い: mode未宣言のまま存続できる（migrationを強制しない）。表出だけが変わる。\n\n## 受入条件\nmode宣言→storeへの記録→statusでの見え方の変化がE2Eで通る。conversation宣言planで\nwitness督促が消え、witness宣言planで未compileが表出される。未宣言planのdispatch不変。",
+      "narrative_ref": "docs/plan_machine-held-obligations.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_machine-held-obligations.md",
+        "origin_line": 50,
+        "source_commit": "680ff765d588f2bf577fc6e09fcc9cfb8a72e290",
+        "heading_path": [
+          "ToDo"
+        ],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": []
+      }
+    },
+    {
+      "task_id": "ob04",
+      "title": "「未判定はdispatchを塞がない」をProtected behavior化",
+      "lane": "docs",
+      "design_memo": "## 背景\nオーナー裁定Cの②。ToDoツリー上は並列できそうなものが多数あり、未判定を「不可」へ倒すと\n工程が止まる。現行実装は既に塞いでいない（advisoryのみ）が、これは実装の現状であって\n契約ではない。将来の変更が善意でここを壊さないよう、契約に固定する。\n\n## 実装方針\n- ADR 0160（ob07）のProtected behaviorへ明文を入れ、既存のdispatch不変test\n  （todo-terminal-audit等の前例）と同じ様式で「witness coverage: missing のplanの\n  next_ready／dispatch_frontier／frontier_digestが、coverage有りの同型planと一致する」を\n  anchorするtestを足す。\n- 文言は「未判定は『まだ調べていない』であって『不可』ではない」を核にする。\n\n## 受入条件\nProtected behaviorの明文とanchor testが両方入り、`npm run ci` green。",
+      "narrative_ref": "docs/plan_machine-held-obligations.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_machine-held-obligations.md",
+        "origin_line": 51,
+        "source_commit": "680ff765d588f2bf577fc6e09fcc9cfb8a72e290",
+        "heading_path": [
+          "ToDo"
+        ],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": []
+      }
+    },
+    {
+      "task_id": "ob05",
+      "title": "並列候補の逐次判定を配線する",
+      "lane": "core",
+      "design_memo": "## 背景\nオーナー裁定Cの③。理想の動き: AIがツリーから並列できそうな組を選ぶ→その組だけ境界を\n宣言してcompile→機械が可否を返す→否なら次の候補へ。判定機械（compile）と部分宣言の受理は\n既に在る（witness未宣言taskは「未検査」として残るだけ）。足りないのは候補の提示と導線。\n\n## 実装方針\n- `todo status`（v6）またはdispatch_frontierの近くで、「readyかつ独立性未判定の組」を\n  並列候補として提示し、`next_commands`相当で「この組を判定するには: witness宣言→\n  `independence compile`」の導線を出す。\n- 判定済みの組は判定結果（並列可／conflict）を表示し、conflictでseam切断可能なら\n  その旨（既存のseverability語彙）を出す。\n- 新しい判定ロジックは書かない——既存のcompile結果の投影を候補視点で並べ直すだけ。\n  推定・判断をLattice内へ実装しない（所有境界）。\n- **`frontier_digest`のpreimageを`next_ready`由来のまま変えない（room [126]）**: 判定状態を\n  preimageへ入れると、判定が進むたびにdigestが動き、ADR 0063の「dispatchは監査・判定状態で\n  不変」のバイトanchorが壊れる。並列候補と判定状態は**別欄**に置き、既存欄のバイトへ触らない。\n- 部分witness→compileの再実行で判定が積み増しできることを確認し、できない場合は\n  その事実をroomへ出して設計を相談する（勝手に大工事へ進まない）。\n\n## 受入条件\n2 task readyで未判定のstoreに候補が出て、片組をcompileすると判定が反映され、\n残りが候補として残る、がE2Eで通る。dispatch不変。",
+      "narrative_ref": "docs/plan_machine-held-obligations.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_machine-held-obligations.md",
+        "origin_line": 52,
+        "source_commit": "680ff765d588f2bf577fc6e09fcc9cfb8a72e290",
+        "heading_path": [
+          "ToDo"
+        ],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": []
+      }
+    },
+    {
+      "task_id": "ob06",
+      "title": "E2E testを書く",
+      "lane": "test",
+      "design_memo": "## 背景\nv6・plan note・mode宣言・逐次判定は互いに絡む。面ごとの単体greenだけでは\n「status・note list・独立性投影が同じ答えを指す」が守れない（前campaignのap06と同じ理屈）。\n\n## 実装方針\n- fixture様式は`test/todo-audit-pending-e2e.test.mjs`（bin/lattice.mjs経由・実store）に倣う。\n  gate_ready fixtureの落とし穴2点（NOWを未来に置くとfuture_clock_skew・buildTodoPlanの\n  task形はexact）は前campaign room [38]の申し送りを参照。\n- (a) plan note書込→statusのv6欄→note listの3面一致\n- (b) mode未宣言→宣言→表出変化の遷移\n- (c) 逐次判定: 候補提示→部分compile→判定反映→残候補\n- (d) 不変条件: 上記すべての操作でnext_ready・dispatch_frontier・frontier_digestが不変\n- (e) 契約: v6上位キーexact・validator・result_digest・v5形の拒否\n\n## 受入条件\n新testがgreenで、(d)の不変anchorがob04のtestと同じ場所で固定される。",
+      "narrative_ref": "docs/plan_machine-held-obligations.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_machine-held-obligations.md",
+        "origin_line": 53,
+        "source_commit": "680ff765d588f2bf577fc6e09fcc9cfb8a72e290",
+        "heading_path": [
+          "ToDo"
+        ],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": []
+      }
+    },
+    {
+      "task_id": "ob07",
+      "title": "ADR 0160と公開契約を更新する",
+      "lane": "docs",
+      "design_memo": "## 背景\nwire v6 bumpと「義務は機械が持つ」系の決定はhost統合者の読む面に出す必要がある。\n\n## 実装方針\n- 新規`docs/adr/0160-*.md`（0159が現最大）。内容: (1)工程単位の義務はplan noteが持つ\n  (2)witnessは起票時の明示選択（帰属の設計） (3)未判定はdispatchを塞がない（Protected）\n  (4)逐次判定の導線 (5)非目的: 担当割りの機械化はしない（裁定B）・宣言内容の採点はしない。\n  「未決」節を書くならverify-open-questionsの発火条件必須。\n- `docs/00_product-contract.md`・`docs/01_integration-package.md`のv5言及をv6へ\n  （歴史的記録のv5言及は前campaignのap07の判断に倣い触らない）。\n- CHANGELOG（v0.48.0向け・破壊的変更としてv6を告知）。\n\n## 受入条件\n`npm run ci`（check:open-questions含む）green。契約文書の版数が実装と一致。",
+      "narrative_ref": "docs/plan_machine-held-obligations.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_machine-held-obligations.md",
+        "origin_line": 54,
+        "source_commit": "680ff765d588f2bf577fc6e09fcc9cfb8a72e290",
+        "heading_path": [
+          "ToDo"
+        ],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": []
+      }
+    },
+    {
+      "task_id": "ob08",
+      "title": "dotagents側消費者をv6へ追従させる",
+      "lane": "infra",
+      "design_memo": "## 背景\n前campaignのap08と同じ構図。dotagentsの3消費者（lattice-projection.mjs・\nlattice-control-saga.mjs・lib/lattice-hook.py）がv5をexact-keyでpinしている。\nv6のpublishより先にdownstream追従を着地させる（ADR 0054 protocol）。\n\n## 実装方針\n- 作業対象は別repo `/Users/kite/Developer/dotagents`。前回の自分たちのcommit\n  （330ba81〜70e566e）が正確な前例。\n- 3消費者のexact-key listへv6の新欄を足し、pinをv6へ。sagaの2軸（観測はv6のみ・\n  束縛照合は{v4,v5,v6}）を維持。\n- smoke testの「未対応の将来版」代表をv6→v7へずらし、v6の受理ケースを足す。\n- hook INFOへの新表示（plan note件数等）を足すかは、追従の範囲外。足したければ\n  オーナー宛議題としてroomへ出す（前回の裁定の前例があるので早いはず）。\n- Lattice側ob02のcommitより先の着地が理想だが、破断面はpublish時点なので\n  done順で先行していれば足りる（前回の監査判断 [35] の基準）。\n\n## 受入条件\ndotagents側がv6形を受理し旧形を拒否する。dotagentsのtest green。\nLattice側publishより先に着地している。",
+      "narrative_ref": "docs/plan_machine-held-obligations.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_machine-held-obligations.md",
+        "origin_line": 55,
+        "source_commit": "680ff765d588f2bf577fc6e09fcc9cfb8a72e290",
+        "heading_path": [
+          "ToDo"
+        ],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": []
+      }
+    }
+  ],
+  "hard_dependencies": [
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob01"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob02"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob02"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob06"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob02"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob07"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob03"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob05"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob03"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob06"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob03"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob07"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob04"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob07"
+      }
+    },
+    {
+      "from": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob05"
+      },
+      "to": {
+        "project_id": "lattice",
+        "plan_key": "machine-held-obligations",
+        "task_id": "ob06"
+      }
+    }
+  ],
+  "joins": [],
+  "extraction_digest": "115a6064b83b2891e11b513d154d4c46046000905a4df3f1af6d453ebcb26792"
+}
