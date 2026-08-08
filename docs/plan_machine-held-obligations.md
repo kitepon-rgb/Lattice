@@ -5,6 +5,11 @@ Lane: Orchestrated（多段の受入連鎖・複数repo書込調整・裁定証�
 前campaign（audit-pending-surface・終端監査accepted・v0.47.0出荷）の実行中に発見された議題への、
 オーナー裁定（2026-08-08・room [96]〜）を実装する。実施主体は同じPeertable円卓。
 
+**完了（2026-08-08）**: 全8 ToDo done・終端監査accepted（証跡は
+[docs/evidence/2026-08-08-machine-held-obligations-terminal-audit.md](evidence/2026-08-08-machine-held-obligations-terminal-audit.md)、
+evidence束縛つきphase accept）。受入はLattice 1408/1408・dotagents 252/252の2 repo green。
+v0.48.0として出荷。円卓は4人（frontier幅4に合わせてkoharuが途中着卓）。
+
 ## 背景
 
 前campaignで「工程の途中で発見された義務が、どこにも定着しない」形が3件実測された
