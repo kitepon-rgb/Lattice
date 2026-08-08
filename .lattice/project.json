@@ -1,1 +1,10 @@
-{"display_name":"Lattice","project_id":"lattice","schema":"lattice.project_identity.v1"}
+{
+  "schema": "lattice.project_identity.v1",
+  "project_id": "lattice",
+  "display_name": "Lattice",
+  "external_pane": {
+    "title": "円卓",
+    "url": "https://peertable.kitepon.dev/lattice",
+    "probe_url": "https://peertable.kitepon.dev/api/lattice/members"
+  }
+}
