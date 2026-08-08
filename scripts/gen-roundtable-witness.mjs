@@ -85,9 +85,28 @@ def('t12', {
   ],
 })
 def('t13', {
-  owns: [p('src/runtime-front-end.mjs'), p('src/todo-independence.mjs'), pc(EV('t13'))],
+  owns: [
+    p('src/boundary-observation-compiler-v2.mjs'), p('src/runtime-front-end.mjs'),
+    p('src/seam-proposal-queries.mjs'), p('src/todo-independence-contracts.mjs'),
+    p('src/todo-independence.mjs'), p('test/rc2-artifact-contracts-v2.test.mjs'),
+    p('test/rc3-front-end.test.mjs'), p('test/seam-proposal-queries.test.mjs'),
+    p('test/todo-independence-compile.test.mjs'),
+    p('test/todo-independence-contracts.test.mjs'), pc(EV('t13')),
+  ],
   reads: ['src/runtime-contracts.mjs', 'src/todo-independence-contracts.mjs'],
-  writes: ['src/runtime-front-end.mjs', 'src/todo-independence.mjs', EV('t13')],
+  writes: [
+    'src/boundary-observation-compiler-v2.mjs', 'src/runtime-front-end.mjs',
+    'src/seam-proposal-queries.mjs', 'src/todo-independence-contracts.mjs',
+    'src/todo-independence.mjs', 'test/rc2-artifact-contracts-v2.test.mjs',
+    'test/rc3-front-end.test.mjs', 'test/seam-proposal-queries.test.mjs',
+    'test/todo-independence-compile.test.mjs',
+    'test/todo-independence-contracts.test.mjs', EV('t13'),
+  ],
+  affected_tests: [
+    'test/rc2-artifact-contracts-v2.test.mjs', 'test/rc3-front-end.test.mjs',
+    'test/seam-proposal-queries.test.mjs', 'test/todo-independence-compile.test.mjs',
+    'test/todo-independence-contracts.test.mjs',
+  ],
 })
 def('t14', {
   owns: [p('src/runtime-decision-verifier.mjs'), p('src/runtime-diff-observer.mjs'), pc(EV('t14'))],
