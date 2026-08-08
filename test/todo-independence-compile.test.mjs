@@ -144,6 +144,62 @@ test('同一pathを両方が所有すればconflictとして記録され、wave�
   assert.equal(artifact.wave_plan.minimum_feasible_waves, 2);
 });
 
+test('line conflictはserial資源として記録し、錨pathを鮮度境界へ含める', () => {
+  const writer = {
+    ...witness('src/writer.mjs'),
+    lines: [{
+      line_id: 'src.protocol.mjs--event-shape', role: 'writes',
+      anchors: [{ kind: 'path', path: 'src/protocol.mjs' }],
+    }],
+  };
+  const reader = {
+    ...witness('src/reader.mjs'),
+    lines: [{
+      line_id: 'src.protocol.mjs--event-shape', role: 'reads',
+      anchors: [{ kind: 'symbol', name: 'consumeEvent', path: 'src/protocol.mjs' }],
+    }],
+  };
+  const set = witnessSet(
+    { 'tip-001': writer, 'tip-002': reader },
+    [
+      { id: 'q-status', operation: 'status' },
+      { id: 'q-srcwritermjs', operation: 'affected', target: 'src/writer.mjs' },
+      { id: 'q-srcreadermjs', operation: 'affected', target: 'src/reader.mjs' },
+    ],
+  );
+  const evidence = evidenceFor(set, [
+    { id: 'q-status', operation: 'status', outcome: 'ready' },
+    affectedOutcome('q-srcwritermjs', 'src/writer.mjs'),
+    affectedOutcome('q-srcreadermjs', 'src/reader.mjs'),
+  ]);
+
+  const artifact = compileTodoIndependence({
+    witnessSet: set, plan: plan(), baseSha: BASE_SHA, compiledAt: COMPILED_AT,
+    sensorEvidence: evidence,
+  });
+
+  assert.equal(artifact.outcome, 'compiled');
+  assert.deepEqual(artifact.conflict_resources, [{
+    resource_id: artifact.conflicts[0].resource_id,
+    kind: 'line',
+    target: 'src.protocol.mjs--event-shape',
+  }]);
+  assert.equal(artifact.wave_plan.minimum_feasible_waves, 2);
+  for (const boundary of artifact.task_boundaries) {
+    assert.equal(boundary.paths.includes('src/protocol.mjs'), true);
+  }
+  const projected = projectIndependenceFrontier({
+    artifact,
+    plan: plan(),
+    readyTaskIds: ['tip-001', 'tip-002'],
+    activeTaskIds: [],
+    currentBaseSha: BASE_SHA,
+    changedPaths: [],
+  });
+  assert.equal(projected.frontier.serialize_pairs[0].kind, 'line');
+  assert.equal(projected.frontier.serialize_pairs[0].severability, 'serial');
+});
+
 test('concern宣言はconflict判定を一切動かさない', () => {
   const queries = [
     { id: 'q-status', operation: 'status' },

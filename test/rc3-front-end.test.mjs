@@ -498,6 +498,43 @@ test('write→read交差はunknownでなくstate conflictとしてserial化さ�
   assert.equal(result.schedule.minimum_feasible_waves, 2);
 });
 
+test('同一line_idはwriterを含むpairだけをline conflictとしてserial化する', () => {
+  const todos = [
+    { id: 'LW1', symbol: 'lineWriterOne', path: 'src/line-writer-one.mjs', tests: [] },
+    { id: 'LW2', symbol: 'lineWriterTwo', path: 'src/line-writer-two.mjs', tests: [] },
+    { id: 'LR1', symbol: 'lineReaderOne', path: 'src/line-reader-one.mjs', tests: [] },
+    { id: 'LR2', symbol: 'lineReaderTwo', path: 'src/line-reader-two.mjs', tests: [] },
+  ];
+  const built = buildCase({ requestId: 'req-line', todos, capacity: 4 });
+  built.request.schema = 'lattice.run_request.v5';
+  for (const todo of todos) {
+    built.request.manual_witness[todo.id].lines = [{
+      line_id: 'src.protocol.mjs--event-shape',
+      role: todo.id.startsWith('LW') ? 'writes' : 'reads',
+      anchors: [{ kind: 'path', path: 'src/protocol.mjs' }],
+    }];
+  }
+  built.request.request_digest = selfDigest(built.request, 'request_digest');
+
+  const result = compile(built);
+
+  assert.equal(result.outcome, 'dispatchable');
+  const lineResources = result.resources.filter(({ kind }) => kind === 'line');
+  assert.equal(lineResources.length, 5);
+  assert.deepEqual(
+    lineResources.map(({ todo_ids: todoIds }) => todoIds.join(':')).sort(),
+    [
+      'LR1:LW1', 'LR1:LW2', 'LR2:LW1', 'LR2:LW2', 'LW1:LW2',
+    ],
+  );
+  assert.equal(result.plan.conflicts.some(({ todo_ids: todoIds }) => (
+    todoIds[0] === 'LR1' && todoIds[1] === 'LR2'
+  )), false);
+  assert.equal(result.schedule.minimum_feasible_waves, 3);
+  assert.deepEqual(result.manifests.LW1.lines, built.request.manual_witness.LW1.lines);
+  assert.equal(validateRuntimeBoundaryManifest(result.manifests.LW1), true);
+});
+
 test('state_effect宣言のないbare shared resourceはconflictとしてserial化される', () => {
   const built = buildCase({ requestId: 'req-bare', todos: TOPOLOGY_A });
   built.request.manual_witness.TA1.resources = ['shared-ledger'];

@@ -146,6 +146,7 @@ test('conflict resource集合からrun_request query setを決定的に構成す
     { resource_id: 'state-z', kind: 'state', target: 'registry' },
     { resource_id: 'path-a', kind: 'path', target: 'src/shared.mjs' },
     { resource_id: 'effect-a', kind: 'effect', target: 'network-send' },
+    { resource_id: 'line-a', kind: 'line', target: 'src.protocol.mjs--event-shape' },
     { resource_id: 'symbol-a', kind: 'symbol', target: 'selectAll' },
   ];
   const forward = buildSeamProposalQuerySet({ conflictResources: resources });
@@ -176,6 +177,12 @@ test('conflict resource集合からrun_request query setを決定的に構成す
       reason: 'non_code_conflict',
     },
     {
+      resource_id: 'line-a',
+      kind: 'line',
+      target: 'src.protocol.mjs--event-shape',
+      reason: 'non_code_conflict',
+    },
+    {
       resource_id: 'state-z',
       kind: 'state',
       target: 'registry',
@@ -183,7 +190,9 @@ test('conflict resource集合からrun_request query setを決定的に構成す
     },
   ]);
   assert.equal(
-    forward.query_set.queries.some(({ target }) => ['network-send', 'registry'].includes(target)),
+    forward.query_set.queries.some(({ target }) => (
+      ['network-send', 'registry', 'src.protocol.mjs--event-shape'].includes(target)
+    )),
     false,
   );
   const ids = forward.query_set.queries.map(({ id }) => id);

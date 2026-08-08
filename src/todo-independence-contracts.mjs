@@ -61,7 +61,7 @@ export const TODO_INDEPENDENCE_COVERAGE = Object.freeze([
 
 /** conflictを生んだresourceの種別。切断可能性の導出はこの種別だけを根拠にする。 */
 export const TODO_INDEPENDENCE_CONFLICT_KINDS = Object.freeze([
-  'symbol', 'path', 'state', 'effect',
+  'symbol', 'path', 'state', 'effect', 'line',
 ]);
 
 /** 切断可能性。code seamで切れるのはsymbol/path起因のconflictだけ（ADR 0128 Decision 2）。 */
@@ -70,7 +70,7 @@ export const TODO_INDEPENDENCE_SEVERABILITY = Object.freeze(['code_seam', 'seria
 /**
  * conflict kindから切断可能性を導く。
  *
- * 共有state／effectはcode seamでは切断できない（RC1 boundary compilerの分類規則と同一）。
+ * 共有state／effectと意味的なlineはcode seamでは切断できない（RC1 boundary compilerの分類規則と同一）。
  * read×write交差から実体化される`rw-*`はkind=stateなのでserialへ倒れる。seam候補を
  * 見逃す方向にしか外れない保守的な誤りであり、既知の限界として受け入れる。
  */

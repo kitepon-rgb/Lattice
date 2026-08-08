@@ -86,7 +86,7 @@ function conflictsFrom(verdicts, resources) {
     .map((verdict) => {
       const resource = resourceById.get(verdict.resource_id);
       const kind = resource?.kind;
-      if (!['symbol', 'path', 'state', 'effect'].includes(kind)) {
+      if (!['symbol', 'path', 'state', 'effect', 'line'].includes(kind)) {
         fail('INDEPENDENCE_RESOURCE_KIND_UNRESOLVED', 'conflict_resource_kind_unresolved', {
           resource_id: verdict.resource_id, observed_kind: kind ?? null,
         });
@@ -128,6 +128,9 @@ function boundaryPathsOf(witness) {
   for (const path of witness.reads) paths.add(path);
   for (const path of witness.affected_tests) paths.add(path);
   for (const entry of witness.sensor_provenance.queries) paths.add(entry.expect.path);
+  for (const line of witness.lines ?? []) {
+    for (const anchor of line.anchors) paths.add(anchor.path);
+  }
   return [...paths].sort(compareText);
 }
 

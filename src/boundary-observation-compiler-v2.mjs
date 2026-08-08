@@ -6,7 +6,7 @@ const GRAPH_SCHEMA = 'lattice.normalized_boundary_graph.v2';
 const MAX_TODOS = 256;
 const IDENTIFIER = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
 const DIGEST = /^[0-9a-f]{64}$/;
-const RESOURCE_KINDS = new Set(['symbol', 'path', 'state', 'effect', 'dynamic']);
+const RESOURCE_KINDS = new Set(['symbol', 'path', 'state', 'effect', 'line', 'dynamic']);
 const PROVENANCE_SOURCES = new Set([
   'sensor',
   'manual_candidate_spec',

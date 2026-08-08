@@ -5,7 +5,7 @@ import { SENSOR_QUERY_OPERATIONS } from './runtime-contracts.mjs';
 import { collectSensorEvidence, portableSensorOutcome } from './sensor-adapter.mjs';
 import { todoSelfDigest } from './todo-contracts.mjs';
 
-const CONFLICT_KINDS = new Set(['symbol', 'path', 'state', 'effect']);
+const CONFLICT_KINDS = new Set(['symbol', 'path', 'state', 'effect', 'line']);
 const QUERYABLE_KINDS = new Set(['symbol', 'path']);
 const SYMBOL_OPERATIONS = Object.freeze(['query', 'callers', 'callees', 'impact']);
 const SENSOR_OPERATIONS = new Set(SENSOR_QUERY_OPERATIONS);

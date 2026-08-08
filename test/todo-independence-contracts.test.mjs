@@ -414,6 +414,7 @@ test('切断可能性はkindだけから決まる', () => {
   // 共有state／effectはcode seamでは切断できない（RC1 boundary compilerと同一規則）。
   assert.equal(severabilityOfConflictKind('state'), 'serial');
   assert.equal(severabilityOfConflictKind('effect'), 'serial');
+  assert.equal(severabilityOfConflictKind('line'), 'serial');
 });
 
 test('旧契約supersededとplan改訂supersededは異なるguidanceを返す', () => {

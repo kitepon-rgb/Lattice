@@ -644,6 +644,32 @@ export function compileRuntimePlanV1(options = {}) {
     }
   }
 
+  // 同じ意味的な線はpathが交差しなくても共有契約である。reads同士だけは並列可とし、
+  // 少なくとも片方がwritesのpairを独立したresourceへする。1 lineを全taskの単一resourceへ
+  // 丸めるとreads×readsまでconflictになるため、pair単位で実体化する。
+  const lineGroups = new Map();
+  for (const todoId of todoIds) {
+    for (const line of request.manual_witness[todoId].lines ?? []) {
+      if (!lineGroups.has(line.line_id)) {
+        lineGroups.set(line.line_id, { reads: new Set(), writes: new Set() });
+      }
+      lineGroups.get(line.line_id)[line.role].add(todoId);
+    }
+  }
+  const lineConflictGroups = [];
+  for (const [lineId, roles] of [...lineGroups.entries()]
+    .sort((left, right) => compareText(left[0], right[0]))) {
+    const participants = [...new Set([...roles.reads, ...roles.writes])].sort(compareText);
+    for (let left = 0; left < participants.length; left += 1) {
+      for (let right = left + 1; right < participants.length; right += 1) {
+        const leftId = participants[left];
+        const rightId = participants[right];
+        if (!roles.writes.has(leftId) && !roles.writes.has(rightId)) continue;
+        lineConflictGroups.push({ lineId, todoIds: [leftId, rightId] });
+      }
+    }
+  }
+
   // state_effect宣言のないbare shared resourceは、方向不明の共有資源として
   // conflict化する（安全と推測しない）。
   const bareResourceGroups = new Map();
@@ -731,6 +757,15 @@ export function compileRuntimePlanV1(options = {}) {
       kind: 'state',
       target: writePath,
       todo_ids: [...todos].sort(compareText),
+      provenance: [manualProvenance(request)],
+    });
+  }
+  for (const group of lineConflictGroups) {
+    resources.push({
+      resource_id: `line-${sha16(group.lineId)}-${sha16(group.todoIds.join('\0'))}`,
+      kind: 'line',
+      target: group.lineId,
+      todo_ids: group.todoIds,
       provenance: [manualProvenance(request)],
     });
   }
@@ -833,6 +868,7 @@ export function compileRuntimePlanV1(options = {}) {
       state_effects: witness.state_effects,
       unknowns: witness.unknowns,
       affected_tests: witness.affected_tests,
+      ...(witness.lines === undefined ? {} : { lines: witness.lines }),
       graph_evidence: bindingsByTodo.get(todoId).map((binding) => {
         const outcome = outcomeByQueryId.get(binding.query_id);
         return {
