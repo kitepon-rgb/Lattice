@@ -18,6 +18,7 @@ import {
 import { projectTodoStatus } from './todo-status.mjs';
 import { readTodoPlanNotesForStatus } from './todo-note-store.mjs';
 import { projectIndependenceFrontier } from './todo-independence.mjs';
+import { readTodoParallelCandidatesForStatus } from './todo-parallel-candidates.mjs';
 import { isTodoIndependenceLegacyMarker } from './todo-independence-contracts.mjs';
 import { selectIndependenceGuidance } from './todo-independence-guidance.mjs';
 import { ensureTodoDashboardActivity } from './todo-dashboard-registry.mjs';
@@ -269,6 +270,7 @@ async function resolveProjectState({ cwd, cliVersion }) {
     const store = await readTodoStore({ repoRoot });
     const todo = projectTodoStatus(store, {
       planNotes: await readTodoPlanNotesForStatus({ repoRoot, store }),
+      parallelCandidates: await readTodoParallelCandidatesForStatus({ repoRoot, store, gitHead }),
     });
     const activeRuns = todo.active_set.map((entry) => ({
       plan_key: entry.plan_key, task_id: entry.task_id, label: entry.label,

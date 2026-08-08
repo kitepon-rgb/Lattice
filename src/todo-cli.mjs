@@ -122,6 +122,7 @@ import {
   readTodoNoteEvents,
   readTodoPlanNotesForStatus,
 } from './todo-note-store.mjs';
+import { readTodoParallelCandidatesForStatus } from './todo-parallel-candidates.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_SCOPE = 'live';
@@ -1324,6 +1325,9 @@ async function status({ repoRoot }) {
   const store = await readTodoStore({ repoRoot });
   return projectTodoStatus(store, {
     planNotes: await readTodoPlanNotesForStatus({ repoRoot, store }),
+    parallelCandidates: await readTodoParallelCandidatesForStatus({
+      repoRoot, store, gitHead: currentHeadSha, changedPathsSince,
+    }),
   });
 }
 

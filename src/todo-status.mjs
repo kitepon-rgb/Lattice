@@ -13,6 +13,7 @@ import {
   isTodoIdentifier,
   todoSelfDigest,
 } from './todo-contracts.mjs';
+import { TODO_INDEPENDENCE_COVERAGE } from './todo-independence-contracts.mjs';
 import { todoLegacyReconciliationDigest } from './todo-revision.mjs';
 import { isPhaselessTodoPlanSchema, todoPhaseDefinitions } from './todo-store.mjs';
 
@@ -184,6 +185,44 @@ function coordinationEntry(value) {
     && isTodoStatusBoundedText(value.reason, TODO_STATUS_REASON_LIMIT);
 }
 
+/**
+ * 並列候補1 plan（ob05・オーナー裁定C③）。
+ *
+ * **新しい判定は1つも行わない。** ここに載るのは`projectIndependenceFrontier`が既に出している
+ * 結果を、候補の視点で並べ直したものだけである。並列できそうな組を選ぶのはAIの仕事で、
+ * 機械が持つのは「まだ判定していないreadyはこれ」「判定済みの結果はこれ」だけ
+ * ——推定・判断をLatticeの中へ実装しない（所有境界）。
+ *
+ * **ready taskを1つも持たないplanはentryごと出さない。** 全plan常に1行にすると、plan数ぶん
+ * 埋まって読み飛ばされる列になる（前campaignのwitness `coverage: missing`が実際にそうなった）。
+ *
+ * 逆に`coverage: 'missing'`のplanは**出す**。「まだ誰も判定していない」はこの欄が最も要る状態で、
+ * そこを飛ばすと沈黙が不在に見える。
+ */
+function parallelCandidateEntry(value) {
+  return exactRecord(value, [
+    'plan_key', 'coverage', 'unjudged_task_ids', 'verified_parallel_groups',
+    'serialize_pairs', 'next_commands',
+  ]) && isTodoIdentifier(value.plan_key)
+    && TODO_INDEPENDENCE_COVERAGE.includes(value.coverage)
+    && boundedList(value.unjudged_task_ids, isTodoIdentifier)
+    && boundedList(value.verified_parallel_groups, (group) => exactRecord(group, ['task_ids'])
+      && Array.isArray(group.task_ids) && group.task_ids.length > 0
+      && group.task_ids.every(isTodoIdentifier))
+    && boundedList(value.serialize_pairs, (pair) => exactRecord(pair, ['task_ids', 'type', 'detail'])
+      && Array.isArray(pair.task_ids) && pair.task_ids.length === 2
+      && pair.task_ids.every(isTodoIdentifier)
+      && isTodoStatusBoundedText(pair.type, TODO_STATUS_LABEL_LIMIT)
+      && isTodoStatusBoundedText(pair.detail, TODO_STATUS_REASON_LIMIT))
+    // 候補が在るのに次の一手が無い欄は、この工程が直している「欄だけ置いて閉じる」形になる。
+    && Array.isArray(value.next_commands) && value.next_commands.length > 0
+    && boundedList(value.next_commands,
+      (command) => isTodoStatusBoundedText(command, TODO_STATUS_REASON_LIMIT))
+    // 何も無いplanは出さない。空entryは「判定する対象が無い」と「判定が済んだ」を混ぜる。
+    && (value.unjudged_task_ids.length > 0 || value.verified_parallel_groups.length > 0
+      || value.serialize_pairs.length > 0);
+}
+
 function memberHead(value) {
   return exactRecord(value, [
     'plan_key', 'plan_version', 'through_sequence', 'journal_head_digest',
@@ -242,13 +281,15 @@ export function validateTodoStatusResult(value) {
   try {
     return exactRecord(value, [
       'schema', 'project_id', 'active_set', 'next_ready', 'dispatch_frontier',
-      'blocked', 'audit_pending', 'plan_notes', 'coordination', 'member_heads', 'result_digest',
+      'blocked', 'audit_pending', 'plan_notes', 'coordination', 'parallel_candidates',
+      'member_heads', 'result_digest',
     ]) && value.schema === TODO_STATUS_SCHEMA && isTodoIdentifier(value.project_id)
       && boundedList(value.active_set, activeTaskEntry) && boundedList(value.next_ready, taskEntry)
       && dispatchFrontierEntry(value.dispatch_frontier, value.project_id, value.next_ready)
       && boundedList(value.blocked, blockedEntry) && boundedList(value.audit_pending, auditPendingEntry)
       && boundedList(value.plan_notes, planNoteEntry)
       && boundedList(value.coordination, coordinationEntry)
+      && boundedList(value.parallel_candidates, parallelCandidateEntry)
       && boundedList(value.member_heads, memberHead)
       && isTodoDigest(value.result_digest)
       && value.result_digest === todoSelfDigest(value, 'result_digest');
@@ -476,7 +517,9 @@ export function computeReadyFrontier(readModel) {
  * ——ganttのnote破損は既に警告として表出する契約があり（`notesForGantt`）、二重に落とさない。
  * この定数を使った結果をwireとして出力しないこと。`plan_notes`が常に空になる。
  */
-export const TODO_STATUS_DISPATCH_ONLY = Object.freeze({ planNotes: Object.freeze([]) });
+export const TODO_STATUS_DISPATCH_ONLY = Object.freeze({
+  planNotes: Object.freeze([]), parallelCandidates: Object.freeze([]),
+});
 
 /**
  * Canonical todo read modelからSessionStart向け現在地をread-only投影する。
@@ -488,12 +531,17 @@ export const TODO_STATUS_DISPATCH_ONLY = Object.freeze({ planNotes: Object.freez
  * 呼び出し元だけがそれを渡す。dispatch面しか見ない内部呼び出しは`TODO_STATUS_DISPATCH_ONLY`を使う。
  */
 export function projectTodoStatus(readModel, options = undefined) {
-  if (!exactRecord(options, ['planNotes']) || !Array.isArray(options.planNotes)) {
+  if (!exactRecord(options, ['planNotes', 'parallelCandidates'])
+    || !Array.isArray(options.planNotes)) {
     fail('TODO_STATUS_INVALID_INPUT', 'todo_status_plan_notes_missing');
+  }
+  if (!Array.isArray(options.parallelCandidates)) {
+    fail('TODO_STATUS_INVALID_INPUT', 'todo_status_parallel_candidates_missing');
   }
   const graph = buildTodoGraph(readModel);
   const { nodes, incoming, memberHeads, auditPending, coordination } = graph;
   const planNotes = [...options.planNotes];
+  const parallelCandidates = [...options.parallelCandidates];
 
   const activeSet = [];
   const nextReady = [];
@@ -527,7 +575,8 @@ export function projectTodoStatus(readModel, options = undefined) {
   for (const [name, value] of [
     ['active_set', activeSet], ['next_ready', nextReady], ['blocked', blocked],
     ['audit_pending', auditPending], ['plan_notes', planNotes],
-    ['coordination', coordination], ['member_heads', memberHeads],
+    ['coordination', coordination], ['parallel_candidates', parallelCandidates],
+    ['member_heads', memberHeads],
   ]) enforceListLimit(name, value);
 
   const result = {
@@ -546,6 +595,9 @@ export function projectTodoStatus(readModel, options = undefined) {
     // 調整方式の宣言も同じく別の列である。宣言はdispatchを変えない——未宣言でもready
     // frontierは通常どおり出る(ADR 0160・ob04のProtected behavior)。
     coordination,
+    // 並列候補も別の列である。判定が進んでもdispatchは動かない——next_ready・
+    // dispatch_frontier・frontier_digestは判定状態を1バイトも含まない（ADR 0063・ob04）。
+    parallel_candidates: parallelCandidates,
     member_heads: memberHeads,
     result_digest: '',
   };
