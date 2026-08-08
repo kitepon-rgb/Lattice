@@ -564,7 +564,8 @@ Latticeのプロセス境界へ引くのも誤りである**——操作するAI
 `seam-verification`／`seam-apply`という別経路を作り、五条件（ADR 0138）で受入を決めた。よって
 `bounded-seam.mjs`とRC1〜RC3の実験moduleは**研究成果物であって製品ではない**。消さずに残すが、
 製品と区別する——`npm run check:reachability`が入口から辿れる集合を機械的に出し、辿れないものは
-理由つきで宣言されている場合だけ通す。現在、製品79 module・研究33 module。
+理由つきで宣言されている場合だけ通す。2026-08-08時点の`npm run check:reachability`実測は
+製品91 module・研究33 module。
 
 この裁定で、名前だけ中核に見えるものも整理された。`boundary-compiler.mjs`（製品は
 `runtime-front-end`の`compileRuntimePlanV1`）、`runtime-worktree-executor.mjs`（製品の隔離実行は
@@ -1090,11 +1091,12 @@ compile_binding付きtaskだけを投影するため、通常のplanでは `{"bi
 
 ## 工程
 
-- [ ] `lattice todo --help` に migrate を載せ、既存storeへのplan追加が入口として読めるようにする
-- [ ] `plan create --schema --json` の既定を最新版にする（または非最新である旨を出力へ含める）
-- [ ] revise / revise-set / revise-phase / migrate に `--schema --json` を生やす
-- [ ] スキーマ違反時の detail に、違反したフィールド名（配列名・ソート違反の位置）を載せる
-- [ ] `lattice plan show <key>` を追加し、bindings が空を返すことでの誤読を解消する
+- [x] `lattice todo --help` に migrate を載せ、既存storeへのplan追加が入口として読めるようにする
+- [x] `plan create --schema --json` の既定を最新版にする（または非最新である旨を出力へ含める）
+      （現在の既定は`lattice.plan_create_input.v4`）
+- [x] revise / revise-set / revise-phase / migrate に `--schema --json` を生やす
+- [x] スキーマ違反時の detail に、違反したフィールド名（配列名・ソート違反の位置）を`pointer`として載せる
+- [x] `lattice plan show <key>` を追加し、bindings が空を返すことでの誤読を解消する
 
 ## 配布対象外native sensorのWASM parity（2026-08-01実測）
 
