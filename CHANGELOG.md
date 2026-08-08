@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.50.0 — 2026-08-08
+
+### 破壊的変更（host統合者向け）
+
+- **note本文の公開面除外を廃止した。** `renderPublicTodoGanttForProject` export と
+  `renderTodoGanttForProject`の`includeNotes`オプションを削除し、工程表HTMLを描くすべての面が
+  append-only作業記録を載せる。ADR 0153 Decision 2は「そこへ通す面が生えるまで入口を残す」と
+  していたが、実際に生えた面（repo外から読む工程表）に対するオーナー裁定は**記録込みが正**だった。
+  使われないまま残った入口は、次に面を作る者へ誤った既定を教えるので消す。
+  `includeNotes`を渡していた呼び出しはオプションごと外せばよい（既定の挙動が同じになる）。
+  note artifactは従来どおりgit trackedであり、秘密をnoteへ書かない運用規律は変わらない。
+
 ## 0.49.0 — 2026-08-08
 
 ### 追加

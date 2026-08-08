@@ -99,9 +99,8 @@
   planの並びは、動いているplanを最終活動の新しい順で上、全ToDoが図から外れた完走planを古い順で下。
   plan内のToDo順は登録順を保つ。
 - 幅上限 72ch（読みやすさ）。どの面からもToDoの詳細へ到達でき、到達先の無い選択ボタンを出さない。
-- 初期設計メモはあらゆる動的viewerへ含める。append-only note本文はloopbackへ閉じた面——`gantt serve`と
-  常設dashboard——へ含める。repo外へHTMLを出す公開配信面だけが`includeNotes: false`を強制し、HTML source
-  にもnote本文を入れない。公開配信面は現時点で存在せず、入口だけを残す。
+- 初期設計メモとappend-only note本文は、あらゆる動的viewerへ含める。`gantt serve`・常設dashboard・
+  repo外へ出るHTMLを区別せず、note本文を落とす入口は持たない。
 - 各task行の状態マーク（☐/▶/✅/⛔）だけが「生きた」要素。**Status/Lane/時刻/wave表/Evidence等の
   メタデータブロックは置かない**（左の図と重複するため）。
 

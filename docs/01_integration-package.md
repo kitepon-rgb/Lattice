@@ -50,8 +50,8 @@
   機械可読guidanceへ含める。`NO_PLAN`は空欄を成功に見せるdefaultではなく、無計画を明示する申告である。
 - `todo show`と成功する`todo start`は初期設計メモを自動返却する。append-only noteは開始後に増えた
   作業記憶の別層であり、初期設計メモを代替しない。
-- 個別ToDo右ペインはあらゆる動的viewerで初期設計メモを表示し、loopbackへ閉じた面ではappend-only
-  note本文も表示する。除外が効くのはrepo外へHTMLを出す公開配信面だけである（ADR 0153）。
+- 個別ToDo右ペインはあらゆる動的viewerで初期設計メモとappend-only note本文を表示する。面による
+  除外は無い（ADR 0153の公開面除外は0.50.0で廃止）。
 - 運用表示面は動的dashboardだけとし、project別HTMLやstatus sidecarを生成しない。
   `todo gantt`／`todo gantt status`は`STATIC_GANTT_RETIRED`で正規の動的入口を返す。
 - `todo migrate --schema --json`は最新`lattice.todo_extraction.v3`を返し、`--dry-run`は書込なしで

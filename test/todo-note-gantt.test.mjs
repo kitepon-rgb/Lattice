@@ -5,9 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import {
-  ganttLiveHeadDigest, renderPublicTodoGanttForProject, renderTodoGanttForProject,
-} from '../src/todo-cli.mjs';
+import { ganttLiveHeadDigest, renderTodoGanttForProject } from '../src/todo-cli.mjs';
 import { appendTodoNote } from '../src/todo-note-store.mjs';
 import {
   createTodoStoreWriter, initializeTodoStore, readTodoStore,
@@ -47,33 +45,26 @@ async function append(repoRoot, body, recordedAt = NOW) {
   });
 }
 
-test('公開Ganttは設計メモを表示しappend-only作業記録だけを除外する', async (t) => {
+// 描く面はどれも記録込みで描く。除外の選択肢自体が無いことを、描画結果で押さえる。
+test('Ganttは設計メモとappend-only作業記録をどちらも表示し危険な要素だけ落とす', async (t) => {
   const repoRoot = await workspace(t);
   const memo = 'PUBLIC-DESIGN-NOTE-9f83';
   await append(repoRoot, `${memo}\n\n**重要**\n\n<script>alert(1)</script>\n\n[危険](javascript:alert(1))`);
   const store = await readTodoStore({ repoRoot });
 
-  const local = await renderTodoGanttForProject({
-    repoRoot, readModel: store, displayName: 'Fixture', includeNotes: true,
+  const rendered = await renderTodoGanttForProject({
+    repoRoot, readModel: store, displayName: 'Fixture',
   });
-  assert.match(local.rendered.html, new RegExp(memo, 'u'));
-  assert.match(local.rendered.html, /<h2>設計メモ<\/h2>/u);
-  assert.match(local.rendered.html, /<h2>初期方針<\/h2>/u);
-  assert.match(local.rendered.html, /<strong>重要<\/strong>/u);
-  assert.match(local.rendered.html, /来歴: v1\/T1/u);
-  assert.match(local.rendered.html, /安全上表示できない要素を除外/u);
-  assert.doesNotMatch(local.rendered.html, /<script>alert\(1\)<\/script>/u);
-  assert.doesNotMatch(local.rendered.html, /javascript:/u);
-
-  const publicRender = await renderPublicTodoGanttForProject({
-    repoRoot, readModel: store, displayName: 'Fixture', includeNotes: true,
-  });
-  assert.doesNotMatch(publicRender.rendered.html, new RegExp(memo, 'u'));
-  assert.match(publicRender.rendered.html, /<h2>設計メモ<\/h2>/u);
-  assert.match(publicRender.rendered.html, /作業記録とは別の初期設計を持つ/u);
-  assert.doesNotMatch(publicRender.rendered.html, /<h2>作業記録<\/h2>/u);
-  assert.doesNotMatch(publicRender.rendered.html, /<script>alert\(1\)<\/script>/u);
-  assert.doesNotMatch(publicRender.rendered.html, /javascript:/u);
+  assert.match(rendered.rendered.html, new RegExp(memo, 'u'));
+  assert.match(rendered.rendered.html, /<h2>設計メモ<\/h2>/u);
+  assert.match(rendered.rendered.html, /<h2>作業記録<\/h2>/u);
+  assert.match(rendered.rendered.html, /<h2>初期方針<\/h2>/u);
+  assert.match(rendered.rendered.html, /作業記録とは別の初期設計を持つ/u);
+  assert.match(rendered.rendered.html, /<strong>重要<\/strong>/u);
+  assert.match(rendered.rendered.html, /来歴: v1\/T1/u);
+  assert.match(rendered.rendered.html, /安全上表示できない要素を除外/u);
+  assert.doesNotMatch(rendered.rendered.html, /<script>alert\(1\)<\/script>/u);
+  assert.doesNotMatch(rendered.rendered.html, /javascript:/u);
 });
 
 /** 1行のJSON resultを吐くまで待つ。CLIの契約はstdout 1行目のJSONである。 */
@@ -97,8 +88,8 @@ function firstJsonLine(child) {
   });
 }
 
-// loopbackのserveが公開入口へ戻ると作業記録が丸ごと消える。表示の有無ではなく配線を守る。
-test('loopbackの gantt serve は作業記録込みでHTMLを配信する', async (t) => {
+// serveがnoteを読まない配線へ戻ると作業記録が丸ごと消える。表示の有無ではなく配線を守る。
+test('gantt serve は作業記録込みでHTMLを配信する', async (t) => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'lattice-note-serve-'));
   t.after(() => rm(repoRoot, { recursive: true, force: true }));
   assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: repoRoot }).status, 0);
@@ -160,7 +151,7 @@ test('Ganttのnote chain破損は明示警告になりlive headも破損を反�
   await writeFile(active, ` ${await readFile(active, 'utf8')}`);
 
   const rendered = await renderTodoGanttForProject({
-    repoRoot, readModel: store, displayName: 'Fixture', includeNotes: true,
+    repoRoot, readModel: store, displayName: 'Fixture',
   });
   assert.match(rendered.rendered.html, /作業記録の読取警告/u);
   assert.match(rendered.rendered.html, /NOTE_LOG_CORRUPT/u);

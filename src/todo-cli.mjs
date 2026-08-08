@@ -2299,7 +2299,7 @@ async function seamProposalsForGantt({ repoRoot, store }) {
 
 export async function renderTodoGanttForProject({
   repoRoot, stable = false, displayName = null, env = process.env, readModel = null,
-  scope = DEFAULT_GANTT_SCOPE, includeNotes = true,
+  scope = DEFAULT_GANTT_SCOPE,
 }) {
   const store = readModel
     ?? (stable ? await readTodoStoreStable({ repoRoot }) : await readTodoStore({ repoRoot }));
@@ -2312,8 +2312,7 @@ export async function renderTodoGanttForProject({
   const [independence, seamProposals, notes] = await Promise.all([
     independenceForGantt({ repoRoot, store }),
     seamProposalsForGantt({ repoRoot, store }),
-    includeNotes ? notesForGantt({ repoRoot, store })
-      : { contexts: null, warnings: [], headBindings: [] },
+    notesForGantt({ repoRoot, store }),
   ]);
   const layout = layoutTodoGantt(store, chain, { scope, independence, seamProposals });
   // When the diagram hides history, the page also carries the full diagram so
@@ -2364,16 +2363,6 @@ export async function renderTodoGanttForProject({
     noteWarnings: notes.warnings,
   });
   return { store, metadata, memberBindings, rendered };
-}
-
-/**
- * 公開配信面はToDo本体の設計メモを表示し、append-only作業記録は除外する。
- *
- * loopbackのdashboardと`gantt serve`は公開配信面ではない。作業者本人が読む面なので
- * 記録込みで描く。この入口はrepo外へHTMLを出す面が生えた時に使う。
- */
-export async function renderPublicTodoGanttForProject(options = {}) {
-  return renderTodoGanttForProject({ ...options, includeNotes: false });
 }
 
 async function serveGantt({ repoRoot, port, stdout, env, scope = DEFAULT_GANTT_SCOPE }) {

@@ -78,8 +78,8 @@ lattice todo show --plan <key> --task <id> --json
 
 The selected ToDo's detail pane shows the initial design memo and the append-only note bodies, plus the
 status of each prerequisite and dependent ToDo (pending, in progress, done, blocked) and whether the ToDo
-can run in parallel. Only a public distribution surface — HTML served outside the repository — drops note
-bodies. Static per-project HTML is not generated; `lattice todo gantt serve` and the shared dashboard
+can run in parallel. Note bodies are carried by every rendered surface, including HTML served outside the
+repository. Static per-project HTML is not generated; `lattice todo gantt serve` and the shared dashboard
 read the store dynamically.
 
 ### The five acceptance conditions

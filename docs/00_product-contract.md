@@ -176,9 +176,8 @@ removed taskのnoteはarchived束へ分離する。
 compile commandまで案内する（ADR 0160）。**新しい判定はここで行わない**——既存のindependence投影の
 並べ替えである。判定する対象が無いplanはentryごと出さない。
 
-個別ToDo右ペインの「作業記録」は同じbounded contextを表示する。loopbackへ閉じた`gantt serve`と常設
-dashboardは作業者本人が読む面なので記録込みで描く。note本文を落とすのはrepo外へHTMLを出す公開配信面
-だけとし、その入口が`includeNotes: false`を強制する。公開配信面は現時点で存在せず、入口だけを残す。
+個別ToDo右ペインの「作業記録」は同じbounded contextを表示する。**note本文はHTMLを描くすべての面へ
+含める**——`gantt serve`も常設dashboardも、repo外へ出るHTMLも区別しない。除外の入口は持たない。
 
 依存edgeの不在は順序制約の無申告であって、書き込み境界の非干渉ではない。両者を公開面で区別するため、
 `todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v4`（旧v1〜v3も受理）の宣言と
