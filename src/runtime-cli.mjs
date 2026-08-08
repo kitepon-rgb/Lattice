@@ -936,9 +936,11 @@ async function driveScriptedManagedEpoch({
             process_group_id: response.worker_process.process_group_id,
             process_start_identity:
               structuredClone(response.worker_process.process_start_identity),
-            // workerはさらに子を持たない。空配列は「子が居ない」という主張であり、
-            // 直接OS観測は実測と突き合わせて未記録のchildが居ないことまで確かめる。
+            // 省略は従来adapterのstatic child集合。外部長寿命workerはroot identityと
+            // PGIDだけを不変にし、barrier時点の全group member静止を検証する。
             process_children: [],
+            process_membership_policy:
+              response.worker_process.process_membership ?? 'static',
             // TODOごとの木を指す。ここがrepo rootだった頃、帰属はrootから決まらなかった。
             worktree_path: worktreeByTodo.get(packet.todo_id),
             worktree_realpath: worktreeByTodo.get(packet.todo_id),

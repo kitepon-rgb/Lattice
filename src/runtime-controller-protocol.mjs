@@ -405,7 +405,7 @@ function validateProtocolRunningBinding(value) {
  * dispatchが名指しするworker process。直接OS観測が期待するchild processと同じ形にする
  * ——照合先の形が分かれると、supervisorとcontrollerが別のものを見ていても気づけない。
  */
-export function validateExpectedWorkerProcess(value) {
+function validateExpectedWorkerProcessLeaf(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     && Object.keys(value).sort().join('\0')
       === ['pid', 'process_group_id', 'process_start_identity'].sort().join('\0')
@@ -413,6 +413,20 @@ export function validateExpectedWorkerProcess(value) {
     && Number.isSafeInteger(value.process_group_id) && value.process_group_id > 0
     && validateProcessStartIdentity(value.process_start_identity)
     && value.process_start_identity.pid === value.pid;
+}
+
+export function validateExpectedWorkerProcess(value) {
+  if (validateExpectedWorkerProcessLeaf(value)) return true;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).sort().join('\0')
+      !== ['pid', 'process_group_id', 'process_start_identity', 'process_membership'].sort().join('\0')
+    || !validateExpectedWorkerProcessLeaf({
+      pid: value.pid,
+      process_group_id: value.process_group_id,
+      process_start_identity: value.process_start_identity,
+    })
+    || value.process_membership !== 'dynamic_group') return false;
+  return true;
 }
 
 export function validateQuiescenceAck(value) {

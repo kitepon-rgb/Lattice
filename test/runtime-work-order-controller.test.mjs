@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -53,7 +54,7 @@ async function waitForFile(filePath) {
 }
 
 test('work-order workerはreportを合図にしdiffをLattice自身で観測する', async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), 'lattice-work-order-'));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'lattice-work-order-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   const worktreePath = path.join(root, 'tree');
   const spoolDir = path.join(root, 'spool');
@@ -70,13 +71,22 @@ test('work-order workerはreportを合図にしdiffをLattice自身で観測す�
   const orderPath = path.join(spoolDir, 'orders', `${executorPacket.packet_digest}.json`);
   const reportPath = path.join(spoolDir, 'reports', `${executorPacket.packet_digest}.json`);
 
+  const seat = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  assert.equal(Number.isSafeInteger(seat.pid), true);
+  t.after(() => {
+    try { process.kill(-seat.pid, 'SIGKILL'); } catch { /* 終了済み */ }
+  });
+
   // 前runのdoneが残っていても、新orderより前に消されて誤受理されない。
   await writeFile(reportPath, `${canonicalizeArtifact({
     schema: 'lattice.run_work_report.v1',
     packet_digest: executorPacket.packet_digest,
     state: 'done',
-    worker_pid: process.pid,
-  })}\n`);
+    worker_pid: seat.pid,
+  })}\n`, { mode: 0o600 });
 
   const workerPromise = spawnWorkOrderWorker({
     packet: executorPacket,
@@ -91,13 +101,14 @@ test('work-order workerはreportを合図にしdiffをLattice自身で観測す�
     schema: 'lattice.run_work_report.v1',
     packet_digest: executorPacket.packet_digest,
     state,
-    worker_pid: process.pid,
+    worker_pid: seat.pid,
   });
-  await writeFile(reportPath, `${canonicalizeArtifact(report('working'))}\n`);
+  await writeFile(reportPath, `${canonicalizeArtifact(report('working'))}\n`, { mode: 0o600 });
   const worker = await workerPromise;
-  assert.equal(worker.pid, process.pid);
+  assert.equal(worker.pid, seat.pid);
+  assert.equal(worker.process_membership, 'dynamic_group');
   await writeFile(path.join(worktreePath, 'src', 'a.mjs'), 'export const a = 2;\n');
-  await writeFile(reportPath, `${canonicalizeArtifact(report('done'))}\n`);
+  await writeFile(reportPath, `${canonicalizeArtifact(report('done'))}\n`, { mode: 0o600 });
   const completed = await worker.completed;
   assert.deepEqual(completed.observedDiff, [{ path: 'src/a.mjs', change: 'modified' }]);
   assert.match(completed.checkpointDigest, /^[0-9a-f]{64}$/u);

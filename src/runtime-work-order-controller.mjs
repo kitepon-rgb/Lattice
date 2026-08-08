@@ -244,20 +244,36 @@ async function readWorkOrderBehavior(repoRoot) {
   if (!info.isDirectory() || info.isSymbolicLink()) {
     fail('WORK_ORDER_BOOTSTRAP_INVALID', 'spool_dirがreal directoryでない');
   }
-  await mkdir(path.join(spoolDir, 'orders'), { recursive: true, mode: 0o700 });
-  await mkdir(path.join(spoolDir, 'reports'), { recursive: true, mode: 0o700 });
+  for (const child of ['orders', 'reports']) {
+    const directory = path.join(spoolDir, child);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await chmod(directory, 0o700);
+    const childInfo = await lstat(directory);
+    if (!childInfo.isDirectory() || childInfo.isSymbolicLink()
+      || await realpath(directory) !== directory) {
+      fail('WORK_ORDER_BOOTSTRAP_INVALID', `${child} directoryがcanonicalでない`);
+    }
+  }
   return { spoolDir };
 }
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function readWorkReport(reportPath, packetDigest) {
-  let bytes;
-  try { bytes = await readFile(reportPath); }
+  let info;
+  try { info = await lstat(reportPath); }
   catch (error) {
     if (error?.code === 'ENOENT') return null;
     throw error;
   }
+  if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0
+    || info.size <= 0 || info.size > MAX_DOCUMENT_BYTES
+    || await realpath(reportPath) !== reportPath) {
+    fail('WORK_ORDER_REPORT_INVALID', 'work reportがprivate canonical regular fileでない');
+  }
+  let bytes;
+  try { bytes = await readFile(reportPath); }
+  catch (error) { throw error; }
   let report;
   try { report = JSON.parse(bytes.toString('utf8')); }
   catch { fail('WORK_ORDER_REPORT_INVALID', 'work reportのJSONが不正'); }
@@ -277,18 +293,92 @@ async function waitForWorkReport(reportPath, packetDigest) {
   }
 }
 
-async function processGroupId(pid) {
+function processIdentity(record) {
+  const identity = {
+    schema: 'lattice.process_start_identity.v1',
+    platform: process.platform,
+    pid: record.pid,
+    started_identity: record.startedIdentity,
+    identity_digest: '',
+  };
+  identity.identity_digest = selfDigest(identity, 'identity_digest');
+  return identity;
+}
+
+function quiescedState(rawState) {
+  if (rawState.startsWith('T')) return 'stopped';
+  if (rawState.startsWith('Z')) return 'zombie';
+  return null;
+}
+
+async function observeWorkerProcessTree(pid) {
   let stdout;
   try {
-    ({ stdout } = await execFileAsync('/bin/ps', ['-o', 'pgid=', '-p', String(pid)], {
+    ({ stdout } = await execFileAsync('/bin/ps', [
+      '-axo', 'pid=,ppid=,pgid=,state=,lstart=',
+    ], {
       encoding: 'utf8',
+      maxBuffer: 8 * 1024 * 1024,
     }));
   } catch { fail('WORK_ORDER_REPORT_INVALID', 'worker_pidをOS観測できない'); }
-  const value = Number(stdout.trim());
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    fail('WORK_ORDER_REPORT_INVALID', 'worker process groupを観測できない');
+  const records = new Map();
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.trim();
+    if (line.length === 0) continue;
+    const match = line.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/u);
+    if (!match) fail('WORK_ORDER_REPORT_INVALID', 'ps観測結果を解析できない');
+    const record = {
+      pid: Number(match[1]),
+      parentPid: Number(match[2]),
+      processGroupId: Number(match[3]),
+      rawState: match[4],
+      startedIdentity: match[5].trim(),
+    };
+    if (![record.pid, record.processGroupId].every((value) => Number.isSafeInteger(value)
+      && value > 0) || !Number.isSafeInteger(record.parentPid) || record.parentPid < 0
+      || record.startedIdentity.length === 0 || records.has(record.pid)) {
+      fail('WORK_ORDER_REPORT_INVALID', 'ps process recordが不正');
+    }
+    records.set(record.pid, record);
   }
-  return value;
+  const root = records.get(pid);
+  if (root === undefined) fail('WORK_ORDER_REPORT_INVALID', 'worker_pidが存在しない');
+  const descendantPids = new Set();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const record of records.values()) {
+      if (record.pid !== pid && !descendantPids.has(record.pid)
+        && (record.parentPid === pid || descendantPids.has(record.parentPid))) {
+        descendantPids.add(record.pid);
+        changed = true;
+      }
+    }
+  }
+  const descendants = [...descendantPids].map((childPid) => records.get(childPid))
+    .sort((left, right) => left.pid - right.pid);
+  if (descendants.some((record) => record.processGroupId !== root.processGroupId)) {
+    fail('WORK_ORDER_REPORT_INVALID', 'worker childがrootと別process groupに居る');
+  }
+  const expectedGroup = new Set([pid, ...descendantPids]);
+  if ([...records.values()].some((record) => record.processGroupId === root.processGroupId
+    && !expectedGroup.has(record.pid))) {
+    fail('WORK_ORDER_REPORT_INVALID', 'worker process groupを無関係processと共有している');
+  }
+  return {
+    pid: root.pid,
+    parentPid: root.parentPid,
+    processGroupId: root.processGroupId,
+    processStartIdentity: processIdentity(root),
+    rawState: root.rawState,
+    observationChildren: descendants.map((record) => ({
+      pid: record.pid,
+      parent_pid: record.parentPid,
+      process_start_identity_digest: processIdentity(record).identity_digest,
+      process_group_id: record.processGroupId,
+      state: quiescedState(record.rawState),
+    })),
+  };
 }
 
 /** orderを書き、bridgeのreportを状態遷移の合図として待つ。 */
@@ -304,9 +394,7 @@ export async function spawnWorkOrderWorker({ packet, worktreePath, spoolDir }) {
   // 辞退はbridge内で再配車し、受諾した席が決まるまでreportを出さない。
   // controller側の任意timeoutでactivateを失敗させず、実席pidだけをimmutable bindする。
   const firstReport = await waitForWorkReport(reportPath, packet.packet_digest);
-  const identity = await observeManagedProcessStartIdentity(firstReport.worker_pid)
-    .catch(() => fail('WORK_ORDER_REPORT_INVALID', 'worker_pidのstart identityを観測できない'));
-  const groupId = await processGroupId(firstReport.worker_pid);
+  const processTree = await observeWorkerProcessTree(firstReport.worker_pid);
   const completed = (async () => {
     let report = firstReport;
     while (report.state !== 'done') {
@@ -330,10 +418,67 @@ export async function spawnWorkOrderWorker({ packet, worktreePath, spoolDir }) {
   })();
   return {
     pid: firstReport.worker_pid,
-    process_group_id: groupId,
-    process_start_identity: identity,
+    process_group_id: processTree.processGroupId,
+    process_start_identity: processTree.processStartIdentity,
+    process_membership: 'dynamic_group',
     completed,
   };
+}
+
+async function quiesceWorkOrderTask(task) {
+  try {
+    process.kill(-task.worker.process_group_id, 'SIGSTOP');
+  } catch (error) {
+    fail('WORK_ORDER_BARRIER_REJECTED', 'worker process groupを止められない', {
+      pid: task.worker.pid, reason: String(error?.code ?? error?.message ?? error),
+    });
+  }
+  try {
+    let processTree = null;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      processTree = await observeWorkerProcessTree(task.worker.pid);
+      if (quiescedState(processTree.rawState) !== null
+        && processTree.observationChildren.every((child) => child.state !== null)) break;
+      processTree = null;
+      await sleep(10);
+    }
+    if (processTree === null
+      || processTree.processGroupId !== task.worker.process_group_id
+      || processTree.processStartIdentity.identity_digest
+        !== task.worker.process_start_identity.identity_digest) {
+      fail('WORK_ORDER_BARRIER_REJECTED', 'worker process集合を静止・再認証できない');
+    }
+    const checkpoint = await captureWorktreeDiff({
+      worktreePath: task.worktreePath, baseSha: task.packet.base_sha,
+    });
+    return {
+      checkpoint,
+      processObservationDigest: digestArtifact({
+        schema: 'lattice.direct_process_observation.v2',
+        root: {
+          pid: task.worker.pid,
+          parent_pid: processTree.parentPid,
+          process_start_identity_digest: task.worker.process_start_identity.identity_digest,
+          process_group_id: task.worker.process_group_id,
+          state: quiescedState(processTree.rawState),
+        },
+        children: processTree.observationChildren,
+        process_group_id: task.worker.process_group_id,
+        quiesced: true,
+      }),
+      worktreeFingerprintDigest: digestArtifact({
+        schema: 'lattice.direct_worktree_fingerprint.v1',
+        worktree_id: task.worktreeId,
+        worktree_realpath: task.worktreePath,
+        checkpoint_digest: checkpoint.checkpoint_digest,
+      }),
+    };
+  } catch (error) {
+    try { process.kill(-task.worker.process_group_id, 'SIGCONT'); }
+    catch { /* 元のbarrier失敗を保持する */ }
+    task.state = 'running';
+    throw error;
+  }
 }
 
 export async function createWorkOrderAdapterController({
@@ -407,6 +552,7 @@ export async function createWorkOrderAdapterController({
     pid: task.worker.pid,
     process_group_id: task.worker.process_group_id,
     process_start_identity: structuredClone(task.worker.process_start_identity),
+    process_membership: task.worker.process_membership,
   });
 
   const persistReceipt = async (receipt) => {
@@ -570,7 +716,7 @@ export async function createWorkOrderAdapterController({
         }
         // 長寿命worker poolのprocessを殺さず、barrierで止めた同じ席を再開して
         // successor orderへ載せ直す。process寿命は外部adapterの所有である。
-        try { process.kill(prior.worker.pid, 'SIGCONT'); }
+        try { process.kill(-prior.worker.process_group_id, 'SIGCONT'); }
         catch (error) {
           fail('WORK_ORDER_EXECUTION_FAILED', 'held workerを再開できない', {
             pid: prior.worker.pid,
@@ -724,41 +870,10 @@ export async function createWorkOrderAdapterController({
         if (task === undefined || task.packet.todo_id !== binding.todo_id) {
           fail('WORK_ORDER_BARRIER_REJECTED', 'barrierが未知のrunning bindingを含む');
         }
-        // **barrierは静止の宣言である。** worker processを実際に止め、止まった木を読む。
-        // 走行中の作業を残したままackを返すと、「止まった」と言いながらworktreeが動き続ける。
-        try {
-          process.kill(task.worker.pid, 'SIGSTOP');
-        } catch (error) {
-          fail('WORK_ORDER_BARRIER_REJECTED', 'worker processを止められない', {
-            pid: task.worker.pid, reason: String(error?.code ?? error?.message ?? error),
-          });
-        }
+        // **barrierは静止の宣言である。** PGID全体を止め、現在の全memberを観測する。
+        // ack前に失敗した時は外部所有の席を凍結したまま残さず再開する。
+        const quiesced = await quiesceWorkOrderTask(task);
         task.state = 'held';
-        // supervisorも同じ観測を独立に行い、3つのdigestの一致を要求する。**こちらが別の形で
-        // 作ると、両者が別のものを見ていても気づけない。** 形はdirect OS observerの契約に
-        // 揃え、入力（自分のprocess・自分の木）だけを独立に観測する。
-        const checkpoint = await captureWorktreeDiff({
-          worktreePath: task.worktreePath, baseSha: task.packet.base_sha,
-        });
-        const processObservationDigest = digestArtifact({
-          schema: 'lattice.direct_process_observation.v2',
-          root: {
-            pid: task.worker.pid,
-            parent_pid: process.pid,
-            process_start_identity_digest: task.worker.process_start_identity.identity_digest,
-            process_group_id: task.worker.process_group_id,
-            state: 'stopped',
-          },
-          children: [],
-          process_group_id: task.worker.process_group_id,
-          quiesced: true,
-        });
-        const worktreeFingerprintDigest = digestArtifact({
-          schema: 'lattice.direct_worktree_fingerprint.v1',
-          worktree_id: task.worktreeId,
-          worktree_realpath: task.worktreePath,
-          checkpoint_digest: checkpoint.checkpoint_digest,
-        });
         acks.push(sign({
           schema: 'lattice.executor_quiescence_ack.v1',
           ack_id: `barrier-${binding.packet_digest.slice(0, 24)}`,
@@ -770,9 +885,9 @@ export async function createWorkOrderAdapterController({
           packet_digest: binding.packet_digest,
           write_lease_id: binding.write_lease_id,
           barrier_control_digest: request.barrier_control_digest,
-          final_checkpoint_digest: checkpoint.checkpoint_digest,
-          process_observation_digest: processObservationDigest,
-          worktree_fingerprint_digest: worktreeFingerprintDigest,
+          final_checkpoint_digest: quiesced.checkpoint.checkpoint_digest,
+          process_observation_digest: quiesced.processObservationDigest,
+          worktree_fingerprint_digest: quiesced.worktreeFingerprintDigest,
           supervisor_session_nonce_digest: sessionNonceDigest,
           ack_digest: '',
         }, 'ack_digest'));

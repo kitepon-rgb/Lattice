@@ -56,6 +56,7 @@ function validateResolvedBinding(value) {
     || value.process_start_identity.pid !== value.process_pid
     || !Array.isArray(value.process_children)
     || !value.process_children.every(validExpectedProcess)
+    || !['static', 'dynamic_group'].includes(value.process_membership_policy ?? 'static')
     || typeof value.worktree_path !== 'string' || !path.isAbsolute(value.worktree_path)
     || typeof value.base_sha !== 'string' || !GIT_SHA1.test(value.base_sha)) {
     fail('observation binding不正');
@@ -208,20 +209,36 @@ export function createDirectOsProcessObserver({
     };
     const root = verifyProcess(expectedRoot, records.get(resolved.process_pid), 'root');
     const actualDescendants = descendantPids(records, resolved.process_pid);
-    const expectedDescendants = new Set(resolved.process_children.map((child) => child.pid));
-    for (const pid of expectedDescendants) {
-      if (!actualDescendants.has(pid)) fail(`保存済みchildが見つからない: ${pid}`);
+    const dynamicGroup = resolved.process_membership_policy === 'dynamic_group';
+    const expectedChildren = dynamicGroup
+      ? [...actualDescendants].map((pid) => {
+        const record = records.get(pid);
+        if (record.process_group_id !== resolved.process_group_id) {
+          fail(`dynamic childがrootと別process groupに居る: ${pid}`);
+        }
+        return {
+          pid,
+          process_group_id: record.process_group_id,
+          process_start_identity: identityFor(pid, record.started_identity),
+        };
+      })
+      : resolved.process_children;
+    const expectedDescendants = new Set(expectedChildren.map((child) => child.pid));
+    if (!dynamicGroup) {
+      for (const pid of expectedDescendants) {
+        if (!actualDescendants.has(pid)) fail(`保存済みchildが見つからない: ${pid}`);
+      }
+      for (const pid of actualDescendants) {
+        if (!expectedDescendants.has(pid)) fail(`未記録childを検出: ${pid}`);
+      }
     }
-    for (const pid of actualDescendants) {
-      if (!expectedDescendants.has(pid)) fail(`未記録childを検出: ${pid}`);
-    }
-    const expectedGroup = new Set([resolved.process_pid, ...expectedDescendants]);
+    const expectedGroup = new Set([resolved.process_pid, ...actualDescendants]);
     for (const record of records.values()) {
       if (record.process_group_id === resolved.process_group_id && !expectedGroup.has(record.pid)) {
         fail(`未記録process group memberを検出: ${record.pid}`);
       }
     }
-    const children = resolved.process_children
+    const children = expectedChildren
       .map((expected) => verifyProcess(expected, records.get(expected.pid), 'child'))
       .sort((left, right) => left.pid - right.pid);
 

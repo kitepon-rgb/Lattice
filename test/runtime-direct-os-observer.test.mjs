@@ -61,6 +61,25 @@ test('root・全child・PGID・realpath・checkpointを独立再観測する', a
   assert.equal(result.write_enabled, false);
 });
 
+test('dynamic groupはbarrier時点の全子孫を同PGIDで静止確認する', async (t) => {
+  const f = await fixture();
+  t.after(() => rm(f.root, { recursive: true, force: true }));
+  const resolved = { ...structuredClone(f.resolved),
+    process_children: [], process_membership_policy: 'dynamic_group' };
+  const result = await f.observer({ resolved })({
+    kind: 'quiescence', binding: { worktree_id: 'wt-a' }, ack: { worktree_id: 'wt-a' },
+  });
+  assert.deepEqual(result.observation.children.map((entry) => entry.pid), [102]);
+  await assert.rejects(f.observer({ resolved,
+    lines: f.lines.replace('102 101 101 T', '102 101 202 T') })({
+    kind: 'quiescence', binding: {}, ack: {},
+  }), (error) => error.code === 'HOLD_ACKS_INCOMPLETE');
+  await assert.rejects(f.observer({ resolved,
+    lines: `${f.lines}\n${psLine(103, 1, 101, 'T', 'Tue Jul 21 10:00:03 2026')}` })({
+    kind: 'quiescence', binding: {}, ack: {},
+  }), (error) => error.code === 'HOLD_ACKS_INCOMPLETE');
+});
+
 test('ps失敗・空結果・parse不能はfail closed', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.root, { recursive: true, force: true }));

@@ -7,7 +7,7 @@ import {
   createRuntimeControlRequest,
   validateArmedWriteLease, validateControllerDescriptor, validateControllerRequest, validateControllerResponse,
   validateControllerRegistration, validateReleaseAck, validateRuntimeControlRequest,
-  validateRuntimeControlResponse, validateStagedWriteLease,
+  validateRuntimeControlResponse, validateStagedWriteLease, validateExpectedWorkerProcess,
   verifyCentralWriteGate,
 } from '../src/runtime-controller-protocol.mjs';
 
@@ -68,6 +68,18 @@ test('process identityはkey挿入順に依存せずfield差替えだけを拒�
   changed.process_start_identity.started_identity = 'different';
   changed.descriptor_digest = selfDigest(changed, 'descriptor_digest');
   assert.equal(validateControllerDescriptor(changed), false);
+});
+
+test('worker processは後方互換のstatic形とdynamic group宣言を受理する', () => {
+  const identity = (pid) => sign({ schema: 'lattice.process_start_identity.v1',
+    platform: 'darwin', pid, started_identity: `boot:${pid}`, identity_digest: '' },
+  'identity_digest');
+  const root = { pid: 42, process_group_id: 42, process_start_identity: identity(42) };
+  assert.equal(validateExpectedWorkerProcess(root), true);
+  assert.equal(validateExpectedWorkerProcess({ ...root,
+    process_membership: 'dynamic_group' }), true);
+  assert.equal(validateExpectedWorkerProcess({ ...root,
+    process_membership: 'unknown' }), false);
 });
 
 test('controller operationのschema cross-useと余剰fieldを拒否する', () => {
