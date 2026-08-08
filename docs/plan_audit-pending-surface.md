@@ -3,6 +3,11 @@
 Lane: Orchestrated（多段の受入連鎖・複数repo書込調整・裁定証跡）
 状態と依存の正本はLattice store（plan key `audit-pending-surface`）。本書は散文だけを持つ。
 
+**完了（2026-08-08）**: 全8 ToDo done・終端監査accepted（証跡は
+[docs/evidence/2026-08-08-audit-pending-surface-terminal-audit.md](evidence/2026-08-08-audit-pending-surface-terminal-audit.md)、
+evidence束縛つきphase accept）。v0.47.0として出荷。実施主体はPeertable円卓
+（メンバー3・Opus 5）による初のLattice工程実務campaign。会話正本はPeertable room `lattice`。
+
 ## 背景
 
 全Lattice管理projectで、Phase終端の終端監査をAIが高頻度で失念する。原因は規範でも注意力でもなく、
