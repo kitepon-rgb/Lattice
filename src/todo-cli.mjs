@@ -25,6 +25,7 @@ import { projectTodoChainV1 } from './todo-chain.mjs';
 import {
   adoptTodoDashboardActivity,
   ensureTodoDashboardActivity,
+  removeTodoDashboardProject,
 } from './todo-dashboard-registry.mjs';
 import { resolveProjectIdentity } from './project-identity.mjs';
 import { layoutTodoGantt } from './todo-gantt-layout.mjs';
@@ -2562,6 +2563,30 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
       await runTodoSchemaCommand(argv[0], stdout);
       return 0;
     } catch (error) {
+      return typedFailure(stderr, {
+        code: 'INTERNAL_FAILURE', message: error?.constructor?.name ?? 'Error',
+      });
+    }
+  }
+
+  // 登録を外したいprojectのrepoは、もう存在しないことが普通である（それが外す理由になる）。
+  // 通常dispatchより前に処理し、repoRoot解決・store読取・dashboard daemon起動を経由させない。
+  if (argv.length === 4 && argv[0] === 'dashboard' && argv[1] === 'remove'
+    && isTodoIdentifier(argv[2]) && argv[3] === '--json') {
+    try {
+      await removeTodoDashboardProject({ projectId: argv[2], env });
+      const result = {
+        schema: 'lattice.todo_dashboard_remove_result.v1',
+        project_id: argv[2],
+        removed: true,
+        result_digest: '',
+      };
+      result.result_digest = todoSelfDigest(result, 'result_digest');
+      stdout.write(`${JSON.stringify(result)}\n`);
+      return 0;
+    } catch (error) {
+      if (typeof error?.code === 'string' && error.detail !== null
+        && typeof error.detail === 'object') return typedFailure(stderr, error);
       return typedFailure(stderr, {
         code: 'INTERNAL_FAILURE', message: error?.constructor?.name ?? 'Error',
       });

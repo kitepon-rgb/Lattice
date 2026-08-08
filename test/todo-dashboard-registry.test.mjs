@@ -14,6 +14,7 @@ import {
   readActiveTodoDashboardProjects,
   readVisibleTodoDashboardProjects,
   registerTodoDashboardActivity,
+  removeTodoDashboardProject,
   todoDashboardMemberNeedsVisibility,
   TODO_DASHBOARD_CODE_VERSION,
   TODO_DASHBOARD_STALE_MS,
@@ -671,6 +672,79 @@ test('登録のたびにrepo_rootが消えたentryを落とし、実在repoの�
   const clean = await registerTodoDashboardActivity({ repoRoot: alive, projectId: 'alive',
     displayName: 'Alive', sessionId: 'session-alive-3', env, now: at(4) });
   assert.deepEqual(clean.pruned, [], '落とすものが無ければ空配列');
+});
+
+test('dashboard removeは該当entryだけ外し、不在ならtyped errorで拒否する', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-remove-'));
+  const first = path.join(root, 'first');
+  const second = path.join(root, 'second');
+  await Promise.all([mkdir(first), mkdir(second)]);
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_DASHBOARD_RUNTIME_DIR: path.join(root, 'runtime') };
+  const now = new Date('2026-08-08T01:00:00.000Z');
+  await registerTodoDashboardActivity({ repoRoot: first, projectId: 'first',
+    displayName: 'First', sessionId: 'session-first', env, now });
+  await registerTodoDashboardActivity({ repoRoot: second, projectId: 'second',
+    displayName: 'Second', sessionId: 'session-second', env, now });
+
+  assert.deepEqual(await removeTodoDashboardProject({ projectId: 'first', env }),
+    { projectId: 'first', removed: true });
+  const registryRef = path.join(root, 'runtime', 'projects.json');
+  assert.deepEqual(JSON.parse(await readFile(registryRef, 'utf8'))
+    .projects.map(({ project_id: projectId }) => projectId), ['second']);
+
+  const before = await readFile(registryRef);
+  await assert.rejects(removeTodoDashboardProject({ projectId: 'first', env }), (error) => {
+    assert.equal(error.code, 'PROJECT_NOT_REGISTERED');
+    assert.deepEqual(error.detail, { project_id: 'first' });
+    return true;
+  });
+  assert.deepEqual(await readFile(registryRef), before, '拒否した時はbytesを変えない');
+});
+
+test('todo dashboard removeはrepoRoot解決もdaemon起動もせずに登録を外す', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-remove-cli-'));
+  const runtime = path.join(root, 'runtime');
+  const target = path.join(root, 'target');
+  await mkdir(target);
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime,
+    LATTICE_DASHBOARD_PORT: '0', LATTICE_TODO_ACTOR_HOST: 'codex',
+    LATTICE_TODO_ACTOR_SESSION: 'session-cli', LATTICE_TODO_ACTOR_AGENT: 'root' };
+  await registerTodoDashboardActivity({ repoRoot: target, projectId: 'ghost',
+    displayName: 'Ghost', sessionId: 'session-ghost', env,
+    now: new Date('2026-08-08T02:00:00.000Z') });
+  // 消したいprojectのrepoはもう無い、が今日の実状。CLIがそれでも通ることを確かめる。
+  await rm(target, { recursive: true, force: true });
+
+  const run = async (argv) => {
+    let stdout = '';
+    let stderr = '';
+    const code = await runTodoCli({ argv, cwd: process.cwd(), env,
+      stdout: { write: (value) => { stdout += value; } },
+      stderr: { write: (value) => { stderr += value; } } });
+    return { code, stdout, stderr };
+  };
+
+  const removed = await run(['dashboard', 'remove', 'ghost', '--json']);
+  assert.equal(removed.code, 0, removed.stderr);
+  assert.equal(removed.stderr, '');
+  const payload = JSON.parse(removed.stdout);
+  assert.equal(payload.schema, 'lattice.todo_dashboard_remove_result.v1');
+  assert.equal(payload.project_id, 'ghost');
+  assert.equal(payload.removed, true);
+  assert.match(payload.result_digest, /^[0-9a-f]{64}$/u);
+  assert.deepEqual(await readActiveTodoDashboardProjects({
+    env, now: Date.parse('2026-08-08T02:00:00.000Z'),
+  }), []);
+  await assert.rejects(stat(path.join(runtime, 'daemon.json')), (error) => error.code === 'ENOENT');
+
+  const missing = await run(['dashboard', 'remove', 'ghost', '--json']);
+  assert.equal(missing.code, 1);
+  assert.equal(missing.stdout, '');
+  const failure = JSON.parse(missing.stderr);
+  assert.equal(failure.code, 'PROJECT_NOT_REGISTERED');
+  assert.deepEqual(failure.detail, { project_id: 'ghost' });
 });
 
 test('todo CLIの通常activityが明示serveなしでproject登録とdaemon起動をensureする', async (context) => {

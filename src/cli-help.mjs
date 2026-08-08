@@ -75,6 +75,7 @@ Read commands:
 
 Write commands:
   dashboard adopt --json  # 衝突したproject_idの配信元rootを現在repoへ明示的に移す
+  dashboard remove <project_id> --json  # 登録簿から1件外す（対象repoの外からも叩ける）
   note --plan <key> [--task <id>] (--message <text>|--input <file>)
       # ToDoへ作業継続に必要な方針・調査結果・注意をappend-onlyで追記する
   migrate --input <extraction.json> [--serialization-reviewed]
@@ -200,8 +201,10 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo snapshot': 'todo snapshot --rebuild --plan <key>',
   'todo gantt': 'todo gantt serve --port <port> [--scope live|all]  # 動的表示のみ。静的HTML生成は廃止',
   'todo gantt serve': 'todo gantt serve --port <0..65535> [--scope live|all]  # loopback動的viewer',
-  'todo dashboard': 'todo dashboard adopt --json  # 配信元rootの衝突を明示的に解消',
+  'todo dashboard': 'todo dashboard adopt --json | remove <project_id> --json'
+    + '  # 配信元rootの衝突を明示的に解消／登録簿から1件外す',
   'todo dashboard adopt': 'todo dashboard adopt --json  # 現在repoをproject_idの配信元として明示採用',
+  'todo dashboard remove': 'todo dashboard remove <project_id> --json  # 登録簿から1件外す（対象repo不在でも可）',
   'todo phase': 'todo phase <status|review|accept|reject|reopen|close-unaudited> --plan <key> [options]'
     + ' | baseline --reason <text> [--except <plan_key>]...',
   'todo phase status': 'todo phase status --plan <key>',

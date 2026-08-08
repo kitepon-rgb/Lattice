@@ -212,6 +212,30 @@ export async function registerTodoDashboardActivity({
   return { projectId, displayName, repoRoot: canonicalRoot, sessionId, adopted: adopt, pruned };
 }
 
+/**
+ * 登録簿から1件を明示的に外す唯一の入口。対象repoが既に消えていても叩けるよう、
+ * storeもdaemonも経由しない。該当が無いのは暗黙の成功にしない——「消したつもり」で
+ * 別のproject_idが残り続ける状態を、成功の応答で隠すことになる。
+ */
+export async function removeTodoDashboardProject({ projectId, env = process.env }) {
+  if (!identifier(projectId)) throw new TypeError('dashboard project id is invalid');
+  const refs = paths(env);
+  await mkdir(refs.root, { recursive: true, mode: 0o700 });
+  await withLock(refs.lock, async () => {
+    const current = validateRegistry(await readJson(refs.registry, { schema: REGISTRY_SCHEMA, projects: [] }));
+    const projects = current.projects.filter((entry) => entry.project_id !== projectId);
+    if (projects.length === current.projects.length) {
+      const error = new Error('dashboard project is not registered');
+      error.code = 'PROJECT_NOT_REGISTERED';
+      // 公開・CLI errorへlocal absolute pathを運ばない。project_idだけで対象を特定できる。
+      error.detail = { project_id: projectId };
+      throw error;
+    }
+    await atomicJson(refs.registry, { schema: REGISTRY_SCHEMA, projects });
+  });
+  return { projectId, removed: true };
+}
+
 /** 配信元rootを移す唯一の明示入口。通常activity登録はこのflagを立てない。 */
 export async function adoptTodoDashboardActivity(options) {
   return registerTodoDashboardActivity({ ...options, adopt: true });
