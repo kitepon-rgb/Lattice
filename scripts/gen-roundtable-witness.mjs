@@ -23,10 +23,19 @@ const def = (id, over) => { W[id] = { ...base(), ...over } }
 
 // ---- Lattice側 ----
 def('t1', {
-  owns: [pc('src/runtime-work-order-contracts.mjs'), pc('src/runtime-work-order-controller.mjs'), pc('test/integration/work-order-controller.integration.mjs'), pc(EV('t1'))],
+  owns: [
+    pc('bin/lattice-work-order-adapter.mjs'), p('package-lock.json'), p('package.json'),
+    pc('src/runtime-work-order-contracts.mjs'), pc('src/runtime-work-order-controller.mjs'),
+    pc('test/runtime-work-order-contracts.test.mjs'), pc('test/runtime-work-order-controller.test.mjs'),
+    pc(EV('t1')),
+  ],
   reads: ['src/runtime-adapter-registry.mjs', 'src/runtime-diff-observer.mjs', 'src/runtime-scripted-adapter-controller.mjs', 'src/runtime-scripted-worktree.mjs'],
-  writes: ['src/runtime-work-order-contracts.mjs', 'src/runtime-work-order-controller.mjs', 'test/integration/work-order-controller.integration.mjs', EV('t1')],
-  affected_tests: ['test/integration/work-order-controller.integration.mjs'],
+  writes: [
+    'bin/lattice-work-order-adapter.mjs', 'package-lock.json', 'package.json',
+    'src/runtime-work-order-contracts.mjs', 'src/runtime-work-order-controller.mjs',
+    'test/runtime-work-order-contracts.test.mjs', 'test/runtime-work-order-controller.test.mjs', EV('t1'),
+  ],
+  affected_tests: ['test/runtime-work-order-contracts.test.mjs', 'test/runtime-work-order-controller.test.mjs'],
 })
 def('t2', {
   owns: [p('src/runtime-cli.mjs'), pc(EV('t2'))],
@@ -45,9 +54,26 @@ def('t10', {
   unknowns: [unk('pending_decision', 'run observe出力の要否確認の結論が出るまで書込範囲は未定。実装する場合は宣言を更新して再compileする')],
 })
 def('t12', {
-  owns: [p('docs/schemas'), p('src/runtime-contracts.mjs'), p('src/todo-independence-contracts.mjs')],
+  owns: [
+    p('docs/00_product-contract.md'), p('docs/schemas'), p('src/runtime-contracts.mjs'),
+    p('src/runtime-front-end.mjs'), p('src/todo-independence-contracts.mjs'),
+    p('test/rc3-front-end.test.mjs'), p('test/rc3-runtime-contracts.test.mjs'),
+    p('test/runtime-schema-distribution.test.mjs'), p('test/runtime-seam-resolve.test.mjs'),
+    p('test/todo-independence-contracts.test.mjs'),
+  ],
   reads: ['src/todo-independence.mjs'],
-  writes: ['docs/schemas', 'src/runtime-contracts.mjs', 'src/todo-independence-contracts.mjs', EV('t12')],
+  writes: [
+    'docs/00_product-contract.md', 'docs/schemas', 'src/runtime-contracts.mjs',
+    'src/runtime-front-end.mjs', 'src/todo-independence-contracts.mjs',
+    'test/rc3-front-end.test.mjs', 'test/rc3-runtime-contracts.test.mjs',
+    'test/runtime-schema-distribution.test.mjs', 'test/runtime-seam-resolve.test.mjs',
+    'test/todo-independence-contracts.test.mjs', EV('t12'),
+  ],
+  affected_tests: [
+    'test/rc3-front-end.test.mjs', 'test/rc3-runtime-contracts.test.mjs',
+    'test/runtime-schema-distribution.test.mjs', 'test/runtime-seam-resolve.test.mjs',
+    'test/todo-independence-contracts.test.mjs',
+  ],
 })
 def('t13', {
   owns: [p('src/runtime-front-end.mjs'), p('src/todo-independence.mjs'), pc(EV('t13'))],
