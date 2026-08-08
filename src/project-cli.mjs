@@ -334,7 +334,7 @@ export async function runSessionContext({ cwd, stdout, cliVersion }) {
     schema: SESSION_CONTEXT_SCHEMA,
     // project discoveryの答えをそのまま埋める。hostは既存の検証器を再利用できる。
     status: state.result,
-    // todoは`todo_status_result.v4`そのもの。新しい意味論を発明しない。
+    // todoは`lattice todo status`のresultそのもの。新しい意味論を発明しない。
     todo: state.todo,
     independence,
     result_digest: '',

@@ -472,7 +472,7 @@ function unknownTaskEntry(value) {
  *
  * ready frontierを「検証済み並列グループ」「直列化すべき組」「未検査」へ分けた読み出し面。
  * v2は進行中ToDoとの競合（`conflicts_with_active`）と鮮度の内訳（`drift`）を加える。
- * `todo_status_result.v4`と`dispatch_frontier`は変更せず、加算の別面として持つ（ADR 0124の規律）。
+ * `todo_status_result`と`dispatch_frontier`は変更せず、加算の別面として持つ（ADR 0124の規律）。
  */
 export function validateTodoIndependenceProjection(value) {
   try {
