@@ -1,6 +1,23 @@
 # Changelog
 
-## 0.48.0 — 2026-08-08
+## 0.49.0 — 2026-08-08
+
+### 追加
+
+- **`lattice todo dashboard remove <project_id> --json`。** dashboard登録簿から1件を明示的に外す。
+  結果は`lattice.todo_dashboard_remove_result.v1`（`project_id`・`removed`・`result_digest`）。
+  該当が無い時は`PROJECT_NOT_REGISTERED`で拒否し、暗黙の成功にしない。**対象projectのrepoが
+  既に消えていても叩ける**——repoRoot解決・store読取・dashboard daemon起動を経由しないためで、
+  「消したいrepoがもう無いから消せない」を作らない。結果とerrorへlocal絶対pathは載せない。
+
+### 修正
+
+- **dashboard登録簿の自己掃除。** activity登録のたびに、repo_rootのdirectoryが既に消えている
+  entryを落とす。登録は全sessionが必ず通る一点であり、掃除を人のコマンドに預けると誰も叩かず
+  死んだ登録が永久に積み上がる（実測: 消滅済みtmp rootを指す登録が6件残っていた）。
+  判定はdirectoryの存在だけで、`.lattice`の有無は見ない——storeを持たないだけの生きたrepoを
+  消さないため。`registerTodoDashboardActivity`の戻り値へ`pruned`（除去したproject_idの配列）が
+  加わる（登録簿のbytesには書かない）。
 
 ### 破壊的変更（host統合者向け）
 
