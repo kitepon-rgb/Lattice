@@ -75,7 +75,7 @@ async function workspace(context) {
 /** 両面の答えを、比較できる同じ表記(`plan_key/phase_id (status)`)へ落とす。 */
 async function bothSurfaces(root) {
   const store = await readTodoStoreStable({ repoRoot: root });
-  const status = projectTodoStatus(store);
+  const status = projectTodoStatus(store, { planNotes: [] });
   const { rendered } = await renderTodoGanttForProject({ repoRoot: root, scope: 'live', displayName: 'X' });
   const marker = '<span class="audit-pending-chip"';
   const start = rendered.html.indexOf(marker);

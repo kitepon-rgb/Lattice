@@ -84,7 +84,7 @@ async function workspace(context) {
 }
 
 // 切り出し前のprojectTodoStatusが出していたバイト列。挙動不変の錨。
-const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v5","project_id":"project-1",'
+const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v6","project_id":"project-1",'
   + '"active_set":[{"plan_key":"main","task_id":"A","label":"Active work",'
   + '"unmet_dependencies":[]}],'
   + '"next_ready":[{"plan_key":"main","task_id":"C","label":"Ready work"},'
@@ -97,11 +97,14 @@ const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v5","project_id":"p
   + '"blocked":[{"plan_key":"main","task_id":"B","reason":"waiting on review"}],'
   // 全taskがdoneではない(Phaseはactive)ので監査待ちは空。v5で足した欄はblockedとmember_headsの間。
   + '"audit_pending":[],'
+  // v6で足したplan_notes欄。このfixtureはplan単位noteを持たないので空。挿入位置は
+  // audit_pendingとmember_headsの間で、dispatch側のバイトは1つも動いていない。
+  + '"plan_notes":[],'
   + '"member_heads":[__HEADS__],"result_digest":"__RESULT__"}';
 
-test('status v5の出力バイト列がaudit_pending以外変わらない', async (context) => {
+test('status v6の出力バイト列がaudit_pending・plan_notes以外変わらない', async (context) => {
   const readModel = await workspace(context);
-  const result = projectTodoStatus(readModel);
+  const result = projectTodoStatus(readModel, { planNotes: [] });
   const actual = JSON.stringify(result);
 
   // digestとmember headはfixtureの時刻・digestに依存するので、構造だけを錨にする。
@@ -114,7 +117,7 @@ test('status v5の出力バイト列がaudit_pending以外変わらない', asyn
 
 test('computeReadyFrontierはstatusのnext_readyと同一の集合を返す', async (context) => {
   const readModel = await workspace(context);
-  const status = projectTodoStatus(readModel);
+  const status = projectTodoStatus(readModel, { planNotes: [] });
   const frontier = computeReadyFrontier(readModel);
 
   assert.deepEqual(frontier, status.next_ready);

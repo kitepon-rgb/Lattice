@@ -72,6 +72,7 @@ import {
 import {
   computeReadyFrontier,
   projectTodoBindings,
+  TODO_STATUS_DISPATCH_ONLY,
   projectTodoStatus,
 } from './todo-status.mjs';
 import {
@@ -118,6 +119,7 @@ import {
   readTodoNoteContext,
   readTodoNoteContextsForPlan,
   readTodoNoteEvents,
+  readTodoPlanNotesForStatus,
 } from './todo-note-store.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
@@ -685,7 +687,8 @@ async function startTask({
   repoRoot, env, planKey, taskId, overrideReason, parallelFrontier, serialConfirmed = false,
 }) {
   const store = await readTodoStore({ repoRoot });
-  const projection = projectTodoStatus(store);
+  // startはready判定にしかprojectionを使わず、resultを出力しない。
+  const projection = projectTodoStatus(store, TODO_STATUS_DISPATCH_ONLY);
   const readyTask = projection.next_ready.find((task) => (
     task.plan_key === planKey && task.task_id.toLowerCase() === taskId.toLowerCase()
   ));
@@ -1278,7 +1281,10 @@ async function revisePhase({ repoRoot, env, planKey, inputRef }) {
 }
 
 async function status({ repoRoot }) {
-  return projectTodoStatus(await readTodoStore({ repoRoot }));
+  const store = await readTodoStore({ repoRoot });
+  return projectTodoStatus(store, {
+    planNotes: await readTodoPlanNotesForStatus({ repoRoot, store }),
+  });
 }
 
 async function adoptDashboardRoot({ repoRoot, env }) {
@@ -1577,7 +1583,7 @@ async function independence({ repoRoot, requestedPlanKey }) {
     ? undefined : store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
   const artifact = member === undefined
     ? null : await readTodoIndependenceArtifact({ repoRoot, store, planKey });
-  const active = projectTodoStatus(store).active_set
+  const active = projectTodoStatus(store, TODO_STATUS_DISPATCH_ONLY).active_set
     .filter((task) => task.plan_key === planKey);
   // HEADが進んでいる時だけdiffを取る。一致していれば宣言境界を見るまでもない。
   const changedPaths = artifact !== null && artifact.base_sha !== null
@@ -2151,7 +2157,7 @@ async function notesForGantt({ repoRoot, store }) {
 
 async function independenceForGantt({ repoRoot, store }) {
   const frontier = computeReadyFrontier(store);
-  const status = projectTodoStatus(store);
+  const status = projectTodoStatus(store, TODO_STATUS_DISPATCH_ONLY);
   let currentBaseSha = null;
   const projections = [];
   for (const member of store.members) {

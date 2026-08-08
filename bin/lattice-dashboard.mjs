@@ -4,7 +4,7 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { readTodoStoreStable } from '../src/todo-store.mjs';
-import { projectTodoStatus } from '../src/todo-status.mjs';
+import { TODO_STATUS_DISPATCH_ONLY, projectTodoStatus } from '../src/todo-status.mjs';
 import { ganttLiveHeadDigest, renderTodoGanttForProject } from '../src/todo-cli.mjs';
 import {
   forgetTodoDashboardDaemonRecord,
@@ -61,7 +61,7 @@ async function synchronize() {
     projectHasActiveRun: async (entry) => {
       try {
         const store = await readCachedStore(entry.repo_root);
-        const active = projectTodoStatus(store).active_set.length > 0
+        const active = projectTodoStatus(store, TODO_STATUS_DISPATCH_ONLY).active_set.length > 0
           || store.members.some(todoDashboardMemberNeedsVisibility);
         reportedStoreReadFailures.delete(entry.project_id);
         return active;

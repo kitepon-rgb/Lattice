@@ -31,6 +31,9 @@ export const TODO_LIMITS = Object.freeze({
   narrativeSectionBytes: 262_144,
   noteBodyBytes: 16_384,
   noteContextBytes: 65_536,
+  // statusのplan_notes entryが載せる最新noteの件数。本文を載せない代わりに
+  // 「誰がいつ置いたか」だけを新しい順で数件出す（中身はnote listが持つ）。
+  statusPlanNoteLatest: 3,
 });
 
 const DIGEST = /^[0-9a-f]{64}$/;

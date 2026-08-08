@@ -283,11 +283,11 @@ test('終端監査gateと同じく、closed_unauditedもToDoのdispatch(next_rea
   await doTask(root, writer, 'B', evidenceFor(root, 'b'));
   await doTask(root, writer, 'C', evidenceFor(root, 'c'));
 
-  const before = workingSlice(projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW })));
+  const before = workingSlice(projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] }));
   await appendTodoEvent({ repoRoot: root, writer, planKey: 'audited', now: NOW,
     event: { kind: 'phase_close_unaudited', phase_id: 'terminal-audit', actor: ACTOR, recorded_at: NOW,
       payload: { reason: '過去分は監査しない' } } });
-  const after = workingSlice(projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW })));
+  const after = workingSlice(projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] }));
   assert.deepEqual(after, before);
 });
 

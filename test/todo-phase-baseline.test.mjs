@@ -199,7 +199,7 @@ test('phase baselineは対象を正しく選び、--exceptが効き、既にacce
 
 test('phase baselineはToDoのdispatch(next_ready/active_set/dispatch_frontier)へ影響しない', async (t) => {
   const root = await workspace(t);
-  const before = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }));
+  const before = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
   const workingBefore = {
     next_ready: before.next_ready.filter((entry) => entry.plan_key === 'working'),
     active_set: before.active_set.filter((entry) => entry.plan_key === 'working'),
@@ -210,7 +210,7 @@ test('phase baselineはToDoのdispatch(next_ready/active_set/dispatch_frontier)�
     cwd: root, env: ACTOR_ENV, stdout: { write: () => {} }, stderr: { write: () => {} },
   });
   // CLI経由の書込みは実時刻を使うため、書込み後の読み出しは固定NOWでなく既定(実時刻)で読む。
-  const after = projectTodoStatus(await readTodoStore({ repoRoot: root }));
+  const after = projectTodoStatus(await readTodoStore({ repoRoot: root }), { planNotes: [] });
   const workingAfter = {
     next_ready: after.next_ready.filter((entry) => entry.plan_key === 'working'),
     active_set: after.active_set.filter((entry) => entry.plan_key === 'working'),

@@ -326,7 +326,7 @@ test('todo migrateはstrict/unknown開始時刻を輸入しstatus active_setとg
   assert.equal(starts.every(({ payload }) => payload.start_mode === 'historical_import'
     && payload.status === 'in-progress' && payload.imported === true), true);
 
-  const status = projectTodoStatus(store);
+  const status = projectTodoStatus(store, { planNotes: [] });
   assert.deepEqual(status.active_set, [
     {
       plan_key: 'active-import', task_id: 'P1', label: 'Strict historical start', unmet_dependencies: [],

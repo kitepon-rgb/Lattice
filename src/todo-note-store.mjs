@@ -481,6 +481,58 @@ export async function readTodoNoteContext(options = {}) {
   });
 }
 
+/**
+ * status面の`plan_notes`欄の素材を、store内の全planぶん一度に読む。
+ *
+ * plan単位noteは「工程に属する義務」で、着手する誰かのcontextへは届くが、**まだ誰も
+ * 着手していない工程の義務はどこにも出ない**。statusはそれを出す唯一の面なので、
+ * ここでは本文を一切運ばない——載せるのは件数・帰属・次の一手だけで、中身は
+ * `note list`が持つ（`audit_pending`が330字のproseを落としたのと同じ判断・ADR 0159）。
+ *
+ * noteを持たないplanはentryごと出さない。「全plan常に1行」は、前campaignの
+ * witness `coverage: missing`と同じ「満杯で始まるので読み飛ばされる欄」になる。
+ *
+ * chainが壊れているplanが1つでもあれば`readTodoNoteEvents`のtyped errorがそのまま出る
+ * （fail closed）。壊れた義務記録を「義務なし」と同じ空へ丸めない。
+ */
+export async function readTodoPlanNotesForStatus(options = {}) {
+  if (!exactRecord(options, ['repoRoot', 'store'])
+    || options.store === null || typeof options.store !== 'object'
+    || !Array.isArray(options.store.members)) {
+    throw new TypeError('todo plan notes read options invalid');
+  }
+  const repoRoot = path.resolve(options.repoRoot);
+  const summaries = [];
+  for (const member of options.store.members) {
+    const planKey = member.plan.plan_key;
+    const chain = await readTodoNoteEvents({ repoRoot, planKey });
+    const superseded = new Set(chain.events
+      .filter(({ supersedes }) => supersedes !== null)
+      .map(({ supersedes }) => supersedes));
+    // 訂正されたnoteは数えない。数えると訂正するほど件数が増える。
+    const current = chain.events
+      .filter((event) => event.schema === TODO_NOTE_EVENT_V2_SCHEMA
+        && !superseded.has(event.event_digest))
+      .sort((left, right) => right.sequence - left.sequence);
+    if (current.length === 0) continue;
+    summaries.push({
+      plan_key: planKey,
+      note_head_digest: current[0].event_digest,
+      count: current.length,
+      latest: current.slice(0, TODO_LIMITS.statusPlanNoteLatest).map((event) => ({
+        event_digest: event.event_digest,
+        actor_agent: event.actor.agent,
+        recorded_at: event.recorded_at,
+      })),
+      // 欄だけでは読まれない。届いた先で次に何を打てばいいかを名指しする。
+      next_commands: [`lattice todo note list --plan ${planKey} --json`],
+    });
+  }
+  summaries.sort((left, right) => (
+    left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1 : 0));
+  return summaries;
+}
+
 /** Gantt用に1 planのchain/historyを一度だけ読み、全task contextへ投影する。 */
 export async function readTodoNoteContextsForPlan(options = {}) {
   if (!exactRecord(options, ['repoRoot', 'store', 'planKey'])

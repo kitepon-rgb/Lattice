@@ -317,7 +317,7 @@ test('todo_plan.v5はPhaseを監査境界に限定しToDo DAGの並列性を維�
     plans: [{ plan, genesis: { actor: ACTOR, recorded_at: NOW } }], now: NOW });
   const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
   const initial = await readTodoStore({ repoRoot: root, now: NOW });
-  assert.deepEqual(projectTodoStatus(initial).next_ready.map(({ task_id }) => task_id), ['T1', 'T2']);
+  assert.deepEqual(projectTodoStatus(initial, { planNotes: [] }).next_ready.map(({ task_id }) => task_id), ['T1', 'T2']);
   assert.deepEqual(initial.members[0].snapshot.phases.map(({ phase_id, status }) => [phase_id, status]),
     [['phase-1', 'active'], ['phase-2', 'locked']]);
   await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,

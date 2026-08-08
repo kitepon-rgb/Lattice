@@ -16,6 +16,7 @@ import {
   todoSelfDigest,
 } from './todo-contracts.mjs';
 import { projectTodoStatus } from './todo-status.mjs';
+import { readTodoPlanNotesForStatus } from './todo-note-store.mjs';
 import { projectIndependenceFrontier } from './todo-independence.mjs';
 import { isTodoIndependenceLegacyMarker } from './todo-independence-contracts.mjs';
 import { selectIndependenceGuidance } from './todo-independence-guidance.mjs';
@@ -265,7 +266,9 @@ async function resolveProjectState({ cwd, cliVersion }) {
   }
   try {
     const store = await readTodoStore({ repoRoot });
-    const todo = projectTodoStatus(store);
+    const todo = projectTodoStatus(store, {
+      planNotes: await readTodoPlanNotesForStatus({ repoRoot, store }),
+    });
     const activeRuns = todo.active_set.map((entry) => ({
       plan_key: entry.plan_key, task_id: entry.task_id, label: entry.label,
     }));

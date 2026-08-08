@@ -41,7 +41,7 @@ async function storeWith(context, plan) {
     content_digest: createHash('sha256').update(bytes).digest('hex'), media_type: 'text/plain', anchor_digest: null };
   const append = (event) => appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
     event: { actor: ACTOR, recorded_at: NOW, ...event } });
-  const status = async () => projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }));
+  const status = async () => projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
   const finish = async (taskId) => {
     await append({ kind: 'start', task_id: taskId, payload: { override_reason: null } });
     await append({ kind: 'done', task_id: taskId, payload: { evidence } });
@@ -59,7 +59,7 @@ test('全taskがdoneでnext_readyが空になった時、audit_pendingが監査�
 
   const before = await status();
   assert.equal(before.schema, TODO_STATUS_SCHEMA);
-  assert.equal(before.schema, 'lattice.todo_status_result.v5');
+  assert.equal(before.schema, 'lattice.todo_status_result.v6');
   assert.deepEqual(before.audit_pending, [], '未doneのtaskが残る間は監査の地点に到達していない');
 
   await finish('T1');

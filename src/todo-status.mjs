@@ -4,8 +4,10 @@ import {
   isAuditPendingPhaseStatus,
 } from './todo-audit-pending.mjs';
 import {
+  TODO_LIMITS,
   exactRecord,
   isNonNegativeSafeInteger,
+  isStrictTodoTimestamp,
   isTodoDigest,
   isTodoIdentifier,
   todoSelfDigest,
@@ -13,7 +15,13 @@ import {
 import { todoLegacyReconciliationDigest } from './todo-revision.mjs';
 import { isPhaselessTodoPlanSchema, todoPhaseDefinitions } from './todo-store.mjs';
 
-export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v5';
+/**
+ * v6で`plan_notes`を足す。ADR 0054・0063の前例どおり既存versionへのin-place追加はしない。
+ *
+ * plan単位noteは工程に属する義務で、taskへ着手した人のcontextには届くが、**まだ誰も
+ * 着手していない工程の義務は、この欄が無いとどこにも出ない**。
+ */
+export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v6';
 export const TODO_DISPATCH_FRONTIER_SCHEMA = 'lattice.todo_dispatch_frontier.v1';
 export const TODO_STATUS_LIST_LIMIT = 2_000;
 export const TODO_STATUS_LABEL_LIMIT = 160;
@@ -122,6 +130,36 @@ function auditPendingEntry(value) {
     && boundedList(value.next_commands, (command) => isTodoStatusBoundedText(command, TODO_STATUS_REASON_LIMIT));
 }
 
+function planNoteLatestEntry(value) {
+  return exactRecord(value, ['event_digest', 'actor_agent', 'recorded_at'])
+    && isTodoDigest(value.event_digest) && isTodoIdentifier(value.actor_agent)
+    && isStrictTodoTimestamp(value.recorded_at);
+}
+
+/**
+ * plan単位noteの要約1件。
+ *
+ * **本文を持たない。** 自由記述のMarkdownをここへinlineすると、noteを書くほど
+ * `TODO_STATUS_CAPTURE_LIMIT`へ近づき、健全なstoreが`TODO_SCALE_EXCEEDED`で落ちる
+ * ——「記録すると壊れる」面を作らない。載せるのは件数・帰属・次の一手までで、
+ * 中身は`next_commands`が指す`note list`が持つ。
+ *
+ * `count`は1以上（0件のplanはentryごと出さない）。`next_commands`が非空必須なのは
+ * `audit_pending`と同じ理由で、欄に出るだけで次の一手が無いなら次アクション面として無意味である。
+ */
+function planNoteEntry(value) {
+  return exactRecord(value, ['plan_key', 'note_head_digest', 'count', 'latest', 'next_commands'])
+    && isTodoIdentifier(value.plan_key) && isTodoDigest(value.note_head_digest)
+    && isNonNegativeSafeInteger(value.count) && value.count > 0
+    && Array.isArray(value.latest) && value.latest.length > 0
+    && value.latest.length <= Math.min(value.count, TODO_LIMITS.statusPlanNoteLatest)
+    && value.latest.every(planNoteLatestEntry)
+    && value.latest[0].event_digest === value.note_head_digest
+    && Array.isArray(value.next_commands) && value.next_commands.length > 0
+    && boundedList(value.next_commands,
+      (command) => isTodoStatusBoundedText(command, TODO_STATUS_REASON_LIMIT));
+}
+
 function memberHead(value) {
   return exactRecord(value, [
     'plan_key', 'plan_version', 'through_sequence', 'journal_head_digest',
@@ -175,16 +213,17 @@ function dispatchFrontierEntry(value, projectId, nextReady) {
     && value.frontier_digest === expected.frontier_digest;
 }
 
-/** todo status v5 wire shapeを検証し、digestも再計算する。 */
+/** todo status v6 wire shapeを検証し、digestも再計算する。 */
 export function validateTodoStatusResult(value) {
   try {
     return exactRecord(value, [
       'schema', 'project_id', 'active_set', 'next_ready', 'dispatch_frontier',
-      'blocked', 'audit_pending', 'member_heads', 'result_digest',
+      'blocked', 'audit_pending', 'plan_notes', 'member_heads', 'result_digest',
     ]) && value.schema === TODO_STATUS_SCHEMA && isTodoIdentifier(value.project_id)
       && boundedList(value.active_set, activeTaskEntry) && boundedList(value.next_ready, taskEntry)
       && dispatchFrontierEntry(value.dispatch_frontier, value.project_id, value.next_ready)
       && boundedList(value.blocked, blockedEntry) && boundedList(value.audit_pending, auditPendingEntry)
+      && boundedList(value.plan_notes, planNoteEntry)
       && boundedList(value.member_heads, memberHead)
       && isTodoDigest(value.result_digest)
       && value.result_digest === todoSelfDigest(value, 'result_digest');
@@ -389,10 +428,32 @@ export function computeReadyFrontier(readModel) {
   return ready;
 }
 
-/** Canonical todo read modelからSessionStart向け現在地をread-only投影する。 */
-export function projectTodoStatus(readModel) {
+/**
+ * dispatch面（`next_ready`／`active_set`／`dispatch_frontier`）だけを見る内部呼び出しが渡す明示の空。
+ *
+ * `todo start`のready判定・gantt・dashboardの生存判定は、statusのresultを**外へ出さない**。
+ * そこでnote chainを読むと、noteの破損がdispatch判定やdashboardの可視性を巻き添えに落とす
+ * ——ganttのnote破損は既に警告として表出する契約があり（`notesForGantt`）、二重に落とさない。
+ * この定数を使った結果をwireとして出力しないこと。`plan_notes`が常に空になる。
+ */
+export const TODO_STATUS_DISPATCH_ONLY = Object.freeze({ planNotes: Object.freeze([]) });
+
+/**
+ * Canonical todo read modelからSessionStart向け現在地をread-only投影する。
+ *
+ * `planNotes`は**必須**である。plan単位noteはstore read modelに入っていない別chainなので、
+ * 読むのは呼び出し側の責務になる。省略を空配列へ丸めると「noteが無い」と「読まなかった」が
+ * 同じ形になり、配線を1箇所忘れただけで義務が静かに消える——それはこの欄が塞いでいる穴そのものである。
+ * 素材は`readTodoPlanNotesForStatus`（`src/todo-note-store.mjs`）が作り、resultを出力する
+ * 呼び出し元だけがそれを渡す。dispatch面しか見ない内部呼び出しは`TODO_STATUS_DISPATCH_ONLY`を使う。
+ */
+export function projectTodoStatus(readModel, options = undefined) {
+  if (!exactRecord(options, ['planNotes']) || !Array.isArray(options.planNotes)) {
+    fail('TODO_STATUS_INVALID_INPUT', 'todo_status_plan_notes_missing');
+  }
   const graph = buildTodoGraph(readModel);
   const { nodes, incoming, memberHeads, auditPending } = graph;
+  const planNotes = [...options.planNotes];
 
   const activeSet = [];
   const nextReady = [];
@@ -425,7 +486,7 @@ export function projectTodoStatus(readModel) {
   memberHeads.sort((left, right) => left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1 : 0);
   for (const [name, value] of [
     ['active_set', activeSet], ['next_ready', nextReady], ['blocked', blocked],
-    ['audit_pending', auditPending], ['member_heads', memberHeads],
+    ['audit_pending', auditPending], ['plan_notes', planNotes], ['member_heads', memberHeads],
   ]) enforceListLimit(name, value);
 
   const result = {
@@ -438,6 +499,9 @@ export function projectTodoStatus(readModel) {
     // 監査待ちは`member.phases`だけから作った別の列で、dispatch(next_ready/dispatch_frontier)へは
     // 影響しない。監査が進んでもfrontier_digestは動かない。
     audit_pending: auditPending,
+    // plan単位noteも同じく別の列である。noteの有無・件数はdispatchへ影響しないので、
+    // next_ready・dispatch_frontier・frontier_digestはnoteを書いても1バイトも動かない。
+    plan_notes: planNotes,
     member_heads: memberHeads,
     result_digest: '',
   };

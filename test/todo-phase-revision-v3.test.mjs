@@ -475,7 +475,7 @@ test('todo verifyはactive phase v3を正規verifierへrouteしsource digest dri
     revision.reconciliation.reconciliation_digest);
   const legacyReadModel = await readTodoStore({ repoRoot: root, now: COMMIT_AT });
   legacyReadModel.members[0].revision.schema = 'lattice.phase_todo_revision.v2';
-  assert.equal(projectTodoStatus(legacyReadModel).member_heads[0].reconciliation_digest,
+  assert.equal(projectTodoStatus(legacyReadModel, { planNotes: [] }).member_heads[0].reconciliation_digest,
     revision.revision_digest);
 
   const archiveRef = path.join(root, revision.source_cutover_batch.archive_ref);
@@ -1183,5 +1183,5 @@ test('v3昇格後のv2 phase revisionはmanifestのactive_revision_digestを追�
   const after = await readTodoStore({ repoRoot: value.root, now: COMMIT_AT });
   assert.equal(after.manifest.members[0].active_revision_digest, revision.revision_digest);
   assert.equal(after.members[0].plan.plan_version, revision.desired_plan.plan_version);
-  assert.equal(projectTodoStatus(after).schema, 'lattice.todo_status_result.v5');
+  assert.equal(projectTodoStatus(after, { planNotes: [] }).schema, 'lattice.todo_status_result.v6');
 });

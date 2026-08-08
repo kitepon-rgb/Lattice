@@ -90,7 +90,7 @@ test('independence記録が無くてもready frontierは通常どおり出る', 
   // 前提の確認: この時点で記録は存在しない（＝未判定）。
   assert.equal(await readTodoIndependenceArtifact({ repoRoot: root, planKey: 'main', now: NOW }), null);
 
-  const status = projectTodoStatus(store);
+  const status = projectTodoStatus(store, { planNotes: [] });
   // 未判定は「不可」ではない。T1・T2は並列readyのまま出る。
   assert.deepEqual(status.next_ready.map(({ task_id: id }) => id), ['T1', 'T2']);
   assert.equal(status.dispatch_frontier.recommended_parallelism, 2);
@@ -100,7 +100,7 @@ test('independence記録が無くてもready frontierは通常どおり出る', 
 
 test('independence記録を書いてもdispatch面は1バイトも動かない', async (context) => {
   const { root, plan } = await workspace(context);
-  const before = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }));
+  const before = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
 
   const artifact = independenceArtifact(plan);
   const { ref: artifactRef } = await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
@@ -109,7 +109,7 @@ test('independence記録を書いてもdispatch面は1バイトも動かない',
   // 「変わらない」は当たり前になり、何も固定していないことになる。
   assert.deepEqual(await readTodoIndependenceArtifact({ repoRoot: root, planKey: 'main', now: NOW }), artifact);
 
-  const after = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }));
+  const after = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
   assert.equal(dispatchFacing(after), dispatchFacing(before));
   assert.equal(after.dispatch_frontier.frontier_digest, before.dispatch_frontier.frontier_digest);
   // リテラルでも固定する。両側が同時に壊れた時に通ってしまう形を避ける。
@@ -118,7 +118,7 @@ test('independence記録を書いてもdispatch面は1バイトも動かない',
 
 test('競合を宣言した記録でもdispatchは塞がらない', async (context) => {
   const { root, plan } = await workspace(context);
-  const before = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }));
+  const before = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
 
   // 判定結果が「T1とT2は同じ資源で競合する」でも、dispatchの可否は変えない。
   // 競合はstartのadvisoryが伝える助言であって、frontierからの除外ではない（ADR 0128）。
@@ -130,7 +130,7 @@ test('競合を宣言した記録でもdispatchは塞がらない', async (conte
   await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
   assert.deepEqual(await readTodoIndependenceArtifact({ repoRoot: root, planKey: 'main', now: NOW }), artifact);
 
-  const after = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }));
+  const after = projectTodoStatus(await readTodoStore({ repoRoot: root, now: NOW }), { planNotes: [] });
   assert.equal(dispatchFacing(after), dispatchFacing(before));
   assert.equal(after.dispatch_frontier.frontier_digest, before.dispatch_frontier.frontier_digest);
   assert.deepEqual(after.next_ready.map(({ task_id: id }) => id), ['T1', 'T2']);
