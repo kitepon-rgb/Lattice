@@ -297,6 +297,9 @@ export async function spawnWorkOrderWorker({ packet, worktreePath, spoolDir }) {
   if (!validateRunWorkOrder(order)) fail('WORK_ORDER_ORDER_INVALID', 'work order生成に失敗した');
   const orderPath = path.join(spoolDir, 'orders', `${packet.packet_digest}.json`);
   const reportPath = path.join(spoolDir, 'reports', `${packet.packet_digest}.json`);
+  // spoolはrunを跨いで再利用される。古いdoneを新dispatchの完了として読まないよう、
+  // reportを消してからorderをpublishする（bridgeはorderのrename後にしか動かない）。
+  await rm(reportPath, { force: true });
   await durableReplaceBytes(orderPath, Buffer.from(`${canonicalizeArtifact(order)}\n`));
   // 辞退はbridge内で再配車し、受諾した席が決まるまでreportを出さない。
   // controller側の任意timeoutでactivateを失敗させず、実席pidだけをimmutable bindする。

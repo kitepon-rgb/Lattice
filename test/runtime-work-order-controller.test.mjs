@@ -70,6 +70,14 @@ test('work-order workerはreportを合図にしdiffをLattice自身で観測す�
   const orderPath = path.join(spoolDir, 'orders', `${executorPacket.packet_digest}.json`);
   const reportPath = path.join(spoolDir, 'reports', `${executorPacket.packet_digest}.json`);
 
+  // 前runのdoneが残っていても、新orderより前に消されて誤受理されない。
+  await writeFile(reportPath, `${canonicalizeArtifact({
+    schema: 'lattice.run_work_report.v1',
+    packet_digest: executorPacket.packet_digest,
+    state: 'done',
+    worker_pid: process.pid,
+  })}\n`);
+
   const workerPromise = spawnWorkOrderWorker({
     packet: executorPacket,
     worktreePath,
