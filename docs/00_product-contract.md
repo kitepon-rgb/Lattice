@@ -382,3 +382,31 @@ content negotiationは表示面だけの加算であり、未知URLを200へ丸�
 dashboard registryは同じ`project_id`を別canonical rootから自動登録しようとすると
 `PROJECT_ROOT_CONFLICT`でregistry bytesを不変に保つ。配信元を動かす唯一の例外は、actorを明示した
 `lattice todo dashboard adopt --json`である。結果と公開画面へローカル絶対pathを露出しない。
+
+## 消費者としてのPeertable（外部consumer contract）
+
+Peertable（MIT・npm `peertable`）はLatticeの外部消費者である。公開CLIとversioned JSONだけを読み書きし、
+`.lattice/`のstore fileを直読み・直書きしない。本節は既存面がどう消費されているかの記録であり、
+新しい保証・非目標・schema・面を増やさない。Latticeはこの消費者のために面を足さない。
+
+消費される面は4つである。
+
+- **依存付きready一覧**: `todo status --json`の`next_ready`／`blocked`／`active_set`／`dispatch_frontier`。
+  Peertableの各memberが次の仕事を自分で取る唯一の入口であり、`all_ready_parallel_by_default`が
+  この消費者の並列session構成をそのまま決める。
+- **順序付きstart/done記録**: `todo start`／`todo done`のlifecycle journal（`sequence`、
+  `actor{agent,host,session}`、`previous_digest`連鎖）。この消費者のclaimは会話上の宣言であり、
+  宣言が交差した時の裁定にjournalを機械の事実として引く。現行のlifecycle面がtaskへassigneeを持たず、
+  着手者をeventのactorとしてだけ残すことがこの消費のされ方の前提である——taskの所有者を持つと、
+  消費者側の宣言と二重正本になる。
+- **証跡束縛**: `todo done --evidence <descriptor>`のrepo内descriptorとpinned Git objectのhard検証。
+  完了報告が散文だけで通らないことを、この消費者は自分の規範でなくLatticeのfail closedへ委ねている。
+- **監査状態**: `todo status`の`audit_pending`、`todo phase status`、`lattice status`の
+  `next_action.reason`。全task doneが`gate_ready`であって完走でないこと（ADR 0147・0159）が、
+  消費者側の解散判断の早さを機械的に抑える。
+
+Latticeが所有しないものは、会話の正本、参加者の規範、宣言ベースのclaim、判断そのものである。
+これらは消費者側の社会契約であり、機械の真実だけを供給し判断と会話を実装しないという所有境界の外に置く。
+この消費者がLattice無しで動く形（standalone mode）も同じ理由で契約の外であり、Latticeの非目標を増やさない。
+
+対応する消費者側の正本はPeertable repoの`docs/plan.md`「§12 Lattice consumer contract」である。
