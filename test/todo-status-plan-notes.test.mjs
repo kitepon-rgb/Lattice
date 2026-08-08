@@ -96,7 +96,7 @@ test('plan単位noteはstatusのplan_notesへ出て、次に打つコマンド�
   assert.equal(entry.plan_key, 'carrier');
   assert.equal(entry.count, 1);
   assert.equal(entry.latest.length, 1);
-  assert.equal(entry.latest[0].event_digest, entry.note_head_digest);
+  assert.equal(entry.latest[0].event_digest, entry.plan_note_head_digest);
   assert.equal(entry.latest[0].actor_agent, 'agent-1');
   // 欄に在るだけでは読まれない。次の一手が名指しされていることが配達の条件である。
   assert.deepEqual(entry.next_commands, ['lattice todo note list --plan carrier --json']);
@@ -150,7 +150,7 @@ test('latestは最大3件で新しい順、countは全件を数える', async (c
   assert.equal(entry.latest.length, 3);
   const recordedAt = entry.latest.map(({ recorded_at: value }) => value);
   assert.deepEqual([...recordedAt].sort().reverse(), recordedAt);
-  assert.equal(entry.latest[0].event_digest, entry.note_head_digest);
+  assert.equal(entry.latest[0].event_digest, entry.plan_note_head_digest);
 });
 
 test('plan_notesはsession_contextのtodoへそのまま届く', async (context) => {

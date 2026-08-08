@@ -144,17 +144,20 @@ function planNoteLatestEntry(value) {
  * ——「記録すると壊れる」面を作らない。載せるのは件数・帰属・次の一手までで、
  * 中身は`next_commands`が指す`note list`が持つ。
  *
+ * `plan_note_head_digest`は`note_context.note_head_digest`（task chain）と**別のchainのhead**なので、
+ * 名前で区別する。同名にすると型が同じdigestなので、取り違えてもexact validatorを通ってしまう。
+ *
  * `count`は1以上（0件のplanはentryごと出さない）。`next_commands`が非空必須なのは
  * `audit_pending`と同じ理由で、欄に出るだけで次の一手が無いなら次アクション面として無意味である。
  */
 function planNoteEntry(value) {
-  return exactRecord(value, ['plan_key', 'note_head_digest', 'count', 'latest', 'next_commands'])
-    && isTodoIdentifier(value.plan_key) && isTodoDigest(value.note_head_digest)
+  return exactRecord(value, ['plan_key', 'plan_note_head_digest', 'count', 'latest', 'next_commands'])
+    && isTodoIdentifier(value.plan_key) && isTodoDigest(value.plan_note_head_digest)
     && isNonNegativeSafeInteger(value.count) && value.count > 0
     && Array.isArray(value.latest) && value.latest.length > 0
     && value.latest.length <= Math.min(value.count, TODO_LIMITS.statusPlanNoteLatest)
     && value.latest.every(planNoteLatestEntry)
-    && value.latest[0].event_digest === value.note_head_digest
+    && value.latest[0].event_digest === value.plan_note_head_digest
     && Array.isArray(value.next_commands) && value.next_commands.length > 0
     && boundedList(value.next_commands,
       (command) => isTodoStatusBoundedText(command, TODO_STATUS_REASON_LIMIT));

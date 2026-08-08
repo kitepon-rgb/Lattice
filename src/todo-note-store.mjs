@@ -517,7 +517,9 @@ export async function readTodoPlanNotesForStatus(options = {}) {
     if (current.length === 0) continue;
     summaries.push({
       plan_key: planKey,
-      note_head_digest: current[0].event_digest,
+      // `note_context.note_head_digest`はtask chainのheadを指す。同名で別のchainを指すと
+      // 型が同じdigestなので取り違えてもvalidatorを通る——名前で区別する（room [211]）。
+      plan_note_head_digest: current[0].event_digest,
       count: current.length,
       latest: current.slice(0, TODO_LIMITS.statusPlanNoteLatest).map((event) => ({
         event_digest: event.event_digest,
