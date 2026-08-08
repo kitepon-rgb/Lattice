@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 
+import { auditPendingPhasesOf } from './todo-audit-pending.mjs';
 import { serializeJsonForScript } from './todo-markdown-renderer.mjs';
 import { renderTodoGanttSvg, TODO_GANTT_STATUS_PRESENTATION } from './todo-gantt-svg.mjs';
 import { renderDiagramLegend, renderRightPane } from './todo-gantt-html-independence.mjs';
 import { escapeHtmlAttribute, escapeHtmlText, refKey } from './todo-gantt-html-shared.mjs';
 import { CSS } from './todo-gantt-html-style.mjs';
 
-export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v18';
+export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v19';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
 export const TODO_GANTT_HTML_MAX_BYTES = 24 * 1024 * 1024;
 
@@ -15,6 +16,28 @@ function projectDisplayName(readModel, metadata) {
     if (typeof candidate === 'string' && candidate.trim() !== '') return candidate.trim();
   }
   return readModel.project_id;
+}
+
+/**
+ * 監査待ちPhaseをヘッダへ出す(ADR 0147／0148)。
+ *
+ * CLIのstdoutは1行のversioned JSONというADR 0049の公理があり、人が読むテキスト面が無い。
+ * 人が実際に見るのはこの図とdashboard(同じHTMLを配信する)なので、監査待ちはここへ出す。
+ * 全taskがdoneでも監査が済んでいなければ工程は閉じていない——図が「全部緑」に見えるのに
+ * ヘッダが無言なら、読み手は完了したと読む。
+ *
+ * 件数は必ず出し、内訳は幅に収まらなければCSSで省略する(全文は`title`に残る)。
+ * 省略されるのは内訳であって件数ではないので、監査待ちの存在自体が消えることはない。
+ * 判断の着いたPhase(accepted／closed_unaudited)しか無ければ、この札は出ない。
+ */
+function renderAuditPendingChip(readModel) {
+  const pending = auditPendingPhasesOf(readModel);
+  if (pending.length === 0) return '';
+  const detail = pending
+    .map(({ plan_key: planKey, phase_id: phaseId, status }) => `${planKey}/${phaseId} (${status})`)
+    .join(' · ');
+  const text = `監査待ち ${pending.length}件: ${detail}`;
+  return `<span class="audit-pending-chip" title="${escapeHtmlAttribute(text)}">${escapeHtmlText(text)}</span>`;
 }
 
 export class TodoGanttRenderError extends Error {
@@ -196,7 +219,7 @@ export function renderTodoGanttHtml({
     metadata,
     presentation,
   });
-  const html = `<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lattice — ${escapeHtmlText(displayName)} 依存工程図</title><style>${CSS}</style></head><body data-gantt-root data-view-state="overview"><main class="shell"><section class="gantt-pane" aria-label="${escapeHtmlAttribute(displayName)} 依存工程図"><div class="diagram-toolbar" role="group" aria-label="図のズーム"><strong class="project-heading">${escapeHtmlText(displayName)} 依存工程図</strong><button type="button" data-zoom-action="out" aria-label="縮小">−</button><button type="button" data-zoom-action="reset">等倍</button><button type="button" data-zoom-action="in" aria-label="拡大">＋</button><button type="button" data-zoom-action="fit">全体表示</button><output class="zoom-readout" data-zoom-output aria-live="polite">100%</output><span class="diagram-note">縦=依存段階（時間ではない）</span></div>${renderDiagramLegend(presentation, layout, expandedSvg !== '')}<div class="diagram-scroll" data-diagram-scroll tabindex="0" aria-label="縦方向を主にスクロール可能な依存工程図">${diagrams}</div></section><div class="pane-divider" data-pane-divider aria-hidden="true"></div><aside class="narrative-pane" aria-label="選択工程の詳細と全工程一覧">${rightPane}</aside></main><script type="application/json" id="todo-gantt-data">${staticData}</script><script>${CONTROLLER}</script></body></html>`;
+  const html = `<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lattice — ${escapeHtmlText(displayName)} 依存工程図</title><style>${CSS}</style></head><body data-gantt-root data-view-state="overview"><main class="shell"><section class="gantt-pane" aria-label="${escapeHtmlAttribute(displayName)} 依存工程図"><div class="diagram-toolbar" role="group" aria-label="図のズーム"><strong class="project-heading">${escapeHtmlText(displayName)} 依存工程図</strong>${renderAuditPendingChip(readModel)}<button type="button" data-zoom-action="out" aria-label="縮小">−</button><button type="button" data-zoom-action="reset">等倍</button><button type="button" data-zoom-action="in" aria-label="拡大">＋</button><button type="button" data-zoom-action="fit">全体表示</button><output class="zoom-readout" data-zoom-output aria-live="polite">100%</output><span class="diagram-note">縦=依存段階（時間ではない）</span></div>${renderDiagramLegend(presentation, layout, expandedSvg !== '')}<div class="diagram-scroll" data-diagram-scroll tabindex="0" aria-label="縦方向を主にスクロール可能な依存工程図">${diagrams}</div></section><div class="pane-divider" data-pane-divider aria-hidden="true"></div><aside class="narrative-pane" aria-label="選択工程の詳細と全工程一覧">${rightPane}</aside></main><script type="application/json" id="todo-gantt-data">${staticData}</script><script>${CONTROLLER}</script></body></html>`;
   const htmlBytes = Buffer.byteLength(html, 'utf8');
   if (htmlBytes > TODO_GANTT_HTML_MAX_BYTES) {
     throw new TodoGanttRenderError('TODO_SCALE_EXCEEDED', 'todo gantt HTML limit exceeded', {

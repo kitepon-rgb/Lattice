@@ -24,7 +24,8 @@ body{display:grid;grid-template-rows:minmax(0,1fr);height:100vh;margin:0;backgro
 .diagram-toolbar button:focus-visible{outline:2px solid var(--text-primary);outline-offset:2px}
 .zoom-readout{min-width:48px;text-align:center;font-size:12px;font-weight:500;font-variant-numeric:tabular-nums}
 .diagram-note{margin-left:auto;color:var(--text-secondary);font-size:12px;font-weight:500}
-.project-heading{margin-right:8px;color:var(--text-primary);font-size:13px;font-weight:650;white-space:nowrap}.status-symbol.status-in-progress{color:var(--accent)}.status-symbol.status-done{color:var(--good)}.status-symbol.status-blocked{color:var(--critical)}
+.project-heading{margin-right:8px;color:var(--text-primary);font-size:13px;font-weight:650;white-space:nowrap}
+.audit-pending-chip{flex:0 1 auto;min-width:9em;overflow:hidden;padding:2px 8px;border:1px solid var(--critical);border-radius:9999px;background:var(--surface-1);color:var(--critical);font-size:12px;font-weight:650;white-space:nowrap;text-overflow:ellipsis}.status-symbol.status-in-progress{color:var(--accent)}.status-symbol.status-done{color:var(--good)}.status-symbol.status-blocked{color:var(--critical)}
 .diagram-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--surface-1);color:var(--text-secondary);font-size:12px;font-weight:500}
 .diagram-legend>span{white-space:nowrap}.diagram-legend>p{flex:1 0 100%;margin:0;font-weight:400}
 .category-legend{margin-left:auto}.category-legend summary{cursor:pointer;color:var(--text-primary)}
