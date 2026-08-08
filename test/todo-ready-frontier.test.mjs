@@ -84,7 +84,7 @@ async function workspace(context) {
 }
 
 // 切り出し前のprojectTodoStatusが出していたバイト列。挙動不変の錨。
-const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v4","project_id":"project-1",'
+const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v5","project_id":"project-1",'
   + '"active_set":[{"plan_key":"main","task_id":"A","label":"Active work",'
   + '"unmet_dependencies":[]}],'
   + '"next_ready":[{"plan_key":"main","task_id":"C","label":"Ready work"},'
@@ -95,9 +95,11 @@ const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v4","project_id":"p
   + '"parallel_start_flag":"--parallel-frontier",'
   + '"frontier_digest":"__FRONTIER__"},'
   + '"blocked":[{"plan_key":"main","task_id":"B","reason":"waiting on review"}],'
+  // 全taskがdoneではない(Phaseはactive)ので監査待ちは空。v5で足した欄はblockedとmember_headsの間。
+  + '"audit_pending":[],'
   + '"member_heads":[__HEADS__],"result_digest":"__RESULT__"}';
 
-test('status v4の出力バイト列が切り出しで変わらない', async (context) => {
+test('status v5の出力バイト列がaudit_pending以外変わらない', async (context) => {
   const readModel = await workspace(context);
   const result = projectTodoStatus(readModel);
   const actual = JSON.stringify(result);

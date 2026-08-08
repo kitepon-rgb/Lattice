@@ -1183,5 +1183,5 @@ test('v3昇格後のv2 phase revisionはmanifestのactive_revision_digestを追�
   const after = await readTodoStore({ repoRoot: value.root, now: COMMIT_AT });
   assert.equal(after.manifest.members[0].active_revision_digest, revision.revision_digest);
   assert.equal(after.members[0].plan.plan_version, revision.desired_plan.plan_version);
-  assert.equal(projectTodoStatus(after).schema, 'lattice.todo_status_result.v4');
+  assert.equal(projectTodoStatus(after).schema, 'lattice.todo_status_result.v5');
 });
