@@ -10,17 +10,19 @@
   **exact key検証をしている消費者は追従が必要**で、追従前は`version_mismatch`として拒否される。
   「知っているkeyだけを読む」消費者は影響を受けない。`lattice session-context --json`の
   `todo`フィールドも同じくv6になる。
-- **調整方式の宣言はstore formatの前方非互換である（wireのbumpとは別の話）。**
-  `lattice todo independence mode`で`coordination_mode` eventを1件でも書いたplanは、
-  **0.47.0以前のCLIから`todo status`も`todo start`も通らなくなる**——journalの読みは1 eventでも
-  検証に落ちればそのplanごと`STORE_CORRUPT`にし、部分的に読み飛ばす経路を持たない。
-  **wireは版を戻せば済むが、storeへ書いたものは戻らない。** 宣言していないplanは無傷である。
-  対処が違うので、上のwire bumpとは別項目として扱うこと。
 - **noteのwire schemaを上げた。** `todo_note_event.v2`（plan scope）・`todo_note_context.v2`
   （`scope`とplan chainのhead digest）・`todo_note_append_result.v2`・`todo_note_list_result.v2`。
   plan単位noteは**task noteと別のchain file**（`plan-active.jsonl`）へ積むので、旧CLIは存在に
   気づかず従来どおり動く。**ただし旧CLIではplan単位noteが届かない**——`todo start`の`note_context`は
   v1のままで、plan scopeのentryを持たない。
+
+### 互換性（storeは壊れない）
+
+**plan単位noteも調整方式の宣言も、旧CLIのstore読みを壊さない。** どちらも専用のchain file
+（`plan-active.jsonl`・`plan-scoped.jsonl`）へ積み、既存のlifecycle journalとtask note chainのbyteを
+1つも動かさないためである。0.47.0のCLIで宣言済みstoreを読んでも`todo status`／`lattice status`／
+`todo verify`／`todo start`は従来どおり通る（実測）。**ただし旧CLIからは、plan noteも調整方式の宣言も
+存在ごと見えない**——壊れないことと届くことは別で、この欠落は版が上がるまで解けない。
 
 ### 追加
 

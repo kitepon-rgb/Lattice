@@ -129,12 +129,18 @@ Control saga・SessionStart hook）を先にv6受理へ動かしてから、Latt
   読む」消費者は影響を受けない。追従前のexact pin消費者は、publishまでinstalled CLIを
   `version_mismatch`として拒否する（downstream先行protocolとexact pinの組み合わせから必然的に生じる
   typedかつfail-visibleな窓）。
-- **調整方式の宣言とplan noteは、wireの版ズレではなくstore formatの前方非互換である。** `coordination_mode`
-  eventを1件でも書いたplanは、旧CLIから`todo status`も`todo start`も通らなくなる（journal読みは
-  `validateTodoEvent`がfalseを返した時点でそのplanごと`STORE_CORRUPT`にし、部分的に読み飛ばす経路を
-  持たない——壊れを黙って飛ばす形にしないため）。**wireは版を戻せば済むが、storeへ書いたものは戻らない。**
-  宣言していないplan・plan noteを持たないplanは無傷である。
-- plan単位noteは別chainなので、旧CLIはその存在に気づかずtask noteだけを従来どおり返す。
+- **plan単位noteも調整方式の宣言も、旧CLIを壊さない。** どちらも専用のchain file
+  （`notes/<plan>/plan-active.jsonl`・`plans/<plan>/<version>/journal/plan-scoped.jsonl`）へ積み、
+  lifecycle journalとtask note chainのbyteを1つも動かさないためである。旧CLIはそのfileを列挙しないので
+  存在に気づかない。実測（0.47.0で宣言済みstoreを読む）: `todo status`／`lattice status`／`todo verify`／
+  `todo start`すべて従来どおり通る。**前方非互換なのはwireのv6だけ**で、それはexact key検証をしている
+  消費者の追従で解ける。
+- **ただし旧CLIからは、plan noteも調整方式の宣言も「存在ごと見えない」。** 壊れないことと届くことは別である。
+  この欠落は版が上がるまで解けず、0.47.0に留まる利用者には永続する。
+- **この設計を選ばなければ、前方非互換になっていた。** 混在chain（既存journal／note chainへ新kind・新schemaを
+  積む形）を採ると、1件書いた時点で旧CLIはそのchainを`STORE_CORRUPT`／`NOTE_LOG_CORRUPT`として拒否する
+  ——検証は1 eventずつexactで、部分的に読み飛ばす経路を持たない（壊れを黙って飛ばす形にしないため）。
+  **wireは版を戻せば済むが、storeへ書いたものは戻らない。** 別chainはこの不可逆性を避けるための選択である。
 - **配達は「押し出しの回数」だけでなく「読む側のCLIの版」にも依存する。** 新しいscopeの記録は、
   古いCLIからは存在ごと見えない——前方互換の設計として意図どおりだが、**「義務を機械が持った」と
   言えるのは、読む側がその版を持ってからである。** publishとinstallが終わるまで、記録は書けているが
