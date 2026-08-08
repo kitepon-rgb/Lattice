@@ -2,6 +2,17 @@
 
 ## 0.50.0 — 2026-08-08
 
+### 追加
+
+- **projectごとに外部ペインを1枚差せるようにした。** `.lattice/project.json`の任意欄
+  `external_pane { title, url, probe_url }`を読み、設定があるprojectの公開工程表の右ペインへ、
+  タブ（`title`を表示・「概要」の左）とiframeを**配信層だけで**注入する。既定タブは生存probeが
+  非空の一覧を返した時だけ外部ペインになり、probeの失敗・非200・空一覧はすべて概要へ落ちる。
+  欄が無いprojectは従来どおり概要だけで、タブもCSP追記も出ない。描画部品`renderTodoGanttHtml`は
+  不変で、自己完結契約（外部参照ゼロ）も保たれる。CSPへは設定があるprojectだけ`frame-src`と
+  `connect-src`が加わる。`external_pane`が壊れている時は`PROJECT_IDENTITY_INVALID`で落とし、
+  黙って無視しない。
+
 ### 破壊的変更（host統合者向け）
 
 - **note本文の公開面除外を廃止した。** `renderPublicTodoGanttForProject` export と
