@@ -5,7 +5,9 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  TODO_COORDINATION_MODES,
   TODO_LIMITS,
+  TODO_PLAN_SCOPED_EVENT_KINDS,
   canonicalizeTodoArtifact,
   digestTodoArtifact,
   exactRecord,
@@ -235,6 +237,57 @@ async function readJournal(repoRoot, journalRef) {
   return { segments, events, activeBytes };
 }
 
+/**
+ * planへ帰属するeventを積む、lifecycle journalとは別のchain（ob03）。
+ *
+ * 同じ`journal/active.jsonl`へ混ぜない。旧CLIの`validateTodoEvent`は`TODO_EVENT_KINDS`を
+ * exactで見るので、未知kindが1件混ざるとその**plan全体**が`STORE_CORRUPT`になる。journalは
+ * `todo status`の正本なので、混ぜると旧CLIから工程が読めなくなり、版を戻してもstoreは戻らない。
+ *
+ * 旧CLIの`readJournal`は`journal/active.jsonl`と`journal/sealed/*`を名指しで開くだけで、
+ * `journal/`自体をreaddirしない。version dir配下のfile一覧を厳密検査する経路も無い
+ * （`independence.json`が同じ性質で既に出荷されている・ADR 0127 Decision 1）。したがって
+ * 兄弟fileを置いても旧CLIは存在に気づかず、互換もrollbackも保たれる。
+ */
+function planScopedJournalRef(journalRef) {
+  return path.posix.join(path.posix.dirname(journalRef), 'plan-scoped.jsonl');
+}
+
+/**
+ * plan-scoped chainを読む。記録が無ければ空（「まだ何も宣言していない」）。
+ *
+ * lifecycle journalと違いgenesisを持たない——planの存在はjournalが証明しており、この
+ * chainはそこへ後から積まれる宣言だけを持つ。壊れている記録はnullや空へ丸めずtyped failにする。
+ */
+async function readPlanScopedJournal(repoRoot, journalRef) {
+  const ref = planScopedJournalRef(journalRef);
+  const absolute = path.resolve(repoRoot, ref);
+  let bytes;
+  try {
+    const state = await lstat(absolute);
+    if (state.isSymbolicLink() || !state.isFile()) fail('STORE_CORRUPT', 'plan_scoped_journal_unsafe');
+    bytes = await readFile(absolute);
+  } catch (error) {
+    if (error instanceof TodoStoreError) throw error;
+    if (error?.code === 'ENOENT') return { ref, events: [], activeBytes: Buffer.alloc(0) };
+    fail('STORE_CORRUPT', 'plan_scoped_journal_read_failed');
+  }
+  const events = parseJournalSegment(bytes);
+  if (!events.every(({ kind }) => TODO_PLAN_SCOPED_EVENT_KINDS.includes(kind))) {
+    fail('STORE_CORRUPT', 'plan_scoped_journal_kind_invalid');
+  }
+  const failures = verifyLinearHashChain({
+    entries: events,
+    canonicalize: canonicalizeTodoArtifact,
+    digestField: 'event_digest',
+    genesisPrevious: null,
+  });
+  if (failures.size > 0) {
+    fail('STORE_CORRUPT', [...failures].sort()[0], { failed_conditions: [...failures].sort() });
+  }
+  return { ref, events, activeBytes: bytes };
+}
+
 function taskState(taskId) {
   return { task_id: taskId, status: 'pending', started_at: null, done_at: null, blocked_reason: null,
     evidence: null, evidence_unverified: false, imported: false };
@@ -285,6 +338,29 @@ function phasesOf(plan) {
 // 露出しない。
 export function todoPhaseDefinitions(plan) {
   return phasesOf(plan);
+}
+
+/**
+ * planの調整方式の宣言を投影する（ob03・オーナー裁定C①）。
+ *
+ * 最後の`coordination_mode` eventが現在の宣言で、1件も無ければ未宣言（null）である。
+ * 未宣言は「witnessで行くと決めた」でも「会話で行くと決めた」でもなく、**まだ選んでいない**。
+ * 「誰が選んだか」はeventのactorが持つ——witnessが全planの暗黙義務だった時に帰属が無く、
+ * 正確な案内が素通りされたことへの是正なので、帰属を落とすとこの機構の意味が消える。
+ *
+ * 宣言はdispatchを変えない。未宣言でもready frontierは通常どおり出る（ADR 0160・ob04）。
+ */
+export function projectTodoCoordination(events) {
+  const declaration = [...events].reverse()
+    .find((event) => event.kind === 'coordination_mode');
+  if (declaration === undefined) return null;
+  return {
+    mode: declaration.payload.mode,
+    reason: declaration.payload.reason,
+    declared_by: declaration.actor,
+    declared_at: declaration.recorded_at,
+    event_digest: declaration.event_digest,
+  };
 }
 
 function derivedPhaseStatus(plan, taskStates, phaseStates, phaseId) {
@@ -433,6 +509,10 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
       }
       continue;
     }
+    // planへ帰属するkindは別chain(plan-scoped.jsonl)へ積むので、通常はここへ来ない。
+    // 来た場合(旧形式のstoreや将来の移行)でもtask状態へ触れさせない——下の
+    // states.get(event.task_id)がnullを引いてevent_task_missingで落ちるのを防ぐ。
+    if (TODO_PLAN_SCOPED_EVENT_KINDS.includes(event.kind)) continue;
     if (event.kind.startsWith('phase_')) {
       // phaseStatesはphasesOf(plan)から作られる(v4/v5なら実Phase、それ以外なら暗黙の
       // terminal-audit Phaseだけ)。`has`判定だけで両方の場合を賄えるので、schemaでの
@@ -1133,8 +1213,13 @@ export async function readTodoStore(options = {}) {
     // phase無しplanのどちらでも同じ形(暗黙のterminal-audit Phase込み)で常に埋める。
     // 消費者はここを読み、snapshot.phases(v1には存在しない)を直接読まない。
     const phases = projectPhaseStates(plan, journal.events, new Map(tasks.map((task) => [task.task_id, task])));
-    loaded.push({ descriptor, plan, revision, journal, snapshot: snapshotStale ? expectedSnapshot : snapshot,
-      tasks, phases, snapshot_stale: snapshotStale });
+    // 調整方式の宣言(ob03)。lifecycle journalとは別chainから読む。phasesと同じく
+    // snapshot artifactの形式には縛られない導出ビューで、未宣言はnull（「まだ選んでいない」）。
+    const planScoped = await readPlanScopedJournal(repoRoot, descriptor.journal_ref);
+    const coordination = projectTodoCoordination(planScoped.events);
+    loaded.push({ descriptor, plan, revision, journal, plan_scoped: planScoped,
+      snapshot: snapshotStale ? expectedSnapshot : snapshot,
+      tasks, phases, coordination, snapshot_stale: snapshotStale });
   }
   validateMergedGraph(loaded);
   return {
@@ -1352,6 +1437,15 @@ export async function appendTodoEvent(options = {}) {
     const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
     const member = store.members.find(({ descriptor }) => descriptor.plan_key === options.planKey);
     if (!member) fail('STORE_INCONSISTENT', 'plan_not_active');
+    // planへ帰属するeventは別chainへ積む(ob03)。task状態もPhase状態も動かさないので、
+    // replay・snapshot・manifestへは触れない——lifecycle journalのheadを進めるのは
+    // 「作業が進んだ」の意味であり、方式を選んだだけでそこを動かすと意味がずれる。
+    if (TODO_PLAN_SCOPED_EVENT_KINDS.includes(options.event.kind)) {
+      return appendPlanScopedEvent({
+        repoRoot, member,
+        input: { ...options.event, recorded_at: options.event.recorded_at ?? new Date().toISOString() },
+      });
+    }
     const input = resolveTargetedEvent({
       ...options.event,
       task_id: resolveCanonicalTaskId(member.plan, options.event.task_id),
@@ -1400,6 +1494,49 @@ export async function appendTodoEvent(options = {}) {
       new Map(tasks.map((task) => [task.task_id, task])));
     return { event, snapshot, plan: member.plan, phases };
   });
+}
+
+/**
+ * plan-scoped chainへ1件積む（ob03）。
+ *
+ * lifecycle journalとは独立したsequenceとhash chainを持つ。`member_heads`の
+ * `through_sequence`／`journal_head_digest`は**task chainだけ**を指し続ける——
+ * 「この planの lifecycleがどこまで進んだか」という意味を、方式の宣言で動かさない
+ * （合成すると型も値域も同じまま意味だけずれ、消費者はexact検証を通してしまう）。
+ */
+async function appendPlanScopedEvent({ repoRoot, member, input }) {
+  const previous = member.plan_scoped.events.at(-1) ?? null;
+  const event = {
+    schema: 'lattice.todo_event.v3',
+    project_id: member.plan.project_id,
+    plan_key: member.plan.plan_key, plan_version: member.plan.plan_version,
+    // chainの先頭は sequence 0（`verifyLinearHashChain`は sequence 0 ⟺ previous_digest null を
+    // genesis束縛として検証する）。lifecycle journalのsequenceとは独立に数える。
+    sequence: previous === null ? 0 : previous.sequence + 1,
+    previous_digest: previous?.event_digest ?? null,
+    kind: input.kind, task_id: null, phase_id: null,
+    actor: input.actor, recorded_at: input.recorded_at,
+    provenance: input.provenance ?? null, payload: input.payload, event_digest: '',
+  };
+  event.event_digest = todoSelfDigest(event, 'event_digest');
+  if (!validateTodoEvent(event)) throw new TypeError('todo event input violates its declared schema');
+
+  const bytes = canonicalLine(event);
+  if (member.plan_scoped.activeBytes.length + bytes.length > TODO_LIMITS.journalSegmentBytes) {
+    // 宣言は1 planあたり数件の想定なので封緘機構は持たない。上限へ達したら黙って捨てず、
+    // typedに止めて「この設計では足りない」ことを表に出す。
+    fail('STORE_WRITE_REFUSED', 'plan_scoped_journal_segment_limit_exceeded', {
+      ref: member.plan_scoped.ref, limit: TODO_LIMITS.journalSegmentBytes,
+    });
+  }
+  await atomicWrite(path.resolve(repoRoot, member.plan_scoped.ref),
+    Buffer.concat([member.plan_scoped.activeBytes, bytes]));
+  const events = [...member.plan_scoped.events, event];
+  return {
+    event, plan: member.plan, snapshot: member.snapshot,
+    plan_scoped_head_digest: event.event_digest,
+    coordination: projectTodoCoordination(events),
+  };
 }
 
 export function buildTodoPlan(input) {

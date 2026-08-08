@@ -4,6 +4,7 @@ import {
   isAuditPendingPhaseStatus,
 } from './todo-audit-pending.mjs';
 import {
+  TODO_COORDINATION_MODES,
   TODO_LIMITS,
   exactRecord,
   isNonNegativeSafeInteger,
@@ -163,6 +164,26 @@ function planNoteEntry(value) {
       (command) => isTodoStatusBoundedText(command, TODO_STATUS_REASON_LIMIT));
 }
 
+/**
+ * 調整方式を宣言したplan 1件（ob03・オーナー裁定C①）。
+ *
+ * **宣言済みのplanだけを列挙する。** 未宣言を`mode: null`で全plan出すと、plan数ぶん常に
+ * 埋まって読み飛ばされる列になる——前campaignで`audit_pending`の設計時に避けた形と同じ。
+ * 未宣言は「`member_heads`に居て`coordination`に居ない」で引ける。
+ *
+ * `declared_by`が本体である。witnessが全planの暗黙義務だった時に無かったのが帰属で、
+ * ここを落とすとこの欄は「もう1つの督促」に戻る。
+ */
+function coordinationEntry(value) {
+  return exactRecord(value, ['plan_key', 'mode', 'declared_by', 'declared_at', 'reason'])
+    && isTodoIdentifier(value.plan_key)
+    && TODO_COORDINATION_MODES.includes(value.mode)
+    && exactRecord(value.declared_by, ['host', 'session', 'agent'])
+    && ['host', 'session', 'agent'].every((key) => isTodoStatusBoundedText(value.declared_by[key], TODO_STATUS_LABEL_LIMIT))
+    && isStrictTodoTimestamp(value.declared_at)
+    && isTodoStatusBoundedText(value.reason, TODO_STATUS_REASON_LIMIT);
+}
+
 function memberHead(value) {
   return exactRecord(value, [
     'plan_key', 'plan_version', 'through_sequence', 'journal_head_digest',
@@ -221,12 +242,13 @@ export function validateTodoStatusResult(value) {
   try {
     return exactRecord(value, [
       'schema', 'project_id', 'active_set', 'next_ready', 'dispatch_frontier',
-      'blocked', 'audit_pending', 'plan_notes', 'member_heads', 'result_digest',
+      'blocked', 'audit_pending', 'plan_notes', 'coordination', 'member_heads', 'result_digest',
     ]) && value.schema === TODO_STATUS_SCHEMA && isTodoIdentifier(value.project_id)
       && boundedList(value.active_set, activeTaskEntry) && boundedList(value.next_ready, taskEntry)
       && dispatchFrontierEntry(value.dispatch_frontier, value.project_id, value.next_ready)
       && boundedList(value.blocked, blockedEntry) && boundedList(value.audit_pending, auditPendingEntry)
       && boundedList(value.plan_notes, planNoteEntry)
+      && boundedList(value.coordination, coordinationEntry)
       && boundedList(value.member_heads, memberHead)
       && isTodoDigest(value.result_digest)
       && value.result_digest === todoSelfDigest(value, 'result_digest');
@@ -291,6 +313,7 @@ function buildTodoGraph(readModel) {
   const incoming = new Map();
   const memberHeads = [];
   const auditPending = [];
+  const coordination = [];
   // snapshot artifactの形式(v1にはphasesキーが無い)には縛られない導出ビューを読む
   // (readTodoStoreが常にmember.phasesとして埋める。ADR 0147)。
   const phaseStatuses = new Map(readModel.members.flatMap((member) => (
@@ -338,6 +361,17 @@ function buildTodoGraph(readModel) {
     // snapshot artifactの形式には縛られない導出ビュー(member.phases)を読む(ADR 0147)。
     const phases = new Map((member.phases ?? []).map((state) => [state.phase_id, state]));
     collectAuditPending(member, auditPending);
+    // 調整方式の宣言(ob03)。member.coordinationはstoreがplan-scoped chainから投影した
+    // 導出ビューで、未宣言はnull。宣言済みだけをここへ載せる。
+    if (member.coordination !== null && member.coordination !== undefined) {
+      coordination.push({
+        plan_key: member.plan.plan_key,
+        mode: member.coordination.mode,
+        declared_by: member.coordination.declared_by,
+        declared_at: member.coordination.declared_at,
+        reason: displayText(member.coordination.reason, member.coordination.mode, TODO_STATUS_REASON_LIMIT),
+      });
+    }
     for (const task of member.plan.tasks) {
       const state = states.get(task.task_id);
       if (!plain(state) || !['pending', 'in-progress', 'blocked', 'done'].includes(state.status)) {
@@ -397,7 +431,10 @@ function buildTodoGraph(readModel) {
     left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1
       : left.phase_id < right.phase_id ? -1 : left.phase_id > right.phase_id ? 1 : 0));
 
-  return { nodes, incoming, phaseAcceptIncoming, phaseStatuses, memberHeads, auditPending };
+  coordination.sort((left, right) => (
+    left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1 : 0));
+
+  return { nodes, incoming, phaseAcceptIncoming, phaseStatuses, memberHeads, auditPending, coordination };
 }
 
 /** 先行完了とphase gateを満たしたpending taskだけがreadyになる。 */
@@ -455,7 +492,7 @@ export function projectTodoStatus(readModel, options = undefined) {
     fail('TODO_STATUS_INVALID_INPUT', 'todo_status_plan_notes_missing');
   }
   const graph = buildTodoGraph(readModel);
-  const { nodes, incoming, memberHeads, auditPending } = graph;
+  const { nodes, incoming, memberHeads, auditPending, coordination } = graph;
   const planNotes = [...options.planNotes];
 
   const activeSet = [];
@@ -489,7 +526,8 @@ export function projectTodoStatus(readModel, options = undefined) {
   memberHeads.sort((left, right) => left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1 : 0);
   for (const [name, value] of [
     ['active_set', activeSet], ['next_ready', nextReady], ['blocked', blocked],
-    ['audit_pending', auditPending], ['plan_notes', planNotes], ['member_heads', memberHeads],
+    ['audit_pending', auditPending], ['plan_notes', planNotes],
+    ['coordination', coordination], ['member_heads', memberHeads],
   ]) enforceListLimit(name, value);
 
   const result = {
@@ -505,6 +543,9 @@ export function projectTodoStatus(readModel, options = undefined) {
     // plan単位noteも同じく別の列である。noteの有無・件数はdispatchへ影響しないので、
     // next_ready・dispatch_frontier・frontier_digestはnoteを書いても1バイトも動かない。
     plan_notes: planNotes,
+    // 調整方式の宣言も同じく別の列である。宣言はdispatchを変えない——未宣言でもready
+    // frontierは通常どおり出る(ADR 0160・ob04のProtected behavior)。
+    coordination,
     member_heads: memberHeads,
     result_digest: '',
   };

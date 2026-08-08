@@ -10,6 +10,11 @@
 
 export const TODO_INDEPENDENCE_GUIDANCE_CODES = Object.freeze([
   'independence_no_ready_frontier',
+  // ob03: 調整方式の宣言に関する案内。witnessが全planの暗黙義務だった時、未compileの督促は
+  // 誰の受入条件でもない作業を指しており、正確なまま素通りされた。まず「どちらで行くか」を
+  // 選ばせ、選択の後にだけ督促する。
+  'coordination_mode_undeclared',
+  'coordination_conversation',
   'independence_unrecorded',
   'independence_task_undeclared',
   'independence_contract_superseded',
@@ -61,6 +66,14 @@ const BINDING_RECOMPILE_HINT = '宣言はwitness setにあり、independence com
 const CATALOG = Object.freeze({
   independence_no_ready_frontier: Object.freeze({
     message: '着手候補が無いため、並列可否を述べる対象が無い。',
+    next_action: 'none',
+  }),
+  coordination_mode_undeclared: Object.freeze({
+    message: 'このplanは調整方式をまだ選んでいない。witness検証で並列するか、会話で調整するかが決まっていない。',
+    next_action: 'declare_coordination_mode',
+  }),
+  coordination_conversation: Object.freeze({
+    message: 'このplanは会話調整を選んでいる。並列可否は宣言と判定ではなく、卓の合意が持つ。',
     next_action: 'none',
   }),
   independence_unrecorded: Object.freeze({
@@ -170,6 +183,7 @@ export function todoIndependenceGuidance(code, { severability = null } = {}) {
 export function selectIndependenceGuidance({
   coverage, taskDeclared, taskStale, conflictWithActive = null, conflictBetweenReady = null,
   contractSuperseded = false, readyCount = null, verdictsAbsent = false,
+  coordinationMode = 'witness',
 }) {
   // 着手候補が無いなら述べる対象が無い。ここを通さないと、readyが空のとき
   // 「未検査taskが1件も無い」が空虚に真になり、記録が古くても検証済みへ倒れる。
@@ -187,7 +201,16 @@ export function selectIndependenceGuidance({
   if (contractSuperseded) {
     return todoIndependenceGuidance('independence_contract_superseded');
   }
-  if (coverage === 'missing') return todoIndependenceGuidance('independence_unrecorded');
+  // 記録が無い時に何を言うかは、planがどちらの方式を選んだかで変わる（ob03・裁定C①）。
+  // 会話調整を選んだplanへ未compileを督促するのは、選択を尊重しないことになる。未宣言の
+  // planへ督促するのは、誰の受入条件でもない作業を指すことになる——それが8件で素通りされた
+  // 当のものである。督促が一級で出るのはwitnessを選んだplanだけとする。
+  // 既定を`witness`にしてあるのは、宣言を渡さない既存の呼び出し側の挙動を変えないためである。
+  if (coverage === 'missing') {
+    if (coordinationMode === 'conversation') return todoIndependenceGuidance('coordination_conversation');
+    if (coordinationMode === null) return todoIndependenceGuidance('coordination_mode_undeclared');
+    return todoIndependenceGuidance('independence_unrecorded');
+  }
   if (coverage === 'superseded') return todoIndependenceGuidance('independence_superseded');
   if (!taskDeclared) return todoIndependenceGuidance('independence_task_undeclared');
   if (taskStale) return todoIndependenceGuidance('independence_stale_for_task');
