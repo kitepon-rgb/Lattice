@@ -11,6 +11,11 @@
 // 3. **競合を宣言した記録**でも動かない——判定結果が「競合あり」でもdispatchは塞がらない
 //    （ADR 0062のPhase監査順とToDo schedulingの分離、ADR 0063の並列既定を継承）
 // 4. vacuousにならないよう、記録の有無が実際に切り替わっていることを両側で確かめる
+//
+// ob06で同じ不変を全操作へ広げた。「dispatchが動かない条件」を探す人はここと
+// `test/todo-obligations-e2e.test.mjs` の (d) を一緒に読む——こちらがprojection層で
+// 記録の有無と競合宣言を、あちらが実CLIでplan note書込・調整方式の宣言・判定記録を見る。
+// 欄を足す人は両方へ足す。片方だけだと「その欄はdispatchを動かさない」が半分しか固定されない。
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
