@@ -1,4 +1,4 @@
-# Lattice 製品契約（0.37.0）
+# Lattice 製品契約（0.49.0）
 
 ## Product outcome
 
@@ -140,11 +140,13 @@ Markdownへ暗黙fallbackしない。
 `lattice plan create --input <lattice.plan_create_input.v4>`である。入力はrepo内のcanonical
 JSON+LFに限定し、`lattice.todo_plan.v7`と同じPhase／task／topology制約を満たすfull desired stateを
 一回のtransactionでstoreへ登録する。移行専用の`todo migrate`を新規authoringへ流用しない。
-v2/v4は既存planの互換契約として維持する。
+旧v1〜v3は`--schema-version`で取得できるだけの歴史契約であり、create入力としては
+`plan_create_schema_retired`で拒否する。
 
 `.lattice/todo/`のcanonical journalを工程状態の唯一正本とし、snapshotは再生成可能な投影として扱う。
 工程表HTMLはfileへ生成せず、動的viewerがstoreから応答時に描画する。読取CLIは
-`lattice todo status / bindings / independence / verify / snapshot --rebuild / gantt serve`、
+`lattice todo status / show / note list / bindings / independence / seam-profile / seam-proposal /
+verify / snapshot --rebuild / gantt serve / phase status`、
 一回きりの移行入口は`todo migrate`である。`todo bindings [--plan <key>] --json`は`compile_binding`が設定された
 Taskだけを`project_id`／`plan_key`／`plan_version`／`task_id`つきで投影し
 （`lattice.todo_binding_projection.v1`・ADR 0124）、TODO工程とruntime実行を結ぶ唯一の公開読み取り面とする。
@@ -179,7 +181,7 @@ dashboardは作業者本人が読む面なので記録込みで描く。note本�
 だけとし、その入口が`includeNotes: false`を強制する。公開配信面は現時点で存在せず、入口だけを残す。
 
 依存edgeの不在は順序制約の無申告であって、書き込み境界の非干渉ではない。両者を公開面で区別するため、
-`todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v2`の宣言と
+`todo independence compile --plan <key> --input <witness_set>`が`lattice.todo_witness_set.v4`（旧v1〜v3も受理）の宣言と
 実sensor観測から並列可否を判定し、`lattice.todo_independence.v3`をplan versionディレクトリへ並置記録する
 （ADR 0127・0132）。conflictは`conflict_resources`のresource idを参照し、kindと衝突した実体
 （symbolまたはrepo相対path）を辞書側で一度だけ保持する。既知の旧契約で書かれた記録は`superseded`として
@@ -239,14 +241,16 @@ session開始時にhostが必要とする現在地は`lattice session-context --
 topologyとsource reconciliationの変更はfull desired-state successorを
 発行する`todo revise`／`todo revise-phase`だけが所有し、Markdown fallback、部分CRUD、独立`todo reconcile`を持たない。
 通常revision inputはcanonical JSON+LFの`lattice.todo_revision.v1/v2`、Phase revisionは
-`lattice.phase_todo_revision.v1/v2`とする。各v2は設計メモを持つdesired plan v6／v7を所有する。
+`lattice.phase_todo_revision.v1/v2/v3`とする。設計メモを持つdesired planは通常revision v2のv6と
+Phase revision v3のv7が所有する。
 cross-plan successorは`todo revise-set`で一括公開し、
 `lattice.todo_revision_set.v3`はPhase revisionを必須として通常revisionとの混在を許す。全desired graphと
 predecessorを検査し、artifactをdurable化した後、一つのmanifest activationで全planを同時に切り替える。
 Phase v3のactive source移転は、同じrevisionの`source_cutover_batch`が旧refとdigestを明示し、その操作から
 決定されるarchive refとdigestをdesired source inventoryが所有する場合だけ受理する。対応するcutover証拠のない
 predecessor source消失は`predecessor_source_silently_dropped`として拒否する。
-成功は単体通常revisionが`lattice.todo_revise_result.v1`、revision setが
+成功は単体通常revisionが`lattice.todo_revise_result.v1`（revision入力がv2なら
+`lattice.todo_revise_result.v2`）、revision setが
 `lattice.todo_revision_set_result.v1`、statusはreconciliation identityを含む
 `lattice.todo_status_result.v6`、verifyはsource inventoryを再検査する`lattice.todo_verify_result.v3`を返す。
 verify v3の各memberは`reconciliation_guidance`を持ち、`registered_unreconciled`がsource inventoryの
@@ -320,8 +324,9 @@ plan本体（phase定義と状態・task一覧と状態・依存本数・topolog
 mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,
 `LATTICE_TODO_ACTOR_AGENT`をすべてtodo identifierとして明示し、欠落時は書き込まない。`done`の
 evidenceはrepo内descriptor JSONとpinned Git objectをwrite時にhard検証する。成功は
-`lattice.todo_mutation_result.v2`一行、失敗とusage違反は`lattice.cli_error.v2`一行で、
-失敗時のstore bytesは不変とする。v2の`advisory`は`todo start`だけが非nullで返し、着手対象と
+`lattice.todo_mutation_result.v2`一行（`note_context`を同梱する成功は
+`lattice.todo_mutation_result.v4`）、失敗とusage違反は`lattice.cli_error.v2`一行で、
+失敗時のstore bytesは不変とする。`advisory`は`todo start`だけが非nullで返し、着手対象と
 進行中ToDoの競合・切断可能性・未検査の内訳を機械可読で載せる（ADR 0128）。助言であって拒否ではなく、
 ready frontier dispatch契約は変えない。ただし記録があるのに鮮度を判定できない場合は、
 助言なしで通さずjournal書込前に失敗させる。actor解決失敗はrequired／missing／invalid環境キーと正規次操作を
