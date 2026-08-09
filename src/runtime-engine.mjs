@@ -488,10 +488,10 @@ export async function observeExecutor(options = {}) {
  * findingがあればconflict_found＋intake_frozenを追記する（RC3-F検出、裁定はRC3-G）。
  */
 export function classifyCheckpointObservation(options = {}) {
-  if (!exactRecord(options, ['runId', 'plan', 'events', 'packets', 'todoId', 'detect', 'recordedAt'])) {
+  if (!exactRecord(options, ['runId', 'plan', 'events', 'packets', 'manifests', 'todoId', 'detect', 'recordedAt'])) {
     fail('classifyCheckpointObservation optionsがexact shapeでない');
   }
-  const { runId, plan, events, packets, todoId, detect, recordedAt } = options;
+  const { runId, plan, events, packets, manifests, todoId, detect, recordedAt } = options;
   if (typeof detect !== 'function') fail('detect関数が必要');
   const state = projectRuntimeState({ events });
   const checkpoints = state.checkpoints.filter((entry) => entry.todo_id === todoId);
@@ -501,6 +501,7 @@ export function classifyCheckpointObservation(options = {}) {
     todoId,
     checkpoint,
     packets,
+    manifests,
     runningTodoIds: state.running,
   });
   if (!Array.isArray(detectedFindings)) fail('detectがfindings配列を返さない');
@@ -510,12 +511,12 @@ export function classifyCheckpointObservation(options = {}) {
   const findings = detectedFindings.filter((finding) => !(
     finding.kind === 'undeclared_write' && finding.todo_ids?.length === 1
   ));
-  // 再分類のidempotence: 既に保存済みのfinding（kind＋todo_ids＋path）は再記録しない。
+  // 再分類のidempotence: path/resourceのどちらであっても、同じfindingだけ再記録しない。
   const recordedKeys = new Set(state.conflicts.map((conflict) => (
-    `${conflict.kind}|${[...(conflict.todo_ids ?? [])].sort().join(',')}|${conflict.path ?? ''}`
+    `${conflict.kind}|${[...(conflict.todo_ids ?? [])].sort().join(',')}|${conflict.path ?? ''}|${conflict.resource_id ?? ''}`
   )));
   const freshFindings = findings.filter((finding) => !recordedKeys.has(
-    `${finding.kind}|${[...(finding.todo_ids ?? [])].sort().join(',')}|${finding.path ?? ''}`,
+    `${finding.kind}|${[...(finding.todo_ids ?? [])].sort().join(',')}|${finding.path ?? ''}|${finding.resource_id ?? ''}`,
   ));
   let next = [...events];
   for (const finding of freshFindings) {

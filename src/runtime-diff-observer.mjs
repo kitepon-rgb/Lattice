@@ -21,6 +21,7 @@ import { digestArtifact } from './artifact-contracts.mjs';
 const MAX_DIFF_ENTRIES = 256;
 const MAX_TRACKED_FILE_BYTES = 4_194_304;
 const GIT_SHA1 = /^[0-9a-f]{40}$/;
+const LINE_ID = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
 
 function fail(reason) {
   throw new TypeError(`diff observer契約違反: ${reason}`);
@@ -252,6 +253,45 @@ export function coveredBy(declaredWrites, observedPath) {
   ));
 }
 
+function lineGroupsFor(manifests, todoIds) {
+  if (!plainRecord(manifests)) fail('boundary manifestsが不正');
+  const groups = new Map();
+  for (const todoId of [...new Set(todoIds)].sort()) {
+    const manifest = manifests[todoId];
+    if (!plainRecord(manifest) || !Array.isArray(manifest.lines ?? [])) {
+      fail(`boundary manifestのlinesが不正: ${todoId}`);
+    }
+    const seen = new Set();
+    for (const line of manifest.lines ?? []) {
+      if (!exactRecord(line, ['line_id', 'role', 'anchors'])
+        || !LINE_ID.test(line.line_id ?? '')
+        || !['reads', 'writes'].includes(line.role)
+        || !Array.isArray(line.anchors) || line.anchors.length === 0
+        || seen.has(line.line_id)) {
+        fail(`line宣言が不正: ${todoId}`);
+      }
+      seen.add(line.line_id);
+      const group = groups.get(line.line_id) ?? {
+        readers: new Set(), writers: new Set(), anchorPaths: new Set(),
+      };
+      group[line.role === 'reads' ? 'readers' : 'writers'].add(todoId);
+      for (const anchor of line.anchors) {
+        const valid = anchor?.kind === 'path'
+          ? exactRecord(anchor, ['kind', 'path']) && safeRelativePath(anchor.path)
+          : anchor?.kind === 'symbol'
+            && exactRecord(anchor, ['kind', 'name', 'path'])
+            && typeof anchor.name === 'string' && anchor.name.length > 0
+            && safeRelativePath(anchor.path);
+        if (!valid) fail(`line anchorが不正: ${todoId}/${line.line_id}`);
+        // symbol解決は実行時diffに存在しないので、初期実装では宣言済みpathへ近似する。
+        group.anchorPaths.add(anchor.path);
+      }
+      groups.set(line.line_id, group);
+    }
+  }
+  return groups;
+}
+
 /**
  * checkpoint diffのobserved pathをdeclared scope／他running TODOのdeclared writeへ
  * cross-bindし、closed conflict分類のfindingを返す（producer側の検出。独立再計算は
@@ -261,10 +301,10 @@ export function coveredBy(declaredWrites, observedPath) {
  * - observed_write_conflict: 他のrunning TODOのdeclared writeとのpath overlap。
  */
 export function detectCheckpointFindings(options = {}) {
-  if (!exactRecord(options, ['todoId', 'checkpoint', 'packets', 'runningTodoIds'])) {
+  if (!exactRecord(options, ['todoId', 'checkpoint', 'packets', 'manifests', 'runningTodoIds'])) {
     fail('detectCheckpointFindings optionsがexact shapeでない');
   }
-  const { todoId, checkpoint, packets, runningTodoIds } = options;
+  const { todoId, checkpoint, packets, manifests, runningTodoIds } = options;
   if (!plainRecord(checkpoint) || !plainRecord(checkpoint.diff) || !Array.isArray(checkpoint.diff.entries)) {
     fail('checkpoint diff recordが不正');
   }
@@ -294,6 +334,20 @@ export function detectCheckpointFindings(options = {}) {
         });
       }
     }
+  }
+  const observedPaths = new Set(checkpoint.diff.entries.map((entry) => entry.path));
+  for (const [lineId, group] of lineGroupsFor(
+    manifests, [todoId, ...runningTodoIds],
+  )) {
+    if (group.writers.has(todoId)) continue;
+    const readers = [...group.readers].filter((readerId) => readerId !== todoId).sort();
+    if (readers.length === 0
+      || ![...group.anchorPaths].some((anchorPath) => observedPaths.has(anchorPath))) continue;
+    findings.push({
+      kind: 'observed_line_change',
+      todo_ids: [todoId, ...readers].sort(),
+      resource_id: lineId,
+    });
   }
   return { findings };
 }

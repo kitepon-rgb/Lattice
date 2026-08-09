@@ -353,6 +353,7 @@ test('sentinelが無い構成でも呼べる', () => {
 
 const overlapWarning = { kind: 'io_overlap_warning', todo_ids: ['T1', 'T2'], path: 'src/page.mjs' };
 const bothWrote = { T1: checkpoint(['src/page.mjs']), T2: checkpoint(['src/page.mjs', 'src/style.mjs']) };
+const manifests = { T1: {}, T2: {} };
 
 test('probeを通った重なりは、そのままfinding candidateになる', () => {
   const probe = probeIoWarning({ warning: overlapWarning, checkpointsByTodo: bothWrote });
@@ -378,7 +379,7 @@ test('candidateは、anchorのcheckpointからproducerが再導出できる形�
   const escalation = buildIoEscalation({ warning: overlapWarning, probe, checkpointsByTodo: bothWrote, packets });
   const { findings } = detectCheckpointFindings({
     todoId: escalation.anchor_todo_id, checkpoint: bothWrote[escalation.anchor_todo_id],
-    packets, runningTodoIds: ['T1', 'T2'],
+    packets, manifests, runningTodoIds: ['T1', 'T2'],
   });
   const match = findings.find((finding) => finding.kind === escalation.candidate.proposed_kind
     && finding.path === escalation.candidate.path);

@@ -1088,7 +1088,9 @@ async function driveScriptedManagedEpoch({
               paths: peerCheckpoint.payload.diff.entries.map((entry) => entry.path) });
           }
           const actionable = classifyObservedDiff({ plan, manifests, observations,
-            relevantTodoIds }).findings.filter((finding) => finding.kind === 'observed_write_conflict'
+            relevantTodoIds }).findings.filter((finding) => [
+            'observed_write_conflict', 'observed_line_change',
+          ].includes(finding.kind)
               && finding.todo_ids.includes(todoId));
           if (actionable.length > 0) {
             if (typeof escalateTerminalConflict !== 'function') {
@@ -2293,12 +2295,13 @@ export async function runManagedSupervisorDaemon({
 
   const escalateTerminalConflict = async ({ finding, checkpointDigest }) => {
     const activeEpoch = await readCommittedEpochStore(runDir);
+    const resourceFinding = finding.kind === 'observed_line_change';
     const candidate = {
       schema: 'lattice.runtime_finding_candidate.v1',
       proposed_kind: finding.kind,
       todo_ids: [...finding.todo_ids].sort(),
-      path: finding.path,
-      resource_id: null,
+      path: resourceFinding ? null : finding.path,
+      resource_id: resourceFinding ? finding.resource_id : null,
       evidence_digests: [checkpointDigest],
       candidate_digest: '',
     };
@@ -2589,6 +2592,7 @@ export async function runManagedSupervisorDaemon({
         if (candidate.path !== null) {
           const producer = detectCheckpointFindings({ todoId: observed.subject.ref,
             checkpoint: observed.payload, packets: active.bundle.executor_packets,
+            manifests: fresh.manifests,
             runningTodoIds: projectRuntimeState({ events }).running }).findings;
           const match = producer.find((findingValue) => findingValue.kind === candidate.proposed_kind
             && findingValue.path === candidate.path

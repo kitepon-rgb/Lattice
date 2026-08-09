@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { digestArtifact } from './artifact-contracts.mjs';
 import { validateCarryOverWitness } from './runtime-contracts.mjs';
 import { projectRuntimeState } from './runtime-projection.mjs';
@@ -117,6 +119,57 @@ function witnessSet(manifest, kinds) {
   return resources;
 }
 
+const LINE_ID = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
+const LINE_PATH_CONTROL = /[\u0000-\u001f\u007f]/;
+
+function runtimeLinePath(value) {
+  return typeof value === 'string' && value.length > 0
+    && Buffer.byteLength(value, 'utf8') <= 1_024
+    && !LINE_PATH_CONTROL.test(value) && !value.includes('\\')
+    && !path.posix.isAbsolute(value) && value === path.posix.normalize(value)
+    && !value.split('/').includes('..');
+}
+
+function runtimeLineGroups(manifests, todoIds) {
+  const groups = new Map();
+  for (const todoId of sorted(new Set(todoIds))) {
+    const manifest = manifests[todoId];
+    if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)
+      || !Array.isArray(manifest.lines ?? [])) {
+      invalidVerification(`boundary manifestのlinesが不正: ${todoId}`);
+    }
+    const seen = new Set();
+    for (const line of manifest.lines ?? []) {
+      if (line === null || typeof line !== 'object' || Array.isArray(line)
+        || Object.keys(line).sort().join(',') !== 'anchors,line_id,role'
+        || !LINE_ID.test(line.line_id ?? '') || !['reads', 'writes'].includes(line.role)
+        || !Array.isArray(line.anchors) || line.anchors.length === 0
+        || seen.has(line.line_id)) {
+        invalidVerification(`line宣言が不正: ${todoId}`);
+      }
+      seen.add(line.line_id);
+      const group = groups.get(line.line_id) ?? {
+        readers: new Set(), writers: new Set(), anchorPaths: new Set(),
+      };
+      group[line.role === 'reads' ? 'readers' : 'writers'].add(todoId);
+      for (const anchor of line.anchors) {
+        const keys = anchor !== null && typeof anchor === 'object' && !Array.isArray(anchor)
+          ? Object.keys(anchor).sort().join(',') : '';
+        const valid = anchor?.kind === 'path'
+          ? keys === 'kind,path' && runtimeLinePath(anchor.path)
+          : anchor?.kind === 'symbol' && keys === 'kind,name,path'
+            && typeof anchor.name === 'string' && anchor.name.length > 0
+            && runtimeLinePath(anchor.path);
+        if (!valid) invalidVerification(`line anchorが不正: ${todoId}/${line.line_id}`);
+        // producerと共有せず、観測pathだけから独立に近似する。
+        group.anchorPaths.add(anchor.path);
+      }
+      groups.set(line.line_id, group);
+    }
+  }
+  return groups;
+}
+
 /**
  * 観測diffをdeclared path／resource witnessへcross-bindし、closed conflict分類の
  * findingを返す（ADR 0044 Decision 5）。宣言外writeと運転中overlapは別findingで
@@ -154,6 +207,23 @@ export function classifyObservedDiff(options = {}) {
       if (!declaredWriteCovers(declaredWrites, path)) {
         findings.push({ kind: 'undeclared_write', todo_ids: [todoId], path });
       }
+    }
+  }
+
+  const lineScope = new Set([...relevant, ...observedByTodo.keys()]);
+  const lineGroups = runtimeLineGroups(manifests, lineScope);
+  for (const [todoId, paths] of observedByTodo) {
+    const observedPaths = new Set(paths);
+    for (const [lineId, group] of lineGroups) {
+      if (group.writers.has(todoId)) continue;
+      const readers = [...group.readers].filter((readerId) => readerId !== todoId).sort();
+      if (readers.length === 0
+        || ![...group.anchorPaths].some((anchorPath) => observedPaths.has(anchorPath))) continue;
+      findings.push({
+        kind: 'observed_line_change',
+        todo_ids: [todoId, ...readers].sort(),
+        resource_id: lineId,
+      });
     }
   }
 

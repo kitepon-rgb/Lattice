@@ -264,7 +264,7 @@ export async function observeStage1Checkpoint({ stateDir, todoId, planKey = 'pla
   }));
   const classifyPackets = { ...state.packets, ...(state.redispatchPackets ?? {}) };
   const classified = classifyCheckpointObservation({
-    runId: RUN_ID, plan, events, packets: classifyPackets, todoId,
+    runId: RUN_ID, plan, events, packets: classifyPackets, manifests: state.manifests, todoId,
     detect: detectCheckpointFindings, recordedAt: RUN_TIMESTAMP,
   });
   state.events = classified.events;

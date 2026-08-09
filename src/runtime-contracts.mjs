@@ -51,6 +51,7 @@ export const RUN_EVENT_KINDS = Object.freeze([
 // ADR 0044 Decision 5のclosed conflict分類と、Decision 7.5のhold理由kind。
 export const RUNTIME_CONFLICT_KINDS = Object.freeze([
   'observed_write_conflict',
+  'observed_line_change',
   'semantic_conflict_unknown',
   'effect_conflict_unknown',
   'undeclared_write',

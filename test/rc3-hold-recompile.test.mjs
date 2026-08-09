@@ -143,7 +143,8 @@ async function runLateConflictScenario() {
   const t1Observed = await observeExecutor({ runId: RUN_ID, plan, events, adapter, todoId: 'T1', recordedAt: AT });
   events = t1Observed.events;
   const classified = classifyCheckpointObservation({
-    runId: RUN_ID, plan, events, packets, todoId: 'T1', detect: detectCheckpointFindings, recordedAt: AT,
+    runId: RUN_ID, plan, events, packets, manifests, todoId: 'T1',
+    detect: detectCheckpointFindings, recordedAt: AT,
   });
   events = classified.events;
   assert.deepEqual(
@@ -529,7 +530,8 @@ test('freeze前pending receiptはwitness binding経由で旧planにより受理�
   const t1cp = await observeExecutor({ runId: RUN_ID, plan, events, adapter, todoId: 'T1', recordedAt: AT });
   events = t1cp.events;
   const classified = classifyCheckpointObservation({
-    runId: RUN_ID, plan, events, packets, todoId: 'T1', detect: detectCheckpointFindings, recordedAt: AT,
+    runId: RUN_ID, plan, events, packets, manifests, todoId: 'T1',
+    detect: detectCheckpointFindings, recordedAt: AT,
   });
   events = classified.events;
   // T3はterminal済みなのでfrozenRunningに入らない＝witness経由でなくfrozen prefix

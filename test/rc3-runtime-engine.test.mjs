@@ -262,7 +262,8 @@ test('単独の予測超過はcheckpointに残すがconflictやfreezeにしな�
     subject: { kind: 'todo', ref: 'TA' }, payload: checkpoint, recordedAt: AT,
   })];
   const result = classifyCheckpointObservation({
-    runId: RUN_ID, plan: fixture.plan, events, packets, todoId: 'TA', recordedAt: AT,
+    runId: RUN_ID, plan: fixture.plan, events, packets, manifests: fixture.manifests,
+    todoId: 'TA', recordedAt: AT,
     detect: () => ({ findings: [{ kind: 'undeclared_write', todo_ids: ['TA'], path: 'src/unpredicted.mjs' }] }),
   });
   assert.deepEqual(result.findings, []);

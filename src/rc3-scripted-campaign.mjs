@@ -149,7 +149,7 @@ function docWriter(docPath, body) {
 }
 
 /** 全running executorを1回ずつ観測し、checkpointがあれば分類する共通driver。 */
-async function observeAndClassifyAll({ runId, plan, events, packets, adapter }) {
+async function observeAndClassifyAll({ runId, plan, events, packets, manifests, adapter }) {
   let next = events;
   const state = projectRuntimeState({ events: next });
   for (const todoId of state.running) {
@@ -159,7 +159,7 @@ async function observeAndClassifyAll({ runId, plan, events, packets, adapter }) 
     next = observed.events;
     if (observed.observation.state === 'checkpoint_ready') {
       const classified = classifyCheckpointObservation({
-        runId, plan, events: next, packets, todoId,
+        runId, plan, events: next, packets, manifests, todoId,
         detect: detectCheckpointFindings, recordedAt: RUN_TIMESTAMP,
       });
       next = classified.events;
@@ -178,7 +178,9 @@ async function driveToClose({ runId, plan, events, packets, manifests, adapter, 
     });
     if (dispatched.failure) fail(`dispatch失敗: ${dispatched.failure.message}`);
     next = dispatched.events;
-    const observed = await observeAndClassifyAll({ runId, plan, events: next, packets, adapter });
+    const observed = await observeAndClassifyAll({
+      runId, plan, events: next, packets, manifests, adapter,
+    });
     if (observed.frozen) fail('競合なし条件でfreezeが発生した');
     next = observed.events;
     const adjudicated = adjudicatePendingReceipts({ runId, plan, events: next, recordedAt: RUN_TIMESTAMP });
@@ -352,7 +354,8 @@ async function runLateConflict({ scaffold }) {
     const observed = await observeExecutor({ runId, plan, events, adapter, todoId, recordedAt: RUN_TIMESTAMP });
     events = observed.events;
     const classified = classifyCheckpointObservation({
-      runId, plan, events, packets, todoId, detect: detectCheckpointFindings, recordedAt: RUN_TIMESTAMP,
+      runId, plan, events, packets, manifests, todoId,
+      detect: detectCheckpointFindings, recordedAt: RUN_TIMESTAMP,
     });
     events = classified.events;
   }
@@ -464,7 +467,8 @@ async function runScopeViolation({ scaffold }) {
   const observed = await observeExecutor({ runId, plan, events, adapter, todoId: 'TA', recordedAt: RUN_TIMESTAMP });
   events = observed.events;
   const classified = classifyCheckpointObservation({
-    runId, plan, events, packets, todoId: 'TA', detect: detectCheckpointFindings, recordedAt: RUN_TIMESTAMP,
+    runId, plan, events, packets, manifests, todoId: 'TA',
+    detect: detectCheckpointFindings, recordedAt: RUN_TIMESTAMP,
   });
   events = classified.events;
   events = await driveToClose({ runId, plan, events, packets, manifests, adapter });

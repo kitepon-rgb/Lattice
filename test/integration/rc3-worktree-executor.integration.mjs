@@ -147,7 +147,8 @@ test('worktree executorは実diffをcheckpoint化しcleanupまで完遂する', 
 
   // scope内なのでfindingなし・freezeなし。
   const classified = classifyCheckpointObservation({
-    runId: RUN_ID, plan, events, packets, todoId: 'W1', detect: detectCheckpointFindings, recordedAt: AT,
+    runId: RUN_ID, plan, events, packets, manifests, todoId: 'W1',
+    detect: detectCheckpointFindings, recordedAt: AT,
   });
   events = classified.events;
   assert.deepEqual(classified.findings, []);
@@ -191,7 +192,8 @@ test('予測外writeはcheckpointへ残るが単独ではintakeをfreezeしな�
   const observed = await observeExecutor({ runId: RUN_ID, plan, events, adapter, todoId: 'V1', recordedAt: AT });
   events = observed.events;
   const classified = classifyCheckpointObservation({
-    runId: RUN_ID, plan, events, packets, todoId: 'V1', detect: detectCheckpointFindings, recordedAt: AT,
+    runId: RUN_ID, plan, events, packets, manifests, todoId: 'V1',
+    detect: detectCheckpointFindings, recordedAt: AT,
   });
   events = classified.events;
 
@@ -201,7 +203,8 @@ test('予測外writeはcheckpointへ残るが単独ではintakeをfreezeしな�
 
   // 再分類はidempotent（同一findingを重複記録しない）。
   const reclassified = classifyCheckpointObservation({
-    runId: RUN_ID, plan, events, packets, todoId: 'V1', detect: detectCheckpointFindings, recordedAt: AT,
+    runId: RUN_ID, plan, events, packets, manifests, todoId: 'V1',
+    detect: detectCheckpointFindings, recordedAt: AT,
   });
   assert.deepEqual(reclassified.findings, []);
   assert.equal(reclassified.events.length, events.length);
@@ -305,7 +308,8 @@ test('gitignore済みpathへのwriteもdiff sensorが予測超過として観測
     const observed = await observeExecutor({ runId: RUN_ID, plan, events, adapter, todoId: 'G1', recordedAt: AT });
     events = observed.events;
     const classified = classifyCheckpointObservation({
-      runId: RUN_ID, plan, events, packets, todoId: 'G1', detect: detectCheckpointFindings, recordedAt: AT,
+      runId: RUN_ID, plan, events, packets, manifests, todoId: 'G1',
+      detect: detectCheckpointFindings, recordedAt: AT,
     });
     assert.ok(classified.observations.some((finding) => (
       finding.kind === 'prediction_excess' && finding.path === 'ignored/rogue.txt'
