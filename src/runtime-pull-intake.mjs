@@ -15,7 +15,7 @@ import { acquireRuntimeLifecycleLock } from './runtime-lifecycle-lock.mjs';
 import { observeManagedProcessStartIdentity } from './runtime-managed-supervisor.mjs';
 import { ensureScriptedWorktree } from './runtime-scripted-worktree.mjs';
 import {
-  selfDigest, validateRuntimeBoundaryManifest, validateRuntimePlan,
+  BOUNDARY_MANIFEST_SCHEMA, selfDigest, validateRuntimeBoundaryManifest, validateRuntimePlan,
 } from './runtime-contracts.mjs';
 import { TODO_INDEPENDENCE_SCHEMA } from './todo-independence-contracts.mjs';
 import {
@@ -413,7 +413,7 @@ function buildManifest(witnessSet, taskId) {
   const witness = witnessSet?.manual_witness?.[taskId];
   if (!plain(witness)) fail('BOUNDARY_UNVERIFIED', `witnessが無い: ${taskId}`);
   const manifest = {
-    schema: 'lattice.boundary_manifest.v2',
+    schema: BOUNDARY_MANIFEST_SCHEMA,
     todo_id: taskId,
     owns: structuredClone(witness.owns),
     reads: structuredClone(witness.reads),
@@ -584,7 +584,7 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
       catch (error) {
         if (!(error instanceof PullRunError)) throw error;
         manifest = {
-          schema: 'lattice.boundary_manifest.v2', todo_id: taskId,
+          schema: BOUNDARY_MANIFEST_SCHEMA, todo_id: taskId,
           owns: [], reads: [], writes: [], resources: [], state_effects: [], unknowns: [],
           affected_tests: [], graph_evidence: [], witness_provenance: {}, manifest_digest: '',
         };
@@ -660,7 +660,7 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
     catch (error) {
       if (!(error instanceof PullRunError)) throw error;
       manifest = {
-        schema: 'lattice.boundary_manifest.v2', todo_id: taskId,
+        schema: BOUNDARY_MANIFEST_SCHEMA, todo_id: taskId,
         owns: [], reads: [], writes: [], resources: [], state_effects: [], unknowns: [],
         affected_tests: [], graph_evidence: [], witness_provenance: {}, manifest_digest: '',
       };

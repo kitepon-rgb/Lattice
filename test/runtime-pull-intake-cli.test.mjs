@@ -320,6 +320,7 @@ test('再intakeはequipment identity不変で実効manifestを更新し、境界
 
     const refreshedWitness = structuredClone(witnessSet);
     refreshedWitness.manual_witness.A = witness('A', 'a', 'src/shared.mjs');
+    refreshedWitness.manual_witness.A.owns[0].creates = true;
     refreshedWitness.witness_set_digest = todoSelfDigest(refreshedWitness, 'witness_set_digest');
     await writeTodoWitnessSet({ repoRoot: root, witnessSet: refreshedWitness });
     await writeFile(path.join(root, 'README.md'), 'boundary declared after intake\n');
