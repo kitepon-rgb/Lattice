@@ -38,12 +38,18 @@ Commands:
 
 Commands:
   start --request <request.json> --executor <adapter>
+  start --selection pull --id <id> --plan <key> --equipment detached-worktree
   start --schema --json              # lattice.run_request.v1 の JSON Schema を出す
+  intake --run .lattice/runs/<id> --task <task_id>
+  intake attach --run .lattice/runs/<id> --task <task_id> --input <worker.json>
+  intake intervention --run .lattice/runs/<id> --task <task_id>
+  intake accept --run .lattice/runs/<id> --task <task_id>
   adapter register --input <descriptor.json>
   adapter register --schema --json   # 登録入力の JSON Schema を出す
   adapter list --json
   observe --run .lattice/runs/<id>
   status --run .lattice/runs/<id>
+  landing --run .lattice/runs/<id>
   resume --run .lattice/runs/<id>
   close --run .lattice/runs/<id>
   abandon --run .lattice/runs/<id> --reason <reason>
@@ -171,7 +177,12 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'plan show': 'plan show <plan_key> --json',
   'plan compile': 'plan compile --request <request.json> | --schema --json',
   'plan verify': 'plan verify --request <request.json> --plan <plan.json>',
-  'run start': 'run start --request <request.json> --executor <adapter> | --schema --json',
+  'run start': 'run start --request <request.json> --executor <adapter>'
+    + ' | --selection pull --id <id> --plan <key> --equipment detached-worktree | --schema --json',
+  'run intake': 'run intake --run .lattice/runs/<id> --task <task_id>',
+  'run intake attach': 'run intake attach --run .lattice/runs/<id> --task <task_id> --input <worker.json>',
+  'run intake intervention': 'run intake intervention --run .lattice/runs/<id> --task <task_id>',
+  'run intake accept': 'run intake accept --run .lattice/runs/<id> --task <task_id>',
   'run adapter register': 'run adapter register --input <descriptor.json> | --schema --json',
   'run adapter list': 'run adapter list --json',
   'run observe': 'run observe --run .lattice/runs/<id>',

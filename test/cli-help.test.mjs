@@ -56,6 +56,23 @@ test('未知namespace helpは従来どおりusage違反として拒否する', (
   assert.equal(result.stderr, 'lattice: unsupported command or arguments: help unknown\n');
 });
 
+test('run helpはpull runの生成からintake完了までを公開する', () => {
+  const patterns = [
+    /start --selection pull --id <id> --plan <key> --equipment detached-worktree/u,
+    /intake --run \.lattice\/runs\/<id> --task <task_id>/u,
+    /intake attach --run \.lattice\/runs\/<id> --task <task_id> --input <worker\.json>/u,
+    /intake intervention --run \.lattice\/runs\/<id> --task <task_id>/u,
+    /intake accept --run \.lattice\/runs\/<id> --task <task_id>/u,
+    /landing --run \.lattice\/runs\/<id>/u,
+  ];
+  for (const args of [['run', '--help'], ['run', '-h'], ['help', 'run']]) {
+    const result = runCli(args);
+    assert.equal(result.status, 0, args.join(' '));
+    assert.equal(result.stderr, '', args.join(' '));
+    for (const pattern of patterns) assert.match(result.stdout, pattern, args.join(' '));
+  }
+});
+
 test('公開subcommand helpは正規構文をstore非依存で表示する', () => {
   const cases = [
     [['todo', 'show', '--help'], /show --plan <key> --task <id> --json/u],
@@ -65,6 +82,11 @@ test('公開subcommand helpは正規構文をstore非依存で表示する', () 
     [['todo', 'phase', 'accept', '-h'], /--input <file>/u],
     [['help', 'todo', 'done'], /--evidence <file>/u],
     [['help', 'run', 'abandon'], /--reason <reason>/u],
+    [['run', 'start', '--help'], /--selection pull --id <id> --plan <key>/u],
+    [['run', 'intake', '--help'], /--task <task_id>/u],
+    [['run', 'intake', 'attach', '--help'], /--input <worker\.json>/u],
+    [['run', 'intake', 'intervention', '--help'], /--task <task_id>/u],
+    [['run', 'intake', 'accept', '--help'], /--task <task_id>/u],
     [['run', 'adapter', 'register', '--help'], /--schema --json/u],
     [['help', 'run', 'adapter', 'list'], /adapter list --json/u],
     [['bridge', 'setup', '--help'], /--listen <IP>/u],
