@@ -216,6 +216,22 @@ function scopeExpansionFrom({ taskIds, boundaries, previousArtifact, plan }) {
     const current = boundaries.get(taskId) ?? [];
     const previous = previousBoundaries.get(taskId) ?? null;
     const prior = previousExpansion.get(taskId) ?? null;
+    // **subset入替を「初回」へ偽装しない。** witnessはwave単位のsubsetで書き出せるので、
+    // A→B→Aと入れ替わると直前artifactにAが居ない。そこで今回を初回と置くと、
+    // **本当の初回宣言数と膨張回数が消える**（suzune の監査で実測・room [1152]）。
+    // 比較相手はあるのにこのtaskが居ない時は、**数を主張せずnullで「分からない」と言う。**
+    if (comparable && previous === null) {
+      return {
+        task_id: taskId,
+        compared_witness_digest: previousArtifact.witness_set_digest,
+        first_seen_path_count: null,
+        path_count: current.length,
+        added_paths: [],
+        removed_paths: [],
+        growth_events: null,
+        gate_shape: (incoming.get(taskId) ?? 0) >= 2,
+      };
+    }
     const currentSet = new Set(current);
     const previousSet = new Set(previous ?? []);
     const added = previous === null ? [] : current.filter((path) => !previousSet.has(path));

@@ -225,3 +225,32 @@ test('前回artifactが比較不能なら、比較相手なしとして扱う（
   assert.equal(entryOf(compile(after, { previousArtifact: legacy }), 'tip-001')
     .compared_witness_digest, null);
 });
+
+test('subset入替で履歴が消える時は「初回」へ偽装せず null で分からないと言う', () => {
+  // witness は wave 単位の subset で書き出せるので、A→B→A と入れ替わると
+  // 直前 artifact に A が居ない。そこで今回を初回と置くと**本当の初回と膨張回数が消える**。
+  const onlyA = witnessSet({ 'tip-001': witness('src/alpha.mjs') });
+  const first = compile(onlyA);
+  assert.equal(entryOf(first, 'tip-001').first_seen_path_count, 1);
+
+  const onlyB = witnessSet({ 'tip-002': witness('src/beta.mjs') });
+  const second = compile(onlyB, { previousArtifact: first });
+
+  const backToA = witnessSet({ 'tip-001': witness(['src/alpha.mjs', 'src/alpha-2.mjs']) });
+  const third = compile(backToA, { previousArtifact: second });
+
+  const gap = entryOf(third, 'tip-001');
+  // **比較相手はある**（だから digest は載る）が、**その中に A が居ない**
+  assert.equal(gap.compared_witness_digest, second.witness_set_digest);
+  assert.equal(gap.first_seen_path_count, null, '初回宣言数を今回の数で埋めない');
+  assert.equal(gap.growth_events, null, '膨張回数を0へ戻さない');
+  assert.equal(gap.path_count, 2);
+  assert.deepEqual(gap.added_paths, []);
+  assert.deepEqual(gap.removed_paths, []);
+
+  // 初回（比較相手そのものが無い）とは区別できる
+  const brandNew = entryOf(compile(onlyA), 'tip-001');
+  assert.equal(brandNew.compared_witness_digest, null);
+  assert.equal(brandNew.first_seen_path_count, 1);
+  assert.equal(brandNew.growth_events, 0);
+});

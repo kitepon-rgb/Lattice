@@ -223,6 +223,12 @@ test('記録があればHEAD一致でverified並列グループを返す（senso
     outcome: 'compiled',
     result_digest: '',
   };
+  // v4: scope_expanded は task_ids と1:1でなければ validator が落とす。
+  // fixture の既定は「膨張ゼロ・比較相手なし」で、履歴を測る test は明示的に上書きする
+  artifact.scope_expanded = artifact.scope_expanded ?? (artifact.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
   await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
 
@@ -293,6 +299,12 @@ test('進行中ToDoとの競合をconflicts_with_activeとして返す', async (
     outcome: 'compiled',
     result_digest: '',
   };
+  // v4: scope_expanded は task_ids と1:1でなければ validator が落とす。
+  // fixture の既定は「膨張ゼロ・比較相手なし」で、履歴を測る test は明示的に上書きする
+  artifact.scope_expanded = artifact.scope_expanded ?? (artifact.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
   await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
 
@@ -345,6 +357,12 @@ test('readyが無くても記録があればplan指定でverifiedを返す', asy
     outcome: 'compiled',
     result_digest: '',
   };
+  // v4: scope_expanded は task_ids と1:1でなければ validator が落とす。
+  // fixture の既定は「膨張ゼロ・比較相手なし」で、履歴を測る test は明示的に上書きする
+  artifact.scope_expanded = artifact.scope_expanded ?? (artifact.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
   await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
 
@@ -403,6 +421,12 @@ test('着手時のadvisoryが進行中との競合と切断可能性を返す', 
     outcome: 'compiled',
     result_digest: '',
   };
+  // v4: scope_expanded は task_ids と1:1でなければ validator が落とす。
+  // fixture の既定は「膨張ゼロ・比較相手なし」で、履歴を測る test は明示的に上書きする
+  artifact.scope_expanded = artifact.scope_expanded ?? (artifact.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
   await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
 
@@ -611,6 +635,12 @@ test('進行中との競合では案内が切断可能性まで述べる', async
     outcome: 'compiled',
     result_digest: '',
   };
+  // v4: scope_expanded は task_ids と1:1でなければ validator が落とす。
+  // fixture の既定は「膨張ゼロ・比較相手なし」で、履歴を測る test は明示的に上書きする
+  artifact.scope_expanded = artifact.scope_expanded ?? (artifact.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
   await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
 
@@ -660,6 +690,12 @@ test('live head digestは独立性の変化を拾う', async (context) => {
     outcome: 'compiled',
     result_digest: '',
   };
+  // v4: scope_expanded は task_ids と1:1でなければ validator が落とす。
+  // fixture の既定は「膨張ゼロ・比較相手なし」で、履歴を測る test は明示的に上書きする
+  artifact.scope_expanded = artifact.scope_expanded ?? (artifact.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
   await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
 

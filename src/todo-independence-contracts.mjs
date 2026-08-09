@@ -112,6 +112,12 @@ export function isTodoIndependenceLegacyArtifactIdentity(value) {
  *
  * `removed_paths`を持つのは、増加だけを見ると「盛った」と「宣言をやり直した」が同じ顔に
  * なるからである。増減を両方見ないと読み手が誤る。
+ *
+ * `first_seen_path_count`と`growth_events`が**null**なのは「**このtaskの履歴が分からない**」で、
+ * 0とは違う。witnessはwave単位のsubsetで書き出せるので、比較相手のartifactに当該taskが
+ * 居ないことがある——その時に今回を初回と置くと、本当の初回と膨張回数が消える。
+ * 初回（比較相手が無い）は`compared_witness_digest=null`＋数値、
+ * subset入替（比較相手はあるがtaskが居ない）は`compared_witness_digest=digest`＋nullで区別する。
  */
 function scopeExpansionEntry(value) {
   return plain(value)
@@ -121,13 +127,15 @@ function scopeExpansionEntry(value) {
     ])
     && isTodoIdentifier(value.task_id)
     && (value.compared_witness_digest === null || isTodoDigest(value.compared_witness_digest))
-    && Number.isSafeInteger(value.first_seen_path_count) && value.first_seen_path_count >= 0
+    && (value.first_seen_path_count === null
+      || (Number.isSafeInteger(value.first_seen_path_count) && value.first_seen_path_count >= 0))
     && Number.isSafeInteger(value.path_count) && value.path_count >= 0
     && boundedList(value.added_paths, (entry) => typeof entry === 'string' && entry.length > 0)
     && strictlySorted(value.added_paths)
     && boundedList(value.removed_paths, (entry) => typeof entry === 'string' && entry.length > 0)
     && strictlySorted(value.removed_paths)
-    && Number.isSafeInteger(value.growth_events) && value.growth_events >= 0
+    && (value.growth_events === null
+      || (Number.isSafeInteger(value.growth_events) && value.growth_events >= 0))
     && typeof value.gate_shape === 'boolean';
 }
 

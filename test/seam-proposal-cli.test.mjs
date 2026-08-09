@@ -202,6 +202,10 @@ function independenceFor({
     outcome: 'compiled',
     result_digest: '',
   };
+  artifact.scope_expanded = artifact.scope_expanded ?? (artifact.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
   return artifact;
 }
@@ -259,12 +263,20 @@ test('projection validatorはshape違反・coverage矛盾・digest不一致を�
 
     const unexpected = structuredClone(projection);
     unexpected.extra = true;
+    unexpected.scope_expanded = unexpected.scope_expanded ?? (unexpected.task_ids ?? []).map((taskId) => ({
+      task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+      path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+    }));
     unexpected.result_digest = todoSelfDigest(unexpected, 'result_digest');
     assert.equal(validateSeamProposalProjection(unexpected), false);
 
     const contradiction = structuredClone(projection);
     contradiction.coverage = 'verified';
     contradiction.guidance = selectSeamProposalGuidance({ coverage: 'verified' });
+    contradiction.scope_expanded = contradiction.scope_expanded ?? (contradiction.task_ids ?? []).map((taskId) => ({
+      task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+      path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+    }));
     contradiction.result_digest = todoSelfDigest(contradiction, 'result_digest');
     assert.equal(validateSeamProposalProjection(contradiction), false);
 
@@ -287,6 +299,10 @@ test('projection validatorは載っているunknownと噛み合わない案内�
     // shapeは正しく、codeもenumにある。噛み合っていないのは状況との対応だけ。
     const mismatched = structuredClone(projection);
     mismatched.guidance = selectSeamProposalGuidance({ coverage: 'verified' });
+    mismatched.scope_expanded = mismatched.scope_expanded ?? (mismatched.task_ids ?? []).map((taskId) => ({
+      task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+      path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+    }));
     mismatched.result_digest = todoSelfDigest(mismatched, 'result_digest');
     assert.equal(mismatched.guidance.code, 'seam_proposal_verified');
     assert.equal(validateSeamProposalProjection(mismatched), false);
@@ -393,6 +409,10 @@ test('storeはproposalをplan versionへ並置し、read投影はexact targetを
   duplicate.components.push(structuredClone(duplicate.components[0]));
   duplicate.component_count = 2;
   duplicate.conflict_resource_count = 2;
+  duplicate.scope_expanded = duplicate.scope_expanded ?? (duplicate.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   duplicate.result_digest = todoSelfDigest(duplicate, 'result_digest');
   assert.equal(validateSeamProposalProjection(duplicate), false);
 });

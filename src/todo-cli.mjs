@@ -1530,12 +1530,11 @@ async function independenceCompile({ repoRoot, planKey, inputRef }) {
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
   if (!member) throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, { plan_key: planKey });
 
-  // 前回artifactを渡して膨張の履歴を継ぐ。**読めなければnull**——読めなかったことを
-  // 「膨張ゼロ」に化かさないため、artifact側はcompared_witness_digest=nullで区別できる。
-  let previousArtifact = null;
-  try {
-    previousArtifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
-  } catch { previousArtifact = null; }
+  // 前回artifactを渡して膨張の履歴を継ぐ。**例外を握り潰さない。**
+  // `readTodoIndependenceArtifact` は「欠落だけnull・旧版はlegacy marker・壊れた記録は
+  // INDEPENDENCE_ARTIFACT_INVALIDでtyped fail」を既に区別している。ここでcatchすると
+  // **corrupt/permission/I-Oまで「初回」へ化けて履歴が黙って切れる**（suzune の監査で実測・room [1148]）。
+  const previousArtifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
   const artifact = compileTodoIndependence({
     witnessSet,
     plan: member.plan,

@@ -100,6 +100,10 @@ async function recordJudgement(root, { conflicts = [], conflictResources = [] } 
     wave_plan: { waves: [{ task_ids: ['T1', 'T2'] }], minimum_feasible_waves: 1 },
     outcome: 'compiled', result_digest: '',
   };
+  artifact.scope_expanded = artifact.scope_expanded ?? (artifact.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
   await writeTodoIndependenceArtifact({ repoRoot: root, artifact });
   return artifact;
@@ -230,12 +234,20 @@ test('(e) v6契約: 上位キーexact 12・result_digestの自証・v5形の拒�
   // v5形（3欄が無い9キー）はexact検証で落ちる。欄の欠落を「無い」と読ませない。
   const v5Shaped = { ...status, schema: 'lattice.todo_status_result.v5' };
   delete v5Shaped.plan_notes; delete v5Shaped.coordination; delete v5Shaped.parallel_candidates;
+  v5Shaped.scope_expanded = v5Shaped.scope_expanded ?? (v5Shaped.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   v5Shaped.result_digest = todoSelfDigest(v5Shaped, 'result_digest');
   assert.equal(validateTodoStatusResult(v5Shaped), false, 'v5形はv6として受理しない');
 
   // 欄を1つ落としただけでも落ちる（exactの意味）。
   const missingOne = { ...status };
   delete missingOne.coordination;
+  missingOne.scope_expanded = missingOne.scope_expanded ?? (missingOne.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   missingOne.result_digest = todoSelfDigest(missingOne, 'result_digest');
   assert.equal(validateTodoStatusResult(missingOne), false);
 });
