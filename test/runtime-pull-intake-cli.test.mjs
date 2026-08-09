@@ -163,13 +163,33 @@ function startPull(root, runId = 'pull-run') {
   ]);
 }
 
+test('intake 0件のpull runは着地0件を明示してcloseでき、active listから外れる',
+  async (context) => {
+    const { root } = await workspace(context);
+    parsed(startPull(root, 'empty-pull-run'));
+    const activeBefore = parsed(runCli(root, ['run', 'list', '--json'])).active_runs;
+    assert.equal(activeBefore.some((entry) => entry.run_id === 'empty-pull-run'), true);
+
+    const closed = parsed(runCli(root, [
+      'run', 'close', '--run', '.lattice/runs/empty-pull-run',
+    ]));
+    assert.equal(closed.already_closed, false);
+    assert.equal(closed.intake_count, 0);
+    assert.equal(closed.landing.landed, false);
+    assert.deepEqual(closed.landing.accepted_receipts, []);
+    assert.equal(parsed(runCli(root, [
+      'run', 'close', '--run', '.lattice/runs/empty-pull-run',
+    ])).already_closed, true);
+
+    const activeAfter = parsed(runCli(root, ['run', 'list', '--json'])).active_runs;
+    assert.equal(activeAfter.some((entry) => entry.run_id === 'empty-pull-run'), false);
+  });
+
 test('pull startはtodos/baseを要求せず、run後startした未列挙taskをintake時HEADへ束縛する',
   async (context) => {
     const { root, baseSha } = await workspace(context);
     const started = parsed(startPull(root));
     assert.equal(started.selection, 'pull');
-    assert.equal(parsed(runCli(root, ['run', 'close', '--run', '.lattice/runs/pull-run']), 1).code,
-      'RUN_EMPTY');
     assert.equal(parsed(runCli(root, [
       'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
     ]), 1).code, 'TASK_NOT_STARTED');

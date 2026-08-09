@@ -950,7 +950,6 @@ export async function closePullRun({ repoRoot, runDir }) {
         landing: await landingPullRun({ repoRoot, runDir }) };
       output.result_digest = digestArtifact(output); return output;
     }
-    if (state.intakes.length === 0) fail('RUN_EMPTY', 'intake 0件のpull runは正常closeできない');
     const incomplete = state.intakes.filter((entry) => entry.accepted === null);
     if (incomplete.length > 0) {
       fail('RUN_NOT_COMPLETE', 'pending/hold中intakeが残っている', {
