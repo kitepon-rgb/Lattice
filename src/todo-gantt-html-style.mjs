@@ -122,6 +122,7 @@ export const NESTED_CSS = `
 .nested-task-panel{filter:drop-shadow(0 4px 12px rgba(11,11,11,.18))}
 .nested-task-surface{fill:var(--surface-1);stroke:var(--text-secondary);stroke-width:1.5}
 .nested-task-label{fill:var(--text-primary);font-size:12px;font-weight:650}
+.nested-task-link{fill:none;stroke:var(--text-secondary);stroke-width:1.5;stroke-dasharray:4 3}
 .nested-task-diagram{outline:1px solid var(--border);background:var(--surface-1)}
 .nested-task-toggle{cursor:pointer}
 .nested-task-toggle rect{fill:var(--surface-1);stroke:var(--text-secondary);stroke-width:1.5}

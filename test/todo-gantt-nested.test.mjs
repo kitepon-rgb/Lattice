@@ -135,6 +135,8 @@ test('hierarchical SVG and HTML expose recursive panels without network dependen
   assert.match(svg, /data-nested-toggle-for=/u);
   assert.match(svg, /data-nested-panel-for=/u);
   assert.equal((svg.match(/class="nested-task-panel"/gu) ?? []).length, 2);
+  const firstPanelX = Number(svg.match(/class="nested-task-surface" x="([0-9.]+)"/u)?.[1]);
+  assert.ok(firstPanelX > layout.bounds.width, 'expanded child DAG must not cover the base DAG');
 
   const html = renderTodoGanttHtml({ readModel: input.read, layout }).html;
   assert.match(html, /data-nested-toggle-for=/u);

@@ -194,7 +194,7 @@ const NESTED_CONTROLLER = `
   const toggles=[...root.querySelectorAll('[data-nested-toggle-for]')];
   const panels=[...root.querySelectorAll('[data-nested-panel-for]')];
   const panelFor=(key)=>panels.find(panel=>panel.dataset.nestedPanelFor===key);
-  const toggle=(control)=>{const panel=panelFor(control.dataset.nestedToggleFor);if(!panel)return;const open=panel.hasAttribute('hidden');panel.toggleAttribute('hidden',!open);control.setAttribute('aria-expanded',String(open));const mark=control.querySelector('text');if(mark)mark.textContent=open?'−':'＋';};
+  const toggle=(control)=>{const key=control.dataset.nestedToggleFor;const panel=panelFor(key);if(!panel)return;const open=panel.hasAttribute('hidden');panel.toggleAttribute('hidden',!open);const link=[...root.querySelectorAll('[data-nested-link-for]')].find(candidate=>candidate.dataset.nestedLinkFor===key);link?.toggleAttribute('hidden',!open);control.setAttribute('aria-expanded',String(open));const mark=control.querySelector('text');if(mark)mark.textContent=open?'−':'＋';};
   root.addEventListener('click',event=>{const control=event.target.closest('[data-nested-toggle-for]');if(!control||!root.contains(control))return;event.preventDefault();event.stopPropagation();toggle(control);});
   root.addEventListener('keydown',event=>{const control=event.target.closest('[data-nested-toggle-for]');if(!control||!root.contains(control)||(event.key!=='Enter'&&event.key!==' '))return;event.preventDefault();event.stopPropagation();toggle(control);});
 })();

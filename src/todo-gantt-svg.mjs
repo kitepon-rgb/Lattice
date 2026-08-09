@@ -309,7 +309,9 @@ function renderNestedTodoGanttSvg(layout, options) {
   let height = base.height;
   const panels = [];
   const toggles = [];
+  const links = [];
   const nodeByKey = new Map(layout.nodes.map((node) => [nodeKey(node.ref), node]));
+  let nextPanelY = 96;
 
   for (const child of layout.hierarchy.children) {
     const key = nodeKey(child.parent_ref);
@@ -317,23 +319,30 @@ function renderNestedTodoGanttSvg(layout, options) {
     if (parent?.geometry === null || parent === undefined) continue;
     const childMarkup = renderTodoGanttSvg(childLayoutOf(child), options);
     const childSize = svgDimensions(childMarkup);
-    const panelX = parent.geometry.x + 12;
-    const panelY = parent.geometry.y + parent.geometry.height + 108;
+    // 開いた内部工程図を基底DAGの上へ重ねない。右側へ専用領域を確保し、親カードから
+    // 直交線で結ぶ。これなら後続taskも、同じ箱の兄弟taskも隠れない。
+    const panelX = base.width + 16;
+    const panelY = Math.max(parent.geometry.y + 96, nextPanelY);
     const panelWidth = childSize.width + 24;
     const panelHeight = childSize.height + 44;
+    nextPanelY = panelY + panelHeight + 16;
     width = Math.max(width, panelX + panelWidth + 16);
     height = Math.max(height, panelY + panelHeight + 16);
     const embedded = childMarkup.replace('<svg class="todo-gantt"',
       `<svg x="${panelX + 12}" y="${panelY + 32}" class="todo-gantt nested-task-diagram"`);
     const label = `工程 ${child.parent_ref.plan_key}/${child.parent_ref.task_id} の内部工程`;
     panels.push(`<g class="nested-task-panel" data-nested-panel-for="${escapeSvgAttribute(key)}" hidden aria-label="${escapeSvgAttribute(label)}"><rect class="nested-task-surface" x="${panelX}" y="${panelY}" width="${panelWidth}" height="${panelHeight}" rx="8"></rect><text class="nested-task-label" x="${panelX + 12}" y="${panelY + 22}">${escapeSvgText(label)}</text>${embedded}</g>`);
+    const parentX = parent.geometry.x + parent.geometry.width;
+    const parentY = parent.geometry.y + 96 + parent.geometry.height / 2;
+    const elbowX = panelX - 8;
+    links.push(`<path class="nested-task-link" data-nested-link-for="${escapeSvgAttribute(key)}" hidden d="M ${parentX} ${parentY} H ${elbowX} V ${panelY + 18} H ${panelX}"></path>`);
     const toggleX = parent.geometry.x + parent.geometry.width - 24;
     const toggleY = parent.geometry.y + 96 + parent.geometry.height - 18;
     toggles.push(`<g class="nested-task-toggle" data-nested-toggle-for="${escapeSvgAttribute(key)}" tabindex="0" role="button" aria-expanded="false" aria-label="${escapeSvgAttribute(`${label}を開く`)}"><rect x="${toggleX - 8}" y="${toggleY - 13}" width="28" height="22" rx="4"></rect><text x="${toggleX + 6}" y="${toggleY + 3}" text-anchor="middle">＋</text></g>`);
   }
 
   markup = resizeSvg(markup, width, height);
-  return markup.replace('</svg>', `<g class="nested-panel-layer">${panels.join('')}</g><g class="nested-toggle-layer">${toggles.join('')}</g></svg>`);
+  return markup.replace('</svg>', `<g class="nested-link-layer">${links.join('')}</g><g class="nested-panel-layer">${panels.join('')}</g><g class="nested-toggle-layer">${toggles.join('')}</g></svg>`);
 }
 
 export function renderTodoGanttSvg(layout, options = {}) {
