@@ -787,7 +787,15 @@ async function exchangeControllerHandshake({ socketPath, runId, supervisorSessio
   });
 }
 
-function createControllerSocketTransport(socketPath, timeoutMs) {
+function createControllerSocketTransport(
+  socketPath,
+  timeoutMs,
+  dispatchLivenessTimeoutMs = timeoutMs,
+) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1
+    || !Number.isSafeInteger(dispatchLivenessTimeoutMs) || dispatchLivenessTimeoutMs < 1) {
+    fail('SUPERVISOR_CONFIGURATION_INVALID', 'controller transport timeout不正');
+  }
   const socket = net.createConnection({ path: socketPath });
   const pending = new Map();
   let buffer = '';
@@ -799,6 +807,22 @@ function createControllerSocketTransport(socketPath, timeoutMs) {
     socket.once('error', reject);
   });
   socket.setEncoding('utf8');
+  const armRequestTimer = (requestId, entry) => {
+    clearTimeout(entry.timer);
+    const waitMs = entry.operation === 'dispatch' ? dispatchLivenessTimeoutMs : timeoutMs;
+    entry.timer = setTimeout(() => {
+      pending.delete(requestId);
+      entry.reject(new ManagedRuntimeError(
+        'ADAPTER_CONTROLLER_UNAVAILABLE',
+        `${entry.operation} timeout`,
+      ));
+    }, waitMs);
+  };
+  const refreshDispatchLiveness = () => {
+    for (const [requestId, entry] of pending.entries()) {
+      if (entry.operation === 'dispatch') armRequestTimer(requestId, entry);
+    }
+  };
   const failPending = (detail) => {
     connected = false;
     for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(new ManagedRuntimeError('ADAPTER_CONTROLLER_UNAVAILABLE', detail)); }
@@ -822,7 +846,14 @@ function createControllerSocketTransport(socketPath, timeoutMs) {
         return;
       }
       if (validateControllerHeartbeat(document)) {
-        Promise.resolve(heartbeatHandler?.(structuredClone(document))).catch(() => socket.destroy());
+        if (heartbeatHandler === null) {
+          socket.destroy();
+          continue;
+        }
+        Promise.resolve()
+          .then(() => heartbeatHandler(structuredClone(document)))
+          .then(() => refreshDispatchLiveness())
+          .catch(() => socket.destroy());
         continue;
       }
       const entry = pending.get(document.request_id);
@@ -839,13 +870,18 @@ function createControllerSocketTransport(socketPath, timeoutMs) {
       await ready;
       if (!connected) fail('ADAPTER_CONTROLLER_UNAVAILABLE', 'controller persistent socket不達');
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { pending.delete(request.request_id); reject(new ManagedRuntimeError('ADAPTER_CONTROLLER_UNAVAILABLE', `${operation} timeout`)); }, timeoutMs);
-        pending.set(request.request_id, { operation, resolve, reject, timer });
+        const entry = { operation, resolve, reject, timer: null };
+        pending.set(request.request_id, entry);
+        armRequestTimer(request.request_id, entry);
         socket.write(`${canonicalizeArtifact(request)}\n`);
       });
     },
   });
 }
+
+export const runtimeManagedSupervisorInternal = Object.freeze({
+  createControllerSocketTransport,
+});
 
 /**
  * durable registryをpreflightし、実controller hostとのnonce challenge後にだけactivation証拠を返す。
@@ -1000,7 +1036,11 @@ async function activateManagedSupervisorController({ repoRoot, runDir, runId, ad
     supervisorDescriptor.descriptor_digest = selfDigest(supervisorDescriptor, 'descriptor_digest');
     const activationControlEvent = { schema: 'lattice.runtime_control_event.v1', run_id: runId, sequence: 1, previous_digest: null, kind: 'supervisor_activated', session_nonce_digest: sessionNonceDigest, payload: { supervisor_descriptor_digest: supervisorDescriptor.descriptor_digest, controller_descriptor_digest: controllerDescriptor.descriptor_digest, registration_digest: registration.registration_digest }, recorded_at: supervisorDescriptor.activated_at, event_digest: '' };
     activationControlEvent.event_digest = selfDigest(activationControlEvent, 'event_digest');
-    const controllerTransport = createControllerSocketTransport(handshakeConnectPath, timeoutMs);
+    const controllerTransport = createControllerSocketTransport(
+      handshakeConnectPath,
+      timeoutMs,
+      controllerDescriptor.heartbeat.ttl_ms,
+    );
     let disposed = false;
     const disposeController = async () => {
       if (disposed) return;

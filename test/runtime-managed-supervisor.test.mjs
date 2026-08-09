@@ -1,16 +1,179 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { selfDigest } from '../src/runtime-contracts.mjs';
 import { canonicalizeArtifact, digestArtifact } from '../src/artifact-contracts.mjs';
 import { buildNextRunEvent } from '../src/runtime-engine.mjs';
-import { RuntimeManagedSupervisor, observeManagedProcessStartIdentity, sendRuntimeControlRequest, serveRuntimeControlSocket } from '../src/runtime-managed-supervisor.mjs';
+import {
+  RuntimeManagedSupervisor,
+  observeManagedProcessStartIdentity,
+  runtimeManagedSupervisorInternal,
+  sendRuntimeControlRequest,
+  serveRuntimeControlSocket,
+} from '../src/runtime-managed-supervisor.mjs';
 import { CONTROLLER_OPERATIONS, armStagedWriteLease, createRuntimeControlRequest } from '../src/runtime-controller-protocol.mjs';
 
 const D = (c) => c.repeat(64);
 function sign(value, field) { value[field] = ''; value[field] = selfDigest(value, field); return value; }
+function controllerHeartbeat(sequence) {
+  return sign({
+    schema: 'lattice.adapter_controller_heartbeat.v1',
+    controller_id: 'controller-a',
+    registration_digest: D('a'),
+    supervisor_session_nonce: 'n'.repeat(64),
+    sequence,
+    lease_set_digest: D('b'),
+    heartbeat_digest: '',
+  }, 'heartbeat_digest');
+}
+function dispatchResponse(requestId) {
+  const identity = sign({
+    schema: 'lattice.process_start_identity.v1',
+    platform: 'darwin',
+    pid: 42,
+    started_identity: 'boot:42:1',
+    identity_digest: '',
+  }, 'identity_digest');
+  return sign({
+    schema: 'lattice.adapter_dispatch_response.v2',
+    request_id: requestId,
+    executor_handle: 'exec-a',
+    worktree_id: 'wt-a',
+    packet_digest: D('c'),
+    lease_digest: D('d'),
+    worker_process: { pid: 42, process_group_id: 42, process_start_identity: identity },
+    response_digest: '',
+  }, 'response_digest');
+}
+
+async function controllerTransportFixture(t, onRequest) {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-controller-transport-'));
+  const socketPath = path.join(root, 'controller.sock');
+  const sockets = new Set();
+  const timers = new Set();
+  const schedule = (handler, delay, repeat = false) => {
+    const timer = repeat ? setInterval(handler, delay) : setTimeout(handler, delay);
+    timers.add(timer);
+    return timer;
+  };
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.setEncoding('utf8');
+    let buffer = '';
+    socket.on('data', (chunk) => {
+      buffer += chunk;
+      while (buffer.includes('\n')) {
+        const newline = buffer.indexOf('\n');
+        const request = JSON.parse(buffer.slice(0, newline));
+        buffer = buffer.slice(newline + 1);
+        onRequest({ socket, request, schedule });
+      }
+    });
+    socket.on('close', () => sockets.delete(socket));
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(socketPath, resolve);
+  });
+  const transport = runtimeManagedSupervisorInternal.createControllerSocketTransport(
+    socketPath,
+    60,
+    100,
+  );
+  await transport.ensureConnected();
+  t.after(async () => {
+    transport.close();
+    for (const timer of timers) {
+      clearTimeout(timer);
+      clearInterval(timer);
+    }
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => server.close(resolve));
+    await rm(root, { recursive: true, force: true });
+  });
+  return transport;
+}
+
+test('dispatch待機は検証済みheartbeatでTTLを更新し固定request timeoutを越える', async (t) => {
+  let sequence = 0;
+  const transport = await controllerTransportFixture(t, ({ socket, request, schedule }) => {
+    schedule(() => {
+      sequence += 1;
+      socket.write(`${canonicalizeArtifact(controllerHeartbeat(sequence))}\n`);
+    }, 20, true);
+    schedule(() => {
+      socket.write(`${canonicalizeArtifact(dispatchResponse(request.request_id))}\n`);
+    }, 230);
+  });
+  let validatedSequence = 0;
+  transport.setHeartbeatHandler(async (heartbeat) => {
+    assert.equal(heartbeat.sequence, validatedSequence + 1);
+    validatedSequence = heartbeat.sequence;
+  });
+  const started = Date.now();
+  const responseArtifact = await transport.request('dispatch', { request_id: 'dispatch-a' });
+  assert.equal(responseArtifact.executor_handle, 'exec-a');
+  assert.ok(Date.now() - started >= 180);
+  assert.ok(validatedSequence >= 5);
+});
+
+test('非dispatchはheartbeat中も固定request timeoutを維持する', async (t) => {
+  let sequence = 0;
+  const transport = await controllerTransportFixture(t, ({ socket, schedule }) => {
+    schedule(() => {
+      sequence += 1;
+      socket.write(`${canonicalizeArtifact(controllerHeartbeat(sequence))}\n`);
+    }, 20, true);
+  });
+  transport.setHeartbeatHandler(async () => {});
+  await assert.rejects(
+    transport.request('inventory', { request_id: 'inventory-a' }),
+    (error) => error.code === 'ADAPTER_CONTROLLER_UNAVAILABLE'
+      && /inventory timeout/u.test(error.message),
+  );
+});
+
+test('dispatchはheartbeat停止・検証失敗・socket切断をtyped failureにする', async (t) => {
+  await t.test('heartbeat停止', async (subtest) => {
+    const transport = await controllerTransportFixture(subtest, () => {});
+    transport.setHeartbeatHandler(async () => {});
+    await assert.rejects(
+      transport.request('dispatch', { request_id: 'dispatch-stopped' }),
+      (error) => error.code === 'ADAPTER_CONTROLLER_UNAVAILABLE'
+        && /dispatch timeout/u.test(error.message),
+    );
+  });
+  await t.test('heartbeat検証失敗', async (subtest) => {
+    const transport = await controllerTransportFixture(
+      subtest,
+      ({ socket, schedule }) => schedule(() => {
+        socket.write(`${canonicalizeArtifact(controllerHeartbeat(1))}\n`);
+      }, 20),
+    );
+    transport.setHeartbeatHandler(() => {
+      throw new Error('heartbeat binding不正');
+    });
+    await assert.rejects(
+      transport.request('dispatch', { request_id: 'dispatch-invalid-heartbeat' }),
+      (error) => error.code === 'ADAPTER_CONTROLLER_UNAVAILABLE',
+    );
+  });
+  await t.test('socket切断', async (subtest) => {
+    const transport = await controllerTransportFixture(
+      subtest,
+      ({ socket, schedule }) => schedule(() => socket.destroy(), 20),
+    );
+    transport.setHeartbeatHandler(async () => {});
+    await assert.rejects(
+      transport.request('dispatch', { request_id: 'dispatch-disconnected' }),
+      (error) => error.code === 'ADAPTER_CONTROLLER_UNAVAILABLE'
+        && /disconnected/u.test(error.message),
+    );
+  });
+});
 function fixture() {
   const heartbeat = sign({ schema: 'lattice.runtime_heartbeat_policy.v1', interval_ms: 100, ttl_ms: 500, disconnect_revokes_immediately: true, policy_digest: '' }, 'policy_digest');
   const capabilities = sign({ schema: 'lattice.runtime_adapter_capabilities.v1', operations: [...CONTROLLER_OPERATIONS], process_observation: true, worktree_fingerprint: true, staged_write_lease: true, durable_dispatch: true, capabilities_digest: '' }, 'capabilities_digest');
