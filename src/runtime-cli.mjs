@@ -154,8 +154,7 @@ function ownedResourceId(kind, target) {
 function ownedPathResourceId(pathValue) {
   return ownedResourceId('path', pathValue);
 }
-/** 走行中workerの完了を待つ上限と間隔。待てないと走行中の観測が成立しない。 */
-const SCRIPTED_OBSERVE_TIMEOUT_MS = 120_000;
+/** 走行中workerの完了を観測する間隔。待てないと走行中の観測が成立しない。 */
 const SCRIPTED_OBSERVE_POLL_MS = 20;
 
 class CliContractError extends Error {
@@ -1015,7 +1014,6 @@ async function driveScriptedManagedEpoch({
     // 直後だけ——そこでしかdiskとメモリのeventsが一致していない。
     const awaiting = new Set([...dispatched.dispatched, ...alreadyRunning]);
     const completedReceiptIds = new Set();
-    const observeDeadline = Date.now() + SCRIPTED_OBSERVE_TIMEOUT_MS;
     let frozen = false;
     while (awaiting.size > 0) {
       const drained = await drainEscalations?.(events) ?? null;
@@ -1114,12 +1112,10 @@ async function driveScriptedManagedEpoch({
       }
       if (frozen) break;
       if (awaiting.size === 0) break;
-      if (Date.now() >= observeDeadline) {
-        throw new ManagedRuntimeError(
-          'ADAPTER_CONTROLLER_UNAVAILABLE',
-          `scripted workerが時間内に終わらない: ${[...awaiting].join(',')}`,
-        );
-      }
+      // 長寿命workerの正常な作業時間を固定期限でcontroller障害へ変換しない。
+      // controllerとのroute自体が失敗した時だけtyped errorになり、running応答中は
+      // durable supervisorが観測を継続する。CLIはoutcome unknownで先に戻り得るが、
+      // run resumeは同じstoreをread-only投影し、leaseを再認可しない。
       if (!progressed) {
         await new Promise((resolve) => { setTimeout(resolve, SCRIPTED_OBSERVE_POLL_MS); });
       }
@@ -1459,8 +1455,9 @@ async function runResume({ runDir, repoRoot, stdout }) {
     throw new CliContractError('RUN_CLOSED', 'closed runはresumeできない');
   }
   await resolveRepoBinding(repoRoot, request);
-  // managed write gateの完全検証とdispatchはsupervisorだけが所有する。read-only
-  // resumeがCLIからleaseを再認可しないよう、managed runでは常に空frontierを返す。
+  // managed write gateの完全検証とdispatch・長寿命workerの観測継続はsupervisorだけが
+  // 所有する。read-only resumeがCLIからleaseを再認可しないよう、managed runでは
+  // 常に空frontierを返し、生きたsupervisorが更新するstoreの現在地だけを返す。
   const managedFrozen = managed === null ? false : await isManagedRunFrozen(runDir, events);
   const frontier = managedFrozen
     ? { dispatchable: [] }
