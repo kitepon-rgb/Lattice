@@ -1145,7 +1145,7 @@ frontier・ready判定・ganttの表示・independence compileへの波及を含
 
 ### 工程
 
-- [ ] t19証跡着地後、次campaignとして`todo migrate`で起票する（担当は文脈保持席=Rin想定）
+- [x] t19証跡着地後、次campaignとして`todo migrate`で起票する（担当は文脈保持席=Rin想定）——実施済み: `cross-plan-dependencies-20260809`としてmigrate→cp1..cp4→terminal accept `e9545d6` まで完了（2026-08-09）
 
 **設計原則（オーナー裁定 2026-08-09・要件の芯）**: plan fileが別である以上、Lattice工程へ載せる
 瞬間（compile時）に跨ぎ線を発見できなくてもよい。**開発中に発見されたなら、その時に線を繋げる
