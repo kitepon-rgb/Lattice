@@ -13,6 +13,7 @@
       { "id": "q-drive-scripted-epoch", "operation": "query", "target": "driveScriptedManagedEpoch" },
       { "id": "q-dispatch-ready-frontier", "operation": "query", "target": "dispatchReadyFrontier" },
       { "id": "q-select-dispatchable", "operation": "query", "target": "selectDispatchable" },
+      { "id": "q-compute-ready-frontier", "operation": "query", "target": "computeReadyFrontier" },
       { "id": "q-ensure-scripted-worktree", "operation": "query", "target": "ensureScriptedWorktree" },
       { "id": "q-read-todo-store", "operation": "query", "target": "readTodoStore" },
       { "id": "q-validate-worker-process", "operation": "query", "target": "validateExpectedWorkerProcess" },
@@ -27,6 +28,7 @@
       "owns": [
         { "kind": "path", "target": "src/runtime-cli.mjs" },
         { "kind": "path", "target": "src/runtime-engine.mjs" },
+        { "kind": "path", "target": "src/runtime-decision-verifier.mjs" },
         { "kind": "path", "target": "src/runtime-pull-intake.mjs", "creates": true },
         { "kind": "path", "target": "test/runtime-pull-intake-cli.test.mjs", "creates": true },
         { "kind": "path", "target": "evidence/roundtable-redirect-20260809/r1.md", "creates": true }
@@ -39,6 +41,10 @@
         {
           "within": { "kind": "path", "target": "src/runtime-engine.mjs" },
           "symbols": ["dispatchReadyFrontier", "selectDispatchable"]
+        },
+        {
+          "within": { "kind": "path", "target": "src/runtime-decision-verifier.mjs" },
+          "symbols": ["computeReadyFrontier"]
         }
       ],
       "reads": [
@@ -50,6 +56,7 @@
       ],
       "writes": [
         "src/runtime-cli.mjs",
+        "src/runtime-decision-verifier.mjs",
         "src/runtime-engine.mjs",
         "src/runtime-pull-intake.mjs",
         "test/runtime-pull-intake-cli.test.mjs",
@@ -67,6 +74,7 @@
           { "query_id": "q-drive-scripted-epoch", "expect": { "kind": "symbol", "name": "driveScriptedManagedEpoch", "path": "src/runtime-cli.mjs" } },
           { "query_id": "q-dispatch-ready-frontier", "expect": { "kind": "symbol", "name": "dispatchReadyFrontier", "path": "src/runtime-engine.mjs" } },
           { "query_id": "q-select-dispatchable", "expect": { "kind": "symbol", "name": "selectDispatchable", "path": "src/runtime-engine.mjs" } },
+          { "query_id": "q-compute-ready-frontier", "expect": { "kind": "symbol", "name": "computeReadyFrontier", "path": "src/runtime-decision-verifier.mjs" } },
           { "query_id": "q-ensure-scripted-worktree", "expect": { "kind": "symbol", "name": "ensureScriptedWorktree", "path": "src/runtime-scripted-worktree.mjs" } },
           { "query_id": "q-read-todo-store", "expect": { "kind": "symbol", "name": "readTodoStore", "path": "src/todo-store.mjs" } },
           { "query_id": "q-validate-worker-process", "expect": { "kind": "symbol", "name": "validateExpectedWorkerProcess", "path": "src/runtime-controller-protocol.mjs" } },
@@ -134,5 +142,5 @@
       ]
     }
   },
-  "witness_set_digest": "163adea171411c479e9b7564310aff2ad8e57c39769f74e2617a7103c5e8b910"
+  "witness_set_digest": "1c702dac5481a2a2bbe9d516317ddfe169ccf7e6a4d277dbc9cf66cdb48743d9"
 }
