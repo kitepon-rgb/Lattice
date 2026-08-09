@@ -144,10 +144,10 @@
   "sensor_query_set": {
     "queries": [
       { "id": "q-cp1-append-event", "operation": "query", "target": "appendTodoEvent" },
-      { "id": "q-cp1-cli-impact", "operation": "affected", "target": "runTodoCli" },
-      { "id": "q-cp1-contract-impact", "operation": "affected", "target": "validateTodoEvent" },
+      { "id": "q-cp1-cli-impact", "operation": "affected", "target": "src/todo-cli.mjs" },
+      { "id": "q-cp1-contract-impact", "operation": "affected", "target": "src/todo-contracts.mjs" },
       { "id": "witness-status", "operation": "status" }
     ]
   },
-  "witness_set_digest": "2ce2fecf52190a252b24ccd0e4d47367ef589b82c16febdf860acd4b37a40cf6"
+  "witness_set_digest": "2d477bfcdb94bf0fe3286c7873941be08692e1604e0489b652a2908240e374f0"
 }
