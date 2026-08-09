@@ -72,6 +72,19 @@ Spotter併載端末で提案が二重になることは許容し、住み分け�
 所有し、本課題の範囲外とする。campaign級なので、着手時に専用planを起こし、backlogのToDoはその起票を
 もって完了とする。
 
+### 7. 宣言の膨張を観測してAIへ分割を促す（構想起票済み）
+
+実行中にToDoが膨らんだとき、装置が何も言わない。宣言は席が手で広げ、装置は黙って受理する。
+`roundtable-exec-20260809`で実測: **79 commitのうち29（37%）が自分の宣言境界を広げるcommit**、
+t7単独で5回。会話側の帰結は、t7開始前が166発言で11 task着地、開始後が293発言で0着地。
+
+構想は[plan_todo-scope-expansion.md](plan_todo-scope-expansion.md)（実装なし・工程起票なし）。要点は
+入口を`lattice todo independence compile`に置くこと（膨張は必ず再compileを通り、前回artifactと
+witness digestで差分が取れ、計画層なので実行層の接続を待たない）と、**装置は膨張の事実と差分までを
+出し、分割の判断と実行はAIが行う**こと（オーナー裁定 2026-08-09・AGENTS.md所有境界）。
+ADR 0158の`prediction_excess`は変えない——止めない挙動はそのままで、情報だけ届くようにする。
+campaign級なので、着手時に専用planを起こす。
+
 ## 工程
 
 工程の状態・依存・完了証拠はLattice storeの`backlog` planが正本。以下は対応表である。
