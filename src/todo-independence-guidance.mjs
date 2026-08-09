@@ -156,7 +156,7 @@ const CATALOG = Object.freeze({
 
 /** 切断可能性の言い換え。conflictの案内へ添える。 */
 const SEVERABILITY_HINT = Object.freeze({
-  code_seam: 'symbol／pathの衝突なので、境界を分けるrefactorで並列化しうる。',
+  code_seam: 'symbol／pathの衝突なので、境界を分けるrefactorで並列化しうる。記録済みの競合からseam-proposal compileを検討できる。',
   serial: '共有stateまたはeffectの衝突なので、分割では切り離せない。',
 });
 
@@ -171,6 +171,35 @@ export function todoIndependenceGuidance(code, { severability = null } = {}) {
     message: hint === null ? entry.message : `${entry.message}${hint}`,
     next_action: entry.next_action,
   };
+}
+
+/**
+ * 記録済みの宣言膨張を、AIが分割を検討するための助言へ写す。
+ *
+ * 判断はしない。膨張回数が既知かつ1回以上という事実だけを入口にし、gate形なら
+ * 依存の合流点という構造事実を強い材料として添える。subset gapで累計がnullのtaskや
+ * 初回宣言は、回数を主張できないので助言を出さない。
+ */
+export function scopeExpansionRecommendations(scopeExpanded) {
+  if (!Array.isArray(scopeExpanded)) {
+    throw new TypeError('scope_expanded must be an array');
+  }
+  return scopeExpanded
+    .filter((entry) => Number.isSafeInteger(entry?.growth_events)
+      && entry.growth_events > 0)
+    .map((entry) => ({
+      code: 'scope_expanded_consider_split',
+      task_id: entry.task_id,
+      growth_events: entry.growth_events,
+      first_seen_path_count: entry.first_seen_path_count,
+      path_count: entry.path_count,
+      gate_shape: entry.gate_shape,
+      message: `宣言が${entry.growth_events}回膨張している。${entry.gate_shape
+        ? 'このtaskは依存の合流点であり、'
+        : ''}内側にgateのリストが生えているなら、A1..Anと残余A'への分割を検討できる。`,
+      next_action: 'consider_todo_split',
+    }))
+    .sort((left, right) => left.task_id.localeCompare(right.task_id));
 }
 
 /**

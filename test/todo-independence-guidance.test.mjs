@@ -7,6 +7,7 @@ import {
   TODO_INDEPENDENCE_WORKFLOW,
   selectIndependenceGuidance,
   selectSeamProposalGuidance,
+  scopeExpansionRecommendations,
   todoIndependenceGuidance,
   selectWitnessScaffoldGuidance,
 } from '../src/todo-independence-guidance.mjs';
@@ -26,6 +27,41 @@ test('全codeが説明と次の一歩を持つ', () => {
 
 test('未知のcodeは黙って通さない', () => {
   assert.throws(() => todoIndependenceGuidance('probably_fine'), TypeError);
+});
+
+test('宣言膨張は既知の回数だけを分割検討の助言へ写す', () => {
+  const recommendations = scopeExpansionRecommendations([
+    {
+      task_id: 'tip-z', growth_events: 1, first_seen_path_count: 2,
+      path_count: 3, gate_shape: false,
+    },
+    {
+      task_id: 'tip-gate', growth_events: 2, first_seen_path_count: 1,
+      path_count: 4, gate_shape: true,
+    },
+    {
+      task_id: 'tip-first', growth_events: 0, first_seen_path_count: 2,
+      path_count: 2, gate_shape: false,
+    },
+    {
+      task_id: 'tip-unknown', growth_events: null, first_seen_path_count: null,
+      path_count: 5, gate_shape: true,
+    },
+  ]);
+
+  assert.deepEqual(recommendations.map(({ task_id: taskId }) => taskId), ['tip-gate', 'tip-z']);
+  assert.deepEqual(recommendations[0], {
+    code: 'scope_expanded_consider_split',
+    task_id: 'tip-gate',
+    growth_events: 2,
+    first_seen_path_count: 1,
+    path_count: 4,
+    gate_shape: true,
+    message: '宣言が2回膨張している。このtaskは依存の合流点であり、内側にgateのリストが生えているなら、A1..Anと残余A\'への分割を検討できる。',
+    next_action: 'consider_todo_split',
+  });
+  assert.match(recommendations[1].message, /宣言が1回膨張/u);
+  assert.throws(() => scopeExpansionRecommendations(null), TypeError);
 });
 
 test('案内は命令形にならない（判断はhostが所有する）', () => {
