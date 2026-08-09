@@ -108,6 +108,11 @@ import {
   startPullRun,
   statusPullRun,
 } from './runtime-pull-intake.mjs';
+import {
+  RuntimeDriverStateError,
+  readRuntimeDriverState,
+  replaceRuntimeDriverState,
+} from './runtime-driver-state.mjs';
 
 import {
   AdapterRegistryError,
@@ -884,6 +889,7 @@ async function driveScriptedManagedEpoch({
   drainEscalations = null,
   escalateTerminalConflict = null,
   preactivated = null,
+  reportDriverState = null,
 }) {
   let events = [...initialEvents];
   const { plan, manifests, executor_packets: packets } = committed.bundle;
@@ -897,6 +903,7 @@ async function driveScriptedManagedEpoch({
   for (;;) {
     const frontier = computeReadyFrontier({ plan, events }).dispatchable;
     if (frontier.length === 0) break;
+    await reportDriverState?.({ kind: 'frontier_dispatch', todo_ids: [...frontier].sort() });
     const alreadyRunning = projectRuntimeState({ events }).running;
     const issuedControlDigest = controlEvents().at(-1)?.event_digest;
     if (typeof issuedControlDigest !== 'string') {
@@ -1092,6 +1099,9 @@ async function driveScriptedManagedEpoch({
     // 回し、その合間に早期警報のescalationを捌く。捌くのは`replaceEventsAtomically`の
     // 直後だけ——そこでしかdiskとメモリのeventsが一致していない。
     const awaiting = new Set([...dispatched.dispatched, ...alreadyRunning]);
+    if (awaiting.size > 0) {
+      await reportDriverState?.({ kind: 'executor_completion', todo_ids: [...awaiting].sort() });
+    }
     const completedReceiptIds = new Set();
     let frozen = false;
     while (awaiting.size > 0) {
@@ -1188,6 +1198,9 @@ async function driveScriptedManagedEpoch({
             && event.subject?.kind === 'todo' && event.subject.ref === id)
             ?.payload?.direct_os_observation_binding?.worktree_path });
         awaiting.delete(todoId);
+        if (awaiting.size > 0) {
+          await reportDriverState?.({ kind: 'executor_completion', todo_ids: [...awaiting].sort() });
+        }
         progressed = true;
         if (frozen) break;
       }
@@ -1439,9 +1452,51 @@ async function runSeamProfile({ runDir, repoRoot, findingDigest, inputPath, stdo
   return 0;
 }
 
+const stoppedDriverProjection = () => ({ driver_state: 'stopped', waiting_on: null });
+
+async function runtimeDriverProjection(runDir) {
+  const state = await readRuntimeDriverState({ runDir });
+  if (state === null || state.driver_state === 'stopped') return stoppedDriverProjection();
+  const descriptorPath = path.join(runDir, ...state.supervisor_descriptor_ref.split('/'));
+  let descriptor;
+  try {
+    descriptor = await readBoundedJson(descriptorPath, 'runtime supervisor descriptor');
+  } catch (error) {
+    if (error instanceof CliContractError && error.code === 'INPUT_UNREADABLE') {
+      return stoppedDriverProjection();
+    }
+    throw error;
+  }
+  if (descriptor?.descriptor_digest !== state.supervisor_descriptor_digest
+    || descriptor?.process_start_identity?.identity_digest
+      !== state.supervisor_process_start_identity_digest) {
+    throw new RuntimeDriverStateError('INVALID_RUN_STORE', 'driver stateがsupervisor descriptorへbindしない');
+  }
+  let observedIdentity;
+  try {
+    observedIdentity = await observeManagedProcessStartIdentity(descriptor.pid);
+  } catch (error) {
+    if (error instanceof ManagedRuntimeError && error.code === 'ADAPTER_CONTROLLER_UNAVAILABLE') {
+      return stoppedDriverProjection();
+    }
+    throw error;
+  }
+  if (observedIdentity.identity_digest !== state.supervisor_process_start_identity_digest) {
+    return stoppedDriverProjection();
+  }
+  return { driver_state: 'driving', waiting_on: structuredClone(state.waiting_on) };
+}
+
+async function withRuntimeDriverProjection(output, runDir) {
+  const projected = { ...output, ...await runtimeDriverProjection(runDir) };
+  delete projected.result_digest;
+  projected.result_digest = digestArtifact(projected);
+  return projected;
+}
+
 async function runObserve({ runDir, stdout }) {
   if ((await inspectRunMode(runDir)).mode === 'pull') {
-    const output = await observePullRun(runDir);
+    const output = await withRuntimeDriverProjection(await observePullRun(runDir), runDir);
     stdout.write(`${JSON.stringify(output)}\n`);
     return 0;
   }
@@ -1462,6 +1517,7 @@ async function runObserve({ runDir, stdout }) {
     closed: state.closed,
     event_count: events.length,
     events_digest: digestArtifact(events.map(({ event_digest: digest }) => digest)),
+    ...await runtimeDriverProjection(runDir),
   };
   output.result_digest = digestArtifact(output);
   stdout.write(`${JSON.stringify(output)}\n`);
@@ -1470,7 +1526,7 @@ async function runObserve({ runDir, stdout }) {
 
 async function runStatus({ runDir, stdout }) {
   if ((await inspectRunMode(runDir)).mode === 'pull') {
-    const output = await statusPullRun(runDir);
+    const output = await withRuntimeDriverProjection(await statusPullRun(runDir), runDir);
     stdout.write(`${JSON.stringify(output)}\n`);
     return 0;
   }
@@ -1494,6 +1550,7 @@ async function runStatus({ runDir, stdout }) {
     freeze_active: state.freeze !== null,
     closed: state.closed,
     event_count: events.length,
+    ...await runtimeDriverProjection(runDir),
   };
   if (managed !== null) {
     output.schema = 'lattice.managed_run_status.v1';
@@ -2725,6 +2782,19 @@ export async function runManagedSupervisorDaemon({
               return settled;
             },
           });
+          const reportDriverState = (waitingOn) => replaceRuntimeDriverState({
+            runDir,
+            runId: request.request_id,
+            supervisorDescriptorRef: restarting
+              ? `supervisor/restart-candidates/${path.basename(candidateDir)}/descriptor.json`
+              : 'supervisor/descriptor.json',
+            supervisorDescriptorDigest: activation.supervisorDescriptor.descriptor_digest,
+            supervisorProcessStartIdentityDigest:
+              activation.supervisorDescriptor.process_start_identity.identity_digest,
+            driverState: 'driving',
+            waitingOn,
+            updatedAt: canonicalNow(),
+          });
           epochDriveActive = true;
           try {
             await driveScriptedManagedEpoch({
@@ -2740,9 +2810,23 @@ export async function runManagedSupervisorDaemon({
               preDispatchBindings,
               drainEscalations: drainPendingEscalations,
               escalateTerminalConflict,
+              reportDriverState,
             });
           } finally {
             epochDriveActive = false;
+            await replaceRuntimeDriverState({
+              runDir,
+              runId: request.request_id,
+              supervisorDescriptorRef: restarting
+                ? `supervisor/restart-candidates/${path.basename(candidateDir)}/descriptor.json`
+                : 'supervisor/descriptor.json',
+              supervisorDescriptorDigest: activation.supervisorDescriptor.descriptor_digest,
+              supervisorProcessStartIdentityDigest:
+                activation.supervisorDescriptor.process_start_identity.identity_digest,
+              driverState: 'stopped',
+              waitingOn: null,
+              updatedAt: canonicalNow(),
+            });
           }
         }
         if (restarting) {
@@ -4462,6 +4546,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
       return typedFailure(stderr, error.code, error.message);
     }
     if (error instanceof PullRunError || error instanceof TodoStoreError
+      || error instanceof RuntimeDriverStateError
       || error instanceof RuntimeLifecycleLockError) {
       return typedFailure(stderr, error.code, error.message, error.detail);
     }

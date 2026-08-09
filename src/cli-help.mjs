@@ -47,6 +47,9 @@ Commands:
   adapter register --input <descriptor.json>
   adapter register --schema --json   # 登録入力の JSON Schema を出す
   adapter list --json
+  activate --run .lattice/runs/<id>
+      # 全waveが完了するまで戻らないforeground driver。別processのobserve/statusは
+      # driver_stateとwaiting_onで、駆動中か・何を待っているかを投影する。
   observe --run .lattice/runs/<id>
   status --run .lattice/runs/<id>
   landing --run .lattice/runs/<id>
@@ -192,7 +195,9 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'run close': 'run close --run .lattice/runs/<id>',
   'run abandon': 'run abandon --run .lattice/runs/<id> --reason <reason>',
   'run list': 'run list --json',
-  'run activate': 'run activate --run .lattice/runs/<id>',
+  'run activate': 'run activate --run .lattice/runs/<id>\n\n'
+    + '全waveが完了するまで戻らないforeground driver。別processのrun observe/statusは\n'
+    + 'driver_stateとwaiting_onで、駆動中か・何を待っているかを投影する。',
   'run conflict': 'run conflict --run .lattice/runs/<id> --finding <digest>',
   'run hold': 'run hold --run .lattice/runs/<id> --finding <digest>',
   'run recompile': 'run recompile --run .lattice/runs/<id> --input <recompile-request.json>',
