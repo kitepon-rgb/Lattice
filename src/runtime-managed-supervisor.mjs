@@ -19,6 +19,7 @@ import {
   validateAdapterLaunchDescriptor,
   validateAdapterRegistry,
   validateControllerDescriptor,
+  validateControllerError,
   validateControllerHeartbeat,
   validateControllerRegistration,
   validateControllerResponse,
@@ -838,10 +839,17 @@ function createControllerSocketTransport(
       const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
       let document;
       try { document = JSON.parse(line); } catch { failPending('controller document JSON不正'); socket.destroy(); return; }
-      if (document?.schema === 'lattice.scripted_adapter_error.v1'
-        && typeof document.code === 'string'
-        && typeof document.message === 'string') {
-        failPending(`${document.code}: ${document.message}`);
+      const errorEntry = pending.get(document?.request_id);
+      if (errorEntry && validateControllerError(document, document.request_id)) {
+        pending.delete(document.request_id);
+        clearTimeout(errorEntry.timer);
+        const detail = Object.keys(document.detail).length === 0
+          ? ''
+          : `: ${canonicalizeArtifact(document.detail)}`;
+        errorEntry.reject(new ManagedRuntimeError(
+          'ADAPTER_CONTROLLER_UNAVAILABLE',
+          `${document.code}: ${document.message}${detail}`,
+        ));
         socket.destroy();
         return;
       }

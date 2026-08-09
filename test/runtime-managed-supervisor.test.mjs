@@ -98,6 +98,48 @@ async function controllerTransportFixture(t, onRequest) {
   return transport;
 }
 
+function controllerError(schema, requestId, overrides = {}) {
+  return sign({
+    schema, code: 'WORK_ORDER_REPORT_INVALID', message: 'worker_pidが存在しない',
+    request_id: requestId, detail: { pid: 42 }, error_digest: '', ...overrides,
+  }, 'error_digest');
+}
+
+test('controller errorは既知schemaだけをrequestへ束縛して元の診断を伝播する', async (t) => {
+  for (const schema of [
+    'lattice.scripted_adapter_error.v1',
+    'lattice.work_order_adapter_error.v1',
+  ]) {
+    await t.test(schema, async (subtest) => {
+      const transport = await controllerTransportFixture(subtest, ({ socket, request }) => {
+        socket.write(`${canonicalizeArtifact(controllerError(schema, request.request_id))}\n`);
+      });
+      await assert.rejects(transport.request('dispatch', { request_id: 'dispatch-error' }),
+        (error) => error.code === 'ADAPTER_CONTROLLER_UNAVAILABLE'
+          && error.message.includes('WORK_ORDER_REPORT_INVALID')
+          && error.message.includes('worker_pidが存在しない')
+          && error.message.includes('"pid":42'));
+    });
+  }
+
+  for (const [label, artifact] of [
+    ['digest破損', { ...controllerError('lattice.work_order_adapter_error.v1', 'dispatch-invalid'),
+      error_digest: D('0') }],
+    ['未pending id', controllerError('lattice.work_order_adapter_error.v1', 'different-request')],
+    ['未知schema', controllerError('lattice.unknown_adapter_error.v1', 'dispatch-invalid')],
+  ]) {
+    await t.test(label, async (subtest) => {
+      const transport = await controllerTransportFixture(subtest, ({ socket }) => {
+        socket.write(`${canonicalizeArtifact(artifact)}\n`);
+      });
+      await assert.rejects(transport.request('dispatch', { request_id: 'dispatch-invalid' }),
+        (error) => error.code === 'ADAPTER_CONTROLLER_UNAVAILABLE'
+          && error.message.includes('unsolicited/invalid controller response')
+          && !error.message.includes('WORK_ORDER_REPORT_INVALID'));
+    });
+  }
+});
+
 test('dispatch待機は検証済みheartbeatでTTLを更新し固定request timeoutを越える', async (t) => {
   let sequence = 0;
   const transport = await controllerTransportFixture(t, ({ socket, request, schedule }) => {

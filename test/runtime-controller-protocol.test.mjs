@@ -6,7 +6,8 @@ import {
   CONTROLLER_OPERATIONS, acceptsHostDrivenEpoch, armStagedWriteLease,
   createControllerRequest, createWriteGate,
   createRuntimeControlRequest,
-  validateArmedWriteLease, validateControllerDescriptor, validateControllerRequest, validateControllerResponse,
+  validateArmedWriteLease, validateControllerDescriptor, validateControllerError,
+  validateControllerRequest, validateControllerResponse,
   validateControllerRegistration, validateReleaseAck, validateRuntimeControlRequest,
   validateRuntimeAdapterCapabilities, validateRuntimeControlResponse,
   validateStagedWriteLease, validateExpectedWorkerProcess,
@@ -53,6 +54,27 @@ test('adapter capabilities v2はhost駆動同意をexactかつ自己digest付き
     assert.equal(validateRuntimeAdapterCapabilities(invalid), false);
     assert.equal(acceptsHostDrivenEpoch(invalid), false);
   }
+});
+
+test('controller errorは既知schema・exact fields・digest・request bindingを要求する', () => {
+  const artifact = (schema) => sign({
+    schema, code: 'WORK_ORDER_REPORT_INVALID', message: 'worker_pidが存在しない',
+    request_id: 'request-a', detail: { pid: 42 }, error_digest: '',
+  }, 'error_digest');
+  for (const schema of [
+    'lattice.scripted_adapter_error.v1',
+    'lattice.work_order_adapter_error.v1',
+  ]) {
+    assert.equal(validateControllerError(artifact(schema), 'request-a'), true);
+  }
+  assert.equal(validateControllerError(artifact('lattice.unknown_adapter_error.v1'), 'request-a'), false);
+  assert.equal(validateControllerError(artifact('lattice.work_order_adapter_error.v1'), 'request-b'), false);
+  assert.equal(validateControllerError(sign({
+    ...artifact('lattice.work_order_adapter_error.v1'), extra: true, error_digest: '',
+  }, 'error_digest'), 'request-a'), false);
+  assert.equal(validateControllerError({
+    ...artifact('lattice.work_order_adapter_error.v1'), error_digest: '0'.repeat(64),
+  }, 'request-a'), false);
 });
 function controlResult(operation = 'hold', outcome = 'held') {
   return sign({

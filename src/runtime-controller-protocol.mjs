@@ -8,6 +8,10 @@ import {
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const ID = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
+const CONTROLLER_ERROR_SCHEMAS = new Set([
+  'lattice.scripted_adapter_error.v1',
+  'lattice.work_order_adapter_error.v1',
+]);
 
 export const CONTROLLER_OPERATIONS = Object.freeze([
   'dispatch', 'observe', 'inventory', 'barrier', 'rebind', 'prepare', 'activate', 'release', 'revoke',
@@ -104,6 +108,18 @@ function uniqueSortedDigests(value) {
 }
 function selfValid(value, field) {
   try { return digest(value[field]) && selfDigest(value, field) === value[field]; } catch { return false; }
+}
+
+/** controller実装が返す既知errorを、request bindingを含めて検証する。 */
+export function validateControllerError(value, expectedRequestId = null) {
+  return exact(value, ['schema', 'code', 'message', 'request_id', 'detail', 'error_digest'])
+    && CONTROLLER_ERROR_SCHEMAS.has(value.schema)
+    && identifier(value.code)
+    && typeof value.message === 'string' && value.message.length > 0
+    && identifier(value.request_id)
+    && (expectedRequestId === null || value.request_id === expectedRequestId)
+    && plain(value.detail)
+    && selfValid(value, 'error_digest');
 }
 
 export function validateRuntimeHeartbeatPolicy(value) {
