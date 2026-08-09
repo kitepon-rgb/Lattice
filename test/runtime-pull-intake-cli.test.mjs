@@ -280,6 +280,20 @@ test('override startされた後続taskは未accepted predecessorのprecedence�
     ['hold', 'planning_precedence', 'wait_for_predecessor_accept', 'withheld']);
   });
 
+test('run外でliteral done済みのpredecessorは後続だけのopen membership intakeを塞がない',
+  async (context) => {
+    const { root } = await workspace(context, { precedence: true });
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    await doneTask(root, 'A', '2026-08-09T00:02:00.000Z');
+    await startTask(root, 'B', '2026-08-09T00:03:00.000Z');
+    parsed(startPull(root));
+    const successor = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'B',
+    ]));
+    assert.deepEqual([successor.intervention.state, successor.intervention.reason,
+      successor.intervention.lease_state], ['none', null, 'granted']);
+  });
+
 test('acceptはsame-version literal doneと独立worktree観測へ束縛しlanding/closeを冪等投影する',
   async (context) => {
     const { root } = await workspace(context);

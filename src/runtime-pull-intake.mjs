@@ -408,16 +408,25 @@ function buildManifest(witnessSet, taskId) {
   return manifest;
 }
 
-function planningConstraint(artifact, taskId, state) {
+function planningConstraint(artifact, taskId, state, member) {
   const active = new Set(state.intakes.filter((entry) => entry.accepted === null).map((entry) => entry.task_id));
-  const accepted = new Set(state.intakes.filter((entry) => entry.accepted !== null).map((entry) => entry.task_id));
   const conflict = artifact?.conflicts?.find((entry) => (
     entry.task_ids.includes(taskId)
       && entry.task_ids.some((other) => other !== taskId && active.has(other))
   ));
   if (conflict) return { kind: 'conflict', detail: structuredClone(conflict) };
   const precedence = artifact?.precedences?.find((entry) => (
-    entry.to_task_id === taskId && !accepted.has(entry.from_task_id)
+    entry.to_task_id === taskId && (() => {
+      const predecessorIntake = state.intakes.find((intake) => (
+        intake.task_id === entry.from_task_id
+      ));
+      const predecessorDone = member.tasks.find((task) => (
+        task.task_id === entry.from_task_id
+      ))?.status === 'done';
+      const predecessorAccepted = predecessorIntake?.accepted !== null
+        && predecessorIntake?.accepted !== undefined;
+      return !predecessorDone && !predecessorAccepted;
+    })()
   ));
   if (precedence) return { kind: 'precedence', detail: structuredClone(precedence) };
   return null;
@@ -566,7 +575,8 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
       verdict.detail = { cause: 'run_plan_version_mismatch', run_version: firstVersion,
         task_version: member.plan.plan_version };
     }
-    const constraint = verdict.state === 'none' ? planningConstraint(verdict.artifact, taskId, state) : null;
+    const constraint = verdict.state === 'none'
+      ? planningConstraint(verdict.artifact, taskId, state, member) : null;
     const intervention = interventionPayload(verdict, constraint);
 
     // worktree供給後・event確定前にTodo正本を再読し、version/start bindingのTOCTOUを閉じる。
@@ -827,12 +837,13 @@ export async function acceptPullTask({ repoRoot, runDir, taskId, environment = p
 
     // 先着taskがacceptedになった後、planning conflictだけで待っていた後着を再投影する。
     state = project(current.events, current.meta);
+    const planningMember = activeMember(store, current.meta.plan_key);
     for (const waiting of state.intakes.filter((entry) => (
       entry.accepted === null
         && ['planning_conflict', 'planning_precedence'].includes(entry.intervention.reason)
     ))) {
       const artifact = await readTodoIndependenceArtifact({ repoRoot, planKey: current.meta.plan_key });
-      if (planningConstraint(artifact, waiting.task_id, state) !== null) continue;
+      if (planningConstraint(artifact, waiting.task_id, state, planningMember) !== null) continue;
       const intervention = { state: 'none', reason: null, next_action: null,
         lease_state: 'granted', detail: { released_by_accepted_task: taskId } };
       current = await changeIntervention(runDir, current, waiting.task_id, intervention);
