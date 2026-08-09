@@ -12,6 +12,7 @@
       "owns": [
         { "kind": "path", "target": "src/todo-gantt-html-shared.mjs" },
         { "kind": "path", "target": "src/todo-gantt-svg.mjs" },
+        { "kind": "path", "target": "test/todo-gantt-nested.test.mjs" },
         { "kind": "path", "target": "test/todo-gantt-render.test.mjs" },
         { "creates": true, "kind": "path", "target": "evidence/gantt-labels-20260809/g1.md" }
       ],
@@ -55,6 +56,7 @@
       "writes": [
         "src/todo-gantt-html-shared.mjs",
         "src/todo-gantt-svg.mjs",
+        "test/todo-gantt-nested.test.mjs",
         "test/todo-gantt-render.test.mjs",
         "evidence/gantt-labels-20260809/g1.md"
       ]
@@ -74,5 +76,5 @@
       { "id": "render-node-impact", "operation": "impact", "target": "renderNode" }
     ]
   },
-  "witness_set_digest": "d5fe6d75079f1fb09ac0fe65f3ea3162a6160eac2b9d04847f0a22ba3ca2a8d9"
+  "witness_set_digest": "f80d53c8d33d97d6ba7653b1ebe5c08df259d2641e336b445bc55c8c9d0f2f34"
 }
