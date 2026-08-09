@@ -47,9 +47,16 @@ def('t1', {
   ],
 })
 def('t2', {
-  owns: [p('src/runtime-cli.mjs'), pc(EV('t2'))],
-  reads: ['src/runtime-engine.mjs', 'src/runtime-managed-supervisor.mjs'],
-  writes: ['src/runtime-cli.mjs', EV('t2')],
+  owns: [
+    p('src/runtime-cli.mjs'), p('src/runtime-managed-supervisor.mjs'),
+    p('test/runtime-managed-supervisor.test.mjs'), pc(EV('t2')),
+  ],
+  reads: ['src/runtime-engine.mjs'],
+  writes: [
+    'src/runtime-cli.mjs', 'src/runtime-managed-supervisor.mjs',
+    'test/runtime-managed-supervisor.test.mjs', EV('t2'),
+  ],
+  affected_tests: ['test/runtime-managed-supervisor.test.mjs'],
 })
 def('t3', {
   owns: [p('src/runtime-cli.mjs'), pc(EV('t3'))],
