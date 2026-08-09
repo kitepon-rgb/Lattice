@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.52.0 — 2026-08-09
+
+### 追加
+
+- **宣言scopeが膨張したtaskへ、分割検討を公開CLIから案内する。**
+  `todo independence compile`の結果を`lattice.todo_independence_compile_result.v2`へ上げ、
+  `scope_expansion_recommendations`を追加した。`todo start`の`advisory`にも同じtask固有の推薦を載せる。
+  recommendationは助言であって開始gateではなく、膨張が無いtaskと未判定taskでは空配列になる。
+
+### 文書
+
+- **Peertableによる実消費を製品契約へ追記した。** 従来の4面を、境界付きready／着手助言、claim後の
+  実行設備と介入、結果／証跡／着地の束縛、監査状態と公開観測へ束ね直し、任意`external_pane`は
+  identity書込例外として記録した。新しい面やPeertable固有コードの追加ではなく、実戦投入で確認した
+  既存の汎用面と所有境界の記録である。
+
+## 0.51.0 — 2026-08-09
+
+### 追加
+
+- **席がclaim済みtaskを持ち込むpull型managed runを追加した。** intake、process attach、lease／hold、
+  accept、close、receipt単位のlandingを公開し、隔離worktreeの実変更を宣言境界と突き合わせる。
+  task選択・席選定・worker起動は行わず、AIが選んだ作業へ設備と介入だけを供給する。
+- **親taskの内側へ子taskの依存工程図を描くようにした。** `parent_task_id`を持つ子のDAGを再帰的な
+  nested panelとして表示し、親なしplanのlayout／SVGは従来とbyte-identicalに保つ。
+- **`todo split`でactive plan revisionを原子的に切り替えられるようにした。** 元taskをresidualとして残し、
+  successor taskと依存線、witness宣言を新revisionへ移す。途中失敗は旧active revisionを不変に保つ。
+- **ToDo store mutationをGit commitまで原子的に着地する`--commit-store`を追加した。** 共有lock内で
+  mutationとstore 3path限定commitを閉じ、cleanup失敗時も元の原因またはcommit receiptを失わない。
+- **開始済みtaskの明示撤回を追加した。** start actor本人だけが未doneのstartをretractでき、履歴を
+  append-only eventとして残す。
+
+### 診断・観測
+
+- runtime storeの将来schemaを期待versionと更新手順を含むtyped errorとして診断し、前景driverの
+  待機状態を別processから観測できるようにした。
+- independence artifactをv5へ上げ、scope expansionと線資源を境界compilerから実行時検証へ伝播する。
+
 ## 0.50.1 — 2026-08-08
 
 ### 修正

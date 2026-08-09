@@ -400,23 +400,34 @@ Peertable（MIT・npm `peertable`）はLatticeの外部消費者である。公�
 `.lattice/`のstore fileを直読み・直書きしない。本節は既存面がどう消費されているかの記録であり、
 新しい保証・非目標・schema・面を増やさない。Latticeはこの消費者のために面を足さない。
 
-消費される面は4つである。
+消費される面は4つである。計画層だけだった旧記録へ実行層の実態を足すが、面を増やすのではなく、
+同じ責務ごとに入口を束ね直す。
 
-- **依存付きready一覧**: `todo status --json`の`next_ready`／`blocked`／`active_set`／`dispatch_frontier`。
-  Peertableの各memberが次の仕事を自分で取る唯一の入口であり、`all_ready_parallel_by_default`が
-  この消費者の並列session構成をそのまま決める。
-- **順序付きstart/done記録**: `todo start`／`todo done`のlifecycle journal（`sequence`、
-  `actor{agent,host,session}`、`previous_digest`連鎖）。この消費者のclaimは会話上の宣言であり、
-  宣言が交差した時の裁定にjournalを機械の事実として引く。現行のlifecycle面がtaskへassigneeを持たず、
-  着手者をeventのactorとしてだけ残すことがこの消費のされ方の前提である——taskの所有者を持つと、
-  消費者側の宣言と二重正本になる。
-- **証跡束縛**: `todo done --evidence <descriptor>`のrepo内descriptorとpinned Git objectのhard検証。
-  完了報告が散文だけで通らないことを、この消費者は自分の規範でなくLatticeのfail closedへ委ねている。
-- **監査状態**: `todo status`の`audit_pending`、`todo phase status`、`lattice status`の
-  `next_action.reason`。全task doneが`gate_ready`であって完走でないこと（ADR 0147・0159）が、
-  消費者側の解散判断の早さを機械的に抑える。
+- **境界付きready／着手助言**: `todo status --json`の`next_ready`／`blocked`／`active_set`／
+  `dispatch_frontier`、`todo independence compile`／`todo independence`、`todo start`の`advisory`、
+  `todo split`、`todo verify`。Peertableの各memberはreadyから次の仕事を自分で選び、claim後に自分の変更境界を
+  witnessとして持ち込んで、競合・unknown・scope expansionを読む。宣言が膨張した時は元taskを残したまま
+  子taskへ分割し、active plan revisionを切り替える。助言は選択材料であって着手許可ではなく、Latticeは
+  taskも席も選ばない。
+- **claim後の実行設備と介入**: `todo start`のlifecycle journal（`sequence`、
+  `actor{agent,host,session}`、`previous_digest`連鎖）、`run selection --mode pull`、`run intake`、process attach、
+  lease／hold／resume。席自身が先にclaim／`todo start`したtaskだけをintakeし、隔離worktreeと競合介入を
+  設備として受け取る。bridgeはrun進行と介入のread-only中継に限る。eventのactorは操作主体の記録であり、
+  taskへassigneeを持たせて消費者側のclaimと二重正本にしない。
+- **結果・証跡・着地の束縛**: `todo done --evidence <descriptor>`のrepo内descriptorとpinned Git objectの
+  hard検証、`run intake accept`、`run close`、`run landing`。完了報告が散文だけで通らないことをLatticeの
+  fail closedへ委ね、accept後もcanonical統合とremote既定branchへのlandingが確認できるまで完走へ丸めない。
+- **監査状態と公開観測**: `todo status`の`audit_pending`、`todo phase status`、`lattice status`の
+  `next_action.reason`、常設dashboardと`todo gantt serve`の公開工程表。全task doneが`gate_ready`であって
+  完走でないこと（ADR 0147・0159）が、消費者側の解散判断の早さを機械的に抑える。公開工程表は監査状態、
+  親子工程、runの進行を人とAIが同じ画面で観測する面であり、判断そのものは行わない。
 
-Latticeが所有しないものは、会話の正本、参加者の規範、宣言ベースのclaim、判断そのものである。
+唯一の書込例外は`.lattice/project.json`の任意`external_pane {title,url,probe_url}`である。Peertableは
+identity文書の公開された任意欄へroomの表示先を差すが、journal／snapshotを直書きしない。Latticeは
+題名・URL・probeだけを扱い、差されたサービスがPeertableであることを知らない。この例外は上の4面へ
+新しい実行契約を足すものではなく、公開観測面の参照先をidentityへ設定するだけである。
+
+Latticeが所有しないものは、会話の正本、参加者の規範、宣言ベースのclaim、task／席の選択、判断そのものである。
 これらは消費者側の社会契約であり、機械の真実だけを供給し判断と会話を実装しないという所有境界の外に置く。
 この消費者がLattice無しで動く形（standalone mode）も同じ理由で契約の外であり、Latticeの非目標を増やさない。
 
