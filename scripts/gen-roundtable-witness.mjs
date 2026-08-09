@@ -283,7 +283,9 @@ def('t11', {
   unknowns: [unk('runtime_experiment', '複数席runの実測')],
 })
 def('t19', {
-  owns: [pc(EV('t19'))], writes: [EV('t19')],
+  owns: [p('src/runtime-cli.mjs'), p('test/runtime-landing-cli.test.mjs'), pc(EV('t19'))],
+  writes: ['src/runtime-cli.mjs', 'test/runtime-landing-cli.test.mjs', EV('t19')],
+  affected_tests: ['test/runtime-landing-cli.test.mjs'],
   state_effects: [se('lattice-run-store', 'state')],
   resources: ['lattice-run-store'],
   unknowns: [unk('runtime_experiment', '実campaign 1本のmanaged run完走')],
