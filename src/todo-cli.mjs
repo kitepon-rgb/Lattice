@@ -197,10 +197,9 @@ function supportsAtomicStoreCommit(argv) {
   const command = argv[0];
   if (command === 'note') return argv[1] !== 'list';
   if (command === 'independence') {
-    return argv[1] === 'compile' || argv[1] === 'mode'
+    return argv[1] === 'mode'
       || (argv[1] === 'witness' && ['migrate', 'scaffold'].includes(argv[2]));
   }
-  if (command === 'seam-proposal') return argv[1] === 'compile';
   if (command === 'snapshot') return argv[1] === '--rebuild';
   if (command === 'migrate') return !argv.includes('--dry-run') && !argv.includes('--schema');
   if (['revise', 'split', 'revise-set', 'revise-phase', 'start', 'retract', 'block',

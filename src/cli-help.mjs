@@ -128,6 +128,7 @@ and LATTICE_TODO_ACTOR_AGENT.
 storeだけを書き換えるcommandの末尾へ--commit-storeを付けると、共有Git lockを取得し、
 生じた.lattice/todoの変更だけをcommitしてreceiptを返す。
 dirtyなsourceとstore外の既存stageは保持し、store自身がdirtyなら拒否する。
+ignoredな再生成artifactだけを作るindependence/seam-proposal compileは対象外。
 
 並列可否（依存線の不在は、書き込み境界が干渉しないことを意味しない）:
 ${TODO_INDEPENDENCE_WORKFLOW.join('\n')}

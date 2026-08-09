@@ -270,6 +270,20 @@ test('read commandの--commit-storeはunsupportedで、既存writeは非atomic�
   assert.notEqual(storeStatus(root), '');
 });
 
+test('ignored再生成artifactだけのcompile commandはatomic commit対象外にする', async (t) => {
+  const root = await workspace(t);
+  for (const args of [
+    ['todo', 'independence', 'compile', '--plan', 'main', '--input', 'witness.json',
+      '--commit-store'],
+    ['todo', 'seam-proposal', 'compile', '--plan', 'main', '--commit-store'],
+  ]) {
+    const unsupported = runCli(root, args);
+    assert.equal(unsupported.status, 2);
+    assert.equal(JSON.parse(unsupported.stderr).code, 'STORE_COMMIT_UNSUPPORTED');
+    assert.equal(storeStatus(root), '');
+  }
+});
+
 test('todo helpはatomic suffixとdirty store拒否を公開する', () => {
   const shown = spawnSync(process.execPath, [CLI, 'todo', '--help'], { encoding: 'utf8' });
   assert.equal(shown.status, 0, shown.stderr);
