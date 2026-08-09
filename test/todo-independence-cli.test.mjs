@@ -172,6 +172,31 @@ test('既知の旧artifactはsupersededとしてindependence・session-context�
     assert.match(gantt.rendered.html, /class="todo-gantt"/u);
   });
 
+test('Ganttは読めないindependence・seam artifactをplan単位で未検査へ縮退する',
+  async (context) => {
+    const root = await workspace(context, {
+      tasks: ['T1'],
+      extraPlans: [planFor('other', ['U1'])],
+    });
+    const planDir = path.join(root, '.lattice/todo/plans/other/v1');
+    const independenceRef = path.join(planDir, 'independence.json');
+    const seamRef = path.join(planDir, 'seam-proposal.json');
+
+    await writeFile(independenceRef, '{"schema":"lattice.todo_independence.future"}\n');
+    const unreadableIndependence = await renderTodoGanttForProject({ repoRoot: root });
+    assert.match(unreadableIndependence.rendered.html, /T1/u);
+    assert.match(unreadableIndependence.rendered.html, /U1/u);
+    assert.match(unreadableIndependence.rendered.html, /並列可否:<\/strong> 未検査です/u);
+
+    await rm(independenceRef);
+    await writeFile(seamRef, '{"schema":"lattice.todo_seam_proposal.future"}\n');
+    const unreadableSeam = await renderTodoGanttForProject({ repoRoot: root });
+    assert.match(unreadableSeam.rendered.html, /T1/u);
+    assert.match(unreadableSeam.rendered.html, /U1/u);
+    assert.match(unreadableSeam.rendered.html,
+      /参照元のplanまたは並列可否記録が更新され/u);
+  });
+
 test('記録があればHEAD一致でverified並列グループを返す（sensorは引かない）', async (context) => {
   const root = await workspace(context);
   const head = git(root, ['rev-parse', 'HEAD']);

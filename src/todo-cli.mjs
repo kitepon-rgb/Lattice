@@ -2225,7 +2225,35 @@ async function independenceForGantt({ repoRoot, store }) {
   const projections = [];
   for (const member of store.members) {
     const planKey = member.plan.plan_key;
-    const artifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+    let artifact = null;
+    let unreadableReason = null;
+    try {
+      artifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+    } catch (error) {
+      if (!(error instanceof TodoStoreError)) throw error;
+      unreadableReason = `${error.code}:${error.detail?.reason ?? error.message}`;
+    }
+    if (unreadableReason !== null) {
+      if (currentBaseSha === null) currentBaseSha = currentHeadSha(repoRoot);
+      const projected = projectIndependenceFrontier({
+        artifact: null,
+        readyTaskIds: frontier.filter((task) => task.plan_key === planKey)
+          .map(({ task_id: taskId }) => taskId),
+        activeTaskIds: status.active_set.filter((task) => task.plan_key === planKey)
+          .map(({ task_id: taskId }) => taskId),
+        plan: member.plan,
+        currentBaseSha,
+        changedPaths: null,
+      });
+      projections.push({
+        project_id: member.plan.project_id,
+        plan_key: planKey,
+        coverage: 'unreadable',
+        unreadable_reason: unreadableReason,
+        frontier: projected.frontier,
+      });
+      continue;
+    }
     if (artifact === null) continue;
     // 記録があるplanが1つでもあれば鮮度の判定にHEADが要る。
     if (currentBaseSha === null) currentBaseSha = currentHeadSha(repoRoot);
@@ -2245,6 +2273,7 @@ async function independenceForGantt({ repoRoot, store }) {
       project_id: member.plan.project_id,
       plan_key: planKey,
       coverage: projected.coverage,
+      unreadable_reason: null,
       frontier: projected.frontier,
     });
   }
@@ -2260,12 +2289,29 @@ async function seamProposalsForGantt({ repoRoot, store }) {
   const projections = [];
   for (const member of store.members) {
     const planKey = member.plan.plan_key;
-    const artifact = await readTodoSeamProposalArtifact({ repoRoot, store, planKey });
+    let artifact = null;
+    try {
+      artifact = await readTodoSeamProposalArtifact({ repoRoot, store, planKey });
+    } catch (error) {
+      if (!(error instanceof TodoStoreError)) throw error;
+      projections.push({
+        project_id: member.plan.project_id,
+        plan_key: planKey,
+        coverage: 'superseded',
+        unreadable_reason: `${error.code}:${error.detail?.reason ?? error.message}`,
+        guidance: selectSeamProposalGuidance({ coverage: 'superseded' }),
+        component_count: null,
+        conflict_resource_count: null,
+        components: [],
+      });
+      continue;
+    }
     if (artifact === null) {
       projections.push({
         project_id: member.plan.project_id,
         plan_key: planKey,
         coverage: 'missing',
+        unreadable_reason: null,
         guidance: selectSeamProposalGuidance({ coverage: 'missing' }),
         component_count: null,
         conflict_resource_count: null,
@@ -2275,7 +2321,14 @@ async function seamProposalsForGantt({ repoRoot, store }) {
     }
 
     if (currentBaseSha === null) currentBaseSha = currentHeadSha(repoRoot);
-    const independenceArtifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+    let independenceArtifact = null;
+    let unreadableReason = null;
+    try {
+      independenceArtifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+    } catch (error) {
+      if (!(error instanceof TodoStoreError)) throw error;
+      unreadableReason = `${error.code}:${error.detail?.reason ?? error.message}`;
+    }
     const binding = artifact.source_binding;
     const independenceMatches = independenceArtifact !== null
       && validateTodoIndependence(independenceArtifact)
@@ -2294,6 +2347,7 @@ async function seamProposalsForGantt({ repoRoot, store }) {
       project_id: member.plan.project_id,
       plan_key: planKey,
       coverage,
+      unreadable_reason: unreadableReason,
       guidance: selectSeamProposalGuidance({ coverage }),
       component_count: components.length,
       conflict_resource_count: components
