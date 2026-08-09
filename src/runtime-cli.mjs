@@ -1676,7 +1676,6 @@ async function runClose({ runDir, repoRoot, stdout, requestId = null }) {
     if (alreadyClosed && existingClose?.payload?.outcome === 'abandoned') {
       throw new CliContractError('RUN_ABANDONED', 'abandoned runは正常closeへ変更できない');
     }
-    await resolveRepoBinding(repoRoot, request);
     if (!alreadyClosed) {
       const closed = closeRunIfComplete({
         runId: meta.run_id,

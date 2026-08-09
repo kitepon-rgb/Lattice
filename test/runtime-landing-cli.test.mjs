@@ -17,6 +17,11 @@ const RUN_ID = 'landing-cli-fixture';
 const RUN_REF = path.join('.lattice', 'runs', RUN_ID);
 const CHECKPOINT_DIGEST = 'c'.repeat(64);
 const DECOY_CHECKPOINT_DIGEST = 'e'.repeat(64);
+const TODO_SOURCES = Object.freeze([
+  { todoId: 'T1', source: 'alpha', checkpointDigest: CHECKPOINT_DIGEST },
+  { todoId: 'T2', source: 'beta', checkpointDigest: '1'.repeat(64) },
+  { todoId: 'T3', source: 'gamma', checkpointDigest: '2'.repeat(64) },
+]);
 
 let temporaryRoot;
 let repoRoot;
@@ -71,20 +76,20 @@ async function snapshotRegularFiles(root, relative = '') {
   return snapshot;
 }
 
-function witness() {
+function witness(source) {
   return {
-    owns: [{ kind: 'symbol', target: 'alpha' }, { kind: 'path', target: 'src/alpha.mjs' }],
+    owns: [{ kind: 'symbol', target: source }, { kind: 'path', target: `src/${source}.mjs` }],
     reads: [],
-    writes: ['src/alpha.mjs'],
+    writes: [`src/${source}.mjs`],
     resources: [],
     state_effects: [],
     sensor_provenance: {
       queries: [
-        { query_id: 'q-alpha', expect: { kind: 'symbol', name: 'alpha', path: 'src/alpha.mjs' } },
-        { query_id: 'q-alpha-aff', expect: { kind: 'affected', path: 'src/alpha.mjs' } },
+        { query_id: `q-${source}`, expect: { kind: 'symbol', name: source, path: `src/${source}.mjs` } },
+        { query_id: `q-${source}-aff`, expect: { kind: 'affected', path: `src/${source}.mjs` } },
       ],
     },
-    affected_tests: ['test/alpha.test.mjs'],
+    affected_tests: [`test/${source}.test.mjs`],
     unknowns: [],
   };
 }
@@ -97,9 +102,11 @@ test.before(async () => {
   await mkdir(path.join(repoRoot, 'src'), { recursive: true });
   await mkdir(path.join(repoRoot, 'test'), { recursive: true });
   await writeFile(path.join(repoRoot, '.gitignore'), '.lattice/runs/\n');
-  await writeFile(path.join(repoRoot, 'src', 'alpha.mjs'), 'export const alpha = 1;\n');
-  await writeFile(path.join(repoRoot, 'test', 'alpha.test.mjs'),
-    "import assert from 'node:assert/strict';\nimport test from 'node:test';\nimport { alpha } from '../src/alpha.mjs';\n\ntest('alpha', () => assert.equal(alpha, 1));\n");
+  for (const { source } of TODO_SOURCES) {
+    await writeFile(path.join(repoRoot, 'src', `${source}.mjs`), `export const ${source} = 1;\n`);
+    await writeFile(path.join(repoRoot, 'test', `${source}.test.mjs`),
+      `import assert from 'node:assert/strict';\nimport test from 'node:test';\nimport { ${source} } from '../src/${source}.mjs';\n\ntest('${source}', () => assert.equal(${source}, 1));\n`);
+  }
   run('git', ['init', '--bare', '--quiet', remoteRoot], temporaryRoot);
   run('git', ['init', '--quiet', '--initial-branch=main'], repoRoot);
   run('git', ['-c', 'user.email=test@example.invalid', '-c', 'user.name=test', 'add', '.'], repoRoot);
@@ -116,13 +123,15 @@ test.before(async () => {
     request_id: RUN_ID,
     repo: { base_sha: baseSha, root_kind: 'git-worktree' },
     capacity: { executors: 1 },
-    todos: [{ todo_id: 'T1' }],
-    manual_witness: { T1: witness() },
+    todos: TODO_SOURCES.map(({ todoId }) => ({ todo_id: todoId })),
+    manual_witness: Object.fromEntries(TODO_SOURCES.map(({ todoId, source }) => [todoId, witness(source)])),
     sensor_query_set: {
       queries: [
         { id: 'q-status', operation: 'status' },
-        { id: 'q-alpha', operation: 'query', target: 'alpha' },
-        { id: 'q-alpha-aff', operation: 'affected', target: 'src/alpha.mjs' },
+        ...TODO_SOURCES.flatMap(({ source }) => [
+          { id: `q-${source}`, operation: 'query', target: source },
+          { id: `q-${source}-aff`, operation: 'affected', target: `src/${source}.mjs` },
+        ]),
       ],
     },
     executor_capability: { adapters: ['scripted'] },
@@ -135,16 +144,17 @@ test.before(async () => {
   assert.equal(started.status, 0, started.stderr);
 
   run('git', ['worktree', 'add', '--quiet', '-b', 'receipt-result', resultWorktree, baseSha], repoRoot);
-  await writeFile(path.join(resultWorktree, 'src', 'alpha.mjs'), 'export const alpha = 2;\n');
+  for (const { source } of TODO_SOURCES) {
+    await writeFile(path.join(resultWorktree, 'src', `${source}.mjs`), `export const ${source} = 2;\n`);
+  }
   run('git', ['-c', 'user.email=test@example.invalid', '-c', 'user.name=test',
-    'add', 'src/alpha.mjs'], resultWorktree);
+    'add', ...TODO_SOURCES.map(({ source }) => `src/${source}.mjs`)], resultWorktree);
   run('git', ['-c', 'user.email=test@example.invalid', '-c', 'user.name=test',
     'commit', '--quiet', '-m', 'result'], resultWorktree);
   receiptHeadSha = run('git', ['rev-parse', 'HEAD'], resultWorktree);
 
   const runDir = path.join(repoRoot, RUN_REF);
   eventsPath = path.join(runDir, 'events.json');
-  const compile = JSON.parse(await readFile(path.join(runDir, 'plan-compile-result.json'), 'utf8'));
   const events = JSON.parse(await readFile(eventsPath, 'utf8'));
   const append = (kind, subject, payload) => events.push(buildNextRunEvent({
     events,
@@ -155,63 +165,72 @@ test.before(async () => {
     payload,
     recordedAt: '2026-08-09T00:00:00.000Z',
   }));
-  append('executor_dispatched', { kind: 'todo', ref: 'T1' }, {
-    executor_handle: 'landing-executor-1',
-    worktree_id: 'landing-worktree-1',
-    packet_digest: 'a'.repeat(64),
-    context_content_digest: 'b'.repeat(64),
-  });
-  append('checkpoint_observed', { kind: 'todo', ref: 'T1' }, {
-    checkpoint_digest: CHECKPOINT_DIGEST,
-    observed_by: 'supervisor_terminal',
-    diff: {
-      schema: 'lattice.checkpoint_diff.v2',
+  const appendAcceptedReceipt = ({ todoId, source, checkpointDigest }, { withDecoys = false } = {}) => {
+    const ordinal = Number(todoId.slice(1));
+    const executorHandle = `landing-executor-${ordinal}`;
+    const worktreeId = `landing-worktree-${ordinal}`;
+    append('executor_dispatched', { kind: 'todo', ref: todoId }, {
+      executor_handle: executorHandle,
+      worktree_id: worktreeId,
+      packet_digest: 'a'.repeat(64),
+      context_content_digest: 'b'.repeat(64),
+    });
+    append('checkpoint_observed', { kind: 'todo', ref: todoId }, {
+      checkpoint_digest: checkpointDigest,
+      observed_by: 'supervisor_terminal',
+      diff: {
+        schema: 'lattice.checkpoint_diff.v2',
+        base_sha: baseSha,
+        head_sha: receiptHeadSha,
+        entries: [{ path: `src/${source}.mjs`, change: 'modified', content_digest: 'd'.repeat(64) }],
+      },
+    });
+    if (withDecoys) {
+      // exact bindの各predicateを落とした欠陥版が、必ず別headを選ぶdecoy群。
+      append('checkpoint_observed', { kind: 'todo', ref: todoId }, {
+        checkpoint_digest: DECOY_CHECKPOINT_DIGEST,
+        observed_by: 'supervisor_terminal',
+        diff: {
+          schema: 'lattice.checkpoint_diff.v2',
+          base_sha: baseSha,
+          head_sha: baseSha,
+          entries: [],
+        },
+      });
+      append('checkpoint_observed', { kind: 'todo', ref: 'T4' }, {
+        checkpoint_digest: checkpointDigest,
+        observed_by: 'supervisor_terminal',
+        diff: {
+          schema: 'lattice.checkpoint_diff.v2',
+          base_sha: baseSha,
+          head_sha: baseSha,
+          entries: [],
+        },
+      });
+    }
+    const receipt = {
+      schema: 'lattice.executor_receipt.v1',
+      receipt_id: `landing-receipt-${ordinal}`,
+      executor_handle: executorHandle,
+      worktree_id: worktreeId,
       base_sha: baseSha,
-      head_sha: receiptHeadSha,
-      entries: [{ path: 'src/alpha.mjs', change: 'modified', content_digest: 'd'.repeat(64) }],
-    },
-  });
-  // exact bindの各predicateを落とした欠陥版が、必ず別headを選ぶdecoy群。
-  append('checkpoint_observed', { kind: 'todo', ref: 'T1' }, {
-    checkpoint_digest: DECOY_CHECKPOINT_DIGEST,
-    observed_by: 'supervisor_terminal',
-    diff: {
-      schema: 'lattice.checkpoint_diff.v2',
-      base_sha: baseSha,
-      head_sha: baseSha,
-      entries: [],
-    },
-  });
-  append('checkpoint_observed', { kind: 'todo', ref: 'T2' }, {
-    checkpoint_digest: CHECKPOINT_DIGEST,
-    observed_by: 'supervisor_terminal',
-    diff: {
-      schema: 'lattice.checkpoint_diff.v2',
-      base_sha: baseSha,
-      head_sha: baseSha,
-      entries: [],
-    },
-  });
-  const receipt = {
-    schema: 'lattice.executor_receipt.v1',
-    receipt_id: 'landing-receipt-1',
-    executor_handle: 'landing-executor-1',
-    worktree_id: 'landing-worktree-1',
-    base_sha: baseSha,
-    plan_epoch: 1,
-    packet_digest: 'a'.repeat(64),
-    todo_id: 'T1',
-    checkpoint_digest: CHECKPOINT_DIGEST,
-    observed_diff: [{ path: 'src/alpha.mjs', change: 'modified' }],
+      plan_epoch: 1,
+      packet_digest: 'a'.repeat(64),
+      todo_id: todoId,
+      checkpoint_digest: checkpointDigest,
+      observed_diff: [{ path: `src/${source}.mjs`, change: 'modified' }],
+    };
+    receipt.receipt_digest = selfDigest(receipt, 'receipt_digest');
+    append('receipt_recorded', { kind: 'todo', ref: todoId }, receipt);
+    append('executor_terminal', { kind: 'todo', ref: todoId }, {
+      executor_handle: executorHandle, terminal_state: 'reported',
+    });
+    append('receipt_accepted', { kind: 'todo', ref: todoId }, {
+      receipt_id: receipt.receipt_id, checkpoint_digest: checkpointDigest,
+    });
   };
-  receipt.receipt_digest = selfDigest(receipt, 'receipt_digest');
-  append('receipt_recorded', { kind: 'todo', ref: 'T1' }, receipt);
-  append('executor_terminal', { kind: 'todo', ref: 'T1' }, {
-    executor_handle: 'landing-executor-1', terminal_state: 'reported',
-  });
-  append('receipt_accepted', { kind: 'todo', ref: 'T1' }, {
-    receipt_id: receipt.receipt_id, checkpoint_digest: CHECKPOINT_DIGEST,
-  });
+
+  appendAcceptedReceipt(TODO_SOURCES[0], { withDecoys: true });
   append('checkpoint_observed', { kind: 'todo', ref: 'T1' }, {
     checkpoint_digest: CHECKPOINT_DIGEST,
     observed_by: 'supervisor_terminal',
@@ -222,7 +241,7 @@ test.before(async () => {
       entries: [],
     },
   });
-  append('run_closed', { kind: 'runtime_plan', ref: compile.plan.plan_ref }, { accepted: ['T1'] });
+  for (const todo of TODO_SOURCES.slice(1)) appendAcceptedReceipt(todo);
   await writeFile(eventsPath, `${JSON.stringify(events, null, 1)}\n`);
 });
 
@@ -230,32 +249,57 @@ test.after(async () => {
   if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
 });
 
-test('run landingとrun closeは未着地をexit 0のread-only投影で返す', async () => {
+test('moved HEADでも完了runをcloseし、未完了拒否・未着地投影・再close冪等性を維持する', async () => {
   const runDir = path.dirname(eventsPath);
-  const before = await snapshotRegularFiles(runDir);
-  const landing = runCli(['run', 'landing', '--run', RUN_REF]);
-  assert.equal(landing.status, 0, landing.stderr);
-  const report = JSON.parse(landing.stdout);
+  await writeFile(path.join(repoRoot, 'unrelated.txt'), 'canonical main moved independently\n');
+  run('git', ['-c', 'user.email=test@example.invalid', '-c', 'user.name=test',
+    'add', 'unrelated.txt'], repoRoot);
+  run('git', ['-c', 'user.email=test@example.invalid', '-c', 'user.name=test',
+    'commit', '--quiet', '-m', 'unrelated'], repoRoot);
+  run('git', ['push', '--quiet', 'origin', 'main'], repoRoot);
+  assert.notEqual(run('git', ['rev-parse', 'HEAD'], repoRoot), baseSha);
+  assert.equal(run('git', ['rev-list', '--count', '@{push}..HEAD'], repoRoot), '0');
+
+  const acceptedEvents = await readFile(eventsPath, 'utf8');
+  const incompleteEvents = JSON.parse(acceptedEvents);
+  assert.equal(incompleteEvents.at(-1).kind, 'receipt_accepted');
+  incompleteEvents.pop();
+  await writeFile(eventsPath, `${JSON.stringify(incompleteEvents, null, 1)}\n`);
+  const incomplete = runCli(['run', 'close', '--run', RUN_REF]);
+  assert.equal(incomplete.status, 1);
+  assert.equal(JSON.parse(incomplete.stderr).code, 'RUN_NOT_COMPLETE');
+  await writeFile(eventsPath, acceptedEvents);
+
+  const closed = runCli(['run', 'close', '--run', RUN_REF]);
+  assert.equal(closed.status, 0, closed.stderr);
+  const closeOutput = JSON.parse(closed.stdout);
+  assert.equal(closeOutput.already_closed, false);
+  const report = closeOutput.landing;
   assert.equal(report.schema, 'lattice.run_landing_report.v1');
   assert.equal(report.landed, false);
   assert.equal(report.repository.default_branch_state, 'resolved');
   assert.equal(report.repository.default_branch_ref, 'refs/remotes/origin/main');
   assert.equal(report.repository.push_state, 'tracked');
   assert.equal(report.repository.unpushed_commits, 0);
-  assert.deepEqual(report.accepted_receipts, [{
-    todo_id: 'T1',
-    receipt_id: 'landing-receipt-1',
+  assert.deepEqual(report.accepted_receipts, TODO_SOURCES.map(({ todoId }, index) => ({
+    todo_id: todoId,
+    receipt_id: `landing-receipt-${index + 1}`,
     head_sha: receiptHeadSha,
     landing_state: 'not_landed',
     landed: false,
-  }]);
+  })));
 
-  const closed = runCli(['run', 'close', '--run', RUN_REF]);
-  assert.equal(closed.status, 0, closed.stderr);
-  const closeOutput = JSON.parse(closed.stdout);
-  assert.equal(closeOutput.already_closed, true);
-  assert.deepEqual(closeOutput.landing, report);
-  assert.deepEqual(await snapshotRegularFiles(runDir), before);
+  const landing = runCli(['run', 'landing', '--run', RUN_REF]);
+  assert.equal(landing.status, 0, landing.stderr);
+  assert.deepEqual(JSON.parse(landing.stdout), report);
+
+  const beforeReclose = await snapshotRegularFiles(runDir);
+  const reclosed = runCli(['run', 'close', '--run', RUN_REF]);
+  assert.equal(reclosed.status, 0, reclosed.stderr);
+  const recloseOutput = JSON.parse(reclosed.stdout);
+  assert.equal(recloseOutput.already_closed, true);
+  assert.deepEqual(recloseOutput.landing, report);
+  assert.deepEqual(await snapshotRegularFiles(runDir), beforeReclose);
 });
 
 test('exact bindの3 predicateを1つでも落とすとdecoy HEADを選ぶ', async () => {
@@ -294,28 +338,35 @@ test('exact checkpoint HEADを解決できないreceiptはhead_unavailableをexi
     const result = runCli(['run', 'landing', '--run', RUN_REF]);
     assert.equal(result.status, 0, result.stderr);
     const report = JSON.parse(result.stdout);
-    assert.deepEqual(report.accepted_receipts, [{
+    assert.equal(report.accepted_receipts.length, 3);
+    assert.deepEqual(report.accepted_receipts[0], {
       todo_id: 'T1',
       receipt_id: 'landing-receipt-1',
       head_sha: null,
       landing_state: 'head_unavailable',
       landed: false,
-    }]);
+    });
+    for (const receipt of report.accepted_receipts.slice(1)) {
+      assert.equal(receipt.head_sha, receiptHeadSha);
+      assert.equal(receipt.landing_state, 'not_landed');
+      assert.equal(receipt.landed, false);
+    }
     assert.equal(report.landed, false);
   } finally {
     await writeFile(eventsPath, original);
   }
 });
 
-test('既定branchへ未pushのreceipt HEADは未着地かつ未push本数1になる', async () => {
-  run('git', ['merge', '--quiet', '--ff-only', 'receipt-result'], repoRoot);
+test('既定branchへ未pushのreceipt HEADは未着地かつ未push本数を返す', async () => {
+  run('git', ['-c', 'user.email=test@example.invalid', '-c', 'user.name=test',
+    'merge', '--quiet', '--no-edit', 'receipt-result'], repoRoot);
   const before = await readFile(eventsPath, 'utf8');
   const result = runCli(['run', 'landing', '--run', RUN_REF]);
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout);
   assert.equal(report.landed, false);
   assert.equal(report.accepted_receipts[0].landing_state, 'not_landed');
-  assert.equal(report.repository.unpushed_commits, 1);
+  assert.equal(report.repository.unpushed_commits, 2);
   assert.equal(await readFile(eventsPath, 'utf8'), before);
 });
 
