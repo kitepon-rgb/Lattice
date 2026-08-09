@@ -231,9 +231,11 @@ def('t21', {
 def('t7', {
   owns: [
     p('package.json'), p('src/runtime-cli.mjs'), p('src/runtime-adapter-registry.mjs'),
-    p('src/runtime-controller-protocol.mjs'), p('src/runtime-work-order-controller.mjs'),
+    p('src/runtime-controller-protocol.mjs'), p('src/runtime-managed-supervisor.mjs'),
+    p('src/runtime-work-order-controller.mjs'),
     p('test/runtime-adapter-registry-cli.test.mjs'),
     p('test/runtime-controller-protocol.test.mjs'),
+    p('test/runtime-managed-supervisor.test.mjs'),
     p('test/runtime-work-order-controller.test.mjs'),
     pc('docs/schemas/lattice.runtime_adapter_capabilities.v2.schema.json'),
     pc('docs/schemas/lattice.runtime_adapter_registration_input.v2.schema.json'),
@@ -242,9 +244,11 @@ def('t7', {
   reads: ['docs/adr/0126-distribute-scripted-adapter-controller.md'],
   writes: [
     'package.json', 'src/runtime-cli.mjs', 'src/runtime-adapter-registry.mjs',
-    'src/runtime-controller-protocol.mjs', 'src/runtime-work-order-controller.mjs',
+    'src/runtime-controller-protocol.mjs', 'src/runtime-managed-supervisor.mjs',
+    'src/runtime-work-order-controller.mjs',
     'test/runtime-adapter-registry-cli.test.mjs',
     'test/runtime-controller-protocol.test.mjs',
+    'test/runtime-managed-supervisor.test.mjs',
     'test/runtime-work-order-controller.test.mjs',
     'docs/schemas/lattice.runtime_adapter_capabilities.v2.schema.json',
     'docs/schemas/lattice.runtime_adapter_registration_input.v2.schema.json',
@@ -253,6 +257,7 @@ def('t7', {
   affected_tests: [
     'test/runtime-adapter-registry-cli.test.mjs',
     'test/runtime-controller-protocol.test.mjs',
+    'test/runtime-managed-supervisor.test.mjs',
     'test/runtime-work-order-controller.test.mjs',
   ],
   state_effects: [
