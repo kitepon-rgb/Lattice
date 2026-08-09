@@ -151,6 +151,7 @@ function docWriter(docPath, body) {
 /** 全running executorを1回ずつ観測し、checkpointがあれば分類する共通driver。 */
 async function observeAndClassifyAll({ runId, plan, events, packets, manifests, adapter }) {
   let next = events;
+  const scopeExpanded = [];
   const state = projectRuntimeState({ events: next });
   for (const todoId of state.running) {
     const observed = await observeExecutor({
@@ -163,15 +164,19 @@ async function observeAndClassifyAll({ runId, plan, events, packets, manifests, 
         detect: detectCheckpointFindings, recordedAt: RUN_TIMESTAMP,
       });
       next = classified.events;
-      if (classified.findings.length > 0) return { events: next, frozen: true };
+      scopeExpanded.push(...classified.scope_expanded);
+      if (classified.findings.length > 0) {
+        return { events: next, frozen: true, scope_expanded: scopeExpanded };
+      }
     }
   }
-  return { events: next, frozen: false };
+  return { events: next, frozen: false, scope_expanded: scopeExpanded };
 }
 
 /** 競合なし前提でclosed loopまで回す（clean／irreducible串行の完走用）。 */
 async function driveToClose({ runId, plan, events, packets, manifests, adapter, maxRounds = 16 }) {
   let next = events;
+  const scopeExpanded = [];
   for (let round = 0; round < maxRounds; round += 1) {
     const dispatched = await dispatchReadyFrontier({
       runId, plan, events: next, packets, manifests, adapter, recordedAt: RUN_TIMESTAMP,
@@ -183,11 +188,12 @@ async function driveToClose({ runId, plan, events, packets, manifests, adapter, 
     });
     if (observed.frozen) fail('競合なし条件でfreezeが発生した');
     next = observed.events;
+    scopeExpanded.push(...observed.scope_expanded);
     const adjudicated = adjudicatePendingReceipts({ runId, plan, events: next, recordedAt: RUN_TIMESTAMP });
     next = adjudicated.events;
     const closed = closeRunIfComplete({ runId, plan, events: next, recordedAt: RUN_TIMESTAMP });
     next = closed.events;
-    if (closed.closed) return next;
+    if (closed.closed) return { events: next, scope_expanded: scopeExpanded };
   }
   fail('closed loopがmaxRounds内に完走しない');
   return null;
@@ -294,12 +300,14 @@ async function runCleanParallel({ scaffold }) {
     },
   });
   let events = initializeRunEvents({ runId, request, plan, manifests, recordedAt: RUN_TIMESTAMP });
-  events = await driveToClose({ runId, plan, events, packets, manifests, adapter });
+  const driven = await driveToClose({ runId, plan, events, packets, manifests, adapter });
+  events = driven.events;
   const state = projectRuntimeState({ events });
   return {
     request,
     plan,
     events,
+    scope_expanded: driven.scope_expanded,
     record: conditionRecord({
       condition: 'clean_parallel',
       expected: { hold: [], continue: ['TA', 'TB', 'TC'], accepted: ['TA', 'TB', 'TC'], closed: true },
@@ -471,19 +479,32 @@ async function runScopeViolation({ scaffold }) {
     detect: detectCheckpointFindings, recordedAt: RUN_TIMESTAMP,
   });
   events = classified.events;
-  events = await driveToClose({ runId, plan, events, packets, manifests, adapter });
+  const driven = await driveToClose({ runId, plan, events, packets, manifests, adapter });
+  events = driven.events;
+  const scopeExpanded = [...classified.scope_expanded, ...driven.scope_expanded];
   const state = projectRuntimeState({ events });
   return {
     request,
     plan,
     manifests,
     events,
+    scope_expanded: scopeExpanded,
     record: conditionRecord({
       condition: 'scope_violation',
       // directory名はRC3 artifact互換のため維持する。現契約では単独の予測超過は
       // conflictではなく、観測を残したまま有効なreceiptを受理する。
       expected: {
         observation_kinds: ['prediction_excess'],
+        scope_expanded: [{
+          task_id: 'TA',
+          compared_witness_digest: null,
+          first_seen_path_count: 1,
+          path_count: 2,
+          added_paths: ['docs/rogue.md'],
+          removed_paths: [],
+          growth_events: 1,
+          gate_shape: false,
+        }],
         conflict_finding_kinds: [],
         frozen: false,
         accepted: ['TA', 'TB'],
@@ -491,6 +512,7 @@ async function runScopeViolation({ scaffold }) {
       },
       actual: {
         observation_kinds: [...new Set(classified.observations.map(({ kind }) => kind))],
+        scope_expanded: scopeExpanded,
         conflict_finding_kinds: [...new Set(classified.findings.map(({ kind }) => kind))],
         frozen: state.freeze !== null,
         accepted: state.accepted,
@@ -1356,5 +1378,6 @@ export async function runRc3ScriptedCampaign(options = {}) {
     campaignManifest,
     verification,
     conditions: results.map(({ record }) => record.condition),
+    scope_expanded: results.flatMap((result) => result.scope_expanded ?? []),
   };
 }

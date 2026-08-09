@@ -200,6 +200,16 @@ test('予測外writeはcheckpointへ残るが単独ではintakeをfreezeしな�
   assert.deepEqual(classified.findings, []);
   assert.equal(classified.observations[0].kind, 'prediction_excess');
   assert.equal(classified.observations[0].path, 'src/rogue.mjs');
+  assert.deepEqual(classified.scope_expanded, [{
+    task_id: 'V1',
+    compared_witness_digest: null,
+    first_seen_path_count: 1,
+    path_count: 2,
+    added_paths: ['src/rogue.mjs'],
+    removed_paths: [],
+    growth_events: 1,
+    gate_shape: false,
+  }]);
 
   // 再分類はidempotent（同一findingを重複記録しない）。
   const reclassified = classifyCheckpointObservation({
@@ -207,6 +217,7 @@ test('予測外writeはcheckpointへ残るが単独ではintakeをfreezeしな�
     detect: detectCheckpointFindings, recordedAt: AT,
   });
   assert.deepEqual(reclassified.findings, []);
+  assert.deepEqual(reclassified.scope_expanded, classified.scope_expanded);
   assert.equal(reclassified.events.length, events.length);
   const state = projectRuntimeState({ events });
   assert.equal(state.freeze, null, '単独の予測超過でintakeをfreezeしてはならない');

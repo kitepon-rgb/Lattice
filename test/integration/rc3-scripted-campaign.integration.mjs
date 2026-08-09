@@ -42,6 +42,16 @@ test('8条件が全て期待集合とexact一致で完走する', () => {
     'event_corruption',
   ]);
   assert.equal(campaign.verification.valid, true, JSON.stringify(campaign.verification.failed_conditions));
+  assert.deepEqual(campaign.scope_expanded, [{
+    task_id: 'TA',
+    compared_witness_digest: null,
+    first_seen_path_count: 1,
+    path_count: 2,
+    added_paths: ['docs/rogue.md'],
+    removed_paths: [],
+    growth_events: 1,
+    gate_shape: false,
+  }]);
 });
 
 test('artifact rootは保存bytesだけから再検証できる', async () => {

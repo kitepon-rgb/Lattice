@@ -508,6 +508,31 @@ export function classifyCheckpointObservation(options = {}) {
   const observations = detectedFindings
     .filter((finding) => finding.kind === 'undeclared_write' && finding.todo_ids?.length === 1)
     .map((finding) => ({ ...finding, kind: 'prediction_excess' }));
+  const scopeExpanded = observations.length === 0 ? [] : (() => {
+    const manifest = manifests[todoId];
+    const predictedPaths = sortedText(new Set(manifest?.writes ?? []));
+    const addedPaths = sortedText(new Set(observations.map((observation) => {
+      const location = observation.path ?? observation.resource_id;
+      if (typeof location !== 'string' || location.length === 0) {
+        fail('prediction_excessにpathまたはresource_idがない');
+      }
+      return location;
+    })));
+    const currentPaths = new Set([...predictedPaths, ...addedPaths]);
+    const incoming = (plan.precedence ?? [])
+      .filter((edge) => edge.to_todo_id === todoId)
+      .length;
+    return [{
+      task_id: todoId,
+      compared_witness_digest: null,
+      first_seen_path_count: predictedPaths.length,
+      path_count: currentPaths.size,
+      added_paths: addedPaths,
+      removed_paths: [],
+      growth_events: 1,
+      gate_shape: incoming >= 2,
+    }];
+  })();
   const findings = detectedFindings.filter((finding) => !(
     finding.kind === 'undeclared_write' && finding.todo_ids?.length === 1
   ));
@@ -544,7 +569,12 @@ export function classifyCheckpointObservation(options = {}) {
       recordedAt,
     }));
   }
-  return { events: next, findings: freshFindings, observations };
+  return {
+    events: next,
+    findings: freshFindings,
+    observations,
+    scope_expanded: scopeExpanded,
+  };
 }
 
 const RECEIPT_BINDING_FIELDS = Object.freeze([

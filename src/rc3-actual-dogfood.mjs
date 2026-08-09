@@ -268,7 +268,11 @@ export async function observeActualCheckpoint({ stateDir, todoId, planKey = 'pla
   });
   state.events = classified.events;
   await saveState(stateDir, state);
-  return { findings: classified.findings, checkpoint_digest: checkpoint.checkpoint_digest };
+  return {
+    findings: classified.findings,
+    scope_expanded: classified.scope_expanded,
+    checkpoint_digest: checkpoint.checkpoint_digest,
+  };
 }
 
 /** hold裁定→recompile→（carried TODOの）rebind packet発行までを一括で行う。 */

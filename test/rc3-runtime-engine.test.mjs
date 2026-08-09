@@ -268,6 +268,16 @@ test('単独の予測超過はcheckpointに残すがconflictやfreezeにしな�
   });
   assert.deepEqual(result.findings, []);
   assert.equal(result.observations[0].kind, 'prediction_excess');
+  assert.deepEqual(result.scope_expanded, [{
+    task_id: 'TA',
+    compared_witness_digest: null,
+    first_seen_path_count: 1,
+    path_count: 2,
+    added_paths: ['src/unpredicted.mjs'],
+    removed_paths: [],
+    growth_events: 1,
+    gate_shape: false,
+  }]);
   assert.equal(result.events.some(({ kind }) => kind === 'conflict_found'), false);
   assert.equal(result.events.some(({ kind }) => kind === 'intake_frozen'), false);
 });

@@ -132,6 +132,7 @@ test('RC4 Stage 1 dogfood driverはconflict pairの自然serializationを閉ル�
 
   const observedT1 = await observeStage1Checkpoint({ stateDir, todoId: 'T1' });
   assert.deepEqual(observedT1.findings, [], 'scope内writeなのでfindingは無いはず');
+  assert.deepEqual(observedT1.scope_expanded, [], '予測内writeはscope expansion通知を出さない');
 
   const terminalT1 = await terminalStage1Receipt({ stateDir, todoId: 'T1', planKey: 'plan' });
   assert.equal(terminalT1.decisions[0].decision, 'accepted');
@@ -149,6 +150,7 @@ test('RC4 Stage 1 dogfood driverはconflict pairの自然serializationを閉ル�
 
   const observedT2 = await observeStage1Checkpoint({ stateDir, todoId: 'T2' });
   assert.deepEqual(observedT2.findings, []);
+  assert.deepEqual(observedT2.scope_expanded, []);
 
   const terminalT2 = await terminalStage1Receipt({ stateDir, todoId: 'T2', planKey: 'plan' });
   assert.equal(terminalT2.decisions[0].decision, 'accepted');
