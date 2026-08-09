@@ -44,13 +44,18 @@ const CREATES_SCHEMAS = Object.freeze([
 
 /** 1 taskが宣言できるconcern anchorの資源数と、資源あたりのsymbol数の上限。 */
 export const TODO_CONCERN_ANCHOR_LIMIT = 256;
-export const TODO_INDEPENDENCE_SCHEMA = 'lattice.todo_independence.v4';
+export const TODO_INDEPENDENCE_SCHEMA = 'lattice.todo_independence.v5';
 export const TODO_INDEPENDENCE_PROJECTION_SCHEMA = 'lattice.todo_independence_projection.v2';
 export const TODO_INDEPENDENCE_LEGACY_MARKER_SCHEMA = 'lattice.todo_independence_legacy_marker.v1';
 export const TODO_INDEPENDENCE_LEGACY_SCHEMAS = Object.freeze([
   'lattice.todo_independence.v1',
   'lattice.todo_independence.v2',
   'lattice.todo_independence.v3',
+  // v4は`scope_expanded`を持つが`first_seen_path_count`/`growth_events`が整数固定だった。
+  // v5でnull（＝subset gapで累計が分からない）を足したので、**同じ版名で形を変えず**版を上げる。
+  // 同名変更は「新readerが旧artifactを読める」後方互換しか満たさず、**旧readerが新artifactを
+  // 読めない前方互換破壊**になる（2026-08-09のP0と同型・suzune [1183] / kanade [1200]）。
+  'lattice.todo_independence.v4',
 ]);
 
 /** boundary compileが一度に扱えるToDo数（runtime front-endのMAX_COLLECTIONと同じ閉じ方）。 */

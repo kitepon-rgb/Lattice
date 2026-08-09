@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { compileTodoIndependence } from '../src/todo-independence.mjs';
-import { TODO_WITNESS_SET_SCHEMA } from '../src/todo-independence-contracts.mjs';
+import {
+  TODO_INDEPENDENCE_LEGACY_SCHEMAS,
+  TODO_INDEPENDENCE_SCHEMA,
+  TODO_WITNESS_SET_SCHEMA,
+} from '../src/todo-independence-contracts.mjs';
 import { evidenceFromCollectedOutcomes } from '../src/runtime-front-end.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 
@@ -108,7 +112,7 @@ test('初回compileは比較相手なしとして記録する（膨張ゼロと�
   });
   const artifact = compile(set);
 
-  assert.equal(artifact.schema, 'lattice.todo_independence.v4');
+  assert.equal(artifact.schema, 'lattice.todo_independence.v5');
   assert.deepEqual(artifact.scope_expanded.map((entry) => entry.task_id), ['tip-001', 'tip-002']);
   const first = entryOf(artifact, 'tip-001');
   // **compared_witness_digest が null なのが「まだ比べていない」の印である。**
@@ -253,4 +257,38 @@ test('subset入替で履歴が消える時は「初回」へ偽装せず null �
   assert.equal(brandNew.compared_witness_digest, null);
   assert.equal(brandNew.first_seen_path_count, 1);
   assert.equal(brandNew.growth_events, 0);
+});
+
+test('subset gap で分からなくなった累計は、次の compile でも既知へ戻さない', () => {
+  // A → B → A（ここで gap・null）→ A に1本足す、の4回目で `(null ?? 0)+1` が 1 を作ると、
+  // **欠落前の累計が不明であることを既知へ偽装する**（suzune [1173]）。
+  const onlyA = witnessSet({ 'tip-001': witness('src/alpha.mjs') });
+  const first = compile(onlyA);
+  const onlyB = witnessSet({ 'tip-002': witness('src/beta.mjs') });
+  const second = compile(onlyB, { previousArtifact: first });
+  const backToA = witnessSet({ 'tip-001': witness(['src/alpha.mjs', 'src/alpha-2.mjs']) });
+  const third = compile(backToA, { previousArtifact: second });
+  assert.equal(entryOf(third, 'tip-001').growth_events, null);
+  assert.equal(entryOf(third, 'tip-001').first_seen_path_count, null);
+
+  // 4回目: さらに1本足す
+  const grown = witnessSet({
+    'tip-001': witness(['src/alpha.mjs', 'src/alpha-2.mjs', 'src/alpha-3.mjs']),
+  });
+  const fourth = compile(grown, { previousArtifact: third });
+  const entry = entryOf(fourth, 'tip-001');
+  assert.equal(entry.growth_events, null, 'unknown を 1 へ戻さない');
+  assert.equal(entry.first_seen_path_count, null, '初回宣言数も分からないまま');
+  // **直近の差分は言える**——言えるものと言えないものを分けて出す
+  assert.deepEqual(entry.added_paths, ['src/alpha-3.mjs']);
+  assert.equal(entry.path_count, 3);
+  assert.equal(entry.compared_witness_digest, third.witness_set_digest);
+});
+
+test('schema は v5 で、v4 は legacy 読み口へ落ちる（同名で形を変えない）', () => {
+  const set = witnessSet({ 'tip-001': witness('src/alpha.mjs') });
+  assert.equal(compile(set).schema, 'lattice.todo_independence.v5');
+  assert.equal(TODO_INDEPENDENCE_SCHEMA, 'lattice.todo_independence.v5');
+  assert.ok(TODO_INDEPENDENCE_LEGACY_SCHEMAS.includes('lattice.todo_independence.v4'),
+    'v4 を legacy 集合へ入れないと、旧artifactが「壊れた記録」として typed fail する');
 });

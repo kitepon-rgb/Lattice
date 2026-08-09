@@ -176,7 +176,7 @@ function unknownsFrom(detail) {
 }
 
 /**
- * witness setとsensor evidenceから`lattice.todo_independence.v3`を作る。
+ * witness setとsensor evidenceから`lattice.todo_independence.v5`を作る。
  *
  * compileは宣言済みtaskの部分集合へ閉じる（ADR 0127 Decision 4）。未宣言taskを混ぜると、
  * unknownが1件でも出た時点で宣言済みtask同士の判定まで失われるためである。
@@ -239,11 +239,18 @@ function scopeExpansionFrom({ taskIds, boundaries, previousArtifact, plan }) {
     return {
       task_id: taskId,
       compared_witness_digest: comparable ? previousArtifact.witness_set_digest : null,
-      first_seen_path_count: prior === null ? current.length : prior.first_seen_path_count,
+      // **unknown は後続へ伝播する。** 一度 subset gap で累計が分からなくなった task は、
+      // 次の compile で `(null ?? 0) + 1` のように既知へ戻してはいけない——
+      // **欠落前の累計が分からないことは、その後も分からないまま**である（suzune [1173]）。
+      first_seen_path_count: prior === null
+        ? current.length
+        : prior.first_seen_path_count,
       path_count: current.length,
       added_paths: [...added].sort(compareText),
       removed_paths: [...removed].sort(compareText),
-      growth_events: (prior?.growth_events ?? 0) + (added.length > 0 ? 1 : 0),
+      growth_events: prior !== null && prior.growth_events === null
+        ? null
+        : (prior?.growth_events ?? 0) + (added.length > 0 ? 1 : 0),
       gate_shape: (incoming.get(taskId) ?? 0) >= 2,
     };
   });
