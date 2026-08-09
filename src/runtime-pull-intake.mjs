@@ -423,9 +423,8 @@ function planningConstraint(artifact, taskId, state, member) {
       const predecessorDone = member.tasks.find((task) => (
         task.task_id === entry.from_task_id
       ))?.status === 'done';
-      const predecessorAccepted = predecessorIntake?.accepted !== null
-        && predecessorIntake?.accepted !== undefined;
-      return !predecessorDone && !predecessorAccepted;
+      if (predecessorIntake !== undefined) return predecessorIntake.accepted === null;
+      return !predecessorDone;
     })()
   ));
   if (precedence) return { kind: 'precedence', detail: structuredClone(precedence) };

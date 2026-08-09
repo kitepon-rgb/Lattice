@@ -294,6 +294,23 @@ test('run外でliteral done済みのpredecessorは後続だけのopen membership
       successor.intervention.lease_state], ['none', null, 'granted']);
   });
 
+test('同runのpredecessor intakeはTodo done後もacceptまで後続leaseを解放しない',
+  async (context) => {
+    const { root } = await workspace(context, { precedence: true });
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    parsed(startPull(root));
+    parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    await doneTask(root, 'A', '2026-08-09T00:02:00.000Z');
+    await startTask(root, 'B', '2026-08-09T00:03:00.000Z');
+    const successor = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'B',
+    ]));
+    assert.deepEqual([successor.intervention.state, successor.intervention.reason,
+      successor.intervention.lease_state], ['hold', 'planning_precedence', 'withheld']);
+  });
+
 test('acceptはsame-version literal doneと独立worktree観測へ束縛しlanding/closeを冪等投影する',
   async (context) => {
     const { root } = await workspace(context);
