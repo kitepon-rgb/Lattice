@@ -204,9 +204,9 @@ def('t8', {
 })
 def('t9', {
   owns: [pc(EV('t9'))], writes: [EV('t9')],
-  resources: ['pt-member-md', 'pt-plan-md'],
-  state_effects: [se('pt-member-md', 'state'), se('pt-plan-md', 'state')],
-  unknowns: [unk('external_repo', 'peertable:docs/plan.md（決定25改訂）と憲章/member.md')],
+  resources: ['pt-member-md', 'pt-plan-md', 'pt-skill-md'],
+  state_effects: [se('pt-member-md', 'state'), se('pt-plan-md', 'state'), se('pt-skill-md', 'state')],
+  unknowns: [unk('external_repo', 'peertable:docs/plan.md（決定25改訂）・憲章/member.md・skill/SKILL.md')],
 })
 def('t15', {
   owns: [pc(EV('t15'))], writes: [EV('t15')],
