@@ -90,8 +90,7 @@ export function presentationLookup(presentation) {
 }
 
 export function taskReference(section, lookup) {
-  const number = lookup.taskNumbers.get(refKey(section.ref));
-  return number === undefined ? `ID ${section.task.task_id}` : `工程 ${number.display_number}`;
+  return `工程 ${section.task.task_id}`;
 }
 
 export function renderRelationList(relations, sectionByKey, lookup, emptyText, folds = new Set()) {

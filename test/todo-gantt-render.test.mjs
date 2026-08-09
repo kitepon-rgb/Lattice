@@ -410,7 +410,7 @@ test('small real store E2E renders the dynamic self-contained gantt with exact b
   assert.match(html, /構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・資源律速を表さない/u);
   assert.match(html, /data-right-panel="task-index" hidden/u);
   assert.match(html, /class="task-index-status status-pending" role="img" aria-label="未着手">☐<\/span>/u);
-  assert.match(html, /class="task-index-reference">工程 1<\/span>/u);
+  assert.match(html, /class="task-index-reference">工程 T1<\/span>/u);
   assert.doesNotMatch(html, /<h1>Background<\/h1>|class="markdown-checkbox"/u);
   assert.match(html, /"presentation_digest":"[0-9a-f]{64}"/u);
   assert.match(html, /"schema":"lattice\.todo_gantt_presentation_model\.v1"/u);
@@ -682,14 +682,14 @@ test('right pane exposes overview/detail/current task index states while retaini
   assert.match(output.html, /root\.addEventListener\('dblclick',event=>\{const paneDivider=[^}]+shell\.style\.setProperty\('--split','58%'\)/u);
   assert.match(output.html, /data-right-panel="task-index" hidden><h1>全工程<\/h1>/u);
   assert.match(output.html, /<section class="task-index-plan"><h2><code>main<\/code><\/h2><ol class="task-index-list">/u);
-  assert.match(output.html, /class="task-index-reference">工程 0000<\/span><strong>Task 0<\/strong>/u);
-  assert.match(output.html, /class="task-index-reference">工程 0001<\/span><strong>Task 1<\/strong>/u);
+  assert.match(output.html, /class="task-index-reference">工程 T0000<\/span><strong>Task 0<\/strong>/u);
+  assert.match(output.html, /class="task-index-reference">工程 T0001<\/span><strong>Task 1<\/strong>/u);
   assert.ok(output.html.indexOf('<strong>Task 0</strong>') < output.html.indexOf('<strong>Task 1</strong>'));
   assert.doesNotMatch(output.html, /Keep the document flow|<h2>Acceptance<\/h2>|class="markdown-checkbox"/u);
   assert.match(output.html, /\.next-ready-node \.node-surface\{stroke:var\(--accent\);stroke-width:2;stroke-dasharray:4 3\}/u);
   assert.match(output.html, /data-task-id="T0000" data-task-number="0000" data-task-number-normalized="0"/u);
-  assert.match(output.html, /aria-label="工程0000。未着手。lane-0、調査。Task 0。正規ID main\/T0000。ready frontierの同時dispatch候補"/u);
-  assert.match(output.html, /class="node-meta"[^>]*>未着手 · 工程 0000<\/text>/u);
+  assert.match(output.html, /aria-label="工程T0000。未着手。lane-0、調査。Task 0。正規ID main\/T0000。ready frontierの同時dispatch候補"/u);
+  assert.match(output.html, /class="node-meta"[^>]*>未着手 · 工程 T0000<\/text>/u);
   assert.match(output.html, /<tspan[^>]*class="node-title-line">Task 0<\/tspan>/u);
   assert.match(output.html, /\.dependency-edge \.edge-arrow\{fill:var\(--text-secondary\);opacity:\.7\}/u);
   assert.match(output.html, /data-from-node-key="\[&quot;project-1&quot;,&quot;main&quot;,&quot;T0000&quot;\]"/u);
@@ -782,9 +782,9 @@ test('全工程一覧はanchor成否に依存せずstoreの現在状態と全文
   const html = renderFixture(read, narratives, outcomes).html;
 
   assert.equal((html.match(/class="task-index-status status-/gu) ?? []).length, 3);
-  assert.match(html, /class="task-index-status status-pending"[^>]*>☐<\/span><span class="task-index-reference">工程 0000<\/span><strong>Task 0<\/strong>/u);
-  assert.match(html, /class="task-index-status status-blocked"[^>]*>⛔<\/span><span class="task-index-reference">工程 0001<\/span><strong>Task 1<\/strong><span class="task-index-blocked-reason">— 理由未記録<\/span>/u);
-  assert.match(html, /class="task-index-reference">工程 0002<\/span><strong>Task 2<\/strong>/u);
+  assert.match(html, /class="task-index-status status-pending"[^>]*>☐<\/span><span class="task-index-reference">工程 T0000<\/span><strong>Task 0<\/strong>/u);
+  assert.match(html, /class="task-index-status status-blocked"[^>]*>⛔<\/span><span class="task-index-reference">工程 T0001<\/span><strong>Task 1<\/strong><span class="task-index-blocked-reason">— 理由未記録<\/span>/u);
+  assert.match(html, /class="task-index-reference">工程 T0002<\/span><strong>Task 2<\/strong>/u);
   assert.ok(html.indexOf('<strong>Task 0</strong>') < html.indexOf('<strong>Task 1</strong>'));
   assert.ok(html.indexOf('<strong>Task 1</strong>') < html.indexOf('<strong>Task 2</strong>'));
   assert.doesNotMatch(html, /pending task|blocked task|drifted task|class="anchor-diagnostics"|class="narrative-body"/u);

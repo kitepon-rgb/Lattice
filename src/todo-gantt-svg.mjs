@@ -166,10 +166,8 @@ function renderNode(node, maps) {
   const lane = maps.lanes.get(nodeLaneKey);
   const laneLabel = lane === undefined ? node.lane : `${node.lane}、${lane.name}`;
   const taskNumber = maps.taskNumbers.get(key);
-  const visibleReference = taskNumber === undefined
-    ? `ID ${node.ref.task_id}` : `工程 ${taskNumber.display_number}`;
-  const spokenReference = taskNumber === undefined
-    ? `ID ${node.ref.task_id}` : `工程${taskNumber.display_number}`;
+  const visibleReference = `工程 ${node.ref.task_id}`;
+  const spokenReference = `工程${node.ref.task_id}`;
   const readyLabel = node.visibility.next_ready ? '。ready frontierの同時dispatch候補' : '';
   const independenceLabel = independence === null ? '' : `。並列可否は${independence.label}`;
   const identity = `正規ID ${node.ref.plan_key}/${node.ref.task_id}`;
