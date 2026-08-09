@@ -236,6 +236,27 @@ test('dirty storeは所有者を推測せずtyped拒否し、既存bytesを変�
   assert.equal(await readFile(manifest, 'utf8'), dirtyBytes);
 });
 
+test('store actionの契約違反はrollback後もTypeErrorとして保持する', async (t) => {
+  const root = await workspace(t);
+  const manifest = path.join(root, '.lattice/todo/manifest.json');
+  const manifestBefore = await readFile(manifest, 'utf8');
+
+  const failure = await commitTodoStoreMutation({
+    repoRoot: root,
+    argv: ['start', '--plan', 'main', '--task', 'T1'],
+    env: cliEnv(),
+    action: async () => {
+      await writeFile(manifest, `${manifestBefore} `);
+      throw new TypeError('fixture contract violation');
+    },
+  }).catch((error) => error);
+
+  assert.equal(failure instanceof TypeError, true);
+  assert.equal(failure.message, 'fixture contract violation');
+  assert.equal(await readFile(manifest, 'utf8'), manifestBefore);
+  assert.equal(storeStatus(root), '');
+});
+
 test('read commandの--commit-storeはunsupportedで、既存writeは非atomicのまま', async (t) => {
   const root = await workspace(t);
   const unsupported = runCli(root, ['todo', 'status', '--commit-store']);

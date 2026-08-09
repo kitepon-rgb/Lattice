@@ -364,7 +364,7 @@ export async function commitTodoStoreMutation({
         });
       }
     }
-    if (error instanceof TodoStoreGitTransactionError
+    if (error instanceof TypeError || error instanceof TodoStoreGitTransactionError
       || (typeof error?.code === 'string' && error.detail !== null
         && typeof error.detail === 'object')) throw error;
     fail('STORE_COMMIT_FAILED', 'todo_store_git_commit_failed', {
