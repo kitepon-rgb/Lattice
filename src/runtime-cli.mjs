@@ -33,6 +33,11 @@ import {
   evidenceFromCollectedOutcomes,
 } from './runtime-front-end.mjs';
 import {
+  explainTodoWitnessSet,
+  isGitSha,
+  synthesizeWitnessRunRequest,
+} from './todo-independence-contracts.mjs';
+import {
   explainRunRequest,
   validateRunRequest,
   validateRuntimeBoundaryManifest,
@@ -103,6 +108,7 @@ import {
  *   lattice plan compile --request <run-request.json>
  *   lattice plan verify  --request <run-request.json> --plan <plan.json>
  *   lattice run start    --request <run-request.json> --executor <adapter>
+ *   lattice run request synthesize --witness <witness-set.json> --base-sha <sha> --id <request-id>
  *   lattice run adapter register --input <descriptor.json>
  *   lattice run adapter list --json
  *   lattice run observe  --run .lattice/runs/<run-id>
@@ -343,6 +349,47 @@ async function runAdapterRegister({ cwd, inputPath, stdout }) {
       reason: typeof error?.code === 'string' ? error.code : 'unexpected_write_failure',
     });
   }
+}
+
+/**
+ * witness setから`run start`へ渡せるrun requestを組み立てて返す（read-only）。
+ *
+ * **推測しない面である。** base shaもrequest idもCLIが決めず、呼び手が渡す——どのbaseへ
+ * 対する計画なのかは装置が知らないし、HEADを黙って採ると「撮ったつもりのbaseと違う木」で
+ * runが始まる。witness setの検査は`explainTodoWitnessSet`が単一の正本なので、ここでは
+ * 判定を持たず理由とpathをそのまま返す。
+ *
+ * request idの旗が`--id`なのは、`--request-id`が末尾2引数のときrun mutationの
+ * idempotency keyとして先に横取りされるためである（同じ綴りで別の意味を持たせない）。
+ */
+async function runRequestSynthesize({ cwd, witnessPath, baseSha, requestId, stdout }) {
+  if (!isGitSha(baseSha)) {
+    throw new CliContractError('INVALID_BASE_SHA', '--base-shaが40桁のgit shaでない', {
+      base_sha: baseSha,
+    });
+  }
+  if (!/^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/u.test(requestId)) {
+    throw new CliContractError('INVALID_REQUEST_ID', '--idは128文字以下の識別子でなければならない', {
+      request_id: requestId,
+    });
+  }
+  const witnessSet = await readBoundedJson(path.resolve(cwd, witnessPath), 'witness set');
+  const verdict = explainTodoWitnessSet(witnessSet);
+  if (!verdict.valid) {
+    throw new CliContractError('WITNESS_SET_INVALID', 'witness setが契約を満たさない', {
+      path: witnessPath, reason: verdict.reason, pointer: verdict.path ?? null,
+    });
+  }
+  const request = synthesizeWitnessRunRequest(witnessSet, { baseSha, requestId });
+  const explained = explainRunRequest(request);
+  if (!explained.valid) {
+    // 生成物が自分の契約を満たさないなら、それは装置の不具合である。黙って出さない
+    throw new CliContractError('CONTRACT_VIOLATION', '生成したrun requestがrun_request契約を満たさない', {
+      reason: explained.reason, pointer: explained.path ?? null,
+    });
+  }
+  stdout.write(`${JSON.stringify(request)}\n`);
+  return 0;
 }
 
 async function runAdapterList({ cwd, stdout }) {
@@ -3968,6 +4015,14 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[0] === 'run' && argv[1] === 'adapter' && argv[2] === 'register'
     && argv[3] === '--schema' && argv[4] === '--json') {
     action = () => runAdapterRegisterSchema({ stdout });
+  } else if (argv.length === 9
+    && argv[0] === 'run' && argv[1] === 'request' && argv[2] === 'synthesize'
+    && argv[3] === '--witness' && typeof argv[4] === 'string' && argv[4].length > 0
+    && argv[5] === '--base-sha' && typeof argv[6] === 'string' && argv[6].length > 0
+    && argv[7] === '--id' && typeof argv[8] === 'string' && argv[8].length > 0) {
+    action = () => runRequestSynthesize({
+      cwd, witnessPath: argv[4], baseSha: argv[6], requestId: argv[8], stdout,
+    });
   } else if (argv.length === 5
     && argv[0] === 'run' && argv[1] === 'adapter' && argv[2] === 'register'
     && argv[3] === '--input' && typeof argv[4] === 'string' && argv[4].length > 0) {
