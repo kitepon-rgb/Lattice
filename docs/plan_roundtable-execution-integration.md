@@ -189,11 +189,15 @@ t9の改訂を巻き戻す: claimは割当の主体のまま（従来の円卓�
 ②着手済み2 ToDoの競合を装置が検出し、片方に留まる指示または seam resolve→両方再開が動く
 ③「装置が作業を割り当てる」面がどこにも残っていない（bridge・member.md・room発言の形式まで）。
 
-## 申し送りWave — roundtable-carryover-20260809（t19の実戦投入の題材）
+## 申し送りWave — roundtable-carryover-20260809（本campaignの残債）
 
-本campaignの各監査が「修正を求めない申し送り」として残したものを、t19の作業としてToDoへ落とした
-（オーナー裁定・bell [708]）。**これはt19の実戦投入が実際に流す題材である**——r4完了後、pull型で
-1本ずつ着手して装置に競合を判定させる。だから**小さく独立revert可能な単位**で切る。
+本campaignの各監査が「修正を求めない申し送り」として残したものをToDoへ落とした。
+
+**t19の実戦題材ではない。** 当初はそう位置づけていた（オーナー裁定・bell [708] の(b)）が、
+その裁定は`scope-split-20260809`へ差し替えられた（[plan_todo-scope-expansion.md](plan_todo-scope-expansion.md)の
+「工程」節）。したがって本Waveは**題材から外れた残債**であり、t19やredirectをblockしない。
+実行時期は未定で、pull型が整った後に他のcampaignと同じ扱いで消化する。
+**小さく独立revert可能な単位**で切ってあるのは変わらない。
 
 **repoごとに別planへ分ける。** 1 run・1 worktreeは1 repoなので、混在planは新pull実戦の境界を偽る。
 Lattice側の状態正本はLattice storeの`roundtable-carryover-20260809`、peertable側は
