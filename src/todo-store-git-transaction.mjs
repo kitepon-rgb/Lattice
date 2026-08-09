@@ -304,13 +304,15 @@ export async function commitTodoStoreMutation({
     }
     throw error;
   }
-  const transactionDir = await mkdtemp(path.join(commonDir, 'lattice-todo-rollback-'));
-  const backupStore = path.join(transactionDir, 'todo');
+  let transactionDir = null;
+  let backupStore = null;
   let refUpdated = false;
   let commitSha = null;
   let backupReady = false;
   let preparedIndex = null;
   try {
+    transactionDir = await mkdtemp(path.join(commonDir, 'lattice-todo-rollback-'));
+    backupStore = path.join(transactionDir, 'todo');
     const dirty = await storeStatus(repoRoot, gitEnv);
     if (dirty.length > 0) {
       fail('STORE_COMMIT_DIRTY', 'todo_store_dirty_at_atomic_entry', { paths: dirty });
@@ -372,8 +374,11 @@ export async function commitTodoStoreMutation({
       commit_sha: commitSha,
     });
   } finally {
-    if (preparedIndex !== null) await preparedIndex.rollback().catch(() => {});
-    await rm(transactionDir, { recursive: true, force: true });
-    await lock.release();
+    try {
+      if (preparedIndex !== null) await preparedIndex.rollback().catch(() => {});
+      if (transactionDir !== null) await rm(transactionDir, { recursive: true, force: true });
+    } finally {
+      await lock.release();
+    }
   }
 }
