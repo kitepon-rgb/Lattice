@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -254,6 +254,42 @@ test('store actionの契約違反はrollback後もTypeErrorとして保持する
   assert.equal(failure instanceof TypeError, true);
   assert.equal(failure.message, 'fixture contract violation');
   assert.equal(await readFile(manifest, 'utf8'), manifestBefore);
+  assert.equal(storeStatus(root), '');
+});
+
+test('primary errorとcleanup失敗が併発しても両方をtyped detailへ保持する', async (t) => {
+  const root = await workspace(t);
+  const commonDir = path.join(root, '.git');
+  let transactionDir = null;
+  let failure;
+  try {
+    failure = await commitTodoStoreMutation({
+      repoRoot: root,
+      argv: ['start', '--plan', 'main', '--task', 'T1'],
+      env: cliEnv(),
+      action: async () => {
+        const entry = (await readdir(commonDir))
+          .find((name) => name.startsWith('lattice-todo-rollback-'));
+        assert.notEqual(entry, undefined);
+        transactionDir = path.join(commonDir, entry);
+        await chmod(transactionDir, 0o500);
+        throw new TypeError('fixture primary failure');
+      },
+    }).catch((error) => error);
+  } finally {
+    if (transactionDir !== null) {
+      await chmod(transactionDir, 0o700).catch(() => {});
+      await rm(transactionDir, { recursive: true, force: true });
+    }
+  }
+
+  assert.equal(failure.code, 'STORE_COMMIT_CLEANUP_FAILED');
+  assert.deepEqual(failure.detail.primary, {
+    code: null,
+    type: 'TypeError',
+    message: 'fixture primary failure',
+  });
+  assert.ok(failure.detail.failures.includes('EACCES'));
   assert.equal(storeStatus(root), '');
 });
 

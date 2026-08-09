@@ -57,6 +57,14 @@ function fields(buffer) {
   return buffer.toString('utf8').split('\0').filter((value) => value.length > 0);
 }
 
+function failureSummary(error) {
+  return {
+    code: typeof error?.code === 'string' ? error.code : null,
+    type: error?.constructor?.name ?? 'Error',
+    message: typeof error?.message === 'string' ? error.message.slice(0, 1_024) : null,
+  };
+}
+
 function repositoryGitEnvironment(env) {
   const result = { ...env };
   for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']) {
@@ -310,69 +318,75 @@ export async function commitTodoStoreMutation({
   let commitSha = null;
   let backupReady = false;
   let preparedIndex = null;
+  let primaryFailure = null;
   try {
-    transactionDir = await mkdtemp(path.join(commonDir, 'lattice-todo-rollback-'));
-    backupStore = path.join(transactionDir, 'todo');
-    const dirty = await storeStatus(repoRoot, gitEnv);
-    if (dirty.length > 0) {
-      fail('STORE_COMMIT_DIRTY', 'todo_store_dirty_at_atomic_entry', { paths: dirty });
-    }
-    const storeRoot = path.join(repoRoot, STORE_REF);
-    await cp(storeRoot, backupStore, { recursive: true, force: false, errorOnExist: true });
-    backupReady = true;
-    const headBefore = await head(repoRoot, gitEnv);
-    const target = await headTarget(repoRoot, gitEnv);
-    const operationResult = await action(repoRoot);
-    const built = await buildDetachedCommit({
-      repoRoot, commonDir, headBefore, message, env: gitEnv,
-    });
-    commitSha = built.commitSha;
-    preparedIndex = await prepareSharedIndex({ repoRoot, commitSha, env: gitEnv });
-    await updateHead({ repoRoot, target, commitSha, headBefore, env: gitEnv });
-    refUpdated = true;
     try {
-      // 共有index lockを保持したまま、store entryだけ整合済みのindexへatomic renameする。
-      await preparedIndex.commit();
-      preparedIndex = null;
-    } catch (error) {
+      transactionDir = await mkdtemp(path.join(commonDir, 'lattice-todo-rollback-'));
+      backupStore = path.join(transactionDir, 'todo');
+      const dirty = await storeStatus(repoRoot, gitEnv);
+      if (dirty.length > 0) {
+        fail('STORE_COMMIT_DIRTY', 'todo_store_dirty_at_atomic_entry', { paths: dirty });
+      }
+      const storeRoot = path.join(repoRoot, STORE_REF);
+      await cp(storeRoot, backupStore, { recursive: true, force: false, errorOnExist: true });
+      backupReady = true;
+      const headBefore = await head(repoRoot, gitEnv);
+      const target = await headTarget(repoRoot, gitEnv);
+      const operationResult = await action(repoRoot);
+      const built = await buildDetachedCommit({
+        repoRoot, commonDir, headBefore, message, env: gitEnv,
+      });
+      commitSha = built.commitSha;
+      preparedIndex = await prepareSharedIndex({ repoRoot, commitSha, env: gitEnv });
+      await updateHead({ repoRoot, target, commitSha, headBefore, env: gitEnv });
+      refUpdated = true;
       try {
-        await updateHead({
-          repoRoot, target, commitSha: headBefore, headBefore: commitSha, env: gitEnv,
-        });
-        refUpdated = false;
-      } catch (recoveryError) {
-        fail('STORE_COMMIT_RECOVERY_REQUIRED', 'todo_store_index_finalize_and_ref_rollback_failed', {
+        // 共有index lockを保持したまま、store entryだけ整合済みのindexへatomic renameする。
+        await preparedIndex.commit();
+        preparedIndex = null;
+      } catch (error) {
+        try {
+          await updateHead({
+            repoRoot, target, commitSha: headBefore, headBefore: commitSha, env: gitEnv,
+          });
+          refUpdated = false;
+        } catch (recoveryError) {
+          fail('STORE_COMMIT_RECOVERY_REQUIRED', 'todo_store_index_finalize_and_ref_rollback_failed', {
+            commit_sha: commitSha,
+            index_lock_path: preparedIndex?.lockPath ?? null,
+            cause: recoveryError?.code ?? recoveryError?.constructor?.name ?? 'Error',
+          });
+        }
+        if (error instanceof TodoStoreGitTransactionError) throw error;
+        fail('STORE_COMMIT_FINALIZE_FAILED', 'todo_store_index_finalize_failed', {
           commit_sha: commitSha,
-          index_lock_path: preparedIndex?.lockPath ?? null,
-          cause: recoveryError?.code ?? recoveryError?.constructor?.name ?? 'Error',
         });
       }
-      if (error instanceof TodoStoreGitTransactionError) throw error;
-      fail('STORE_COMMIT_FINALIZE_FAILED', 'todo_store_index_finalize_failed', {
+      return receipt({
+        operationResult, commitSha, headBefore, changed: built.changed, message,
+      });
+    } catch (error) {
+      if (!refUpdated) {
+        try {
+          if (backupReady) await restoreStore({ repoRoot, backupStore, env: gitEnv });
+        } catch (rollbackError) {
+          if (rollbackError instanceof TodoStoreGitTransactionError) throw rollbackError;
+          fail('STORE_COMMIT_ROLLBACK_FAILED', 'todo_store_rollback_failed', {
+            cause: rollbackError?.constructor?.name ?? 'Error',
+          });
+        }
+      }
+      if (error instanceof TypeError || error instanceof TodoStoreGitTransactionError
+        || (typeof error?.code === 'string' && error.detail !== null
+          && typeof error.detail === 'object')) throw error;
+      fail('STORE_COMMIT_FAILED', 'todo_store_git_commit_failed', {
+        cause: error?.constructor?.name ?? 'Error',
         commit_sha: commitSha,
       });
     }
-    return receipt({
-      operationResult, commitSha, headBefore, changed: built.changed, message,
-    });
   } catch (error) {
-    if (!refUpdated) {
-      try {
-        if (backupReady) await restoreStore({ repoRoot, backupStore, env: gitEnv });
-      } catch (rollbackError) {
-        if (rollbackError instanceof TodoStoreGitTransactionError) throw rollbackError;
-        fail('STORE_COMMIT_ROLLBACK_FAILED', 'todo_store_rollback_failed', {
-          cause: rollbackError?.constructor?.name ?? 'Error',
-        });
-      }
-    }
-    if (error instanceof TypeError || error instanceof TodoStoreGitTransactionError
-      || (typeof error?.code === 'string' && error.detail !== null
-        && typeof error.detail === 'object')) throw error;
-    fail('STORE_COMMIT_FAILED', 'todo_store_git_commit_failed', {
-      cause: error?.constructor?.name ?? 'Error',
-      commit_sha: commitSha,
-    });
+    primaryFailure = error;
+    throw error;
   } finally {
     const cleanupFailures = [];
     const indexLockPath = preparedIndex?.lockPath ?? null;
@@ -393,6 +407,7 @@ export async function commitTodoStoreMutation({
         {
           commit_sha: refUpdated ? commitSha : null,
           index_lock_path: indexLockPath,
+          primary: primaryFailure === null ? null : failureSummary(primaryFailure),
           failures: cleanupFailures.map((error) => (
             typeof error?.code === 'string' ? error.code : error?.constructor?.name ?? 'Error'
           )),
