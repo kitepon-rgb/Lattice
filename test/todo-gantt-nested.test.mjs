@@ -1,0 +1,143 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import test from 'node:test';
+
+import { projectTodoChainV1 } from '../src/todo-chain.mjs';
+import { layoutTodoGantt, TodoGanttLayoutError } from '../src/todo-gantt-layout.mjs';
+import { renderTodoGanttHtml } from '../src/todo-gantt-html.mjs';
+import { renderTodoGanttSvg } from '../src/todo-gantt-svg.mjs';
+
+const ref = (taskId) => ({ project_id: 'p', plan_key: 'plan', task_id: taskId });
+const edge = (from, to) => ({ from: ref(from), to: ref(to) });
+
+function fixture(tasks, hardDependencies = []) {
+  const normalized = tasks.map((task) => ({
+    title: task.task_id,
+    lane: 'core',
+    parent_task_id: null,
+    ...task,
+  }));
+  const read = {
+    schema: 'lattice.todo_store_read.v1',
+    project_id: 'p',
+    members: [{
+      plan: {
+        schema: 'lattice.todo_plan.v6',
+        project_id: 'p',
+        plan_key: 'plan',
+        tasks: normalized,
+        hard_dependencies: hardDependencies,
+        joins: [],
+      },
+      tasks: normalized.map(({ task_id: taskId }, index) => ({
+        task_id: taskId,
+        status: index === 0 ? 'done' : 'pending',
+        started_at: null,
+        done_at: null,
+        blocked_reason: null,
+        evidence: null,
+        evidence_unverified: false,
+      })),
+    }],
+  };
+  const chain = projectTodoChainV1({
+    nodes: normalized.map(({ task_id: taskId }) => ref(taskId)),
+    hard_edges: hardDependencies,
+    joins: [],
+  });
+  return { read, chain };
+}
+
+function digest(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+test('parent_task_id projects descendant dependencies into recursive child DAGs', () => {
+  const input = fixture([
+    { task_id: 'P' },
+    { task_id: 'C1', parent_task_id: 'P' },
+    { task_id: 'G', parent_task_id: 'C1' },
+    { task_id: 'C2', parent_task_id: 'P' },
+    { task_id: 'Q' },
+  ], [edge('G', 'C2'), edge('C2', 'Q')]);
+
+  const layout = layoutTodoGantt(input.read, input.chain, { scope: 'all' });
+  assert.deepEqual(layout.nodes.map(({ ref: nodeRef }) => nodeRef.task_id), ['P', 'Q']);
+  assert.equal(layout.hierarchy.schema, 'lattice.todo_gantt_hierarchy.v1');
+  assert.equal(layout.hierarchy.maximum_depth, 3);
+  assert.equal(layout.hierarchy.task_count, 5);
+  assert.equal(layout.metrics.task_count, 5);
+  assert.deepEqual(layout.full_edges.map(({ from, to }) => [from.task_id, to.task_id]), [
+    ['C2', 'Q'], ['G', 'C2'],
+  ]);
+
+  const parent = layout.hierarchy.children.find(({ parent_ref: parentRef }) => parentRef.task_id === 'P');
+  assert.deepEqual(parent.level.layout.nodes.map(({ ref: nodeRef }) => nodeRef.task_id), ['C1', 'C2']);
+  assert.deepEqual(parent.level.layout.edges.map(({ from, to }) => [from.task_id, to.task_id]), [
+    ['C1', 'C2'],
+  ]);
+  const child = parent.level.children.find(({ parent_ref: parentRef }) => parentRef.task_id === 'C1');
+  assert.deepEqual(child.level.layout.nodes.map(({ ref: nodeRef }) => nodeRef.task_id), ['G']);
+});
+
+test('missing and cyclic parent_task_id fail closed', () => {
+  const missing = fixture([{ task_id: 'P', parent_task_id: 'absent' }]);
+  assert.throws(() => layoutTodoGantt(missing.read, missing.chain), (error) =>
+    error instanceof TodoGanttLayoutError && error.code === 'TODO_LAYOUT_INVALID_HIERARCHY');
+
+  const cyclic = fixture([
+    { task_id: 'A', parent_task_id: 'B' },
+    { task_id: 'B', parent_task_id: 'A' },
+  ]);
+  assert.throws(() => layoutTodoGantt(cyclic.read, cyclic.chain), (error) =>
+    error instanceof TodoGanttLayoutError && error.code === 'TODO_LAYOUT_INVALID_HIERARCHY');
+});
+
+test('phase accept dependencies follow a descendant to its enclosing parent box', () => {
+  const input = fixture([
+    { task_id: 'P' },
+    { task_id: 'C', parent_task_id: 'P' },
+  ]);
+  const member = input.read.members[0];
+  member.plan.schema = 'lattice.todo_plan.v7';
+  member.plan.phase_accept_dependencies = [{
+    from: { project_id: 'p', plan_key: 'plan', phase_id: 'review' },
+    to: ref('C'),
+  }];
+  member.phases = [{ phase_id: 'review', status: 'reviewing' }];
+
+  const layout = layoutTodoGantt(input.read, input.chain, { scope: 'all' });
+  assert.equal(layout.nodes.find(({ ref: nodeRef }) => nodeRef.task_id === 'P')
+    .visibility.next_ready, false);
+  const parent = layout.hierarchy.children[0];
+  assert.equal(parent.level.layout.nodes[0].visibility.next_ready, false);
+});
+
+test('parentless layout and SVG remain byte-identical to the pre-hierarchy renderer', () => {
+  const input = fixture([
+    { task_id: 'A', title: 'Alpha' },
+    { task_id: 'B', title: 'Beta' },
+  ], [edge('A', 'B')]);
+  const layout = layoutTodoGantt(input.read, input.chain);
+  assert.equal(layout.hierarchy, undefined);
+  assert.equal(digest(JSON.stringify(layout)), '1441709bdec782246de2bdc9ddaca92d7c459578f6d9567bb0f1b7df1e3c6dc3');
+  assert.equal(digest(renderTodoGanttSvg(layout)), 'ebe6f5be09c6485fe0740c1180a546b19ffbba14acf942c47c455824875061c6');
+});
+
+test('hierarchical SVG and HTML expose recursive panels without network dependencies', () => {
+  const input = fixture([
+    { task_id: 'P' },
+    { task_id: 'C', parent_task_id: 'P' },
+    { task_id: 'G', parent_task_id: 'C' },
+  ]);
+  const layout = layoutTodoGantt(input.read, input.chain, { scope: 'all' });
+  const svg = renderTodoGanttSvg(layout);
+  assert.match(svg, /data-nested-toggle-for=/u);
+  assert.match(svg, /data-nested-panel-for=/u);
+  assert.equal((svg.match(/class="nested-task-panel"/gu) ?? []).length, 2);
+
+  const html = renderTodoGanttHtml({ readModel: input.read, layout }).html;
+  assert.match(html, /data-nested-toggle-for=/u);
+  assert.match(html, /nested-task-panel/u);
+  assert.doesNotMatch(html, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
+});

@@ -116,3 +116,15 @@ button.fold-chip[aria-expanded="true"]{border-color:var(--text-primary)}
 .lane-dimmed{opacity:.35}
 @media(max-width:900px){body{display:block;height:auto}.shell{display:block}.pane-divider{display:none}.gantt-pane,.narrative-pane{height:70vh}.gantt-pane{border-bottom:1px solid var(--border)}}
 `;
+
+// 階層を持つplanだけが読み込む。親無しplanのHTML/CSS bytesを変えないため、基底CSSへは混ぜない。
+export const NESTED_CSS = `
+.nested-task-panel{filter:drop-shadow(0 4px 12px rgba(11,11,11,.18))}
+.nested-task-surface{fill:var(--surface-1);stroke:var(--text-secondary);stroke-width:1.5}
+.nested-task-label{fill:var(--text-primary);font-size:12px;font-weight:650}
+.nested-task-diagram{outline:1px solid var(--border);background:var(--surface-1)}
+.nested-task-toggle{cursor:pointer}
+.nested-task-toggle rect{fill:var(--surface-1);stroke:var(--text-secondary);stroke-width:1.5}
+.nested-task-toggle text{fill:var(--text-primary);font-size:14px;font-weight:650}
+.nested-task-toggle:focus rect{stroke:var(--text-primary);stroke-width:2.5}
+`;

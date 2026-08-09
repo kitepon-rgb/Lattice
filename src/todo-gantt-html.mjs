@@ -5,7 +5,7 @@ import { serializeJsonForScript } from './todo-markdown-renderer.mjs';
 import { renderTodoGanttSvg, TODO_GANTT_STATUS_PRESENTATION } from './todo-gantt-svg.mjs';
 import { renderDiagramLegend, renderRightPane } from './todo-gantt-html-independence.mjs';
 import { escapeHtmlAttribute, escapeHtmlText, refKey } from './todo-gantt-html-shared.mjs';
-import { CSS } from './todo-gantt-html-style.mjs';
+import { CSS, NESTED_CSS } from './todo-gantt-html-style.mjs';
 
 export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v19';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
@@ -188,6 +188,18 @@ const CONTROLLER = `
 })();
 `;
 
+const NESTED_CONTROLLER = `
+(()=>{
+  const root=document.querySelector('[data-gantt-root]');if(!root)return;
+  const toggles=[...root.querySelectorAll('[data-nested-toggle-for]')];
+  const panels=[...root.querySelectorAll('[data-nested-panel-for]')];
+  const panelFor=(key)=>panels.find(panel=>panel.dataset.nestedPanelFor===key);
+  const toggle=(control)=>{const panel=panelFor(control.dataset.nestedToggleFor);if(!panel)return;const open=panel.hasAttribute('hidden');panel.toggleAttribute('hidden',!open);control.setAttribute('aria-expanded',String(open));const mark=control.querySelector('text');if(mark)mark.textContent=open?'−':'＋';};
+  root.addEventListener('click',event=>{const control=event.target.closest('[data-nested-toggle-for]');if(!control||!root.contains(control))return;event.preventDefault();event.stopPropagation();toggle(control);});
+  root.addEventListener('keydown',event=>{const control=event.target.closest('[data-nested-toggle-for]');if(!control||!root.contains(control)||(event.key!=='Enter'&&event.key!==' '))return;event.preventDefault();event.stopPropagation();toggle(control);});
+})();
+`;
+
 export function renderTodoGanttHtml({
   readModel, layout, narratives = [], anchorOutcomes = [], presentation = null, metadata = {},
   expandedLayout = null, noteContexts = null, noteWarnings = [],
@@ -208,6 +220,7 @@ export function renderTodoGanttHtml({
   }
   const normalized = normalizeSections(readModel, narratives, anchorOutcomes, noteContexts);
   const displayName = projectDisplayName(readModel, metadata);
+  const hasHierarchy = layout?.hierarchy?.schema === 'lattice.todo_gantt_hierarchy.v1';
   const svg = renderTodoGanttSvg(layout, { presentation });
   // The expanded diagram travels with the page so the badge can bring the
   // history back without a round trip. A file:// artifact has nowhere to ask.
@@ -224,7 +237,7 @@ export function renderTodoGanttHtml({
     metadata,
     presentation,
   });
-  const html = `<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lattice — ${escapeHtmlText(displayName)} 依存工程図</title><style>${CSS}</style></head><body data-gantt-root data-view-state="overview"><main class="shell"><section class="gantt-pane" aria-label="${escapeHtmlAttribute(displayName)} 依存工程図"><div class="diagram-toolbar" role="group" aria-label="図のズーム"><strong class="project-heading">${escapeHtmlText(displayName)} 依存工程図</strong>${renderAuditPendingChip(readModel)}<button type="button" data-zoom-action="out" aria-label="縮小">−</button><button type="button" data-zoom-action="reset">等倍</button><button type="button" data-zoom-action="in" aria-label="拡大">＋</button><button type="button" data-zoom-action="fit">全体表示</button><output class="zoom-readout" data-zoom-output aria-live="polite">100%</output><span class="diagram-note">縦=依存段階（時間ではない）</span></div>${renderDiagramLegend(presentation, layout, expandedSvg !== '')}<div class="diagram-scroll" data-diagram-scroll tabindex="0" aria-label="縦方向を主にスクロール可能な依存工程図">${diagrams}</div></section><div class="pane-divider" data-pane-divider aria-hidden="true"></div><aside class="narrative-pane" aria-label="選択工程の詳細と全工程一覧">${rightPane}</aside></main><script type="application/json" id="todo-gantt-data">${staticData}</script><script>${CONTROLLER}</script></body></html>`;
+  const html = `<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lattice — ${escapeHtmlText(displayName)} 依存工程図</title><style>${CSS}${hasHierarchy ? NESTED_CSS : ''}</style></head><body data-gantt-root data-view-state="overview"><main class="shell"><section class="gantt-pane" aria-label="${escapeHtmlAttribute(displayName)} 依存工程図"><div class="diagram-toolbar" role="group" aria-label="図のズーム"><strong class="project-heading">${escapeHtmlText(displayName)} 依存工程図</strong>${renderAuditPendingChip(readModel)}<button type="button" data-zoom-action="out" aria-label="縮小">−</button><button type="button" data-zoom-action="reset">等倍</button><button type="button" data-zoom-action="in" aria-label="拡大">＋</button><button type="button" data-zoom-action="fit">全体表示</button><output class="zoom-readout" data-zoom-output aria-live="polite">100%</output><span class="diagram-note">縦=依存段階（時間ではない）</span></div>${renderDiagramLegend(presentation, layout, expandedSvg !== '')}<div class="diagram-scroll" data-diagram-scroll tabindex="0" aria-label="縦方向を主にスクロール可能な依存工程図">${diagrams}</div></section><div class="pane-divider" data-pane-divider aria-hidden="true"></div><aside class="narrative-pane" aria-label="選択工程の詳細と全工程一覧">${rightPane}</aside></main><script type="application/json" id="todo-gantt-data">${staticData}</script><script>${CONTROLLER}${hasHierarchy ? NESTED_CONTROLLER : ''}</script></body></html>`;
   const htmlBytes = Buffer.byteLength(html, 'utf8');
   if (htmlBytes > TODO_GANTT_HTML_MAX_BYTES) {
     throw new TodoGanttRenderError('TODO_SCALE_EXCEEDED', 'todo gantt HTML limit exceeded', {

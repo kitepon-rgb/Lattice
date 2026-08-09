@@ -1,4 +1,5 @@
 import { TODO_GANTT_SCOPES, projectTodoGanttScope } from './todo-gantt-scope.mjs';
+import { buildTodoGanttHierarchy } from './todo-gantt-nested.mjs';
 
 const TASK_LIMIT = 2_000;
 const EDGE_LIMIT = 8_000;
@@ -521,7 +522,7 @@ function normalizeSeamProposals(value) {
   return { summary: { plans } };
 }
 
-export function layoutTodoGantt(readModel, chainProjection, options = {}) {
+function layoutTodoGanttFlat(readModel, chainProjection, options = {}) {
   const scope = options.scope ?? 'live';
   if (!TODO_GANTT_SCOPES.includes(scope)) {
     fail('TODO_LAYOUT_INVALID_INPUT', `scope must be one of ${TODO_GANTT_SCOPES.join(', ')}`);
@@ -895,6 +896,40 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
       visible_edge_count: projectedEdges.filter(({ visible }) => visible).length,
       task_count: full.nodes.length,
       edge_count: full.edges.length,
+    },
+  };
+}
+
+export function layoutTodoGantt(readModel, chainProjection, options = {}) {
+  const fullLayout = layoutTodoGanttFlat(readModel, chainProjection, options);
+  let nested;
+  try {
+    nested = buildTodoGanttHierarchy(readModel, options, layoutTodoGanttFlat);
+  } catch (error) {
+    if (error?.code !== 'TODO_LAYOUT_INVALID_HIERARCHY') throw error;
+    fail(error.code, error.message, error.detail);
+  }
+  if (nested === null) return fullLayout;
+
+  const rootLayout = nested.root.layout;
+  return {
+    ...rootLayout,
+    full_edges: fullLayout.full_edges,
+    groups: fullLayout.groups,
+    scope: fullLayout.scope,
+    folded: fullLayout.folded,
+    metrics: {
+      ...rootLayout.metrics,
+      visible_node_count: nested.metrics.visibleNodeCount,
+      visible_edge_count: nested.metrics.visibleEdgeCount,
+      task_count: fullLayout.metrics.task_count,
+      edge_count: fullLayout.metrics.edge_count,
+    },
+    hierarchy: {
+      schema: 'lattice.todo_gantt_hierarchy.v1',
+      children: nested.root.children,
+      maximum_depth: nested.metrics.maximumDepth,
+      task_count: nested.metrics.taskCount,
     },
   };
 }

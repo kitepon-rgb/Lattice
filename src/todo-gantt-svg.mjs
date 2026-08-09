@@ -235,7 +235,7 @@ function renderTodoSummary(layout, maps) {
   return { markup: `<g class="todo-summary" aria-label="カテゴリ別ToDo集計表">${markup.join('')}</g>`, height: 96, width: groupX };
 }
 
-export function renderTodoGanttSvg(layout, options = {}) {
+function renderFlatTodoGanttSvg(layout, options = {}) {
   if (layout === null || typeof layout !== 'object' || layout.schema !== 'lattice.todo_gantt_layout.v2'
     || !Array.isArray(layout.nodes) || !Array.isArray(layout.edges)) {
     throw new TypeError('layout must be lattice.todo_gantt_layout.v2');
@@ -275,4 +275,72 @@ export function renderTodoGanttSvg(layout, options = {}) {
     .filter((contact) => !mainJunctions.has(contact.join(',')))
     .map(([x, y]) => `<circle class="join-contact-marker" cx="${x}" cy="${y}" r="3"></circle>`).join('');
   return `<svg class="todo-gantt" data-gantt-svg data-svg-width="${width}" data-svg-height="${height}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="group" aria-label="Todo依存工程図"><desc>縦方向は登録済み依存関係による工程段階。構造上の最長依存鎖は各工程を同じ重みとして数え、実時間・工数・資源律速を表さない。</desc>${summary.markup}<g class="edge-layer">${shiftedEdges}<g class="connector-layer">${connectors}</g><g class="junction-layer">${junctions}${contactMarkers}</g></g><g class="node-layer">${nodes}</g></svg>`;
+}
+
+function svgDimensions(markup) {
+  const match = markup.match(/data-svg-width="([0-9.]+)" data-svg-height="([0-9.]+)"/u);
+  if (match === null) throw new TypeError('nested todo gantt SVG must expose its dimensions');
+  return { width: Number(match[1]), height: Number(match[2]) };
+}
+
+function resizeSvg(markup, width, height) {
+  return markup
+    .replace(/data-svg-width="[0-9.]+" data-svg-height="[0-9.]+"/u,
+      `data-svg-width="${width}" data-svg-height="${height}"`)
+    .replace(/viewBox="0 0 [0-9.]+ [0-9.]+" width="[0-9.]+" height="[0-9.]+"/u,
+      `viewBox="0 0 ${width} ${height}" width="${width}" height="${height}"`);
+}
+
+function childLayoutOf(child) {
+  if (child.level.children.length === 0) return child.level.layout;
+  return {
+    ...child.level.layout,
+    hierarchy: {
+      schema: 'lattice.todo_gantt_hierarchy.v1',
+      children: child.level.children,
+    },
+  };
+}
+
+function renderNestedTodoGanttSvg(layout, options) {
+  let markup = renderFlatTodoGanttSvg(layout, options);
+  const base = svgDimensions(markup);
+  let width = base.width;
+  let height = base.height;
+  const panels = [];
+  const toggles = [];
+  const nodeByKey = new Map(layout.nodes.map((node) => [nodeKey(node.ref), node]));
+
+  for (const child of layout.hierarchy.children) {
+    const key = nodeKey(child.parent_ref);
+    const parent = nodeByKey.get(key);
+    if (parent?.geometry === null || parent === undefined) continue;
+    const childMarkup = renderTodoGanttSvg(childLayoutOf(child), options);
+    const childSize = svgDimensions(childMarkup);
+    const panelX = parent.geometry.x + 12;
+    const panelY = parent.geometry.y + parent.geometry.height + 108;
+    const panelWidth = childSize.width + 24;
+    const panelHeight = childSize.height + 44;
+    width = Math.max(width, panelX + panelWidth + 16);
+    height = Math.max(height, panelY + panelHeight + 16);
+    const embedded = childMarkup.replace('<svg class="todo-gantt"',
+      `<svg x="${panelX + 12}" y="${panelY + 32}" class="todo-gantt nested-task-diagram"`);
+    const label = `工程 ${child.parent_ref.plan_key}/${child.parent_ref.task_id} の内部工程`;
+    panels.push(`<g class="nested-task-panel" data-nested-panel-for="${escapeSvgAttribute(key)}" hidden aria-label="${escapeSvgAttribute(label)}"><rect class="nested-task-surface" x="${panelX}" y="${panelY}" width="${panelWidth}" height="${panelHeight}" rx="8"></rect><text class="nested-task-label" x="${panelX + 12}" y="${panelY + 22}">${escapeSvgText(label)}</text>${embedded}</g>`);
+    const toggleX = parent.geometry.x + parent.geometry.width - 24;
+    const toggleY = parent.geometry.y + 96 + parent.geometry.height - 18;
+    toggles.push(`<g class="nested-task-toggle" data-nested-toggle-for="${escapeSvgAttribute(key)}" tabindex="0" role="button" aria-expanded="false" aria-label="${escapeSvgAttribute(`${label}を開く`)}"><rect x="${toggleX - 8}" y="${toggleY - 13}" width="28" height="22" rx="4"></rect><text x="${toggleX + 6}" y="${toggleY + 3}" text-anchor="middle">＋</text></g>`);
+  }
+
+  markup = resizeSvg(markup, width, height);
+  return markup.replace('</svg>', `<g class="nested-panel-layer">${panels.join('')}</g><g class="nested-toggle-layer">${toggles.join('')}</g></svg>`);
+}
+
+export function renderTodoGanttSvg(layout, options = {}) {
+  if (layout?.hierarchy === undefined) return renderFlatTodoGanttSvg(layout, options);
+  if (layout.hierarchy?.schema !== 'lattice.todo_gantt_hierarchy.v1'
+    || !Array.isArray(layout.hierarchy.children)) {
+    throw new TypeError('layout hierarchy must be lattice.todo_gantt_hierarchy.v1');
+  }
+  return renderNestedTodoGanttSvg(layout, options);
 }
