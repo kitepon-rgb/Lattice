@@ -157,6 +157,37 @@ split由来のA1..AnはA'を`parent_task_id`に持つので、この系譜がそ
 描画側（todo-gantt-html／svg／layout）の大改修になりうるので、本campaignから切り離して
 別途起票してよい。データ面はsplitが自然に貯めるため、表示を後回しにしても失われない。
 
+## 工程（taskの正本はLattice store・plan_key `scope-split-20260809`）
+
+t19の実戦題材としてこのcampaignを運ぶ（オーナー裁定 2026-08-09: 当初の(b)申し送りToDo化を差し替え）。
+実行はredirect（r1〜r4）完了後、pull型実行層に載せて走らせる。
+
+#### s1 観測: 宣言差分とscope_expanded（Lattice）
+independence compileが前回artifactとwitness差分を取り、task別の膨張（回数・追加資源の差分・
+初回宣言比）を`scope_expanded`として記録する。gate形（依存の合流点）の判定を含む。記録は毎回。
+
+#### s2 促し: advisoryへの勧告（Lattice）
+`todo start`のadvisoryとcompile結果へ「宣言がN回膨張。内側にgateのリストが生えているなら
+A1..An＋A'への変換を検討せよ」。gate形は強め。閾値（回数か比率か）はs1の記録形式に従い実装時に決める。
+助言であって門ではない。
+
+#### s3 変換の軽い入口: todo split（Lattice）
+AIの分割案（A1..Anの定義・依存・A'の残余）をJSONで受け、正規のplan revision（successor版・
+`task_migration` from→successors・下流の付け替え・witness移行・`parent_task_id`への系譜記録）へ
+機械的にコンパイルする。A'はpendingへ戻す（論点4の位置）。
+
+#### s4 実行層の通知接続（Lattice）
+`prediction_excess`を捨てずにscope_expandedと同じ面へ流す。止めない挙動は変えない（ADR 0158堅持）。
+
+#### s5 規範の1行（peertable・越境）
+member.md／正典へ「ToDoの内側にリストを作らない。溜まったらグラフへ出す」。①の相（思考の中の
+暗黙gate）は検出できないので、規範による自己促しが受け持つ。
+
+#### s6 受入gate: 実測（両repo・親立会い）
+受入条件: ①実planで宣言拡張→`scope_expanded`記録→advisoryの勧告が出る ②splitで実taskが
+A1..An＋A'へ変換され、下流依存が付け替わり、A'がpendingへ戻る ③parent_task_idに系譜が残る
+④膨張ゼロのtaskには何も出ない（負のコントロール） ⑤既存planのcompile・start・doneが無変更で通る。
+
 ## 非目標
 
 - **分割の判断・実行を装置へ実装しない。** どこで切るか、切るべきかはAIが決める
