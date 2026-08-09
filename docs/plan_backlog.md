@@ -1125,3 +1125,24 @@ v0.39.0で修正した小文字共有値はTypeScript／Go／Python／Javaの4�
 
 - [ ] native／WASMの既存fixture 15件の差分を分類し、仕様差と実装欠陥を分ける
 - [ ] 全parityがgreenになった後だけnative prebuildの配布可否を裁定する
+
+## plan跨ぎの依存線が存在できない（2026-08-09実測・オーナー裁定: 改良実装へ）
+
+t19実戦（run `t19-scope-split-20260809-2134`）で実測した製品の穴。scope-split-viz planの
+v2（入れ子表示の受入）は、受入条件①が「splitの実データ（parent_task_id系譜）で描ける」を要求し、
+その実データはscope-split planのs6実行だけが生産する——**受入入力の依存が2つのplanを跨ぐ**。
+だがLatticeの依存線はplan内DAGに閉じており、plan間の辺は宣言も判定もできない。
+
+実害（同日実測）:
+- storeはv2をin-progressと表示するが実態は入力待ちで、機械の状態が実態から乖離した
+  （オーナーが「待機中じゃないの？」と混乱・席はroomの会話で依存を人力運搬した）
+- 席数標準「ready＋active実装ToDo数」（peertable決定68）の入力が狂う——線の無い依存は
+  「activeに見える待ち席」を作り、親の席数制御ループを騙す
+
+方向（設計は着手時に実測で確定・ここでは候補の記録まで）: cross-plan辺の導入／受入入力を
+machine-held obligationとして持つ／受入工程を産出側planへ置く作法の正典化。
+frontier・ready判定・ganttの表示・independence compileへの波及を含めて切る。
+
+### 工程
+
+- [ ] t19証跡着地後、次campaignとして`todo migrate`で起票する（担当は文脈保持席=Rin想定）
