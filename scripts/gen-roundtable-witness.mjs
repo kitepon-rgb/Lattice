@@ -172,8 +172,14 @@ def('t17', {
   writes: ['src/runtime-cli.mjs', EV('t17')],
 })
 def('t20', {
-  owns: [p('CHANGELOG.md'), p('docs/00_product-contract.md'), p('package.json'), pc(EV('t20'))],
-  writes: ['CHANGELOG.md', 'docs/00_product-contract.md', 'package.json', EV('t20')],
+  owns: [
+    p('CHANGELOG.md'), p('docs/00_product-contract.md'), p('package-lock.json'),
+    p('package.json'), p('scripts/gen-roundtable-witness.mjs'), pc(EV('t20')),
+  ],
+  writes: [
+    'CHANGELOG.md', 'docs/00_product-contract.md', 'package-lock.json',
+    'package.json', 'scripts/gen-roundtable-witness.mjs', EV('t20'),
+  ],
   state_effects: [se('npm-registry-quolu-lattice', 'state')],
 })
 
