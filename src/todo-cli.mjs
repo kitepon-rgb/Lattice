@@ -130,6 +130,7 @@ import {
   readTodoPlanNotesForStatus,
 } from './todo-note-store.mjs';
 import { readTodoParallelCandidatesForStatus } from './todo-parallel-candidates.mjs';
+import { commitTodoStoreMutation } from './todo-store-git-transaction.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_SCOPE = 'live';
@@ -190,6 +191,23 @@ function typedArgumentFailure(stderr, code, message, detail) {
   const payload = { schema: CLI_ERROR_SCHEMA, code, message, detail };
   stderr.write(`${JSON.stringify(payload)}\n`);
   return 2;
+}
+
+function supportsAtomicStoreCommit(argv) {
+  const command = argv[0];
+  if (command === 'note') return argv[1] !== 'list';
+  if (command === 'independence') {
+    return argv[1] === 'compile' || argv[1] === 'mode'
+      || (argv[1] === 'witness' && ['migrate', 'scaffold'].includes(argv[2]));
+  }
+  if (command === 'seam-proposal') return argv[1] === 'compile';
+  if (command === 'snapshot') return argv[1] === '--rebuild';
+  if (command === 'migrate') return !argv.includes('--dry-run') && !argv.includes('--schema');
+  if (['revise', 'split', 'revise-set', 'revise-phase', 'start', 'retract', 'block',
+    'unblock', 'done', 'reopen'].includes(command)) return true;
+  if (command === 'evidence') return argv[1] === 'promote';
+  if (command === 'phase') return argv[1] !== 'status';
+  return false;
 }
 
 function resolveRepoRoot(cwd) {
@@ -2684,6 +2702,9 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     throw new TypeError('runTodoCli optionsが不正');
   }
 
+  const atomicCommit = argv.at(-1) === '--commit-store';
+  if (atomicCommit) argv = argv.slice(0, -1);
+
   if (argv[0] === 'migrate' && argv[1] === '--input'
     && typeof argv[2] === 'string' && path.isAbsolute(argv[2])) {
     return typedArgumentFailure(stderr, 'INPUT_OUTSIDE_REPOSITORY', 'absolute_input_path_rejected', {
@@ -2988,6 +3009,13 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
       command, next_action: argumentHelp,
     });
   }
+  if (atomicCommit && !supportsAtomicStoreCommit(argv)) {
+    return typedArgumentFailure(stderr, 'STORE_COMMIT_UNSUPPORTED',
+      'todo_command_does_not_mutate_only_the_store', {
+        command: argv.slice(0, 3),
+        next_action: 'remove_--commit-store_or_use_a_supported_todo_write_command',
+      });
+  }
 
   try {
     const repoRoot = resolveRepoRoot(cwd);
@@ -2997,7 +3025,9 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     if (!ganttCommand && !dashboardAdopt && !migrationDryRun) {
       await ensureActiveProjectDashboard({ repoRoot, env });
     }
-    const result = await action(repoRoot);
+    const result = atomicCommit
+      ? await commitTodoStoreMutation({ repoRoot, argv, action, env })
+      : await action(repoRoot);
     if (result !== null) stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
   } catch (error) {
