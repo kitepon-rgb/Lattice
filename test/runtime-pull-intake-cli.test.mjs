@@ -380,6 +380,24 @@ test('再intakeはequipment identity不変で実効manifestを更新し、境界
     assert.deepEqual([reheld.refreshed, reheld.intervention.state,
       reheld.intervention.reason, reheld.intervention.detail.cause, reheld.worker_stopped],
     [true, 'hold', 'version_drift', 'boundary_intersecting_drift', true]);
+
+    await doneTask(root, 'A', '2026-08-09T00:04:00.000Z');
+    const postDoneWitness = structuredClone(refreshedWitness);
+    postDoneWitness.manual_witness.A = witness('A', 'a', 'src/a.mjs');
+    postDoneWitness.witness_set_digest = todoSelfDigest(postDoneWitness, 'witness_set_digest');
+    await writeTodoWitnessSet({ repoRoot: root, witnessSet: postDoneWitness });
+    const postDoneArtifact = structuredClone(intersecting);
+    postDoneArtifact.witness_set_digest = postDoneWitness.witness_set_digest;
+    postDoneArtifact.task_boundaries = postDoneArtifact.task_boundaries.map((entry) => (
+      entry.task_id === 'A' ? { task_id: 'A', paths: ['src/a.mjs', 'test/a.test.mjs'] } : entry
+    ));
+    postDoneArtifact.result_digest = todoSelfDigest(postDoneArtifact, 'result_digest');
+    await writeTodoIndependenceArtifact({ repoRoot: root, artifact: postDoneArtifact });
+    const postDoneRelease = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.deepEqual([postDoneRelease.intervention.state, postDoneRelease.worker_stopped],
+      ['none', false]);
   });
 
 test('override startされた後続taskは未accepted predecessorのprecedenceでserial holdになる',

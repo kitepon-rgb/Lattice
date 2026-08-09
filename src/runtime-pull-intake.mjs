@@ -597,10 +597,11 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
       const intervention = interventionPayload(verdict, constraint);
 
       const confirmation = await readTodoStore({ repoRoot });
-      const confirmed = resolveStartBinding(confirmation, current.meta, taskId, actor);
-      if (confirmed.member.plan.plan_version !== member.plan.plan_version
-        || confirmed.member.plan.topology_digest !== member.plan.topology_digest
-        || confirmed.activation.event_digest !== activation.event_digest) {
+      const confirmedMember = activeMember(confirmation, current.meta.plan_key);
+      const confirmedActivation = literalEvent(confirmedMember, { kind: 'start', taskId, actor });
+      if (confirmedMember.plan.plan_version !== member.plan.plan_version
+        || confirmedMember.plan.topology_digest !== member.plan.topology_digest
+        || confirmedActivation?.event_digest !== activation.event_digest) {
         intervention.state = 'hold'; intervention.reason = 'version_drift';
         intervention.next_action = 'retry_intake_on_active_version'; intervention.lease_state = 'withheld';
         intervention.detail = { cause: 'todo_binding_changed_during_intake', equipment_state: 'isolated' };
