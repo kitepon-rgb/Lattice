@@ -129,6 +129,21 @@ test('live scope retains a folded parent as the container of a visible child DAG
   assert.match(renderTodoGanttSvg(layout), /data-nested-toggle-for=/u);
 });
 
+test('live scope does not render an empty panel for a visible parent with only folded children', () => {
+  const input = fixture([
+    { task_id: 'P' },
+    { task_id: 'C', parent_task_id: 'P' },
+  ]);
+  input.read.members[0].tasks[0].status = 'in-progress';
+  input.read.members[0].tasks[1].status = 'done';
+  const layout = layoutTodoGantt(input.read, input.chain);
+  const svg = renderTodoGanttSvg(layout);
+  assert.deepEqual(layout.nodes.map(({ ref: nodeRef }) => nodeRef.task_id), ['P']);
+  assert.deepEqual(layout.hierarchy_nodes, []);
+  assert.doesNotMatch(svg, /data-nested-toggle-for=/u);
+  assert.doesNotMatch(svg, /data-nested-panel-for=/u);
+});
+
 test('parentless layout and SVG remain byte-identical to the pre-hierarchy renderer', () => {
   const input = fixture([
     { task_id: 'A', title: 'Alpha' },

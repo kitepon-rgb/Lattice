@@ -199,9 +199,13 @@ function buildLevel(readModel, hierarchy, containerKey, options, layoutFlat, inc
   const layout = layoutFlat(projectedRead, projectTodoChainV1(topologyOf(projectedRead)), levelOptions);
   const children = selected.flatMap((parentKey) => {
     if ((hierarchy.childrenByParent.get(parentKey) ?? []).length === 0) return [];
+    const childLevel = buildLevel(
+      readModel, hierarchy, parentKey, options, layoutFlat, includesSubtree,
+    );
+    if (childLevel.layout.nodes.length === 0 && childLevel.children.length === 0) return [];
     return [{
       parent_ref: { ...hierarchy.tasks.get(parentKey).ref },
-      level: buildLevel(readModel, hierarchy, parentKey, options, layoutFlat, includesSubtree),
+      level: childLevel,
     }];
   });
   return { layout, children };
