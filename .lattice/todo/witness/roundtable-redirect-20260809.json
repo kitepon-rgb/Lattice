@@ -39,12 +39,12 @@
           "symbols": ["driveScriptedManagedEpoch", "runObserve", "runRuntimeCli", "runStart"]
         },
         {
-          "within": { "kind": "path", "target": "src/runtime-engine.mjs" },
-          "symbols": ["dispatchReadyFrontier", "selectDispatchable"]
-        },
-        {
           "within": { "kind": "path", "target": "src/runtime-decision-verifier.mjs" },
           "symbols": ["computeReadyFrontier"]
+        },
+        {
+          "within": { "kind": "path", "target": "src/runtime-engine.mjs" },
+          "symbols": ["dispatchReadyFrontier", "selectDispatchable"]
         }
       ],
       "reads": [
@@ -142,5 +142,5 @@
       ]
     }
   },
-  "witness_set_digest": "1c702dac5481a2a2bbe9d516317ddfe169ccf7e6a4d277dbc9cf66cdb48743d9"
+  "witness_set_digest": "44a4f82280403e965ae9c88884fe477c56bd3c75f0a849feb5cd93cfb72fc761"
 }
