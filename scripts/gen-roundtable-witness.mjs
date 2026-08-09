@@ -175,12 +175,12 @@ def('t20', {
   owns: [
     p('CHANGELOG.md'), p('docs/00_product-contract.md'), p('package-lock.json'),
     p('package.json'), p('scripts/gen-roundtable-witness.mjs'),
-    p('test/todo-store-atomic-commit.test.mjs'), pc(EV('t20')),
+    p('test/todo-cli.test.mjs'), p('test/todo-store-atomic-commit.test.mjs'), pc(EV('t20')),
   ],
   writes: [
     'CHANGELOG.md', 'docs/00_product-contract.md', 'package-lock.json',
     'package.json', 'scripts/gen-roundtable-witness.mjs',
-    'test/todo-store-atomic-commit.test.mjs', EV('t20'),
+    'test/todo-cli.test.mjs', 'test/todo-store-atomic-commit.test.mjs', EV('t20'),
   ],
   state_effects: [se('npm-registry-quolu-lattice', 'state')],
 })
