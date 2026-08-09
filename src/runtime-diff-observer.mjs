@@ -312,10 +312,14 @@ export function detectCheckpointFindings(options = {}) {
   if (!plainRecord(packet) || !plainRecord(packet.scope) || !Array.isArray(packet.scope.writes)) {
     fail(`packetが不正: ${todoId}`);
   }
+  const manifest = manifests[todoId];
+  if (!plainRecord(manifest) || !Array.isArray(manifest.writes)) {
+    fail(`boundary manifestが不正: ${todoId}`);
+  }
   // findingはverifier（classifyObservedDiff）と同じper-path shapeで返す。
   const findings = [];
   for (const entry of [...checkpoint.diff.entries].sort((l, r) => (l.path < r.path ? -1 : 1))) {
-    if (!coveredBy(packet.scope.writes, entry.path)) {
+    if (!coveredBy(manifest.writes, entry.path)) {
       findings.push({ kind: 'undeclared_write', todo_ids: [todoId], path: entry.path });
     }
   }
@@ -325,8 +329,12 @@ export function detectCheckpointFindings(options = {}) {
     if (!plainRecord(other) || !plainRecord(other.scope) || !Array.isArray(other.scope.writes)) {
       fail(`packetが不正: ${otherId}`);
     }
+    const otherManifest = manifests[otherId];
+    if (!plainRecord(otherManifest) || !Array.isArray(otherManifest.writes)) {
+      fail(`boundary manifestが不正: ${otherId}`);
+    }
     for (const entry of [...checkpoint.diff.entries].sort((l, r) => (l.path < r.path ? -1 : 1))) {
-      if (coveredBy(other.scope.writes, entry.path)) {
+      if (coveredBy(otherManifest.writes, entry.path)) {
         findings.push({
           kind: 'observed_write_conflict',
           todo_ids: [todoId, otherId].sort(),

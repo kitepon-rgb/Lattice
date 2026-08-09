@@ -353,7 +353,10 @@ test('sentinelが無い構成でも呼べる', () => {
 
 const overlapWarning = { kind: 'io_overlap_warning', todo_ids: ['T1', 'T2'], path: 'src/page.mjs' };
 const bothWrote = { T1: checkpoint(['src/page.mjs']), T2: checkpoint(['src/page.mjs', 'src/style.mjs']) };
-const manifests = { T1: {}, T2: {} };
+const manifests = {
+  T1: { writes: [...packets.T1.scope.writes] },
+  T2: { writes: [...packets.T2.scope.writes] },
+};
 
 test('probeを通った重なりは、そのままfinding candidateになる', () => {
   const probe = probeIoWarning({ warning: overlapWarning, checkpointsByTodo: bothWrote });

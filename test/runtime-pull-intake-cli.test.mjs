@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { observeManagedProcessStartIdentity } from '../src/runtime-managed-supervisor.mjs';
+import { detectCheckpointFindings } from '../src/runtime-diff-observer.mjs';
 import { TODO_INDEPENDENCE_SCHEMA } from '../src/todo-independence-contracts.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 import {
@@ -360,6 +361,11 @@ test('再intakeはequipment identity不変で実効manifestを更新し、境界
       observed.witness_set_digest, observed.independence_result_digest],
     [released.manifest_digest, released.packet_digest,
       refreshedWitness.witness_set_digest, compiled.result_digest]);
+    assert.deepEqual(detectCheckpointFindings({
+      todoId: 'A', checkpoint: { diff: { entries: [{ path: 'src/shared.mjs' }] } },
+      packets: { A: { scope: { writes: [] } } },
+      manifests: { A: { writes: ['src/shared.mjs'] } }, runningTodoIds: ['A'],
+    }).findings, []);
 
     await writeFile(path.join(root, 'src', 'shared.mjs'), 'export const shared = 2;\n');
     git(root, ['add', 'src/shared.mjs']);
