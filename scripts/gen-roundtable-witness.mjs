@@ -230,11 +230,31 @@ def('t21', {
 // ---- gate（受入実測。runの実験はrun storeへ触れるが宣言scopeはevidenceのみ） ----
 def('t7', {
   owns: [
-    p('src/runtime-cli.mjs'), p('test/runtime-adapter-registry-cli.test.mjs'), pc(EV('t7')),
+    p('src/runtime-cli.mjs'), p('src/runtime-adapter-registry.mjs'),
+    p('src/runtime-controller-protocol.mjs'), p('src/runtime-work-order-controller.mjs'),
+    p('test/runtime-adapter-registry-cli.test.mjs'),
+    p('test/runtime-controller-protocol.test.mjs'),
+    p('test/runtime-work-order-controller.test.mjs'),
+    pc('docs/schemas/lattice.runtime_adapter_capabilities.v2.schema.json'),
+    pc('docs/schemas/lattice.runtime_adapter_registration_input.v2.schema.json'),
+    pc('docs/adr/0161-controller-declares-host-driven-epoch.md'), pc(EV('t7')),
   ],
-  reads: ['src/runtime-adapter-registry.mjs'],
-  writes: ['src/runtime-cli.mjs', 'test/runtime-adapter-registry-cli.test.mjs', EV('t7')],
-  affected_tests: ['test/runtime-adapter-registry-cli.test.mjs'],
+  reads: ['docs/adr/0126-distribute-scripted-adapter-controller.md'],
+  writes: [
+    'src/runtime-cli.mjs', 'src/runtime-adapter-registry.mjs',
+    'src/runtime-controller-protocol.mjs', 'src/runtime-work-order-controller.mjs',
+    'test/runtime-adapter-registry-cli.test.mjs',
+    'test/runtime-controller-protocol.test.mjs',
+    'test/runtime-work-order-controller.test.mjs',
+    'docs/schemas/lattice.runtime_adapter_capabilities.v2.schema.json',
+    'docs/schemas/lattice.runtime_adapter_registration_input.v2.schema.json',
+    'docs/adr/0161-controller-declares-host-driven-epoch.md', EV('t7'),
+  ],
+  affected_tests: [
+    'test/runtime-adapter-registry-cli.test.mjs',
+    'test/runtime-controller-protocol.test.mjs',
+    'test/runtime-work-order-controller.test.mjs',
+  ],
   state_effects: [
     se('lattice-run-store', 'state'), se('pt-setup-sh', 'state'),
     se('pt-teardown-sh', 'state'), se('pt-setup-runtime-exclude-repro', 'state'),
