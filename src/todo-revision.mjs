@@ -215,7 +215,7 @@ function canonicalizeForCompare(value) {
   )));
 }
 
-function todoTaskMigrationDigest(taskMigration) {
+export function todoTaskMigrationDigest(taskMigration) {
   return todoSelfDigest({ task_migration: taskMigration, task_migration_digest: '' },
     'task_migration_digest');
 }

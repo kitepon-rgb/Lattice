@@ -116,6 +116,7 @@ import {
   parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
   validateTodoRevision, validateTodoRevisionSet,
 } from './todo-revision.mjs';
+import { compileTodoSplit } from './todo-split.mjs';
 import {
   appendTodoNote,
   readTodoNoteContext,
@@ -177,7 +178,7 @@ function typedFailure(stderr, error) {
 const TODO_COMMAND_NAMES = Object.freeze([
   'status', 'show', 'note', 'bindings', 'independence', 'seam-profile', 'seam-proposal',
   'verify', 'snapshot', 'gantt', 'dashboard', 'phase', 'migrate', 'start', 'block',
-  'unblock', 'done', 'reopen', 'evidence', 'revise', 'revise-phase', 'revise-set',
+  'unblock', 'done', 'reopen', 'evidence', 'split', 'revise', 'revise-phase', 'revise-set',
 ]);
 
 function typedArgumentFailure(stderr, code, message, detail) {
@@ -1320,6 +1321,47 @@ async function revisePhase({ repoRoot, env, planKey, inputRef }) {
   if (revision.plan_key !== planKey) throw new TodoStoreError('REVISION_INVALID', 'requested_plan_mismatch');
   return applyPhaseTodoRevision({ repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
     revision, actor: mutationActor(env), recordedAt: new Date().toISOString() });
+}
+
+async function splitTodo({ repoRoot, env, planKey, inputRef }) {
+  const proposal = await readMigrationInput(repoRoot, inputRef, { requireValid: false });
+  const store = await readTodoStore({ repoRoot });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (member === undefined) throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active');
+  if (await readTodoWitnessSet({ repoRoot, planKey }) === null) {
+    throw new TodoStoreError('WITNESS_MIGRATION_UNAVAILABLE', 'witness_set_absent', undefined, {
+      witness_ref: todoWitnessRef(planKey),
+      next_action: `lattice todo independence witness scaffold --plan ${planKey} --input <draft>`,
+    });
+  }
+  const compiled = await compileTodoSplit({ repoRoot, member, proposal });
+  const actor = mutationActor(env);
+  const recordedAt = new Date().toISOString();
+  const receipt = compiled.revision.schema === 'lattice.phase_todo_revision.v3'
+    ? await applyPhaseTodoRevision({
+      repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+      revision: compiled.revision, actor, recordedAt,
+    })
+    : await applyTodoRevision({
+      repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+      revision: compiled.revision, actor, recordedAt,
+    });
+  const witnessMigration = await independenceWitnessMigrate({ repoRoot, planKey });
+  const result = {
+    schema: 'lattice.todo_split_result.v1',
+    project_id: store.project_id,
+    plan_key: planKey,
+    predecessor_task_id: proposal.task_id,
+    residual_task_id: proposal.task_id,
+    extracted_task_ids: compiled.extracted_task_ids,
+    plan_version: compiled.revision.desired_plan.plan_version,
+    revision_digest: compiled.revision.revision_digest,
+    revision_receipt_digest: receipt.receipt_digest ?? receipt.result_digest,
+    witness_migration_result_digest: witnessMigration.result_digest,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
 }
 
 async function status({ repoRoot }) {
@@ -2791,6 +2833,10 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--input' && isTodoRef(argv[4])) {
     action = (repoRoot) => revise({ repoRoot, env, planKey: argv[2], inputRef: argv[4] });
+  } else if (argv.length === 5 && argv[0] === 'split'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--input' && isTodoRef(argv[4])) {
+    action = (repoRoot) => splitTodo({ repoRoot, env, planKey: argv[2], inputRef: argv[4] });
   } else if (argv.length === 3 && argv[0] === 'revise-set'
     && argv[1] === '--input' && isTodoRef(argv[2])) {
     action = (repoRoot) => reviseSet({ repoRoot, env, inputRef: argv[2] });
