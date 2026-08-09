@@ -1231,6 +1231,11 @@ export async function sendRuntimeActivationRequest({ socketPath, request, expect
   });
 }
 
+/** 外部workerの完了を含む初回activationは、同じbootstrap接続で最終結果まで待つ。 */
+export function sendRuntimeActivationRequestUntilSettled(args) {
+  return sendRuntimeActivationRequest({ ...args, timeoutMs: 0 });
+}
+
 /** stopped/crashed supervisorの同一run明示再起動前処理。live/foreign socketは削除しない。 */
 export async function prepareManagedSupervisorRestart({ runDir }) {
   if (!path.isAbsolute(runDir) || await realpath(runDir) !== runDir) fail('RUN_NOT_MANAGED', 'restart runDir不正');

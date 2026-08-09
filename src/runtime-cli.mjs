@@ -102,7 +102,7 @@ import {
   observeManagedProcessStartIdentity,
   prepareManagedSupervisorRestart,
   resolveActiveRuntimePaths,
-  sendRuntimeActivationRequest,
+  sendRuntimeActivationRequestUntilSettled,
   sendRuntimeControlRequest,
 } from './runtime-managed-supervisor.mjs';
 
@@ -1969,7 +1969,7 @@ async function runActivate({ runDir, runRef, repoRoot, stdout, requestId = null 
   let ambiguous = false;
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      response = await sendRuntimeActivationRequest({
+      response = await sendRuntimeActivationRequestUntilSettled({
         socketPath: launched.socketPath, request, expectedPid: launched.pid,
         expectedProcessStartIdentity: launched.processStartIdentity,
       });

@@ -11,6 +11,7 @@ import {
   RuntimeManagedSupervisor,
   observeManagedProcessStartIdentity,
   runtimeManagedSupervisorInternal,
+  sendRuntimeActivationRequestUntilSettled,
   sendRuntimeControlRequest,
   serveRuntimeControlSocket,
 } from '../src/runtime-managed-supervisor.mjs';
@@ -563,10 +564,15 @@ test('deep run pathでもcwd anchorのrelative AF_UNIXでlisten/connectする', 
   const originalCwd = process.cwd();
   process.chdir(runDir);
   let server;
+  let responseDelayMs = 0;
   try {
     server = await serveRuntimeControlSocket({ socketPath: path.join(supervisorDir, 'control.sock'), handler: async (request) => {
+      if (responseDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, responseDelayMs));
+      }
       const result = sign({ schema: 'lattice.runtime_control_result.v1', operation: request.operation,
-        outcome: 'held', event_head_digest: D('9'), control_head_digest: D('a'), active_epoch: 1,
+        outcome: request.operation === 'activate' ? 'activated' : 'held',
+        event_head_digest: D('9'), control_head_digest: D('a'), active_epoch: 1,
         staged_epoch: null, unmet: [], result_digest: '' }, 'result_digest');
       const response = { schema: 'lattice.runtime_control_response.v1', request_id: request.request_id, run_id: request.run_id, outcome: 'completed', result, control_head_digest: D('a'), response_digest: '' };
       return sign(response, 'response_digest');
@@ -582,6 +588,26 @@ test('deep run pathでもcwd anchorのrelative AF_UNIXでlisten/connectする', 
     const response = await sendRuntimeControlRequest({ socketPath: path.join(supervisorDir, 'control.sock'), request });
     assert.equal(response.outcome, 'completed');
     assert.equal(process.cwd(), runDir);
+
+    responseDelayMs = 120;
+    const timedRequest = createRuntimeControlRequest({ requestId: 'request-timeout', runId: 'run-a',
+      operation: 'hold', payload, sessionNonce: 'n'.repeat(64) });
+    await assert.rejects(sendRuntimeControlRequest({
+      socketPath: path.join(supervisorDir, 'control.sock'), request: timedRequest, timeoutMs: 40,
+    }), (error) => error.code === 'RUN_OUTCOME_UNKNOWN');
+
+    const activationPayload = sign({ ...payload, operation: 'activate',
+      operation_digest: '' }, 'operation_digest');
+    const activationRequest = createRuntimeControlRequest({ requestId: 'request-activate',
+      runId: 'run-a', operation: 'activate', payload: activationPayload,
+      sessionNonce: 'n'.repeat(64) });
+    const started = Date.now();
+    const activated = await sendRuntimeActivationRequestUntilSettled({
+      socketPath: path.join(supervisorDir, 'control.sock'), request: activationRequest,
+      expectedPid: process.pid, expectedProcessStartIdentity: identity,
+    });
+    assert.equal(activated.result.outcome, 'activated');
+    assert.ok(Date.now() - started >= 100);
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));
     process.chdir(originalCwd);
