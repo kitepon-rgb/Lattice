@@ -7,6 +7,7 @@ import {
   SEAM_PROPOSAL_SCHEMA,
   validateSeamProposal,
 } from '../src/seam-proposal-contracts.mjs';
+import { TODO_INDEPENDENCE_SCHEMA } from '../src/todo-independence-contracts.mjs';
 import {
   buildSeamProposalQuerySet,
   collectSeamProposalEvidenceBundle,
@@ -118,7 +119,7 @@ function sealArtifact(evidence) {
     project_id: 'lattice',
     plan_key: 'seam-proposal',
     source_binding: {
-      independence_schema: 'lattice.todo_independence.v3',
+      independence_schema: TODO_INDEPENDENCE_SCHEMA,
       independence_result_digest: DIGEST('d'),
       witness_set_digest: DIGEST('e'),
       plan_version: 'v1',

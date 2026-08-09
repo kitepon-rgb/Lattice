@@ -6,6 +6,7 @@ import {
   deriveSeamProposalId,
   validateSeamProposal,
 } from '../src/seam-proposal-contracts.mjs';
+import { TODO_INDEPENDENCE_SCHEMA } from '../src/todo-independence-contracts.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 
 const BASE_SHA = 'a'.repeat(40);
@@ -36,7 +37,7 @@ function acceptedArtifact() {
     project_id: 'lattice',
     plan_key: 'plan-a',
     source_binding: {
-      independence_schema: 'lattice.todo_independence.v3',
+      independence_schema: TODO_INDEPENDENCE_SCHEMA,
       independence_result_digest: DIGEST('b'),
       witness_set_digest: DIGEST('c'),
       plan_version: 'v1',
@@ -177,6 +178,18 @@ test('正しいN-task conflict componentのaccepted artifactが通る', () => {
   assert.equal(validateSeamProposal(value), true);
   assert.equal(value.decisions[0].task_ids.length, 3);
   assert.equal(value.decisions[0].conflicts.length, 2);
+});
+
+test('旧independence schemaへ再封印したsource bindingを拒否する', () => {
+  for (const legacySchema of [
+    'lattice.todo_independence.v3',
+    'lattice.todo_independence.v4',
+  ]) {
+    const value = acceptedArtifact();
+    value.source_binding.independence_schema = legacySchema;
+    value.result_digest = todoSelfDigest(value, 'result_digest');
+    assert.equal(validateSeamProposal(value), false, legacySchema);
+  }
 });
 
 test('receiptは「一意に決まった」と「決まらず候補があった」を混ぜられない', () => {

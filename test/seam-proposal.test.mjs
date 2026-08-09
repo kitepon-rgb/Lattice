@@ -15,6 +15,7 @@ import {
   verifyVirtualCompileReceipt,
 } from '../src/seam-proposal.mjs';
 import { validateSeamProposal } from '../src/seam-proposal-contracts.mjs';
+import { TODO_INDEPENDENCE_SCHEMA } from '../src/todo-independence-contracts.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 import { selfDigest } from '../src/runtime-contracts.mjs';
 
@@ -867,7 +868,7 @@ test('一意なfeasible候補だけをv2 artifactへ落としcontractを満た�
     project_id: 'lattice',
     plan_key: 'seam-proposal',
     source_binding: {
-      independence_schema: 'lattice.todo_independence.v3',
+      independence_schema: TODO_INDEPENDENCE_SCHEMA,
       independence_result_digest: DIGEST('1'),
       witness_set_digest: DIGEST('2'),
       plan_version: 'v1',
