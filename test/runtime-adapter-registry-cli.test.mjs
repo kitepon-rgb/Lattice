@@ -18,6 +18,7 @@ import test from 'node:test';
 import {
   validateAdapterLaunchDescriptor,
   validateAdapterRegistry,
+  validateRuntimeAdapterCapabilities,
 } from '../src/runtime-controller-protocol.mjs';
 import { selfDigest } from '../src/runtime-contracts.mjs';
 import { registerRuntimeAdapter } from '../src/runtime-adapter-registry.mjs';
@@ -26,6 +27,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin', 'lattice.mjs');
 const SCHEMA_TITLE = 'lattice.runtime_adapter_registration_input.v2';
 const LEGACY_SCHEMA_TITLE = 'lattice.runtime_adapter_registration_input.v1';
+const CAPABILITIES_SCHEMA_TITLE = 'lattice.runtime_adapter_capabilities.v2';
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
@@ -65,6 +67,36 @@ test('register入力schemaは公開CLIとpackage配布物から取得でき、di
   const manifest = JSON.parse(await readFile(path.join(ROOT, 'package.json'), 'utf8'));
   assert.ok(manifest.files.includes(`docs/schemas/${SCHEMA_TITLE}.schema.json`));
   assert.ok(manifest.files.includes(`docs/schemas/${LEGACY_SCHEMA_TITLE}.schema.json`));
+  assert.ok(manifest.files.includes(`docs/schemas/${CAPABILITIES_SCHEMA_TITLE}.schema.json`));
+  const capabilitiesSchema = JSON.parse(await readFile(path.join(
+    ROOT,
+    'docs',
+    'schemas',
+    `${CAPABILITIES_SCHEMA_TITLE}.schema.json`,
+  ), 'utf8'));
+  assert.equal(capabilitiesSchema.title, CAPABILITIES_SCHEMA_TITLE);
+  assert.equal(capabilitiesSchema.additionalProperties, false);
+  assert.ok(capabilitiesSchema.required.includes('host_driven_epoch'));
+  assert.deepEqual(capabilitiesSchema.properties.host_driven_epoch, { type: 'boolean' });
+  assert.deepEqual(capabilitiesSchema.properties.operations.const, [
+    'dispatch', 'observe', 'inventory', 'barrier', 'rebind', 'prepare',
+    'activate', 'release', 'revoke',
+  ]);
+  for (const hostDrivenEpoch of [true, false]) {
+    const capabilities = {
+      schema: CAPABILITIES_SCHEMA_TITLE,
+      operations: [...capabilitiesSchema.properties.operations.const],
+      process_observation: true,
+      worktree_fingerprint: true,
+      staged_write_lease: true,
+      durable_dispatch: true,
+      host_driven_epoch: hostDrivenEpoch,
+      capabilities_digest: '',
+    };
+    capabilities.capabilities_digest = selfDigest(capabilities, 'capabilities_digest');
+    assert.deepEqual(Object.keys(capabilities).sort(), [...capabilitiesSchema.required].sort());
+    assert.equal(validateRuntimeAdapterCapabilities(capabilities), true);
+  }
 });
 
 test('registry未作成のlistは空のversioned resultを返す', async (t) => {

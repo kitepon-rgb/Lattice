@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.runtime_adapter_capabilities.v2.schema.json",
+  "title": "lattice.runtime_adapter_capabilities.v2",
+  "description": "controller handshakeとlaunch descriptorを束縛するruntime adapter能力契約。host_driven_epochはhostによるmanaged epoch駆動の受入宣言である。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "operations",
+    "process_observation",
+    "worktree_fingerprint",
+    "staged_write_lease",
+    "durable_dispatch",
+    "host_driven_epoch",
+    "capabilities_digest"
+  ],
+  "properties": {
+    "schema": {
+      "const": "lattice.runtime_adapter_capabilities.v2"
+    },
+    "operations": {
+      "const": [
+        "dispatch",
+        "observe",
+        "inventory",
+        "barrier",
+        "rebind",
+        "prepare",
+        "activate",
+        "release",
+        "revoke"
+      ]
+    },
+    "process_observation": {
+      "const": true
+    },
+    "worktree_fingerprint": {
+      "const": true
+    },
+    "staged_write_lease": {
+      "const": true
+    },
+    "durable_dispatch": {
+      "const": true
+    },
+    "host_driven_epoch": {
+      "type": "boolean"
+    },
+    "capabilities_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

@@ -1,4 +1,4 @@
-# ADR 0161 — host駆動managed epochをadapter能力として宣言する
+# ADR 0161 — controllerがhost駆動managed epochを能力として宣言する
 
 - Status: Accepted
 - Date: 2026-08-09
