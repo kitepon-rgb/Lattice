@@ -118,6 +118,7 @@ import {
  *   lattice run observe  --run .lattice/runs/<run-id>
  *   lattice run status   --run .lattice/runs/<run-id>
  *   lattice run resume   --run .lattice/runs/<run-id>
+ *   lattice run landing  --run .lattice/runs/<run-id>
  *   lattice run close    --run .lattice/runs/<run-id>
  *   lattice run abandon  --run .lattice/runs/<run-id> --reason <reason>
  *   lattice event verify --run .lattice/runs/<run-id>
@@ -1538,6 +1539,132 @@ async function runResume({ runDir, repoRoot, stdout }) {
   return 0;
 }
 
+/**
+ * accepted receiptが束縛したworktree HEADの、remote既定branchへの着地状態を投影する。
+ *
+ * receipt本体はhead_shaを持たない。裁定時にexact bindされたcheckpoint_digestから、
+ * 同じTODOのcheckpoint_observed.diff.head_shaへ辿る。git refsとrun storeを読むだけで、
+ * branchもevent列も動かさない。未着地・upstream無しは判断結果であり失敗ではない。
+ */
+async function buildRunLandingReport({ runDir, repoRoot, events: providedEvents = null,
+  runId: providedRunId = null }) {
+  let events = providedEvents;
+  let runId = providedRunId;
+  if (events === null || runId === null) {
+    const stored = await readRunStore(runDir);
+    events = stored.events;
+    runId = stored.meta.run_id;
+  }
+  requireValidEventChain(events);
+  const state = projectRuntimeState({ events });
+
+  const push = await runGit(['rev-parse', '--symbolic-full-name', '@{push}'], repoRoot);
+  let pushState = 'no_upstream';
+  let pushRef = null;
+  let unpushedCommits = null;
+  let remoteName = null;
+  if (push.code === 0 && push.stdout.trim().length > 0) {
+    pushRef = push.stdout.trim();
+    const remoteMatch = /^refs\/remotes\/([^/]+)\/.+$/u.exec(pushRef);
+    remoteName = remoteMatch?.[1] ?? null;
+    const count = await runGit(['rev-list', '--count', `${pushRef}..HEAD`], repoRoot);
+    if (count.code !== 0 || !/^\d+$/u.test(count.stdout.trim())) {
+      throw new CliContractError('LANDING_GIT_UNRESOLVED',
+        `push差分を読めない: ${count.stderr.trim() || count.stdout.trim()}`);
+    }
+    pushState = 'tracked';
+    unpushedCommits = Number(count.stdout.trim());
+  }
+
+  if (remoteName === null) {
+    const remotes = await runGit(['remote'], repoRoot);
+    if (remotes.code !== 0) {
+      throw new CliContractError('LANDING_GIT_UNRESOLVED',
+        `remote一覧を読めない: ${remotes.stderr.trim()}`);
+    }
+    const names = remotes.stdout.split('\n').map((name) => name.trim()).filter(Boolean);
+    if (names.length === 1) [remoteName] = names;
+  }
+  let defaultBranchState = 'unresolved';
+  let defaultBranchRef = null;
+  if (remoteName !== null) {
+    const symbolic = await runGit(
+      ['symbolic-ref', '--quiet', `refs/remotes/${remoteName}/HEAD`], repoRoot,
+    );
+    const candidate = symbolic.stdout.trim();
+    if (symbolic.code === 0
+      && candidate.startsWith(`refs/remotes/${remoteName}/`)
+      && candidate !== `refs/remotes/${remoteName}/HEAD`) {
+      defaultBranchState = 'resolved';
+      defaultBranchRef = candidate;
+    }
+  }
+
+  const acceptedReceipts = [];
+  const accepted = state.receipts
+    .filter((receipt) => receipt.accepted_sequence !== null)
+    .sort((left, right) => left.todo_id.localeCompare(right.todo_id)
+      || left.receipt_id.localeCompare(right.receipt_id));
+  for (const receipt of accepted) {
+    const checkpointDigest = receipt.payload?.checkpoint_digest;
+    const checkpoint = state.checkpoints.findLast((entry) => (
+      entry.todo_id === receipt.todo_id
+      && entry.sequence < receipt.accepted_sequence
+      && entry.payload?.checkpoint_digest === checkpointDigest
+    ));
+    const candidateHead = checkpoint?.payload?.diff?.head_sha;
+    const headSha = typeof candidateHead === 'string' && /^[0-9a-f]{40}$/u.test(candidateHead)
+      ? candidateHead : null;
+    let landingState = 'head_unavailable';
+    let landed = false;
+    if (headSha !== null && defaultBranchRef === null) {
+      landingState = 'default_branch_unresolved';
+    } else if (headSha !== null) {
+      const ancestry = await runGit(
+        ['merge-base', '--is-ancestor', headSha, defaultBranchRef], repoRoot,
+      );
+      if (ancestry.code === 0) {
+        landingState = 'landed';
+        landed = true;
+      } else if (ancestry.code === 1) {
+        landingState = 'not_landed';
+      } else {
+        throw new CliContractError('LANDING_GIT_UNRESOLVED',
+          `receipt HEADの祖先性を読めない: ${ancestry.stderr.trim()}`);
+      }
+    }
+    acceptedReceipts.push({
+      todo_id: receipt.todo_id,
+      receipt_id: receipt.receipt_id,
+      head_sha: headSha,
+      landing_state: landingState,
+      landed,
+    });
+  }
+
+  const output = {
+    schema: 'lattice.run_landing_report.v1',
+    run_id: runId,
+    landed: acceptedReceipts.length > 0 && acceptedReceipts.every((receipt) => receipt.landed),
+    accepted_receipts: acceptedReceipts,
+    repository: {
+      default_branch_state: defaultBranchState,
+      default_branch_ref: defaultBranchRef,
+      push_state: pushState,
+      push_ref: pushRef,
+      unpushed_commits: unpushedCommits,
+    },
+  };
+  output.result_digest = digestArtifact(output);
+  return output;
+}
+
+async function runLanding({ runDir, repoRoot, stdout }) {
+  const output = await buildRunLandingReport({ runDir, repoRoot });
+  stdout.write(`${JSON.stringify(output)}\n`);
+  return 0;
+}
+
 async function runClose({ runDir, repoRoot, stdout, requestId = null }) {
   return withLifecycleLock(runDir, async () => {
     const { events, meta, compileArtifact, request, managed } = await readRunStore(runDir);
@@ -1581,6 +1708,9 @@ async function runClose({ runDir, repoRoot, stdout, requestId = null }) {
       already_closed: alreadyClosed,
       event_count: next.length,
       events_digest: digestArtifact(next.map(({ event_digest: digest }) => digest)),
+      landing: await buildRunLandingReport({
+        runDir, repoRoot, events: next, runId: meta.run_id,
+      }),
     };
     output.result_digest = digestArtifact(output);
     stdout.write(`${JSON.stringify(output)}\n`);
@@ -4083,13 +4213,14 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
       return runActivate({ runDir, runRef, repoRoot, stdout, requestId: requestIdOverride });
     };
   } else if (argv.length === 4
-    && argv[0] === 'run' && ['observe', 'status', 'resume', 'close'].includes(argv[1])
+    && argv[0] === 'run' && ['observe', 'status', 'resume', 'landing', 'close'].includes(argv[1])
     && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0) {
     action = async () => {
       const { repoRoot, runDir } = await resolveRunStore(cwd, argv[3]);
       if (argv[1] === 'observe') return runObserve({ runDir, stdout });
       if (argv[1] === 'status') return runStatus({ runDir, stdout });
       if (argv[1] === 'resume') return runResume({ runDir, repoRoot, stdout });
+      if (argv[1] === 'landing') return runLanding({ runDir, repoRoot, stdout });
       return runClose({ runDir, repoRoot, stdout, requestId: requestIdOverride });
     };
   } else if (argv.length === 6

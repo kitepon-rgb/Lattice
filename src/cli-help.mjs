@@ -177,6 +177,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'run observe': 'run observe --run .lattice/runs/<id>',
   'run status': 'run status --run .lattice/runs/<id>',
   'run resume': 'run resume --run .lattice/runs/<id>',
+  'run landing': 'run landing --run .lattice/runs/<id>',
   'run close': 'run close --run .lattice/runs/<id>',
   'run abandon': 'run abandon --run .lattice/runs/<id> --reason <reason>',
   'run list': 'run list --json',
