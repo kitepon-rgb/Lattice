@@ -59,6 +59,7 @@
     },
     "cp2": {
       "owns": [
+        { "kind": "path", "target": "src/todo-store.mjs" },
         { "kind": "path", "target": "src/todo-status.mjs" },
         { "creates": true, "kind": "path", "target": "test/todo-cross-plan-status.test.mjs" },
         { "creates": true, "kind": "path", "target": "evidence/cross-plan-dependencies-20260809/cp2.md" }
@@ -68,11 +69,13 @@
         "src/todo-parallel-candidates.mjs"
       ],
       "writes": [
+        "src/todo-store.mjs",
         "src/todo-status.mjs",
         "test/todo-cross-plan-status.test.mjs",
         "evidence/cross-plan-dependencies-20260809/cp2.md"
       ],
       "affected_tests": [
+        "test/todo-cross-plan-dependency.test.mjs",
         "test/todo-ready-frontier.test.mjs",
         "test/todo-status.test.mjs",
         "test/todo-cross-plan-status.test.mjs"
@@ -149,5 +152,5 @@
       { "id": "witness-status", "operation": "status" }
     ]
   },
-  "witness_set_digest": "2d477bfcdb94bf0fe3286c7873941be08692e1604e0489b652a2908240e374f0"
+  "witness_set_digest": "64486de3803592a69ee7442ca056aac7043c52fb986499a0f27687c0189f3c32"
 }
