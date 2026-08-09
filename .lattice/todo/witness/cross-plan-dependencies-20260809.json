@@ -1,0 +1,153 @@
+{
+  "schema": "lattice.todo_witness_set.v4",
+  "project_id": "lattice",
+  "plan_key": "cross-plan-dependencies-20260809",
+  "capacity": {
+    "executors": 3
+  },
+  "manual_witness": {
+    "cp1": {
+      "owns": [
+        { "kind": "path", "target": "src/cli-help.mjs" },
+        { "kind": "path", "target": "src/todo-cli.mjs" },
+        { "kind": "path", "target": "src/todo-contracts.mjs" },
+        { "kind": "path", "target": "src/todo-store.mjs" },
+        { "creates": true, "kind": "path", "target": "test/todo-cross-plan-dependency.test.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/cross-plan-dependencies-20260809/cp1.md" }
+      ],
+      "reads": [
+        "src/todo-status.mjs",
+        "test/todo-coordination-mode.test.mjs"
+      ],
+      "writes": [
+        "src/cli-help.mjs",
+        "src/todo-cli.mjs",
+        "src/todo-contracts.mjs",
+        "src/todo-store.mjs",
+        "test/todo-cross-plan-dependency.test.mjs",
+        "evidence/cross-plan-dependencies-20260809/cp1.md"
+      ],
+      "affected_tests": [
+        "test/cli-help.test.mjs",
+        "test/todo-coordination-mode.test.mjs",
+        "test/todo-cross-plan-dependency.test.mjs",
+        "test/todo-store.test.mjs"
+      ],
+      "resources": [
+        "lattice-todo-store-contract"
+      ],
+      "state_effects": [
+        { "kind": "state", "resource_id": "lattice-todo-store-contract" }
+      ],
+      "unknowns": [],
+      "sensor_provenance": {
+        "queries": [
+          {
+            "query_id": "q-cp1-append-event",
+            "expect": { "kind": "symbol", "name": "appendTodoEvent", "path": "src/todo-store.mjs" }
+          },
+          {
+            "query_id": "q-cp1-contract-impact",
+            "expect": { "kind": "affected", "path": "src/todo-contracts.mjs" }
+          },
+          {
+            "query_id": "q-cp1-cli-impact",
+            "expect": { "kind": "affected", "path": "src/todo-cli.mjs" }
+          }
+        ]
+      }
+    },
+    "cp2": {
+      "owns": [
+        { "kind": "path", "target": "src/todo-status.mjs" },
+        { "creates": true, "kind": "path", "target": "test/todo-cross-plan-status.test.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/cross-plan-dependencies-20260809/cp2.md" }
+      ],
+      "reads": [
+        "src/todo-store.mjs",
+        "src/todo-parallel-candidates.mjs"
+      ],
+      "writes": [
+        "src/todo-status.mjs",
+        "test/todo-cross-plan-status.test.mjs",
+        "evidence/cross-plan-dependencies-20260809/cp2.md"
+      ],
+      "affected_tests": [
+        "test/todo-ready-frontier.test.mjs",
+        "test/todo-status.test.mjs",
+        "test/todo-cross-plan-status.test.mjs"
+      ],
+      "resources": [],
+      "state_effects": [],
+      "unknowns": [],
+      "sensor_provenance": { "queries": [] }
+    },
+    "cp3": {
+      "owns": [
+        { "kind": "path", "target": "src/todo-gantt-layout.mjs" },
+        { "kind": "path", "target": "src/todo-gantt-presentation.mjs" },
+        { "kind": "path", "target": "src/todo-gantt-svg.mjs" },
+        { "creates": true, "kind": "path", "target": "test/todo-gantt-cross-plan.test.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/cross-plan-dependencies-20260809/cp3.md" }
+      ],
+      "reads": [
+        "src/todo-store.mjs",
+        "src/todo-gantt-html.mjs"
+      ],
+      "writes": [
+        "src/todo-gantt-layout.mjs",
+        "src/todo-gantt-presentation.mjs",
+        "src/todo-gantt-svg.mjs",
+        "test/todo-gantt-cross-plan.test.mjs",
+        "evidence/cross-plan-dependencies-20260809/cp3.md"
+      ],
+      "affected_tests": [
+        "test/todo-gantt-layout.test.mjs",
+        "test/todo-gantt-presentation.test.mjs",
+        "test/todo-gantt-render.test.mjs",
+        "test/todo-gantt-cross-plan.test.mjs"
+      ],
+      "resources": [],
+      "state_effects": [],
+      "unknowns": [],
+      "sensor_provenance": { "queries": [] }
+    },
+    "cp4": {
+      "owns": [
+        { "creates": true, "kind": "path", "target": "test/integration/cross-plan-dependency.integration.mjs" },
+        { "creates": true, "kind": "path", "target": "evidence/cross-plan-dependencies-20260809/cp4.md" }
+      ],
+      "reads": [
+        "src/todo-cli.mjs",
+        "src/todo-status.mjs",
+        "src/todo-gantt-live.mjs"
+      ],
+      "writes": [
+        "test/integration/cross-plan-dependency.integration.mjs",
+        "evidence/cross-plan-dependencies-20260809/cp4.md"
+      ],
+      "affected_tests": [
+        "test/integration/cross-plan-dependency.integration.mjs"
+      ],
+      "resources": [
+        "lattice-todo-store",
+        "browser"
+      ],
+      "state_effects": [
+        { "kind": "state", "resource_id": "lattice-todo-store" },
+        { "kind": "state", "resource_id": "browser" }
+      ],
+      "unknowns": [],
+      "sensor_provenance": { "queries": [] }
+    }
+  },
+  "sensor_query_set": {
+    "queries": [
+      { "id": "q-cp1-append-event", "operation": "query", "target": "appendTodoEvent" },
+      { "id": "q-cp1-cli-impact", "operation": "affected", "target": "runTodoCli" },
+      { "id": "q-cp1-contract-impact", "operation": "affected", "target": "validateTodoEvent" },
+      { "id": "witness-status", "operation": "status" }
+    ]
+  },
+  "witness_set_digest": "2ce2fecf52190a252b24ccd0e4d47367ef589b82c16febdf860acd4b37a40cf6"
+}
