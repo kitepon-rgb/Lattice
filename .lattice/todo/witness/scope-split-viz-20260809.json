@@ -10,6 +10,7 @@
       ],
       "owns": [
         { "kind": "path", "target": "src/todo-gantt-html.mjs" },
+        { "kind": "path", "target": "src/todo-gantt-html-independence.mjs" },
         { "kind": "path", "target": "src/todo-gantt-html-style.mjs" },
         { "kind": "path", "target": "src/todo-gantt-layout.mjs" },
         { "kind": "path", "target": "src/todo-gantt-presentation.mjs" },
@@ -20,7 +21,6 @@
       ],
       "reads": [
         "src/todo-cli.mjs",
-        "src/todo-gantt-html-independence.mjs",
         "src/todo-gantt-html-shared.mjs",
         "src/todo-gantt-live.mjs",
         "src/todo-gantt-scope.mjs"
@@ -50,6 +50,7 @@
       "unknowns": [],
       "writes": [
         "src/todo-gantt-html.mjs",
+        "src/todo-gantt-html-independence.mjs",
         "src/todo-gantt-html-style.mjs",
         "src/todo-gantt-layout.mjs",
         "src/todo-gantt-presentation.mjs",
@@ -88,5 +89,5 @@
       { "id": "html-callees", "operation": "callees", "target": "renderTodoGanttHtml" }
     ]
   },
-  "witness_set_digest": "5bc431f985ab25b08a3682519652e79aa388837a78950df4e168af81513ef615"
+  "witness_set_digest": "01cd582ebb3f6857612833d6234090a6d45464d123ee77eae86fe445c4461cde"
 }
