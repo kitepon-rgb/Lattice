@@ -1166,3 +1166,15 @@ v1/v2はトグル開閉型（親は1個の箱・開くと内側パネル）で�
 ### 工程
 
 - [ ] cross-plan dependency campaignの後（またはオーナー指示の優先順で）、`todo migrate`で起票する
+
+## project跨ぎの工程可視性: 対象repoのページに他project planのtaskが映らない（2026-08-09実測）
+
+peertableページのplanが全完了表示の一方、進行中のt21（peertable 0.3.5出荷）はLattice storeの
+`roundtable-exec-20260809`（lane=peertable）に属し、peertableページから見えない——オーナーが
+「工程全部終わってることになってるじゃん」と誤読した実例。plan跨ぎ線（cp系）は同一project内の
+接続であり、これはそのproject跨ぎ版。候補: projectページへ「このrepoを対象にする他project planの
+task」を読み取り専用で投影する（正本は移さない・laneまたはtarget宣言を根拠にする）。
+
+### 工程
+
+- [ ] cp系campaignの受入後、続編として起票を検討する
