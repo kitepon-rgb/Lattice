@@ -81,6 +81,8 @@ function runCli(root, args) {
   return result;
 }
 
+const parseCliResult = (text) => JSON.parse(text.trim().split('\n').at(-1));
+
 function storeStatus(root) {
   return git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', '.lattice/todo'])
     .stdout;
@@ -140,7 +142,7 @@ test('同じcommon Git-dirのatomic lock競合はtyped RUN_BUSYでstoreを変え
   const blocked = runCli(linked,
     ['todo', 'start', '--plan', 'main', '--task', 'T1', '--commit-store']);
   assert.equal(blocked.status, 1);
-  const failure = JSON.parse(blocked.stderr);
+  const failure = parseCliResult(blocked.stderr);
   assert.equal(failure.code, 'RUN_BUSY');
   assert.equal(storeStatus(root), '');
   release();
@@ -184,7 +186,7 @@ test('共有index.lock競合はref更新前にtyped拒否しstoreをrollbackす�
   const blocked = runCli(root,
     ['todo', 'start', '--plan', 'main', '--task', 'T1', '--commit-store']);
   assert.equal(blocked.status, 1);
-  assert.equal(JSON.parse(blocked.stderr).code, 'STORE_COMMIT_INDEX_BUSY');
+  assert.equal(parseCliResult(blocked.stderr).code, 'STORE_COMMIT_INDEX_BUSY');
   assert.equal(git(root, ['rev-parse', 'HEAD']).stdout.trim(), headBefore);
   assert.equal(storeStatus(root), '');
   assert.equal(await readFile(lockPath, 'utf8'), 'foreign-index-owner\n');
@@ -200,7 +202,7 @@ test('commit hook失敗はtyped failureになりstoreを開始時bytesへrollbac
   const failed = runCli(root,
     ['todo', 'start', '--plan', 'main', '--task', 'T1', '--commit-store']);
   assert.equal(failed.status, 1);
-  assert.equal(JSON.parse(failed.stderr).code, 'STORE_COMMIT_FAILED');
+  assert.equal(parseCliResult(failed.stderr).code, 'STORE_COMMIT_FAILED');
   assert.equal(git(root, ['rev-parse', 'HEAD']).stdout.trim(), headBefore);
   assert.equal(storeStatus(root), '');
   assert.equal(await readFile(path.join(root, 'source.txt'), 'utf8'), 'source-dirty\n');
@@ -216,7 +218,7 @@ test('成功するhookがstore worktreeを再変更してもref更新前に検�
   const failed = runCli(root,
     ['todo', 'start', '--plan', 'main', '--task', 'T1', '--commit-store']);
   assert.equal(failed.status, 1);
-  assert.equal(JSON.parse(failed.stderr).code, 'STORE_COMMIT_INDEX_DIRTY');
+  assert.equal(parseCliResult(failed.stderr).code, 'STORE_COMMIT_INDEX_DIRTY');
   assert.equal(git(root, ['rev-parse', 'HEAD']).stdout.trim(), headBefore);
   assert.equal(storeStatus(root), '');
 });
@@ -231,7 +233,7 @@ test('dirty storeは所有者を推測せずtyped拒否し、既存bytesを変�
   const failed = runCli(root,
     ['todo', 'start', '--plan', 'main', '--task', 'T1', '--commit-store']);
   assert.equal(failed.status, 1);
-  assert.equal(JSON.parse(failed.stderr).code, 'STORE_COMMIT_DIRTY');
+  assert.equal(parseCliResult(failed.stderr).code, 'STORE_COMMIT_DIRTY');
   assert.equal(git(root, ['rev-parse', 'HEAD']).stdout.trim(), headBefore);
   assert.equal(await readFile(manifest, 'utf8'), dirtyBytes);
 });
@@ -302,7 +304,7 @@ test('read commandの--commit-storeはunsupportedで、既存writeは非atomic�
   ]) {
     const unsupported = runCli(root, args);
     assert.equal(unsupported.status, 2);
-    assert.equal(JSON.parse(unsupported.stderr).code, 'STORE_COMMIT_UNSUPPORTED');
+    assert.equal(parseCliResult(unsupported.stderr).code, 'STORE_COMMIT_UNSUPPORTED');
   }
 
   const headBefore = git(root, ['rev-parse', 'HEAD']).stdout.trim();
@@ -321,7 +323,7 @@ test('ignored再生成artifactだけのcompile commandはatomic commit対象外�
   ]) {
     const unsupported = runCli(root, args);
     assert.equal(unsupported.status, 2);
-    assert.equal(JSON.parse(unsupported.stderr).code, 'STORE_COMMIT_UNSUPPORTED');
+    assert.equal(parseCliResult(unsupported.stderr).code, 'STORE_COMMIT_UNSUPPORTED');
     assert.equal(storeStatus(root), '');
   }
 });

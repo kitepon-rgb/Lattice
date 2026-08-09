@@ -410,7 +410,8 @@ Peertable（MIT・npm `peertable`）はLatticeの外部消費者である。公�
   子taskへ分割し、active plan revisionを切り替える。助言は選択材料であって着手許可ではなく、Latticeは
   taskも席も選ばない。
 - **claim後の実行設備と介入**: `todo start`のlifecycle journal（`sequence`、
-  `actor{agent,host,session}`、`previous_digest`連鎖）、`run selection --mode pull`、`run intake`、process attach、
+  `actor{agent,host,session}`、`previous_digest`連鎖）、
+  `run start --selection pull --id <id> --plan <key> --equipment detached-worktree`、`run intake`、process attach、
   lease／hold／resume。席自身が先にclaim／`todo start`したtaskだけをintakeし、隔離worktreeと競合介入を
   設備として受け取る。bridgeはrun進行と介入のread-only中継に限る。eventのactorは操作主体の記録であり、
   taskへassigneeを持たせて消費者側のclaimと二重正本にしない。
