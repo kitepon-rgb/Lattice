@@ -383,31 +383,49 @@ export function validatePhaseRevisionCommitReceipt(value) {
     && selfDigestValid(value, 'receipt_digest');
 }
 
-function validateRunMetaV2(meta, createdBundle) {
+function validateRunMetaV2Envelope(meta) {
   return exactRecord(meta, [
     'schema', 'run_id', 'executor_adapter', 'run_event_schema', 'control_event_schema',
     'epoch_bundle_schema', 'created_plan_digest', 'meta_digest',
   ]) && meta.schema === 'lattice.run_meta.v2'
+    && typeof meta.run_id === 'string'
+    && typeof meta.executor_adapter === 'string'
+    && typeof meta.run_event_schema === 'string'
+    && typeof meta.control_event_schema === 'string'
+    && typeof meta.epoch_bundle_schema === 'string'
+    && HEX_DIGEST.test(meta.created_plan_digest ?? '')
+    && selfDigestValid(meta, 'meta_digest');
+}
+
+function validateRunMetaV2(meta, createdBundle) {
+  return validateRunMetaV2Envelope(meta)
     && meta.run_id === createdBundle.run_id
     && meta.run_event_schema === 'lattice.run_event.v1'
     && meta.control_event_schema === 'lattice.runtime_control_event.v1'
     && meta.epoch_bundle_schema === 'lattice.runtime_epoch_bundle.v1'
-    && meta.created_plan_digest === createdBundle.plan.plan_digest
-    && selfDigestValid(meta, 'meta_digest');
+    && meta.created_plan_digest === createdBundle.plan.plan_digest;
 }
 
-function validateCommittedPointer(pointer, bundle) {
+function validateCommittedPointerEnvelope(pointer) {
   return exactRecord(pointer, [
     'schema', 'run_id', 'plan_epoch', 'plan_ref', 'bundle_digest',
     'activation_run_event_digest', 'activation_control_event_digest', 'pointer_digest',
   ]) && pointer.schema === 'lattice.committed_epoch_pointer.v1'
-    && pointer.run_id === bundle.run_id
-    && pointer.plan_epoch === bundle.plan_epoch
-    && pointer.plan_ref === bundle.plan.plan_ref
-    && pointer.bundle_digest === bundle.bundle_digest
+    && typeof pointer.run_id === 'string'
+    && Number.isSafeInteger(pointer.plan_epoch) && pointer.plan_epoch >= 1
+    && typeof pointer.plan_ref === 'string'
+    && HEX_DIGEST.test(pointer.bundle_digest ?? '')
     && HEX_DIGEST.test(pointer.activation_run_event_digest ?? '')
     && HEX_DIGEST.test(pointer.activation_control_event_digest ?? '')
     && selfDigestValid(pointer, 'pointer_digest');
+}
+
+function validateCommittedPointer(pointer, bundle) {
+  return validateCommittedPointerEnvelope(pointer)
+    && pointer.run_id === bundle.run_id
+    && pointer.plan_epoch === bundle.plan_epoch
+    && pointer.plan_ref === bundle.plan.plan_ref
+    && pointer.bundle_digest === bundle.bundle_digest;
 }
 
 /** v1 aliasをbyte不変のままepoch 1へ昇格し、pointerを最後にcommitする。 */
@@ -499,13 +517,23 @@ export async function readCommittedEpochStore(runDir) {
   const meta = await readRegularJson(path.join(runDir, 'run-meta.json'), 'run meta');
   rejectFutureArtifact(meta, { artifact: 'run_meta', family: 'lattice.run_meta', expectedVersion: 2 });
   if (meta?.schema !== 'lattice.run_meta.v2') return null;
+  if (!validateRunMetaV2Envelope(meta)) fail('INVALID_RUN_STORE', 'run meta envelopeが不正');
+  rejectFutureRuntimeStoreSchema(meta.run_event_schema,
+    { artifact: 'run_event', family: 'lattice.run_event', expectedVersion: 1 });
+  rejectFutureRuntimeStoreSchema(meta.control_event_schema,
+    { artifact: 'runtime_control_event', family: 'lattice.runtime_control_event', expectedVersion: 1 });
+  rejectFutureRuntimeStoreSchema(meta.epoch_bundle_schema,
+    { artifact: 'runtime_epoch_bundle', family: 'lattice.runtime_epoch_bundle', expectedVersion: 1 });
+  if (meta.run_event_schema !== 'lattice.run_event.v1'
+    || meta.control_event_schema !== 'lattice.runtime_control_event.v1'
+    || meta.epoch_bundle_schema !== 'lattice.runtime_epoch_bundle.v1') {
+    fail('INVALID_RUN_STORE', 'run meta schema bindingが不正');
+  }
   const pointer = await readRegularJson(path.join(runDir, 'committed-epoch.json'), 'committed epoch pointer');
   rejectFutureArtifact(pointer, {
     artifact: 'committed_epoch_pointer', family: 'lattice.committed_epoch_pointer', expectedVersion: 1,
   });
-  if (!Number.isInteger(pointer?.plan_epoch) || pointer.plan_epoch < 1) {
-    fail('INVALID_RUN_STORE', 'committed epoch pointerのepochが不正');
-  }
+  if (!validateCommittedPointerEnvelope(pointer)) fail('INVALID_RUN_STORE', 'committed epoch pointer envelopeが不正');
   const epochName = String(pointer.plan_epoch).padStart(8, '0');
   if (!EPOCH_DIRECTORY.test(epochName)) fail('INVALID_RUN_STORE', 'epoch directory名が不正');
   const bundle = await readRegularJson(path.join(runDir, 'epochs', epochName, 'epoch-bundle.json'), 'epoch bundle');
