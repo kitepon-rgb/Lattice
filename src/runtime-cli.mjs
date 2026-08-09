@@ -90,7 +90,24 @@ import {
 } from './runtime-controller-protocol.mjs';
 import { createRuntimeControlStore } from './runtime-control-store.mjs';
 import { createRuntimeGateStore } from './runtime-gate-store.mjs';
-import { acquireRuntimeLifecycleLock } from './runtime-lifecycle-lock.mjs';
+import {
+  RuntimeLifecycleLockError,
+  acquireRuntimeLifecycleLock,
+} from './runtime-lifecycle-lock.mjs';
+import {
+  PullRunError,
+  acceptPullTask,
+  attachPullWorker,
+  closePullRun,
+  inspectRunMode,
+  intakePullTask,
+  interventionPullTask,
+  landingPullRun,
+  listPullRunEntry,
+  observePullRun,
+  startPullRun,
+  statusPullRun,
+} from './runtime-pull-intake.mjs';
 import {
   AdapterRegistryError,
   listRuntimeAdapters,
@@ -105,6 +122,7 @@ import {
   sendRuntimeActivationRequestUntilSettled,
   sendRuntimeControlRequest,
 } from './runtime-managed-supervisor.mjs';
+import { TodoStoreError } from './todo-store.mjs';
 
 /**
  * RC3-D CLI surface（ADR 0044 Decision 8）。
@@ -1298,6 +1316,19 @@ async function runStart({ requestPath, executorAdapter, cwd, stdout }) {
   return 0;
 }
 
+async function runPullStart({ runId, planKey, equipment, cwd, stdout }) {
+  const repoRoot = await resolveRepoRoot(cwd);
+  await requireSafeRunAncestors(repoRoot);
+  await requireIgnoredRunStore(repoRoot);
+  const runDir = runStorePath(repoRoot, runId);
+  await mkdir(path.dirname(runDir), { recursive: true });
+  const output = await startPullRun({ repoRoot, runDir, runId, planKey, equipment });
+  output.run_dir = path.relative(repoRoot, runDir);
+  output.result_digest = digestArtifact(output);
+  stdout.write(`${JSON.stringify(output)}\n`);
+  return 0;
+}
+
 /**
  * 記録済み競合findingを、実際の変換で解消する（請求項8・ADR 0137〜0141）。
  *
@@ -1402,6 +1433,11 @@ async function runSeamProfile({ runDir, repoRoot, findingDigest, inputPath, stdo
 }
 
 async function runObserve({ runDir, stdout }) {
+  if ((await inspectRunMode(runDir)).mode === 'pull') {
+    const output = await observePullRun(runDir);
+    stdout.write(`${JSON.stringify(output)}\n`);
+    return 0;
+  }
   const { events } = await readRunStore(runDir);
   const chain = verifyRunEventChain({ events });
   if (!chain.valid) {
@@ -1426,6 +1462,11 @@ async function runObserve({ runDir, stdout }) {
 }
 
 async function runStatus({ runDir, stdout }) {
+  if ((await inspectRunMode(runDir)).mode === 'pull') {
+    const output = await statusPullRun(runDir);
+    stdout.write(`${JSON.stringify(output)}\n`);
+    return 0;
+  }
   const { events, meta, compileArtifact, managed } = await readRunStore(runDir);
   const chain = verifyRunEventChain({ events });
   if (!chain.valid) {
@@ -1485,6 +1526,14 @@ async function runList({ cwd, stdout }) {
       throw new CliContractError('INVALID_RUN_STORE', `不正なrun store entry: ${entry.name}`);
     }
     const runDir = path.join(root, entry.name);
+    const mode = await inspectRunMode(runDir);
+    if (mode.mode === 'pull') {
+      const pull = await listPullRunEntry(runDir);
+      if (!pull.closed) activeRuns.push({
+        ...pull.entry, run_ref: `.lattice/runs/${entry.name}`,
+      });
+      continue;
+    }
     const { events, meta, request } = await readRunStore(runDir);
     requireValidEventChain(events);
     if (!projectRuntimeState({ events }).closed) {
@@ -1660,12 +1709,19 @@ async function buildRunLandingReport({ runDir, repoRoot, events: providedEvents 
 }
 
 async function runLanding({ runDir, repoRoot, stdout }) {
-  const output = await buildRunLandingReport({ runDir, repoRoot });
+  const output = (await inspectRunMode(runDir)).mode === 'pull'
+    ? await landingPullRun({ runDir, repoRoot })
+    : await buildRunLandingReport({ runDir, repoRoot });
   stdout.write(`${JSON.stringify(output)}\n`);
   return 0;
 }
 
 async function runClose({ runDir, repoRoot, stdout, requestId = null }) {
+  if ((await inspectRunMode(runDir)).mode === 'pull') {
+    const output = await closePullRun({ runDir, repoRoot });
+    stdout.write(`${JSON.stringify(output)}\n`);
+    return 0;
+  }
   return withLifecycleLock(runDir, async () => {
     const { events, meta, compileArtifact, request, managed } = await readRunStore(runDir);
     requireValidEventChain(events);
@@ -4204,6 +4260,53 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
       cwd,
       stdout,
     });
+  } else if (argv.length === 10
+    && argv[0] === 'run' && argv[1] === 'start'
+    && argv[2] === '--selection' && argv[3] === 'pull'
+    && argv[4] === '--id' && typeof argv[5] === 'string' && argv[5].length > 0
+    && argv[6] === '--plan' && typeof argv[7] === 'string' && argv[7].length > 0
+    && argv[8] === '--equipment' && argv[9] === 'detached-worktree') {
+    action = () => runPullStart({
+      runId: argv[5], planKey: argv[7], equipment: argv[9], cwd, stdout,
+    });
+  } else if (argv.length === 6
+    && argv[0] === 'run' && argv[1] === 'intake'
+    && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0
+    && argv[4] === '--task' && typeof argv[5] === 'string' && argv[5].length > 0) {
+    action = async () => {
+      const { repoRoot, runDir } = await resolveRunStore(cwd, argv[3]);
+      const output = await intakePullTask({ repoRoot, runDir, taskId: argv[5] });
+      stdout.write(`${JSON.stringify(output)}\n`); return 0;
+    };
+  } else if (argv.length === 7
+    && argv[0] === 'run' && argv[1] === 'intake' && argv[2] === 'accept'
+    && argv[3] === '--run' && typeof argv[4] === 'string' && argv[4].length > 0
+    && argv[5] === '--task' && typeof argv[6] === 'string' && argv[6].length > 0) {
+    action = async () => {
+      const { repoRoot, runDir } = await resolveRunStore(cwd, argv[4]);
+      const output = await acceptPullTask({ repoRoot, runDir, taskId: argv[6] });
+      stdout.write(`${JSON.stringify(output)}\n`); return 0;
+    };
+  } else if (argv.length === 9
+    && argv[0] === 'run' && argv[1] === 'intake' && argv[2] === 'attach'
+    && argv[3] === '--run' && typeof argv[4] === 'string' && argv[4].length > 0
+    && argv[5] === '--task' && typeof argv[6] === 'string' && argv[6].length > 0
+    && argv[7] === '--input' && typeof argv[8] === 'string' && argv[8].length > 0) {
+    action = async () => {
+      const { runDir } = await resolveRunStore(cwd, argv[4]);
+      const input = await readBoundedJson(path.resolve(cwd, argv[8]), 'pull worker attach input');
+      const output = await attachPullWorker({ runDir, taskId: argv[6], input });
+      stdout.write(`${JSON.stringify(output)}\n`); return 0;
+    };
+  } else if (argv.length === 7
+    && argv[0] === 'run' && argv[1] === 'intake' && argv[2] === 'intervention'
+    && argv[3] === '--run' && typeof argv[4] === 'string' && argv[4].length > 0
+    && argv[5] === '--task' && typeof argv[6] === 'string' && argv[6].length > 0) {
+    action = async () => {
+      const { runDir } = await resolveRunStore(cwd, argv[4]);
+      const output = await interventionPullTask(runDir, argv[6]);
+      stdout.write(`${JSON.stringify(output)}\n`); return 0;
+    };
   } else if (argv.length === 4
     && argv[0] === 'run' && argv[1] === 'activate'
     && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0) {
@@ -4218,7 +4321,12 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
       const { repoRoot, runDir } = await resolveRunStore(cwd, argv[3]);
       if (argv[1] === 'observe') return runObserve({ runDir, stdout });
       if (argv[1] === 'status') return runStatus({ runDir, stdout });
-      if (argv[1] === 'resume') return runResume({ runDir, repoRoot, stdout });
+      if (argv[1] === 'resume') {
+        if ((await inspectRunMode(runDir)).mode === 'pull') {
+          throw new PullRunError('RUN_MODE_MISMATCH', 'pull runはresumeでleaseを再認可しない');
+        }
+        return runResume({ runDir, repoRoot, stdout });
+      }
       if (argv[1] === 'landing') return runLanding({ runDir, repoRoot, stdout });
       return runClose({ runDir, repoRoot, stdout, requestId: requestIdOverride });
     };
@@ -4336,6 +4444,10 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     }
     if (error instanceof ManagedRuntimeError) {
       return typedFailure(stderr, error.code, error.message);
+    }
+    if (error instanceof PullRunError || error instanceof TodoStoreError
+      || error instanceof RuntimeLifecycleLockError) {
+      return typedFailure(stderr, error.code, error.message, error.detail);
     }
     throw error;
   }

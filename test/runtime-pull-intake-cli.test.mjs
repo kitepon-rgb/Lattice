@@ -1,0 +1,353 @@
+import assert from 'node:assert/strict';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import test from 'node:test';
+
+import { selfDigest } from '../src/runtime-contracts.mjs';
+import { observeManagedProcessStartIdentity } from '../src/runtime-managed-supervisor.mjs';
+import { todoSelfDigest } from '../src/todo-contracts.mjs';
+import {
+  appendTodoEvent, createTodoStoreWriter, initializeTodoStore, readTodoStore,
+  writeTodoIndependenceArtifact, writeTodoWitnessSet,
+} from '../src/todo-store.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CLI = path.join(ROOT, 'bin', 'lattice.mjs');
+const ACTOR = Object.freeze({ host: 'mac', session: 'seat-a', agent: 'seat-a' });
+const ACTOR_ENV = Object.freeze({
+  LATTICE_TODO_ACTOR_HOST: ACTOR.host,
+  LATTICE_TODO_ACTOR_SESSION: ACTOR.session,
+  LATTICE_TODO_ACTOR_AGENT: ACTOR.agent,
+  LATTICE_DASHBOARD_AUTOSTART: '0',
+});
+const PLAN_KEY = 'pull-plan';
+const NOW = '2026-08-09T00:00:00.000Z';
+
+function git(root, args, options = {}) {
+  return execFileSync('git', args, {
+    cwd: root, encoding: 'utf8',
+    stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+    ...options,
+  }).trim();
+}
+
+function runCli(root, args, environment = {}) {
+  return spawnSync(process.execPath, [CLI, ...args], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1', ...ACTOR_ENV, ...environment },
+  });
+}
+
+function parsed(result, expectedStatus = 0) {
+  assert.equal(result.status, expectedStatus, result.stderr || result.stdout);
+  const stream = expectedStatus === 0 ? result.stdout : result.stderr;
+  return JSON.parse(stream.trim().split('\n').at(-1));
+}
+
+function task(taskId) {
+  return { task_id: taskId, title: taskId, lane: 'main', narrative_ref: null, compile_binding: null };
+}
+
+function ref(taskId) {
+  return { project_id: 'pull-project', plan_key: PLAN_KEY, task_id: taskId };
+}
+
+function witness(taskId, source, writePath) {
+  return {
+    owns: [{ kind: 'path', target: writePath }],
+    reads: [], writes: [writePath], resources: [], state_effects: [],
+    sensor_provenance: { queries: [] }, affected_tests: [`test/${source}.test.mjs`], unknowns: [],
+  };
+}
+
+async function workspace(context, { conflict = false } = {}) {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-pull-intake-'));
+  context.after(async () => { await rm(root, { recursive: true, force: true }); });
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await mkdir(path.join(root, 'test'), { recursive: true });
+  await writeFile(path.join(root, '.gitignore'), '.lattice/runs/\n');
+  await writeFile(path.join(root, 'README.md'), 'base\n');
+  await writeFile(path.join(root, 'src', 'a.mjs'), 'export const a = 1;\n');
+  await writeFile(path.join(root, 'src', 'b.mjs'), 'export const b = 1;\n');
+  await writeFile(path.join(root, 'src', 'shared.mjs'), 'export const shared = 1;\n');
+  await writeFile(path.join(root, 'test', 'a.test.mjs'), '// fixture\n');
+  await writeFile(path.join(root, 'test', 'b.test.mjs'), '// fixture\n');
+  git(root, ['init', '--quiet', '--initial-branch=main']);
+  git(root, ['config', 'user.email', 'fixture@example.invalid']);
+  git(root, ['config', 'user.name', 'fixture']);
+  git(root, ['add', '.']);
+  git(root, ['commit', '--quiet', '-m', 'base']);
+  const baseSha = git(root, ['rev-parse', 'HEAD']);
+
+  const plan = {
+    schema: 'lattice.todo_plan.v1', project_id: 'pull-project', plan_key: PLAN_KEY,
+    plan_version: 'v1', predecessor_plan_digest: null,
+    tasks: [task('A'), task('B')], hard_dependencies: [], joins: [],
+  };
+  await initializeTodoStore({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    projectId: 'pull-project', repositories: [{ repo_id: 'self', path: '.' }],
+    plans: [{ plan, genesis: { actor: ACTOR, recorded_at: NOW } }], now: NOW,
+  });
+  const writeA = conflict ? 'src/shared.mjs' : 'src/a.mjs';
+  const writeB = conflict ? 'src/shared.mjs' : 'src/b.mjs';
+  const witnessSet = {
+    schema: 'lattice.todo_witness_set.v5', project_id: 'pull-project', plan_key: PLAN_KEY,
+    capacity: { executors: 2 }, sensor_query_set: { queries: [{ id: 'status', operation: 'status' }] },
+    manual_witness: { A: witness('A', 'a', writeA), B: witness('B', 'b', writeB) },
+    witness_set_digest: '',
+  };
+  witnessSet.witness_set_digest = todoSelfDigest(witnessSet, 'witness_set_digest');
+  await writeTodoWitnessSet({ repoRoot: root, witnessSet });
+  const member = (await readTodoStore({ repoRoot: root })).members[0];
+  const conflictResource = 'own-path-shared-fixture';
+  const artifact = {
+    schema: 'lattice.todo_independence.v3', project_id: 'pull-project', plan_key: PLAN_KEY,
+    plan_version: 'v1', topology_digest: member.plan.topology_digest, base_sha: baseSha,
+    witness_set_digest: witnessSet.witness_set_digest, compiled_at: NOW,
+    task_ids: ['A', 'B'],
+    task_boundaries: [
+      { task_id: 'A', paths: [writeA, 'test/a.test.mjs'] },
+      { task_id: 'B', paths: [writeB, 'test/b.test.mjs'] },
+    ],
+    conflicts: conflict ? [{ resource_id: conflictResource, task_ids: ['A', 'B'] }] : [],
+    conflict_resources: conflict
+      ? [{ resource_id: conflictResource, kind: 'path', target: 'src/shared.mjs' }] : [],
+    precedences: [], unknowns: [],
+    wave_plan: { waves: conflict
+      ? [{ task_ids: ['A'] }, { task_ids: ['B'] }]
+      : [{ task_ids: ['A', 'B'] }], minimum_feasible_waves: conflict ? 2 : 1 },
+    outcome: 'compiled', result_digest: '',
+  };
+  artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
+  await writeTodoIndependenceArtifact({ repoRoot: root, artifact });
+  return { root, baseSha, writeA, writeB, artifact };
+}
+
+async function startTask(root, taskId, timestamp) {
+  return appendTodoEvent({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+    planKey: PLAN_KEY, now: timestamp,
+    event: { kind: 'start', task_id: taskId, actor: ACTOR, recorded_at: timestamp,
+      payload: { override_reason: null } },
+  });
+}
+
+async function doneTask(root, taskId, timestamp) {
+  const bytes = Buffer.from(`${taskId} evidence\n`);
+  const oid = git(root, ['hash-object', '-w', '--stdin'], { input: bytes });
+  const evidence = {
+    evidence_id: `${taskId.toLowerCase()}-evidence`, repo_id: 'self', path: `evidence/${taskId}.txt`,
+    git_blob_oid: oid, content_digest: createHash('sha256').update(bytes).digest('hex'),
+    media_type: 'text/plain', anchor_digest: null,
+  };
+  return appendTodoEvent({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+    planKey: PLAN_KEY, now: timestamp,
+    event: { kind: 'done', task_id: taskId, actor: ACTOR, recorded_at: timestamp,
+      payload: { evidence } },
+  });
+}
+
+function startPull(root, runId = 'pull-run') {
+  return runCli(root, [
+    'run', 'start', '--selection', 'pull', '--id', runId,
+    '--plan', PLAN_KEY, '--equipment', 'detached-worktree',
+  ]);
+}
+
+test('pull startはtodos/baseを要求せず、run後startした未列挙taskをintake時HEADへ束縛する',
+  async (context) => {
+    const { root, baseSha } = await workspace(context);
+    const started = parsed(startPull(root));
+    assert.equal(started.selection, 'pull');
+    assert.equal(parsed(runCli(root, ['run', 'close', '--run', '.lattice/runs/pull-run']), 1).code,
+      'RUN_EMPTY');
+    assert.equal(parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]), 1).code, 'TASK_NOT_STARTED');
+
+    await writeFile(path.join(root, 'README.md'), 'advanced after run start\n');
+    git(root, ['add', 'README.md']);
+    git(root, ['commit', '--quiet', '-m', 'advance']);
+    const intakeHead = git(root, ['rev-parse', 'HEAD']);
+    assert.notEqual(intakeHead, baseSha);
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    const intaked = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.equal(intaked.already_intaked, false);
+    assert.equal(intaked.base_sha, intakeHead);
+    assert.equal(intaked.intervention.state, 'none');
+    assert.equal(intaked.intervention.lease_state, 'granted');
+    assert.equal(git(intaked.worktree_path, ['rev-parse', 'HEAD']), intakeHead);
+    const retried = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.equal(retried.already_intaked, true);
+    const status = parsed(runCli(root, ['run', 'status', '--run', '.lattice/runs/pull-run']));
+    assert.deepEqual(status.intakes.map(({ task_id: taskId }) => taskId), ['A']);
+  });
+
+test('後着planning conflictはhold/lease withheldとなり、未intake自動選択もclose成功もない',
+  async (context) => {
+    const { root, artifact } = await workspace(context, { conflict: true });
+    parsed(startPull(root));
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    await startTask(root, 'B', '2026-08-09T00:02:00.000Z');
+    const first = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    const second = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'B',
+    ]));
+    assert.equal(first.intervention.state, 'none');
+    assert.deepEqual([second.intervention.state, second.intervention.reason,
+      second.intervention.lease_state], ['hold', 'planning_conflict', 'withheld']);
+    const eventCount = parsed(runCli(root, [
+      'run', 'status', '--run', '.lattice/runs/pull-run',
+    ])).event_count;
+    const changedArtifact = structuredClone(artifact);
+    changedArtifact.conflicts = [];
+    changedArtifact.conflict_resources = [];
+    changedArtifact.wave_plan = { waves: [{ task_ids: ['A', 'B'] }], minimum_feasible_waves: 1 };
+    changedArtifact.result_digest = todoSelfDigest(changedArtifact, 'result_digest');
+    await writeTodoIndependenceArtifact({ repoRoot: root, artifact: changedArtifact });
+    const retried = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'B',
+    ]));
+    assert.deepEqual([retried.already_intaked, retried.intervention.state,
+      retried.intervention.reason], [true, 'hold', 'planning_conflict']);
+    assert.equal(parsed(runCli(root, [
+      'run', 'status', '--run', '.lattice/runs/pull-run',
+    ])).event_count, eventCount);
+    assert.equal(parsed(runCli(root, [
+      'run', 'intake', 'accept', '--run', '.lattice/runs/pull-run', '--task', 'B',
+    ]), 1).code, 'TASK_HELD');
+    const close = parsed(runCli(root, ['run', 'close', '--run', '.lattice/runs/pull-run']), 1);
+    assert.equal(close.code, 'RUN_NOT_COMPLETE');
+  });
+
+test('compile baseが到達不能でもisolated worktreeを供給してversion drift holdへ閉じる',
+  async (context) => {
+    const { root, artifact } = await workspace(context);
+    const unreachable = structuredClone(artifact);
+    unreachable.base_sha = 'f'.repeat(40);
+    unreachable.result_digest = todoSelfDigest(unreachable, 'result_digest');
+    await writeTodoIndependenceArtifact({ repoRoot: root, artifact: unreachable });
+    parsed(startPull(root));
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    const intaked = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.deepEqual([intaked.intervention.state, intaked.intervention.reason,
+      intaked.intervention.lease_state], ['hold', 'version_drift', 'withheld']);
+    assert.equal(git(intaked.worktree_path, ['rev-parse', 'HEAD']), intaked.base_sha);
+  });
+
+test('acceptはsame-version literal doneと独立worktree観測へ束縛しlanding/closeを冪等投影する',
+  async (context) => {
+    const { root } = await workspace(context);
+    parsed(startPull(root));
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    const intaked = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    await writeFile(path.join(intaked.worktree_path, 'src', 'a.mjs'), 'export const a = 2;\n');
+    git(intaked.worktree_path, ['add', 'src/a.mjs']);
+    git(intaked.worktree_path, ['commit', '--quiet', '-m', 'result']);
+    const resultHead = git(intaked.worktree_path, ['rev-parse', 'HEAD']);
+    assert.equal(parsed(runCli(root, [
+      'run', 'intake', 'accept', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]), 1).code, 'TASK_NOT_DONE');
+    const done = await doneTask(root, 'A', '2026-08-09T00:03:00.000Z');
+    const accepted = parsed(runCli(root, [
+      'run', 'intake', 'accept', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.equal(accepted.head_sha, resultHead);
+    assert.equal(accepted.done_event_digest, done.event.event_digest);
+    assert.equal(parsed(runCli(root, [
+      'run', 'intake', 'accept', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ])).already_accepted, true);
+    const landing = parsed(runCli(root, ['run', 'landing', '--run', '.lattice/runs/pull-run']));
+    assert.equal(landing.accepted_receipts[0].head_sha, resultHead);
+    assert.equal(landing.accepted_receipts[0].receipt_id, done.event.event_digest);
+    assert.equal(parsed(runCli(root, ['run', 'close', '--run', '.lattice/runs/pull-run'])).already_closed,
+      false);
+    assert.equal(parsed(runCli(root, ['run', 'close', '--run', '.lattice/runs/pull-run'])).already_closed,
+      true);
+  });
+
+test('attachはexpected lstart/argv digestを再認証し、raw argv、decoy、同一pidの複数active intakeを拒否する',
+  async (context) => {
+    const { root } = await workspace(context);
+    parsed(startPull(root));
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    await startTask(root, 'B', '2026-08-09T00:02:00.000Z');
+    for (const taskId of ['A', 'B']) parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', taskId,
+    ]));
+    const secretMarker = 'pull-worker-secret-marker';
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', secretMarker], {
+      detached: true, stdio: 'ignore',
+    });
+    context.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const identity = await observeManagedProcessStartIdentity(child.pid);
+    const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8' }).trim();
+    const attachInput = {
+      schema: 'lattice.pull_worker_attach_input.v1', name: ACTOR.agent, session: ACTOR.session,
+      pid: child.pid, process_start_identity: identity,
+      argv_digest: createHash('sha256').update(argv, 'utf8').digest('hex'),
+      recorded_at: NOW, input_digest: '',
+    };
+    attachInput.input_digest = selfDigest(attachInput, 'input_digest');
+    const inputPath = path.join(root, 'attach.json');
+    await writeFile(inputPath, `${JSON.stringify(attachInput)}\n`);
+    const decoy = structuredClone(attachInput);
+    decoy.process_start_identity.started_identity = `${identity.started_identity} decoy`;
+    decoy.process_start_identity.identity_digest = selfDigest(decoy.process_start_identity, 'identity_digest');
+    decoy.input_digest = selfDigest(decoy, 'input_digest');
+    const decoyPath = path.join(root, 'attach-decoy.json');
+    await writeFile(decoyPath, `${JSON.stringify(decoy)}\n`);
+    const rawArgv = { ...attachInput, argv };
+    delete rawArgv.argv_digest;
+    rawArgv.input_digest = selfDigest(rawArgv, 'input_digest');
+    const rawArgvPath = path.join(root, 'attach-raw-argv.json');
+    await writeFile(rawArgvPath, `${JSON.stringify(rawArgv)}\n`);
+    const rejectedRawArgv = runCli(root, [
+      'run', 'intake', 'attach', '--run', '.lattice/runs/pull-run', '--task', 'A',
+      '--input', rawArgvPath,
+    ]);
+    assert.equal(parsed(rejectedRawArgv, 1).code, 'INVALID_WORKER_ATTACH_INPUT');
+    assert.equal(rejectedRawArgv.stderr.includes(secretMarker), false);
+    assert.equal(parsed(runCli(root, [
+      'run', 'intake', 'attach', '--run', '.lattice/runs/pull-run', '--task', 'A',
+      '--input', decoyPath,
+    ]), 1).code, 'WORKER_IDENTITY_MISMATCH');
+    assert.equal(parsed(runCli(root, [
+      'run', 'intake', 'attach', '--run', '.lattice/runs/pull-run', '--task', 'A',
+      '--input', inputPath,
+    ])).stopped, false);
+    assert.equal((await readFile(path.join(
+      root, '.lattice', 'runs', 'pull-run', 'pull-events.json',
+    ), 'utf8')).includes(secretMarker), false);
+    assert.equal(parsed(runCli(root, [
+      'run', 'intake', 'attach', '--run', '.lattice/runs/pull-run', '--task', 'B',
+      '--input', inputPath,
+    ]), 1).code, 'WORKER_ALREADY_ATTACHED');
+  });
+
+test('legacy schema surfaceとpull storeは混在fallbackせず別経路を保つ', async (context) => {
+  const { root } = await workspace(context);
+  const schema = parsed(runCli(root, ['run', 'start', '--schema', '--json']));
+  assert.equal(schema.title, 'lattice.run_request.v1');
+  parsed(startPull(root));
+  await writeFile(path.join(root, '.lattice', 'runs', 'pull-run', 'request.json'), '{}\n');
+  const observed = parsed(runCli(root, ['run', 'observe', '--run', '.lattice/runs/pull-run']), 1);
+  assert.equal(observed.code, 'MIXED_RUN_STORE');
+});
