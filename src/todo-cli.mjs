@@ -116,7 +116,10 @@ import {
   parseTodoSourceRef, todoLegacyReconciliationDigest, validatePhaseTodoRevision,
   validateTodoRevision, validateTodoRevisionSet,
 } from './todo-revision.mjs';
-import { compileTodoSplit } from './todo-split.mjs';
+import {
+  compileTodoSplit,
+  prepareTodoSplitWitnessMigration,
+} from './todo-split.mjs';
 import {
   appendTodoNote,
   readTodoNoteContext,
@@ -1328,7 +1331,8 @@ async function splitTodo({ repoRoot, env, planKey, inputRef }) {
   const store = await readTodoStore({ repoRoot });
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
   if (member === undefined) throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active');
-  if (await readTodoWitnessSet({ repoRoot, planKey }) === null) {
+  const witnessSet = await readTodoWitnessSet({ repoRoot, planKey });
+  if (witnessSet === null) {
     throw new TodoStoreError('WITNESS_MIGRATION_UNAVAILABLE', 'witness_set_absent', undefined, {
       witness_ref: todoWitnessRef(planKey),
       next_action: `lattice todo independence witness scaffold --plan ${planKey} --input <draft>`,
@@ -1337,6 +1341,28 @@ async function splitTodo({ repoRoot, env, planKey, inputRef }) {
   const compiled = await compileTodoSplit({ repoRoot, member, proposal });
   const actor = mutationActor(env);
   const recordedAt = new Date().toISOString();
+  // splitのmigrationは既存taskへのidentity写像だけである。宣言を純粋に移行・検査し、
+  // 同じcanonical bytesをwitness先へ書けることまでapply前に確定する。これにより、
+  // witness失敗をrevision適用後に返してplan/sourceだけ進んだ状態を作らない。
+  const preparedWitness = prepareTodoSplitWitnessMigration({
+    witnessSet, revision: compiled.revision,
+  });
+  const { ref: witnessRef } = await writeTodoWitnessSet({
+    repoRoot, witnessSet: preparedWitness.witnessSet,
+  });
+  const witnessMigration = {
+    schema: 'lattice.todo_witness_migrate_result.v1',
+    project_id: store.project_id,
+    plan_key: planKey,
+    plan_version: compiled.revision.desired_plan.plan_version,
+    witness_ref: witnessRef,
+    migrated_count: preparedWitness.migrated_count,
+    removed_count: preparedWitness.removed_count,
+    unchanged_count: preparedWitness.unchanged_count,
+    witness_set_digest: preparedWitness.witnessSet.witness_set_digest,
+    result_digest: '',
+  };
+  witnessMigration.result_digest = todoSelfDigest(witnessMigration, 'result_digest');
   const receipt = compiled.revision.schema === 'lattice.phase_todo_revision.v3'
     ? await applyPhaseTodoRevision({
       repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
@@ -1346,7 +1372,6 @@ async function splitTodo({ repoRoot, env, planKey, inputRef }) {
       repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
       revision: compiled.revision, actor, recordedAt,
     });
-  const witnessMigration = await independenceWitnessMigrate({ repoRoot, planKey });
   const result = {
     schema: 'lattice.todo_split_result.v1',
     project_id: store.project_id,

@@ -14,6 +14,7 @@ import {
   isTodoRef,
   todoSelfDigest,
 } from './todo-contracts.mjs';
+import { migrateWitnessSetTaskIds } from './todo-independence.mjs';
 import { buildTodoPlan } from './todo-store.mjs';
 import {
   parseTodoSourceRef,
@@ -152,6 +153,7 @@ function predecessorReconciliationDigest(member, phasePlan) {
 }
 
 async function existingSourceInventory(repoRoot, member) {
+  const inheritedInventory = member.revision?.source_inventory !== undefined;
   const inherited = new Map((member.revision?.source_inventory?.active ?? [])
     .map((entry) => [entry.task_id, structuredClone(entry)]));
   const active = [];
@@ -172,6 +174,7 @@ async function existingSourceInventory(repoRoot, member) {
     excluded_tombstones: structuredClone(
       member.revision?.source_inventory?.excluded_tombstones ?? [],
     ),
+    inherited: inheritedInventory,
   };
 }
 
@@ -179,28 +182,43 @@ function localTaskRef(plan, taskId) {
   return { project_id: plan.project_id, plan_key: plan.plan_key, task_id: taskId };
 }
 
-async function compileSourceCutover(repoRoot, proposal) {
+async function compileSourceCutover(repoRoot, proposal, {
+  existingTasks = [], reservedSourceRefs = [],
+} = {}) {
+  const definitions = [
+    ...existingTasks.map((task) => ({
+      task_id: task.task_id,
+      title: task.task_id === proposal.task_id ? proposal.residual.title : task.title,
+      source_ref: task.narrative_ref,
+    })),
+    ...proposal.extracted_tasks,
+  ];
+  const occupiedSourceRefs = new Set(reservedSourceRefs);
   const rows = [];
-  for (const child of proposal.extracted_tasks) {
-    const line = await sourceLine(repoRoot, child.source_ref, { checkbox: true });
-    rows.push({ child, line });
+  for (const definition of definitions) {
+    if (occupiedSourceRefs.has(definition.source_ref)) {
+      invalid('source_ref_conflicts_with_predecessor', definition.source_ref);
+    }
+    occupiedSourceRefs.add(definition.source_ref);
+    const line = await sourceLine(repoRoot, definition.source_ref, { checkbox: true });
+    rows.push({ definition, line });
   }
-  rows.sort((left, right) => left.child.source_ref.localeCompare(right.child.source_ref));
+  rows.sort((left, right) => left.definition.source_ref.localeCompare(right.definition.source_ref));
   const batch = {
     batch_id: `split-${digestTodoArtifact(proposal).slice(0, 24)}`,
     archive_ref: proposal.archive_ref,
-    operations: rows.map(({ child, line }) => ({
-      task_id: child.task_id,
+    operations: rows.map(({ definition, line }) => ({
+      task_id: definition.task_id,
       disposition: 'active',
-      source_ref: child.source_ref,
+      source_ref: definition.source_ref,
       source_digest: line.digest,
-      live_replacement: `${line.marker} Lattice todo splitへ移行済み（${child.task_id}）: ${child.title}`,
+      live_replacement: `${line.marker} Lattice todo splitへ移行済み（${definition.task_id}）: ${definition.title}`,
     })),
     batch_digest: '',
   };
   batch.batch_digest = todoSelfDigest(batch, 'batch_digest');
-  return { batch, archivedByTask: new Map(rows.map(({ child }, index) => [
-    child.task_id,
+  return { batch, archivedByTask: new Map(rows.map(({ definition }, index) => [
+    definition.task_id,
     { source_ref: todoCutoverArchiveSourceRef(batch, index),
       source_digest: batch.operations[index].source_digest },
   ])) };
@@ -209,12 +227,16 @@ async function compileSourceCutover(repoRoot, proposal) {
 function compileTasks(plan, proposal, archivedByTask) {
   const residual = plan.tasks.find(({ task_id: taskId }) => taskId === proposal.task_id);
   const phasePlan = plan.schema === 'lattice.todo_plan.v7';
-  const existing = plan.tasks.map((task) => task.task_id === proposal.task_id ? {
-    ...task,
-    title: proposal.residual.title,
-    lane: proposal.residual.lane,
-    design_memo: proposal.residual.design_memo,
-  } : task);
+  const existing = plan.tasks.map((task) => {
+    const updated = task.task_id === proposal.task_id ? {
+      ...task,
+      title: proposal.residual.title,
+      lane: proposal.residual.lane,
+      design_memo: proposal.residual.design_memo,
+    } : task;
+    const archived = archivedByTask.get(task.task_id);
+    return archived === undefined ? updated : { ...updated, narrative_ref: archived.source_ref };
+  });
   const children = [...proposal.extracted_tasks]
     .sort((left, right) => left.task_id.localeCompare(right.task_id))
     .map((child) => ({
@@ -253,11 +275,12 @@ function compileDependencies(plan, proposal) {
   return edges;
 }
 
-function compileTaskMigration(plan, taskId) {
+function compileTaskMigration(plan, taskId, reconciledTaskIds = new Set()) {
   return plan.tasks.map(({ task_id: currentTaskId }) => ({
     from_task_id: currentTaskId,
     to_task_id: currentTaskId,
-    state_policy: currentTaskId === taskId ? 'reset_pending' : 'carry',
+    state_policy: currentTaskId === taskId ? 'reset_pending'
+      : reconciledTaskIds.has(currentTaskId) ? 'carry_reconciled_metadata' : 'carry',
   })).sort((left, right) => left.from_task_id.localeCompare(right.from_task_id));
 }
 
@@ -305,18 +328,30 @@ export async function compileTodoSplit({ repoRoot, member, proposal }) {
     journal_head_digest: member.journal.events.at(-1).event_digest,
     plan_version: plan.plan_version,
   };
-  const { batch: sourceCutoverBatch, archivedByTask } = await compileSourceCutover(repoRoot, proposal);
   const previousInventory = await existingSourceInventory(repoRoot, member);
+  const phasePlan = plan.schema === 'lattice.todo_plan.v7';
+  // phase revisionのgenesisではpredecessor inventoryがまだrevisionへ保存されていない。
+  // apply側は全既存sourceのarchive移送を差分として要求するため、既存taskも同じbatchへ載せる。
+  const cutoverExistingTasks = phasePlan && !previousInventory.inherited ? plan.tasks : [];
+  const reservedSourceRefs = cutoverExistingTasks.length === 0
+    ? previousInventory.active.map(({ source_ref: sourceRef }) => sourceRef)
+    : [];
+  const { batch: sourceCutoverBatch, archivedByTask } = await compileSourceCutover(
+    repoRoot, proposal, { existingTasks: cutoverExistingTasks, reservedSourceRefs },
+  );
   const tasks = compileTasks(plan, proposal, archivedByTask);
   const hardDependencies = compileDependencies(plan, proposal);
-  const taskMigration = compileTaskMigration(plan, proposal.task_id);
+  const taskMigration = compileTaskMigration(plan, proposal.task_id,
+    new Set(cutoverExistingTasks.map(({ task_id: taskId }) => taskId)));
   const sourceInventory = {
-    active: tasks.map(({ task_id: taskId }) => previousInventory.active
-      .find(({ task_id: previousTaskId }) => previousTaskId === taskId)
-      ?? { task_id: taskId, ...archivedByTask.get(taskId) }),
+    active: tasks.map(({ task_id: taskId }) => {
+      const archived = archivedByTask.get(taskId);
+      if (archived !== undefined) return { task_id: taskId, ...archived };
+      return previousInventory.active
+        .find(({ task_id: previousTaskId }) => previousTaskId === taskId);
+    }),
     excluded_tombstones: previousInventory.excluded_tombstones,
   };
-  const phasePlan = plan.schema === 'lattice.todo_plan.v7';
   const desiredSeed = {
     schema: plan.schema,
     project_id: plan.project_id,
@@ -417,4 +452,21 @@ export async function compileTodoSplit({ repoRoot, member, proposal }) {
   if (!validatePhaseTodoRevision(revision)) invalid('compiled_phase_revision_invalid');
   return { revision, extracted_task_ids: proposal.extracted_tasks
     .map(({ task_id: taskId }) => taskId).sort() };
+}
+
+/**
+ * splitは既存taskを同じidへ写し、子taskは新規追加するだけなので、既存witness bytesを変えない。
+ * apply前にこの不変条件を検査し、解決不能な宣言や将来の非identity migrationをstore更新前に止める。
+ */
+export function prepareTodoSplitWitnessMigration({ witnessSet, revision }) {
+  const migration = migrateWitnessSetTaskIds({
+    witnessSet,
+    taskMigration: revision.task_migration,
+    planTaskIds: revision.desired_plan.tasks.map(({ task_id: taskId }) => taskId),
+  });
+  if (migration.witnessSet.witness_set_digest !== witnessSet.witness_set_digest
+    || canonicalizeTodoArtifact(migration.witnessSet) !== canonicalizeTodoArtifact(witnessSet)) {
+    invalid('split_witness_migration_not_identity', '/task_migration');
+  }
+  return migration;
 }
