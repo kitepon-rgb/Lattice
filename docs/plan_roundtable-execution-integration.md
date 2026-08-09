@@ -189,6 +189,42 @@ t9の改訂を巻き戻す: claimは割当の主体のまま（従来の円卓�
 ②着手済み2 ToDoの競合を装置が検出し、片方に留まる指示または seam resolve→両方再開が動く
 ③「装置が作業を割り当てる」面がどこにも残っていない（bridge・member.md・room発言の形式まで）。
 
+## 申し送りWave — roundtable-carryover-20260809（t19の実戦投入の題材）
+
+本campaignの各監査が「修正を求めない申し送り」として残したものを、t19の作業としてToDoへ落とした
+（オーナー裁定・bell [708]）。**これはt19の実戦投入が実際に流す題材である**——r4完了後、pull型で
+1本ずつ着手して装置に競合を判定させる。だから**小さく独立revert可能な単位**で切る。
+
+**repoごとに別planへ分ける。** 1 run・1 worktreeは1 repoなので、混在planは新pull実戦の境界を偽る。
+Lattice側の状態正本はLattice storeの`roundtable-carryover-20260809`、peertable側は
+peertable storeの同名planが持つ（別project_idなので衝突しない）。
+
+#### k1 前景駆動器が何を待っているかを外から見えるようにする（Lattice）
+`run activate`はrun全体の前景駆動器で、ready frontierが空になるまで戻らず、その間 進捗を一切出さない。
+外形（lifecycle lock保持・control ledger `in_progress`・CPUゼロ）はhangと区別が付かず、実際に
+t19-live-1で誤診が起きた（pid停止とlock削除を実行手順へ載せる寸前まで進んだ）。`run observe`／`run status`へ
+`driver_state`と`waiting_on`をtypedで出し、helpにも「activateは全wave完了まで戻らない前景駆動器」を書く。
+文言追加だけでは足りない——**別processから待ち状態が読めること**が受入条件である。
+
+#### k2 schema世代差をtyped `unsupported version`として診断する（Lattice）
+旧installがwork-order入りrun storeを読むと`INVALID_RUN_STORE`としか言わず、原因に辿り着けない
+（t7申し送り⑤）。**既に配布済みのbinaryを新版から直すことはできない**ので、対象は今後の世代差だけとする:
+期待versionと更新手順を含むtyped診断を出す。t20 publishより前のdependency。
+旧installの検知とupgrade案内はdotagentsの所有（将来の導入・更新・互換性）なので本planに含めない。
+
+**別planへ分けたもの**: accepted predecessorのheadを後続worktreeのbaseへ継承する設計課題。
+`ensureScriptedWorktree`は現packetのbase_shaから木を作るため、依存順を守っても後続は先行成果を見ない
+（t19bで実測）。intakeの形を変えても直らない**worktree供給のbase設計そのもの**であり、複数head統合・
+競合・successor base再束縛の裁定が要る。`receipt-lineage-successor-base-20260809`として分ける。
+
+**条件付きで保留したもの**: `run request synthesize`のadapter固定（t7申し送り④）はr1完了後に再測定し、
+pull startで実害が残る時だけ起票する。spoolのorder/reportがrunを跨いで残る件（t7申し送り③・close後も
+6件残存を実測）はr2完了後に再測定する——今起票すると撤去対象を直すことになる。
+
+**起票しないと決めたもの**: requestにもwork orderにも自然言語の欄が無い件は、課題ではなく所有境界の
+帰結である（推定・判断・文章生成をLatticeへ実装しない）。pull型では席が自分でtaskを選ぶので、
+「配られた仕事の中身を知らない」状況そのものが起きない。Decisionとしてのみ記録する。
+
 ## 実装時に確認（unknownとして残す）
 
 1. t2のobserve再開経路（deadline到達後のrun store状態とrun resume実挙動）— Wave 1冒頭で実測
