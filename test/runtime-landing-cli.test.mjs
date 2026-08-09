@@ -8,16 +8,20 @@ import test from 'node:test';
 
 import { selfDigest } from '../src/runtime-contracts.mjs';
 import { buildNextRunEvent } from '../src/runtime-engine.mjs';
+import { projectRuntimeState } from '../src/runtime-projection.mjs';
 import { invokeSensorCli } from '../src/sensor-runtime.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin', 'lattice.mjs');
 const RUN_ID = 'landing-cli-fixture';
 const RUN_REF = path.join('.lattice', 'runs', RUN_ID);
+const CHECKPOINT_DIGEST = 'c'.repeat(64);
+const DECOY_CHECKPOINT_DIGEST = 'e'.repeat(64);
 
 let temporaryRoot;
 let repoRoot;
 let resultWorktree;
+let baseSha;
 let receiptHeadSha;
 let eventsPath;
 
@@ -37,6 +41,23 @@ function runCli(args) {
     encoding: 'utf8',
     env: { ...process.env, FORCE_COLOR: undefined, NO_COLOR: '1' },
   });
+}
+
+function rebuildEventChain(events, transform) {
+  const rebuilt = [];
+  for (const event of events) {
+    const next = transform(structuredClone(event));
+    rebuilt.push(buildNextRunEvent({
+      events: rebuilt,
+      runId: next.run_id,
+      kind: next.kind,
+      planEpoch: next.plan_epoch,
+      subject: next.subject,
+      payload: next.payload,
+      recordedAt: next.recorded_at,
+    }));
+  }
+  return rebuilt;
 }
 
 async function snapshotRegularFiles(root, relative = '') {
@@ -84,7 +105,7 @@ test.before(async () => {
   run('git', ['-c', 'user.email=test@example.invalid', '-c', 'user.name=test', 'add', '.'], repoRoot);
   run('git', ['-c', 'user.email=test@example.invalid', '-c', 'user.name=test',
     'commit', '--quiet', '-m', 'base'], repoRoot);
-  const baseSha = run('git', ['rev-parse', 'HEAD'], repoRoot);
+  baseSha = run('git', ['rev-parse', 'HEAD'], repoRoot);
   run('git', ['remote', 'add', 'origin', remoteRoot], repoRoot);
   run('git', ['push', '--quiet', '-u', 'origin', 'main'], repoRoot);
   run('git', ['remote', 'set-head', 'origin', 'main'], repoRoot);
@@ -125,7 +146,6 @@ test.before(async () => {
   eventsPath = path.join(runDir, 'events.json');
   const compile = JSON.parse(await readFile(path.join(runDir, 'plan-compile-result.json'), 'utf8'));
   const events = JSON.parse(await readFile(eventsPath, 'utf8'));
-  const checkpointDigest = 'c'.repeat(64);
   const append = (kind, subject, payload) => events.push(buildNextRunEvent({
     events,
     runId: RUN_ID,
@@ -142,13 +162,34 @@ test.before(async () => {
     context_content_digest: 'b'.repeat(64),
   });
   append('checkpoint_observed', { kind: 'todo', ref: 'T1' }, {
-    checkpoint_digest: checkpointDigest,
+    checkpoint_digest: CHECKPOINT_DIGEST,
     observed_by: 'supervisor_terminal',
     diff: {
       schema: 'lattice.checkpoint_diff.v2',
       base_sha: baseSha,
       head_sha: receiptHeadSha,
       entries: [{ path: 'src/alpha.mjs', change: 'modified', content_digest: 'd'.repeat(64) }],
+    },
+  });
+  // exact bindの各predicateを落とした欠陥版が、必ず別headを選ぶdecoy群。
+  append('checkpoint_observed', { kind: 'todo', ref: 'T1' }, {
+    checkpoint_digest: DECOY_CHECKPOINT_DIGEST,
+    observed_by: 'supervisor_terminal',
+    diff: {
+      schema: 'lattice.checkpoint_diff.v2',
+      base_sha: baseSha,
+      head_sha: baseSha,
+      entries: [],
+    },
+  });
+  append('checkpoint_observed', { kind: 'todo', ref: 'T2' }, {
+    checkpoint_digest: CHECKPOINT_DIGEST,
+    observed_by: 'supervisor_terminal',
+    diff: {
+      schema: 'lattice.checkpoint_diff.v2',
+      base_sha: baseSha,
+      head_sha: baseSha,
+      entries: [],
     },
   });
   const receipt = {
@@ -160,7 +201,7 @@ test.before(async () => {
     plan_epoch: 1,
     packet_digest: 'a'.repeat(64),
     todo_id: 'T1',
-    checkpoint_digest: checkpointDigest,
+    checkpoint_digest: CHECKPOINT_DIGEST,
     observed_diff: [{ path: 'src/alpha.mjs', change: 'modified' }],
   };
   receipt.receipt_digest = selfDigest(receipt, 'receipt_digest');
@@ -169,7 +210,17 @@ test.before(async () => {
     executor_handle: 'landing-executor-1', terminal_state: 'reported',
   });
   append('receipt_accepted', { kind: 'todo', ref: 'T1' }, {
-    receipt_id: receipt.receipt_id, checkpoint_digest: checkpointDigest,
+    receipt_id: receipt.receipt_id, checkpoint_digest: CHECKPOINT_DIGEST,
+  });
+  append('checkpoint_observed', { kind: 'todo', ref: 'T1' }, {
+    checkpoint_digest: CHECKPOINT_DIGEST,
+    observed_by: 'supervisor_terminal',
+    diff: {
+      schema: 'lattice.checkpoint_diff.v2',
+      base_sha: baseSha,
+      head_sha: baseSha,
+      entries: [],
+    },
   });
   append('run_closed', { kind: 'runtime_plan', ref: compile.plan.plan_ref }, { accepted: ['T1'] });
   await writeFile(eventsPath, `${JSON.stringify(events, null, 1)}\n`);
@@ -191,12 +242,13 @@ test('run landingとrun closeは未着地をexit 0のread-only投影で返す', 
   assert.equal(report.repository.default_branch_ref, 'refs/remotes/origin/main');
   assert.equal(report.repository.push_state, 'tracked');
   assert.equal(report.repository.unpushed_commits, 0);
-  assert.deepEqual(report.accepted_receipts.map((entry) => ({
-    todo_id: entry.todo_id,
-    head_sha: entry.head_sha,
-    landing_state: entry.landing_state,
-    landed: entry.landed,
-  })), [{ todo_id: 'T1', head_sha: receiptHeadSha, landing_state: 'not_landed', landed: false }]);
+  assert.deepEqual(report.accepted_receipts, [{
+    todo_id: 'T1',
+    receipt_id: 'landing-receipt-1',
+    head_sha: receiptHeadSha,
+    landing_state: 'not_landed',
+    landed: false,
+  }]);
 
   const closed = runCli(['run', 'close', '--run', RUN_REF]);
   assert.equal(closed.status, 0, closed.stderr);
@@ -204,6 +256,55 @@ test('run landingとrun closeは未着地をexit 0のread-only投影で返す', 
   assert.equal(closeOutput.already_closed, true);
   assert.deepEqual(closeOutput.landing, report);
   assert.deepEqual(await snapshotRegularFiles(runDir), before);
+});
+
+test('exact bindの3 predicateを1つでも落とすとdecoy HEADを選ぶ', async () => {
+  const state = projectRuntimeState({ events: JSON.parse(await readFile(eventsPath, 'utf8')) });
+  const receipt = state.receipts.find((entry) => entry.receipt_id === 'landing-receipt-1');
+  const select = ({ todo = true, digest = true, beforeAcceptance = true }) => (
+    state.checkpoints.findLast((entry) => (
+      (!todo || entry.todo_id === receipt.todo_id)
+      && (!digest || entry.payload?.checkpoint_digest === receipt.payload?.checkpoint_digest)
+      && (!beforeAcceptance || entry.sequence < receipt.accepted_sequence)
+    ))?.payload?.diff?.head_sha ?? null
+  );
+
+  assert.equal(select({}), receiptHeadSha);
+  assert.equal(select({ digest: false }), baseSha, 'digest条件なしは同TODO・別digest decoyを選ぶ');
+  assert.equal(select({ todo: false }), baseSha, 'TODO条件なしは別TODO・同digest decoyを選ぶ');
+  assert.equal(select({ beforeAcceptance: false }), baseSha,
+    'sequence条件なしは受理後の同TODO・同digest decoyを選ぶ');
+});
+
+test('exact checkpoint HEADを解決できないreceiptはhead_unavailableをexit 0で返す', async () => {
+  const original = await readFile(eventsPath, 'utf8');
+  const events = JSON.parse(original);
+  const acceptedSequence = events.find((event) => event.kind === 'receipt_accepted').sequence;
+  const modified = rebuildEventChain(events, (event) => {
+    if (event.kind === 'checkpoint_observed'
+      && event.subject.ref === 'T1'
+      && event.sequence < acceptedSequence
+      && event.payload.checkpoint_digest === CHECKPOINT_DIGEST) {
+      event.payload.checkpoint_digest = DECOY_CHECKPOINT_DIGEST;
+    }
+    return event;
+  });
+  await writeFile(eventsPath, `${JSON.stringify(modified, null, 1)}\n`);
+  try {
+    const result = runCli(['run', 'landing', '--run', RUN_REF]);
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.deepEqual(report.accepted_receipts, [{
+      todo_id: 'T1',
+      receipt_id: 'landing-receipt-1',
+      head_sha: null,
+      landing_state: 'head_unavailable',
+      landed: false,
+    }]);
+    assert.equal(report.landed, false);
+  } finally {
+    await writeFile(eventsPath, original);
+  }
 });
 
 test('既定branchへ未pushのreceipt HEADは未着地かつ未push本数1になる', async () => {
@@ -226,6 +327,22 @@ test('既定branchへpush済みなら着地済みを返す', () => {
   assert.equal(report.landed, true);
   assert.equal(report.accepted_receipts[0].landing_state, 'landed');
   assert.equal(report.repository.unpushed_commits, 0);
+});
+
+test('remote既定branchを解決できない時は公開状態値へ出しexit 0を維持する', () => {
+  run('git', ['symbolic-ref', '--delete', 'refs/remotes/origin/HEAD'], repoRoot);
+  try {
+    const result = runCli(['run', 'landing', '--run', RUN_REF]);
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.landed, false);
+    assert.equal(report.repository.default_branch_state, 'unresolved');
+    assert.equal(report.repository.default_branch_ref, null);
+    assert.equal(report.accepted_receipts[0].landing_state, 'default_branch_unresolved');
+    assert.equal(report.accepted_receipts[0].landed, false);
+  } finally {
+    run('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'], repoRoot);
+  }
 });
 
 test('upstream無しはno_upstream状態値へ出しexit 0を維持する', () => {
