@@ -112,7 +112,11 @@ test('実行時に観測した競合を、その場の変換で解消してseam 
     T2: { todo_id: 'T2', scope: { writes: ['src/other.mjs'] } },
   };
   const { findings } = detectCheckpointFindings({
-    todoId: 'T2', checkpoint, packets, manifests: { T1: {}, T2: {} },
+    todoId: 'T2', checkpoint, packets,
+    manifests: {
+      T1: { writes: ['src/page.mjs'] },
+      T2: { writes: ['src/other.mjs'] },
+    },
     runningTodoIds: ['T1', 'T2'],
   });
   const conflictFinding = findings.find(({ kind }) => kind === 'observed_write_conflict');
@@ -262,7 +266,10 @@ async function severedHarness(context, source) {
       T1: { todo_id: 'T1', scope: { writes: ['src/page.mjs'] } },
       T2: { todo_id: 'T2', scope: { writes: ['src/other.mjs'] } },
     },
-    manifests: { T1: {}, T2: {} },
+    manifests: {
+      T1: { writes: ['src/page.mjs'] },
+      T2: { writes: ['src/other.mjs'] },
+    },
     runningTodoIds: ['T1', 'T2'],
   });
   const conflictFinding = findings.find(({ kind }) => kind === 'observed_write_conflict');
