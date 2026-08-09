@@ -8,10 +8,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
-import {
-  validateExpectedWorkerProcess,
-  validateProcessStartIdentity,
-} from './runtime-controller-protocol.mjs';
+import { validateExpectedWorkerProcess } from './runtime-controller-protocol.mjs';
 import { classifyObservedDiff } from './runtime-decision-verifier.mjs';
 import { captureWorktreeDiff, detectCheckpointFindings } from './runtime-diff-observer.mjs';
 import { acquireRuntimeLifecycleLock } from './runtime-lifecycle-lock.mjs';
@@ -137,9 +134,27 @@ export async function inspectRunMode(runDir) {
   const meta = await readJson(path.join(runDir, 'run-meta.json'), 'run meta');
   if (meta?.schema === PULL_RUN_META_SCHEMA) {
     if (!validateMeta(meta)) fail('INVALID_RUN_STORE', 'pull run meta bindingが不正');
+    for (const legacyName of ['request.json', 'plan-compile-result.json', 'events.json']) {
+      try {
+        await lstat(path.join(runDir, legacyName));
+        fail('MIXED_RUN_STORE', `pull storeへlegacy artifactが混在: ${legacyName}`);
+      } catch (error) {
+        if (error instanceof PullRunError) throw error;
+        if (error?.code !== 'ENOENT') fail('INVALID_RUN_STORE', `${legacyName}の存在確認に失敗`);
+      }
+    }
     return { mode: 'pull', meta };
   }
-  if (LEGACY_META_SCHEMAS.has(meta?.schema)) return { mode: 'legacy', meta };
+  if (LEGACY_META_SCHEMAS.has(meta?.schema)) {
+    try {
+      await lstat(path.join(runDir, PULL_EVENTS_FILE));
+      fail('MIXED_RUN_STORE', `legacy storeへpull artifactが混在: ${PULL_EVENTS_FILE}`);
+    } catch (error) {
+      if (error instanceof PullRunError) throw error;
+      if (error?.code !== 'ENOENT') fail('INVALID_RUN_STORE', `${PULL_EVENTS_FILE}の存在確認に失敗`);
+    }
+    return { mode: 'legacy', meta };
+  }
   fail('UNSUPPORTED_RUN_STORE_SCHEMA', '未知のrun meta schema', { schema: meta?.schema ?? null });
 }
 
@@ -181,15 +196,6 @@ function verifyEvents(events, meta) {
 async function readPullStore(runDir) {
   const { mode, meta } = await inspectRunMode(runDir);
   if (mode !== 'pull') fail('RUN_MODE_MISMATCH', 'pull commandへlegacy runを渡せない');
-  for (const legacyName of ['request.json', 'plan-compile-result.json', 'events.json']) {
-    try {
-      await lstat(path.join(runDir, legacyName));
-      fail('MIXED_RUN_STORE', `pull storeへlegacy artifactが混在: ${legacyName}`);
-    } catch (error) {
-      if (error instanceof PullRunError) throw error;
-      if (error?.code !== 'ENOENT') throw error;
-    }
-  }
   const events = await readJson(path.join(runDir, PULL_EVENTS_FILE), 'pull events');
   verifyEvents(events, meta);
   return { meta, events };
@@ -233,6 +239,7 @@ function project(events, meta) {
 function publicIntake(intake) {
   return {
     task_id: intake.task_id,
+    actor: structuredClone(intake.actor),
     plan_version: intake.plan_version,
     activation_event_digest: intake.activation_event_digest,
     base_sha: intake.base_sha,
@@ -330,6 +337,10 @@ async function boundaryVerdict({ repoRoot, store, member, meta, taskId, intakeBa
     return { state: 'hold', reason: 'boundary_unverified', next_action: 'recompile_independence',
       detail: { cause: 'artifact_binding_mismatch' }, artifact, witnessSet };
   }
+  if (artifact.outcome !== 'compiled') {
+    return { state: 'hold', reason: 'boundary_unverified', next_action: 'recompile_independence',
+      detail: { cause: 'independence_outcome_unknown' }, artifact, witnessSet };
+  }
   const boundary = boundaryFor(artifact, taskId);
   if (boundary === null || !Array.isArray(boundary.paths)) {
     return { state: 'hold', reason: 'boundary_unverified', next_action: 'declare_and_recompile',
@@ -397,24 +408,34 @@ function buildManifest(witnessSet, taskId) {
   return manifest;
 }
 
-function planningConflict(artifact, taskId, state) {
+function planningConstraint(artifact, taskId, state) {
   const active = new Set(state.intakes.filter((entry) => entry.accepted === null).map((entry) => entry.task_id));
-  return artifact?.conflicts?.find((conflict) => (
-    conflict.task_ids.includes(taskId)
-      && conflict.task_ids.some((other) => other !== taskId && active.has(other))
-  )) ?? null;
+  const accepted = new Set(state.intakes.filter((entry) => entry.accepted !== null).map((entry) => entry.task_id));
+  const conflict = artifact?.conflicts?.find((entry) => (
+    entry.task_ids.includes(taskId)
+      && entry.task_ids.some((other) => other !== taskId && active.has(other))
+  ));
+  if (conflict) return { kind: 'conflict', detail: structuredClone(conflict) };
+  const precedence = artifact?.precedences?.find((entry) => (
+    entry.to_task_id === taskId && !accepted.has(entry.from_task_id)
+  ));
+  if (precedence) return { kind: 'precedence', detail: structuredClone(precedence) };
+  return null;
 }
 
-function interventionPayload(verdict, conflict = null) {
-  if (verdict.state === 'none' && conflict === null) {
+function interventionPayload(verdict, constraint = null) {
+  if (verdict.state === 'none' && constraint === null) {
     return { state: 'none', reason: null, next_action: null, lease_state: 'granted', detail: verdict.detail };
   }
   return {
     state: 'hold',
-    reason: conflict === null ? verdict.reason : 'planning_conflict',
-    next_action: conflict === null ? verdict.next_action : 'wait_for_prior_intake_or_resolve_seam',
+    reason: constraint === null ? verdict.reason
+      : constraint.kind === 'precedence' ? 'planning_precedence' : 'planning_conflict',
+    next_action: constraint === null ? verdict.next_action
+      : constraint.kind === 'precedence' ? 'wait_for_predecessor_accept'
+        : 'wait_for_prior_intake_or_resolve_seam',
     lease_state: 'withheld',
-    detail: conflict === null ? verdict.detail : { conflict: structuredClone(conflict) },
+    detail: constraint === null ? verdict.detail : { [constraint.kind]: constraint.detail },
   };
 }
 
@@ -545,8 +566,8 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
       verdict.detail = { cause: 'run_plan_version_mismatch', run_version: firstVersion,
         task_version: member.plan.plan_version };
     }
-    const conflict = verdict.state === 'none' ? planningConflict(verdict.artifact, taskId, state) : null;
-    const intervention = interventionPayload(verdict, conflict);
+    const constraint = verdict.state === 'none' ? planningConstraint(verdict.artifact, taskId, state) : null;
+    const intervention = interventionPayload(verdict, constraint);
 
     // worktree供給後・event確定前にTodo正本を再読し、version/start bindingのTOCTOUを閉じる。
     const confirmation = await readTodoStore({ repoRoot });
@@ -618,18 +639,16 @@ async function signalAttachedWorker(intake, signal) {
 
 function validateAttachInput(input) {
   if (!exact(input, [
-    'schema', 'name', 'session', 'pid', 'process_start_identity', 'argv_digest',
-    'recorded_at', 'input_digest',
+    'schema', 'name', 'session', 'pid', 'started_identity', 'argv_digest', 'recorded_at',
   ])
     || input.schema !== 'lattice.pull_worker_attach_input.v1'
     || !identifier(input.name) || !identifier(input.session)
     || !Number.isSafeInteger(input.pid) || input.pid < 1
-    || !validateProcessStartIdentity(input.process_start_identity)
-    || input.process_start_identity.pid !== input.pid
+    || typeof input.started_identity !== 'string' || input.started_identity.length < 1
+    || input.started_identity.length > 512
     || !sha256(input.argv_digest)
-    || !timestamp(input.recorded_at)
-    || !sha256(input.input_digest) || selfDigest(input, 'input_digest') !== input.input_digest) {
-    fail('INVALID_WORKER_ATTACH_INPUT', 'expected start identityとargv digestを持つattach inputが不正');
+    || !timestamp(input.recorded_at)) {
+    fail('INVALID_WORKER_ATTACH_INPUT', '生のexpected start identityとargv digestを持つattach inputが不正');
   }
 }
 
@@ -648,8 +667,7 @@ export async function attachPullWorker({ runDir, taskId, input, environment = pr
     }
     const binding = await observeProcessBinding(input.pid);
     if (binding.process_group_id !== input.pid
-      || binding.process_start_identity.identity_digest
-        !== input.process_start_identity.identity_digest
+      || binding.process_start_identity.started_identity !== input.started_identity
       || binding.argv_digest !== input.argv_digest) {
       fail('WORKER_IDENTITY_MISMATCH', 'expected pid/lstart/argvと現在のOS観測が一致しない');
     }
@@ -810,10 +828,11 @@ export async function acceptPullTask({ repoRoot, runDir, taskId, environment = p
     // 先着taskがacceptedになった後、planning conflictだけで待っていた後着を再投影する。
     state = project(current.events, current.meta);
     for (const waiting of state.intakes.filter((entry) => (
-      entry.accepted === null && entry.intervention.reason === 'planning_conflict'
+      entry.accepted === null
+        && ['planning_conflict', 'planning_precedence'].includes(entry.intervention.reason)
     ))) {
       const artifact = await readTodoIndependenceArtifact({ repoRoot, planKey: current.meta.plan_key });
-      if (planningConflict(artifact, waiting.task_id, state) !== null) continue;
+      if (planningConstraint(artifact, waiting.task_id, state) !== null) continue;
       const intervention = { state: 'none', reason: null, next_action: null,
         lease_state: 'granted', detail: { released_by_accepted_task: taskId } };
       current = await changeIntervention(runDir, current, waiting.task_id, intervention);

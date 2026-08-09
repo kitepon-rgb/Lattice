@@ -7,7 +7,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-import { selfDigest } from '../src/runtime-contracts.mjs';
 import { observeManagedProcessStartIdentity } from '../src/runtime-managed-supervisor.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 import {
@@ -64,7 +63,8 @@ function witness(taskId, source, writePath) {
   };
 }
 
-async function workspace(context, { conflict = false } = {}) {
+async function workspace(context, { conflict = false, precedence = false,
+  outcome = 'compiled' } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-pull-intake-'));
   context.after(async () => { await rm(root, { recursive: true, force: true }); });
   await mkdir(path.join(root, 'src'), { recursive: true });
@@ -86,7 +86,8 @@ async function workspace(context, { conflict = false } = {}) {
   const plan = {
     schema: 'lattice.todo_plan.v1', project_id: 'pull-project', plan_key: PLAN_KEY,
     plan_version: 'v1', predecessor_plan_digest: null,
-    tasks: [task('A'), task('B')], hard_dependencies: [], joins: [],
+    tasks: [task('A'), task('B')],
+    hard_dependencies: precedence ? [{ from: ref('A'), to: ref('B') }] : [], joins: [],
   };
   await initializeTodoStore({
     repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }),
@@ -117,23 +118,25 @@ async function workspace(context, { conflict = false } = {}) {
     conflicts: conflict ? [{ resource_id: conflictResource, task_ids: ['A', 'B'] }] : [],
     conflict_resources: conflict
       ? [{ resource_id: conflictResource, kind: 'path', target: 'src/shared.mjs' }] : [],
-    precedences: [], unknowns: [],
-    wave_plan: { waves: conflict
+    precedences: precedence
+      ? [{ from_task_id: 'A', to_task_id: 'B', reason: 'hard_dependency' }] : [],
+    unknowns: [],
+    wave_plan: outcome === 'unknown' ? null : { waves: conflict || precedence
       ? [{ task_ids: ['A'] }, { task_ids: ['B'] }]
-      : [{ task_ids: ['A', 'B'] }], minimum_feasible_waves: conflict ? 2 : 1 },
-    outcome: 'compiled', result_digest: '',
+      : [{ task_ids: ['A', 'B'] }], minimum_feasible_waves: conflict || precedence ? 2 : 1 },
+    outcome, result_digest: '',
   };
   artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
   await writeTodoIndependenceArtifact({ repoRoot: root, artifact });
   return { root, baseSha, writeA, writeB, artifact };
 }
 
-async function startTask(root, taskId, timestamp) {
+async function startTask(root, taskId, timestamp, overrideReason = null) {
   return appendTodoEvent({
     repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
     planKey: PLAN_KEY, now: timestamp,
     event: { kind: 'start', task_id: taskId, actor: ACTOR, recorded_at: timestamp,
-      payload: { override_reason: null } },
+      payload: { override_reason: overrideReason } },
   });
 }
 
@@ -184,6 +187,7 @@ test('pull startはtodos/baseを要求せず、run後startした未列挙taskを
     assert.equal(intaked.base_sha, intakeHead);
     assert.equal(intaked.intervention.state, 'none');
     assert.equal(intaked.intervention.lease_state, 'granted');
+    assert.deepEqual(intaked.actor, ACTOR);
     assert.equal(git(intaked.worktree_path, ['rev-parse', 'HEAD']), intakeHead);
     const retried = parsed(runCli(root, [
       'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
@@ -249,6 +253,33 @@ test('compile baseが到達不能でもisolated worktreeを供給してversion d
     assert.equal(git(intaked.worktree_path, ['rev-parse', 'HEAD']), intaked.base_sha);
   });
 
+test('independence outcome unknownはtask局所unknownが空でもboundary holdへ閉じる',
+  async (context) => {
+    const { root } = await workspace(context, { outcome: 'unknown' });
+    parsed(startPull(root));
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    const intaked = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.deepEqual([intaked.intervention.state, intaked.intervention.reason,
+      intaked.intervention.detail.cause, intaked.intervention.lease_state],
+    ['hold', 'boundary_unverified', 'independence_outcome_unknown', 'withheld']);
+  });
+
+test('override startされた後続taskは未accepted predecessorのprecedenceでserial holdになる',
+  async (context) => {
+    const { root } = await workspace(context, { precedence: true });
+    parsed(startPull(root));
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    await startTask(root, 'B', '2026-08-09T00:02:00.000Z', 'precedence negative fixture');
+    const successor = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'B',
+    ]));
+    assert.deepEqual([successor.intervention.state, successor.intervention.reason,
+      successor.intervention.next_action, successor.intervention.lease_state],
+    ['hold', 'planning_precedence', 'wait_for_predecessor_accept', 'withheld']);
+  });
+
 test('acceptはsame-version literal doneと独立worktree観測へ束縛しlanding/closeを冪等投影する',
   async (context) => {
     const { root } = await workspace(context);
@@ -301,22 +332,18 @@ test('attachはexpected lstart/argv digestを再認証し、raw argv、decoy、�
     const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8' }).trim();
     const attachInput = {
       schema: 'lattice.pull_worker_attach_input.v1', name: ACTOR.agent, session: ACTOR.session,
-      pid: child.pid, process_start_identity: identity,
+      pid: child.pid, started_identity: identity.started_identity,
       argv_digest: createHash('sha256').update(argv, 'utf8').digest('hex'),
-      recorded_at: NOW, input_digest: '',
+      recorded_at: NOW,
     };
-    attachInput.input_digest = selfDigest(attachInput, 'input_digest');
     const inputPath = path.join(root, 'attach.json');
     await writeFile(inputPath, `${JSON.stringify(attachInput)}\n`);
     const decoy = structuredClone(attachInput);
-    decoy.process_start_identity.started_identity = `${identity.started_identity} decoy`;
-    decoy.process_start_identity.identity_digest = selfDigest(decoy.process_start_identity, 'identity_digest');
-    decoy.input_digest = selfDigest(decoy, 'input_digest');
+    decoy.started_identity = `${identity.started_identity} decoy`;
     const decoyPath = path.join(root, 'attach-decoy.json');
     await writeFile(decoyPath, `${JSON.stringify(decoy)}\n`);
     const rawArgv = { ...attachInput, argv };
     delete rawArgv.argv_digest;
-    rawArgv.input_digest = selfDigest(rawArgv, 'input_digest');
     const rawArgvPath = path.join(root, 'attach-raw-argv.json');
     await writeFile(rawArgvPath, `${JSON.stringify(rawArgv)}\n`);
     const rejectedRawArgv = runCli(root, [
@@ -347,7 +374,21 @@ test('legacy schema surfaceとpull storeは混在fallbackせず別経路を保�
   const schema = parsed(runCli(root, ['run', 'start', '--schema', '--json']));
   assert.equal(schema.title, 'lattice.run_request.v1');
   parsed(startPull(root));
+  assert.equal(parsed(runCli(root, [
+    'run', 'abandon', '--run', '.lattice/runs/pull-run', '--reason', 'unsupported',
+  ]), 1).code, 'RUN_MODE_MISMATCH');
+  assert.equal(parsed(runCli(root, [
+    'event', 'verify', '--run', '.lattice/runs/pull-run',
+  ]), 1).code, 'RUN_MODE_MISMATCH');
   await writeFile(path.join(root, '.lattice', 'runs', 'pull-run', 'request.json'), '{}\n');
   const observed = parsed(runCli(root, ['run', 'observe', '--run', '.lattice/runs/pull-run']), 1);
   assert.equal(observed.code, 'MIXED_RUN_STORE');
+
+  parsed(startPull(root, 'reverse-mixed'));
+  await writeFile(path.join(root, '.lattice', 'runs', 'reverse-mixed', 'run-meta.json'),
+    '{"schema":"lattice.run_meta.v2"}\n');
+  const reverse = parsed(runCli(root, [
+    'run', 'observe', '--run', '.lattice/runs/reverse-mixed',
+  ]), 1);
+  assert.equal(reverse.code, 'MIXED_RUN_STORE');
 });

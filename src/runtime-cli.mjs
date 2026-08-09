@@ -108,6 +108,7 @@ import {
   startPullRun,
   statusPullRun,
 } from './runtime-pull-intake.mjs';
+
 import {
   AdapterRegistryError,
   listRuntimeAdapters,
@@ -123,6 +124,12 @@ import {
   sendRuntimeControlRequest,
 } from './runtime-managed-supervisor.mjs';
 import { TodoStoreError } from './todo-store.mjs';
+
+async function requireLegacyRunMode(runDir, operation) {
+  if ((await inspectRunMode(runDir)).mode !== 'legacy') {
+    throw new PullRunError('RUN_MODE_MISMATCH', `pull runはlegacy専用${operation}を受け付けない`);
+  }
+}
 
 /**
  * RC3-D CLI surface（ADR 0044 Decision 8）。
@@ -4312,6 +4319,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0) {
     action = async () => {
       const { repoRoot, runDir, runRef } = await resolveRunStore(cwd, argv[3]);
+      await requireLegacyRunMode(runDir, 'activate');
       return runActivate({ runDir, runRef, repoRoot, stdout, requestId: requestIdOverride });
     };
   } else if (argv.length === 4
@@ -4336,6 +4344,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[4] === '--reason' && typeof argv[5] === 'string') {
     action = async () => {
       const { runDir } = await resolveRunStore(cwd, argv[3]);
+      await requireLegacyRunMode(runDir, 'abandon');
       return runAbandon({ runDir, runRef: argv[3], reason: argv[5], stdout,
         requestId: requestIdOverride });
     };
@@ -4345,6 +4354,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[4] === '--finding' && /^[0-9a-f]{64}$/u.test(argv[5])) {
     action = async () => {
       const { runDir, runRef } = await resolveRunStore(cwd, argv[3]);
+      await requireLegacyRunMode(runDir, 'conflict');
       return runManagedControl({
         runDir, runRef, operation: 'conflict', artifactDigest: argv[5], stdout,
         requestId: requestIdOverride,
@@ -4357,6 +4367,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[7] === '--input' && typeof argv[8] === 'string' && argv[8].length > 0) {
     action = async () => {
       const { repoRoot, runDir } = await resolveRunStore(cwd, argv[4]);
+      await requireLegacyRunMode(runDir, 'seam profile');
       return runSeamProfile({ runDir, repoRoot, findingDigest: argv[6],
         inputPath: path.resolve(cwd, argv[8]), stdout });
     };
@@ -4367,6 +4378,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[7] === '--input' && typeof argv[8] === 'string' && argv[8].length > 0) {
     action = async () => {
       const { repoRoot, runDir } = await resolveRunStore(cwd, argv[4]);
+      await requireLegacyRunMode(runDir, 'seam resolve');
       return runSeamResolve({ runDir, repoRoot, findingDigest: argv[6],
         requestPath: path.resolve(cwd, argv[8]), stdout });
     };
@@ -4384,6 +4396,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[7] === '--input' && typeof argv[8] === 'string' && argv[8].length > 0) {
     action = async () => {
       const { runDir, runRef } = await resolveRunStore(cwd, argv[4]);
+      await requireLegacyRunMode(runDir, 'finding record');
       if (await readCommittedEpochStore(runDir) === null) {
         throw new CliContractError('RUN_NOT_MANAGED', 'runがmanaged storeへactivateされていない');
       }
@@ -4398,6 +4411,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[4] === '--input' && typeof argv[5] === 'string' && argv[5].length > 0) {
     action = async () => {
       const { runDir, runRef } = await resolveRunStore(cwd, argv[3]);
+      await requireLegacyRunMode(runDir, 'recompile');
       if (await readCommittedEpochStore(runDir) === null) {
         throw new CliContractError('RUN_NOT_MANAGED', 'runがmanaged storeへactivateされていない');
       }
@@ -4410,6 +4424,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0) {
     action = async () => {
       const { runDir, runRef } = await resolveRunStore(cwd, argv[3]);
+      await requireLegacyRunMode(runDir, argv[1]);
       return runManagedControl({
         runDir, runRef, operation: argv[1], artifactDigest: null, stdout,
         requestId: requestIdOverride,
@@ -4423,6 +4438,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0) {
     action = async () => {
       const { runDir } = await resolveRunStore(cwd, argv[3]);
+      await requireLegacyRunMode(runDir, 'event verify');
       return eventVerify({ runDir, stdout });
     };
   }
