@@ -17,6 +17,7 @@ import { ensureScriptedWorktree } from './runtime-scripted-worktree.mjs';
 import {
   selfDigest, validateRuntimeBoundaryManifest, validateRuntimePlan,
 } from './runtime-contracts.mjs';
+import { TODO_INDEPENDENCE_SCHEMA } from './todo-independence-contracts.mjs';
 import {
   readTodoIndependenceArtifact, readTodoStore, readTodoWitnessSet,
 } from './todo-store.mjs';
@@ -213,6 +214,15 @@ function project(events, meta) {
         worker: null,
         accepted: null,
       });
+    } else if (event.kind === 'intake_refreshed') {
+      const intake = intakes.get(event.task_id);
+      if (intake) Object.assign(intake, {
+        packet: structuredClone(event.payload.packet),
+        manifest: structuredClone(event.payload.manifest),
+        independence_result_digest: event.payload.independence_result_digest,
+        witness_set_digest: event.payload.witness_set_digest,
+        intervention: structuredClone(event.payload.intervention),
+      });
     } else if (event.kind === 'intervention_changed') {
       const intake = intakes.get(event.task_id);
       if (intake) intake.intervention = structuredClone(event.payload.intervention);
@@ -245,6 +255,9 @@ function publicIntake(intake) {
     base_sha: intake.base_sha,
     worktree_path: intake.worktree_path,
     packet_digest: intake.packet.packet_digest,
+    manifest_digest: intake.manifest.manifest_digest,
+    independence_result_digest: intake.independence_result_digest,
+    witness_set_digest: intake.witness_set_digest,
     intervention: structuredClone(intake.intervention),
     worker_attached: intake.worker !== null,
     worker_stopped: intake.worker?.stopped ?? false,
@@ -325,7 +338,7 @@ async function boundaryVerdict({ repoRoot, store, member, meta, taskId, intakeBa
       detail: { cause: error?.code ?? 'artifact_read_failed' }, artifact: null, witnessSet: null };
   }
   const bindingValid = artifact !== null
-    && artifact.schema === 'lattice.todo_independence.v3'
+    && artifact.schema === TODO_INDEPENDENCE_SCHEMA
     && artifact.project_id === store.project_id
     && artifact.plan_key === meta.plan_key
     && artifact.plan_version === member.plan.plan_version
@@ -350,17 +363,32 @@ async function boundaryVerdict({ repoRoot, store, member, meta, taskId, intakeBa
     return { state: 'hold', reason: 'boundary_unverified', next_action: 'recompile_independence',
       detail: { cause: 'compiled_base_missing' }, artifact, witnessSet };
   }
-  const reachable = await run(
+  const artifactBeforeIntake = await run(
     'git', ['merge-base', '--is-ancestor', artifact.base_sha, intakeBase], repoRoot, [0, 1, 128],
   );
-  if (reachable.code !== 0) {
+  let comparisonBase = artifact.base_sha;
+  let comparisonHead = intakeBase;
+  let baseRelation = 'compiled_at_or_before_intake';
+  if (artifactBeforeIntake.code !== 0) {
+    const intakeBeforeArtifact = await run(
+      'git', ['merge-base', '--is-ancestor', intakeBase, artifact.base_sha], repoRoot, [0, 1, 128],
+    );
+    if (intakeBeforeArtifact.code !== 0) {
+      return { state: 'hold', reason: 'version_drift', next_action: 'recompile_independence',
+        detail: { cause: 'compiled_base_unreachable' }, artifact, witnessSet };
+    }
+    comparisonBase = intakeBase;
+    comparisonHead = artifact.base_sha;
+    baseRelation = 'compiled_after_intake';
+  }
+  if (![comparisonBase, comparisonHead].every(SHA1.test.bind(SHA1))) {
     return { state: 'hold', reason: 'version_drift', next_action: 'recompile_independence',
       detail: { cause: 'compiled_base_unreachable' }, artifact, witnessSet };
   }
   let changedPaths = [];
-  if (artifact.base_sha !== intakeBase) {
+  if (comparisonBase !== comparisonHead) {
     const changed = await run(
-      'git', ['diff', '--name-only', '-z', `${artifact.base_sha}..${intakeBase}`], repoRoot,
+      'git', ['diff', '--name-only', '-z', `${comparisonBase}..${comparisonHead}`], repoRoot,
     );
     changedPaths = changed.stdout.split('\0').filter(Boolean).sort();
   }
@@ -377,7 +405,8 @@ async function boundaryVerdict({ repoRoot, store, member, meta, taskId, intakeBa
       detail: { cause: 'task_boundary_unknown', unknowns: taskUnknowns }, artifact, witnessSet };
   }
   return { state: 'none', reason: null, next_action: null,
-    detail: { compiled_base_sha: artifact.base_sha, changed_path_count: changedPaths.length },
+    detail: { compiled_base_sha: artifact.base_sha, changed_path_count: changedPaths.length,
+      base_relation: baseRelation },
     artifact, witnessSet };
 }
 
@@ -541,8 +570,83 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
         || activation?.event_digest !== existing.activation_event_digest) {
         fail('INTAKE_BINDING_CONFLICT', '既存intakeのactivation/version bindingと一致しない');
       }
+      if (existing.accepted !== null) {
+        const result = { schema: 'lattice.pull_intake_result.v1', outcome: 'intaked',
+          already_intaked: true, refreshed: false, ...publicIntake(existing) };
+        result.result_digest = digestArtifact(result);
+        return result;
+      }
+
+      const verdict = await boundaryVerdict({
+        repoRoot, store, member, meta: current.meta, taskId, intakeBase: existing.base_sha,
+      });
+      let manifest;
+      try { manifest = buildManifest(verdict.witnessSet, taskId); }
+      catch (error) {
+        if (!(error instanceof PullRunError)) throw error;
+        manifest = {
+          schema: 'lattice.boundary_manifest.v2', todo_id: taskId,
+          owns: [], reads: [], writes: [], resources: [], state_effects: [], unknowns: [],
+          affected_tests: [], graph_evidence: [], witness_provenance: {}, manifest_digest: '',
+        };
+        manifest.manifest_digest = selfDigest(manifest, 'manifest_digest');
+        verdict.state = 'hold'; verdict.reason = 'boundary_unverified';
+        verdict.next_action = 'declare_and_recompile'; verdict.detail = { cause: error.code };
+      }
+      const packet = packetFor({
+        meta: current.meta, taskId, baseSha: existing.base_sha, manifest,
+      });
+      const constraint = verdict.state === 'none'
+        ? planningConstraint(verdict.artifact, taskId, state, member) : null;
+      const intervention = interventionPayload(verdict, constraint);
+
+      const confirmation = await readTodoStore({ repoRoot });
+      const confirmed = resolveStartBinding(confirmation, current.meta, taskId, actor);
+      if (confirmed.member.plan.plan_version !== member.plan.plan_version
+        || confirmed.member.plan.topology_digest !== member.plan.topology_digest
+        || confirmed.activation.event_digest !== activation.event_digest) {
+        intervention.state = 'hold'; intervention.reason = 'version_drift';
+        intervention.next_action = 'retry_intake_on_active_version'; intervention.lease_state = 'withheld';
+        intervention.detail = { cause: 'todo_binding_changed_during_intake', equipment_state: 'isolated' };
+      }
+      const refresh = {
+        packet, manifest,
+        independence_result_digest: verdict.artifact?.result_digest ?? null,
+        witness_set_digest: verdict.witnessSet?.witness_set_digest ?? null,
+        intervention,
+      };
+      const previous = {
+        packet: existing.packet, manifest: existing.manifest,
+        independence_result_digest: existing.independence_result_digest,
+        witness_set_digest: existing.witness_set_digest,
+        intervention: existing.intervention,
+      };
+      const refreshed = digestArtifact(refresh) !== digestArtifact(previous);
+      if (refreshed) {
+        current = await appendEvent(runDir, current, buildEvent({
+          events: current.events, meta: current.meta, kind: 'intake_refreshed', taskId,
+          payload: refresh,
+        }));
+      }
+      const updated = project(current.events, current.meta).intakes
+        .find((entry) => entry.task_id === taskId);
+      if (updated.worker && intervention.state === 'hold' && !updated.worker.stopped) {
+        await signalAttachedWorker(updated, 'SIGSTOP');
+        current = await appendEvent(runDir, current, buildEvent({
+          events: current.events, meta: current.meta, kind: 'worker_stopped', taskId,
+          payload: { reason: intervention.reason },
+        }));
+      } else if (updated.worker?.stopped && intervention.state === 'none') {
+        await signalAttachedWorker(updated, 'SIGCONT');
+        current = await appendEvent(runDir, current, buildEvent({
+          events: current.events, meta: current.meta, kind: 'worker_resumed', taskId,
+          payload: { released_by: 'intake_refresh' },
+        }));
+      }
+      state = project(current.events, current.meta);
       const result = { schema: 'lattice.pull_intake_result.v1', outcome: 'intaked',
-        already_intaked: true, ...publicIntake(state.intakes.find((entry) => entry.task_id === taskId)) };
+        already_intaked: true, refreshed,
+        ...publicIntake(state.intakes.find((entry) => entry.task_id === taskId)) };
       result.result_digest = digestArtifact(result);
       return result;
     }
@@ -606,7 +710,7 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
     }));
     const intake = project(current.events, current.meta).intakes.find((entry) => entry.task_id === taskId);
     const result = { schema: 'lattice.pull_intake_result.v1', outcome: 'intaked',
-      already_intaked: false, ...publicIntake(intake) };
+      already_intaked: false, refreshed: false, ...publicIntake(intake) };
     result.result_digest = digestArtifact(result);
     return result;
   } finally { await lock.release(); }

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { observeManagedProcessStartIdentity } from '../src/runtime-managed-supervisor.mjs';
+import { TODO_INDEPENDENCE_SCHEMA } from '../src/todo-independence-contracts.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 import {
   appendTodoEvent, createTodoStoreWriter, initializeTodoStore, readTodoStore,
@@ -107,7 +108,7 @@ async function workspace(context, { conflict = false, precedence = false,
   const member = (await readTodoStore({ repoRoot: root })).members[0];
   const conflictResource = 'own-path-shared-fixture';
   const artifact = {
-    schema: 'lattice.todo_independence.v3', project_id: 'pull-project', plan_key: PLAN_KEY,
+    schema: TODO_INDEPENDENCE_SCHEMA, project_id: 'pull-project', plan_key: PLAN_KEY,
     plan_version: 'v1', topology_digest: member.plan.topology_digest, base_sha: baseSha,
     witness_set_digest: witnessSet.witness_set_digest, compiled_at: NOW,
     task_ids: ['A', 'B'],
@@ -121,6 +122,10 @@ async function workspace(context, { conflict = false, precedence = false,
     precedences: precedence
       ? [{ from_task_id: 'A', to_task_id: 'B', reason: 'hard_dependency' }] : [],
     unknowns: [],
+    scope_expanded: ['A', 'B'].map((taskId) => ({
+      task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+      path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+    })),
     wave_plan: outcome === 'unknown' ? null : { waves: conflict || precedence
       ? [{ task_ids: ['A'] }, { task_ids: ['B'] }]
       : [{ task_ids: ['A', 'B'] }], minimum_feasible_waves: conflict || precedence ? 2 : 1 },
@@ -128,7 +133,7 @@ async function workspace(context, { conflict = false, precedence = false,
   };
   artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
   await writeTodoIndependenceArtifact({ repoRoot: root, artifact });
-  return { root, baseSha, writeA, writeB, artifact };
+  return { root, baseSha, writeA, writeB, artifact, witnessSet };
 }
 
 async function startTask(root, taskId, timestamp, overrideReason = null) {
@@ -245,13 +250,10 @@ test('後着planning conflictはhold/lease withheldとなり、未intake自動�
       'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'B',
     ]));
     assert.deepEqual([retried.already_intaked, retried.intervention.state,
-      retried.intervention.reason], [true, 'hold', 'planning_conflict']);
+      retried.intervention.reason, retried.refreshed], [true, 'none', null, true]);
     assert.equal(parsed(runCli(root, [
       'run', 'status', '--run', '.lattice/runs/pull-run',
-    ])).event_count, eventCount);
-    assert.equal(parsed(runCli(root, [
-      'run', 'intake', 'accept', '--run', '.lattice/runs/pull-run', '--task', 'B',
-    ]), 1).code, 'TASK_HELD');
+    ])).event_count, eventCount + 1);
     const close = parsed(runCli(root, ['run', 'close', '--run', '.lattice/runs/pull-run']), 1);
     assert.equal(close.code, 'RUN_NOT_COMPLETE');
   });
@@ -284,6 +286,68 @@ test('independence outcome unknownはtask局所unknownが空でもboundary hold�
     assert.deepEqual([intaked.intervention.state, intaked.intervention.reason,
       intaked.intervention.detail.cause, intaked.intervention.lease_state],
     ['hold', 'boundary_unverified', 'independence_outcome_unknown', 'withheld']);
+  });
+
+test('再compile後の再intakeは最新manifest/packetへ更新し、intake後の境界変更はholdする',
+  async (context) => {
+    const { root, baseSha, artifact, witnessSet } = await workspace(context, { outcome: 'unknown' });
+    parsed(startPull(root));
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    const held = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.equal(held.intervention.reason, 'boundary_unverified');
+
+    const refreshedWitness = structuredClone(witnessSet);
+    refreshedWitness.manual_witness.A = witness('A', 'a', 'src/shared.mjs');
+    refreshedWitness.witness_set_digest = todoSelfDigest(refreshedWitness, 'witness_set_digest');
+    await writeTodoWitnessSet({ repoRoot: root, witnessSet: refreshedWitness });
+    await writeFile(path.join(root, 'README.md'), 'boundary declared after intake\n');
+    git(root, ['add', 'README.md']);
+    git(root, ['commit', '--quiet', '-m', 'declare boundary']);
+    const compiledBase = git(root, ['rev-parse', 'HEAD']);
+
+    const compiled = structuredClone(artifact);
+    compiled.base_sha = compiledBase;
+    compiled.witness_set_digest = refreshedWitness.witness_set_digest;
+    compiled.task_boundaries = compiled.task_boundaries.map((entry) => (
+      entry.task_id === 'A' ? { task_id: 'A', paths: ['src/shared.mjs', 'test/a.test.mjs'] } : entry
+    ));
+    compiled.outcome = 'compiled';
+    compiled.wave_plan = { waves: [{ task_ids: ['A', 'B'] }], minimum_feasible_waves: 1 };
+    compiled.result_digest = todoSelfDigest(compiled, 'result_digest');
+    await writeTodoIndependenceArtifact({ repoRoot: root, artifact: compiled });
+
+    const released = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.deepEqual([released.already_intaked, released.refreshed,
+      released.intervention.state, released.intervention.detail.base_relation],
+    [true, true, 'none', 'compiled_after_intake']);
+    assert.equal(released.base_sha, baseSha);
+    assert.notEqual(released.manifest_digest, held.manifest_digest);
+    assert.notEqual(released.packet_digest, held.packet_digest);
+    const observed = parsed(runCli(root, [
+      'run', 'observe', '--run', '.lattice/runs/pull-run',
+    ])).intakes[0];
+    assert.deepEqual([observed.manifest_digest, observed.packet_digest,
+      observed.witness_set_digest, observed.independence_result_digest],
+    [released.manifest_digest, released.packet_digest,
+      refreshedWitness.witness_set_digest, compiled.result_digest]);
+
+    await writeFile(path.join(root, 'src', 'shared.mjs'), 'export const shared = 2;\n');
+    git(root, ['add', 'src/shared.mjs']);
+    git(root, ['commit', '--quiet', '-m', 'change declared boundary']);
+    const intersecting = structuredClone(compiled);
+    intersecting.base_sha = git(root, ['rev-parse', 'HEAD']);
+    intersecting.result_digest = todoSelfDigest(intersecting, 'result_digest');
+    await writeTodoIndependenceArtifact({ repoRoot: root, artifact: intersecting });
+    const reheld = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.deepEqual([reheld.refreshed, reheld.intervention.state,
+      reheld.intervention.reason, reheld.intervention.detail.cause],
+    [true, 'hold', 'version_drift', 'boundary_intersecting_drift']);
   });
 
 test('override startされた後続taskは未accepted predecessorのprecedenceでserial holdになる',
