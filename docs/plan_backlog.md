@@ -78,12 +78,15 @@ Spotter併載端末で提案が二重になることは許容し、住み分け�
 `roundtable-exec-20260809`で実測: **79 commitのうち29（37%）が自分の宣言境界を広げるcommit**、
 t7単独で5回。会話側の帰結は、t7開始前が166発言で11 task着地、開始後が293発言で0着地。
 
-構想は[plan_todo-scope-expansion.md](plan_todo-scope-expansion.md)（実装なし・工程起票なし）。要点は
-入口を`lattice todo independence compile`に置くこと（膨張は必ず再compileを通り、前回artifactと
-witness digestで差分が取れ、計画層なので実行層の接続を待たない）と、**装置は膨張の事実と差分までを
-出し、分割の判断と実行はAIが行う**こと（オーナー裁定 2026-08-09・AGENTS.md所有境界）。
-ADR 0158の`prediction_excess`は変えない——止めない挙動はそのままで、情報だけ届くようにする。
-campaign級なので、着手時に専用planを起こす。
+構想は[plan_todo-scope-expansion.md](plan_todo-scope-expansion.md)（実装なし・工程起票なし）。
+中核はA→A'変換（オーナー裁定 2026-08-09）: 肥大の実体は「ToDoの中に第二のToDoリスト（内側の
+gate群）が生える」ことで、対策は各gateを独立ToDo A1..Anとしてグラフへ追加し、Aは元の受入だけの
+A'へ痩せてA1..Anを前提に持つ変換。3本立て——①観測（independence compileで宣言の前回差分→
+`scope_expanded`）②促し（advisoryで変換を勧める。判断はAI）③変換の軽い入口（`todo split`が分割案を
+正規のplan revision `task_migration` from→successorsへ機械コンパイル。入口の軽さが本丸）。
+別planへ逃がすspawn形は不採用（redirect planで実測: 依存の線が切れてnoteと口約束になる）。
+ADR 0158の`prediction_excess`は変えない。欲張り（別対応可）: ToDoの箱の内側に内部工程図が
+描かれる入れ子表示（`parent_task_id`が系譜を持つ）。campaign級なので、着手時に専用planを起こす。
 
 ## 工程
 
