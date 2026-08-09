@@ -900,24 +900,59 @@ function layoutTodoGanttFlat(readModel, chainProjection, options = {}) {
   };
 }
 
+function applyHierarchySemantics(level, semanticByKey) {
+  const layout = {
+    ...level.layout,
+    nodes: level.layout.nodes.map((node) => {
+      const semantic = semanticByKey.get(refKey(node.ref));
+      return semantic === undefined ? node : { ...node, visibility: { ...semantic.visibility } };
+    }),
+  };
+  return {
+    layout,
+    children: level.children.map((child) => ({
+      ...child,
+      level: applyHierarchySemantics(child.level, semanticByKey),
+    })),
+  };
+}
+
+function descendantNodes(level) {
+  return level.children.flatMap((child) => [
+    ...child.level.layout.nodes,
+    ...descendantNodes(child.level),
+  ]);
+}
+
 export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   const fullLayout = layoutTodoGanttFlat(readModel, chainProjection, options);
   let nested;
   try {
-    nested = buildTodoGanttHierarchy(readModel, options, layoutTodoGanttFlat);
+    const visibleTaskKeys = (options.scope ?? 'live') === 'all' ? null
+      : new Set(fullLayout.nodes.map((node) => refKey(node.ref)));
+    nested = buildTodoGanttHierarchy(
+      readModel, options, layoutTodoGanttFlat, visibleTaskKeys,
+    );
   } catch (error) {
     if (error?.code !== 'TODO_LAYOUT_INVALID_HIERARCHY') throw error;
     fail(error.code, error.message, error.detail);
   }
   if (nested === null) return fullLayout;
 
-  const rootLayout = nested.root.layout;
+  // 階層ごとの縮約graphは座標だけを決める。ready/最長鎖/独立性まで縮約graphで
+  // 再計算すると、未完の子を持つdone親が後続をreadyへ進めるなど、実graphと違う判断を描く。
+  const semanticLayout = options.scope === 'all'
+    ? fullLayout : layoutTodoGanttFlat(readModel, chainProjection, { ...options, scope: 'all' });
+  const semanticByKey = new Map(semanticLayout.nodes.map((node) => [refKey(node.ref), node]));
+  const semanticRoot = applyHierarchySemantics(nested.root, semanticByKey);
+  const rootLayout = semanticRoot.layout;
   return {
     ...rootLayout,
     full_edges: fullLayout.full_edges,
     groups: fullLayout.groups,
     scope: fullLayout.scope,
     folded: fullLayout.folded,
+    hierarchy_nodes: descendantNodes(semanticRoot),
     metrics: {
       ...rootLayout.metrics,
       visible_node_count: nested.metrics.visibleNodeCount,
@@ -927,7 +962,7 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
     },
     hierarchy: {
       schema: 'lattice.todo_gantt_hierarchy.v1',
-      children: nested.root.children,
+      children: semanticRoot.children,
       maximum_depth: nested.metrics.maximumDepth,
       task_count: nested.metrics.taskCount,
     },

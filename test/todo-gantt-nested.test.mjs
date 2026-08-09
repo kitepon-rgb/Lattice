@@ -67,6 +67,11 @@ test('parent_task_id projects descendant dependencies into recursive child DAGs'
   assert.equal(layout.hierarchy.maximum_depth, 3);
   assert.equal(layout.hierarchy.task_count, 5);
   assert.equal(layout.metrics.task_count, 5);
+  const semantic = new Map([...layout.nodes, ...layout.hierarchy_nodes]
+    .map((node) => [node.ref.task_id, node.visibility.next_ready]));
+  assert.deepEqual(Object.fromEntries(semantic), {
+    P: false, Q: false, C1: true, C2: false, G: true,
+  });
   assert.deepEqual(layout.full_edges.map(({ from, to }) => [from.task_id, to.task_id]), [
     ['C2', 'Q'], ['G', 'C2'],
   ]);
@@ -113,6 +118,17 @@ test('phase accept dependencies follow a descendant to its enclosing parent box'
   assert.equal(parent.level.layout.nodes[0].visibility.next_ready, false);
 });
 
+test('live scope retains a folded parent as the container of a visible child DAG', () => {
+  const input = fixture([
+    { task_id: 'P' },
+    { task_id: 'C', parent_task_id: 'P' },
+  ]);
+  const layout = layoutTodoGantt(input.read, input.chain);
+  assert.deepEqual(layout.nodes.map(({ ref: nodeRef }) => nodeRef.task_id), ['P']);
+  assert.deepEqual(layout.hierarchy_nodes.map(({ ref: nodeRef }) => nodeRef.task_id), ['C']);
+  assert.match(renderTodoGanttSvg(layout), /data-nested-toggle-for=/u);
+});
+
 test('parentless layout and SVG remain byte-identical to the pre-hierarchy renderer', () => {
   const input = fixture([
     { task_id: 'A', title: 'Alpha' },
@@ -141,5 +157,6 @@ test('hierarchical SVG and HTML expose recursive panels without network dependen
   const html = renderTodoGanttHtml({ readModel: input.read, layout }).html;
   assert.match(html, /data-nested-toggle-for=/u);
   assert.match(html, /nested-task-panel/u);
+  assert.match(html, /<strong>同時dispatch推奨:<\/strong> 2工程/u);
   assert.doesNotMatch(html, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
 });

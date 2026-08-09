@@ -102,7 +102,8 @@ function projectMember(member, hierarchy, containerKey, selectedKeys) {
   for (const edge of member.plan.hard_dependencies) {
     const from = projectRef(hierarchy, containerKey, edge.from);
     const to = projectRef(hierarchy, containerKey, edge.to);
-    if (from === null || to === null || refKey(from) === refKey(to)) continue;
+    if (from === null || to === null || !selectedKeys.has(refKey(from))
+      || !selectedKeys.has(refKey(to)) || refKey(from) === refKey(to)) continue;
     const key = JSON.stringify([refKey(from), refKey(to)]);
     if (seenHard.has(key)) continue;
     seenHard.add(key);
@@ -112,9 +113,10 @@ function projectMember(member, hierarchy, containerKey, selectedKeys) {
   const joins = [];
   for (const join of member.plan.joins) {
     const before = projectRef(hierarchy, containerKey, join.before);
-    if (before === null) continue;
+    if (before === null || !selectedKeys.has(refKey(before))) continue;
     const after = uniqueRefs(join.after.map((ref) => projectRef(hierarchy, containerKey, ref))
-      .filter((ref) => ref !== null && refKey(ref) !== refKey(before)));
+      .filter((ref) => ref !== null && selectedKeys.has(refKey(ref))
+        && refKey(ref) !== refKey(before)));
     if (after.length > 0) joins.push({ ...join, after, before });
   }
 
@@ -122,7 +124,7 @@ function projectMember(member, hierarchy, containerKey, selectedKeys) {
   const seenPhaseAccept = new Set();
   for (const dependency of member.plan.phase_accept_dependencies ?? []) {
     const to = projectRef(hierarchy, containerKey, dependency.to);
-    if (to === null) continue;
+    if (to === null || !selectedKeys.has(refKey(to))) continue;
     const key = JSON.stringify([dependency.from, refKey(to)]);
     if (seenPhaseAccept.has(key)) continue;
     seenPhaseAccept.add(key);
@@ -180,14 +182,17 @@ function topologyOf(readModel) {
   };
 }
 
-function buildLevel(readModel, hierarchy, containerKey, options, layoutFlat) {
-  const selected = hierarchy.childrenByParent.get(containerKey) ?? [];
+function buildLevel(readModel, hierarchy, containerKey, options, layoutFlat, includesSubtree) {
+  const selected = (hierarchy.childrenByParent.get(containerKey) ?? []).filter(includesSubtree);
   const selectedKeys = new Set(selected);
   const members = readModel.members.map((member) =>
     projectMember(member, hierarchy, containerKey, selectedKeys)).filter(Boolean);
   const projectedRead = { ...readModel, members };
   const levelOptions = {
     ...options,
+    // live foldingは元のfull graphで一度だけ行い、下で選んだtask集合へ反映済み。
+    // 縮約levelでもう一度foldすると、可視な子を持つdone親containerが消える。
+    scope: 'all',
     independence: filterIndependence(options.independence ?? null, selectedKeys),
     seamProposals: containerKey === ROOT ? options.seamProposals ?? null : null,
   };
@@ -196,7 +201,7 @@ function buildLevel(readModel, hierarchy, containerKey, options, layoutFlat) {
     if ((hierarchy.childrenByParent.get(parentKey) ?? []).length === 0) return [];
     return [{
       parent_ref: { ...hierarchy.tasks.get(parentKey).ref },
-      level: buildLevel(readModel, hierarchy, parentKey, options, layoutFlat),
+      level: buildLevel(readModel, hierarchy, parentKey, options, layoutFlat, includesSubtree),
     }];
   });
   return { layout, children };
@@ -217,9 +222,18 @@ function levelMetrics(level, depth = 1) {
   return { taskCount, visibleNodeCount, visibleEdgeCount, maximumDepth };
 }
 
-export function buildTodoGanttHierarchy(readModel, options, layoutFlat) {
+export function buildTodoGanttHierarchy(readModel, options, layoutFlat, visibleTaskKeys = null) {
   const hierarchy = normalizeHierarchy(readModel);
   if (hierarchy === null) return null;
-  const root = buildLevel(readModel, hierarchy, ROOT, options, layoutFlat);
+  const memo = new Map();
+  const includesSubtree = (key) => {
+    if (visibleTaskKeys === null) return true;
+    if (memo.has(key)) return memo.get(key);
+    const included = visibleTaskKeys.has(key)
+      || (hierarchy.childrenByParent.get(key) ?? []).some(includesSubtree);
+    memo.set(key, included);
+    return included;
+  };
+  const root = buildLevel(readModel, hierarchy, ROOT, options, layoutFlat, includesSubtree);
   return { root, metrics: levelMetrics(root) };
 }

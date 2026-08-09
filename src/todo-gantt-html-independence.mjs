@@ -139,7 +139,8 @@ export function renderRightPane(
 ) {
   const lookup = presentationLookup(presentation);
   const sectionByKey = new Map(sections.map((section) => [refKey(section.ref), section]));
-  const nodeByKey = new Map(layout.nodes.map((node) => [refKey(node.ref), node]));
+  const semanticNodes = [...layout.nodes, ...(layout.hierarchy_nodes ?? [])];
+  const nodeByKey = new Map(semanticNodes.map((node) => [refKey(node.ref), node]));
   const folds = foldIndex(layout);
   const incoming = new Map(sections.map((section) => [refKey(section.ref), []]));
   const outgoing = new Map(sections.map((section) => [refKey(section.ref), []]));
@@ -163,7 +164,7 @@ export function renderRightPane(
   const counts = { pending: 0, 'in-progress': 0, blocked: 0, done: 0 };
   for (const section of sections) counts[section.state.status] += 1;
   const active = sections.filter((section) => section.state.status === 'in-progress');
-  const ready = layout.nodes.filter((node) => node.visibility.next_ready);
+  const ready = semanticNodes.filter((node) => node.visibility.next_ready);
   const independenceSummary = summarizeIndependence(layout);
   const readyHeadline = ready.length > 1
     ? `<p class="readiness-note"><strong>同時dispatch推奨:</strong> ${ready.length}工程。${escapeHtmlText(dispatchBasis(independenceSummary))}</p>`
