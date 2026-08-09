@@ -114,13 +114,14 @@ test('実runで、宣言scope外の書き込みを走行中に観測して警報
   ok(cli(['run', 'adapter', 'register', '--input', path.join(temporaryRoot, 'adapter.json')],
     repoRoot), 'adapter register');
 
-  // activation socketの5秒timeoutを意図的に越え、同一request_id再照会が二重activateの
-  // RUN_BUSYにならず、in-progressを待って元の結果へ収束することも同時に固定する。
+  // 初回activation socketは外部workerの最終結果まで同じ接続で待つ。旧実装は5秒で切り、
+  // 同一request_idの再照会へ逃げていたため、delayで旧timeoutを越えることを実測する。
   const startedAt = Date.now();
   ok(cli(['run', 'activate', '--run', runRef], repoRoot, {
     NODE_ENV: 'test', LATTICE_INTERNAL_TEST_ACTIVATION_DELAY_MS: '5500',
   }), 'run activate');
   const activateMs = Date.now() - startedAt;
+  assert.ok(activateMs >= 5_000, `activationが旧5秒timeoutを越えて待っていない: ${activateMs}ms`);
 
   const runDir = path.join(repoRoot, ...runRef.split('/'));
   // 警報の記録は、probeとescalationを通ってから確定する。escalationはlifecycle lockを
