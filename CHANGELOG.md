@@ -4,6 +4,11 @@
 
 ### 追加
 
+- **開発中に発見した別plan間の依存を、その場で工程へ接続できるようにした。**
+  `todo dependency connect --from-plan ... --from-task ... --to-plan ... --to-task ... --reason ...`で
+  task参照とtopology digestを固定し、重複・stale参照・cycle・完了済み端点はtyped errorで拒否する。
+  接続後はconsumerを直ちにready／frontierから外し、active席数と公開Ganttのplan跨ぎ線・待機表示へ
+  同じ依存を反映する。producer完了後はconsumerが再び実行可能になり、live工程表も追従する。
 - **宣言scopeが膨張したtaskへ、分割検討を公開CLIから案内する。**
   `todo independence compile`の結果を`lattice.todo_independence_compile_result.v2`へ上げ、
   `scope_expansion_recommendations`を追加した。`todo start`の`advisory`にも同じtask固有の推薦を載せる。
