@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import {
   mkdir,
   mkdtemp,
@@ -18,6 +19,7 @@ import { validateRuntimeAdapterCapabilities } from '../src/runtime-controller-pr
 import { validateRunWorkOrder } from '../src/runtime-work-order-contracts.mjs';
 import {
   createWorkOrderAdapterCapabilities,
+  runtimeWorkOrderControllerInternal,
   spawnWorkOrderWorker,
 } from '../src/runtime-work-order-controller.mjs';
 
@@ -83,14 +85,39 @@ test('work-order workerはreportを合図にしdiffをLattice自身で観測す�
   const orderPath = path.join(spoolDir, 'orders', `${executorPacket.packet_digest}.json`);
   const reportPath = path.join(spoolDir, 'reports', `${executorPacket.packet_digest}.json`);
 
-  const seat = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+  const seatScript = [
+    "const { spawn } = require('node:child_process');",
+    "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'],",
+    "  { detached: true, stdio: 'ignore' });",
+    'child.unref();',
+    "process.stdout.write(String(child.pid) + '\\n');",
+    'setInterval(() => {}, 1000);',
+  ].join('\n');
+  const seat = spawn(process.execPath, ['-e', seatScript], {
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', 'pipe', 'ignore'],
   });
   assert.equal(Number.isSafeInteger(seat.pid), true);
+  const [childPidBytes] = await once(seat.stdout, 'data');
+  const detachedChildPid = Number(String(childPidBytes).trim());
+  assert.equal(Number.isSafeInteger(detachedChildPid), true);
+  seat.stdout.destroy();
   t.after(() => {
-    try { process.kill(-seat.pid, 'SIGKILL'); } catch { /* 終了済み */ }
+    for (const pid of [detachedChildPid, seat.pid]) {
+      try { process.kill(-pid, 'SIGKILL'); } catch { /* 終了済み */ }
+    }
   });
+
+  const dispatchObservation = await runtimeWorkOrderControllerInternal.observeWorkerProcessTree(
+    seat.pid,
+    { requireDescendantsInRootGroup: false },
+  );
+  assert.equal(dispatchObservation.processGroupId, seat.pid);
+  await assert.rejects(
+    runtimeWorkOrderControllerInternal.observeWorkerProcessTree(seat.pid),
+    (error) => error.code === 'WORK_ORDER_REPORT_INVALID'
+      && error.message.includes('worker childがrootと別process groupに居る'),
+  );
 
   // 前runのdoneが残っていても、新orderより前に消されて誤受理されない。
   await writeFile(reportPath, `${canonicalizeArtifact({

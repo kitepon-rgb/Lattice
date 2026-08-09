@@ -321,7 +321,7 @@ function quiescedState(rawState) {
   return null;
 }
 
-async function observeWorkerProcessTree(pid) {
+async function observeWorkerProcessTree(pid, { requireDescendantsInRootGroup = true } = {}) {
   let stdout;
   try {
     ({ stdout } = await execFileAsync('/bin/ps', [
@@ -353,6 +353,9 @@ async function observeWorkerProcessTree(pid) {
   }
   const root = records.get(pid);
   if (root === undefined) fail('WORK_ORDER_REPORT_INVALID', 'worker_pidが存在しない');
+  if (root.processGroupId !== root.pid) {
+    fail('WORK_ORDER_REPORT_INVALID', 'worker rootがprocess group leaderでない');
+  }
   const descendantPids = new Set();
   let changed = true;
   while (changed) {
@@ -367,7 +370,8 @@ async function observeWorkerProcessTree(pid) {
   }
   const descendants = [...descendantPids].map((childPid) => records.get(childPid))
     .sort((left, right) => left.pid - right.pid);
-  if (descendants.some((record) => record.processGroupId !== root.processGroupId)) {
+  if (requireDescendantsInRootGroup
+    && descendants.some((record) => record.processGroupId !== root.processGroupId)) {
     fail('WORK_ORDER_REPORT_INVALID', 'worker childがrootと別process groupに居る');
   }
   const expectedGroup = new Set([pid, ...descendantPids]);
@@ -391,6 +395,10 @@ async function observeWorkerProcessTree(pid) {
   };
 }
 
+export const runtimeWorkOrderControllerInternal = Object.freeze({
+  observeWorkerProcessTree,
+});
+
 /** orderを書き、bridgeのreportを状態遷移の合図として待つ。 */
 export async function spawnWorkOrderWorker({ packet, worktreePath, spoolDir }) {
   const order = createRunWorkOrder({ packet, worktreePath });
@@ -404,7 +412,11 @@ export async function spawnWorkOrderWorker({ packet, worktreePath, spoolDir }) {
   // 辞退はbridge内で再配車し、受諾した席が決まるまでreportを出さない。
   // controller側の任意timeoutでactivateを失敗させず、実席pidだけをimmutable bindする。
   const firstReport = await waitForWorkReport(reportPath, packet.packet_digest);
-  const processTree = await observeWorkerProcessTree(firstReport.worker_pid);
+  // dispatch時は席が稼働中で、一過性tool childが別PGIDへ出る。ここで束縛するのは
+  // 停止対象rootのstart identityとPGIDだけ。全子孫の同一PGID・静止はbarrierで検証する。
+  const processTree = await observeWorkerProcessTree(firstReport.worker_pid, {
+    requireDescendantsInRootGroup: false,
+  });
   const completed = (async () => {
     let report = firstReport;
     while (report.state !== 'done') {
