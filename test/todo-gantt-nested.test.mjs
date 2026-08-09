@@ -152,7 +152,9 @@ test('parentless layout and SVG remain byte-identical to the pre-hierarchy rende
   const layout = layoutTodoGantt(input.read, input.chain);
   assert.equal(layout.hierarchy, undefined);
   assert.equal(digest(JSON.stringify(layout)), '1441709bdec782246de2bdc9ddaca92d7c459578f6d9567bb0f1b7df1e3c6dc3');
-  assert.equal(digest(renderTodoGanttSvg(layout)), 'ebe6f5be09c6485fe0740c1180a546b19ffbba14acf942c47c455824875061c6');
+  const svg = renderTodoGanttSvg(layout);
+  assert.match(svg, /工程 A<\/text>/u);
+  assert.equal(digest(svg), 'e4dbf2e3865a7e3af7bb5aaa33adcf3825109333cd3c2174b64863b3156f4859');
 });
 
 test('hierarchical SVG and HTML expose recursive panels without network dependencies', () => {
