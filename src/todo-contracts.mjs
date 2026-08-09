@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { isCanonicalUtcTimestamp } from './timestamp-contract.mjs';
 
 export const TODO_EVENT_KINDS = Object.freeze([
-  'plan_genesis', 'start', 'block', 'unblock', 'done', 'reopen',
+  'plan_genesis', 'start', 'start_retracted', 'block', 'unblock', 'done', 'reopen',
   'phase_review', 'phase_accept', 'phase_reject', 'phase_reopen',
   // ADR 0148: 監査していない歴史を「監査なしで閉じた」として明示的に閉じるための専用kind。
   // phase_review/accept/reject/reopenと同じv3 tail event shape(phase_id持ち)に収め、
@@ -507,6 +507,9 @@ function validPayload(event) {
       && nullableText(payload.reason) && payload.reason !== null;
   }
   if (event.kind === 'start') return exactRecord(payload, ['override_reason']) && nullableText(payload.override_reason);
+  if (event.kind === 'start_retracted') return exactRecord(payload, ['reason', 'target_start_digest'])
+    && nullableText(payload.reason) && payload.reason !== null
+    && isTodoDigest(payload.target_start_digest);
   if (event.kind === 'block') return exactRecord(payload, ['reason']) && nullableText(payload.reason) && payload.reason !== null;
   if (event.kind === 'unblock') return exactRecord(payload, []);
   if (event.kind === 'done' && payload?.done_mode === 'authored') {

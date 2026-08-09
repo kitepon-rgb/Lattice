@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import {
-  lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, writeFile,
+  lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -234,6 +234,9 @@ function project(events, meta) {
     } else if (event.kind === 'task_accepted') {
       const intake = intakes.get(event.task_id);
       if (intake) intake.accepted = structuredClone(event.payload);
+    } else if (event.kind === 'intake_released') {
+      const intake = intakes.get(event.task_id);
+      if (intake?.accepted === null) intakes.delete(event.task_id);
     } else if (event.kind === 'run_closed') closed = true;
   }
   return {
@@ -499,6 +502,69 @@ async function acquirePullLock(runDir, operation, requestId) {
   });
 }
 
+async function acquireStartBindingLock(repoRoot, operation) {
+  return acquireRuntimeLifecycleLock({
+    lockPath: path.join(repoRoot, '.lattice', 'todo', '.start-binding.lock'),
+    sessionNonceDigest: digestArtifact({ repo_root: path.resolve(repoRoot), schema: PULL_RUN_META_SCHEMA }),
+    operation,
+    requestId: randomUUID(),
+    timeoutMs: 0,
+  });
+}
+
+async function activePullIntakesForStart(repoRoot, { planKey, taskId, activationEventDigest }) {
+  const root = path.join(repoRoot, '.lattice', 'runs');
+  let entries;
+  try { entries = await readdir(root, { withFileTypes: true }); }
+  catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    fail('INVALID_RUN_STORE', 'run store一覧を読めない');
+  }
+  const active = [];
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isDirectory() || !identifier(entry.name)) {
+      fail('INVALID_RUN_STORE', `不正なrun store entry: ${entry.name}`);
+    }
+    const runDir = path.join(root, entry.name);
+    const mode = await inspectRunMode(runDir);
+    if (mode.mode !== 'pull') continue;
+    const stored = await readPullStore(runDir);
+    const state = project(stored.events, stored.meta);
+    if (state.closed || state.plan_key !== planKey) continue;
+    const intake = state.intakes.find((candidate) => candidate.task_id === taskId
+      && candidate.activation_event_digest === activationEventDigest
+      && candidate.accepted === null);
+    if (intake !== undefined) active.push({
+      run_id: state.run_id,
+      run_ref: `.lattice/runs/${entry.name}`,
+      activation_event_digest: intake.activation_event_digest,
+    });
+  }
+  return active;
+}
+
+export async function withStartRetractionGuard({
+  repoRoot, planKey, taskId, activationEventDigest, action,
+}) {
+  if (!identifier(planKey) || !identifier(taskId) || !sha256(activationEventDigest)
+    || typeof action !== 'function') {
+    fail('INVALID_START_RETRACTION', 'start retraction guard入力が不正');
+  }
+  const lock = await acquireStartBindingLock(repoRoot, 'start-retract');
+  try {
+    const active = await activePullIntakesForStart(repoRoot, {
+      planKey, taskId, activationEventDigest,
+    });
+    if (active.length > 0) {
+      fail('ACTIVE_PULL_INTAKE', 'active intakeをreleaseしてからstartを撤回すること', {
+        plan_key: planKey, task_id: taskId, active_intakes: active,
+        next_action: 'lattice run intake release --run <run_ref> --task <task_id>',
+      });
+    }
+    return await action();
+  } finally { await lock.release(); }
+}
+
 async function appendEvent(runDir, current, event) {
   const next = [...current.events, event];
   verifyEvents(next, current.meta);
@@ -650,6 +716,8 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
       return result;
     }
 
+    const bindingLock = await acquireStartBindingLock(repoRoot, 'intake-bind');
+    try {
     const store = await readTodoStore({ repoRoot });
     const { member, activation } = resolveStartBinding(store, current.meta, taskId, actor);
     const baseSha = await headSha(repoRoot);
@@ -681,7 +749,8 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
       ? planningConstraint(verdict.artifact, taskId, state, member) : null;
     const intervention = interventionPayload(verdict, constraint);
 
-    // worktree供給後・event確定前にTodo正本を再読し、version/start bindingのTOCTOUを閉じる。
+    // retract側と同じrepo-wide lock内でstart bindingを再確認してから記録する。
+    // 先にretractされたら確認がtyped failし、先にintakeを記録したらretract側の走査が拒否する。
     const confirmation = await readTodoStore({ repoRoot });
     const confirmed = resolveStartBinding(confirmation, current.meta, taskId, actor);
     if (confirmed.member.plan.plan_version !== member.plan.plan_version
@@ -692,17 +761,17 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
       intervention.detail = { cause: 'todo_binding_changed_during_intake', equipment_state: 'isolated' };
     }
     const payload = {
-      actor, project_id: store.project_id,
-      plan_version: member.plan.plan_version,
-      topology_digest: member.plan.topology_digest,
-      activation_event_digest: activation.event_digest,
-      base_sha: baseSha,
-      worktree_path: worktreePath,
-      packet,
-      manifest,
-      independence_result_digest: verdict.artifact?.result_digest ?? null,
-      witness_set_digest: verdict.witnessSet?.witness_set_digest ?? null,
-      intervention,
+        actor, project_id: store.project_id,
+        plan_version: member.plan.plan_version,
+        topology_digest: member.plan.topology_digest,
+        activation_event_digest: activation.event_digest,
+        base_sha: baseSha,
+        worktree_path: worktreePath,
+        packet,
+        manifest,
+        independence_result_digest: verdict.artifact?.result_digest ?? null,
+        witness_set_digest: verdict.witnessSet?.witness_set_digest ?? null,
+        intervention,
     };
     current = await appendEvent(runDir, current, buildEvent({
       events: current.events, meta: current.meta, kind: 'intake_recorded', taskId, payload,
@@ -712,6 +781,39 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
       already_intaked: false, refreshed: false, ...publicIntake(intake) };
     result.result_digest = digestArtifact(result);
     return result;
+    } finally { await bindingLock.release(); }
+  } finally { await lock.release(); }
+}
+
+export async function releasePullTask({ runDir, taskId, environment = process.env }) {
+  if (!identifier(taskId)) fail('INVALID_TASK_ID', 'task idが不正');
+  const actor = actorFromEnvironment(environment);
+  const lock = await acquirePullLock(runDir, 'release', `release-${randomUUID()}`);
+  try {
+    let current = await readPullStore(runDir);
+    const state = project(current.events, current.meta);
+    if (state.closed) fail('RUN_CLOSED', 'closed pull runのintakeをreleaseできない');
+    const intake = state.intakes.find((entry) => entry.task_id === taskId);
+    if (intake === undefined) fail('INTAKE_NOT_FOUND', 'active intakeが存在しない', { task_id: taskId });
+    if (intake.accepted !== null) {
+      fail('INTAKE_ALREADY_ACCEPTED', 'accepted intakeはreleaseできない', { task_id: taskId });
+    }
+    if (!sameActor(intake.actor, actor)) {
+      fail('INTAKE_BINDING_CONFLICT', 'intakeを作成したactorだけがreleaseできる', {
+        task_id: taskId,
+      });
+    }
+    current = await appendEvent(runDir, current, buildEvent({
+      events: current.events, meta: current.meta, kind: 'intake_released', taskId,
+      payload: { released_by: actor },
+    }));
+    const output = {
+      schema: 'lattice.pull_intake_release_result.v1', outcome: 'released',
+      run_id: state.run_id, plan_key: state.plan_key, task_id: taskId,
+      release_event_digest: current.events.at(-1).event_digest, result_digest: '',
+    };
+    output.result_digest = digestArtifact(output);
+    return output;
   } finally { await lock.release(); }
 }
 

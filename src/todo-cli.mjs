@@ -50,6 +50,7 @@ import {
   readTodoIndependenceArtifact,
   readTodoSeamProposalArtifact,
   readTodoStore,
+  resolveTodoStartRetractionBinding,
   readTodoWitnessSet,
   todoWitnessRef,
   writeTodoWitnessSet,
@@ -60,6 +61,7 @@ import {
   verifyEffectivePhaseTodoRevisionSources,
   verifyTodoRevisionSources,
 } from './todo-store.mjs';
+import { withStartRetractionGuard } from './runtime-pull-intake.mjs';
 import {
   appendTodoExtraction,
   compileTodoExtraction,
@@ -788,6 +790,23 @@ async function startTask({
   });
   return mutate({ repoRoot, env, planKey, taskId: resolvedTaskId, kind: 'start',
     payload: { override_reason: overrideReason }, evidenceRef: null, advisory, noteContext });
+}
+
+async function retractStart({ repoRoot, env, planKey, taskId, reason }) {
+  const actor = mutationActor(env);
+  const store = await readTodoStore({ repoRoot });
+  const binding = resolveTodoStartRetractionBinding(store, { planKey, taskId, actor });
+  return withStartRetractionGuard({
+    repoRoot,
+    planKey,
+    taskId: binding.task_id,
+    activationEventDigest: binding.activation_event_digest,
+    action: () => mutate({
+      repoRoot, env, planKey, taskId: binding.task_id, kind: 'start_retracted',
+      payload: { reason, target_start_digest: binding.activation_event_digest },
+      evidenceRef: null,
+    }),
+  });
 }
 
 function validatePhaseDecisionInput(value, outcome) {
@@ -2915,6 +2934,13 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     action = (repoRoot) => startTask({ repoRoot, env, planKey: argv[2], taskId: argv[4],
       overrideReason, parallelFrontier: argv.length === 6,
       serialConfirmed: argv.length === 8 });
+  } else if (argv.length === 7 && argv[0] === 'retract'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
+    && argv[3] === '--task' && isTodoIdentifier(argv[4])
+    && argv[5] === '--reason' && argv[6].length > 0) {
+    action = (repoRoot) => retractStart({
+      repoRoot, env, planKey: argv[2], taskId: argv[4], reason: argv[6],
+    });
   } else if (argv.length === 7 && argv[0] === 'block'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--task' && isTodoIdentifier(argv[4])

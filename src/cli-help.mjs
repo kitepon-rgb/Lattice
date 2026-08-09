@@ -41,6 +41,7 @@ Commands:
   start --selection pull --id <id> --plan <key> --equipment detached-worktree
   start --schema --json              # lattice.run_request.v1 の JSON Schema を出す
   intake --run .lattice/runs/<id> --task <task_id>
+  intake release --run .lattice/runs/<id> --task <task_id>
   intake attach --run .lattice/runs/<id> --task <task_id> --input <worker.json>
   intake intervention --run .lattice/runs/<id> --task <task_id>
   intake accept --run .lattice/runs/<id> --task <task_id>
@@ -184,6 +185,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'run start': 'run start --request <request.json> --executor <adapter>'
     + ' | --selection pull --id <id> --plan <key> --equipment detached-worktree | --schema --json',
   'run intake': 'run intake --run .lattice/runs/<id> --task <task_id>',
+  'run intake release': 'run intake release --run .lattice/runs/<id> --task <task_id>',
   'run intake attach': 'run intake attach --run .lattice/runs/<id> --task <task_id> --input <worker.json>',
   'run intake intervention': 'run intake intervention --run .lattice/runs/<id> --task <task_id>',
   'run intake accept': 'run intake accept --run .lattice/runs/<id> --task <task_id>',
@@ -233,6 +235,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo phase close-unaudited': 'todo phase close-unaudited --plan <key> --phase <id> --reason <text>',
   'todo phase baseline': 'todo phase baseline --reason <text> [--except <plan_key>]...',
   'todo start': 'todo start --plan <key> --task <id> [--parallel-frontier|--override-reason <text>]',
+  'todo retract': 'todo retract --plan <key> --task <id> --reason <text>',
   'todo block': 'todo block --plan <key> --task <id> --reason <text>',
   'todo unblock': 'todo unblock --plan <key> --task <id>',
   'todo done': 'todo done --plan <key> --task <id> --evidence <file>',

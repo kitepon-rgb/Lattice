@@ -442,6 +442,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
   const phaseStates = new Map(phasesOf(plan).map(({ phase_id }) => [phase_id, emptyPhaseState(phase_id)]));
   const doneDigest = new Map();
   const completion = new Map();
+  const authoredStartBindings = new Map();
   const importedGenesis = events[0]?.payload.historical_import === true;
   let previousTime = null;
   for (const event of events) {
@@ -608,7 +609,31 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           fail('STORE_INCONSISTENT', 'invalid_start_transition');
         }
         state.status = 'in-progress'; state.started_at = event.recorded_at;
+        authoredStartBindings.set(event.task_id, {
+          actor: structuredClone(event.actor), event_digest: event.event_digest,
+        });
       }
+    } else if (event.kind === 'start_retracted') {
+      const binding = authoredStartBindings.get(event.task_id);
+      const sameActor = binding !== undefined
+        && binding.actor.host === event.actor.host
+        && binding.actor.session === event.actor.session
+        && binding.actor.agent === event.actor.agent;
+      if (state.status !== 'in-progress') {
+        fail('START_RETRACTION_INVALID', 'start_retraction_requires_in_progress', {
+          task_id: event.task_id, status: state.status,
+        });
+      }
+      if (binding === undefined || binding.event_digest !== event.payload.target_start_digest) {
+        fail('START_RETRACTION_INVALID', 'authored_start_binding_missing', {
+          task_id: event.task_id,
+        });
+      }
+      if (!sameActor) {
+        fail('START_RETRACTION_INVALID', 'start_actor_mismatch', { task_id: event.task_id });
+      }
+      Object.assign(state, taskState(event.task_id));
+      authoredStartBindings.delete(event.task_id);
     } else if (event.kind === 'block') {
       if (state.status !== 'in-progress') fail('STORE_INCONSISTENT', 'invalid_block_transition');
       state.status = 'blocked'; state.blocked_reason = event.payload.reason;
@@ -647,6 +672,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         completion.set(event.task_id, { mode: 'evidence_promotion', completed_at: current.completed_at });
       }
       doneDigest.set(event.task_id, event.event_digest);
+      authoredStartBindings.delete(event.task_id);
     } else if (event.kind === 'reopen') {
       if (state.status !== 'done' || doneDigest.get(event.task_id) !== event.payload.target_done_digest) {
         fail('STORE_INCONSISTENT', 'invalid_reopen_binding');
@@ -672,6 +698,34 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
     }
   }
   return [...states.values()].sort((left, right) => left.task_id < right.task_id ? -1 : left.task_id > right.task_id ? 1 : 0);
+}
+
+/** 最新のauthored startだけを撤回対象として返す。readとappendの双方で同じbindingを検証する。 */
+export function resolveTodoStartRetractionBinding(store, { planKey, taskId, actor }) {
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (member === undefined) fail('STORE_INCONSISTENT', 'plan_not_active');
+  const canonicalTaskId = resolveCanonicalTaskId(member.plan, taskId);
+  const task = member.tasks.find(({ task_id: candidate }) => candidate === canonicalTaskId);
+  if (task === undefined) fail('STORE_INCONSISTENT', 'event_task_missing');
+  if (task.status !== 'in-progress') {
+    fail('START_RETRACTION_INVALID', 'start_retraction_requires_in_progress', {
+      task_id: canonicalTaskId, status: task.status,
+    });
+  }
+  let binding = null;
+  for (const event of member.journal.events) {
+    if (event.task_id !== canonicalTaskId) continue;
+    if (event.kind === 'start' && event.payload.start_mode !== 'historical_import') binding = event;
+    else if (event.kind === 'done' || event.kind === 'start_retracted') binding = null;
+  }
+  if (binding === null) {
+    fail('START_RETRACTION_INVALID', 'authored_start_binding_missing', { task_id: canonicalTaskId });
+  }
+  if (binding.actor.host !== actor.host || binding.actor.session !== actor.session
+    || binding.actor.agent !== actor.agent) {
+    fail('START_RETRACTION_INVALID', 'start_actor_mismatch', { task_id: canonicalTaskId });
+  }
+  return { task_id: canonicalTaskId, activation_event_digest: binding.event_digest };
 }
 
 function snapshotFor(plan, events, tasks) {

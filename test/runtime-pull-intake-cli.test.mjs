@@ -169,6 +169,48 @@ function startPull(root, runId = 'pull-run') {
   ]);
 }
 
+test('active intakeはstart撤回を拒否し、same actorのrelease後だけ撤回できる',
+  async (context) => {
+    const { root } = await workspace(context);
+    parsed(startPull(root));
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+
+    const guarded = parsed(runCli(root, [
+      'todo', 'retract', '--plan', PLAN_KEY, '--task', 'A', '--reason', '誤着手',
+    ]), 1);
+    assert.equal(guarded.code, 'ACTIVE_PULL_INTAKE');
+
+    const otherActor = {
+      LATTICE_TODO_ACTOR_HOST: 'mac',
+      LATTICE_TODO_ACTOR_SESSION: 'seat-b',
+      LATTICE_TODO_ACTOR_AGENT: 'seat-b',
+    };
+    const foreign = parsed(runCli(root, [
+      'run', 'intake', 'release', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ], otherActor), 1);
+    assert.equal(foreign.code, 'INTAKE_BINDING_CONFLICT');
+
+    const released = parsed(runCli(root, [
+      'run', 'intake', 'release', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.equal(released.outcome, 'released');
+    assert.equal(released.task_id, 'A');
+    assert.equal(parsed(runCli(root, [
+      'run', 'intake', 'release', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]), 1).code, 'INTAKE_NOT_FOUND');
+
+    const retracted = parsed(runCli(root, [
+      'todo', 'retract', '--plan', PLAN_KEY, '--task', 'A', '--reason', '誤着手',
+    ]));
+    assert.equal(retracted.kind, 'start_retracted');
+    assert.equal(retracted.status, 'pending');
+    const store = await readTodoStore({ repoRoot: root });
+    assert.equal(store.members[0].tasks.find((entry) => entry.task_id === 'A').status, 'pending');
+  });
+
 test('intake 0件のpull runは着地0件を明示してcloseでき、active listから外れる',
   async (context) => {
     const { root } = await workspace(context);
@@ -466,6 +508,9 @@ test('acceptはsame-version literal doneと独立worktree観測へ束縛しlandi
     ]));
     assert.equal(accepted.head_sha, resultHead);
     assert.equal(accepted.done_event_digest, done.event.event_digest);
+    assert.equal(parsed(runCli(root, [
+      'run', 'intake', 'release', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]), 1).code, 'INTAKE_ALREADY_ACCEPTED');
     assert.equal(parsed(runCli(root, [
       'run', 'intake', 'accept', '--run', '.lattice/runs/pull-run', '--task', 'A',
     ])).already_accepted, true);
