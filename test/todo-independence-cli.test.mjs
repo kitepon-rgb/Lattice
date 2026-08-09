@@ -421,12 +421,17 @@ test('着手時のadvisoryが進行中との競合と切断可能性を返す', 
     outcome: 'compiled',
     result_digest: '',
   };
-  // v4: scope_expanded は task_ids と1:1でなければ validator が落とす。
-  // fixture の既定は「膨張ゼロ・比較相手なし」で、履歴を測る test は明示的に上書きする
-  artifact.scope_expanded = artifact.scope_expanded ?? (artifact.task_ids ?? []).map((taskId) => ({
-    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
-    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
-  }));
+  artifact.scope_expanded = [
+    {
+      task_id: 'T1', compared_witness_digest: 'e'.repeat(64), first_seen_path_count: 1,
+      path_count: 3, added_paths: ['src/extra.mjs'], removed_paths: [],
+      growth_events: 2, gate_shape: true,
+    },
+    {
+      task_id: 'T2', compared_witness_digest: 'e'.repeat(64), first_seen_path_count: 1,
+      path_count: 1, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+    },
+  ];
   artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
   await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
 
@@ -446,6 +451,16 @@ test('着手時のadvisoryが進行中との競合と切断可能性を返す', 
   // まだactiveが無いので競合相手はいない。
   assert.deepEqual(firstResult.advisory.conflicts_with_active, []);
   assert.deepEqual(firstResult.advisory.self_unknowns, []);
+  assert.deepEqual(firstResult.advisory.scope_expansion_recommendations, [{
+    code: 'scope_expanded_consider_split',
+    task_id: 'T1',
+    growth_events: 2,
+    first_seen_path_count: 1,
+    path_count: 3,
+    gate_shape: true,
+    message: '宣言が2回膨張している。このtaskは依存の合流点であり、内側にgateのリストが生えているなら、A1..Anと残余A\'への分割を検討できる。',
+    next_action: 'consider_todo_split',
+  }]);
 
   // T1が進行中の状態でT2へ着手すると、相手と切断可能性が助言に載る。
   const second = start('T2');
@@ -460,6 +475,8 @@ test('着手時のadvisoryが進行中との競合と切断可能性を返す', 
   }]);
   assert.equal(advisory.coverage, 'verified');
   assert.equal(advisory.drift_intersecting, null);
+  assert.deepEqual(advisory.scope_expansion_recommendations, [],
+    '膨張ゼロのtaskには別taskの助言を漏らさない');
 });
 
 test('記録が無い時の着手も助言を返し、未検査であることを告げる', async (context) => {
@@ -476,11 +493,116 @@ test('記録が無い時の着手も助言を返し、未検査であること�
   assert.equal(started.status, 0, started.stderr);
   const advisory = parse(started.stdout).advisory;
   assert.equal(advisory.coverage, 'missing');
+  assert.deepEqual(advisory.scope_expansion_recommendations, []);
   // 「競合なし」でなく「まだ判定していない」として返す。
   assert.deepEqual(advisory.self_unknowns, [
     { kind: 'witness_missing', ref: 'no_independence_record' },
   ]);
 });
+
+test('compile結果が既知の宣言膨張だけを分割検討の助言へ写す',
+  { timeout: 120_000 }, async (context) => {
+    const root = await workspace(context, { tasks: ['T1'] });
+    await mkdir(path.join(root, 'src'), { recursive: true });
+    await writeFile(path.join(root, '.gitignore'), '.lattice/\n');
+    await writeFile(path.join(root, 'src/a.mjs'), 'export const a = 1;\n');
+    await writeFile(path.join(root, 'src/b.mjs'), 'export const b = 2;\n');
+
+    const witnessSet = {
+      schema: TODO_WITNESS_SET_SCHEMA,
+      project_id: 'project-1',
+      plan_key: 'main',
+      capacity: { executors: 2 },
+      sensor_query_set: {
+        queries: [
+          { id: 'q-status', operation: 'status' },
+          { id: 'q-a', operation: 'affected', target: 'src/a.mjs' },
+          { id: 'q-b', operation: 'affected', target: 'src/b.mjs' },
+        ],
+      },
+      manual_witness: {
+        T1: {
+          owns: [
+            { kind: 'path', target: 'src/a.mjs' },
+            { kind: 'path', target: 'src/b.mjs' },
+          ],
+          reads: [],
+          writes: ['src/a.mjs', 'src/b.mjs'],
+          resources: [],
+          state_effects: [],
+          sensor_provenance: {
+            queries: [
+              { query_id: 'q-a', expect: { kind: 'affected', path: 'src/a.mjs' } },
+              { query_id: 'q-b', expect: { kind: 'affected', path: 'src/b.mjs' } },
+            ],
+          },
+          affected_tests: [],
+          unknowns: [],
+        },
+      },
+      witness_set_digest: '',
+    };
+    witnessSet.witness_set_digest = todoSelfDigest(witnessSet, 'witness_set_digest');
+    await writeFile(path.join(root, 'witness.json'),
+      `${canonicalizeTodoArtifact(witnessSet)}\n`);
+    git(root, ['add', '.gitignore', 'src/a.mjs', 'src/b.mjs', 'witness.json']);
+    git(root, ['commit', '--quiet', '-m', 'expanded witness']);
+
+    const topologyDigest = parse(runCli(root, ['verify', '--json']).stdout)
+      .verified_members[0].topology_digest;
+    const previous = {
+      schema: TODO_INDEPENDENCE_SCHEMA,
+      project_id: 'project-1',
+      plan_key: 'main',
+      plan_version: 'v1',
+      topology_digest: topologyDigest,
+      base_sha: git(root, ['rev-parse', 'HEAD']),
+      witness_set_digest: 'd'.repeat(64),
+      compiled_at: NOW,
+      task_ids: ['T1'],
+      task_boundaries: [{ task_id: 'T1', paths: ['src/a.mjs'] }],
+      conflict_resources: [],
+      conflicts: [],
+      precedences: [],
+      unknowns: [],
+      wave_plan: { waves: [{ task_ids: ['T1'] }], minimum_feasible_waves: 1 },
+      outcome: 'compiled',
+      scope_expanded: [{
+        task_id: 'T1', compared_witness_digest: null, first_seen_path_count: 1,
+        path_count: 1, added_paths: [], removed_paths: [], growth_events: 0,
+        gate_shape: false,
+      }],
+      result_digest: '',
+    };
+    previous.result_digest = todoSelfDigest(previous, 'result_digest');
+    await writeTodoIndependenceArtifact({ repoRoot: root, artifact: previous, now: NOW });
+
+    const initialized = spawnSync(process.execPath, [CLI, 'sensor', 'init', '.', '--json'], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' },
+    });
+    assert.equal(initialized.status, 0, initialized.stderr);
+    const compiled = runCli(root, [
+      'independence', 'compile', '--plan', 'main', '--input', 'witness.json',
+    ]);
+    assert.equal(compiled.status, 0, compiled.stderr);
+    const result = parse(compiled.stdout);
+    assert.equal(result.schema, 'lattice.todo_independence_compile_result.v2');
+    assert.deepEqual(result.scope_expansion_recommendations.map((entry) => ({
+      task_id: entry.task_id,
+      growth_events: entry.growth_events,
+      first_seen_path_count: entry.first_seen_path_count,
+      path_count: entry.path_count,
+      gate_shape: entry.gate_shape,
+      next_action: entry.next_action,
+    })), [{
+      task_id: 'T1',
+      growth_events: 1,
+      first_seen_path_count: 1,
+      path_count: 2,
+      gate_shape: false,
+      next_action: 'consider_todo_split',
+    }]);
+  });
 
 test('存在しないplanはfail closedにする', async (context) => {
   const root = await workspace(context);

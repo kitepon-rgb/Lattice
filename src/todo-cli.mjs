@@ -96,6 +96,7 @@ import {
   selectIndependenceGuidance,
   selectWitnessScaffoldGuidance,
   selectSeamProposalGuidance,
+  scopeExpansionRecommendations,
 } from './todo-independence-guidance.mjs';
 import {
   buildSeamProposalQuerySet,
@@ -640,6 +641,7 @@ async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
       coverage: 'missing',
       drift_intersecting: null,
       conflicts_with_active: [],
+      scope_expansion_recommendations: [],
       uncovered_active_task_ids: projection.active_set
         .filter((task) => task.plan_key === planKey).map(({ task_id: id }) => id),
       self_unknowns: [{ kind: 'witness_missing', ref: 'no_independence_record' }],
@@ -683,6 +685,9 @@ async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
     drift_intersecting: projected.drift === null
       ? null : projected.drift.intersecting_task_ids.includes(taskId),
     conflicts_with_active: conflictsWithActive,
+    scope_expansion_recommendations: scopeExpansionRecommendations(
+      Array.isArray(artifact.scope_expanded) ? artifact.scope_expanded : [],
+    ).filter(({ task_id: expandedTaskId }) => expandedTaskId === taskId),
     uncovered_active_task_ids: projected.uncovered_active_task_ids,
     self_unknowns: selfUnknowns,
     guidance: selectIndependenceGuidance({
@@ -1657,7 +1662,7 @@ async function independenceCompile({ repoRoot, planKey, inputRef }) {
   const { ref } = await writeTodoIndependenceArtifact({ repoRoot, artifact });
 
   const result = {
-    schema: 'lattice.todo_independence_compile_result.v1',
+    schema: 'lattice.todo_independence_compile_result.v2',
     project_id: artifact.project_id,
     plan_key: artifact.plan_key,
     plan_version: artifact.plan_version,
@@ -1667,6 +1672,7 @@ async function independenceCompile({ repoRoot, planKey, inputRef }) {
     task_count: artifact.task_ids.length,
     conflict_count: artifact.conflicts.length,
     unknown_count: artifact.unknowns.length,
+    scope_expansion_recommendations: scopeExpansionRecommendations(artifact.scope_expanded),
     result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
