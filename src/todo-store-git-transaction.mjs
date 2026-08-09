@@ -374,11 +374,30 @@ export async function commitTodoStoreMutation({
       commit_sha: commitSha,
     });
   } finally {
-    try {
-      if (preparedIndex !== null) await preparedIndex.rollback().catch(() => {});
-      if (transactionDir !== null) await rm(transactionDir, { recursive: true, force: true });
-    } finally {
-      await lock.release();
+    const cleanupFailures = [];
+    const indexLockPath = preparedIndex?.lockPath ?? null;
+    if (preparedIndex !== null) {
+      try { await preparedIndex.rollback(); }
+      catch (error) { cleanupFailures.push(error); }
+    }
+    if (transactionDir !== null) {
+      try { await rm(transactionDir, { recursive: true, force: true }); }
+      catch (error) { cleanupFailures.push(error); }
+    }
+    try { await lock.release(); }
+    catch (error) { cleanupFailures.push(error); }
+    if (cleanupFailures.length > 0) {
+      throw new TodoStoreGitTransactionError(
+        refUpdated ? 'STORE_COMMIT_POST_COMMIT_CLEANUP_FAILED' : 'STORE_COMMIT_CLEANUP_FAILED',
+        refUpdated ? 'todo_store_commit_succeeded_but_cleanup_failed' : 'todo_store_cleanup_failed',
+        {
+          commit_sha: refUpdated ? commitSha : null,
+          index_lock_path: indexLockPath,
+          failures: cleanupFailures.map((error) => (
+            typeof error?.code === 'string' ? error.code : error?.constructor?.name ?? 'Error'
+          )),
+        },
+      );
     }
   }
 }
