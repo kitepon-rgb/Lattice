@@ -570,6 +570,14 @@ test('attachはexpected lstart/argv digestを再認証し、raw argv、decoy、�
       'run', 'intake', 'attach', '--run', '.lattice/runs/pull-run', '--task', 'A',
       '--input', inputPath,
     ])).stopped, false);
+    assert.equal(parsed(runCli(root, [
+      'run', 'intake', 'release', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]), 1).code, 'INTAKE_WORKER_ATTACHED');
+    const afterRejectedRelease = parsed(runCli(root, [
+      'run', 'status', '--run', '.lattice/runs/pull-run',
+    ]));
+    assert.equal(afterRejectedRelease.intakes.find(({ task_id: taskId }) => taskId === 'A')
+      .worker_attached, true);
     assert.equal((await readFile(path.join(
       root, '.lattice', 'runs', 'pull-run', 'pull-events.json',
     ), 'utf8')).includes(secretMarker), false);

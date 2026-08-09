@@ -798,6 +798,12 @@ export async function releasePullTask({ runDir, taskId, environment = process.en
     if (intake.accepted !== null) {
       fail('INTAKE_ALREADY_ACCEPTED', 'accepted intakeはreleaseできない', { task_id: taskId });
     }
+    if (intake.worker !== null) {
+      fail('INTAKE_WORKER_ATTACHED', 'workerがattach済みのintakeはreleaseできない', {
+        task_id: taskId,
+        next_action: 'workerを安全に停止・detachできる正規経路を先に使う',
+      });
+    }
     if (!sameActor(intake.actor, actor)) {
       fail('INTAKE_BINDING_CONFLICT', 'intakeを作成したactorだけがreleaseできる', {
         task_id: taskId,
