@@ -229,10 +229,24 @@ def('t21', {
 
 // ---- gate（受入実測。runの実験はrun storeへ触れるが宣言scopeはevidenceのみ） ----
 def('t7', {
-  owns: [pc(EV('t7'))], writes: [EV('t7')],
-  state_effects: [se('lattice-run-store', 'state')],
-  resources: ['lattice-run-store'],
-  unknowns: [unk('runtime_experiment', '実daemon・実席での一気通貫実測。.lattice/runs配下は実験ごとに生成')],
+  owns: [
+    p('src/runtime-cli.mjs'), p('test/runtime-adapter-registry-cli.test.mjs'), pc(EV('t7')),
+  ],
+  reads: ['src/runtime-adapter-registry.mjs'],
+  writes: ['src/runtime-cli.mjs', 'test/runtime-adapter-registry-cli.test.mjs', EV('t7')],
+  affected_tests: ['test/runtime-adapter-registry-cli.test.mjs'],
+  state_effects: [
+    se('lattice-run-store', 'state'), se('pt-setup-sh', 'state'),
+    se('pt-teardown-sh', 'state'), se('pt-setup-runtime-exclude-repro', 'state'),
+  ],
+  resources: [
+    'lattice-run-store', 'pt-setup-sh', 'pt-teardown-sh',
+    'pt-setup-runtime-exclude-repro',
+  ],
+  unknowns: [
+    unk('runtime_experiment', '実daemon・実席での一気通貫実測。.lattice/runs配下は実験ごとに生成'),
+    unk('external_repo', 'peertable:skill/scripts/setup.sh・teardown.shとexperiments/setup-runtime-exclude-repro.mjs'),
+  ],
 })
 def('t11', {
   owns: [pc(EV('t11'))], writes: [EV('t11')],
