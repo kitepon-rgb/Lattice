@@ -308,7 +308,9 @@ export class RuntimeManagedSupervisor {
     if (this.#controllers.has(descriptor.controller_id)
       || this.#registrationToController.has(registration.registration_digest)) fail('ADAPTER_CONTROLLER_UNAVAILABLE', 'controller二重登録');
     const now = this.#clock();
-    const record = { descriptor: structuredClone(descriptor), registration: structuredClone(registration), transport, lastHeartbeat: now, lastHeartbeatSequence: 0, connected: true, revoked: false };
+    const record = { descriptor: structuredClone(descriptor), registration: structuredClone(registration),
+      transport, lastHeartbeat: now, lastHeartbeatSequence: 0,
+      lastRecordedLeaseSetDigest: null, connected: true, revoked: false };
     this.#controllers.set(descriptor.controller_id, record);
     this.#registrationToController.set(registration.registration_digest, descriptor.controller_id);
     await this.#append('controller_registered', { controller_id: descriptor.controller_id, registration_digest: registration.registration_digest });
@@ -326,7 +328,13 @@ export class RuntimeManagedSupervisor {
     // livenessだけを担い、lease集合はwrite認可時のcentral gate full-chainで照合する。
     record.lastHeartbeat = this.#clock();
     record.lastHeartbeatSequence = sequence;
-    await this.#append('controller_heartbeat', { controller_id: controllerId, registration_digest: registrationDigest, sequence, lease_set_digest: leaseSetDigest });
+    // heartbeatはlivenessの更新であり、同じlease集合のtickを全件journalへ積む必要はない。
+    // 初回とlease集合の変化だけを耐久記録し、壁時計に比例するjournal成長を止める。
+    if (record.lastRecordedLeaseSetDigest !== leaseSetDigest) {
+      await this.#append('controller_heartbeat', { controller_id: controllerId,
+        registration_digest: registrationDigest, sequence, lease_set_digest: leaseSetDigest });
+      record.lastRecordedLeaseSetDigest = leaseSetDigest;
+    }
   }
 
   async disconnect(controllerId) {
@@ -357,9 +365,14 @@ export class RuntimeManagedSupervisor {
     if (!validateControllerResponse(operation, response, request.request_id)) {
       await this.#failClosed(record, 'ADAPTER_CONTROLLER_UNAVAILABLE', `${operation} response不正`);
     }
-    await this.#append(operation === 'dispatch' ? 'dispatch_routed' : 'observation_routed', {
-      controller_id: controllerId, request_digest: request.request_digest, response_digest: response.response_digest,
-    });
+    // running pollは状態遷移ではない。全tickを耐久化すると長寿命workerほどcontrol journalを
+    // 膨らませ、artifact document上限でsupervisor自身を落とす。dispatchと非running観測だけを残す。
+    if (operation === 'dispatch' || response.observation?.state !== 'running') {
+      await this.#append(operation === 'dispatch' ? 'dispatch_routed' : 'observation_routed', {
+        controller_id: controllerId, request_digest: request.request_digest,
+        response_digest: response.response_digest,
+      });
+    }
     return structuredClone(response);
   }
 

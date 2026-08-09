@@ -333,6 +333,53 @@ test('heartbeatはsessionと単調sequenceを照合する', async () => {
   assert.equal(s.supervisor.frozen, true);
 });
 
+test('同じlease集合のheartbeatとrunning pollはjournalを増やさない', async () => {
+  const f = fixture(); const now = { value: 0 }; const s = makeSupervisor(f, now);
+  const observationResponse = (request, state) => {
+    const observation = sign({ schema: 'lattice.adapter_observation.v1', state,
+      executor_handle: request.executor_handle, plan_epoch: request.expected_epoch,
+      lease_digest: request.expected_lease_digest, payload_digest: D('7'),
+      observation_digest: '' }, 'observation_digest');
+    return sign({ schema: 'lattice.adapter_observe_response.v1',
+      request_id: request.request_id, observation,
+      observation_digest: observation.observation_digest, response_digest: '' },
+    'response_digest');
+  };
+  let observationState = 'running';
+  s.transport.request = async (operation, request) => operation === 'observe'
+    ? observationResponse(request, observationState) : response(operation, request, f);
+  await s.supervisor.registerController({ descriptor: f.descriptor,
+    registration: f.registration, transport: s.transport });
+
+  const unchanged = digestArtifact([]);
+  const changed = digestArtifact([D('1')]);
+  await s.supervisor.heartbeat({ controllerId: 'controller-a',
+    registrationDigest: f.registration.registration_digest, sequence: 1,
+    leaseSetDigest: unchanged, sessionNonceDigest: D('b') });
+  now.value = 100;
+  await s.supervisor.heartbeat({ controllerId: 'controller-a',
+    registrationDigest: f.registration.registration_digest, sequence: 2,
+    leaseSetDigest: unchanged, sessionNonceDigest: D('b') });
+  now.value = 200;
+  await s.supervisor.heartbeat({ controllerId: 'controller-a',
+    registrationDigest: f.registration.registration_digest, sequence: 3,
+    leaseSetDigest: changed, sessionNonceDigest: D('b') });
+  assert.deepEqual(s.events.filter((event) => event.kind === 'controller_heartbeat')
+    .map((event) => event.payload.sequence), [1, 3]);
+
+  const observeFields = { executor_handle: 'exec-a', expected_epoch: 1,
+    expected_lease_digest: D('c') };
+  await s.supervisor.route('observe', 'controller-a', observeFields);
+  await s.supervisor.route('observe', 'controller-a', observeFields);
+  assert.equal(s.events.some((event) => event.kind === 'observation_routed'), false);
+
+  for (const nonRunningState of ['checkpoint_ready', 'held', 'terminal']) {
+    observationState = nonRunningState;
+    await s.supervisor.route('observe', 'controller-a', observeFields);
+  }
+  assert.equal(s.events.filter((event) => event.kind === 'observation_routed').length, 3);
+});
+
 test('holdConflictは全running停止証拠をbindしたtyped held receiptだけを返す', async () => {
   const f = fixture(); const now = { value: 0 }; const s = makeSupervisor(f, now);
   await s.supervisor.registerController({ descriptor: f.descriptor, registration: f.registration, transport: s.transport });
