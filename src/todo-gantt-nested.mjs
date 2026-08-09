@@ -1,4 +1,5 @@
 import { projectTodoChainV1 } from './todo-chain.mjs';
+import { projectTodoCrossPlanDependencies } from './todo-store.mjs';
 
 const ROOT = Symbol('todo-gantt-root');
 
@@ -131,6 +132,18 @@ function projectMember(member, hierarchy, containerKey, selectedKeys) {
     phaseAcceptDependencies.push({ ...dependency, to });
   }
 
+  // plan-scopedのcross-plan edgeも階層levelのtaskへ射影する。子task同士の接続を
+  // root levelで捨てると、nested表示だけ依存線とwaveが消えるため、hard edgeと同じく
+  // 各endpointをそのlevel直下のbranchへ束縛し直す。
+  const planScopedEvents = (member.plan_scoped?.events ?? []).flatMap((event) => {
+    if (event.kind !== 'cross_plan_dependency') return [event];
+    const from = projectRef(hierarchy, containerKey, event.payload.from);
+    const to = projectRef(hierarchy, containerKey, event.payload.to);
+    if (from === null || to === null || !selectedKeys.has(refKey(from))
+      || !selectedKeys.has(refKey(to)) || refKey(from) === refKey(to)) return [];
+    return [{ ...event, payload: { ...event.payload, from, to } }];
+  });
+
   return {
     ...member,
     plan: {
@@ -140,6 +153,9 @@ function projectMember(member, hierarchy, containerKey, selectedKeys) {
       joins,
       phase_accept_dependencies: phaseAcceptDependencies,
     },
+    ...(member.plan_scoped === undefined ? {} : {
+      plan_scoped: { ...member.plan_scoped, events: planScopedEvents },
+    }),
     tasks: member.tasks.filter(({ task_id: taskId }) => tasks.some((task) => task.task_id === taskId)),
   };
 }
@@ -174,10 +190,14 @@ function filterIndependence(independence, selectedKeys) {
 }
 
 function topologyOf(readModel) {
+  const crossPlanDependencies = projectTodoCrossPlanDependencies(readModel.members);
   return {
     nodes: readModel.members.flatMap((member) => member.plan.tasks
       .map(({ task_id: taskId }) => taskRef(member, taskId))),
-    hard_edges: readModel.members.flatMap((member) => member.plan.hard_dependencies),
+    hard_edges: [
+      ...readModel.members.flatMap((member) => member.plan.hard_dependencies),
+      ...crossPlanDependencies.map(({ from, to }) => ({ from, to })),
+    ],
     joins: readModel.members.flatMap((member) => member.plan.joins),
   };
 }

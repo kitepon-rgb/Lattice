@@ -46,6 +46,7 @@ import {
   createTodoStoreWriter,
   TodoStoreError,
   isPhaselessTodoPlanSchema,
+  projectTodoCrossPlanDependencies,
   TERMINAL_AUDIT_PHASE_ID,
   readTodoIndependenceArtifact,
   readTodoSeamProposalArtifact,
@@ -281,9 +282,13 @@ function taskRef(plan, taskId) {
 }
 
 function mergedTopology(store) {
+  const crossPlanDependencies = projectTodoCrossPlanDependencies(store.members);
   return {
     nodes: store.members.flatMap(({ plan }) => plan.tasks.map(({ task_id: taskId }) => taskRef(plan, taskId))),
-    hard_edges: store.members.flatMap(({ plan }) => plan.hard_dependencies),
+    hard_edges: [
+      ...store.members.flatMap(({ plan }) => plan.hard_dependencies),
+      ...crossPlanDependencies.map(({ from, to }) => ({ from, to })),
+    ],
     joins: store.members.flatMap(({ plan }) => plan.joins),
   };
 }

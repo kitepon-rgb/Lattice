@@ -1,5 +1,6 @@
 import { TODO_GANTT_SCOPES, projectTodoGanttScope } from './todo-gantt-scope.mjs';
 import { buildTodoGanttHierarchy } from './todo-gantt-nested.mjs';
+import { projectTodoCrossPlanDependencies } from './todo-store.mjs';
 
 const TASK_LIMIT = 2_000;
 const EDGE_LIMIT = 8_000;
@@ -229,6 +230,9 @@ function normalizeInput(readModel, chainProjection) {
         join_id: join.id };
       for (const after of join.after) addEdge(after, join.before, 'join', identity);
     }
+  }
+  for (const dependency of projectTodoCrossPlanDependencies(members)) {
+    addEdge(dependency.from, dependency.to, 'cross_plan');
   }
   if (edgeMap.size > EDGE_LIMIT) {
     fail('TODO_SCALE_EXCEEDED', 'todo gantt edge limit exceeded', {
