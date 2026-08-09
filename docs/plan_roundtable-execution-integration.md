@@ -153,7 +153,9 @@ roomログとevent chainで突き合わせる。
 - 会話・claim・判断をLattice内へ実装しない
 - Latticeのコードにpeertableを指す語を入れない（面はすべて汎用の実行層の面として設計する）
 - claim_modeのschema変更をしない
-- standalone modeは対象外
+- standalone modeは対象外。ただし**相互独立は恒久要件**（オーナー裁定 2026-08-09・peertable決定63）——
+  Latticeは単独で動き、Peertableも単独で動く。統合は第3の縮退段（opt-in）であり、t9/t21の正典改訂で
+  単独モードのclaim協定を削らない。配車（spool・run-bridge）を必須経路にしない
 
 ## 罠
 
