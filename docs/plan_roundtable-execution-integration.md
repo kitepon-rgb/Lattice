@@ -12,8 +12,23 @@ Lattice store（plan_key `roundtable-exec-20260809`）だけが持つ。
 
 ## オーナー裁定（2026-08-09・再議論しない）
 
-1. **案A確定** — 席をexecutor adapter経由でmanaged runのdispatchに載せる。peertable決定25（会話claim＝割当）は
-   「dispatch結果の可視化・受諾表明」へ改訂する。段階は「1席で1task一気通貫→全席拡大」
+1. **【撤回・2026-08-09夜】旧・案A（機械dispatch）は越権だった。** 当初の裁定「席をexecutor adapter経由で
+   managed runのdispatchに載せ、claimを『dispatch結果の可視化・受諾表明』へ改訂する」は、実装後の実物
+   （work orderが席へ降ってくる形）をオーナーが見て**撤回**された。理由: ①Latticeに作業指示の権限は
+   元々与えられていない。作業を選ぶのは判断であり、AGENTS.md所有境界「推定・判断をLatticeの中へ
+   実装しない」に自ら違反した ②Latticeからの指示は、円卓の本体である**メンバーの合議による作業**を
+   消滅させる。指揮官も上下関係も無いことが円卓の魅力であり、機械dispatchはそれを潰す。
+   誤りの起点は計画者（bell）が「特許体現に最も忠実なのは案A」と枠組みを提示したことにある。
+
+   **正しいモデル（改・裁定1）**: **作業を選ぶのはAI**（席がready一覧から自分でclaimして取る——従来の
+   円卓のまま）。**adapter登録は席が自分の選んだ作業をLatticeへ持ち込む口**であって、Latticeから仕事が
+   降ってくる口ではない。**Latticeは関所**: 持ち込まれた作業の競合を判定し、①無ければ隔離worktreeと
+   leaseを渡して通す ②競合なら止めて調整させる（直列化・hold）③切れる継ぎ目があればリファクタリング
+   （seam resolve）をさせ、解消後に再開する。実行中の実書き込み観測・実行時競合検出は変わらない。
+   既設の設備（隔離worktree供給・lease・観測・hold/seam resolve/resume・landing・spool契約）は
+   関所の設備として生きる。**死ぬのは向きだけ**——run-bridgeの席選定と配車、machine側のtask割当。
+   pull型（claim→持ち込み→判定→worktree付与）への組み替えはt19の中で卓が設計する。
+   peertable決定25は改訂前の形（claimが割当の主体）が正しく、t9の改訂は再改訂する。
 2. **線資源はフル実装** — 宣言語彙＋計画時交差判定＋実行時のdiff→錨→消費者波及まで
 3. **着地チェック入れる** — run終端で未着地成果を「出すだけ・止めない」形で表示する汎用面
 4. **円卓で回す** — 席はCodexを主力とし、Claude席がいてもよい
@@ -21,7 +36,16 @@ Lattice store（plan_key `roundtable-exec-20260809`）だけが持つ。
    席はこれに従う。ただしこの制御は床であって天井ではない——AIが追加で行うこと（追加の線宣言、roomでの
    事前警告、自発的な直列化・調整）の柔軟性を装置が奪わない。AIの追加判断を禁止・検閲する面を作らない
 
-## 中核設計: work-order spool方式
+## 中核設計: work-order spool方式【向きは撤回済み——改・裁定1を正とする】
+
+**以下の記述のうち「Latticeがdispatchし、bridgeが席を選んで配車する」という向きは撤回された**
+（改・裁定1）。誤りの型も記録する: 計画者が「並列実行＝中央がdispatchする」という**既存の
+オーケストレーション・ハーネスの常識**を無意識に持ち込んだ。円卓は指揮官も上下関係も無いことが
+本体であり、Latticeの正典自身が「判断を装置へ実装しない」と定めていた。**次にこの計画を読む者への
+警告: 実行層の設計が「装置が割り当てる」へ向かい始めたら、それは設計ではなく慣性である。**
+spool・隔離worktree・lease・観測・hold/seam resolve・landingの各設備は関所の設備として有効。
+pull型（席がclaimした作業を持ち込む→Latticeが競合判定→worktree付与または hold/seam）への
+組み替えはt19で卓が設計する。
 
 - **Lattice新規** `src/runtime-work-order-controller.mjs`＋bin — 汎用「外部長寿命worker pool」向けadapter
   controller。雛形は`src/runtime-scripted-adapter-controller.mjs`。dispatchはconfig指定のspool dirへ
