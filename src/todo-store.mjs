@@ -371,7 +371,7 @@ export function projectTodoCoordination(events) {
  */
 export function projectTodoCrossPlanDependencies(members) {
   const dependencies = [];
-  for (const member of members) for (const event of member.plan_scoped.events) {
+  for (const member of members) for (const event of member.plan_scoped?.events ?? []) {
     if (event.kind !== 'cross_plan_dependency') continue;
     dependencies.push({
       from: event.payload.from,
@@ -966,6 +966,9 @@ function mergedPredecessorKeys(store, targetKey) {
       }
     }
   }
+  for (const dependency of projectTodoCrossPlanDependencies(store.members)) {
+    if (mergedTaskKey(dependency.to) === targetKey) result.push(mergedTaskKey(dependency.from));
+  }
   return [...new Set(result)];
 }
 
@@ -980,6 +983,9 @@ function mergedSuccessorKeys(store, targetKey) {
         result.push(mergedTaskKey(join.before));
       }
     }
+  }
+  for (const dependency of projectTodoCrossPlanDependencies(store.members)) {
+    if (mergedTaskKey(dependency.from) === targetKey) result.push(mergedTaskKey(dependency.to));
   }
   return [...new Set(result)];
 }

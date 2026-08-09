@@ -15,7 +15,11 @@ import {
 } from './todo-contracts.mjs';
 import { TODO_INDEPENDENCE_COVERAGE } from './todo-independence-contracts.mjs';
 import { todoLegacyReconciliationDigest } from './todo-revision.mjs';
-import { isPhaselessTodoPlanSchema, todoPhaseDefinitions } from './todo-store.mjs';
+import {
+  isPhaselessTodoPlanSchema,
+  projectTodoCrossPlanDependencies,
+  todoPhaseDefinitions,
+} from './todo-store.mjs';
 
 /**
  * v6で`plan_notes`を足す。ADR 0054・0063の前例どおり既存versionへのin-place追加はしない。
@@ -473,6 +477,11 @@ function buildTodoGraph(readModel) {
         );
       }
     }
+  }
+  // active plan topologyは追記改変しない。開発中に接続したplan-scoped edgeを同じincomingへ
+  // 合成することで、projectTodoStatusとcomputeReadyFrontierが同じ待機判定を即座に読む。
+  for (const dependency of projectTodoCrossPlanDependencies(members)) {
+    addPredecessor(dependency.from, dependency.to);
   }
 
   auditPending.sort((left, right) => (
