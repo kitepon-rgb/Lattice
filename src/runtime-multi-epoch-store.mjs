@@ -28,17 +28,51 @@ import {
 const HEX_DIGEST = /^[0-9a-f]{64}$/u;
 const EPOCH_DIRECTORY = /^\d{8}$/u;
 const TRANSACTION_ID = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/u;
+const RUNTIME_UPGRADE_COMMAND = 'npm install -g @quolu/lattice@latest --prefer-online';
 
 export class RuntimeEpochStoreError extends Error {
-  constructor(code, message) {
+  constructor(code, message, detail) {
     super(message);
     this.name = 'RuntimeEpochStoreError';
     this.code = code;
+    this.detail = detail;
   }
 }
 
-function fail(code, message) {
-  throw new RuntimeEpochStoreError(code, message);
+function fail(code, message, detail) {
+  throw new RuntimeEpochStoreError(code, message, detail);
+}
+
+function schemaGeneration(schema, family) {
+  if (typeof schema !== 'string') return null;
+  const prefix = `${family}.v`;
+  if (!schema.startsWith(prefix)) return null;
+  const generationText = schema.slice(prefix.length);
+  if (!/^[1-9][0-9]*$/u.test(generationText)) return null;
+  const generation = Number.parseInt(generationText, 10);
+  return Number.isSafeInteger(generation) ? generation : null;
+}
+
+export function rejectFutureRuntimeStoreSchema(schema, { artifact, family, expectedVersion }) {
+  const observedVersion = schemaGeneration(schema, family);
+  if (observedVersion === null || observedVersion <= expectedVersion) return;
+  const expectedSchema = `${family}.v${expectedVersion}`;
+  fail(
+    'UNSUPPORTED_RUNTIME_STORE_VERSION',
+    `${artifact}のschema ${schema} はこのLatticeが対応する ${expectedSchema} より新しい`,
+    {
+      artifact,
+      observed_schema: schema,
+      expected_schema: expectedSchema,
+      observed_version: observedVersion,
+      expected_version: expectedVersion,
+      upgrade_command: RUNTIME_UPGRADE_COMMAND,
+    },
+  );
+}
+
+function rejectFutureArtifact(value, options) {
+  rejectFutureRuntimeStoreSchema(value?.schema, options);
 }
 
 function plainRecord(value) {
@@ -245,6 +279,7 @@ function validateLegacyInputs({ request, compileArtifact, legacyMeta }) {
 }
 
 function normalizeActivationMeta(meta, request, compileArtifact) {
+  rejectFutureArtifact(meta, { artifact: 'run_meta', family: 'lattice.run_meta', expectedVersion: 2 });
   if (meta?.schema === 'lattice.run_meta.v1') return meta;
   if (exactRecord(meta, [
     'schema', 'run_id', 'executor_adapter', 'run_event_schema', 'control_event_schema',
@@ -462,17 +497,25 @@ export async function activateEpochOneStore({
 /** pointerを正本としてactive bundleだけを読む。directory最大値へfallbackしない。 */
 export async function readCommittedEpochStore(runDir) {
   const meta = await readRegularJson(path.join(runDir, 'run-meta.json'), 'run meta');
+  rejectFutureArtifact(meta, { artifact: 'run_meta', family: 'lattice.run_meta', expectedVersion: 2 });
   if (meta?.schema !== 'lattice.run_meta.v2') return null;
   const pointer = await readRegularJson(path.join(runDir, 'committed-epoch.json'), 'committed epoch pointer');
+  rejectFutureArtifact(pointer, {
+    artifact: 'committed_epoch_pointer', family: 'lattice.committed_epoch_pointer', expectedVersion: 1,
+  });
   if (!Number.isInteger(pointer?.plan_epoch) || pointer.plan_epoch < 1) {
     fail('INVALID_RUN_STORE', 'committed epoch pointerのepochが不正');
   }
   const epochName = String(pointer.plan_epoch).padStart(8, '0');
   if (!EPOCH_DIRECTORY.test(epochName)) fail('INVALID_RUN_STORE', 'epoch directory名が不正');
   const bundle = await readRegularJson(path.join(runDir, 'epochs', epochName, 'epoch-bundle.json'), 'epoch bundle');
+  rejectFutureArtifact(bundle,
+    { artifact: 'runtime_epoch_bundle', family: 'lattice.runtime_epoch_bundle', expectedVersion: 1 });
   const createdBundle = pointer.plan_epoch === 1
     ? bundle
     : await readRegularJson(path.join(runDir, 'epochs', '00000001', 'epoch-bundle.json'), 'created epoch bundle');
+  rejectFutureArtifact(createdBundle,
+    { artifact: 'runtime_epoch_bundle', family: 'lattice.runtime_epoch_bundle', expectedVersion: 1 });
   if (!validateRuntimeEpochBundle(bundle)
     || !validateRuntimeEpochBundle(createdBundle)
     || createdBundle.plan_epoch !== 1
@@ -485,6 +528,8 @@ export async function readCommittedEpochStore(runDir) {
     const current = epoch === pointer.plan_epoch
       ? bundle
       : await readRegularJson(path.join(runDir, 'epochs', String(epoch).padStart(8, '0'), 'epoch-bundle.json'), `epoch ${epoch} bundle`);
+    rejectFutureArtifact(current,
+      { artifact: 'runtime_epoch_bundle', family: 'lattice.runtime_epoch_bundle', expectedVersion: 1 });
     if (!validateRuntimeEpochBundle(current) || current.plan_epoch !== epoch
       || current.run_id !== meta.run_id
       || current.predecessor_bundle_digest !== previous.bundle_digest) {

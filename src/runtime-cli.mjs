@@ -78,6 +78,7 @@ import {
   isManagedRunFrozen,
   readCommittedEpochStore,
   recordRuntimeFinding,
+  rejectFutureRuntimeStoreSchema,
   stageSuccessorEpoch,
   validateRuntimeEpochBundle,
   validateRuntimeFindingCandidate,
@@ -99,7 +100,7 @@ import {
   acceptPullTask,
   attachPullWorker,
   closePullRun,
-  inspectRunMode,
+  inspectRunMode as inspectPullRunMode,
   intakePullTask,
   interventionPullTask,
   landingPullRun,
@@ -129,6 +130,19 @@ import {
   sendRuntimeControlRequest,
 } from './runtime-managed-supervisor.mjs';
 import { TodoStoreError } from './todo-store.mjs';
+
+async function inspectRunMode(runDir) {
+  try {
+    return await inspectPullRunMode(runDir);
+  } catch (error) {
+    if (error instanceof PullRunError && error.code === 'UNSUPPORTED_RUN_STORE_SCHEMA') {
+      rejectFutureRuntimeStoreSchema(error.detail?.schema, {
+        artifact: 'run_meta', family: 'lattice.run_meta', expectedVersion: 2,
+      });
+    }
+    throw error;
+  }
+}
 
 async function requireLegacyRunMode(runDir, operation) {
   if ((await inspectRunMode(runDir)).mode !== 'legacy') {
@@ -606,6 +620,9 @@ async function readRunStore(runDir) {
     throw new CliContractError('INVALID_RUN_STORE', 'events.jsonがarrayではない');
   }
   const meta = await readBoundedJson(path.join(runDir, 'run-meta.json'), 'run meta');
+  rejectFutureRuntimeStoreSchema(meta?.schema, {
+    artifact: 'run_meta', family: 'lattice.run_meta', expectedVersion: 2,
+  });
   const compileArtifact = await readBoundedJson(
     path.join(runDir, 'plan-compile-result.json'), 'plan compile result',
   );
@@ -619,9 +636,11 @@ async function readRunStore(runDir) {
     && meta.run_id === request.request_id
     && KNOWN_ADAPTERS.includes(meta.executor_adapter)
     && compileArtifact?.plan?.plan_digest === meta.plan_digest;
-  const managed = meta?.schema === 'lattice.run_meta.v2'
-    ? await readCommittedEpochStore(runDir)
-    : null;
+  // v1だけがlegacy alias。その他はmulti-epoch readerへ渡し、既知familyの
+  // 将来世代を破損storeへ潰さずtyped診断する。
+  const managed = meta?.schema === 'lattice.run_meta.v1'
+    ? null
+    : await readCommittedEpochStore(runDir);
   const managedMetaValid = managed !== null
     && managed.meta.run_id === request.request_id
     && KNOWN_ADAPTERS.includes(managed.meta.executor_adapter)
@@ -4537,7 +4556,7 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
       return typedFailure(stderr, 'CONTRACT_VIOLATION', error.message);
     }
     if (error instanceof RuntimeEpochStoreError) {
-      return typedFailure(stderr, error.code, error.message);
+      return typedFailure(stderr, error.code, error.message, error.detail);
     }
     if (error instanceof AdapterRegistryError) {
       return typedFailure(stderr, error.code, error.message, error.detail);
