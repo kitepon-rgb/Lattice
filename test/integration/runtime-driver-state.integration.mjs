@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -207,4 +207,43 @@ test('別processのobserve/statusがforeground driverの待機対象と停止を
   assert.equal(parseCli(['run', 'status', '--run', runRef], repoRoot).waiting_on, null);
   const closed = invokeCli(['run', 'close', '--run', runRef], repoRoot);
   assertSuccess(closed, 'run close');
+});
+
+test('driverがSIGKILLされstate fileがstaleでも別processはstoppedと判定する', {
+  skip: process.platform === 'darwin' ? false : 'process start identity観測はmacOS契約',
+}, async (t) => {
+  const { repoRoot, runRef, tracked } = await createManagedRun(t);
+  const runDir = path.join(repoRoot, ...runRef.split('/'));
+  const activated = spawn(process.execPath, [CLI, 'run', 'activate', '--run', runRef], {
+    cwd: repoRoot,
+    env: ENV,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  tracked.push(activated.pid);
+  waitForChild(activated);
+
+  await waitForProjection(
+    ['run', 'observe', '--run', runRef],
+    repoRoot,
+    (value) => value.driver_state === 'driving'
+      && value.waiting_on?.kind === 'executor_completion',
+  );
+  const stateRef = path.join(runDir, 'supervisor', 'driver-state.json');
+  const staleState = JSON.parse(await readFile(stateRef, 'utf8'));
+  const descriptorRef = path.join(runDir, ...staleState.supervisor_descriptor_ref.split('/'));
+  const descriptor = JSON.parse(await readFile(descriptorRef, 'utf8'));
+  const observed = invoke('/bin/ps', ['-p', String(descriptor.pid), '-o', 'command='], repoRoot);
+  assertSuccess(observed, 'ps supervisor');
+  assert.match(observed.stdout, new RegExp(runDir.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
+
+  process.kill(descriptor.pid, 'SIGKILL');
+  const stopped = await waitForProjection(
+    ['run', 'observe', '--run', runRef],
+    repoRoot,
+    (value) => value.driver_state === 'stopped',
+  );
+  assert.equal(stopped.waiting_on, null);
+  assert.equal(JSON.parse(await readFile(stateRef, 'utf8')).driver_state, 'driving',
+    'SIGKILLはfinallyを通らずstale fileを残す負の対照');
 });
