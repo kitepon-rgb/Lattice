@@ -13,10 +13,15 @@ export const TODO_EVENT_KINDS = Object.freeze([
   // 「誰が選んだか」の帰属を持つ——witnessが全planの暗黙義務だった時に帰属が無く、正確な
   // 案内が素通りされたことへの是正である(オーナー裁定C①)。
   'coordination_mode',
+  // 開発中に発見したplan跨ぎの依存を、active plan topologyの追記改変ではなく
+  // version-boundなplan-scoped eventとして接続する。推定はせず、AIが発見した時だけ積む。
+  'cross_plan_dependency',
 ]);
 
 /** planへ帰属し、taskにもPhaseにも属さないevent kind。 */
-export const TODO_PLAN_SCOPED_EVENT_KINDS = Object.freeze(['coordination_mode']);
+export const TODO_PLAN_SCOPED_EVENT_KINDS = Object.freeze([
+  'coordination_mode', 'cross_plan_dependency',
+]);
 
 /** 調整方式。witness=独立性を宣言し検証して並列する／conversation=会話で調整する。 */
 export const TODO_COORDINATION_MODES = Object.freeze(['witness', 'conversation']);
@@ -504,6 +509,15 @@ function validPayload(event) {
   if (event.kind === 'coordination_mode') {
     return exactRecord(payload, ['mode', 'reason'])
       && TODO_COORDINATION_MODES.includes(payload.mode)
+      && nullableText(payload.reason) && payload.reason !== null;
+  }
+  if (event.kind === 'cross_plan_dependency') {
+    const dependencyRef = (value) => exactRecord(value, [
+      'project_id', 'plan_key', 'task_id', 'expected_topology_digest',
+    ]) && isTodoIdentifier(value.project_id) && isTodoIdentifier(value.plan_key)
+      && isTodoIdentifier(value.task_id) && isTodoDigest(value.expected_topology_digest);
+    return exactRecord(payload, ['from', 'to', 'reason'])
+      && dependencyRef(payload.from) && dependencyRef(payload.to)
       && nullableText(payload.reason) && payload.reason !== null;
   }
   if (event.kind === 'start') return exactRecord(payload, ['override_reason']) && nullableText(payload.override_reason);

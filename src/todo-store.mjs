@@ -363,6 +363,32 @@ export function projectTodoCoordination(events) {
   };
 }
 
+/**
+ * active plan群へ接続済みのplan跨ぎ依存線を投影する。
+ *
+ * eventはconsumer（to）planのplan-scoped chainへ積まれる。自動発見も暗黙補完もせず、
+ * 記録された線だけを返す。順序はtask identityで固定し、status/Ganttが同じ入力を見る。
+ */
+export function projectTodoCrossPlanDependencies(members) {
+  const dependencies = [];
+  for (const member of members) for (const event of member.plan_scoped.events) {
+    if (event.kind !== 'cross_plan_dependency') continue;
+    dependencies.push({
+      from: event.payload.from,
+      to: event.payload.to,
+      reason: event.payload.reason,
+      connected_by: event.actor,
+      connected_at: event.recorded_at,
+      event_digest: event.event_digest,
+    });
+  }
+  return dependencies.sort((left, right) => {
+    const key = (entry) => `${entry.from.project_id}\0${entry.from.plan_key}\0${entry.from.task_id}`
+      + `\0${entry.to.project_id}\0${entry.to.plan_key}\0${entry.to.task_id}\0${entry.event_digest}`;
+    return key(left) < key(right) ? -1 : key(left) > key(right) ? 1 : 0;
+  });
+}
+
 function derivedPhaseStatus(plan, taskStates, phaseStates, phaseId) {
   const state = phaseStates.get(phaseId);
   // ADR 0148: closed_unauditedも他の終端状態と同じく確定済みとして扱う。ここへ足さないと、
@@ -748,7 +774,7 @@ function snapshotFor(plan, events, tasks) {
   return snapshot;
 }
 
-function validateMergedGraph(members) {
+function validateMergedGraph(members, crossPlanDependencies = []) {
   const tasks = new Map();
   for (const member of members) for (const task of member.plan.tasks) {
     tasks.set(`${member.plan.project_id}\0${member.plan.plan_key}\0${task.task_id}`, member.plan.topology_digest);
@@ -816,6 +842,15 @@ function validateMergedGraph(members) {
       }
     }
   }
+  for (const dependency of crossPlanDependencies) {
+    const owner = members.find(({ plan }) => plan.project_id === dependency.to.project_id
+      && plan.plan_key === dependency.to.plan_key);
+    if (owner === undefined) fail('STORE_INCONSISTENT', 'cross_plan_dependency_owner_missing');
+    const from = bind(dependency.from, owner.plan);
+    const to = bind(dependency.to, owner.plan);
+    if (from === to) fail('STORE_INCONSISTENT', 'self_edge');
+    adjacency.get(from).push(to);
+  }
   const colors = new Map();
   const visit = (node) => {
     if (colors.get(node) === 1) fail('STORE_INCONSISTENT', 'merged_cycle');
@@ -823,6 +858,48 @@ function validateMergedGraph(members) {
     colors.set(node, 1); for (const next of adjacency.get(node)) visit(next); colors.set(node, 2);
   };
   for (const node of adjacency.keys()) visit(node);
+}
+
+function crossPlanDependencyTask(store, ref) {
+  const member = store.members.find(({ plan }) => plan.project_id === ref.project_id
+    && plan.plan_key === ref.plan_key);
+  if (member === undefined) fail('DEPENDENCY_INVALID', 'dependency_plan_not_found', { ref });
+  if (member.plan.topology_digest !== ref.expected_topology_digest) {
+    fail('DEPENDENCY_STALE', 'dependency_topology_stale', {
+      ref, actual_topology_digest: member.plan.topology_digest,
+    });
+  }
+  const task = member.tasks.find(({ task_id: taskId }) => taskId === ref.task_id);
+  if (task === undefined) fail('DEPENDENCY_INVALID', 'dependency_task_not_found', { ref });
+  return { member, task };
+}
+
+function validateCrossPlanDependencyTransition(store, owner, input) {
+  const { from, to } = input.payload;
+  if (from.project_id !== store.project_id || to.project_id !== store.project_id) {
+    fail('DEPENDENCY_INVALID', 'dependency_project_mismatch');
+  }
+  if (from.plan_key === to.plan_key) fail('DEPENDENCY_INVALID', 'dependency_must_cross_plans');
+  if (to.plan_key !== owner.plan.plan_key || to.project_id !== owner.plan.project_id) {
+    fail('DEPENDENCY_INVALID', 'dependency_owner_mismatch');
+  }
+  const source = crossPlanDependencyTask(store, from);
+  const target = crossPlanDependencyTask(store, to);
+  if (source.task.status === 'done') fail('DEPENDENCY_INVALID', 'dependency_source_terminal');
+  if (target.task.status === 'done') fail('DEPENDENCY_INVALID', 'dependency_target_terminal');
+  const existing = projectTodoCrossPlanDependencies(store.members);
+  if (existing.some((dependency) => mergedTaskKey(dependency.from) === mergedTaskKey(from)
+    && mergedTaskKey(dependency.to) === mergedTaskKey(to))) {
+    fail('DEPENDENCY_EXISTS', 'cross_plan_dependency_duplicate', { from, to });
+  }
+  try {
+    validateMergedGraph(store.members, [...existing, { from, to }]);
+  } catch (error) {
+    if (error instanceof TodoStoreError && error.detail?.reason === 'merged_cycle') {
+      fail('DEPENDENCY_CYCLE', 'cross_plan_dependency_cycle', { from, to });
+    }
+    throw error;
+  }
 }
 
 function mergedTaskKey(refValue) {
@@ -1275,7 +1352,7 @@ export async function readTodoStore(options = {}) {
       snapshot: snapshotStale ? expectedSnapshot : snapshot,
       tasks, phases, coordination, snapshot_stale: snapshotStale });
   }
-  validateMergedGraph(loaded);
+  validateMergedGraph(loaded, projectTodoCrossPlanDependencies(loaded));
   return {
     schema: 'lattice.todo_store_read.v1', project_id: manifest.project_id, manifest,
     members: loaded, snapshot_stale: loaded.some((member) => member.snapshot_stale),
@@ -1491,10 +1568,13 @@ export async function appendTodoEvent(options = {}) {
     const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
     const member = store.members.find(({ descriptor }) => descriptor.plan_key === options.planKey);
     if (!member) fail('STORE_INCONSISTENT', 'plan_not_active');
-    // planへ帰属するeventは別chainへ積む(ob03)。task状態もPhase状態も動かさないので、
+    // planへ帰属するeventは別chainへ積む。task状態もPhase状態も直接は動かさないので、
     // replay・snapshot・manifestへは触れない——lifecycle journalのheadを進めるのは
-    // 「作業が進んだ」の意味であり、方式を選んだだけでそこを動かすと意味がずれる。
+    // 「作業が進んだ」の意味であり、方式選択や依存接続でそこを動かすと意味がずれる。
     if (TODO_PLAN_SCOPED_EVENT_KINDS.includes(options.event.kind)) {
+      if (options.event.kind === 'cross_plan_dependency') {
+        validateCrossPlanDependencyTransition(store, member, options.event);
+      }
       return appendPlanScopedEvent({
         repoRoot, member,
         input: { ...options.event, recorded_at: options.event.recorded_at ?? new Date().toISOString() },

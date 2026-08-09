@@ -917,6 +917,57 @@ async function independenceMode({ repoRoot, env, planKey, mode, reason }) {
   return result;
 }
 
+/** 開発中に発見したplan跨ぎ依存を、consumer planのplan-scoped chainへ接続する。 */
+async function dependencyConnect({
+  repoRoot, env, fromPlanKey, fromTaskId, toPlanKey, toTaskId, reason,
+}) {
+  const store = await readTodoStore({ repoRoot });
+  const dependencyMember = (planKey) => {
+    const member = store.members.find(({ plan }) => plan.plan_key === planKey);
+    if (member === undefined) {
+      throw new TodoStoreError('DEPENDENCY_INVALID', 'dependency_plan_not_found', undefined, {
+        plan_key: planKey,
+      });
+    }
+    return member;
+  };
+  const source = dependencyMember(fromPlanKey);
+  const target = dependencyMember(toPlanKey);
+  if (!source.plan.tasks.some(({ task_id: taskId }) => taskId === fromTaskId)) {
+    throw new TodoStoreError('DEPENDENCY_INVALID', 'dependency_task_not_found', undefined, {
+      plan_key: fromPlanKey, task_id: fromTaskId,
+    });
+  }
+  if (!target.plan.tasks.some(({ task_id: taskId }) => taskId === toTaskId)) {
+    throw new TodoStoreError('DEPENDENCY_INVALID', 'dependency_task_not_found', undefined, {
+      plan_key: toPlanKey, task_id: toTaskId,
+    });
+  }
+  const from = {
+    project_id: store.project_id, plan_key: fromPlanKey, task_id: fromTaskId,
+    expected_topology_digest: source.plan.topology_digest,
+  };
+  const to = {
+    project_id: store.project_id, plan_key: toPlanKey, task_id: toTaskId,
+    expected_topology_digest: target.plan.topology_digest,
+  };
+  const { event } = await appendTodoEvent({
+    repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), planKey: toPlanKey,
+    event: {
+      kind: 'cross_plan_dependency', actor: mutationActor(env), payload: { from, to, reason },
+    },
+  });
+  const result = {
+    schema: 'lattice.todo_dependency_connect_result.v1', project_id: store.project_id,
+    from: event.payload.from, to: event.payload.to, reason: event.payload.reason,
+    connected_by: event.actor, connected_at: event.recorded_at,
+    event_digest: event.event_digest, plan_scoped_head_digest: event.event_digest,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
 async function phaseStatus({ repoRoot, planKey }) {
   const store = await readTodoStore({ repoRoot });
   const [member] = selectMembers(store, planKey);
@@ -2828,6 +2879,16 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && TODO_COORDINATION_MODES.includes(argv[5]) && argv[6] === '--reason' && argv[7].length > 0) {
     action = (repoRoot) => independenceMode({
       repoRoot, env, planKey: argv[3], mode: argv[5], reason: argv[7],
+    });
+  } else if (argv.length === 12 && argv[0] === 'dependency' && argv[1] === 'connect'
+    && argv[2] === '--from-plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--from-task' && isTodoIdentifier(argv[5])
+    && argv[6] === '--to-plan' && isTodoIdentifier(argv[7])
+    && argv[8] === '--to-task' && isTodoIdentifier(argv[9])
+    && argv[10] === '--reason' && argv[11].length > 0) {
+    action = (repoRoot) => dependencyConnect({
+      repoRoot, env, fromPlanKey: argv[3], fromTaskId: argv[5],
+      toPlanKey: argv[7], toTaskId: argv[9], reason: argv[11],
     });
   } else if (argv.length === 6 && argv[0] === 'independence' && argv[1] === 'compile'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--input') {

@@ -99,6 +99,8 @@ Write commands:
   done --plan <key> --task <id> --evidence <file>
   reopen --plan <key> --task <id> --reason <text> [--override-reason <text>]
   evidence promote --plan <key> --task <id> --evidence <file>
+  dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>
+      # 開発中に発見したplan跨ぎ依存を明示接続する。依存の自動推定は行わない
   independence compile --plan <key> --input <file>  # witness setとsensorから並列可否を記録する
   independence witness migrate --plan <key>  # revision後の宣言をtask migrationで写す
   independence witness scaffold --plan <key> --input <draft>  # 下書きとfresh観測から宣言を書き出す
@@ -247,6 +249,8 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo reopen': 'todo reopen --plan <key> --task <id> --reason <text> [--override-reason <text>]',
   'todo evidence': 'todo evidence promote --plan <key> --task <id> --evidence <file>',
   'todo evidence promote': 'todo evidence promote --plan <key> --task <id> --evidence <file>',
+  'todo dependency': 'todo dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>',
+  'todo dependency connect': 'todo dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>',
   'todo split': 'todo split --plan <key> --input <file>',
   'todo revise': 'todo revise --plan <key> --input <file> | --schema --json',
   'todo revise-phase': 'todo revise-phase --plan <key> --input <file> | --schema --json',
