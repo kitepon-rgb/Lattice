@@ -237,6 +237,7 @@ def('t7', {
     p('test/runtime-controller-protocol.test.mjs'),
     p('test/runtime-managed-supervisor.test.mjs'),
     p('test/runtime-work-order-controller.test.mjs'),
+    p('test/integration/io-sentinel-live-run.integration.mjs'),
     pc('docs/schemas/lattice.runtime_adapter_capabilities.v2.schema.json'),
     pc('docs/schemas/lattice.runtime_adapter_registration_input.v2.schema.json'),
     pc('docs/adr/0161-controller-declares-host-driven-epoch.md'), pc(EV('t7')),
@@ -250,6 +251,7 @@ def('t7', {
     'test/runtime-controller-protocol.test.mjs',
     'test/runtime-managed-supervisor.test.mjs',
     'test/runtime-work-order-controller.test.mjs',
+    'test/integration/io-sentinel-live-run.integration.mjs',
     'docs/schemas/lattice.runtime_adapter_capabilities.v2.schema.json',
     'docs/schemas/lattice.runtime_adapter_registration_input.v2.schema.json',
     'docs/adr/0161-controller-declares-host-driven-epoch.md', EV('t7'),
@@ -259,6 +261,7 @@ def('t7', {
     'test/runtime-controller-protocol.test.mjs',
     'test/runtime-managed-supervisor.test.mjs',
     'test/runtime-work-order-controller.test.mjs',
+    'test/integration/io-sentinel-live-run.integration.mjs',
   ],
   state_effects: [
     se('lattice-run-store', 'state'), se('pt-setup-sh', 'state'),
