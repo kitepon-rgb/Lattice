@@ -44,12 +44,13 @@ const CREATES_SCHEMAS = Object.freeze([
 
 /** 1 taskが宣言できるconcern anchorの資源数と、資源あたりのsymbol数の上限。 */
 export const TODO_CONCERN_ANCHOR_LIMIT = 256;
-export const TODO_INDEPENDENCE_SCHEMA = 'lattice.todo_independence.v3';
+export const TODO_INDEPENDENCE_SCHEMA = 'lattice.todo_independence.v4';
 export const TODO_INDEPENDENCE_PROJECTION_SCHEMA = 'lattice.todo_independence_projection.v2';
 export const TODO_INDEPENDENCE_LEGACY_MARKER_SCHEMA = 'lattice.todo_independence_legacy_marker.v1';
 export const TODO_INDEPENDENCE_LEGACY_SCHEMAS = Object.freeze([
   'lattice.todo_independence.v1',
   'lattice.todo_independence.v2',
+  'lattice.todo_independence.v3',
 ]);
 
 /** boundary compileが一度に扱えるToDo数（runtime front-endのMAX_COLLECTIONと同じ閉じ方）。 */
@@ -99,6 +100,35 @@ export function isTodoIndependenceLegacyArtifactIdentity(value) {
     && isTodoIdentifier(value.plan_version) && isTodoDigest(value.topology_digest)
     && isTodoDigest(value.witness_set_digest) && isTodoDigest(value.result_digest)
     && isGitSha(value.base_sha);
+}
+
+/**
+ * task別の宣言膨張の記録（v4から）。**判定を持たない——事実だけを置く。**
+ *
+ * 何が膨張の原因か（上流の契約確定に追従したのか、自分の変更の後始末か、元から在った面の
+ * 見落としか、思いつきで盛ったのか）は**機械には区別できない**。区別するのはAIであり、
+ * 装置が言えるのは「増えた」「何が増減した」「何回目か」「合流点か」までである。
+ * ここへ閾値も勧告も置かない（勧告はadvisory側の仕事）。
+ *
+ * `removed_paths`を持つのは、増加だけを見ると「盛った」と「宣言をやり直した」が同じ顔に
+ * なるからである。増減を両方見ないと読み手が誤る。
+ */
+function scopeExpansionEntry(value) {
+  return plain(value)
+    && exactRecord(value, [
+      'task_id', 'compared_witness_digest', 'first_seen_path_count', 'path_count',
+      'added_paths', 'removed_paths', 'growth_events', 'gate_shape',
+    ])
+    && isTodoIdentifier(value.task_id)
+    && (value.compared_witness_digest === null || isTodoDigest(value.compared_witness_digest))
+    && Number.isSafeInteger(value.first_seen_path_count) && value.first_seen_path_count >= 0
+    && Number.isSafeInteger(value.path_count) && value.path_count >= 0
+    && boundedList(value.added_paths, (entry) => typeof entry === 'string' && entry.length > 0)
+    && strictlySorted(value.added_paths)
+    && boundedList(value.removed_paths, (entry) => typeof entry === 'string' && entry.length > 0)
+    && strictlySorted(value.removed_paths)
+    && Number.isSafeInteger(value.growth_events) && value.growth_events >= 0
+    && typeof value.gate_shape === 'boolean';
 }
 
 function boundedList(value, validator, limit = TODO_INDEPENDENCE_LIST_LIMIT) {
@@ -357,7 +387,7 @@ export function validateTodoIndependence(value) {
     if (!exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'plan_version', 'topology_digest', 'base_sha',
       'witness_set_digest', 'compiled_at', 'task_ids', 'task_boundaries', 'conflict_resources', 'conflicts',
-      'precedences', 'unknowns', 'wave_plan', 'outcome', 'result_digest',
+      'precedences', 'unknowns', 'wave_plan', 'scope_expanded', 'outcome', 'result_digest',
     ])) return false;
     if (value.schema !== TODO_INDEPENDENCE_SCHEMA) return false;
     if (!isTodoIdentifier(value.project_id) || !isTodoIdentifier(value.plan_key)
@@ -375,6 +405,14 @@ export function validateTodoIndependence(value) {
       || value.task_boundaries.length !== value.task_ids.length
       || !strictlySorted(value.task_boundaries, (entry) => entry.task_id)
       || !value.task_boundaries.every((entry, index) => entry.task_id === value.task_ids[index])) {
+      return false;
+    }
+    // scope_expandedはtask_idsとちょうど一対一。欠けたtaskがあると「膨張していない」と
+    // 「まだ見ていない」が同じ顔になる。
+    if (!boundedList(value.scope_expanded, scopeExpansionEntry, TODO_INDEPENDENCE_TASK_LIMIT)
+      || value.scope_expanded.length !== value.task_ids.length
+      || !strictlySorted(value.scope_expanded, (entry) => entry.task_id)
+      || !value.scope_expanded.every((entry, index) => entry.task_id === value.task_ids[index])) {
       return false;
     }
     if (!boundedList(value.conflict_resources, conflictResourceEntry)

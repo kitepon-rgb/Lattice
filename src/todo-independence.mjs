@@ -184,8 +184,57 @@ function unknownsFrom(detail) {
  * unknownをtask単位で記録してwave planを持たない。それ以外のnon-dispatchableは
  * 契約違反または観測不成立であり、artifactへ丸めずtyped errorで止める。
  */
+/**
+ * 前回artifactと今回の宣言を突き合わせて、task別の膨張を事実だけ記録する（s1）。
+ *
+ * **判定しない。** 上流の契約確定に追従した膨張・自分の変更の後始末・元から在った面の見落とし・
+ * 思いつきで盛った分は、**機械には区別できない**（2026-08-09の実測: 1つのtaskへ前3種が同時に出た）。
+ * 装置が言えるのは「増えた」「何が増減した」「何回目か」「合流点か」までで、仕分けはAIがやる。
+ *
+ * 前回が無い（初回・plan version違い・legacy版）時は、比較相手なしとして今回の宣言を初回として置く。
+ * **「前回が読めなかった」を「膨張ゼロ」に化かさない**ため、compared_witness_digestで区別できる。
+ */
+function scopeExpansionFrom({ taskIds, boundaries, previousArtifact, plan }) {
+  const comparable = previousArtifact !== null && previousArtifact !== undefined
+    && previousArtifact.schema === TODO_INDEPENDENCE_SCHEMA
+    && previousArtifact.plan_key === plan.plan_key
+    && previousArtifact.plan_version === plan.plan_version
+    && previousArtifact.topology_digest === plan.topology_digest;
+  const previousBoundaries = new Map(comparable
+    ? previousArtifact.task_boundaries.map((entry) => [entry.task_id, entry.paths])
+    : []);
+  const previousExpansion = new Map(comparable
+    ? previousArtifact.scope_expanded.map((entry) => [entry.task_id, entry])
+    : []);
+  // 合流点（gate形）はplanのtopologyが持つ事実で、宣言とは独立に決まる。
+  const incoming = new Map(taskIds.map((taskId) => [taskId, 0]));
+  for (const edge of plan.hard_dependencies ?? []) {
+    const to = edge?.to?.task_id ?? edge?.to_task_id;
+    if (incoming.has(to)) incoming.set(to, incoming.get(to) + 1);
+  }
+  return taskIds.map((taskId) => {
+    const current = boundaries.get(taskId) ?? [];
+    const previous = previousBoundaries.get(taskId) ?? null;
+    const prior = previousExpansion.get(taskId) ?? null;
+    const currentSet = new Set(current);
+    const previousSet = new Set(previous ?? []);
+    const added = previous === null ? [] : current.filter((path) => !previousSet.has(path));
+    const removed = previous === null ? [] : previous.filter((path) => !currentSet.has(path));
+    return {
+      task_id: taskId,
+      compared_witness_digest: comparable ? previousArtifact.witness_set_digest : null,
+      first_seen_path_count: prior === null ? current.length : prior.first_seen_path_count,
+      path_count: current.length,
+      added_paths: [...added].sort(compareText),
+      removed_paths: [...removed].sort(compareText),
+      growth_events: (prior?.growth_events ?? 0) + (added.length > 0 ? 1 : 0),
+      gate_shape: (incoming.get(taskId) ?? 0) >= 2,
+    };
+  });
+}
+
 export function compileTodoIndependence(options = {}) {
-  const { witnessSet, plan, baseSha, compiledAt, sensorEvidence } = options;
+  const { witnessSet, plan, baseSha, compiledAt, sensorEvidence, previousArtifact = null } = options;
   if (!validateTodoWitnessSet(witnessSet)) {
     fail('INDEPENDENCE_WITNESS_INVALID', 'witness_set_invalid');
   }
@@ -225,6 +274,10 @@ export function compileTodoIndependence(options = {}) {
   const conflictProjection = dispatchable
     ? conflictsFrom(compiled.pairwise_verdicts, compiled.resources)
     : { conflicts: [], conflictResources: [] };
+  const boundaryEntries = taskIds.map((taskId) => ({
+    task_id: taskId,
+    paths: boundaryPathsOf(witnessSet.manual_witness[taskId]),
+  }));
   const artifact = {
     schema: TODO_INDEPENDENCE_SCHEMA,
     project_id: plan.project_id,
@@ -235,10 +288,7 @@ export function compileTodoIndependence(options = {}) {
     witness_set_digest: witnessSet.witness_set_digest,
     compiled_at: compiledAt,
     task_ids: taskIds,
-    task_boundaries: taskIds.map((taskId) => ({
-      task_id: taskId,
-      paths: boundaryPathsOf(witnessSet.manual_witness[taskId]),
-    })),
+    task_boundaries: boundaryEntries,
     conflict_resources: conflictProjection.conflictResources,
     conflicts: conflictProjection.conflicts,
     precedences: dispatchable ? precedencesFrom(compiled.pairwise_verdicts) : [],
@@ -251,6 +301,12 @@ export function compileTodoIndependence(options = {}) {
         minimum_feasible_waves: compiled.schedule.minimum_feasible_waves,
       }
       : null,
+    scope_expanded: scopeExpansionFrom({
+      taskIds,
+      boundaries: new Map(boundaryEntries.map((entry) => [entry.task_id, entry.paths])),
+      previousArtifact,
+      plan,
+    }),
     outcome: dispatchable ? 'compiled' : 'unknown',
     result_digest: '',
   };

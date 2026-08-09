@@ -84,6 +84,12 @@ function independence(overrides = {}) {
     result_digest: '',
     ...overrides,
   };
+  // v4: scope_expanded は task_ids と1:1でなければ validator が落とす。
+  // fixture の既定は「膨張ゼロ・比較相手なし」で、膨張そのものを測る test は overrides で上書きする
+  value.scope_expanded = value.scope_expanded ?? (value.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   value.result_digest = todoSelfDigest(value, 'result_digest');
   return value;
 }
@@ -108,6 +114,12 @@ function projection(overrides = {}) {
     result_digest: '',
     ...overrides,
   };
+  // v4: scope_expanded は task_ids と1:1でなければ validator が落とす。
+  // fixture の既定は「膨張ゼロ・比較相手なし」で、膨張そのものを測る test は overrides で上書きする
+  value.scope_expanded = value.scope_expanded ?? (value.task_ids ?? []).map((taskId) => ({
+    task_id: taskId, compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }));
   value.result_digest = todoSelfDigest(value, 'result_digest');
   return value;
 }

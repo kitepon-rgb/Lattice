@@ -1530,12 +1530,19 @@ async function independenceCompile({ repoRoot, planKey, inputRef }) {
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
   if (!member) throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, { plan_key: planKey });
 
+  // 前回artifactを渡して膨張の履歴を継ぐ。**読めなければnull**——読めなかったことを
+  // 「膨張ゼロ」に化かさないため、artifact側はcompared_witness_digest=nullで区別できる。
+  let previousArtifact = null;
+  try {
+    previousArtifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
+  } catch { previousArtifact = null; }
   const artifact = compileTodoIndependence({
     witnessSet,
     plan: member.plan,
     baseSha,
     compiledAt: new Date().toISOString(),
     sensorEvidence: await collectWitnessSensorEvidence({ cwd: repoRoot, witnessSet }),
+    previousArtifact,
   });
   const { ref } = await writeTodoIndependenceArtifact({ repoRoot, artifact });
 
