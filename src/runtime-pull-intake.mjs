@@ -217,7 +217,6 @@ function project(events, meta) {
     } else if (event.kind === 'intake_refreshed') {
       const intake = intakes.get(event.task_id);
       if (intake) Object.assign(intake, {
-        packet: structuredClone(event.payload.packet),
         manifest: structuredClone(event.payload.manifest),
         independence_result_digest: event.payload.independence_result_digest,
         witness_set_digest: event.payload.witness_set_digest,
@@ -593,9 +592,6 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
         verdict.state = 'hold'; verdict.reason = 'boundary_unverified';
         verdict.next_action = 'declare_and_recompile'; verdict.detail = { cause: error.code };
       }
-      const packet = packetFor({
-        meta: current.meta, taskId, baseSha: existing.base_sha, manifest,
-      });
       const constraint = verdict.state === 'none'
         ? planningConstraint(verdict.artifact, taskId, state, member) : null;
       const intervention = interventionPayload(verdict, constraint);
@@ -609,14 +605,16 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
         intervention.next_action = 'retry_intake_on_active_version'; intervention.lease_state = 'withheld';
         intervention.detail = { cause: 'todo_binding_changed_during_intake', equipment_state: 'isolated' };
       }
+      // packet/worktreeは初回intakeのequipment identityとして不変にする。
+      // 再compile後の実効境界はmanifestと介入へ投影し、attach済みhold workerも同じ設備で復旧する。
       const refresh = {
-        packet, manifest,
+        manifest,
         independence_result_digest: verdict.artifact?.result_digest ?? null,
         witness_set_digest: verdict.witnessSet?.witness_set_digest ?? null,
         intervention,
       };
       const previous = {
-        packet: existing.packet, manifest: existing.manifest,
+        manifest: existing.manifest,
         independence_result_digest: existing.independence_result_digest,
         witness_set_digest: existing.witness_set_digest,
         intervention: existing.intervention,

@@ -218,6 +218,7 @@ test('pull startはtodos/baseを要求せず、run後startした未列挙taskを
       'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
     ]));
     assert.equal(retried.already_intaked, true);
+    assert.equal(retried.refreshed, false);
     const status = parsed(runCli(root, ['run', 'status', '--run', '.lattice/runs/pull-run']));
     assert.deepEqual(status.intakes.map(({ task_id: taskId }) => taskId), ['A']);
   });
@@ -288,7 +289,7 @@ test('independence outcome unknownはtask局所unknownが空でもboundary hold�
     ['hold', 'boundary_unverified', 'independence_outcome_unknown', 'withheld']);
   });
 
-test('再compile後の再intakeは最新manifest/packetへ更新し、intake後の境界変更はholdする',
+test('再intakeはequipment identity不変で実効manifestを更新し、境界変更はholdする',
   async (context) => {
     const { root, baseSha, artifact, witnessSet } = await workspace(context, { outcome: 'unknown' });
     parsed(startPull(root));
@@ -297,6 +298,25 @@ test('再compile後の再intakeは最新manifest/packetへ更新し、intake後�
       'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
     ]));
     assert.equal(held.intervention.reason, 'boundary_unverified');
+
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      detached: true, stdio: 'ignore',
+    });
+    context.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const identity = await observeManagedProcessStartIdentity(child.pid);
+    const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8' }).trim();
+    const attachPath = path.join(root, 'refresh-attach.json');
+    await writeFile(attachPath, `${JSON.stringify({
+      schema: 'lattice.pull_worker_attach_input.v1', name: ACTOR.agent, session: ACTOR.session,
+      pid: child.pid, started_identity: identity.started_identity,
+      argv_digest: createHash('sha256').update(argv, 'utf8').digest('hex'), recorded_at: NOW,
+    })}\n`);
+    const attached = parsed(runCli(root, [
+      'run', 'intake', 'attach', '--run', '.lattice/runs/pull-run', '--task', 'A',
+      '--input', attachPath,
+    ]));
+    assert.equal(attached.stopped, true);
 
     const refreshedWitness = structuredClone(witnessSet);
     refreshedWitness.manual_witness.A = witness('A', 'a', 'src/shared.mjs');
@@ -324,9 +344,14 @@ test('再compile後の再intakeは最新manifest/packetへ更新し、intake後�
     assert.deepEqual([released.already_intaked, released.refreshed,
       released.intervention.state, released.intervention.detail.base_relation],
     [true, true, 'none', 'compiled_after_intake']);
+    assert.equal(released.worker_stopped, false);
+    assert.equal(execFileSync('/bin/ps', ['-o', 'stat=', '-p', String(child.pid)], {
+      encoding: 'utf8',
+    }).trim().startsWith('T'), false);
     assert.equal(released.base_sha, baseSha);
     assert.notEqual(released.manifest_digest, held.manifest_digest);
-    assert.notEqual(released.packet_digest, held.packet_digest);
+    assert.equal(released.packet_digest, held.packet_digest);
+    assert.equal(released.worktree_path, held.worktree_path);
     const observed = parsed(runCli(root, [
       'run', 'observe', '--run', '.lattice/runs/pull-run',
     ])).intakes[0];
@@ -346,8 +371,8 @@ test('再compile後の再intakeは最新manifest/packetへ更新し、intake後�
       'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
     ]));
     assert.deepEqual([reheld.refreshed, reheld.intervention.state,
-      reheld.intervention.reason, reheld.intervention.detail.cause],
-    [true, 'hold', 'version_drift', 'boundary_intersecting_drift']);
+      reheld.intervention.reason, reheld.intervention.detail.cause, reheld.worker_stopped],
+    [true, 'hold', 'version_drift', 'boundary_intersecting_drift', true]);
   });
 
 test('override startされた後続taskは未accepted predecessorのprecedenceでserial holdになる',
