@@ -165,6 +165,30 @@ roomログとevent chainで突き合わせる。
 #### t21 peertable正典更新・出荷（peertable・越境）
 決定追記・npm publish・実機確認。
 
+## 是正Wave — roundtable-redirect-20260809（改・裁定1の向き直し）
+
+旧裁定1の撤回（改・裁定1）に伴う組み替え。t19へ含めない——gate taskを膨らませない
+（本campaign自身の実測: t7の5回膨張・[plan_todo-scope-expansion.md](plan_todo-scope-expansion.md)）。
+task状態の正本はLattice store（plan_key `roundtable-redirect-20260809`）。
+
+#### r1 pull型への組み替え: Lattice側（Lattice）
+装置起点の配車を廃し、席が自分で選んだ着手を持ち込む口へ組み替える。装置がやるのは着手済みToDo間の
+競合判定と介入（hold・直列化・seam resolve→resume）だけ。隔離worktree・leaseは設備の供給であって
+許可証ではない。着手前の許可gateを作らない。口の具体設計は実装者が持つ（改・裁定1が制約の正本）。
+
+#### r2 pull型への組み替え: run-bridge・member.md（peertable・越境）
+run-bridgeから席選定と配車を撤去し、席の着手をLattice側の口へ写す中継へ。member.mdの
+「配車で来た仕事」節を向きごと書き換える（作業は自分で選ぶ・装置は競合時にだけ介入してくる）。
+
+#### r3 決定25の再改訂（peertable・越境）
+t9の改訂を巻き戻す: claimは割当の主体のまま（従来の円卓）。決定63（相互独立）と整合させ、
+撤回の経緯を決定として残す。
+
+#### r4 是正Wave受入: pull型で1 task一気通貫（両repo・親立会い）
+受入条件（実測）: ①席が自分でclaimして着手し、装置への伺いなしにworktree（設備）を得て作業できる
+②着手済み2 ToDoの競合を装置が検出し、片方に留まる指示または seam resolve→両方再開が動く
+③「装置が作業を割り当てる」面がどこにも残っていない（bridge・member.md・room発言の形式まで）。
+
 ## 実装時に確認（unknownとして残す）
 
 1. t2のobserve再開経路（deadline到達後のrun store状態とrun resume実挙動）— Wave 1冒頭で実測
