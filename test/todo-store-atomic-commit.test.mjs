@@ -259,9 +259,15 @@ test('store actionの契約違反はrollback後もTypeErrorとして保持する
 
 test('read commandの--commit-storeはunsupportedで、既存writeは非atomicのまま', async (t) => {
   const root = await workspace(t);
-  const unsupported = runCli(root, ['todo', 'status', '--commit-store']);
-  assert.equal(unsupported.status, 2);
-  assert.equal(JSON.parse(unsupported.stderr).code, 'STORE_COMMIT_UNSUPPORTED');
+  for (const args of [
+    ['todo', 'status', '--commit-store'],
+    ['todo', 'revise', '--schema', '--json', '--commit-store'],
+    ['todo', 'dashboard', 'remove', 'project-1', '--json', '--commit-store'],
+  ]) {
+    const unsupported = runCli(root, args);
+    assert.equal(unsupported.status, 2);
+    assert.equal(JSON.parse(unsupported.stderr).code, 'STORE_COMMIT_UNSUPPORTED');
+  }
 
   const headBefore = git(root, ['rev-parse', 'HEAD']).stdout.trim();
   const started = runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']);

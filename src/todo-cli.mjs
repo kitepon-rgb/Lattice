@@ -209,6 +209,14 @@ function supportsAtomicStoreCommit(argv) {
   return false;
 }
 
+function atomicStoreCommitUnsupported(stderr, argv) {
+  return typedArgumentFailure(stderr, 'STORE_COMMIT_UNSUPPORTED',
+    'todo_command_does_not_mutate_only_the_store', {
+      command: argv.slice(0, 3),
+      next_action: 'remove_--commit-store_or_use_a_supported_todo_write_command',
+    });
+}
+
 function resolveRepoRoot(cwd) {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], {
@@ -2703,6 +2711,10 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
 
   const atomicCommit = argv.at(-1) === '--commit-store';
   if (atomicCommit) argv = argv.slice(0, -1);
+  if (atomicCommit && ((argv[1] === '--schema' && argv[2] === '--json')
+    || (argv[0] === 'dashboard' && argv[1] === 'remove'))) {
+    return atomicStoreCommitUnsupported(stderr, argv);
+  }
 
   if (argv[0] === 'migrate' && argv[1] === '--input'
     && typeof argv[2] === 'string' && path.isAbsolute(argv[2])) {
@@ -3009,11 +3021,7 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     });
   }
   if (atomicCommit && !supportsAtomicStoreCommit(argv)) {
-    return typedArgumentFailure(stderr, 'STORE_COMMIT_UNSUPPORTED',
-      'todo_command_does_not_mutate_only_the_store', {
-        command: argv.slice(0, 3),
-        next_action: 'remove_--commit-store_or_use_a_supported_todo_write_command',
-      });
+    return atomicStoreCommitUnsupported(stderr, argv);
   }
 
   try {
