@@ -9,17 +9,16 @@
     "queries": [
       { "id": "q-run-start", "operation": "query", "target": "runStart" },
       { "id": "q-run-observe", "operation": "query", "target": "runObserve" },
+      { "id": "q-run-status", "operation": "query", "target": "runStatus" },
+      { "id": "q-run-close", "operation": "query", "target": "runClose" },
       { "id": "q-run-runtime-cli", "operation": "query", "target": "runRuntimeCli" },
-      { "id": "q-drive-scripted-epoch", "operation": "query", "target": "driveScriptedManagedEpoch" },
-      { "id": "q-dispatch-ready-frontier", "operation": "query", "target": "dispatchReadyFrontier" },
-      { "id": "q-select-dispatchable", "operation": "query", "target": "selectDispatchable" },
-      { "id": "q-compute-ready-frontier", "operation": "query", "target": "computeReadyFrontier" },
       { "id": "q-ensure-scripted-worktree", "operation": "query", "target": "ensureScriptedWorktree" },
       { "id": "q-read-todo-store", "operation": "query", "target": "readTodoStore" },
+      { "id": "q-read-independence", "operation": "query", "target": "readTodoIndependenceArtifact" },
+      { "id": "q-capture-worktree-diff", "operation": "query", "target": "captureWorktreeDiff" },
       { "id": "q-validate-worker-process", "operation": "query", "target": "validateExpectedWorkerProcess" },
       { "id": "q-observe-process-identity", "operation": "query", "target": "observeManagedProcessStartIdentity" },
       { "id": "q-runtime-cli-affected", "operation": "affected", "target": "src/runtime-cli.mjs" },
-      { "id": "q-runtime-engine-affected", "operation": "affected", "target": "src/runtime-engine.mjs" },
       { "id": "q-status", "operation": "status" }
     ]
   },
@@ -27,8 +26,6 @@
     "r1": {
       "owns": [
         { "kind": "path", "target": "src/runtime-cli.mjs" },
-        { "kind": "path", "target": "src/runtime-engine.mjs" },
-        { "kind": "path", "target": "src/runtime-decision-verifier.mjs" },
         { "kind": "path", "target": "src/runtime-pull-intake.mjs", "creates": true },
         { "kind": "path", "target": "test/runtime-pull-intake-cli.test.mjs", "creates": true },
         { "kind": "path", "target": "evidence/roundtable-redirect-20260809/r1.md", "creates": true }
@@ -36,28 +33,18 @@
       "concern_anchors": [
         {
           "within": { "kind": "path", "target": "src/runtime-cli.mjs" },
-          "symbols": ["driveScriptedManagedEpoch", "runObserve", "runRuntimeCli", "runStart"]
-        },
-        {
-          "within": { "kind": "path", "target": "src/runtime-decision-verifier.mjs" },
-          "symbols": ["computeReadyFrontier"]
-        },
-        {
-          "within": { "kind": "path", "target": "src/runtime-engine.mjs" },
-          "symbols": ["dispatchReadyFrontier", "selectDispatchable"]
+          "symbols": ["runClose", "runObserve", "runRuntimeCli", "runStart", "runStatus"]
         }
       ],
       "reads": [
         "src/runtime-controller-protocol.mjs",
+        "src/runtime-diff-observer.mjs",
         "src/runtime-managed-supervisor.mjs",
         "src/runtime-scripted-worktree.mjs",
-        "src/runtime-work-order-controller.mjs",
         "src/todo-store.mjs"
       ],
       "writes": [
         "src/runtime-cli.mjs",
-        "src/runtime-decision-verifier.mjs",
-        "src/runtime-engine.mjs",
         "src/runtime-pull-intake.mjs",
         "test/runtime-pull-intake-cli.test.mjs",
         "evidence/roundtable-redirect-20260809/r1.md"
@@ -70,22 +57,21 @@
         "queries": [
           { "query_id": "q-run-start", "expect": { "kind": "symbol", "name": "runStart", "path": "src/runtime-cli.mjs" } },
           { "query_id": "q-run-observe", "expect": { "kind": "symbol", "name": "runObserve", "path": "src/runtime-cli.mjs" } },
+          { "query_id": "q-run-status", "expect": { "kind": "symbol", "name": "runStatus", "path": "src/runtime-cli.mjs" } },
+          { "query_id": "q-run-close", "expect": { "kind": "symbol", "name": "runClose", "path": "src/runtime-cli.mjs" } },
           { "query_id": "q-run-runtime-cli", "expect": { "kind": "symbol", "name": "runRuntimeCli", "path": "src/runtime-cli.mjs" } },
-          { "query_id": "q-drive-scripted-epoch", "expect": { "kind": "symbol", "name": "driveScriptedManagedEpoch", "path": "src/runtime-cli.mjs" } },
-          { "query_id": "q-dispatch-ready-frontier", "expect": { "kind": "symbol", "name": "dispatchReadyFrontier", "path": "src/runtime-engine.mjs" } },
-          { "query_id": "q-select-dispatchable", "expect": { "kind": "symbol", "name": "selectDispatchable", "path": "src/runtime-engine.mjs" } },
-          { "query_id": "q-compute-ready-frontier", "expect": { "kind": "symbol", "name": "computeReadyFrontier", "path": "src/runtime-decision-verifier.mjs" } },
           { "query_id": "q-ensure-scripted-worktree", "expect": { "kind": "symbol", "name": "ensureScriptedWorktree", "path": "src/runtime-scripted-worktree.mjs" } },
           { "query_id": "q-read-todo-store", "expect": { "kind": "symbol", "name": "readTodoStore", "path": "src/todo-store.mjs" } },
+          { "query_id": "q-read-independence", "expect": { "kind": "symbol", "name": "readTodoIndependenceArtifact", "path": "src/todo-store.mjs" } },
+          { "query_id": "q-capture-worktree-diff", "expect": { "kind": "symbol", "name": "captureWorktreeDiff", "path": "src/runtime-diff-observer.mjs" } },
           { "query_id": "q-validate-worker-process", "expect": { "kind": "symbol", "name": "validateExpectedWorkerProcess", "path": "src/runtime-controller-protocol.mjs" } },
           { "query_id": "q-observe-process-identity", "expect": { "kind": "symbol", "name": "observeManagedProcessStartIdentity", "path": "src/runtime-managed-supervisor.mjs" } },
-          { "query_id": "q-runtime-cli-affected", "expect": { "kind": "affected", "path": "src/runtime-cli.mjs" } },
-          { "query_id": "q-runtime-engine-affected", "expect": { "kind": "affected", "path": "src/runtime-engine.mjs" } }
+          { "query_id": "q-runtime-cli-affected", "expect": { "kind": "affected", "path": "src/runtime-cli.mjs" } }
         ]
       },
       "affected_tests": [
-        "test/rc3-runtime-engine.test.mjs",
         "test/runtime-conflict-cli.test.mjs",
+        "test/runtime-landing-cli.test.mjs",
         "test/runtime-pull-intake-cli.test.mjs"
       ],
       "unknowns": [
