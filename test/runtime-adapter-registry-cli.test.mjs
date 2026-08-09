@@ -75,6 +75,28 @@ test('registry未作成のlistは空のversioned resultを返す', async (t) => 
   assert.equal(selfDigest(output, 'result_digest'), output.result_digest);
 });
 
+test('run startはwork-orderを既知adapterとしてrequest読取へ進める', async (t) => {
+  const { temporaryRoot, repoRoot } = await createGitRepo('lattice-work-order-start-');
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const missingRequest = path.join(repoRoot, 'missing-request.json');
+
+  const admitted = runCli([
+    'run', 'start', '--request', missingRequest, '--executor', 'work-order',
+  ], repoRoot);
+  assert.equal(admitted.status, 1);
+  assert.equal(admitted.stdout, '');
+  assert.equal(JSON.parse(admitted.stderr).code, 'INPUT_UNREADABLE');
+
+  const unknown = runCli([
+    'run', 'start', '--request', missingRequest, '--executor', 'unknown-adapter',
+  ], repoRoot);
+  assert.equal(unknown.status, 1);
+  assert.equal(unknown.stdout, '');
+  const unknownError = JSON.parse(unknown.stderr);
+  assert.equal(unknownError.code, 'UNKNOWN_ADAPTER');
+  assert.match(unknownError.message, /未知のexecutor adapter/u);
+});
+
 test('公開CLIはexisting endpointを登録・再登録し、listへdescriptor要約を返す', async (t) => {
   const { temporaryRoot, repoRoot } = await createGitRepo('lattice-adapter-register-');
   t.after(() => rm(temporaryRoot, { recursive: true, force: true }));

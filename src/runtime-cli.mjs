@@ -136,7 +136,9 @@ const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 // 現役run storeは対象Git repo内のLattice-owned・ignored rootへ限定する。
 const RUN_STORE_ROOT = ['.lattice', 'runs'];
 const RUN_REF = /^\.lattice\/runs\/([0-9A-Za-z](?:[0-9A-Za-z._-]{0,127}))$/u;
-const KNOWN_ADAPTERS = Object.freeze(['scripted', 'isolated-worktree', 'actual-agent']);
+const KNOWN_ADAPTERS = Object.freeze([
+  'scripted', 'isolated-worktree', 'actual-agent', 'work-order',
+]);
 /**
  * 自動escalationがlifecycle lockを待つ上限（ADR 0143）。
  *
