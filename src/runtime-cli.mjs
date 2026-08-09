@@ -83,7 +83,11 @@ import {
   validateRuntimeFindingCandidate,
   validateRuntimeFindingRecord,
 } from './runtime-multi-epoch-store.mjs';
-import { createRuntimeControlRequest, validateRuntimeControlResponse } from './runtime-controller-protocol.mjs';
+import {
+  acceptsHostDrivenEpoch,
+  createRuntimeControlRequest,
+  validateRuntimeControlResponse,
+} from './runtime-controller-protocol.mjs';
 import { createRuntimeControlStore } from './runtime-control-store.mjs';
 import { createRuntimeGateStore } from './runtime-gate-store.mjs';
 import { acquireRuntimeLifecycleLock } from './runtime-lifecycle-lock.mjs';
@@ -319,11 +323,11 @@ async function runRequestSchema({ stdout }) {
 /** 公開登録入力を推測させないため、配布物に同梱したJSON Schemaをそのまま返す（ADR 0125）。 */
 async function runAdapterRegisterSchema({ stdout }) {
   const schemaUrl = new URL(
-    '../docs/schemas/lattice.runtime_adapter_registration_input.v1.schema.json',
+    '../docs/schemas/lattice.runtime_adapter_registration_input.v2.schema.json',
     import.meta.url,
   );
   const schema = JSON.parse(await readFile(schemaUrl, 'utf8'));
-  if (schema?.title !== 'lattice.runtime_adapter_registration_input.v1') {
+  if (schema?.title !== 'lattice.runtime_adapter_registration_input.v2') {
     throw new CliContractError('CONTRACT_VIOLATION', '同梱adapter registration input schemaが不正');
   }
   stdout.write(`${JSON.stringify(schema)}\n`);
@@ -1196,8 +1200,14 @@ async function driveScriptedManagedEpoch({
   return events;
 }
 
-function isDistributedScriptedControllerActivation(activation) {
-  return activation?.controllerDescriptor?.adapter_kind === 'scripted'
+function isHostDrivenEpochActivation(activation) {
+  const controllerCapabilities = activation?.controllerDescriptor?.capabilities;
+  if (acceptsHostDrivenEpoch(controllerCapabilities)) {
+    return activation?.launchDescriptor?.capabilities_digest
+      === controllerCapabilities.capabilities_digest;
+  }
+  return controllerCapabilities?.schema === 'lattice.runtime_adapter_capabilities.v1'
+    && activation?.controllerDescriptor?.adapter_kind === 'scripted'
     && activation?.launchDescriptor?.launch_kind === 'host_binary'
     && activation.launchDescriptor.argv.some((argument) => (
       path.basename(argument) === 'lattice-scripted-adapter.mjs'
@@ -2508,7 +2518,7 @@ export async function runManagedSupervisorDaemon({
         for (const extra of additionalActivations) {
           await extra.registerWithManagedSupervisor(managedSupervisor);
         }
-        if (!restarting && isDistributedScriptedControllerActivation(activation)) {
+        if (!restarting && isHostDrivenEpochActivation(activation)) {
           sentinel = createRunSentinel({
             packets: committed.bundle.executor_packets,
             onWarning: (warning) => {
@@ -3251,7 +3261,7 @@ export async function runManagedSupervisorDaemon({
           event_digest: events.at(-1).event_digest,
         });
         if (recompileRequest.mode === 'intentional_serial'
-          && isDistributedScriptedControllerActivation(activation)) {
+          && isHostDrivenEpochActivation(activation)) {
           epochDriveActive = true;
           try {
             events = await driveScriptedManagedEpoch({

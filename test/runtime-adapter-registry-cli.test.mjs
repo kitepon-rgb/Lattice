@@ -24,7 +24,8 @@ import { registerRuntimeAdapter } from '../src/runtime-adapter-registry.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin', 'lattice.mjs');
-const SCHEMA_TITLE = 'lattice.runtime_adapter_registration_input.v1';
+const SCHEMA_TITLE = 'lattice.runtime_adapter_registration_input.v2';
+const LEGACY_SCHEMA_TITLE = 'lattice.runtime_adapter_registration_input.v1';
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
@@ -56,11 +57,14 @@ test('register入力schemaは公開CLIとpackage配布物から取得でき、di
   assert.equal(schema.title, SCHEMA_TITLE);
   for (const branch of schema.oneOf) {
     assert.equal(branch.additionalProperties, false);
+    assert.ok(branch.required.includes('host_driven_epoch'));
+    assert.deepEqual(branch.properties.host_driven_epoch, { type: 'boolean' });
     assert.ok(!branch.required.some((field) => field.endsWith('_digest')));
     assert.ok(!Object.keys(branch.properties).some((field) => field.endsWith('_digest')));
   }
   const manifest = JSON.parse(await readFile(path.join(ROOT, 'package.json'), 'utf8'));
   assert.ok(manifest.files.includes(`docs/schemas/${SCHEMA_TITLE}.schema.json`));
+  assert.ok(manifest.files.includes(`docs/schemas/${LEGACY_SCHEMA_TITLE}.schema.json`));
 });
 
 test('registry未作成のlistは空のversioned resultを返す', async (t) => {
@@ -102,7 +106,7 @@ test('公開CLIはexisting endpointを登録・再登録し、listへdescriptor�
   t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
   const inputPath = path.join(repoRoot, 'adapter.json');
   const input = {
-    schema: SCHEMA_TITLE,
+    schema: LEGACY_SCHEMA_TITLE,
     adapter_kind: 'scripted',
     launch_kind: 'existing_endpoint',
     endpoint: path.join(temporaryRoot, 'controller.sock'),
@@ -167,6 +171,7 @@ test('host binary登録はbinary/config/capabilities/self digestをCLI側で導�
     binary_path: binaryPath,
     argv: ['--fixture'],
     config_ref: 'adapter-config.json',
+    host_driven_epoch: true,
   };
   const result = await registerRuntimeAdapter({
     repoRoot,
@@ -186,7 +191,19 @@ test('host binary登録はbinary/config/capabilities/self digestをCLI側で導�
   const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
   assert.equal(descriptor.binary_digest, sha256(binaryBytes));
   assert.equal(descriptor.config_digest, sha256(configBytes));
-  assert.match(descriptor.capabilities_digest, /^[0-9a-f]{64}$/u);
+  const capabilities = {
+    schema: 'lattice.runtime_adapter_capabilities.v2',
+    operations: ['dispatch', 'observe', 'inventory', 'barrier', 'rebind', 'prepare',
+      'activate', 'release', 'revoke'],
+    process_observation: true,
+    worktree_fingerprint: true,
+    staged_write_lease: true,
+    durable_dispatch: true,
+    host_driven_epoch: true,
+    capabilities_digest: '',
+  };
+  capabilities.capabilities_digest = selfDigest(capabilities, 'capabilities_digest');
+  assert.equal(descriptor.capabilities_digest, capabilities.capabilities_digest);
   assert.equal(descriptor.binary_identity, null);
   assert.equal(validateAdapterLaunchDescriptor(descriptor), true);
 });
@@ -200,6 +217,7 @@ test('不正入力と壊れたregistryを空成功へ丸めずdetail付きtyped 
     adapter_kind: 'scripted',
     launch_kind: 'existing_endpoint',
     endpoint: '/tmp/controller.sock',
+    host_driven_epoch: false,
     descriptor_digest: '0'.repeat(64),
   })}\n`);
   const invalid = runCli(['run', 'adapter', 'register', '--input', inputPath], repoRoot);
@@ -216,6 +234,7 @@ test('不正入力と壊れたregistryを空成功へ丸めずdetail付きtyped 
     adapter_kind: 'scripted',
     launch_kind: 'existing_endpoint',
     endpoint: 'supervisor/adapters/scripted.sock',
+    host_driven_epoch: false,
   })}\n`);
   const relativeEndpoint = runCli(['run', 'adapter', 'register', '--input', inputPath], repoRoot);
   assert.equal(relativeEndpoint.status, 1);
@@ -223,6 +242,22 @@ test('不正入力と壊れたregistryを空成功へ丸めずdetail付きtyped 
   assert.equal(relativeError.code, 'INVALID_ADAPTER_REGISTRATION_INPUT');
   assert.equal(relativeError.detail.reason, 'endpoint_must_be_absolute');
   assert.equal(relativeError.detail.path, '/endpoint');
+
+  for (const hostDrivenEpoch of [undefined, 'true']) {
+    const value = {
+      schema: SCHEMA_TITLE,
+      adapter_kind: 'scripted',
+      launch_kind: 'existing_endpoint',
+      endpoint: '/tmp/controller.sock',
+    };
+    if (hostDrivenEpoch !== undefined) value.host_driven_epoch = hostDrivenEpoch;
+    await writeFile(inputPath, `${JSON.stringify(value)}\n`);
+    const rejected = runCli(['run', 'adapter', 'register', '--input', inputPath], repoRoot);
+    assert.equal(rejected.status, 1);
+    const error = JSON.parse(rejected.stderr);
+    assert.equal(error.code, 'INVALID_ADAPTER_REGISTRATION_INPUT');
+    assert.equal(error.detail.path, '/host_driven_epoch');
+  }
 
   await writeFile(inputPath, '{broken-json\n');
   const invalidJson = runCli(['run', 'adapter', 'register', '--input', inputPath], repoRoot);

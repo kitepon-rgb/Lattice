@@ -125,13 +125,28 @@ export function validateControllerHeartbeat(value) {
 }
 
 export function validateRuntimeAdapterCapabilities(value) {
-  return exact(value, ['schema', 'operations', 'process_observation', 'worktree_fingerprint', 'staged_write_lease', 'durable_dispatch', 'capabilities_digest'])
-    && value.schema === 'lattice.runtime_adapter_capabilities.v1'
+  const fields = ['schema', 'operations', 'process_observation', 'worktree_fingerprint',
+    'staged_write_lease', 'durable_dispatch', 'capabilities_digest'];
+  if (value?.schema === 'lattice.runtime_adapter_capabilities.v2') {
+    fields.push('host_driven_epoch');
+  }
+  return exact(value, fields)
+    && ['lattice.runtime_adapter_capabilities.v1',
+      'lattice.runtime_adapter_capabilities.v2'].includes(value.schema)
     && Array.isArray(value.operations) && value.operations.length === CONTROLLER_OPERATIONS.length
     && value.operations.every((op, i) => op === CONTROLLER_OPERATIONS[i])
     && value.process_observation === true && value.worktree_fingerprint === true
     && value.staged_write_lease === true && value.durable_dispatch === true
+    && (value.schema !== 'lattice.runtime_adapter_capabilities.v2'
+      || typeof value.host_driven_epoch === 'boolean')
     && selfValid(value, 'capabilities_digest');
+}
+
+/** hostがmanaged epochを駆動してよいとcontroller自身が宣言した能力だけを採る。 */
+export function acceptsHostDrivenEpoch(value) {
+  return validateRuntimeAdapterCapabilities(value)
+    && value.schema === 'lattice.runtime_adapter_capabilities.v2'
+    && value.host_driven_epoch === true;
 }
 
 export function validateProcessStartIdentity(value) {

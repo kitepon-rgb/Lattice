@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.runtime_adapter_registration_input.v2.schema.json",
+  "title": "lattice.runtime_adapter_registration_input.v2",
+  "description": "lattice run adapter register の入力契約。host_driven_epochでhostによるmanaged epoch駆動への同意を宣言し、digestと固定capabilitiesはCLIが導出する。",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "adapter_kind",
+        "launch_kind",
+        "binary_path",
+        "argv",
+        "config_ref",
+        "host_driven_epoch"
+      ],
+      "properties": {
+        "schema": {
+          "const": "lattice.runtime_adapter_registration_input.v2"
+        },
+        "adapter_kind": {
+          "$ref": "#/$defs/identifier"
+        },
+        "launch_kind": {
+          "const": "host_binary"
+        },
+        "binary_path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "argv": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "pattern": "^[^\\u0000]*$"
+          }
+        },
+        "config_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "host_driven_epoch": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "adapter_kind",
+        "launch_kind",
+        "endpoint",
+        "host_driven_epoch"
+      ],
+      "properties": {
+        "schema": {
+          "const": "lattice.runtime_adapter_registration_input.v2"
+        },
+        "adapter_kind": {
+          "$ref": "#/$defs/identifier"
+        },
+        "launch_kind": {
+          "const": "existing_endpoint"
+        },
+        "endpoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "host_driven_epoch": {
+          "type": "boolean"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$"
+    }
+  }
+}

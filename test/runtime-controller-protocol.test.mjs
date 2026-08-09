@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import { digestArtifact } from '../src/artifact-contracts.mjs';
 import { selfDigest } from '../src/runtime-contracts.mjs';
 import {
-  CONTROLLER_OPERATIONS, armStagedWriteLease, createControllerRequest, createWriteGate,
+  CONTROLLER_OPERATIONS, acceptsHostDrivenEpoch, armStagedWriteLease,
+  createControllerRequest, createWriteGate,
   createRuntimeControlRequest,
   validateArmedWriteLease, validateControllerDescriptor, validateControllerRequest, validateControllerResponse,
   validateControllerRegistration, validateReleaseAck, validateRuntimeControlRequest,
-  validateRuntimeControlResponse, validateStagedWriteLease, validateExpectedWorkerProcess,
+  validateRuntimeAdapterCapabilities, validateRuntimeControlResponse,
+  validateStagedWriteLease, validateExpectedWorkerProcess,
   verifyCentralWriteGate,
 } from '../src/runtime-controller-protocol.mjs';
 
@@ -25,6 +27,33 @@ function controlPayload(operation = 'hold') {
     shutdown_reason: shutdownReason, operation_digest: '',
   }, 'operation_digest');
 }
+
+test('adapter capabilities v2はhost駆動同意をexactかつ自己digest付きで検証する', () => {
+  const v1 = sign({ schema: 'lattice.runtime_adapter_capabilities.v1',
+    operations: [...CONTROLLER_OPERATIONS], process_observation: true,
+    worktree_fingerprint: true, staged_write_lease: true, durable_dispatch: true,
+    capabilities_digest: '' }, 'capabilities_digest');
+  assert.equal(validateRuntimeAdapterCapabilities(v1), true);
+  assert.equal(acceptsHostDrivenEpoch(v1), false);
+
+  const v2 = sign({ ...v1, schema: 'lattice.runtime_adapter_capabilities.v2',
+    host_driven_epoch: true, capabilities_digest: '' }, 'capabilities_digest');
+  assert.equal(validateRuntimeAdapterCapabilities(v2), true);
+  assert.equal(acceptsHostDrivenEpoch(v2), true);
+
+  const declined = sign({ ...v2, host_driven_epoch: false,
+    capabilities_digest: '' }, 'capabilities_digest');
+  assert.equal(validateRuntimeAdapterCapabilities(declined), true);
+  assert.equal(acceptsHostDrivenEpoch(declined), false);
+  for (const invalid of [
+    sign({ ...v2, host_driven_epoch: 'true', capabilities_digest: '' }, 'capabilities_digest'),
+    sign({ ...v2, extra: true, capabilities_digest: '' }, 'capabilities_digest'),
+    sign({ ...v1, host_driven_epoch: true, capabilities_digest: '' }, 'capabilities_digest'),
+  ]) {
+    assert.equal(validateRuntimeAdapterCapabilities(invalid), false);
+    assert.equal(acceptsHostDrivenEpoch(invalid), false);
+  }
+});
 function controlResult(operation = 'hold', outcome = 'held') {
   return sign({
     schema: 'lattice.runtime_control_result.v1', operation, outcome,

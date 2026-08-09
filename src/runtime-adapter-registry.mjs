@@ -21,7 +21,8 @@ import {
 import { selfDigest } from './runtime-contracts.mjs';
 import { observeMacosBinaryIdentity } from './runtime-managed-supervisor.mjs';
 
-const INPUT_SCHEMA = 'lattice.runtime_adapter_registration_input.v1';
+const INPUT_SCHEMA = 'lattice.runtime_adapter_registration_input.v2';
+const LEGACY_INPUT_SCHEMA = 'lattice.runtime_adapter_registration_input.v1';
 const REGISTRY_SCHEMA = 'lattice.runtime_adapter_registry.v1';
 const DESCRIPTOR_SCHEMA = 'lattice.runtime_adapter_launch_descriptor.v1';
 const REGISTRY_REF = '.lattice/runtime/adapter-registry/registry.json';
@@ -68,10 +69,17 @@ function inputFailure(reason, inputPath = '') {
 
 function validateRegistrationInput(value) {
   if (!plain(value)) inputFailure('input_must_be_object');
-  if (value.schema !== INPUT_SCHEMA) inputFailure('unsupported_schema', '/schema');
+  if (![LEGACY_INPUT_SCHEMA, INPUT_SCHEMA].includes(value.schema)) {
+    inputFailure('unsupported_schema', '/schema');
+  }
   if (!ID.test(value.adapter_kind ?? '')) inputFailure('invalid_adapter_kind', '/adapter_kind');
+  const hostDrivenFields = value.schema === INPUT_SCHEMA ? ['host_driven_epoch'] : [];
+  if (value.schema === INPUT_SCHEMA && typeof value.host_driven_epoch !== 'boolean') {
+    inputFailure('host_driven_epoch_must_be_boolean', '/host_driven_epoch');
+  }
   if (value.launch_kind === 'host_binary') {
-    if (!exact(value, ['schema', 'adapter_kind', 'launch_kind', 'binary_path', 'argv', 'config_ref'])) {
+    if (!exact(value, ['schema', 'adapter_kind', 'launch_kind', 'binary_path', 'argv',
+      'config_ref', ...hostDrivenFields])) {
       inputFailure('unexpected_or_missing_keys');
     }
     if (typeof value.binary_path !== 'string' || !path.isAbsolute(value.binary_path)) {
@@ -87,7 +95,8 @@ function validateRegistrationInput(value) {
     return;
   }
   if (value.launch_kind === 'existing_endpoint') {
-    if (!exact(value, ['schema', 'adapter_kind', 'launch_kind', 'endpoint'])) {
+    if (!exact(value, ['schema', 'adapter_kind', 'launch_kind', 'endpoint',
+      ...hostDrivenFields])) {
       inputFailure('unexpected_or_missing_keys');
     }
     if (typeof value.endpoint !== 'string' || value.endpoint.length === 0) {
@@ -104,9 +113,11 @@ function validateRegistrationInput(value) {
   inputFailure('unsupported_launch_kind', '/launch_kind');
 }
 
-function createCapabilities() {
+function createCapabilities(input = { schema: LEGACY_INPUT_SCHEMA }) {
   const capabilities = {
-    schema: 'lattice.runtime_adapter_capabilities.v1',
+    schema: input.schema === INPUT_SCHEMA
+      ? 'lattice.runtime_adapter_capabilities.v2'
+      : 'lattice.runtime_adapter_capabilities.v1',
     operations: [...CONTROLLER_OPERATIONS],
     process_observation: true,
     worktree_fingerprint: true,
@@ -114,6 +125,9 @@ function createCapabilities() {
     durable_dispatch: true,
     capabilities_digest: '',
   };
+  if (input.schema === INPUT_SCHEMA) {
+    capabilities.host_driven_epoch = input.host_driven_epoch;
+  }
   capabilities.capabilities_digest = selfDigest(capabilities, 'capabilities_digest');
   if (!validateRuntimeAdapterCapabilities(capabilities)) {
     throw new TypeError('runtime adapter capabilities生成不正');
@@ -326,7 +340,7 @@ async function resolveHostBinary(repoRoot, input, binaryIdentityObserver) {
 }
 
 async function buildLaunchDescriptor(repoRoot, input, binaryIdentityObserver) {
-  const capabilities = createCapabilities();
+  const capabilities = createCapabilities(input);
   let observation = { status: 'not_applicable', reason: null, message: null };
   let descriptor;
   if (input.launch_kind === 'host_binary') {

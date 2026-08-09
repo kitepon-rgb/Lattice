@@ -14,8 +14,12 @@ import test from 'node:test';
 
 import { canonicalizeArtifact } from '../src/artifact-contracts.mjs';
 import { selfDigest } from '../src/runtime-contracts.mjs';
+import { validateRuntimeAdapterCapabilities } from '../src/runtime-controller-protocol.mjs';
 import { validateRunWorkOrder } from '../src/runtime-work-order-contracts.mjs';
-import { spawnWorkOrderWorker } from '../src/runtime-work-order-controller.mjs';
+import {
+  createWorkOrderAdapterCapabilities,
+  spawnWorkOrderWorker,
+} from '../src/runtime-work-order-controller.mjs';
 
 function git(args, cwd) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -52,6 +56,14 @@ async function waitForFile(filePath) {
   }
   throw new Error(`file did not appear: ${filePath}`);
 }
+
+test('work-order controllerはhost駆動managed epochをv2能力で宣言する', () => {
+  const capabilities = createWorkOrderAdapterCapabilities();
+  assert.equal(validateRuntimeAdapterCapabilities(capabilities), true);
+  assert.equal(capabilities.schema, 'lattice.runtime_adapter_capabilities.v2');
+  assert.equal(capabilities.host_driven_epoch, true);
+  assert.equal(selfDigest(capabilities, 'capabilities_digest'), capabilities.capabilities_digest);
+});
 
 test('work-order workerはreportを合図にしdiffをLattice自身で観測する', async (t) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'lattice-work-order-')));

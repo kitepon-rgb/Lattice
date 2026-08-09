@@ -38,6 +38,7 @@
     "docs/schemas/lattice.executor_packet.v1.schema.json",
     "docs/schemas/lattice.executor_receipt.v1.schema.json",
     "docs/schemas/lattice.runtime_adapter_registration_input.v1.schema.json",
+    "docs/schemas/lattice.runtime_adapter_registration_input.v2.schema.json",
     "docs/bridge-setup.md",
     "sensor/dist",
     "!sensor/dist/bin/lattice-sensor.*",

@@ -201,7 +201,7 @@ async function readAndValidateGate(runDir, writeLease) {
 }
 
 /** 登録時のdigestへ束縛されたwork-order spool設定を読む。 */
-async function readWorkOrderBehavior(repoRoot) {
+async function readWorkOrderBehavior(repoRoot, capabilitiesDigest) {
   const descriptorPath = path.join(repoRoot, '.lattice', 'runtime', 'adapter-registry',
     'descriptors', 'work-order.json');
   let descriptor;
@@ -210,6 +210,16 @@ async function readWorkOrderBehavior(repoRoot) {
   } catch { fail('WORK_ORDER_BOOTSTRAP_INVALID', 'work-order adapterが未登録'); }
   if (typeof descriptor?.config_ref !== 'string' || typeof descriptor.config_digest !== 'string') {
     fail('WORK_ORDER_BOOTSTRAP_INVALID', 'work-order adapter descriptorが不正');
+  }
+  if (descriptor.capabilities_digest !== capabilitiesDigest) {
+    fail(
+      'WORK_ORDER_CAPABILITIES_MISMATCH',
+      'work-order adapterをregistration input v2で再登録する必要がある',
+      {
+        registered_capabilities_digest: descriptor.capabilities_digest ?? null,
+        controller_capabilities_digest: capabilitiesDigest,
+      },
+    );
   }
   const configPath = path.join(repoRoot, ...descriptor.config_ref.split('/'));
   let bytes;
@@ -481,6 +491,23 @@ async function quiesceWorkOrderTask(task) {
   }
 }
 
+export function createWorkOrderAdapterCapabilities() {
+  const capabilities = sign({
+    schema: 'lattice.runtime_adapter_capabilities.v2',
+    operations: [...CONTROLLER_OPERATIONS],
+    process_observation: true,
+    worktree_fingerprint: true,
+    staged_write_lease: true,
+    durable_dispatch: true,
+    host_driven_epoch: true,
+    capabilities_digest: '',
+  }, 'capabilities_digest');
+  if (!validateRuntimeAdapterCapabilities(capabilities)) {
+    fail('WORK_ORDER_CONTROLLER_INVALID', 'capabilities生成に失敗した');
+  }
+  return capabilities;
+}
+
 export async function createWorkOrderAdapterController({
   bootstrap,
   runDir,
@@ -501,18 +528,7 @@ export async function createWorkOrderAdapterController({
     || controllerSessionNonce.length < 32) {
     fail('WORK_ORDER_BOOTSTRAP_INVALID', 'work-order controller identityが不正');
   }
-  const capabilities = sign({
-    schema: 'lattice.runtime_adapter_capabilities.v1',
-    operations: [...CONTROLLER_OPERATIONS],
-    process_observation: true,
-    worktree_fingerprint: true,
-    staged_write_lease: true,
-    durable_dispatch: true,
-    capabilities_digest: '',
-  }, 'capabilities_digest');
-  if (!validateRuntimeAdapterCapabilities(capabilities)) {
-    fail('WORK_ORDER_CONTROLLER_INVALID', 'capabilities生成に失敗した');
-  }
+  const capabilities = createWorkOrderAdapterCapabilities();
   const heartbeat = sign({
     schema: 'lattice.runtime_heartbeat_policy.v1',
     interval_ms: 1_000,
@@ -536,7 +552,10 @@ export async function createWorkOrderAdapterController({
     descriptor_digest: '',
   }, 'descriptor_digest');
   const sessionNonceDigest = digestArtifact(bootstrap.supervisor_session_nonce);
-  const behavior = await readWorkOrderBehavior(canonicalRepoRoot);
+  const behavior = await readWorkOrderBehavior(
+    canonicalRepoRoot,
+    capabilities.capabilities_digest,
+  );
   const stagedLeases = new Map();
   const armedLeases = new Map();
   const preparedPackets = new Map();
