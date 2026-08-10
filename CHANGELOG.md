@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.53.1 — 2026-08-10
+
+### 新機能
+
+- **Windows端末のbridge常駐機構を追加した。** Task SchedulerのONLOGONトリガーは非elevated
+  では作成できないため、昇格不要なStartup folderへNode製supervisor（`bin/lattice-bridge-supervisor.mjs`、
+  spawn→exit待ち→再spawn）を組み合わせて実現した。`lattice bridge setup`は
+  `process.platform`でmacOSのLaunchAgentとWindowsのStartup folderを自動的に切り替える。
+- registrar応答（`lattice.bridge_registration.v2`）から`hub_url`を抽出する
+  `deriveBridgeHubUrlFromRegistration`を追加した。
+
+### 修正
+
+- **hubの`/projects/`合成一覧ページの意匠を旧公開landingへ揃えた。** hub導入（0.53.0）で
+  この一覧が無style・裸テキストへ退行していた。旧公開面（LIVE DEVELOPMENT・カード型一覧・
+  kitepon.dev/GitHub誘導）と同じ意匠を再現し、online/offlineを既存の色語彙で表示する。
+- **Windowsでbridge configの読み戻し時0600権限bit検証が常に失敗しbridgeが起動できない
+  欠陥を修理した。** `src/bridge-config.mjs`・`src/bridge-daemon.mjs`・`src/bridge-server.mjs`の
+  読み戻しガードにcross-platform欠陥3件があり、Windows実機検証で発見した。
+
 ## 0.53.0 — 2026-08-10
 
 ### 新機能
