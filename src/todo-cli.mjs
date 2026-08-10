@@ -434,9 +434,21 @@ async function readRevisionInput(repoRoot, inputRef, {
   return revision;
 }
 
+// --evidenceが受け取るのは生の証拠ファイルではなくJSON記述子。ここを間違えた呼び出しAIが
+// json_parse_failed/schema_invalidだけを見て手詰まりになるので、期待形をエラーに同梱する（ADR 0130）。
+const EVIDENCE_DESCRIPTOR_EXPECTED = Object.freeze({
+  shape: '{ "evidence_id": "<identifier>", "repo_id": "<identifier>", "path": "<repo相対path>",'
+    + ' "git_blob_oid": "<40/64桁hex>", "content_digest": "<sha256 64桁hex>",'
+    + ' "media_type": "text/markdown", "anchor_digest": null }',
+  note: '証拠ファイル本体ではなく、コミット済みblobを指すJSON記述子を渡す。'
+    + '対象ファイルをcommitした後、git_blob_oidは `git rev-parse HEAD:<path>`、'
+    + 'content_digestはblob bytesのsha256（hex）で得る。refsから到達可能なblobだけが検証を通る',
+});
+
 async function readEvidenceInput(repoRoot, inputRef) {
   return readJsonInput(repoRoot, inputRef, {
     validate: validateEvidenceDescriptor, invalidCode: 'INVALID_EVIDENCE',
+    expected: EVIDENCE_DESCRIPTOR_EXPECTED,
   });
 }
 
@@ -474,15 +486,18 @@ async function readJsonInput(repoRoot, inputRef, { validate, invalidCode, expect
   if (text.startsWith('\uFEFF') || text.includes('\r')) {
     throw new TodoStoreError('INVALID_JSON', 'non_portable_json_bytes');
   }
+  // parse失敗は「JSONでないファイル（証拠本体など）をそのまま渡した」誤用が大半なので、
+  // 期待形を知っている入口では expected を同梱して次の一手を示す（ADR 0130）。
+  const parseFailureDetail = expected === null ? undefined : { expected };
   const parseErrors = [];
   const tree = parseTree(text, parseErrors, { allowTrailingComma: false, disallowComments: true });
   if (parseErrors.length > 0 || tree === undefined) {
-    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
+    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed', undefined, parseFailureDetail);
   }
   if (hasDuplicateJsonKey(tree)) throw new TodoStoreError('INVALID_JSON', 'duplicate_key');
   let descriptor;
   try { descriptor = JSON.parse(text); } catch {
-    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
+    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed', undefined, parseFailureDetail);
   }
   if (!validate(descriptor)) {
     // 「schema_invalid」だけを返すと、呼び出したAIは何をどう直せばよいか分からない。

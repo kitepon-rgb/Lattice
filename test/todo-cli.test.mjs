@@ -527,8 +527,19 @@ test('start/reopen overrideとdescriptor schema拒否をexact argvで処理す�
   const before = await storeDigest(root);
   const invalid = runCli(root, ['todo', 'done', '--plan', 'main', '--task', 'T2', '--evidence', invalidRef]);
   assert.equal(invalid.status, 1);
-  assert.equal(JSON.parse(invalid.stderr).code, 'INVALID_EVIDENCE');
+  const invalidError = JSON.parse(invalid.stderr);
+  assert.equal(invalidError.code, 'INVALID_EVIDENCE');
+  assert.match(invalidError.detail.expected.shape, /git_blob_oid/u);
   assert.equal(await storeDigest(root), before);
+
+  // 記述子でないファイル（証拠本体の誤渡し）でも期待形が案内される
+  const notJsonRef = 'not-json-evidence.md';
+  await writeFile(path.join(root, notJsonRef), '# evidence body\n');
+  const notJson = runCli(root, ['todo', 'done', '--plan', 'main', '--task', 'T2', '--evidence', notJsonRef]);
+  assert.equal(notJson.status, 1);
+  const notJsonError = JSON.parse(notJson.stderr);
+  assert.equal(notJsonError.message, 'json_parse_failed');
+  assert.match(notJsonError.detail.expected.shape, /git_blob_oid/u);
 
   successJson(runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']));
   successJson(runCli(root, ['todo', 'done', '--plan', 'main', '--task', 'T1', '--evidence', descriptorRef]));
