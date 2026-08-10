@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.52.2 — 2026-08-10
+
+### 診断・観測
+
+- **`--evidence`入力の失敗に、期待するJSON記述子の形と作り方を同梱した。** 記述子でないファイル
+  （証拠本体のMarkdown等）を渡した`json_parse_failed`と、schema不一致の`INVALID_EVIDENCE`の両方で、
+  `detail.expected`に形（evidence_id／repo_id／path／git_blob_oid／content_digest／media_type／
+  anchor_digest）と手順（commit後に`git rev-parse HEAD:<path>`でblob oid、blob bytesのsha256）を返す。
+  可否判定は不変で、診断だけを追加した（ADR 0130の案内規律）。
+
+### 修正
+
+- **product test runnerがWindowsで動かなかったのを直した。** `URL.pathname`由来のrepo root解決が
+  `C:\C:\...`を作っていたため、`fileURLToPath`での変換に置き換えた。POSIXでは同一パスに解決される。
+
+## 0.52.1 — 2026-08-09
+
+### 修正
+
+- **Windowsで`plan create`が必ず失敗するfsyncバグを直した。** directory fsyncがWindowsでは
+  `EPERM`／`EISDIR`になるため許容し、file fsyncの規律は維持した。
+- **git同期したstoreが改行変換で壊れるのを防いだ。** `.lattice` store生成物に`.gitattributes -text`を
+  敷き、既存storeのCRLF混入も読み取りで拒否できるようにした。あわせてrelease gateを塞いでいた
+  `.mjs`の見かけdirty（EOL差分）を全OS LF固定で解消した。
+
 ## 0.52.0 — 2026-08-09
 
 ### 追加
