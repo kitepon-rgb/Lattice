@@ -130,8 +130,10 @@ Mac側の工程が出続けている事実から発覚し、`docker restart cadd
 - **H申請の事前確認漏れ**: 対象portの実況（既存listenerとの衝突）確認をH操作申請の手順へ
   含めていなかった。今後192.168.1.2上へ新規サービスを追加するH操作では、対象portが
   空いていることを申請段階で確認する手順を含める。
-- Mac側手順（7: `lattice bridge reconfigure --listen <Mac LAN IP> --port auto --dashboard
-  --hub http://192.168.1.2:53943 --allow-host lattice.kitepon.dev --json`、8: 逆トンネル
-  LaunchAgent `dev.kitepon.lattice.bridge-tunnel`の退役）はMac端末が必要なためオーナー実施待ち。
+- Mac側手順（7: hub登録への切替、8: 逆トンネルLaunchAgent `dev.kitepon.lattice.bridge-tunnel`の
+  退役）は**完了済み**（2026-08-10確認）。bh5のauto-migrationが両方を実施しており、手作業の
+  reconfigureは不要だった。実測: `~/Library/LaunchAgents`に残るLatticeのplistは
+  `dev.kitepon.lattice.bridge.plist`だけで、`dev.kitepon.lattice.bridge-tunnel`はfile・load状態とも
+  存在しない。`lattice bridge status --json`の`hub`は`http://192.168.1.2:53943/`を返す。
 - Windows端末（ChromeBlocker）のbridge常駐はbh6の範囲。WSL2はLANから到達不能なため、
   bridgeはWindows native側で常駐させる必要がある（plan既知の罠「Windows端末の常駐」）。
