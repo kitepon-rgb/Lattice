@@ -60,6 +60,10 @@ bridgeが無効な間は以下すべてnullで、bridgeを有効にしている�
 0.55.0より前のdaemonが走っている間は`version`以下がnullになる（この場合`runtime_drift`は空になり、
 乖離の有無は判定できていない——「乖離なし」ではない）。
 
+`reconfigure`直後は、identityの確認requestが400msで打ち切られるため一時的に`unattested`を返すことが
+ある（daemonの起動直後と競合する）。数秒おいて引き直せば`running`になる。続くようなら本物の不整合で、
+`reachable`がtrueでも公開面は認証できていない。
+
 | field | 意味 |
 | --- | --- |
 | `pid` | 応答しているprocessのpid |
