@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.55.1 — 2026-08-10
+
+### 修正
+
+- **`docs/bridge-setup.md`（配布物に含まれる）へ、`reconfigure`直後に`runtime.state`が
+  一時的に`unattested`を返しうることを追記した。** identity確認requestは400msで打ち切られるため
+  daemonの起動直後と競合する。0.55.0の実機配備で実測した。知らないと誤った警報になる。
+- CI（ubuntu／macos／windowsのos matrix）をmacOSで赤くしていたtestの欠陥を2件直した。どちらも
+  testだけの問題で、testは配布物に含まれないため製品の挙動は変わらない。
+  - hubの明示listen address検証が`127.0.0.2`固定だった。Linuxは`127.0.0.0/8`全体がloopbackへ
+    応答するがmacOSの`lo0`は`127.0.0.1`しか持たずEADDRNOTAVAILになる。実在するnon-internal IPv4を
+    選ぶよう変更し、platform skipもos分岐も持たせていない。
+  - managed runtime daemonのtest 9件が毎回`cancelledByParent`になっていた。SIGTERMを握り潰す子の
+    exitを待つ最終awaitで、`detached`+`unref`した子のhandleがevent loopを生かさないため、
+    reapが外から殺した後に'exit'が届く前へ入るとloopが空になりprocessごと降りていた。これらは
+    macOS専用のtestなので、CIで実際に走る唯一の面が常に落ちていたことになる。待つ間だけ`ref()`へ戻す。
+
 ## 0.55.0 — 2026-08-10
 
 ### 修正
