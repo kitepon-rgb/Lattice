@@ -1392,6 +1392,18 @@ export async function readTodoStoreStable(options = {}) {
   if (!Number.isSafeInteger(maximumAttempts) || maximumAttempts < 1 || maximumAttempts > 16) {
     throw new TypeError('maximumAttempts must be 1..16');
   }
+  // `manifest_journal_head_mismatch`/`manifest_plan_binding_mismatch` are treated as a
+  // transient in-flight write and retried. That is correct while a concurrent writer is
+  // mid-commit, but a crashed writer can leave the SAME mismatch permanently — retrying
+  // forever against a manifest that never changes just burns attempts and then reports
+  // a content-free STORE_BUSY, hiding the real STORE_INCONSISTENT reason the caller needs
+  // to actually recover (2026-08-10 P0: a crashed `todo start` left exactly this behind).
+  // Track the manifest digest seen at the START of the previous attempt: if it is
+  // unchanged going into this attempt too, no writer completed anything in between, so
+  // the "transient" classification no longer has evidence behind it — surface the real
+  // error instead of exhausting the budget on a window that was never closing.
+  let previousAttemptManifestDigest = null;
+  let lastError = null;
   for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
     const before = await readArtifact(repoRoot, MANIFEST_REF, {
       code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
@@ -1411,12 +1423,21 @@ export async function readTodoStoreStable(options = {}) {
       const transientWriteWindow = error.code === 'STORE_INCONSISTENT'
         && ['manifest_journal_head_mismatch', 'manifest_plan_binding_mismatch']
           .includes(error.detail.reason);
-      if (before.manifest_digest === after.manifest_digest && !transientWriteWindow) throw error;
+      const stableAcrossAttempts = previousAttemptManifestDigest === before.manifest_digest;
+      if (before.manifest_digest === after.manifest_digest
+        && (!transientWriteWindow || stableAcrossAttempts)) throw error;
+      lastError = error;
     }
+    previousAttemptManifestDigest = before.manifest_digest;
     if (attempt < maximumAttempts) {
       await new Promise((resolve) => setTimeout(resolve, Math.min(16, 2 ** attempt)));
     }
   }
+  // Exhausted without ever observing a genuinely closing write. Surface the last typed
+  // STORE_INCONSISTENT reason rather than a bare STORE_BUSY — the caller (and a human
+  // reading the error) needs to know which store artifact actually disagrees, not just
+  // that reads kept failing.
+  if (lastError !== null) throw lastError;
   fail('STORE_BUSY', 'stable_read_exhausted', { attempts: maximumAttempts });
 }
 

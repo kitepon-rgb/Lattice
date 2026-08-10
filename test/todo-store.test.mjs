@@ -716,10 +716,29 @@ test('crash matrix: journal commit後にmanifestが旧headなら不整合、snap
   const newManifest = await bytes(root, manifestRef);
   await writeFile(path.join(root, manifestRef), oldManifest);
   await expectCode(readTodoStore({ repoRoot: root, now: NOW }), 'STORE_INCONSISTENT', 'manifest_journal_head_mismatch');
+  // 恒久的に千切れた状態（このtestではmanifestを書き戻していないので、attempt間で一切変化
+  // しない）では、汎用STORE_BUSYへ丸めず実際のSTORE_INCONSISTENT reasonを返す——
+  // 復旧を試みる呼び出し元がまず読むべき情報を隠さない（2026-08-10 P0の教訓）。
   await expectCode(readTodoStoreStable({ repoRoot: root, now: NOW, maximumAttempts: 2 }),
-    'STORE_BUSY', 'stable_read_exhausted');
+    'STORE_INCONSISTENT', 'manifest_journal_head_mismatch');
   await writeFile(path.join(root, manifestRef), newManifest); await writeFile(path.join(root, snapshotRef), oldSnapshot);
   assert.equal((await readTodoStore({ repoRoot: root, now: NOW })).snapshot_stale, true);
+});
+
+test('readTodoStoreStableは書込中の一時窓（毎attemptでmanifestが動く）なら引き続きリトライで自己解決する', async (context) => {
+  const root = await workspace(context); const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  const oldManifest = await bytes(root, manifestRef);
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T1', actor: ACTOR, recorded_at: NOW, payload: { override_reason: null } } });
+  const newManifest = await bytes(root, manifestRef);
+  // 千切れを模すが、初回readの直後に「書込が完了する」ところまで再現する: 1回だけ
+  // 古いmanifestへ戻し、readTodoStoreStableの最初のattemptがそれを踏んだ直後に
+  // 正しいmanifestへ戻す。これは「まだ書込中だった」場合の正常系であり、恒久的な
+  // 千切れ（上のtest）とは区別してリトライで解決できることを固定する。
+  await writeFile(path.join(root, manifestRef), oldManifest);
+  setTimeout(() => { writeFile(path.join(root, manifestRef), newManifest).catch(() => {}); }, 5);
+  const store = await readTodoStoreStable({ repoRoot: root, now: NOW, maximumAttempts: 8 });
+  assert.equal(store.manifest.manifest_digest, JSON.parse(newManifest.toString('utf8')).manifest_digest);
 });
 
 test('1 MiB到達時にactive segmentをsealし、exact bytes digestと連結を検証する', async (context) => {
