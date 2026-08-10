@@ -307,7 +307,7 @@ async function attest(descriptor) {
 }
 
 const UNIDENTIFIED_RUNTIME = Object.freeze({ pid: null, version: null, node_path: null,
-  node_version: null, bridge_path: null });
+  node_version: null, bridge_path: null, last_heartbeat: null });
 
 /**
  * Who is actually serving right now — pid, product version, node binary — as
@@ -330,7 +330,10 @@ export async function readBridgeRuntimeIdentity({ env = process.env } = {}) {
   const text = (value) => (typeof value === 'string' ? value : null);
   return { state: 'running', pid: descriptor.pid, version: text(body.version),
     node_path: text(body.node_path), node_version: text(body.node_version),
-    bridge_path: text(body.bridge_path) };
+    bridge_path: text(body.bridge_path),
+    // Absent from daemons older than 0.55.2 — null then means "this daemon does
+    // not report it", not "the hub accepted everything".
+    last_heartbeat: body.last_heartbeat ?? null };
 }
 
 async function healthy(descriptor, config) {

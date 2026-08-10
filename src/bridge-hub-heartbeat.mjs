@@ -50,8 +50,8 @@ function terminalIdentityPath(env) {
  * restarts. It must survive restarts: registration is a full-state
  * reconciliation keyed by terminal_id (ADR 0162 Decision 4), so a fresh id on
  * every daemon start would make the hub see "a new terminal" contesting the
- * same project_ids the old id still owns until its TTL lapses — a
- * self-inflicted `BRIDGE_HUB_PROJECT_CONFLICT`.
+ * same project_ids the old id still owns until its TTL lapses — self-inflicted
+ * contention, answered now by a `rejected` entry rather than a failed request.
  */
 export async function readOrCreateBridgeHubTerminalId({ env = process.env } = {}) {
   const refs = bridgeConfigPaths(env);
@@ -130,7 +130,44 @@ export async function sendBridgeHubHeartbeat({ hubUrl, request, fetchImpl = fetc
   if (response.status !== 200) {
     return { schema: HEARTBEAT_RESULT_SCHEMA, state: 'rejected', status: response.status, detail: body };
   }
+  // A hub that accepted some ids and refused others answers 200 with a non-empty
+  // `rejected`. Calling that plain 'accepted' would hide exactly the case this
+  // protocol change exists to make visible: a project of ours is live on another
+  // terminal and will never reach the published view from here until someone
+  // adopts it. Give it its own state so `bridge status` can report it without
+  // having to know the registration result's shape.
+  const rejected = Array.isArray(body?.rejected) ? body.rejected : [];
+  if (rejected.length > 0) {
+    return { schema: HEARTBEAT_RESULT_SCHEMA, state: 'partial', result: body };
+  }
   return { schema: HEARTBEAT_RESULT_SCHEMA, state: 'accepted', result: body };
+}
+
+/**
+ * Compact projection of the last heartbeat, for the daemon's attested health
+ * response and from there `lattice bridge status`.
+ *
+ * Until now a hub that refused this terminal's projects said so only in the
+ * daemon's stderr, and the bridge LaunchAgent has no StandardErrorPath — so the
+ * only symptom an operator ever saw was a project that silently never appeared
+ * on the published dashboard (2026-08-10). The result has to reach a surface a
+ * person actually reads.
+ */
+export function bridgeHubHeartbeatSummary(result, at = null) {
+  if (result === null || result === undefined) return null;
+  const rejected = Array.isArray(result.result?.rejected) ? result.result.rejected : [];
+  const reclaimed = Array.isArray(result.result?.reclaimed_from_offline)
+    ? result.result.reclaimed_from_offline : [];
+  const detail = result.detail === undefined || result.detail === null ? null
+    : (typeof result.detail === 'string' ? result.detail : JSON.stringify(result.detail)).slice(0, 300);
+  return {
+    state: result.state,
+    at,
+    rejected_projects: rejected.map((entry) => entry.project_id)
+      .sort((left, right) => left.localeCompare(right, 'en')),
+    reclaimed_projects: [...reclaimed],
+    detail,
+  };
 }
 
 /**
@@ -147,24 +184,33 @@ export function createBridgeHubHeartbeatController({
 } = {}) {
   let lastSentAt = null;
   let lastResult = null;
+  let lastResultAt = null;
+  const record = (result, atMs) => {
+    lastResult = result;
+    lastResultAt = new Date(atMs).toISOString();
+    return result;
+  };
   return Object.freeze({
     async tick({ config }) {
-      if (config?.hub == null) { lastSentAt = null; lastResult = null; return null; }
+      if (config?.hub == null) {
+        lastSentAt = null; lastResult = null; lastResultAt = null; return null;
+      }
       const nowMs = now();
       if (lastSentAt !== null && nowMs - lastSentAt < intervalMs) return lastResult;
       lastSentAt = nowMs;
       const projects = await readActiveProjects({ env });
       if (projects.length === 0) {
-        lastResult = { schema: HEARTBEAT_RESULT_SCHEMA, state: 'skipped_no_projects' };
-        return lastResult;
+        return record({ schema: HEARTBEAT_RESULT_SCHEMA, state: 'skipped_no_projects' }, nowMs);
       }
       const terminalId = await readOrCreateBridgeHubTerminalId({ env });
       const request = buildBridgeHubRegistrationRequest({
         terminalId, port: config.listen.port, projectIds: projects.map((project) => project.project_id),
       });
-      lastResult = await sendBridgeHubHeartbeat({ hubUrl: config.hub.url, request, fetchImpl });
-      return lastResult;
+      return record(
+        await sendBridgeHubHeartbeat({ hubUrl: config.hub.url, request, fetchImpl }), nowMs,
+      );
     },
     lastHeartbeatResult: () => lastResult,
+    lastHeartbeatSummary: () => bridgeHubHeartbeatSummary(lastResult, lastResultAt),
   });
 }

@@ -151,7 +151,19 @@ async function bridgeRuntimeDrift(persistence, runtime) {
  * mismatched path, or an enabled bridge with no persistence entry at all all
  * survive until someone reinstalls the entry.
  */
-function bridgeRemedy(persistence, drift) {
+function bridgeRemedy(persistence, drift, runtime) {
+  // A hub that refused some of this terminal's projects keeps serving the rest,
+  // so nothing else looks wrong — the refused ids simply never reach the
+  // published dashboard from here. They are held by another terminal that is
+  // still heartbeating; this resolves itself if that terminal goes offline, and
+  // otherwise the way out is to stop claiming the id here. (The protocol has an
+  // `adopt` field for taking one over deliberately, but nothing populates it —
+  // there is no CLI for it, so naming it as a remedy would be naming a door
+  // that does not open.)
+  const rejected = runtime?.last_heartbeat?.rejected_projects ?? [];
+  if (rejected.length > 0) {
+    return `lattice todo dashboard remove ${rejected[0]} --json`;
+  }
   if (persistence === null) return null;
   if (persistence.state === 'unreadable') return RECONFIGURE_COMMAND;
   // Only reached with the bridge enabled, so "nothing is installed" means the
@@ -167,7 +179,7 @@ async function bridgeDiagnostics({ config, launchAgent, env, runtimeIdentity }) 
   const persistence = await bridgePersistence({ launchAgent, env });
   const runtime = await runtimeIdentity({ env });
   const drift = await bridgeRuntimeDrift(persistence, runtime);
-  return { persistence, runtime, drift, remedy: bridgeRemedy(persistence, drift) };
+  return { persistence, runtime, drift, remedy: bridgeRemedy(persistence, drift, runtime) };
 }
 
 function fail(stderr, code, message) {

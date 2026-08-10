@@ -411,3 +411,39 @@ test('setupはdev treeからの常駐化を警告し、global install配下で�
     '/usr/local/lib/node_modules/@quolu/lattice/bin/lattice-bridge.mjs');
   assert.deepEqual(JSON.parse(fromGlobal.stdout).warnings, []);
 });
+
+test('statusはhubに拒否されたprojectを名指しし、止め方をremedyに出す', async (context) => {
+  // 拒否はdaemonのstderrにしか出ず、LaunchAgentはStandardErrorPathを持たない。
+  // 利用者に見えるのは「新規projectが公開工程表に出ない」だけだった（2026-08-10）。
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-heartbeat-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_CONFIG_DIR: root };
+  const daemon = { ensure: async () => {}, stop: async () => {} };
+  const launchAgent = launchAgentDouble();
+  const invoke = async (argv, overrides = {}) => {
+    const stdout = output(); const stderr = output();
+    const code = await runBridgeCli({ argv, stdout: stdout.stream, stderr: stderr.stream,
+      env, daemon, launchAgent, ...overrides });
+    return { code, stdout: stdout.read(), stderr: stderr.read() };
+  };
+  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58769',
+    '--dashboard', '--json'])).code, 0);
+
+  const running = (lastHeartbeat) => runtimeIdentityDouble({ state: 'running', pid: 4242,
+    version: null, node_path: null, node_version: null, bridge_path: null, last_heartbeat: lastHeartbeat });
+
+  const partial = JSON.parse((await invoke(['status', '--json'], {
+    runtimeIdentity: running({ state: 'partial', at: '2026-08-10T05:00:00.000Z',
+      rejected_projects: ['lattice'], reclaimed_projects: [], detail: null }),
+  })).stdout);
+  assert.equal(partial.runtime.last_heartbeat.state, 'partial');
+  assert.deepEqual(partial.runtime.last_heartbeat.rejected_projects, ['lattice']);
+  assert.equal(partial.remedy, 'lattice todo dashboard remove lattice --json');
+
+  // 全部受理されている時に警告を出すと、本物の拒否が埋もれる。
+  const accepted = JSON.parse((await invoke(['status', '--json'], {
+    runtimeIdentity: running({ state: 'accepted', at: '2026-08-10T05:00:00.000Z',
+      rejected_projects: [], reclaimed_projects: [], detail: null }),
+  })).stdout);
+  assert.equal(accepted.remedy, null);
+});

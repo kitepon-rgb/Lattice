@@ -193,6 +193,7 @@ export async function startBridgeServer({
   instanceToken = null,
   resolveUpstream = (upstream) => resolveBridgeUpstream(upstream, { env }),
   interfaces = networkInterfaces(),
+  heartbeat = () => null,
 } = {}) {
   if (config?.enabled !== true) throw new BridgeConfigError('BRIDGE_DISABLED', 'bridge is disabled');
   if (!Array.isArray(config.allowed_hosts) || config.allowed_hosts.length === 0) {
@@ -240,7 +241,11 @@ export async function startBridgeServer({
           address: currentConfig.listen.address, port: currentConfig.listen.port,
           updated_at: currentConfig.updated_at ?? null,
           version: packageJson.version, node_path: process.execPath,
-          node_version: process.version, bridge_path: process.argv[1] ?? null }
+          node_version: process.version, bridge_path: process.argv[1] ?? null,
+          // The hub's answer to our last registration. Nothing else carries it
+          // out of the daemon: the LaunchAgent has no StandardErrorPath, so a
+          // hub refusing our projects was previously invisible everywhere.
+          last_heartbeat: heartbeat() }
         : { schema: 'lattice.bridge_health.v1', status: 'available' })}\n`);
       return;
     }
@@ -321,6 +326,7 @@ export function bridgeRuntimeController({
   register = registerBridgeUpstream,
   report = (line) => process.stderr.write(`${line}\n`),
   readInterfaces = () => networkInterfaces(),
+  heartbeat = () => null,
 } = {}) {
   let active = null;
   let fingerprint = null;
@@ -371,7 +377,7 @@ export function bridgeRuntimeController({
         fingerprint = next;
         return active;
       }
-      const replacement = await startBridgeServer({ config, env, instanceToken, interfaces });
+      const replacement = await startBridgeServer({ config, env, instanceToken, interfaces, heartbeat });
       const previous = active;
       active = replacement;
       fingerprint = next;

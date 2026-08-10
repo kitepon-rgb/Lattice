@@ -28,7 +28,8 @@ if (typeof instanceToken !== 'string' || !/^[0-9a-f]{64}$/u.test(instanceToken))
     code: 'BRIDGE_INSTANCE_TOKEN_INVALID', message: 'bridge instance token is invalid' })}\n`);
   process.exit(1);
 }
-const controller = bridgeRuntimeController({ env, instanceToken });
+const controller = bridgeRuntimeController({ env, instanceToken,
+  heartbeat: () => hubHeartbeat.lastHeartbeatSummary() });
 let timer;
 let closing = false;
 let descriptorFingerprint = null;
@@ -140,7 +141,7 @@ timer = setInterval(async () => {
     try {
       const heartbeat = await hubHeartbeat.tick({ config });
       hubHeartbeatError = null;
-      if (heartbeat?.state === 'unreachable' || heartbeat?.state === 'rejected') {
+      if (['unreachable', 'rejected', 'partial'].includes(heartbeat?.state)) {
         const fingerprint = JSON.stringify(heartbeat);
         if (fingerprint !== hubHeartbeatError) process.stderr.write(`${fingerprint}\n`);
         hubHeartbeatError = fingerprint;

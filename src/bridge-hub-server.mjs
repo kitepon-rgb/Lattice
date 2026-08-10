@@ -436,14 +436,17 @@ export async function startBridgeHubServer({
     try {
       result = await registrationLock(async () => {
         const entries = await store.read();
-        const applied = applyBridgeHubRegistration({ registry: entries, request, remoteAddress, now: now() });
+        const applied = applyBridgeHubRegistration({
+          registry: entries, request, remoteAddress, now: now(), ttlMs,
+        });
         await store.write(applied.registry);
         return applied.result;
       });
     } catch (error) {
       if (error instanceof BridgeHubProtocolError) {
-        const status = error.code === 'BRIDGE_HUB_PROJECT_CONFLICT' ? 409
-          : error.code === 'BRIDGE_HUB_REGISTRATION_INVALID' ? 400 : 500;
+        // A contested project_id no longer throws — it comes back in the 200
+        // body's `rejected`. Only a malformed request or registry lands here.
+        const status = error.code === 'BRIDGE_HUB_REGISTRATION_INVALID' ? 400 : 500;
         respondError(response, status, error.code, error.detail ?? null);
         return;
       }

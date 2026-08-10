@@ -170,3 +170,54 @@ test('controllerはhubが外れたら次にhubが戻った時すぐ送信する�
   await controller.tick({ config: { hub: { url: hubUrl }, listen: { address: '127.0.0.1', port: 1 } } });
   assert.equal(fetchImpl.calls.length, 2, 'must not treat disabling and re-enabling the hub as still inside the prior interval');
 });
+
+test('部分受理はacceptedへ丸めず、statusが読める要約を残す', async (context) => {
+  // 200なのに一部が拒否されている状態をacceptedと呼ぶと、まさに可視化したい事故
+  // （自分のprojectが他端末に握られていて公開面へ永久に出ない）が消える。
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-hub-partial-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_CONFIG_DIR: root };
+  const body = {
+    schema: 'lattice.bridge_hub_registration_result.v2', terminal_id: 't1',
+    address: '192.168.1.9', port: 1, registered: ['ok-project'], adopted: [],
+    rejected: [{ project_id: 'contested', owning_terminal_id: 'other-terminal' }],
+    reclaimed_from_offline: ['stale-project'],
+  };
+  const controller = createBridgeHubHeartbeatController({
+    env,
+    fetchImpl: async () => new Response(JSON.stringify(body), { status: 200 }),
+    now: () => Date.parse('2026-08-10T05:00:00.000Z'),
+    readActiveProjects: async () => [{ project_id: 'ok-project' }, { project_id: 'contested' }],
+  });
+
+  const result = await controller.tick({ config: { hub: { url: 'http://hub.example/' }, listen: { port: 1 } } });
+  assert.equal(result.state, 'partial');
+
+  const summary = controller.lastHeartbeatSummary();
+  assert.deepEqual(summary, {
+    state: 'partial',
+    at: '2026-08-10T05:00:00.000Z',
+    rejected_projects: ['contested'],
+    reclaimed_projects: ['stale-project'],
+    detail: null,
+  });
+});
+
+test('全部受理ならacceptedのままで、拒否一覧は空である', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-hub-accepted-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const body = {
+    schema: 'lattice.bridge_hub_registration_result.v2', terminal_id: 't1',
+    address: '192.168.1.9', port: 1, registered: ['p1'], adopted: [],
+    rejected: [], reclaimed_from_offline: [],
+  };
+  const controller = createBridgeHubHeartbeatController({
+    env: { LATTICE_CONFIG_DIR: root },
+    fetchImpl: async () => new Response(JSON.stringify(body), { status: 200 }),
+    now: () => Date.parse('2026-08-10T05:00:00.000Z'),
+    readActiveProjects: async () => [{ project_id: 'p1' }],
+  });
+  const result = await controller.tick({ config: { hub: { url: 'http://hub.example/' }, listen: { port: 1 } } });
+  assert.equal(result.state, 'accepted');
+  assert.deepEqual(controller.lastHeartbeatSummary().rejected_projects, []);
+});

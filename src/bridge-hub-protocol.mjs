@@ -98,11 +98,12 @@ function validRegistry(registry) {
 /**
  * Apply one registration/heartbeat call to a registry snapshot. Pure: takes the
  * current entries and returns the next ones plus a result summary, mutating
- * nothing. Throws `BridgeHubProtocolError` for an invalid request or an
- * unresolved project_id conflict; on throw, `registry` is guaranteed untouched
- * because nothing is written until every conflict check has passed.
+ * nothing. Throws `BridgeHubProtocolError` only for a malformed registry or
+ * request; a project_id already held by another terminal is no longer fatal —
+ * see the contention rules inline.
  */
-export function applyBridgeHubRegistration({ registry, request, remoteAddress, now = new Date() }) {
+export function applyBridgeHubRegistration({ registry, request, remoteAddress, now = new Date(),
+  ttlMs = BRIDGE_HUB_HEARTBEAT_TTL_MS }) {
   if (!validRegistry(registry)) {
     throw new BridgeHubProtocolError('BRIDGE_HUB_REGISTRY_INVALID', 'bridge hub registry is invalid');
   }
@@ -119,30 +120,44 @@ export function applyBridgeHubRegistration({ registry, request, remoteAddress, n
   const requestedSet = new Set(projectIds);
   const adoptSet = new Set(adopt);
 
-  const conflicts = registry
-    .filter((entry) => requestedSet.has(entry.project_id)
-      && entry.terminal_id !== terminalId && !adoptSet.has(entry.project_id))
-    .map((entry) => ({ project_id: entry.project_id, owning_terminal_id: entry.terminal_id }));
-  if (conflicts.length > 0) {
-    throw new BridgeHubProtocolError('BRIDGE_HUB_PROJECT_CONFLICT',
-      'one or more project_ids are already owned by a different terminal',
-      {
-        conflicts: conflicts.sort((left, right) => left.project_id.localeCompare(right.project_id, 'en')),
-        next_action: 're-register naming the conflicting project_ids in adopt',
-      });
-  }
+  // A heartbeat carries the terminal's whole active set, so one contested
+  // project_id used to fail the entire request and strand every unrelated
+  // project on that terminal — invisibly, since the daemon only logs the
+  // rejection to a stderr nobody reads. Contested ids are now settled one at a
+  // time and the rest are accepted:
+  //
+  //   owner offline (no heartbeat within the TTL) — the entry is very likely a
+  //     leftover from a terminal that moved on, so the live claimant takes it
+  //     over. Nothing else ever retracts it: entries are never expired.
+  //   owner online — the project genuinely belongs to another live terminal.
+  //     Reject just that id and report it, so the operator can adopt on purpose.
+  //     Handing it over unconditionally would make two live terminals trade
+  //     ownership every heartbeat and flip the published route back and forth.
+  const claimed = registry.filter((entry) => requestedSet.has(entry.project_id)
+    && entry.terminal_id !== terminalId && !adoptSet.has(entry.project_id));
+  const offline = (entry) => now.getTime() - Date.parse(entry.last_seen_at) > ttlMs;
+  const rejected = claimed.filter((entry) => !offline(entry))
+    .map((entry) => ({ project_id: entry.project_id, owning_terminal_id: entry.terminal_id }))
+    .sort((left, right) => left.project_id.localeCompare(right.project_id, 'en'));
+  const reclaimed = sorted(claimed.filter(offline).map((entry) => entry.project_id));
+
+  const rejectedSet = new Set(rejected.map((entry) => entry.project_id));
+  const acceptedIds = projectIds.filter((projectId) => !rejectedSet.has(projectId));
+  const acceptedSet = new Set(acceptedIds);
 
   const registeredAtByProject = new Map(registry
     .filter((entry) => entry.terminal_id === terminalId)
     .map((entry) => [entry.project_id, entry.registered_at]));
-  const adopted = sorted(projectIds.filter((projectId) => adoptSet.has(projectId)
+  const adopted = sorted(acceptedIds.filter((projectId) => adoptSet.has(projectId)
     && !registeredAtByProject.has(projectId)));
   // Full-state reconciliation: every entry this terminal owned is dropped, then
-  // rebuilt from `projectIds`. A project omitted from this call — dropped
+  // rebuilt from the accepted ids. A project omitted from this call — dropped
   // locally, or never re-sent after a crash — is released, not left as a
-  // phantom no future heartbeat can retract.
-  const others = registry.filter((entry) => entry.terminal_id !== terminalId && !requestedSet.has(entry.project_id));
-  const mine = projectIds.map((projectId) => ({
+  // phantom no future heartbeat can retract. Rejected ids stay with their live
+  // owner, so `others` keeps them.
+  const others = registry.filter((entry) => entry.terminal_id !== terminalId
+    && !acceptedSet.has(entry.project_id));
+  const mine = acceptedIds.map((projectId) => ({
     project_id: projectId,
     terminal_id: terminalId,
     display_name: displayName,
@@ -157,12 +172,18 @@ export function applyBridgeHubRegistration({ registry, request, remoteAddress, n
   return {
     registry: nextRegistry,
     result: {
-      schema: 'lattice.bridge_hub_registration_result.v1',
+      // v2: partial acceptance. v1 answered a contested id with a 409 that threw
+      // the whole request away; v2 accepts what it can and names what it could
+      // not. A v1 terminal reading a v2 result sees a 200 and simply does not
+      // notice `rejected` — still strictly better than losing every project.
+      schema: 'lattice.bridge_hub_registration_result.v2',
       terminal_id: terminalId,
       address: remoteAddress,
       port,
-      registered: sorted(projectIds),
+      registered: sorted(acceptedIds),
       adopted,
+      rejected,
+      reclaimed_from_offline: reclaimed,
     },
   };
 }
@@ -170,8 +191,9 @@ export function applyBridgeHubRegistration({ registry, request, remoteAddress, n
 /**
  * Read-time projection for the aggregate `/projects/` view and per-project
  * routing. Never mutates or drops entries — a terminal that stopped
- * heartbeating shows as 'offline' forever, not gone, until it either
- * re-registers or a different terminal explicitly adopts the project.
+ * heartbeating shows as 'offline' forever, not gone, until it re-registers, a
+ * different terminal explicitly adopts the project, or a different terminal
+ * claims it while this one is past the TTL (see applyBridgeHubRegistration).
  */
 export function projectBridgeHubRegistry({ registry, now = new Date(), ttlMs = BRIDGE_HUB_HEARTBEAT_TTL_MS }) {
   if (!validRegistry(registry)) {
