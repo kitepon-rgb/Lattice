@@ -183,6 +183,29 @@ function typedFailure(stderr, error) {
   return 1;
 }
 
+/**
+ * An error that reached here is, by definition, one none of the typed
+ * TodoStoreError/TypeError branches recognized — the one case where the
+ * caller most needs to know *what actually happened*. Collapsing it to just
+ * the constructor name (`{code:'INTERNAL_FAILURE',message:'Error'}`) was
+ * itself a diagnosability defect: a crashed `todo start` produced exactly
+ * that content-free payload, and the only way to find the real cause
+ * (`manifest_journal_head_mismatch`) was importing todo-store.mjs directly
+ * and calling readTodoStore() by hand (2026-08-10 P0). The actual message
+ * and a short stack excerpt cost nothing to include — this is a local CLI's
+ * own stderr, not a response surface with an untrusted audience.
+ */
+function internalFailure(stderr, error) {
+  const constructorName = error?.constructor?.name ?? 'Error';
+  const message = typeof error?.message === 'string' && error.message.length > 0
+    ? error.message : constructorName;
+  const detail = { error_name: constructorName };
+  if (typeof error?.stack === 'string' && error.stack.length > 0) {
+    detail.stack_excerpt = error.stack.split('\n').slice(0, 6).join('\n');
+  }
+  return typedFailure(stderr, { code: 'INTERNAL_FAILURE', message, detail });
+}
+
 const TODO_COMMAND_NAMES = Object.freeze([
   'status', 'show', 'note', 'bindings', 'independence', 'seam-profile', 'seam-proposal',
   'verify', 'snapshot', 'gantt', 'dashboard', 'phase', 'migrate', 'start', 'block',
@@ -2811,9 +2834,7 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
       await runTodoSchemaCommand(argv[0], stdout);
       return 0;
     } catch (error) {
-      return typedFailure(stderr, {
-        code: 'INTERNAL_FAILURE', message: error?.constructor?.name ?? 'Error',
-      });
+      return internalFailure(stderr, error);
     }
   }
 
@@ -2835,9 +2856,7 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     } catch (error) {
       if (typeof error?.code === 'string' && error.detail !== null
         && typeof error.detail === 'object') return typedFailure(stderr, error);
-      return typedFailure(stderr, {
-        code: 'INTERNAL_FAILURE', message: error?.constructor?.name ?? 'Error',
-      });
+      return internalFailure(stderr, error);
     }
   }
 
@@ -3118,7 +3137,18 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     const ganttCommand = argv[0] === 'gantt';
     const dashboardAdopt = argv[0] === 'dashboard' && argv[1] === 'adopt';
     const migrationDryRun = argv[0] === 'migrate' && argv.includes('--dry-run');
-    if (!ganttCommand && !dashboardAdopt && !migrationDryRun) {
+    // `verify` is the store's own read-only recovery diagnostic — the command
+    // an operator reaches for precisely when the store might be inconsistent.
+    // ensureActiveProjectDashboard calls readTodoStoreStable for an unrelated
+    // side effect (registering this session as an active dashboard project),
+    // and readTodoStoreStable retries a persistent STORE_INCONSISTENT as if it
+    // were a transient in-flight write before giving up and reporting a
+    // content-free STORE_BUSY. Running that pre-hook ahead of `verify` meant
+    // the one command meant to surface the real inconsistency never got to —
+    // it died in the same generic way every other command did (2026-08-10 P0:
+    // `todo verify` was unreachable for the exact case it exists to diagnose).
+    const verifyCommand = argv[0] === 'verify';
+    if (!ganttCommand && !dashboardAdopt && !migrationDryRun && !verifyCommand) {
       await ensureActiveProjectDashboard({ repoRoot, env });
     }
     const result = atomicCommit
@@ -3135,9 +3165,6 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
         message: error.message,
       });
     }
-    return typedFailure(stderr, {
-      code: 'INTERNAL_FAILURE',
-      message: error?.constructor?.name ?? 'Error',
-    });
+    return internalFailure(stderr, error);
   }
 }
