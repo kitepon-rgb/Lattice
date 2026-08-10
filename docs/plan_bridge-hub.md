@@ -2,7 +2,7 @@
 
 - 状態: 設計裁定済み（オーナー 2026-08-10）・実装未着手
 - レーン: 統括（複数repo/面の書込調整: Lattice repo・192.168.1.2 配備・Mac/Windows 端末配線）
-- 工程正本: Lattice store（本repo）。plan_key `bridge-hub`（todo migrate で起こす。導入までの暫定チェックリストは本書末尾）
+- 工程正本: Lattice store（本repo）plan_key `bridge-hub` v1（2026-08-10 todo migrate 済み。task・依存・状態は store だけが持つ）
 
 ## Context — なぜやるか
 
@@ -60,12 +60,4 @@ Cloudflare Tunnel → Caddy → hub（192.168.1.2 常駐・新規）→ 各開�
 4. **多端末実証**: Mac と Windows の両端末が同時に登録され、`https://lattice.kitepon.dev/` に kikoeru（Mac）と ChromeBlocker（Windows）が**同時に**表示される。片方を落とすとオフライン明示になる。
 5. 還流: 配備記録を docs/operations/ へ、罠を caveat へ、本 plan を archive へ。
 
-## 暫定チェックリスト（todo migrate までの仮置き。store 導入後はこの節を削除し store が正本）
-
-- [ ] hub 登録プロトコル契約の設計文書（F）
-- [ ] hub server 実装（登録簿・合成一覧・中継・SSE）+ focused tests（A）
-- [ ] 端末 bridge の hub 登録・heartbeat 実装 + focused tests（A）
-- [ ] 疑似2端末の統合テスト（受入2）
-- [ ] 192.168.1.2 配備 + Caddy 差し替え + 逆トンネル退役（H）
-- [ ] Mac/Windows 実端末配線と多端末実証（受入4）
-- [ ] 知識還流と archive
+（工程・ToDo は Lattice store `bridge-hub` v1 が唯一の正本。本書は目的・思想・判断理由・非目標・受入条件だけを所有する）
