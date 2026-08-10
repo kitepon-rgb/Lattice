@@ -60,6 +60,9 @@ const RESEARCH_ARTIFACTS = new Map([
   ['src/artifact-contracts-v2.mjs', 'RC2 artifact契約。製品はartifact-contracts'],
   ['src/runtime-scripted-executor.mjs', 'RC3実験のexecutor。製品のscripted adapterはruntime-scripted-adapter-controller'],
   ['src/runtime-worktree-executor.mjs', 'RC3実験のexecutor。製品の隔離実行はisolation-runner'],
+  // RC研究ではなく進行中plan `bridge-hub` の設計task（bh1）。契約とcharacterizationテストだけを
+  // 先に固定し、HTTP配線はbh2（hub server実装）が別taskとして行う。bh2が着地したらこの宣言を外す。
+  ['src/bridge-hub-protocol.mjs', 'bridge-hub bh1: 登録プロトコル契約。bh2のhub server実装で配線される'],
 ]);
 
 // import文は複数行に跨る。行内に閉じる形だけを見ると、この codebase の大半を取り落とす。
