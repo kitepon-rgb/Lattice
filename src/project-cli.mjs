@@ -54,9 +54,11 @@ const CREATE_RESULT_SCHEMA = 'lattice.plan_create_result.v1';
 
 function resolveRepoRoot(cwd) {
   try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
+    // gitはWindowsでもforward slashを返すため、OS nativeへ正規化して
+    // path.join由来のabsolute_pathと区切りを揃える。末尾newline以外（末尾空白等）は改変しない。
+    return path.resolve(execFileSync('git', ['rev-parse', '--show-toplevel'], {
       cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    }).replace(/\r?\n$/u, '');
+    }).replace(/\r?\n$/u, ''));
   } catch {
     return null;
   }

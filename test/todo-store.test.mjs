@@ -964,7 +964,11 @@ test('historical doneは通常writerから追加できず、import source不在�
     'STORE_INCONSISTENT', 'import_source_unverified');
 });
 
-test('同一pinned sourceのread-time検証はstore read内でcommitとblobを一度だけ読む', async (context) => {
+// git呼び出し回数を数えるshimはshebang+PATH解決というPOSIX exec意味論が前提。
+// WindowsのCreateProcessは.exeしか自動解決せず拡張子なしshim/.cmdはexecFileから見えないため、
+// この計数fixtureはPOSIXだけで成立する（検証対象の読み取り回数最適化自体はOS非依存）。
+test('同一pinned sourceのread-time検証はstore read内でcommitとblobを一度だけ読む',
+  { skip: process.platform === 'win32' }, async (context) => {
   const root = await workspace(context);
   await appendImportedPlan(importedPlanRequest(root));
   const shimDirectory = path.join(root, 'git-shim');

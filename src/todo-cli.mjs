@@ -221,11 +221,13 @@ function atomicStoreCommitUnsupported(stderr, argv) {
 
 function resolveRepoRoot(cwd) {
   try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
+    // gitはWindowsでもforward slashを返すため、OS nativeへ正規化する（runtime-cliと同じ規律）。
+    // trimは末尾空白のrepo rootを改変するのでnewlineだけを剥がす。
+    return path.resolve(execFileSync('git', ['rev-parse', '--show-toplevel'], {
       cwd,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    }).replace(/\r?\n$/u, ''));
   } catch {
     throw new TodoStoreError('REPO_UNRESOLVED', 'git_toplevel_unresolved', 'cwdのgit toplevelを解決できない');
   }

@@ -1876,6 +1876,7 @@ async function bootstrapImportedPlan(repoRoot, options) {
       createdLatticeRoot = true;
       await fsyncDirectory(repoRoot);
     }
+    await ensureLatticeEolProtection(latticeRoot);
     await protocolStage(options, 'bootstrap_parent_prepared');
     try { await rename(stage, storeRoot); }
     catch (error) {
@@ -1891,10 +1892,23 @@ async function bootstrapImportedPlan(repoRoot, options) {
   } finally {
     if (!activated) await rm(stage, { recursive: true, force: true });
     if (!activated && createdLatticeRoot) {
+      // 自分で作ったroot直下の同梱.gitattributesを先に消さないとrmdirがENOTEMPTYで残る。
+      await rm(path.join(latticeRoot, '.gitattributes'), { force: true });
       try { await rmdir(latticeRoot); }
       catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error?.code)) throw error; }
     }
   }
+}
+
+// storeはcanonical JSON+LFのバイト列契約。保護をrepo側任せにすると、store生成先の消費者repoが
+// Windows autocrlf checkoutでstore全体をfail closedさせる（0.52.1で実害）。生成物と一緒に敷く。
+// 既存の.gitattributesは所有者の編集として尊重し、上書きしない。
+const LATTICE_ROOT_GITATTRIBUTES = '# Lattice store artifacts are canonical JSON+LF bytes; EOL conversion corrupts the store.\n* -text\n';
+
+async function ensureLatticeEolProtection(latticeRoot) {
+  const target = path.join(latticeRoot, '.gitattributes');
+  try { await lstat(target); return; } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  await atomicWrite(target, Buffer.from(LATTICE_ROOT_GITATTRIBUTES, 'utf8'));
 }
 
 async function protocolStage(options, stage) {
@@ -2088,6 +2102,7 @@ export async function initializeAuthoredTodoStore(options = {}) {
       createdLatticeRoot = true;
       await fsyncDirectory(repoRoot);
     }
+    await ensureLatticeEolProtection(latticeRoot);
     latticeIdentity = await lstat(latticeRoot);
     const stagedBeforeRename = await lstat(stage);
     const parentBeforeRename = await lstat(latticeRoot);
@@ -2143,6 +2158,8 @@ export async function initializeAuthoredTodoStore(options = {}) {
     }
     if (!activated) await rm(stage, { recursive: true, force: true });
     if (!activated && createdLatticeRoot) {
+      // 自分で作ったroot直下の同梱.gitattributesを先に消さないとrmdirがENOTEMPTYで残る。
+      await rm(path.join(latticeRoot, '.gitattributes'), { force: true });
       try { await rmdir(latticeRoot); }
       catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error?.code)) throw error; }
     }

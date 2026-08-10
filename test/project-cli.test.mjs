@@ -171,7 +171,9 @@ test('status --jsonはSHA-256 Git HEADもtyped projectとして返す', async (c
   assert.equal(validateProjectStatus(result), true);
 });
 
-test('status --jsonは末尾空白を含むrepo rootを改変しない', async (context) => {
+// Windowsは末尾空白のディレクトリ自体をOSが作らせないため、この性質はPOSIXだけで検証できる。
+test('status --jsonは末尾空白を含むrepo rootを改変しない',
+  { skip: process.platform === 'win32' }, async (context) => {
   const parent = await mkdtemp(path.join(tmpdir(), 'lattice-project-space-'));
   context.after(() => rm(parent, { recursive: true, force: true }));
   const root = path.join(parent, 'repo ');
@@ -212,6 +214,10 @@ test('plan createはcanonical inputから初期storeを作りstatusをreadyへ�
   });
   assert.equal(createResult.terminal_audit_required, false);
   assert.equal(createResult.result_digest, todoSelfDigest(createResult, 'result_digest'));
+
+  // store生成はEOL保護を消費者repoへ同梱する（Windows autocrlf checkoutでのstore全滅防止）
+  const attributes = await readFile(path.join(root, '.lattice', '.gitattributes'), 'utf8');
+  assert.match(attributes, /^\* -text$/mu);
 
   const status = run(root, ['status', '--json']);
   assert.equal(status.status, 0, status.stderr);
