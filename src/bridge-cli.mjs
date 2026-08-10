@@ -15,6 +15,7 @@ import {
   readBridgeRuntimeIdentity, removeBridgeDaemonActiveMarker, removeBridgeDaemonDescriptor,
   requestBridgeDaemonStop, stopBridgeDaemon,
 } from './bridge-daemon.mjs';
+import { bridgeDevelopmentTreeWarning, DEFAULT_BRIDGE_PATH } from './bridge-executable.mjs';
 import {
   describeBridgeLaunchAgent, disableBridgeLaunchAgent, installBridgeLaunchAgent,
   restoreBridgeLaunchAgent, snapshotBridgeLaunchAgent,
@@ -199,7 +200,7 @@ function parseOptions(words) {
   return options;
 }
 
-function result(action, config, recovery = null, liveness = null, diagnostics = null) {
+function result(action, config, recovery = null, liveness = null, diagnostics = null, warnings = null) {
   return { schema: RESULT_SCHEMA, action, configured: config !== null, enabled: config?.enabled ?? false,
     listen: config?.listen ?? null, allowed_hosts: config?.allowed_hosts ?? null,
     upstream: config?.upstream ?? null, hub: config?.hub ?? null, updated_at: config?.updated_at ?? null, recovery,
@@ -211,7 +212,8 @@ function result(action, config, recovery = null, liveness = null, diagnostics = 
     persistence: diagnostics?.persistence ?? null,
     runtime: diagnostics?.runtime ?? null,
     runtime_drift: diagnostics?.drift ?? null,
-    remedy: diagnostics?.remedy ?? null };
+    remedy: diagnostics?.remedy ?? null,
+    warnings };
 }
 
 export async function collectBridgeSetupWizard({ input, output, prompts = clack } = {}) {
@@ -263,6 +265,7 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
   stdin = process.stdin, daemon = { ensure: ensureBridgeDaemon, requestStop: requestBridgeDaemonStop,
     stop: stopBridgeDaemon, clearStop: clearBridgeStopControl },
   launchAgent = platformLaunchAgent(), runtimeIdentity = readBridgeRuntimeIdentity,
+  bridgePath = DEFAULT_BRIDGE_PATH,
   prompts = clack, probe = probeBridgeListener, interfaces = networkInterfaces() } = {}) {
   if (!Array.isArray(argv)) {
     return fail(stderr, 'USAGE', 'usage: lattice bridge <setup|reconfigure|status|disable|register> [options] --json');
@@ -396,8 +399,15 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
     const liveness = command === 'status' ? await bridgeLiveness(config, { probe, interfaces }) : null;
     const diagnostics = command === 'status'
       ? await bridgeDiagnostics({ config, launchAgent, env, runtimeIdentity }) : null;
-    if (wizard) stdout.write(`Lattice bridgeを${config.listen.address}:${config.listen.port}で有効にしました。\n`);
-    else stdout.write(`${JSON.stringify(result(command, config, recovery, liveness, diagnostics))}\n`);
+    // An install persisted straight out of a checkout is legitimate but must
+    // never be silent — it is half of what made the 2026-08-10 outage take
+    // manual launchctl archaeology to explain.
+    const warnings = command === 'setup' || command === 'reconfigure'
+      ? [bridgeDevelopmentTreeWarning(bridgePath)].filter((warning) => warning !== null) : null;
+    if (wizard) {
+      stdout.write(`Lattice bridgeを${config.listen.address}:${config.listen.port}で有効にしました。\n`);
+      for (const warning of warnings ?? []) stdout.write(`警告: ${warning.message}\n`);
+    } else stdout.write(`${JSON.stringify(result(command, config, recovery, liveness, diagnostics, warnings))}\n`);
     return 0;
   } catch (error) {
     stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v2',

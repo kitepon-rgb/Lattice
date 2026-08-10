@@ -81,3 +81,20 @@ export async function stableNodePath({ resolved, env = process.env,
   }
   return resolved;
 }
+
+/**
+ * A bridge script outside any `node_modules` is being persisted straight out
+ * of a checkout: the daemon then survives every `npm update` unchanged, and
+ * dies for good if the tree is moved or deleted. Not an error — installing
+ * from a development tree is a legitimate thing to do deliberately — but it
+ * must not happen without the operator being told.
+ */
+export function bridgeDevelopmentTreeWarning(bridgePath) {
+  if (typeof bridgePath !== 'string') return null;
+  if (bridgePath.split(/[\\/]/u).includes('node_modules')) return null;
+  return {
+    code: 'BRIDGE_PERSISTED_FROM_DEVELOPMENT_TREE',
+    message: `the bridge is persisted from a development tree (${bridgePath}); `
+      + 'it will not follow npm updates and stops for good if that tree moves',
+  };
+}

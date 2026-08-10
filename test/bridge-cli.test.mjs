@@ -365,3 +365,25 @@ test('disableはdaemon停止受領証が得られなければ設定を消さず�
   assert.equal(JSON.parse(disabled.stderr).code, 'BRIDGE_DAEMON_STOP_FAILED');
   assert.equal((await readBridgeConfig({ env })).enabled, true);
 });
+
+test('setupはdev treeからの常駐化を警告し、global install配下では黙る', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-devtree-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_CONFIG_DIR: root };
+  const daemon = { ensure: async () => {}, stop: async () => {} };
+  const launchAgent = launchAgentDouble();
+  const invoke = async (argv, bridgePath) => {
+    const stdout = output(); const stderr = output();
+    const code = await runBridgeCli({ argv, stdout: stdout.stream, stderr: stderr.stream,
+      env, daemon, launchAgent, bridgePath });
+    return { code, stdout: stdout.read(), stderr: stderr.read() };
+  };
+  const fromTree = await invoke(['setup', '--listen', '127.0.0.1', '--port', '58767', '--dashboard', '--json'],
+    '/Users/kite/Developer/Lattice/bin/lattice-bridge.mjs');
+  assert.equal(fromTree.code, 0, fromTree.stderr);
+  assert.deepEqual(JSON.parse(fromTree.stdout).warnings.map((warning) => warning.code),
+    ['BRIDGE_PERSISTED_FROM_DEVELOPMENT_TREE']);
+  const fromGlobal = await invoke(['reconfigure', '--json'],
+    '/usr/local/lib/node_modules/@quolu/lattice/bin/lattice-bridge.mjs');
+  assert.deepEqual(JSON.parse(fromGlobal.stdout).warnings, []);
+});

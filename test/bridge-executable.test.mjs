@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { stableNodePath } from '../src/bridge-executable.mjs';
+import {
+  bridgeDevelopmentTreeWarning, stableNodePath,
+} from '../src/bridge-executable.mjs';
 
 // symlinkはWindowsでは既定で特権を要る。ここで検証しているのは「版付き実体を
 // 指す安定aliasを見つける」規則そのもので、規則はplatform非依存である。
@@ -75,4 +77,14 @@ test('win32ではnode.exeを`;`区切りのPathから探し、大文字小文字
     path.join(stable, 'node.exe'));
   assert.equal(await stableNodePath({ resolved: resolved.toUpperCase(),
     env: { Path: stable }, platform: 'win32' }), path.join(stable, 'node.exe'));
+});
+
+test('node_modules配下でない常駐化はdevelopment tree警告になる', () => {
+  assert.equal(bridgeDevelopmentTreeWarning(
+    '/usr/local/lib/node_modules/@quolu/lattice/bin/lattice-bridge.mjs'), null);
+  assert.equal(bridgeDevelopmentTreeWarning(
+    'C:\\Users\\kite\\AppData\\Roaming\\npm\\node_modules\\@quolu\\lattice\\bin\\lattice-bridge.mjs'), null);
+  const warning = bridgeDevelopmentTreeWarning('/Users/kite/Developer/Lattice/bin/lattice-bridge.mjs');
+  assert.equal(warning.code, 'BRIDGE_PERSISTED_FROM_DEVELOPMENT_TREE');
+  assert.match(warning.message, /development tree/u);
 });
