@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.57.0 — 2026-08-10
+
+独立した2件の欠陥報告への対応。どちらも**失敗が沈黙し、正規APIに復旧経路が無い**という
+同じ性質を持っていた。
+
+### 修正
+
+- **解けないholdに入ったshared pull runが、退役も席の解放もできなくなる欠陥を直した。**
+  扉が3つとも閉まっていた——`run close`は未受理intakeが残ると`RUN_NOT_COMPLETE`、
+  `run intake release`はworker attach済みで`INTAKE_WORKER_ATTACHED`、`run abandon`は
+  legacy専用で`RUN_MODE_MISMATCH`。しかもreleaseのnext_actionは「detachできる正規経路」を
+  名指ししていたのに、その操作は存在しなかった。席はSIGSTOPで凍ったまま残った。
+  `lattice run intake detach`を新設し、detach → release → close の経路を開通させた。
+  authorizationはactorではなくprocess identity（lstart/argv/pgidの再認証）にしている——
+  復旧するのは凍った席ではなく別のoperatorであり、席自身のidentityを要求すると
+  「凍った席だけが自分を解放できる」という同じ罠に戻るため。
+- **hub登録でproject_id衝突が1件あると、その端末の全projectが一括で拒否される欠陥を直した。**
+  heartbeatはactive project全件を1 requestで送るため、同じrepoを複数マシンにcloneしている
+  環境では、片方で`lattice status`を1回叩いただけでその端末の無関係な全projectが2時間
+  登録できなくなった。衝突を所有端末の生死で二分する——offline（TTL超え）なら主張してきた
+  端末へ差し替え、onlineならそのidだけ弾いて残りを受理する。無条件に新しい方へ渡すと
+  両端末が生きている間30秒ごとに配信元が入れ替わるため、生死で分けている。
+  結果schemaは`lattice.bridge_hub_registration_result.v2`（`rejected`と
+  `reclaimed_from_offline`を追加）。
+- **hubの拒否が完全に沈黙していたのを直した。** 拒否はdaemonのstderrへ出るだけで、bridgeの
+  LaunchAgentは`StandardErrorPath`を持たない。利用者に見えるのは「新規projectが公開工程表に
+  いつまでも出ない」だけだった。`lattice bridge status`の`runtime.last_heartbeat`から
+  state・時刻・拒否されたproject_idが読めるようにし、拒否があれば`remedy`も出す。
+- **読み取り目的のtodo commandがproject所有を主張しないようにした。** activeであることは
+  localな都合ではなく、hubが公開dashboardの配信元を決める根拠である。cloneを1回覗いた
+  `todo status`がその主張をして、本当に配信している端末と衝突していた。判定をdenylistから
+  allowlistへ反転し、storeを書くcommandだけがactive化する。
+
+### 新機能
+
+- `run intake intervention`が、席がSIGSTOPで止まっている時に`recovery`へ脱出コマンドを返す。
+  これまで返していたのは「holdの解き方」だけで、holdが解けない場合の出口は示していなかった。
+
 ## 0.56.0 — 2026-08-10
 
 ### 新機能
