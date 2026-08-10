@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { bridgeHostAddresses, resolveBridgeListenAddress } from '../src/bridge-address.mjs';
+import { bridgeHostAddresses, pickBridgeLanAddress, resolveBridgeListenAddress } from '../src/bridge-address.mjs';
 
 const iface = (entries) => entries;
 
@@ -105,4 +105,23 @@ test('bridgeHostAddressesはinternal区別とfamilyを保つ', () => {
   assert.equal(loopback.family, 4);
   assert.equal(lan.internal, false);
   assert.equal(lan.family, 4);
+});
+
+test('pickBridgeLanAddressはinternal以外の先頭候補（sort済み）を選ぶ', () => {
+  const result = pickBridgeLanAddress({ interfaces: AFTER_DHCP_CHANGE });
+  assert.equal(result.address, '192.168.1.103');
+  assert.deepEqual(result.candidates, ['192.168.1.103', 'fe80::1cbd:4ff:fe6d:1']);
+});
+
+test('pickBridgeLanAddressはfamilyでIPv4/IPv6を絞り込める', () => {
+  const v6Only = pickBridgeLanAddress({ interfaces: AFTER_DHCP_CHANGE, family: 6 });
+  assert.equal(v6Only.address, 'fe80::1cbd:4ff:fe6d:1');
+});
+
+test('pickBridgeLanAddressはinternalしか無ければnullを返す（loopbackを自動採用しない）', () => {
+  const result = pickBridgeLanAddress({
+    interfaces: { lo0: [{ address: '127.0.0.1', internal: true }] },
+  });
+  assert.equal(result.address, null);
+  assert.deepEqual(result.candidates, []);
 });

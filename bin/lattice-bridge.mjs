@@ -2,14 +2,26 @@
 
 import { readBridgeConfig } from '../src/bridge-config.mjs';
 import {
-  readBridgeStopRequest, removeBridgeDaemonActiveMarker, removeBridgeDaemonDescriptor,
-  writeBridgeDaemonDescriptor, writeBridgeStopReceipt,
+  bridgeDaemonVersionDrifted, readBridgeStopRequest, removeBridgeDaemonActiveMarker,
+  removeBridgeDaemonDescriptor, writeBridgeDaemonDescriptor, writeBridgeStopReceipt,
 } from '../src/bridge-daemon.mjs';
 import { createBridgeHubHeartbeatController } from '../src/bridge-hub-heartbeat.mjs';
+import { migrateBridgeToHub, retireBridgeTunnelLaunchAgent } from '../src/bridge-hub-migration.mjs';
+import { bridgeRegistrarSettings } from '../src/bridge-registrar.mjs';
 import { bridgeRuntimeController } from '../src/bridge-server.mjs';
+
+// Throttles bridgeDaemonVersionDrifted's disk read and the migration/tunnel-
+// retirement checks' subprocess calls (ssh, launchctl) — the 250ms reconcile
+// tick exists for local responsiveness, not for polling external processes
+// 4x/sec. Migration and tunnel-retirement share this interval: once migrated,
+// the migration check itself becomes a single cheap config-field read
+// (`current.hub !== null`), so there is no cost to leaving both armed forever.
+const BACKGROUND_CHECK_INTERVAL_MS = 60_000;
 
 const env = process.env;
 const hubHeartbeat = createBridgeHubHeartbeatController({ env });
+let lastVersionCheckAt = 0;
+let lastMigrationCheckAt = 0;
 const instanceToken = env.LATTICE_BRIDGE_INSTANCE_TOKEN;
 if (typeof instanceToken !== 'string' || !/^[0-9a-f]{64}$/u.test(instanceToken)) {
   process.stderr.write(`${JSON.stringify({ schema: 'lattice.bridge_daemon_error.v1',
@@ -60,6 +72,51 @@ timer = setInterval(async () => {
       await removeBridgeDaemonDescriptor({ env });
       await removeBridgeDaemonActiveMarker({ env });
       process.exit(0);
+    }
+    // A stale-version exit is a clean stop, not a failure: whatever supervises
+    // this process (launchd KeepAlive, the Windows supervisor loop) relaunches
+    // it immediately, and the fresh process imports whatever is on disk now —
+    // this is the mechanism that makes "npm update, done" actually true rather
+    // than leaving an already-running daemon serving replaced code forever.
+    if (Date.now() - lastVersionCheckAt >= BACKGROUND_CHECK_INTERVAL_MS) {
+      lastVersionCheckAt = Date.now();
+      if (await bridgeDaemonVersionDrifted({})) {
+        await close();
+        await removeBridgeDaemonDescriptor({ env });
+        await removeBridgeDaemonActiveMarker({ env });
+        process.exit(0);
+      }
+    }
+    // bh5 auto-migration: a terminal still carrying the pre-hub registrar env
+    // (LaunchAgent-baked, so it outlives any single process) upgrades itself
+    // to hub registration with no operator action — see bridge-hub-migration.mjs's
+    // module doc for why this is the whole point of the owner's "update it,
+    // done" acceptance test. Runs on the same throttle as the version check;
+    // once migrated it is a single cheap config-field read, so leaving it
+    // armed forever costs nothing. Tunnel retirement is attempted alongside
+    // it (not gated to the migration transition alone) so a retirement that
+    // failed once keeps getting retried rather than being a one-shot.
+    if (Date.now() - lastMigrationCheckAt >= BACKGROUND_CHECK_INTERVAL_MS) {
+      lastMigrationCheckAt = Date.now();
+      if (bridgeRegistrarSettings(env) !== null) {
+        await migrateBridgeToHub({ env }).catch((error) => {
+          process.stderr.write(`${JSON.stringify({ schema: 'lattice.bridge_daemon_error.v1',
+            code: error?.code ?? 'BRIDGE_HUB_MIGRATION_FAILED',
+            message: error?.message ?? 'bridge hub migration failed' })}\n`);
+        });
+        const migratedConfig = await readBridgeConfig({ env });
+        if (migratedConfig?.hub !== null && migratedConfig?.hub !== undefined) {
+          // retireBridgeTunnelLaunchAgent's own contract never throws for any
+          // expected outcome (not loaded, bootout failure, launchctl absent —
+          // all typed returns); this catch is only for a genuinely unexpected
+          // bug in that function, and it is still logged, not swallowed.
+          await retireBridgeTunnelLaunchAgent({ env }).catch((error) => {
+            process.stderr.write(`${JSON.stringify({ schema: 'lattice.bridge_daemon_error.v1',
+              code: error?.code ?? 'BRIDGE_TUNNEL_RETIREMENT_FAILED',
+              message: error?.message ?? 'bridge tunnel retirement failed' })}\n`);
+          });
+        }
+      }
     }
     const config = await readBridgeConfig({ env });
     if (config === null || !config.enabled) {

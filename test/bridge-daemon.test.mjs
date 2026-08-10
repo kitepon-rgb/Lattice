@@ -7,10 +7,11 @@ import test from 'node:test';
 import { configureBridge, disableBridge, readBridgeConfig } from '../src/bridge-config.mjs';
 import { runBridgeCli } from '../src/bridge-cli.mjs';
 import {
-  bridgeDaemonActiveMarkerPath, bridgeDaemonDescriptorPath, ensureBridgeDaemon,
-  readBridgeDaemonDescriptor, readBridgeStopRequest, requestBridgeDaemonStop, stopBridgeDaemon,
-  writeBridgeDaemonDescriptor,
+  bridgeDaemonActiveMarkerPath, bridgeDaemonDescriptorPath, bridgeDaemonVersionDrifted,
+  ensureBridgeDaemon, readBridgeDaemonDescriptor, readBridgeStopRequest, requestBridgeDaemonStop,
+  stopBridgeDaemon, writeBridgeDaemonDescriptor,
 } from '../src/bridge-daemon.mjs';
+import packageJson from '../package.json' with { type: 'json' };
 
 const unmanagedLaunchAgent = Object.freeze({
   snapshot: async () => ({ installed: false, loaded: false, content: null }),
@@ -339,4 +340,30 @@ test('内容が壊れたdescriptorは再試行せずfail closedのまま', async
   // 未起動（fileが無い）は異常ではなくnull。
   await rm(bridgeDaemonDescriptorPath(env), { force: true });
   assert.equal(await readBridgeDaemonDescriptor({ env }), null);
+});
+
+test('bridgeDaemonVersionDriftedは実package.jsonに対して自分自身のversionと一致しfalseを返す', async () => {
+  assert.equal(await bridgeDaemonVersionDrifted({}), false);
+});
+
+test('bridgeDaemonVersionDriftedはon-diskのversionが異なる時だけtrueを返す', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-version-drift-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const packageJsonPath = path.join(root, 'package.json');
+
+  await writeFile(packageJsonPath, JSON.stringify({ ...packageJson, version: '99.99.99' }), 'utf8');
+  assert.equal(await bridgeDaemonVersionDrifted({ packageJsonPath }), true);
+
+  await writeFile(packageJsonPath, JSON.stringify({ ...packageJson, version: packageJson.version }), 'utf8');
+  assert.equal(await bridgeDaemonVersionDrifted({ packageJsonPath }), false);
+});
+
+test('bridgeDaemonVersionDriftedは読み取り不能・壊れたJSONではfalseを返す（無関係なfs事故で再起動loopにしない）', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-version-drift-bad-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(await bridgeDaemonVersionDrifted({ packageJsonPath: path.join(root, 'missing.json') }), false);
+
+  const brokenPath = path.join(root, 'broken.json');
+  await writeFile(brokenPath, 'not json', 'utf8');
+  assert.equal(await bridgeDaemonVersionDrifted({ packageJsonPath: brokenPath }), false);
 });

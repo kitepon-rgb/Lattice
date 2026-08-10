@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { chmod, lstat, open, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import path from 'node:path';
 import { parseTree } from 'jsonc-parser';
@@ -9,6 +9,7 @@ import { parseTree } from 'jsonc-parser';
 import {
   BRIDGE_PORT_MAX, BRIDGE_PORT_MIN, BridgeConfigError, bridgeConfigPaths, readBridgeConfig,
 } from './bridge-config.mjs';
+import packageJson from '../package.json' with { type: 'json' };
 
 const DESCRIPTOR_SCHEMA = 'lattice.bridge_daemon.v1';
 const START_TIMEOUT_MS = 5_000;
@@ -378,4 +379,26 @@ export async function stopBridgeDaemon({ env = process.env } = {}) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new BridgeConfigError('BRIDGE_DAEMON_STOP_FAILED', 'bridge daemon did not stop');
+}
+
+const PACKAGE_JSON_PATH = path.resolve(import.meta.dirname, '../package.json');
+
+/**
+ * Whether the on-disk package.json now reports a different version than the
+ * one this running process loaded at start — i.e. `npm install`/`update`
+ * replaced the files under a still-running daemon (the "daemon の版持ち"
+ * trap, AGENTS.md: a daemon keeps serving whatever module it imported at
+ * startup no matter what gets installed afterward). A long-running process
+ * cannot hot-swap its own already-imported modules; the only fix is to exit
+ * and let whatever supervises it (launchd's KeepAlive, the Windows
+ * supervisor's restart loop) relaunch a fresh process that imports the new
+ * code. Read failures return `false` — an unrelated fs hiccup must not force
+ * a restart loop.
+ */
+export async function bridgeDaemonVersionDrifted({ packageJsonPath = PACKAGE_JSON_PATH } = {}) {
+  let onDisk;
+  try {
+    onDisk = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+  } catch { return false; }
+  return typeof onDisk?.version === 'string' && onDisk.version !== packageJson.version;
 }

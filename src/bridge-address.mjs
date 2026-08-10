@@ -105,3 +105,22 @@ export function resolveBridgeListenAddress({ configured, interfaces = {} } = {})
   return { state: 'rebindable', effective: candidates[0], configured: wanted, candidates,
     reason: 'configured_address_absent_rebound_within_subnet' };
 }
+
+/**
+ * Pick a LAN-facing address for a terminal that has none yet — bh5's Mac
+ * auto-migration (loopback + ssh tunnel → direct hub registration) and any
+ * first-time setup with no address preference. Deliberately simpler than
+ * `resolveBridgeListenAddress`: that function preserves "same intent" across
+ * a DHCP move by requiring a same-subnet match against an already-configured
+ * address, but there is no prior intent to preserve when the terminal had no
+ * LAN presence before. The first non-internal address, sorted for
+ * determinism, is a reasonable default; ambiguous hosts (more than one
+ * candidate) are still reported so a caller can choose to surface that rather
+ * than silently pick.
+ */
+export function pickBridgeLanAddress({ interfaces = {}, family = null } = {}) {
+  const candidates = bridgeHostAddresses(interfaces)
+    .filter((entry) => !entry.internal && (family === null || entry.family === family))
+    .map((entry) => entry.address);
+  return { address: candidates[0] ?? null, candidates };
+}
