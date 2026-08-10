@@ -1,10 +1,7 @@
 #!/usr/bin/env node
 
-import { stat } from 'node:fs/promises';
-import path from 'node:path';
-
-import { readTodoStoreStable } from '../src/todo-store.mjs';
 import { TODO_STATUS_DISPATCH_ONLY, projectTodoStatus } from '../src/todo-status.mjs';
+import { createTodoStoreCache } from '../src/todo-store-cache.mjs';
 import { ganttLiveHeadDigest, renderTodoGanttForProject } from '../src/todo-cli.mjs';
 import { readProjectExternalPane } from '../src/project-identity.mjs';
 import {
@@ -35,27 +32,12 @@ const port = typeof configured === 'string' && /^(?:0|[1-9][0-9]{0,4})$/u.test(c
 const registry = createTodoGanttProjectRegistry();
 const roots = new Map();
 const reportedStoreReadFailures = new Set();
-const storeCache = new Map();
-
-function manifestFingerprint(value) {
-  return `${value.dev}:${value.ino}:${value.size}:${value.mtimeMs}:${value.ctimeMs}`;
-}
-
-async function readCachedStore(repoRoot) {
-  const manifestRef = path.join(repoRoot, '.lattice', 'todo', 'manifest.json');
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const beforeFingerprint = manifestFingerprint(await stat(manifestRef));
-    const cached = storeCache.get(repoRoot);
-    if (cached?.fingerprint === beforeFingerprint) return cached.store;
-    const store = await readTodoStoreStable({ repoRoot });
-    const afterFingerprint = manifestFingerprint(await stat(manifestRef));
-    if (beforeFingerprint === afterFingerprint) {
-      storeCache.set(repoRoot, { fingerprint: afterFingerprint, store });
-      return store;
-    }
-  }
-  return readTodoStoreStable({ repoRoot });
-}
+// room 2488's "gantt serve固着" symptom (a dashboard stuck on stale/broken state that
+// only a process restart cleared, with the store and git both already fixed) traced to
+// this cache — see src/todo-store-cache.mjs for why it is content-digest keyed rather
+// than stat()-fingerprint keyed.
+const storeCache = createTodoStoreCache();
+const readCachedStore = (repoRoot) => storeCache.read(repoRoot);
 
 async function synchronize() {
   const active = await readVisibleTodoDashboardProjects({ env,
