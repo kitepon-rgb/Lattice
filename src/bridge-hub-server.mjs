@@ -345,7 +345,7 @@ export async function writeBridgeHubRegistry({ env = process.env, entries }) {
 
 export async function startBridgeHubServer({
   registryStore, port = 0, allowedHosts, env = process.env, fetchImpl = fetch,
-  now = () => new Date(), ttlMs = BRIDGE_HUB_HEARTBEAT_TTL_MS,
+  now = () => new Date(), ttlMs = BRIDGE_HUB_HEARTBEAT_TTL_MS, listenAddress = LOOPBACK,
 } = {}) {
   // fetchImpl is accepted for DI parity with the rest of this codebase's bridge
   // modules (see bridge-server.mjs's resolveUpstream) but this server's proxy
@@ -354,6 +354,18 @@ export async function startBridgeHubServer({
   void fetchImpl;
   if (!(allowedHosts instanceof Set) || allowedHosts.size === 0) {
     throw new BridgeHubServerError('BRIDGE_HUB_CONFIG_INVALID', 'allowedHosts must be a non-empty Set');
+  }
+  // Defaults to loopback, matching every other bridge/dashboard server in this
+  // codebase. bh5 needs this configurable: on the deployment host, Caddy runs
+  // in a Docker bridge network and can only reach the host's docker-bridge
+  // gateway address (e.g. 172.18.0.1), never a literal 127.0.0.1 bind — the
+  // same reason bridge-server.mjs's own listen address is configurable rather
+  // than hardcoded. The safety boundary stays `allowedHosts`, not the bind
+  // address; unlike bridge-config.mjs's DHCP-following `resolveBridgeListenAddress`,
+  // the hub's own host does not move, so that reconciliation machinery is not
+  // ported here.
+  if (typeof listenAddress !== 'string' || isIP(listenAddress) === 0) {
+    throw new BridgeHubServerError('BRIDGE_HUB_CONFIG_INVALID', 'listenAddress must be an IP literal');
   }
   const normalizedAllowedHosts = new Set([...allowedHosts].map(normalizeHubAllowedHost));
   const store = registryStore ?? {
@@ -513,13 +525,13 @@ export async function startBridgeHubServer({
   });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen({ host: LOOPBACK, port }, resolve);
+    server.listen({ host: listenAddress, port }, resolve);
   });
   const boundAddress = server.address();
   const actualPort = typeof boundAddress === 'object' && boundAddress !== null ? boundAddress.port : port;
   let closed = false;
   return Object.freeze({
-    host: LOOPBACK,
+    host: listenAddress,
     port: actualPort,
     close: async () => {
       if (closed) return;

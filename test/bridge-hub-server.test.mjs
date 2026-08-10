@@ -189,6 +189,29 @@ test('heartbeatが途絶えTTLを超えた端末は503で配信元オフライ�
   assert.equal(listing.find((entry) => entry.project_id === 'stale-project').status, 'offline');
 });
 
+test('listenAddressは既定でloopbackだが明示すればそこへbindする', async (context) => {
+  const defaultHub = await startBridgeHubServer({
+    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
+  });
+  context.after(() => defaultHub.close());
+  assert.equal(defaultHub.host, '127.0.0.1');
+
+  const explicitHub = await startBridgeHubServer({
+    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.2']), listenAddress: '127.0.0.2',
+  });
+  context.after(() => explicitHub.close());
+  assert.equal(explicitHub.host, '127.0.0.2');
+  const response = await fetch(`http://127.0.0.2:${explicitHub.port}/projects/`,
+    { headers: { accept: 'application/json' } });
+  assert.equal(response.status, 200);
+});
+
+test('不正なlistenAddressはtyped failでBRIDGE_HUB_CONFIG_INVALIDになる', async () => {
+  await assert.rejects(startBridgeHubServer({
+    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']), listenAddress: 'not-an-ip',
+  }), (error) => error.code === 'BRIDGE_HUB_CONFIG_INVALID');
+});
+
 test('registryStoreのfile永続化はread/writeを往復できる', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-hub-registry-'));
   context.after(() => rm(root, { recursive: true, force: true }));
