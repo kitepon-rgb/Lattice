@@ -43,30 +43,75 @@ WindowsのStartup launcher）が消えたbinaryを指していると、superviso
 lattice bridge status --json
 ```
 
-- `persistence` — 常駐設定が実際に起動する対象。`node_path`／`bridge_path`と、その`*_exists`。
-  `state`は`installed`／`not_installed`／`unreadable`（読めなかった理由は`error`にtyped codeで入る）。
-- `runtime` — いま実際に応答しているprocess自身の申告（`pid`・製品版・node実体・node版・bridge script）。
-  `state`が`running`以外なら申告は取れていない。identityを返さない旧版daemonが走っている間は各値がnullになる。
-- `runtime_drift` — 両者の食い違い。`bridge_path`（別treeのcodeが走っている）、`node_path`（常駐設定が指す
-  nodeと実走nodeが別実体）、`version`（npm更新後まだ旧moduleを保持している）。
-- `remedy` — 自己解消しない状態にだけ、打つべきコマンドが入る。`version`だけの差はdaemonが版差を検知して
-  自ら降り、supervisorが新codeで起動し直すので`remedy`は出ない。
+bridgeが無効な間は以下すべてnullで、bridgeを有効にしている時だけ観測する。
 
-`node_exists`がfalse、または`runtime_drift`に`node_path`／`bridge_path`がある時は`reconfigure`で作り直す。
-plistやlauncherを手で書き換えない。
+**`persistence`** — 常駐設定が実際に起動する対象。
+
+| field | 意味 |
+| --- | --- |
+| `state` | `installed`／`not_installed`／`unreadable` |
+| `loaded` | launchdへ読み込み済みか。Windowsには対応概念が無いのでnull |
+| `node_path`・`node_exists` | 起動するNode実行体と、それが今も存在するか |
+| `bridge_path`・`bridge_exists` | 起動するbridge scriptと、それが今も存在するか |
+| `error` | `unreadable`のときだけtyped code（例`BRIDGE_LAUNCH_AGENT_PLIST_UNSAFE`） |
+
+**`runtime`** — いま応答しているprocess自身の申告。`state`は`running`／`not_running`／`unattested`／
+`descriptor_invalid`で、`running`以外では各値がnullになる。`running`でも、identityを返さない
+0.55.0より前のdaemonが走っている間は`version`以下がnullになる（この場合`runtime_drift`は空になり、
+乖離の有無は判定できていない——「乖離なし」ではない）。
+
+| field | 意味 |
+| --- | --- |
+| `pid` | 応答しているprocessのpid |
+| `version` | そのprocessが読み込んでいるLatticeの版 |
+| `node_path`・`node_version` | そのprocessを実行しているNodeの実体pathと版 |
+| `bridge_path` | そのprocessが実行しているbridge script |
+
+**`runtime_drift`** — 両者の食い違い。空配列は「差が無い」または「`runtime`が名乗っていないので
+判定できない」のどちらかである。
+
+| 値 | 意味 |
+| --- | --- |
+| `bridge_path` | 常駐設定と違うtreeのcodeが走っている（開発treeの残骸など） |
+| `node_path` | 常駐設定が指すnodeと実走nodeが別実体。焼くのは意図的にaliasなので、比較はrealpathで行う |
+| `version` | npm更新後まだ旧moduleを保持している |
+
+**`remedy`** — 自己解消しない状態にだけ、打つべきコマンドが入る。出るのは次の4つ。
+
+- `persistence.node_exists`または`bridge_exists`がfalse（起動対象が消えた）
+- `persistence.state`が`not_installed`（bridgeは有効なのに常駐設定が無い。いま走っているdaemonが
+  最後の1つで、再起動しても戻らない）
+- `persistence.state`が`unreadable`（常駐設定を読めない）
+- `runtime_drift`に`node_path`または`bridge_path`がある
+
+`version`だけの差には`remedy`を出さない。daemonは60秒ごとにon-diskのpackage.jsonと自分の版を
+突き合わせ、差があれば自ら終了してsupervisorに新codeで起動し直させる。放っておいて最大1分ほどで
+解消するので、コマンドを出す状態ではない。自己解消する差にコマンドを出すと、本物の障害が埋もれる。
+
+`remedy`が出たら`reconfigure`で作り直す。plistやlauncherを手で書き換えない。
 
 ```bash
 lattice bridge reconfigure --json
 ```
 
+### 焼き込むnode pathの選び方（ADR 0163）
+
 常駐設定へ焼くnodeのpathは、版付きの実体（homebrewの`Cellar/node/<version>/bin/node`、nvm-windowsの
-版ディレクトリ）ではなく、同じbinaryを指すと検証できた安定alias（`/opt/homebrew/bin/node`、
+版ディレクトリ）ではなく、**同じbinaryを指すとrealpathで検証できた安定alias**（`/opt/homebrew/bin/node`、
 `C:\Program Files\nodejs\node.exe`）を選ぶ。`brew upgrade node`が旧versionのディレクトリごと消しても
-起動対象が残るようにするためである。安定aliasを検証できない環境（shim方式のasdf／volta等）では
-版付きpathのまま焼き、消滅は上記`node_exists`で読めるようにする。
+起動対象が残るようにするためである。
+
+安定aliasを検証できない環境（shim方式のasdf／volta等。shimは自身のlauncherへ解決されるので実体と
+一致しない）では、版付きpathのまま焼く。検証していないpathを推測で焼けば別のnodeでdaemonが起動して
+しまうためで、そこでの防御は起動継続ではなく`node_exists`による消滅の可視化である。
+
+> **0.55.0より前に設定した常駐は自動では移行しない。** 焼き直しは`reconfigure`を実行した時にだけ
+> 起きるので、Latticeを更新しただけの端末は版付きpathを抱えたままになる。更新後に各端末で
+> `lattice bridge reconfigure --json`を1回打つ。現在どちらを焼いているかは`persistence.node_path`で読める。
 
 なお`setup`／`reconfigure`をnode_modules配下でない実体（開発tree）から実行すると、結果の`warnings`へ
-`BRIDGE_PERSISTED_FROM_DEVELOPMENT_TREE`が入る。そのtreeを動かすと常駐が止まり、`npm`更新も反映されない。
+`BRIDGE_PERSISTED_FROM_DEVELOPMENT_TREE`が入る（該当しなければ空配列）。そのtreeを動かすと常駐が
+止まり、`npm`更新も反映されない。開発treeから常駐させること自体は正当な操作なので拒否はしない。
 
 ## listen IPがDHCPで動く場合
 

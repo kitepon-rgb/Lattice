@@ -85,6 +85,12 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
   process自身に書かせ、**全processが必ず通る一点**（登録または起動）で死んだ記録を掃除する。掃除を
   「人がコマンドを叩いた時」に置かない——誰も叩かないので永久に積み上がる。停止のsignalは、その場で
   再認証を通った相手だけへ送る（応答しないpidへ送ると、pid再利用で無関係のprocessを殺す）。
+- **常駐設定へ実行体のpathを焼く時は`stableNodePath`を通す（ADR 0163）。** `process.execPath`は
+  libuvがrealpath解決済みなので、そのまま焼くと版付き実体（homebrewのCellar、nvm-windowsの版
+  ディレクトリ）が入り、版更新でその実体が消えた瞬間にsupervisorが起動できないprocessを回し続ける。
+  エラー面が無いので、症状は「公開面から端末が消えた」だけになる（2026-08-08・2026-08-10に2度被弾）。
+  新しいplatformの常駐面を足す時も同じ助走を通し、焼いた対象の実在は`lattice bridge status`の
+  `persistence`が観測できる形にする。
 - 実daemon・実processを起動するtestは、後片付けをtestごとに手書きせず共通のfixture helperへ焼き込む。
   停止対象はdescriptorのpidでなくargvがfixtureのtemp pathを指すprocessとし、SIGTERMからSIGKILLへ上げて
   死を確認してからfixtureを消し、最後に生き残りゼロをassertする。取り残しは機械を重くして、時間予算を
