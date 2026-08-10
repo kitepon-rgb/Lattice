@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { gitSync } from './git-process.mjs';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -56,7 +56,7 @@ function resolveRepoRoot(cwd) {
   try {
     // gitはWindowsでもforward slashを返すため、OS nativeへ正規化して
     // path.join由来のabsolute_pathと区切りを揃える。末尾newline以外（末尾空白等）は改変しない。
-    return path.resolve(execFileSync('git', ['rev-parse', '--show-toplevel'], {
+    return path.resolve(gitSync(['rev-parse', '--show-toplevel'], {
       cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
     }).replace(/\r?\n$/u, ''));
   } catch {
@@ -66,7 +66,7 @@ function resolveRepoRoot(cwd) {
 
 function gitHead(repoRoot) {
   try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], {
+    return gitSync(['rev-parse', 'HEAD'], {
       cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
     }).replace(/\r?\n$/u, '');
   } catch {

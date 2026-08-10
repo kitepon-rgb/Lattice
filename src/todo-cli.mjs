@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { gitSync } from './git-process.mjs';
 import { createHash } from 'node:crypto';
 import {
   lstat, mkdir, readFile, realpath, writeFile,
@@ -223,7 +223,7 @@ function resolveRepoRoot(cwd) {
   try {
     // gitはWindowsでもforward slashを返すため、OS nativeへ正規化する（runtime-cliと同じ規律）。
     // trimは末尾空白のrepo rootを改変するのでnewlineだけを剥がす。
-    return path.resolve(execFileSync('git', ['rev-parse', '--show-toplevel'], {
+    return path.resolve(gitSync(['rev-parse', '--show-toplevel'], {
       cwd,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -1182,7 +1182,7 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
 function extractionFreshnessViolations(repoRoot, extraction) {
   let reachable;
   try {
-    reachable = new Set(execFileSync('git', ['rev-list', '--objects', '--all'], {
+    reachable = new Set(gitSync(['rev-list', '--objects', '--all'], {
       cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
     }).split('\n').filter(Boolean).map((line) => line.split(' ')[0]));
   } catch {
@@ -1203,7 +1203,7 @@ function extractionFreshnessViolations(repoRoot, extraction) {
     }
     let markdown;
     try {
-      markdown = execFileSync('git', ['show', `${source.source_commit}:${source.origin_plan_ref}`], {
+      markdown = gitSync(['show', `${source.source_commit}:${source.origin_plan_ref}`], {
         cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 8_388_608,
       });
     } catch {
@@ -1653,7 +1653,7 @@ async function bindings({ repoRoot, requestedPlanKey }) {
 function currentHeadSha(repoRoot) {
   let head;
   try {
-    head = execFileSync('git', ['rev-parse', 'HEAD'], {
+    head = gitSync(['rev-parse', 'HEAD'], {
       cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
   } catch {
@@ -1674,7 +1674,7 @@ function currentHeadSha(repoRoot) {
  */
 function changedPathsSince(repoRoot, baseSha) {
   try {
-    execFileSync('git', ['cat-file', '-e', `${baseSha}^{commit}`], {
+    gitSync(['cat-file', '-e', `${baseSha}^{commit}`], {
       cwd: repoRoot, stdio: ['ignore', 'ignore', 'ignore'],
     });
   } catch {
@@ -1682,7 +1682,7 @@ function changedPathsSince(repoRoot, baseSha) {
   }
   let output;
   try {
-    output = execFileSync('git', ['diff', '--name-only', '--no-renames', `${baseSha}..HEAD`], {
+    output = gitSync(['diff', '--name-only', '--no-renames', `${baseSha}..HEAD`], {
       cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
     });
   } catch {
@@ -1695,7 +1695,7 @@ function changedPathsSince(repoRoot, baseSha) {
 function requireCleanWorktree(repoRoot) {
   let porcelain;
   try {
-    porcelain = execFileSync('git', ['status', '--porcelain'], {
+    porcelain = gitSync(['status', '--porcelain'], {
       cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
     });
   } catch {

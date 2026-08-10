@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { gitSpawn } from './git-process.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import {
@@ -242,7 +242,7 @@ function typedFailure(stderr, code, message, detail) {
 
 function runGit(args, cwd) {
   return new Promise((resolve) => {
-    const child = spawn('git', args, { cwd, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = gitSpawn(args, { cwd, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
     const stdout = [];
     const stderr = [];
     child.stdout.on('data', (chunk) => stdout.push(chunk));

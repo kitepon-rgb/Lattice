@@ -994,7 +994,8 @@ test('同一pinned sourceのread-time検証はstore read内でcommitとblobを�
     if (previousCounter === undefined) delete process.env.LATTICE_GIT_COUNT_FILE;
     else process.env.LATTICE_GIT_COUNT_FILE = previousCounter;
   }
-  assert.equal((await readFile(counter, 'utf8')).length, 3);
+  // commit型検査+blob読みはcat-file --batch 1回へ統合された（0.52.4: git子起動の雪崩防止）
+  assert.equal((await readFile(counter, 'utf8')).length, 1);
 });
 
 test('historical doneはlatent start付きdoneとしてchain/ganttへ投影し依存順を捏造しない', async (context) => {

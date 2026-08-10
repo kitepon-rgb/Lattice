@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   lstat, mkdir, open, readFile, readdir, realpath, rename, rm, rmdir,
@@ -30,6 +29,7 @@ import {
 } from './todo-independence-contracts.mjs';
 import { validateSeamProposal } from './seam-proposal-contracts.mjs';
 import { sha256Bytes, verifyLinearHashChain } from './hash-chain.mjs';
+import { gitCatFileBatch, gitSync } from './git-process.mjs';
 import {
   parseTodoSourceRef,
   todoCutoverArchiveSourceRef,
@@ -1039,7 +1039,7 @@ function reachableObjects(absoluteRepo) {
   if (cached !== undefined) return cached;
   let set;
   try {
-    const stdout = execFileSync('git', ['rev-list', '--objects', '--all'],
+    const stdout = gitSync(['rev-list', '--objects', '--all'],
       { cwd: absoluteRepo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
         maxBuffer: 256 * 1024 * 1024 });
     set = new Set();
@@ -1056,6 +1056,27 @@ function reachableObjects(absoluteRepo) {
   return set;
 }
 
+// blob は内容アドレスなので oid が同じなら bytes は不変。gantt serve 等が store を再読する
+// たびに同じ evidence blob を git 子起動で読み直すのを避ける（Windows のウィンドウ雪崩と
+// 走査コストの主犯）。成功した読みだけを覚え、失敗は覚えない（repo 状態は変わりうる）。
+const EVIDENCE_BLOB_CACHE_LIMIT = 512;
+const evidenceBlobCache = new Map();
+
+function readEvidenceBlob(absoluteRepo, oid) {
+  const key = `${absoluteRepo} ${oid}`;
+  const cached = evidenceBlobCache.get(key);
+  if (cached !== undefined) return cached;
+  const [entry] = gitCatFileBatch([oid], {
+    cwd: absoluteRepo, maxBodyBytes: TODO_LIMITS.narrativeSectionBytes + 1,
+  });
+  if (entry.missing || entry.type !== 'blob') throw new Error('not blob');
+  if (evidenceBlobCache.size >= EVIDENCE_BLOB_CACHE_LIMIT) {
+    evidenceBlobCache.delete(evidenceBlobCache.keys().next().value);
+  }
+  evidenceBlobCache.set(key, entry.bytes);
+  return entry.bytes;
+}
+
 function evidenceVerifier(manifest, repoRoot, hard) {
   const repositories = new Map(manifest.repositories.map((repo) => [repo.repo_id, repo.path]));
   return (descriptor, context = {}) => {
@@ -1064,8 +1085,7 @@ function evidenceVerifier(manifest, repoRoot, hard) {
     if (repoRef === undefined) fail('STORE_INCONSISTENT', 'evidence_repo_missing');
     const absoluteRepo = path.resolve(repoRoot, repoRef);
     try {
-      const type = execFileSync('git', ['cat-file', '-t', descriptor.git_blob_oid], { cwd: absoluteRepo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-      if (type !== 'blob') throw new Error('not blob');
+      const bytes = readEvidenceBlob(absoluteRepo, descriptor.git_blob_oid);
       // **objectが在ることと、cloneした人が読めることは別である。** commitやtagから辿れない
       // dangling blobでも`cat-file`は通るので、手元では検証済みに見えるのに、fresh cloneでは
       // 誰も確かめられない証拠が残る。実際に16件そうなっており、公開CIで初めて露見した。
@@ -1077,7 +1097,6 @@ function evidenceVerifier(manifest, repoRoot, hard) {
       if (!hard && !reachableObjects(absoluteRepo).has(descriptor.git_blob_oid)) {
         throw new Error('blob unreachable from refs');
       }
-      const bytes = execFileSync('git', ['cat-file', 'blob', descriptor.git_blob_oid], { cwd: absoluteRepo, encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: TODO_LIMITS.narrativeSectionBytes + 1 });
       if (sha256Bytes(bytes) !== descriptor.content_digest) throw new Error('digest mismatch');
       return true;
     } catch {
@@ -1093,25 +1112,27 @@ function evidenceVerifier(manifest, repoRoot, hard) {
 }
 
 function pinnedSourceLine(repoRoot, source, cache = null) {
-  if (cache === null || !cache.commits.has(source.source_commit)) {
-    const commitType = execFileSync('git', ['cat-file', '-t', source.source_commit], {
-      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    if (commitType !== 'commit') throw new Error('not commit');
-    cache?.commits.add(source.source_commit);
-  }
+  // commit の型検査と blob 読みを 1 回の cat-file --batch へまとめる（object ごとの git
+  // 子起動はWindowsで可視コンソールを開き、起動コストだけで走査を桁で遅くする）。
   const objectSpec = `${source.source_commit}:${source.origin_plan_ref}`;
+  const needCommit = cache === null || !cache.commits.has(source.source_commit);
   let blob = cache?.blobs.get(objectSpec);
-  if (blob === undefined) {
-    const blobType = execFileSync('git', ['cat-file', '-t', objectSpec], {
-      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    if (blobType !== 'blob') throw new Error('not blob');
-    blob = execFileSync('git', ['cat-file', 'blob', objectSpec], {
-      cwd: repoRoot, encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'],
-      maxBuffer: TODO_LIMITS.narrativeSectionBytes + 1,
+  if (needCommit || blob === undefined) {
+    const names = [...(needCommit ? [source.source_commit] : []), ...(blob === undefined ? [objectSpec] : [])];
+    const entries = gitCatFileBatch(names, {
+      cwd: repoRoot, maxBodyBytes: TODO_LIMITS.narrativeSectionBytes + 1,
     });
-    cache?.blobs.set(objectSpec, blob);
+    if (needCommit) {
+      const commitEntry = entries.shift();
+      if (commitEntry.missing || commitEntry.type !== 'commit') throw new Error('not commit');
+      cache?.commits.add(source.source_commit);
+    }
+    if (blob === undefined) {
+      const blobEntry = entries.shift();
+      if (blobEntry.missing || blobEntry.type !== 'blob') throw new Error('not blob');
+      blob = blobEntry.bytes;
+      cache?.blobs.set(objectSpec, blob);
+    }
   }
   let start = 0;
   let line = 1;
