@@ -35,7 +35,7 @@ import {
   applyBridgeHubRegistration, BRIDGE_HUB_HEARTBEAT_TTL_MS, BridgeHubProtocolError,
   projectBridgeHubRegistry, validateBridgeHubRegistryEntry,
 } from './bridge-hub-protocol.mjs';
-import { escapeHtml, hubIndexHtml } from './bridge-hub-landing.mjs';
+import { escapeHtml, renderBridgeHubLanding } from './bridge-hub-landing.mjs';
 
 const LOOPBACK = '127.0.0.1';
 const HUB_HTTP_ERROR_SCHEMA = 'lattice.bridge_hub_http_error.v1';
@@ -403,7 +403,7 @@ export async function startBridgeHubServer({
     response.end(`${JSON.stringify(result)}\n`);
   }
 
-  async function handleProjectsIndex(incoming, response) {
+  async function handleLanding(incoming, response, lang) {
     if (incoming.method !== 'GET') {
       response.setHeader('allow', 'GET');
       respondError(response, 405, 'BRIDGE_HUB_METHOD_NOT_ALLOWED');
@@ -429,7 +429,7 @@ export async function startBridgeHubServer({
       response.end(`${JSON.stringify(view)}\n`);
       return;
     }
-    const html = hubIndexHtml(view);
+    const html = renderBridgeHubLanding({ projects: view, lang });
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
       'x-content-type-options': 'nosniff' });
     response.end(html);
@@ -497,17 +497,26 @@ export async function startBridgeHubServer({
       return;
     }
     const rawPath = requestUrl.split('?', 1)[0];
-    if (rawPath === '/') {
-      // The old single-terminal bridge served the project index at root; hub only ever
-      // routed `/projects/*`, so the public entrance 404'd (room 2488 — a functional
-      // regression, not a design one: the front door itself was gone, independent of how
-      // it looks). Redirect rather than duplicate handleProjectsIndex's logic at a second path.
-      response.writeHead(301, { location: '/projects/', 'cache-control': 'no-store' });
+    if (rawPath === '/__lattice/hub/register') { await handleRegister(incoming, response); return; }
+    // The landing (ADR 0164) serves the same page at `/` and `/projects/`
+    // (the old `/` -> `/projects/` 301 is retired: both public inbound links
+    // land on the product face), with the EN variant path-separated under
+    // `/en/` mirroring the root site's convention. These literal matches must
+    // stay ahead of PROJECT_ROUTE so `/projects/` never parses as a project id.
+    if (rawPath === '/' || rawPath === '/projects/') { await handleLanding(incoming, response, 'ja'); return; }
+    if (rawPath === '/en/' || rawPath === '/en/projects/') { await handleLanding(incoming, response, 'en'); return; }
+    if (rawPath === '/en') {
+      response.writeHead(301, { location: '/en/', 'cache-control': 'no-store' });
       response.end();
       return;
     }
-    if (rawPath === '/__lattice/hub/register') { await handleRegister(incoming, response); return; }
-    if (rawPath === '/projects/') { await handleProjectsIndex(incoming, response); return; }
+    if (rawPath.startsWith('/en/projects/')) {
+      // Per-project pages are language-neutral; strip the prefix instead of
+      // 404ing a hand-edited EN URL. Query strings survive the strip.
+      response.writeHead(301, { location: requestUrl.slice('/en'.length), 'cache-control': 'no-store' });
+      response.end();
+      return;
+    }
     const match = PROJECT_ROUTE.exec(rawPath);
     if (match !== null) { await handleProjectProxy(incoming, response, requestUrl, match[1], host); return; }
     respondError(response, 404, 'BRIDGE_HUB_ROUTE_NOT_FOUND');

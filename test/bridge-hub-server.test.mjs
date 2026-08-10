@@ -83,28 +83,29 @@ test('2台の疑似端末を登録すると/projects/が合成一覧をJSON/HTML
   assert.match(html, /yuzu-pc/u);
 });
 
-test('/projects/一覧の意匠はtodo-gantt-live.mjsの旧公開landingと同じ（LIVE DEVELOPMENT・カード型・kitepon.dev/GitHub誘導）を保つ', async (context) => {
+test('/projects/一覧はブランド正典のlanding（製品ヒーロー・カード主見出し=project・GitHub誘導・矢印なし）を配信する', async (context) => {
   const terminal = await terminalServer((_request, response) => response.end('ok'));
   context.after(() => close(terminal));
   const hub = await startBridgeHubServer({
     registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
   });
   context.after(() => hub.close());
-  await registerTerminal(hub, { terminal_id: 'kikoeru-mac', display_name: 'kikoeru',
+  await registerTerminal(hub, { terminal_id: 'kikoeru-mac', display_name: 'kikoeru-host',
     port: portOf(terminal), project_ids: ['kikoeru'] });
 
   const html = await (await fetch(`http://127.0.0.1:${hub.port}/projects/`)).text();
-  // オーナー指摘（room 2474）: 旧landing（todo-gantt-live.mjsのdashboardHtml）の意匠から
-  // 退行させない。ブランド・見出し・GitHub誘導・カード型list itemの構造を固定する。
-  assert.match(html, /LIVE DEVELOPMENT/u);
-  assert.match(html, /<h1>公開中の工程表<\/h1>/u);
-  assert.match(html, /kitepon\.dev/u);
+  // ADR 0164: 公開landingはルートブランド正典に従う。製品コピー・カードの主従
+  // （主=project_id・従=ホスト名）・GitHub誘導・矢印グリフ不在・noindex不在を固定する。
+  assert.match(html, /公開 \/ 特許出願済み/u);
+  assert.match(html, /schedulability compiler/u);
   assert.match(html, /github\.com\/kitepon-rgb\/Lattice/u);
-  assert.match(html, /<li><a href="[^"]*"><strong>kikoeru<\/strong>/u);
-  assert.match(html, /class="status-online">オンライン<\/span>/u);
+  assert.match(html, /<strong>kikoeru<\/strong>/u);
+  assert.match(html, /class="host">[^<]*kikoeru-host</u);
+  assert.doesNotMatch(html, /[→↗↘⇒➔➜]/u);
+  assert.doesNotMatch(html, /noindex/u);
 });
 
-test('オフライン端末は"status-offline"の語彙で明示される（意匠は保ったまま）', async (context) => {
+test('オフライン端末はofflineピルの語彙で明示される', async (context) => {
   let clock = new Date('2026-08-10T00:00:00.000Z');
   const hub = await startBridgeHubServer({
     registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
@@ -116,7 +117,7 @@ test('オフライン端末は"status-offline"の語彙で明示される（意�
   clock = new Date(clock.getTime() + 2_000);
 
   const html = await (await fetch(`http://127.0.0.1:${hub.port}/projects/`)).text();
-  assert.match(html, /class="status-offline">オフライン<\/span>/u);
+  assert.match(html, /class="pill offline">オフライン<\/span>/u);
 });
 
 test('/projects/<id>/*は所有端末のレスポンスへ中継される', async (context) => {
@@ -203,14 +204,60 @@ test('未登録project_idへの404', async (context) => {
   assert.match(htmlResponse.headers.get('content-type'), /text\/html/u);
 });
 
-test('rootは/projects/へ301 redirectする（公開URLの玄関が404しない）', async (context) => {
+test('rootは/projects/と同一のJA landingを200で配信する（301は廃止・ADR 0164）', async (context) => {
   const hub = await startBridgeHubServer({
     registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
   });
   context.after(() => hub.close());
-  const response = await fetch(`http://127.0.0.1:${hub.port}/`, { redirect: 'manual' });
+  const rootResponse = await fetch(`http://127.0.0.1:${hub.port}/`, { redirect: 'manual' });
+  assert.equal(rootResponse.status, 200);
+  assert.match(rootResponse.headers.get('content-type'), /text\/html/u);
+  const rootHtml = await rootResponse.text();
+  const projectsHtml = await (await fetch(`http://127.0.0.1:${hub.port}/projects/`)).text();
+  assert.equal(rootHtml, projectsHtml);
+  assert.match(rootHtml, /<html lang="ja">/u);
+});
+
+test('/en/と/en/projects/はEN landingを配信し、/enは/en/へ301する', async (context) => {
+  const hub = await startBridgeHubServer({
+    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
+  });
+  context.after(() => hub.close());
+  const en = await (await fetch(`http://127.0.0.1:${hub.port}/en/`)).text();
+  assert.match(en, /<html lang="en">/u);
+  assert.match(en, /PUBLIC \/ PATENT PENDING/u);
+  const enProjects = await (await fetch(`http://127.0.0.1:${hub.port}/en/projects/`)).text();
+  assert.equal(en, enProjects);
+  const bare = await fetch(`http://127.0.0.1:${hub.port}/en`, { redirect: 'manual' });
+  assert.equal(bare.status, 301);
+  assert.equal(bare.headers.get('location'), '/en/');
+});
+
+test('/en/projects/<id>/*は言語prefixを剥いで301する（query維持）', async (context) => {
+  const hub = await startBridgeHubServer({
+    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
+  });
+  context.after(() => hub.close());
+  const response = await fetch(`http://127.0.0.1:${hub.port}/en/projects/proj-a/widget?x=1`,
+    { redirect: 'manual' });
   assert.equal(response.status, 301);
-  assert.equal(response.headers.get('location'), '/projects/');
+  assert.equal(response.headers.get('location'), '/projects/proj-a/widget?x=1');
+});
+
+test('4つのlanding pathすべてでAccept: application/jsonが公開配列を返す', async (context) => {
+  const terminal = await terminalServer((_request, response) => response.end('ok'));
+  context.after(() => close(terminal));
+  const hub = await startBridgeHubServer({
+    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
+  });
+  context.after(() => hub.close());
+  await registerTerminal(hub, { project_ids: ['proj-a'], port: portOf(terminal) });
+  for (const route of ['/', '/projects/', '/en/', '/en/projects/']) {
+    const json = await (await fetch(`http://127.0.0.1:${hub.port}${route}`,
+      { headers: { accept: 'application/json' } })).json();
+    assert.deepEqual(json.map((entry) => entry.project_id), ['proj-a'], route);
+    assert.ok(json.every((entry) => entry.address === undefined && entry.terminal_id === undefined), route);
+  }
 });
 
 test('heartbeatが途絶えTTLを超えた端末は503で配信元オフラインを明示する', async (context) => {
