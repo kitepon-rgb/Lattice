@@ -1,6 +1,6 @@
 # plan_bridge-hub — 公開工程表の多端末化（サーバ常駐ブリッジ装置）
 
-- 状態: 設計裁定済み（オーナー 2026-08-10）・実装未着手
+- 状態: 設計裁定済み（オーナー 2026-08-10）・円卓で実装進行中（room `lattice`・bridge-hub 卓 2026-08-10 開始。進捗の正本は store と room ログ）
 - レーン: 統括（複数repo/面の書込調整: Lattice repo・192.168.1.2 配備・Mac/Windows 端末配線）
 - 工程正本: Lattice store（本repo）plan_key `bridge-hub` v1（2026-08-10 todo migrate 済み。task・依存・状態は store だけが持つ）
 
