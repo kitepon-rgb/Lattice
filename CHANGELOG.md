@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.54.0 — 2026-08-10
+
+### 新機能
+
+- **Mac側bridgeがhub登録へ自動移行するようになった。** 旧ssh逆トンネル構成
+  （`LATTICE_BRIDGE_REGISTRAR_*`）を検出したdaemonが、registrar応答から得た
+  hub_urlを使ってLAN address + hub登録へ自ら切り替え、旧逆トンネルLaunchAgentを
+  退役させる。運用者は`npm install`で更新するだけでよく、手動reconfigureや
+  launchctl bootoutは復旧用fallbackへ格下げされた（bh1のADR 0162契約——address
+  は接続元導出のみ——には触れない）。
+- daemonの版持ち対策を追加した。起動中のdaemonがon-disk package.jsonとの版差分を
+  検出すると自ら終了し、supervising機構（launchd KeepAlive／Windows常駐
+  supervisor）が新versionのcodeで再起動する。
+
+### 修正
+
+- **公開URLの玄関（root `/`）が404していた欠陥を直した。** hubが`/projects/*`
+  しかrouteを持たず、公開URLの直接アクセスがBRIDGE_HUB_ROUTE_NOT_FOUNDに
+  なっていた。`/`を`/projects/`へ301 redirectする。
+- **`readTodoStoreStable`が恒久的なstore不整合を汎用STORE_BUSYへ丸めていた
+  欠陥を直した。** 書込中の一時的な不整合と恒久的な不整合を区別せず同じ
+  リトライ扱いにしていたため、後者でも本来のSTORE_INCONSISTENT reasonが
+  失われ、復旧に必要な情報が読めなくなっていた。
+- **dashboard daemonのstore cacheをstat fingerprintからcontent digest方式へ
+  変更した。** mtime粒度の粗いfilesystem（WSL/DrvFs等）では、近接して書かれた
+  異なる内容のmanifestが同じstat fingerprintに丸まりcache hitと誤判定され
+  得る欠陥があった。manifest.jsonの実byteをsha256で比較する方式に変更した。
+
 ## 0.53.1 — 2026-08-10
 
 ### 新機能
