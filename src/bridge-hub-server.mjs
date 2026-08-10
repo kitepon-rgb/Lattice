@@ -41,6 +41,7 @@ const LOOPBACK = '127.0.0.1';
 const HUB_HTTP_ERROR_SCHEMA = 'lattice.bridge_hub_http_error.v1';
 const HUB_REGISTRY_DOCUMENT_SCHEMA = 'lattice.bridge_hub_registry_document.v1';
 const HUB_PUBLIC_PROJECT_SCHEMA = 'lattice.bridge_hub_public_project.v1';
+const HUB_PUBLIC_VISIBILITY_SCHEMA = 'lattice.bridge_hub_public_visibility.v1';
 const MAX_REGISTRATION_BODY_BYTES = 65_536;
 const LOCK_ATTEMPTS = 240;
 const LOCK_WAIT_MS = 25;
@@ -249,7 +250,12 @@ function hubRuntimeDir(env) {
 
 function hubRuntimePaths(env) {
   const root = hubRuntimeDir(env);
-  return { root, registry: path.join(root, 'terminals.json'), lock: path.join(root, 'registry.lock') };
+  return {
+    root,
+    registry: path.join(root, 'terminals.json'),
+    lock: path.join(root, 'registry.lock'),
+    visibility: path.join(root, 'public-visibility.json'),
+  };
 }
 
 async function readJsonDocument(ref, missing) {
@@ -302,6 +308,51 @@ function validRegistryDocument(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     && value.schema === HUB_REGISTRY_DOCUMENT_SCHEMA && Array.isArray(value.entries)
     && value.entries.every(validateBridgeHubRegistryEntry);
+}
+
+const EMPTY_VISIBILITY = Object.freeze({
+  hidden_project_ids: Object.freeze([]), hidden_terminal_ids: Object.freeze([]), display_names: Object.freeze({}),
+});
+
+function validVisibilityDocument(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && value.schema === HUB_PUBLIC_VISIBILITY_SCHEMA
+    && Object.keys(value).every((key) =>
+      ['schema', 'hidden_project_ids', 'hidden_terminal_ids', 'display_names'].includes(key))
+    && Array.isArray(value.hidden_project_ids)
+    && value.hidden_project_ids.every((entry) => typeof entry === 'string')
+    && Array.isArray(value.hidden_terminal_ids)
+    && value.hidden_terminal_ids.every((entry) => typeof entry === 'string')
+    && value.display_names !== null && typeof value.display_names === 'object'
+    && !Array.isArray(value.display_names)
+    && Object.values(value.display_names).every((entry) => typeof entry === 'string');
+}
+
+/**
+ * Read the operator's public-visibility file (ADR 0164 Decision 3): which
+ * projects/terminals stay off the public listing, and how project ids render.
+ * Hot-read per request so edits apply without a hub restart. A missing file
+ * hides nothing; a malformed file is a typed error, never a silent republish
+ * of an internal terminal.
+ */
+export async function readBridgeHubPublicVisibility({ env = process.env } = {}) {
+  const refs = hubRuntimePaths(env);
+  let document;
+  try {
+    document = await readJsonDocument(refs.visibility, EMPTY_VISIBILITY);
+  } catch (error) {
+    throw new BridgeHubServerError('BRIDGE_HUB_VISIBILITY_FILE_INVALID',
+      `hub public-visibility JSON is invalid: ${refs.visibility}`, undefined, error);
+  }
+  if (document === EMPTY_VISIBILITY) return document;
+  if (!validVisibilityDocument(document)) {
+    throw new BridgeHubServerError('BRIDGE_HUB_VISIBILITY_FILE_INVALID', 'hub public-visibility file is invalid');
+  }
+  return {
+    hidden_project_ids: document.hidden_project_ids,
+    hidden_terminal_ids: document.hidden_terminal_ids,
+    display_names: document.display_names,
+  };
 }
 
 /** Read the persisted registry. A missing file is an empty registry, not an error. */
@@ -410,7 +461,15 @@ export async function startBridgeHubServer({
       return;
     }
     const entries = await store.read();
-    const projected = projectBridgeHubRegistry({ registry: entries, now: now(), ttlMs });
+    const visibility = await readBridgeHubPublicVisibility({ env });
+    const hiddenProjects = new Set(visibility.hidden_project_ids);
+    const hiddenTerminals = new Set(visibility.hidden_terminal_ids);
+    // The visibility filter applies to the listing only (both HTML and JSON);
+    // `/projects/<hidden>/` keeps proxying — hidden is not private (ADR 0164
+    // Decision 3, deliberately: smoke tests fetch their own page, operators
+    // keep the direct URL).
+    const projected = projectBridgeHubRegistry({ registry: entries, now: now(), ttlMs })
+      .filter((entry) => !hiddenProjects.has(entry.project_id) && !hiddenTerminals.has(entry.terminal_id));
     // Only the fields humans need for the public index are exposed; internal
     // routing fields (terminal_id, address, port) stay server-side, matching
     // the codebase's existing posture of not leaking topology to public
@@ -429,7 +488,7 @@ export async function startBridgeHubServer({
       response.end(`${JSON.stringify(view)}\n`);
       return;
     }
-    const html = renderBridgeHubLanding({ projects: view, lang });
+    const html = renderBridgeHubLanding({ projects: view, lang, displayNames: visibility.display_names });
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
       'x-content-type-options': 'nosniff' });
     response.end(html);

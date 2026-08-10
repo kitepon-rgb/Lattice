@@ -260,6 +260,56 @@ test('4つのlanding pathすべてでAccept: application/jsonが公開配列を�
   }
 });
 
+test('public-visibility.jsonの隠しIDはHTML/JSON両方から消え、proxyは生存する', async (context) => {
+  const { mkdtemp, writeFile: writeTmp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const runtimeDir = await mkdtemp(join(tmpdir(), 'hub-visibility-'));
+  await writeTmp(join(runtimeDir, 'public-visibility.json'), JSON.stringify({
+    schema: 'lattice.bridge_hub_public_visibility.v1',
+    hidden_project_ids: ['internal-probe'],
+    hidden_terminal_ids: [],
+    display_names: { 'proj-a': 'Project A' },
+  }));
+  const terminal = await terminalServer((_request, response) => response.end('hidden-but-alive'));
+  context.after(() => close(terminal));
+  const hub = await startBridgeHubServer({
+    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
+    env: { LATTICE_HUB_RUNTIME_DIR: runtimeDir },
+  });
+  context.after(() => hub.close());
+  await registerTerminal(hub, { project_ids: ['proj-a', 'internal-probe'], port: portOf(terminal) });
+
+  const json = await (await fetch(`http://127.0.0.1:${hub.port}/projects/`,
+    { headers: { accept: 'application/json' } })).json();
+  assert.deepEqual(json.map((entry) => entry.project_id), ['proj-a']);
+  const html = await (await fetch(`http://127.0.0.1:${hub.port}/projects/`)).text();
+  assert.doesNotMatch(html, /internal-probe/u);
+  // display_namesマップは主見出しへ適用される。
+  assert.match(html, /<strong>Project A<\/strong>/u);
+  // hidden ≠ private: 直URLのproxyは生きている（ADR 0164）。
+  const proxied = await fetch(`http://127.0.0.1:${hub.port}/projects/internal-probe/`);
+  assert.equal(proxied.status, 200);
+  assert.equal(await proxied.text(), 'hidden-but-alive');
+});
+
+test('壊れたpublic-visibility.jsonは黙って非フィルタにせずtyped 500を返す', async (context) => {
+  const { mkdtemp, writeFile: writeTmp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const runtimeDir = await mkdtemp(join(tmpdir(), 'hub-visibility-broken-'));
+  await writeTmp(join(runtimeDir, 'public-visibility.json'), '{not json');
+  const hub = await startBridgeHubServer({
+    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
+    env: { LATTICE_HUB_RUNTIME_DIR: runtimeDir },
+  });
+  context.after(() => hub.close());
+  const response = await fetch(`http://127.0.0.1:${hub.port}/projects/`);
+  assert.equal(response.status, 500);
+  const body = await response.json();
+  assert.equal(body.code, 'BRIDGE_HUB_VISIBILITY_FILE_INVALID');
+});
+
 test('heartbeatが途絶えTTLを超えた端末は503で配信元オフラインを明示する', async (context) => {
   const terminal = await terminalServer((_request, response) => response.end('unreachable-once-offline'));
   context.after(() => close(terminal));
