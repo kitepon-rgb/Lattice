@@ -1192,7 +1192,13 @@ export async function interventionPullTask(runDir, taskId) {
   if (!intake) fail('TASK_NOT_INTAKED', `taskがintakeされていない: ${taskId}`);
   const output = { schema: 'lattice.pull_intervention.v1', run_id: stored.meta.run_id,
     task_id: taskId, ...structuredClone(intake.intervention),
-    worker_attached: intake.worker !== null, worker_stopped: intake.worker?.stopped ?? false };
+    worker_attached: intake.worker !== null, worker_stopped: intake.worker?.stopped ?? false,
+    // `next_action` says how to clear the hold. When the seat is already frozen
+    // the operator also needs to know how to get out if it never clears — the
+    // absence of that answer is what turned one unverifiable boundary into an
+    // unrecoverable run (2026-08-10).
+    recovery: intake.worker?.stopped === true
+      ? 'lattice run intake detach --run <run> --task <task> --json' : null };
   output.result_digest = digestArtifact(output); return output;
 }
 

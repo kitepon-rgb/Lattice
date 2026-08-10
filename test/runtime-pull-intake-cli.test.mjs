@@ -643,6 +643,10 @@ test('解けないholdの席はdetachで解放でき、release→closeでrunを�
   const stat = () => execFileSync('/bin/ps', ['-o', 'stat=', '-p', String(child.pid)], {
     encoding: 'utf8' }).trim();
   assert.equal(stat().startsWith('T'), true, 'holdは席をSIGSTOPで止める');
+  // 凍った席から見えるのは「holdの解き方」だけだった。解けない時の出口も要る。
+  assert.match(parsed(runCli(root, [
+    'run', 'intake', 'intervention', '--run', '.lattice/runs/pull-run', '--task', 'A',
+  ])).recovery, /run intake detach/u);
 
   // 扉が3つとも閉まっていることを固定する。ここが緩むとまた出口を失う。
   assert.equal(parsed(runCli(root, ['run', 'close', '--run', '.lattice/runs/pull-run']), 1).code,
@@ -669,6 +673,7 @@ test('解けないholdの席はdetachで解放でき、release→closeでrunを�
     'run', 'intake', 'intervention', '--run', '.lattice/runs/pull-run', '--task', 'A',
   ]));
   assert.deepEqual([afterDetach.worker_attached, afterDetach.worker_stopped], [false, false]);
+  assert.equal(afterDetach.recovery, null, '席が居ない状態で脱出口を案内しない');
 
   // 復旧するのは凍った席ではない別のoperatorである。席自身のactorを要求すると
   // 「凍った席だけが自分を解放できる」という同じ罠に戻る。
