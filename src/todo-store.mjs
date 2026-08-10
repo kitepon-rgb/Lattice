@@ -1063,7 +1063,7 @@ const EVIDENCE_BLOB_CACHE_LIMIT = 512;
 const evidenceBlobCache = new Map();
 
 function readEvidenceBlob(absoluteRepo, oid) {
-  const key = `${absoluteRepo} ${oid}`;
+  const key = `${absoluteRepo}\0${oid}`;
   const cached = evidenceBlobCache.get(key);
   if (cached !== undefined) return cached;
   const [entry] = gitCatFileBatch([oid], {
