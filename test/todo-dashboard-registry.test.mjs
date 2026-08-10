@@ -747,7 +747,7 @@ test('todo dashboard removeはrepoRoot解決もdaemon起動もせずに登録を
   assert.deepEqual(failure.detail, { project_id: 'ghost' });
 });
 
-test('todo CLIの通常activityが明示serveなしでproject登録とdaemon起動をensureする', async (context) => {
+test('store書き込みのtodo commandが明示serveなしでproject登録とdaemon起動をensureする', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-cli-'));
   const runtime = path.join(root, 'runtime');
   const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime,
@@ -762,16 +762,44 @@ test('todo CLIの通常activityが明示serveなしでproject登録とdaemon起�
   });
   let stdout = '';
   let stderr = '';
-  const code = await runTodoCli({ argv: ['status', '--json'], cwd: process.cwd(), env,
+  // 登録の前段hookはactionより先に走る。存在しないplanを指した`start`は、hookを
+  // 通してからtypedに落ちるので、このrepoのstoreを一切書き換えずに前段だけを見られる。
+  const code = await runTodoCli({
+    argv: ['start', '--plan', 'no-such-plan', '--task', 'no-such-task'], cwd: process.cwd(), env,
     stdout: { write: (value) => { stdout += value; } },
     stderr: { write: (value) => { stderr += value; } } });
-  assert.equal(code, 0, stderr);
-  assert.equal(stderr, '');
-  assert.equal(JSON.parse(stdout).project_id, 'lattice');
+  assert.equal(code, 1, stdout);
   const descriptor = JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8'));
   daemonPid = descriptor.pid;
   assert.ok(descriptor.port > 0);
   const registry = await readActiveTodoDashboardProjects({ env });
   assert.equal(registry.length, 1);
   assert.equal(registry[0].project_id, 'lattice');
+});
+
+test('読み取りのtodo commandはproject登録もdaemon起動もしない', async (context) => {
+  // activeであることはlocalな都合ではない。bridge heartbeatはactive project全件を
+  // hubへ送り、hubはその集合から公開dashboardの配信元を決める。つまりactive化は
+  // 「この端末がこのprojectを配信する」という主張であって、2時間続く。
+  // cloneを1回覗いただけの`todo status`がそれを主張し、本当に配信している端末と
+  // 衝突して、その端末のproject集合ごと公開面から落としていた（2026-08-10）。
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-read-'));
+  const runtime = path.join(root, 'runtime');
+  const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime,
+    LATTICE_DASHBOARD_PORT: '0', LATTICE_DASHBOARD_AUTOSTART: '1', LATTICE_TODO_ACTOR_HOST: 'codex',
+    LATTICE_TODO_ACTOR_SESSION: 'session-read', LATTICE_TODO_ACTOR_AGENT: 'root' };
+  context.after(() => rm(root, { recursive: true, force: true }));
+
+  for (const argv of [['status', '--json'], ['verify', '--json']]) {
+    let stdout = '';
+    let stderr = '';
+    const code = await runTodoCli({ argv, cwd: process.cwd(), env,
+      stdout: { write: (value) => { stdout += value; } },
+      stderr: { write: (value) => { stderr += value; } } });
+    assert.equal(code, 0, stderr);
+    assert.deepEqual(await readActiveTodoDashboardProjects({ env }), [],
+      `${argv[0]}はprojectをactive化してはならない`);
+    await assert.rejects(stat(path.join(runtime, 'daemon.json')),
+      (error) => error.code === 'ENOENT', `${argv[0]}はdaemonを起こしてはならない`);
+  }
 });

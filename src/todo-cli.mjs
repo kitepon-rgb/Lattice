@@ -2676,6 +2676,50 @@ async function serveGantt({ repoRoot, port, stdout, env, scope = DEFAULT_GANTT_S
   return null;
 }
 
+/**
+ * Whether this command should mark the repo as an actively-worked project.
+ *
+ * Being "active" is not a local convenience: the bridge heartbeat sends every
+ * active project to the hub, and the hub routes the published dashboard from
+ * that set. So a command that flips this flag is claiming, on the operator's
+ * behalf, that this terminal serves this project — for the next two hours.
+ *
+ * A read must never make that claim. Running `lattice todo status` inside a
+ * clone to look at it once used to register the project here, contest it with
+ * whichever terminal actually serves it, and (before partial acceptance landed)
+ * take that terminal's whole project set down with it. The diagnosing operator
+ * extended the very outage they were investigating (2026-08-10).
+ *
+ * The rule is an allowlist of store writes, not a denylist of known-bad reads.
+ * The denylist it replaces had grown one incident at a time — `verify` was
+ * added to it the day before, after `todo verify` turned out to be unreachable
+ * for exactly the store inconsistency it exists to diagnose — and every read
+ * added later would have defaulted back to claiming ownership.
+ *
+ * `dashboard` commands are excluded: they own the registry themselves, and
+ * pre-registering the current repo ahead of `dashboard remove` would re-add
+ * what the operator is asking to drop.
+ */
+function writesTodoStore(argv) {
+  const [command, second, third] = argv;
+  if (argv.includes('--schema')) return false;
+  switch (command) {
+    case 'note': return second !== 'list';
+    case 'migrate': return !argv.includes('--dry-run');
+    case 'snapshot': return argv.includes('--rebuild');
+    case 'independence': return second === 'compile'
+      || (second === 'witness' && ['migrate', 'scaffold'].includes(third));
+    case 'seam-proposal': return ['compile', 'apply', 'land'].includes(second);
+    case 'evidence': return second === 'promote';
+    case 'dependency': return second === 'connect';
+    case 'phase': return second !== 'status';
+    case 'start': case 'retract': case 'block': case 'unblock': case 'done':
+    case 'reopen': case 'split': case 'revise': case 'revise-phase': case 'revise-set':
+      return true;
+    default: return false;
+  }
+}
+
 async function ensureActiveProjectDashboard({ repoRoot, env }) {
   if (env.LATTICE_DASHBOARD_AUTOSTART === '0') return null;
   const actorIdentity = ACTOR_ENV_KEYS.map((key) => env[key]);
@@ -3137,21 +3181,12 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
 
   try {
     const repoRoot = resolveRepoRoot(cwd);
-    const ganttCommand = argv[0] === 'gantt';
-    const dashboardAdopt = argv[0] === 'dashboard' && argv[1] === 'adopt';
-    const migrationDryRun = argv[0] === 'migrate' && argv.includes('--dry-run');
-    // `verify` is the store's own read-only recovery diagnostic — the command
-    // an operator reaches for precisely when the store might be inconsistent.
-    // ensureActiveProjectDashboard calls readTodoStoreStable for an unrelated
-    // side effect (registering this session as an active dashboard project),
-    // and readTodoStoreStable retries a persistent STORE_INCONSISTENT as if it
-    // were a transient in-flight write before giving up and reporting a
-    // content-free STORE_BUSY. Running that pre-hook ahead of `verify` meant
-    // the one command meant to surface the real inconsistency never got to —
-    // it died in the same generic way every other command did (2026-08-10 P0:
-    // `todo verify` was unreachable for the exact case it exists to diagnose).
-    const verifyCommand = argv[0] === 'verify';
-    if (!ganttCommand && !dashboardAdopt && !migrationDryRun && !verifyCommand) {
+    // Only a store write claims this terminal as the project's live source; see
+    // `writesTodoStore`. This also keeps the pre-hook away from `verify`, whose
+    // whole job is to diagnose a store too inconsistent for the pre-hook's own
+    // `readTodoStoreStable` to read (2026-08-10 P0: `todo verify` was
+    // unreachable for exactly the case it exists to diagnose).
+    if (writesTodoStore(argv)) {
       await ensureActiveProjectDashboard({ repoRoot, env });
     }
     const result = atomicCommit
