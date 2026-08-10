@@ -348,8 +348,15 @@ async function observeWorkerProcessTree(pid, { requireDescendantsInRootGroup = t
       rawState: match[4],
       startedIdentity: match[5].trim(),
     };
-    if (![record.pid, record.processGroupId].every((value) => Number.isSafeInteger(value)
-      && value > 0) || !Number.isSafeInteger(record.parentPid) || record.parentPid < 0
+    // processGroupIdは0を許す: Linuxのkernel thread（pid 2 kthreaddとその子）は
+    // 実在するがユーザー空間のprocess groupに属さないためpgid=0を持つ——実機の`ps -axo`は
+    // これを常に含むので、pid>0の一律要求ではこの関数が動くたびに毎回fail closedしていた
+    // （2026-08-10、CIのubuntu-latestで再現・確認）。0は安全側にも効く: 実workerのroot
+    // process groupは常にpid>0のleaderが持つ実PIDなので、pgid=0のrecordは下の
+    // 「同じprocess groupを共有する無関係processが無いか」の照合に決して誤って一致しない。
+    if (!Number.isSafeInteger(record.pid) || record.pid <= 0
+      || !Number.isSafeInteger(record.processGroupId) || record.processGroupId < 0
+      || !Number.isSafeInteger(record.parentPid) || record.parentPid < 0
       || record.startedIdentity.length === 0 || records.has(record.pid)) {
       fail('WORK_ORDER_REPORT_INVALID', 'ps process recordが不正');
     }
