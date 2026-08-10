@@ -258,6 +258,11 @@ test('後片付けはfixtureを掴んだ子を、停止要求を無視する相�
   assert.deepEqual(survivors, [], `停め切れていない: ${survivors.join(', ')}`);
   const exitSignal = await new Promise((resolve) => {
     if (stubborn.signalCode !== null || stubborn.exitCode !== null) { resolve(stubborn.signalCode); return; }
+    // unref済みのhandleはevent loopを生かさない。reapが外から殺した後の'exit'が
+    // まだ届いていないこの経路へ入ると、loopが空になってpromiseは永久に未解決のまま
+    // processが降り、以降のtestが丸ごとcancelledByParentになる（macOS CIで実測）。
+    // 待つ間だけref()へ戻す。
+    stubborn.ref();
     stubborn.once('exit', (_code, signal) => resolve(signal));
   });
   assert.equal(exitSignal, 'SIGKILL', 'SIGTERMを無視する相手にはSIGKILLまで上げる');
