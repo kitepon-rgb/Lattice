@@ -3,7 +3,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(new URL('..', import.meta.url).pathname);
+// URL.pathnameはWindowsで"/C:/..."となりpath.resolveが"C:\C:\..."を作るため、fileURLToPathで変換する。
+const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const testRoot = path.join(repoRoot, 'test');
 
 // These suites replay immutable RC1/RC2 research artifacts. They remain available
