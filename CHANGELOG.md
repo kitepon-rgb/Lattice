@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.53.0 — 2026-08-10
+
+### 新機能
+
+- **公開工程表の多端末化へ向けたbridge hub（bh1〜bh5段階①）を追加した。** 現行の
+  `Cloudflare Tunnel → Caddy → ssh逆トンネル → Macのloopback bridge`という1端末固定構成を、
+  `Cloudflare Tunnel → Caddy → hub（複数端末を集約する新コンポーネント）→ 各端末のbridge`へ
+  置き換えるための土台。
+  - 端末→hub登録プロトコル契約（登録・heartbeat・失効・project_id衝突）を純粋関数として
+    `src/bridge-hub-protocol.mjs`へ固定した（ADR 0162）。
+  - hub HTTPサーバー本体`src/bridge-hub-server.mjs`: 端末登録簿・合成`/projects/`一覧・
+    project別逆プロキシ（SSE安全なstreaming中継）・Host allow-list検査。
+  - 端末側`lattice bridge`へhub登録・heartbeatを追加（`src/bridge-hub-heartbeat.mjs`、
+    `bridge setup/reconfigure --hub <URL>|none`）。hub到達不能は端末自身のdashboard配信を
+    止めない（fail-open）。
+  - hub + 疑似端末2台の統合test（複数端末混在時のonline/offline投影・SSE再接続・
+    process停止時の502劣化）でPhase gate「hub単体」を閉じた。
+  - hub常駐用のsystemd起動entry point`bin/lattice-hub.mjs`を追加（環境変数のみで設定、
+    listen addressをDocker Caddyのgateway向けに注入可能）。
+  - 192.168.1.2への実配備・Caddy差替・逆トンネル退役（多端末実証）は本releaseの後続作業。
+
+### 修正
+
+- **`readEvidenceBlob`のcache key構築に混入していた生NULバイトをescapeした。** 0.52.4の
+  git起動集約（f3b3b5c）でcache keyの区切り文字が誤って生U+0000バイトのままsourceへ入り、
+  構文検査のNULバイト検出・`git diff`のbinary誤判定・`grep`のfile skipを引き起こしていた。
+  生成される文字列はbyte単位で同一のためruntime挙動は不変。
+
 ## 0.52.4 — 2026-08-10
 
 ### 修正
