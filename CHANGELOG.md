@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.52.4 — 2026-08-10
+
+### 修正
+
+- **Windowsでgit子起動が可視コンソールを雪崩式に開く問題を根治した。** GUI起点のprocessから
+  spawnされたconsoleアプリはWindowsで新しいコンソールセッションを作り、既定ターミナルが
+  Windows Terminalだと毎回可視ウィンドウが開く（gantt serve --scope allで40枚/分・ホスト操作不能の
+  実害）。製品経路のgit起動を新設の共通入口`src/git-process.mjs`へ集約し、`windowsHide: true`を
+  全経路（todo-store・todo-cli・project-cli・runtime-cli）に焼き込んだ。
+- **object 1個ごとのgit子起動をやめ、`cat-file --batch`のまとめ読みへ置き換えた。**
+  pinned source検証はcommit型検査+blob読みの3起動が1起動に、evidence検証は型検査+blob読みの
+  2起動が1起動になり、blobは内容アドレス不変を利用したprocess内キャッシュで再読ゼロ
+  （gantt serveのstore再読で同じevidenceを毎回読み直さない）。起動コスト削減で走査も速くなる。
+  retiredなrc*リサーチ資産（不変replay）は対象外。
+
 ## 0.52.3 — 2026-08-10
 
 ### 修正
