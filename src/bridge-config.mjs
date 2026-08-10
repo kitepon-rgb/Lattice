@@ -175,7 +175,14 @@ async function readDocument(ref) {
     if (error?.code === 'ENOENT') return null;
     throw new BridgeConfigError('BRIDGE_CONFIG_UNREADABLE', 'bridge config cannot be read', undefined, error);
   }
-  if (!stats.isFile() || stats.isSymbolicLink() || (stats.mode & 0o777) !== 0o600) {
+  // Windows has no POSIX permission-bit model: `fs.stat().mode` never reports
+  // 0600 there regardless of what `mode`/`chmod` requested at write time, so
+  // this check is a hard, unconditional block on every platform but darwin/
+  // linux — verified against a real Windows host (`BRIDGE_CONFIG_MODE_INVALID`
+  // on a config `configureBridge` itself had just written moments earlier).
+  // The other checks (regular file, not a symlink) still apply everywhere.
+  if (!stats.isFile() || stats.isSymbolicLink()
+    || (process.platform !== 'win32' && (stats.mode & 0o777) !== 0o600)) {
     throw new BridgeConfigError('BRIDGE_CONFIG_MODE_INVALID', 'bridge config must be a regular 0600 file');
   }
   let value;

@@ -45,7 +45,10 @@ async function readDashboardDescriptor(ref) {
   let handle;
   try {
     before = await lstat(ref);
-    if (!before.isFile() || before.isSymbolicLink() || (before.mode & 0o777) !== 0o600 || before.size > 65_536) {
+    // Windows has no POSIX permission-bit model — see bridge-config.mjs's
+    // readDocument for the same guard and the real-host verification.
+    if (!before.isFile() || before.isSymbolicLink()
+      || (process.platform !== 'win32' && (before.mode & 0o777) !== 0o600) || before.size > 65_536) {
       throw new BridgeConfigError('BRIDGE_UPSTREAM_INVALID', 'dashboard descriptor is unsafe');
     }
     handle = await open(ref, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));

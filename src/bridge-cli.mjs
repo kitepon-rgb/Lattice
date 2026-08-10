@@ -17,6 +17,10 @@ import {
   disableBridgeLaunchAgent, installBridgeLaunchAgent, restoreBridgeLaunchAgent,
   snapshotBridgeLaunchAgent,
 } from './bridge-launch-agent.mjs';
+import {
+  disableBridgeStartupFolder, installBridgeStartupFolder, restoreBridgeStartupFolder,
+  snapshotBridgeStartupFolder,
+} from './bridge-startup-folder.mjs';
 
 // v2 adds the liveness fields. `enabled` only says the configuration is on;
 // it never said the bridge could actually be reached, which let a DHCP lease
@@ -64,6 +68,22 @@ async function bridgeLiveness(config, { interfaces = networkInterfaces(), probe 
     reachable,
     liveness_reason: resolved.reason ?? (reachable ? null : 'listener_not_accepting'),
   };
+}
+
+// The bridge's own persistence mechanism is OS-specific; everything above
+// this line (config, daemon lifecycle, registrar) is not. Selecting by
+// `process.platform` here — rather than requiring every caller to pick — is
+// what lets `lattice bridge setup` on Windows persist via the Startup folder
+// exactly the way it persists via a LaunchAgent on macOS, with no separate
+// command or manual step (see bridge-startup-folder.mjs's module doc for why
+// Task Scheduler's ONLOGON trigger could not be used instead).
+function platformLaunchAgent() {
+  if (process.platform === 'win32') {
+    return { snapshot: snapshotBridgeStartupFolder, install: installBridgeStartupFolder,
+      disable: disableBridgeStartupFolder, restore: restoreBridgeStartupFolder };
+  }
+  return { snapshot: snapshotBridgeLaunchAgent, install: installBridgeLaunchAgent,
+    disable: disableBridgeLaunchAgent, restore: restoreBridgeLaunchAgent };
 }
 
 function fail(stderr, code, message) {
@@ -160,8 +180,7 @@ export async function collectBridgeSetupWizard({ input, output, prompts = clack 
 export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
   stdin = process.stdin, daemon = { ensure: ensureBridgeDaemon, requestStop: requestBridgeDaemonStop,
     stop: stopBridgeDaemon, clearStop: clearBridgeStopControl },
-  launchAgent = { snapshot: snapshotBridgeLaunchAgent, install: installBridgeLaunchAgent,
-    disable: disableBridgeLaunchAgent, restore: restoreBridgeLaunchAgent },
+  launchAgent = platformLaunchAgent(),
   prompts = clack, probe = probeBridgeListener, interfaces = networkInterfaces() } = {}) {
   if (!Array.isArray(argv)) {
     return fail(stderr, 'USAGE', 'usage: lattice bridge <setup|reconfigure|status|disable|register> [options] --json');
