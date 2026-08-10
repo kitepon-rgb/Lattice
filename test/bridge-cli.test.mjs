@@ -128,6 +128,30 @@ test('statusは常駐設定の実行対象の消滅を名指しし、reconfigure
     '起動対象が消えている状態は、必ず打つべきコマンドまで出さなければ手掘りが残る');
 });
 
+test('bridge有効なのに常駐設定が無い状態にもremedyを出す（再起動で戻らない）', async (context) => {
+  // 手でplistを消した後などに起きる。いま走っているdaemonが最後の1つで、
+  // 再起動すれば二度と戻らない。reachable=trueのまま黙るのが最悪の面である。
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-not-installed-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_CONFIG_DIR: root };
+  const daemon = { ensure: async () => {}, stop: async () => {} };
+  const launchAgent = launchAgentDouble();
+  const invoke = async (argv) => {
+    const stdout = output(); const stderr = output();
+    const code = await runBridgeCli({ argv, stdout: stdout.stream, stderr: stderr.stream,
+      env, daemon, launchAgent });
+    return { code, stdout: stdout.read(), stderr: stderr.read() };
+  };
+  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58768',
+    '--dashboard', '--json'])).code, 0);
+  await launchAgent.disable();
+
+  const parsed = JSON.parse((await invoke(['status', '--json'])).stdout);
+  assert.equal(parsed.enabled, true, '設定は有効なまま');
+  assert.equal(parsed.persistence.state, 'not_installed');
+  assert.equal(parsed.remedy, 'lattice bridge reconfigure --json');
+});
+
 test('statusは実走processと常駐設定の乖離を分類し、自己解消する版差にremedyを出さない', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-drift-'));
   context.after(() => rm(root, { recursive: true, force: true }));

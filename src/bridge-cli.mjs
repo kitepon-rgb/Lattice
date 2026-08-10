@@ -147,11 +147,16 @@ async function bridgeRuntimeDrift(persistence, runtime) {
  * `version` drift alone carries no remedy on purpose: the daemon polls its own
  * on-disk package version and exits for the supervisor to relaunch on the new
  * code (see bridgeDaemonVersionDrifted), so it resolves itself within a minute.
- * A missing binary or a mismatched path never resolves itself.
+ * Everything else here outlives the current process: a missing binary, a
+ * mismatched path, or an enabled bridge with no persistence entry at all all
+ * survive until someone reinstalls the entry.
  */
 function bridgeRemedy(persistence, drift) {
   if (persistence === null) return null;
   if (persistence.state === 'unreadable') return RECONFIGURE_COMMAND;
+  // Only reached with the bridge enabled, so "nothing is installed" means the
+  // currently-serving daemon is the last one: nothing brings it back at reboot.
+  if (persistence.state === 'not_installed') return RECONFIGURE_COMMAND;
   if (persistence.state === 'installed'
     && (!persistence.node_exists || !persistence.bridge_exists)) return RECONFIGURE_COMMAND;
   return drift.includes('node_path') || drift.includes('bridge_path') ? RECONFIGURE_COMMAND : null;
