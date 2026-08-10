@@ -203,6 +203,16 @@ test('未登録project_idへの404', async (context) => {
   assert.match(htmlResponse.headers.get('content-type'), /text\/html/u);
 });
 
+test('rootは/projects/へ301 redirectする（公開URLの玄関が404しない）', async (context) => {
+  const hub = await startBridgeHubServer({
+    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
+  });
+  context.after(() => hub.close());
+  const response = await fetch(`http://127.0.0.1:${hub.port}/`, { redirect: 'manual' });
+  assert.equal(response.status, 301);
+  assert.equal(response.headers.get('location'), '/projects/');
+});
+
 test('heartbeatが途絶えTTLを超えた端末は503で配信元オフラインを明示する', async (context) => {
   const terminal = await terminalServer((_request, response) => response.end('unreachable-once-offline'));
   context.after(() => close(terminal));

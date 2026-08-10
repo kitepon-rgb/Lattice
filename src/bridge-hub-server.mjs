@@ -523,6 +523,15 @@ export async function startBridgeHubServer({
       return;
     }
     const rawPath = requestUrl.split('?', 1)[0];
+    if (rawPath === '/') {
+      // The old single-terminal bridge served the project index at root; hub only ever
+      // routed `/projects/*`, so the public entrance 404'd (room 2488 — a functional
+      // regression, not a design one: the front door itself was gone, independent of how
+      // it looks). Redirect rather than duplicate handleProjectsIndex's logic at a second path.
+      response.writeHead(301, { location: '/projects/', 'cache-control': 'no-store' });
+      response.end();
+      return;
+    }
     if (rawPath === '/__lattice/hub/register') { await handleRegister(incoming, response); return; }
     if (rawPath === '/projects/') { await handleProjectsIndex(incoming, response); return; }
     const match = PROJECT_ROUTE.exec(rawPath);
