@@ -1205,8 +1205,11 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
 function extractionFreshnessViolations(repoRoot, extraction) {
   let reachable;
   try {
+    // rev-listの出力はobject数に比例して伸びる（本repo実測で既定maxBuffer 1MiB超過済み）。
+    // 隣のgit showと同様にmaxBufferを明示しないと、ENOBUFSが握られて
+    // source_reachability_unreadableへ誤変換される。
     reachable = new Set(gitSync(['rev-list', '--objects', '--all'], {
-      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 134_217_728,
     }).split('\n').filter(Boolean).map((line) => line.split(' ')[0]));
   } catch {
     return [{ code: 'source_reachability_unreadable', path: '/tasks', task_ids: [],
