@@ -136,6 +136,19 @@ test('hubは既定nullで、明示URLを渡すと正規化して永続化する'
   assert.deepEqual((await readBridgeConfig({ env })).hub, { url: 'http://192.168.1.2:8080/' });
 });
 
+test('hub追加前に書かれたbridge.json（hub key無し）はhub:nullとして読める', async (context) => {
+  const { root, env } = await fixture(context);
+  const legacy = { schema: 'lattice.bridge_config.v1', enabled: true,
+    listen: { address: '127.0.0.1', port: 58_751 }, allowed_hosts: ['127.0.0.1'],
+    upstream: { mode: 'dashboard_descriptor' }, updated_at: '2026-07-01T00:00:00.000Z' };
+  const file = path.join(root, 'bridge.json');
+  await writeFile(file, `${JSON.stringify(legacy)}\n`, { mode: 0o600 });
+  const read = await readBridgeConfig({ env });
+  assert.equal(read.hub, null);
+  const onDisk = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(onDisk.hub, undefined, 'reading must not silently rewrite the legacy file on disk');
+});
+
 test('invalid hub URLはtyped failでBRIDGE_HUB_URL_INVALIDになる', async (context) => {
   const { env } = await fixture(context);
   await assert.rejects(configureBridge({ address: '127.0.0.1', env,

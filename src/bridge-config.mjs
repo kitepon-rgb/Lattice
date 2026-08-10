@@ -201,6 +201,14 @@ async function readDocument(ref) {
   } catch (error) {
     throw new BridgeConfigError('BRIDGE_CONFIG_INVALID', 'bridge config JSON is invalid', undefined, error);
   }
+  // `hub` (bh3) postdates this schema's v1 tag, which never changed — an on-disk
+  // config written before bh3 has no `hub` key at all. Treat that absence as
+  // "never configured" rather than a schema violation, so a bridge that has
+  // been running since before hub support existed keeps reading its own
+  // config instead of failing closed the next time this code is deployed.
+  if (value !== null && typeof value === 'object' && !Array.isArray(value) && value.hub === undefined) {
+    value = { ...value, hub: null };
+  }
   return validateBridgeConfig(value);
 }
 
