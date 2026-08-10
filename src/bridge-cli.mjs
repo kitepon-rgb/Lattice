@@ -1,7 +1,9 @@
+import { realpath } from 'node:fs/promises';
 import { createConnection, isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import * as clack from '@clack/prompts';
 
+import packageJson from '../package.json' with { type: 'json' };
 import { resolveBridgeListenAddress } from './bridge-address.mjs';
 import { registerBridgeUpstream } from './bridge-registrar.mjs';
 import {
@@ -10,24 +12,29 @@ import {
 } from './bridge-config.mjs';
 import {
   clearBridgeStopControl, ensureBridgeDaemon, readBridgeDaemonDescriptor,
-  removeBridgeDaemonActiveMarker, removeBridgeDaemonDescriptor, requestBridgeDaemonStop,
-  stopBridgeDaemon,
+  readBridgeRuntimeIdentity, removeBridgeDaemonActiveMarker, removeBridgeDaemonDescriptor,
+  requestBridgeDaemonStop, stopBridgeDaemon,
 } from './bridge-daemon.mjs';
 import {
-  disableBridgeLaunchAgent, installBridgeLaunchAgent, restoreBridgeLaunchAgent,
-  snapshotBridgeLaunchAgent,
+  describeBridgeLaunchAgent, disableBridgeLaunchAgent, installBridgeLaunchAgent,
+  restoreBridgeLaunchAgent, snapshotBridgeLaunchAgent,
 } from './bridge-launch-agent.mjs';
 import {
-  disableBridgeStartupFolder, installBridgeStartupFolder, restoreBridgeStartupFolder,
-  snapshotBridgeStartupFolder,
+  describeBridgeStartupFolder, disableBridgeStartupFolder, installBridgeStartupFolder,
+  restoreBridgeStartupFolder, snapshotBridgeStartupFolder,
 } from './bridge-startup-folder.mjs';
 
 // v2 adds the liveness fields. `enabled` only says the configuration is on;
 // it never said the bridge could actually be reached, which let a DHCP lease
 // change take the published surface down while status kept reporting health.
 // v3 adds `hub` (bh3): the terminal's registered bridge-hub, if any.
-const RESULT_SCHEMA = 'lattice.bridge_cli_result.v3';
+// v4 adds `persistence`/`runtime`/`runtime_drift`/`remedy`/`warnings`: the
+// configuration being reachable still said nothing about whether the OS
+// persistence entry points at binaries that exist, or whether the process
+// actually serving is the code and node a restart would bring back.
+const RESULT_SCHEMA = 'lattice.bridge_cli_result.v4';
 const REACHABILITY_PROBE_TIMEOUT_MS = 750;
+const RECONFIGURE_COMMAND = 'lattice bridge reconfigure --json';
 
 /** TCP connect probe. Answers "is anything accepting there right now". */
 export function probeBridgeListener({ address, port, timeoutMs = REACHABILITY_PROBE_TIMEOUT_MS }) {
@@ -80,10 +87,81 @@ async function bridgeLiveness(config, { interfaces = networkInterfaces(), probe 
 function platformLaunchAgent() {
   if (process.platform === 'win32') {
     return { snapshot: snapshotBridgeStartupFolder, install: installBridgeStartupFolder,
-      disable: disableBridgeStartupFolder, restore: restoreBridgeStartupFolder };
+      disable: disableBridgeStartupFolder, restore: restoreBridgeStartupFolder,
+      describe: describeBridgeStartupFolder };
   }
   return { snapshot: snapshotBridgeLaunchAgent, install: installBridgeLaunchAgent,
-    disable: disableBridgeLaunchAgent, restore: restoreBridgeLaunchAgent };
+    disable: disableBridgeLaunchAgent, restore: restoreBridgeLaunchAgent,
+    describe: describeBridgeLaunchAgent };
+}
+
+const UNREADABLE_PERSISTENCE = Object.freeze({ loaded: null, node_path: null, node_exists: false,
+  bridge_path: null, bridge_exists: false });
+
+/**
+ * What the OS persistence entry (LaunchAgent plist, Windows Startup launcher)
+ * actually points at, and whether those paths still exist. A read failure is
+ * reported as `unreadable` rather than thrown: this is a diagnostic, and it
+ * is worth least on exactly the broken hosts where it would otherwise abort.
+ */
+async function bridgePersistence({ launchAgent, env }) {
+  try {
+    const snapshot = await launchAgent.snapshot({ env });
+    const described = await launchAgent.describe({ snapshot, env });
+    // `loaded` is launchd-specific; the Windows Startup folder has no such
+    // concept and reports null rather than pretending to know.
+    const loaded = typeof snapshot?.loaded === 'boolean' ? snapshot.loaded : null;
+    if (described === null) return { state: 'not_installed', ...UNREADABLE_PERSISTENCE, loaded, error: null };
+    return { state: 'installed', loaded, ...described, error: null };
+  } catch (error) {
+    // Only environment failures degrade into a report: typed BridgeConfigErrors
+    // and raw fs errnos both carry a string `code`. Anything else is a defect in
+    // this codebase (a missing describe implementation, a bad argument) and must
+    // surface as itself rather than be laundered into "unreadable".
+    if (typeof error?.code !== 'string') throw error;
+    return { state: 'unreadable', ...UNREADABLE_PERSISTENCE, error: error.code };
+  }
+}
+
+/**
+ * Where the running process disagrees with what a restart would produce.
+ * `node_path` is compared through realpath because the persisted path is
+ * deliberately a stable alias (see bridge-executable.mjs) — the strings are
+ * expected to differ; the binaries behind them are not.
+ */
+async function bridgeRuntimeDrift(persistence, runtime) {
+  if (persistence?.state !== 'installed' || runtime?.state !== 'running') return [];
+  const drift = [];
+  if (runtime.bridge_path !== null && persistence.bridge_path !== null
+    && runtime.bridge_path !== persistence.bridge_path) drift.push('bridge_path');
+  if (runtime.node_path !== null && persistence.node_path !== null) {
+    const target = await realpath(persistence.node_path).catch(() => null);
+    if (target !== null && target !== runtime.node_path) drift.push('node_path');
+  }
+  if (runtime.version !== null && runtime.version !== packageJson.version) drift.push('version');
+  return drift;
+}
+
+/**
+ * `version` drift alone carries no remedy on purpose: the daemon polls its own
+ * on-disk package version and exits for the supervisor to relaunch on the new
+ * code (see bridgeDaemonVersionDrifted), so it resolves itself within a minute.
+ * A missing binary or a mismatched path never resolves itself.
+ */
+function bridgeRemedy(persistence, drift) {
+  if (persistence === null) return null;
+  if (persistence.state === 'unreadable') return RECONFIGURE_COMMAND;
+  if (persistence.state === 'installed'
+    && (!persistence.node_exists || !persistence.bridge_exists)) return RECONFIGURE_COMMAND;
+  return drift.includes('node_path') || drift.includes('bridge_path') ? RECONFIGURE_COMMAND : null;
+}
+
+async function bridgeDiagnostics({ config, launchAgent, env, runtimeIdentity }) {
+  if (config?.enabled !== true) return null;
+  const persistence = await bridgePersistence({ launchAgent, env });
+  const runtime = await runtimeIdentity({ env });
+  const drift = await bridgeRuntimeDrift(persistence, runtime);
+  return { persistence, runtime, drift, remedy: bridgeRemedy(persistence, drift) };
 }
 
 function fail(stderr, code, message) {
@@ -121,7 +199,7 @@ function parseOptions(words) {
   return options;
 }
 
-function result(action, config, recovery = null, liveness = null) {
+function result(action, config, recovery = null, liveness = null, diagnostics = null) {
   return { schema: RESULT_SCHEMA, action, configured: config !== null, enabled: config?.enabled ?? false,
     listen: config?.listen ?? null, allowed_hosts: config?.allowed_hosts ?? null,
     upstream: config?.upstream ?? null, hub: config?.hub ?? null, updated_at: config?.updated_at ?? null, recovery,
@@ -129,7 +207,11 @@ function result(action, config, recovery = null, liveness = null) {
     effective_listen: liveness?.effective_listen ?? null,
     listen_candidates: liveness?.listen_candidates ?? null,
     reachable: liveness?.reachable ?? null,
-    liveness_reason: liveness?.liveness_reason ?? null };
+    liveness_reason: liveness?.liveness_reason ?? null,
+    persistence: diagnostics?.persistence ?? null,
+    runtime: diagnostics?.runtime ?? null,
+    runtime_drift: diagnostics?.drift ?? null,
+    remedy: diagnostics?.remedy ?? null };
 }
 
 export async function collectBridgeSetupWizard({ input, output, prompts = clack } = {}) {
@@ -180,7 +262,7 @@ export async function collectBridgeSetupWizard({ input, output, prompts = clack 
 export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
   stdin = process.stdin, daemon = { ensure: ensureBridgeDaemon, requestStop: requestBridgeDaemonStop,
     stop: stopBridgeDaemon, clearStop: clearBridgeStopControl },
-  launchAgent = platformLaunchAgent(),
+  launchAgent = platformLaunchAgent(), runtimeIdentity = readBridgeRuntimeIdentity,
   prompts = clack, probe = probeBridgeListener, interfaces = networkInterfaces() } = {}) {
   if (!Array.isArray(argv)) {
     return fail(stderr, 'USAGE', 'usage: lattice bridge <setup|reconfigure|status|disable|register> [options] --json');
@@ -308,11 +390,14 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
         return configured;
       });
     } else return fail(stderr, 'USAGE', 'unknown bridge command or options');
-    // Liveness is only meaningful for a read: the mutating commands have just
-    // reconfigured the daemon and the socket may not have settled yet.
+    // Liveness and the persistence/runtime diagnostics are only meaningful for
+    // a read: the mutating commands have just reconfigured the daemon and the
+    // socket may not have settled yet.
     const liveness = command === 'status' ? await bridgeLiveness(config, { probe, interfaces }) : null;
+    const diagnostics = command === 'status'
+      ? await bridgeDiagnostics({ config, launchAgent, env, runtimeIdentity }) : null;
     if (wizard) stdout.write(`Lattice bridgeを${config.listen.address}:${config.listen.port}で有効にしました。\n`);
-    else stdout.write(`${JSON.stringify(result(command, config, recovery, liveness))}\n`);
+    else stdout.write(`${JSON.stringify(result(command, config, recovery, liveness, diagnostics))}\n`);
     return 0;
   } catch (error) {
     stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v2',

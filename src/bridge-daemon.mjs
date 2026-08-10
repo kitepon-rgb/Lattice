@@ -306,6 +306,33 @@ async function attest(descriptor) {
   } catch { return null; }
 }
 
+const UNIDENTIFIED_RUNTIME = Object.freeze({ pid: null, version: null, node_path: null,
+  node_version: null, bridge_path: null });
+
+/**
+ * Who is actually serving right now — pid, product version, node binary — as
+ * reported by the running process itself over its attested health endpoint,
+ * not as recorded by any file. This is the only way to see that a daemon is
+ * executing code or a node binary that no longer matches what a restart would
+ * pick up. A malformed descriptor is reported as its own state rather than
+ * thrown: this feeds `lattice bridge status`, the command an operator reaches
+ * for precisely when something is already broken.
+ */
+export async function readBridgeRuntimeIdentity({ env = process.env } = {}) {
+  let descriptor;
+  try { descriptor = await readBridgeDaemonDescriptor({ env }); } catch (error) {
+    if (error?.code !== 'BRIDGE_DAEMON_DESCRIPTOR_INVALID') throw error;
+    return { ...UNIDENTIFIED_RUNTIME, state: 'descriptor_invalid' };
+  }
+  if (descriptor === null) return { ...UNIDENTIFIED_RUNTIME, state: 'not_running' };
+  const body = await attest(descriptor);
+  if (body === null) return { ...UNIDENTIFIED_RUNTIME, state: 'unattested', pid: descriptor.pid };
+  const text = (value) => (typeof value === 'string' ? value : null);
+  return { state: 'running', pid: descriptor.pid, version: text(body.version),
+    node_path: text(body.node_path), node_version: text(body.node_version),
+    bridge_path: text(body.bridge_path) };
+}
+
 async function healthy(descriptor, config) {
   if (descriptor === null || descriptor.address !== config.listen.address
     || descriptor.port !== config.listen.port) return false;

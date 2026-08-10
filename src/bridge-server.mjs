@@ -7,6 +7,7 @@ import { parseTree } from 'jsonc-parser';
 
 import { networkInterfaces } from 'node:os';
 
+import packageJson from '../package.json' with { type: 'json' };
 import { resolveBridgeListenAddress } from './bridge-address.mjs';
 import { registerBridgeUpstream } from './bridge-registrar.mjs';
 import {
@@ -228,10 +229,18 @@ export async function startBridgeServer({
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       const attested = typeof instanceToken === 'string'
         && incoming.headers['x-lattice-bridge-instance-token'] === instanceToken;
+      // The identity fields answer "what is actually running right now", which
+      // no descriptor can: the descriptor records what was configured, while a
+      // daemon can outlive an npm update or keep executing a node binary its
+      // own persistence entry no longer points at. Attested callers only —
+      // these are local filesystem paths and must not leak to the public
+      // availability probe.
       response.end(`${JSON.stringify(attested
         ? { schema: 'lattice.bridge_health.v1', pid: process.pid,
           address: currentConfig.listen.address, port: currentConfig.listen.port,
-          updated_at: currentConfig.updated_at ?? null }
+          updated_at: currentConfig.updated_at ?? null,
+          version: packageJson.version, node_path: process.execPath,
+          node_version: process.version, bridge_path: process.argv[1] ?? null }
         : { schema: 'lattice.bridge_health.v1', status: 'available' })}\n`);
       return;
     }

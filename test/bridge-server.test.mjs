@@ -59,6 +59,35 @@ test('bridgeはHTMLとSSEを透過proxyしhealthはupstreamへ流さない', asy
   assert.equal(publicHealth.updated_at, undefined);
 });
 
+test('attested healthだけが実走identity（版・node実体・bridge script）を返す', async (context) => {
+  // descriptorは「何を設定したか」しか記録できない。npm更新後も生き続けている
+  // daemonや、自分の常駐設定が指していないnode実体で走っているdaemonを見分けるには、
+  // 走っているprocess自身に名乗らせるしかない。ただしこれはlocal pathなので、
+  // 認証なしの可用性probeへ漏らしてはならない。
+  const upstream = await upstreamServer((_request, response) => response.end('ok'));
+  context.after(() => close(upstream));
+  const config = { enabled: true, listen: { address: '127.0.0.1', port: 58_752 },
+    allowed_hosts: ['127.0.0.1'], updated_at: '2026-08-10T00:00:00.000Z',
+    upstream: { mode: 'url', url: `http://127.0.0.1:${portOf(upstream)}/` } };
+  const instanceToken = 'c'.repeat(64);
+  const bridge = await startBridgeServer({ config, instanceToken });
+  context.after(() => bridge.close());
+
+  const attested = await (await fetch('http://127.0.0.1:58752/__lattice/bridge-health',
+    { headers: { 'x-lattice-bridge-instance-token': instanceToken } })).json();
+  assert.equal(attested.pid, process.pid);
+  assert.equal(attested.node_path, process.execPath);
+  assert.equal(attested.node_version, process.version);
+  assert.match(attested.version, /^\d+\.\d+\.\d+/u);
+  assert.equal(attested.bridge_path, process.argv[1] ?? null);
+
+  const anonymous = await (await fetch('http://127.0.0.1:58752/__lattice/bridge-health')).json();
+  assert.equal(anonymous.status, 'available');
+  assert.equal(anonymous.node_path, undefined);
+  assert.equal(anonymous.bridge_path, undefined);
+  assert.equal(anonymous.version, undefined);
+});
+
 test('dynamic descriptor modeはdashboard restart後のportを毎requestで再解決する', async (context) => {
   const first = await upstreamServer((_request, response) => response.end('first'));
   const second = await upstreamServer((_request, response) => response.end('second'));

@@ -12,7 +12,7 @@ function output(isTTY = false) {
   return { stream: { isTTY, write(chunk) { value += chunk; } }, read: () => value };
 }
 
-function launchAgentDouble({ calls = [], install = null } = {}) {
+function launchAgentDouble({ calls = [], install = null, described = null } = {}) {
   let state = { installed: false, loaded: false, content: null };
   return {
     snapshot: async () => ({ ...state }),
@@ -23,8 +23,17 @@ function launchAgentDouble({ calls = [], install = null } = {}) {
     },
     disable: async () => { calls.push('disable'); state = { installed: false, loaded: false, content: null }; },
     restore: async ({ snapshot }) => { calls.push('restore'); state = { ...snapshot }; },
+    describe: async ({ snapshot }) => (snapshot.installed !== true ? null
+      : described ?? { node_path: '/opt/homebrew/bin/node', node_exists: true,
+        bridge_path: '/usr/local/lib/node_modules/@quolu/lattice/bin/lattice-bridge.mjs',
+        bridge_exists: true }),
     state: () => ({ ...state }),
   };
+}
+
+function runtimeIdentityDouble(identity = { state: 'not_running', pid: null, version: null,
+  node_path: null, node_version: null, bridge_path: null }) {
+  return async () => ({ ...identity });
 }
 
 test('bridge CLIはsetup/status/reconfigure/disableをJSON契約で提供する', async (context) => {
@@ -83,6 +92,72 @@ test('bridge CLIは--hubの設定・持ち越し・noneでの解除をJSON契約
   assert.equal(JSON.parse(cleared.stdout).hub, null);
   const status = await invoke(['status', '--json']);
   assert.equal(JSON.parse(status.stdout).hub, null);
+});
+
+test('statusは常駐設定の実行対象の消滅を名指しし、reconfigureのremedyを返す', async (context) => {
+  // 実被弾（2026-08-08・2026-08-10）の症状は「公開viewerから端末が消えた」だけで、
+  // 原因特定にlaunchctl/psの手掘りが要った。statusが1回で答えられなければ直っていない。
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-persistence-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_CONFIG_DIR: root };
+  const daemon = { ensure: async () => {}, stop: async () => {} };
+  const launchAgent = launchAgentDouble({ described: {
+    node_path: '/opt/homebrew/Cellar/node/26.5.1/bin/node', node_exists: false,
+    bridge_path: '/usr/local/lib/node_modules/@quolu/lattice/bin/lattice-bridge.mjs',
+    bridge_exists: true } });
+  const invoke = async (argv, overrides = {}) => {
+    const stdout = output(); const stderr = output();
+    const code = await runBridgeCli({ argv, stdout: stdout.stream, stderr: stderr.stream,
+      env, daemon, launchAgent, ...overrides });
+    return { code, stdout: stdout.read(), stderr: stderr.read() };
+  };
+  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58765',
+    '--dashboard', '--json'])).code, 0);
+
+  const status = await invoke(['status', '--json'],
+    { runtimeIdentity: runtimeIdentityDouble({ state: 'unattested', pid: 4321, version: null,
+      node_path: null, node_version: null, bridge_path: null }) });
+  assert.equal(status.code, 0, status.stderr);
+  const parsed = JSON.parse(status.stdout);
+  assert.equal(parsed.schema, 'lattice.bridge_cli_result.v4');
+  assert.equal(parsed.persistence.state, 'installed');
+  assert.equal(parsed.persistence.node_path, '/opt/homebrew/Cellar/node/26.5.1/bin/node');
+  assert.equal(parsed.persistence.node_exists, false);
+  assert.equal(parsed.runtime.state, 'unattested');
+  assert.equal(parsed.remedy, 'lattice bridge reconfigure --json',
+    '起動対象が消えている状態は、必ず打つべきコマンドまで出さなければ手掘りが残る');
+});
+
+test('statusは実走processと常駐設定の乖離を分類し、自己解消する版差にremedyを出さない', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-drift-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_CONFIG_DIR: root };
+  const daemon = { ensure: async () => {}, stop: async () => {} };
+  const globalBridge = '/usr/local/lib/node_modules/@quolu/lattice/bin/lattice-bridge.mjs';
+  const launchAgent = launchAgentDouble({ described: { node_path: '/opt/homebrew/bin/node',
+    node_exists: true, bridge_path: globalBridge, bridge_exists: true } });
+  const invoke = async (argv, overrides = {}) => {
+    const stdout = output(); const stderr = output();
+    const code = await runBridgeCli({ argv, stdout: stdout.stream, stderr: stderr.stream,
+      env, daemon, launchAgent, ...overrides });
+    return { code, stdout: stdout.read(), stderr: stderr.read() };
+  };
+  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58766',
+    '--dashboard', '--json'])).code, 0);
+  const running = (extra) => runtimeIdentityDouble({ state: 'running', pid: 777, version: null,
+    node_path: null, node_version: 'v26.7.0', bridge_path: globalBridge, ...extra });
+
+  // npm更新後の版差はdaemon自身が版drift検知で降りて再起動するので自己解消する。
+  const versionOnly = JSON.parse((await invoke(['status', '--json'],
+    { runtimeIdentity: running({ version: '0.0.0-stale' }) })).stdout);
+  assert.deepEqual(versionOnly.runtime_drift, ['version']);
+  assert.equal(versionOnly.remedy, null, '自己解消する差にコマンドを出すと本物の障害が埋もれる');
+
+  // dev treeの残骸が走っている状態は自己解消しない。
+  const treeDrift = JSON.parse((await invoke(['status', '--json'],
+    { runtimeIdentity: running({ bridge_path: '/Users/kite/Developer/Lattice/bin/lattice-bridge.mjs' }) })).stdout);
+  assert.deepEqual(treeDrift.runtime_drift, ['bridge_path']);
+  assert.equal(treeDrift.remedy, 'lattice bridge reconfigure --json');
 });
 
 test('bridge registerはbridge無効なら拒否し、registrar未設定ならnot_configuredを返す', async (context) => {
