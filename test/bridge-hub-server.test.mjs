@@ -83,6 +83,42 @@ test('2台の疑似端末を登録すると/projects/が合成一覧をJSON/HTML
   assert.match(html, /yuzu-pc/u);
 });
 
+test('/projects/一覧の意匠はtodo-gantt-live.mjsの旧公開landingと同じ（LIVE DEVELOPMENT・カード型・kitepon.dev/GitHub誘導）を保つ', async (context) => {
+  const terminal = await terminalServer((_request, response) => response.end('ok'));
+  context.after(() => close(terminal));
+  const hub = await startBridgeHubServer({
+    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
+  });
+  context.after(() => hub.close());
+  await registerTerminal(hub, { terminal_id: 'kikoeru-mac', display_name: 'kikoeru',
+    port: portOf(terminal), project_ids: ['kikoeru'] });
+
+  const html = await (await fetch(`http://127.0.0.1:${hub.port}/projects/`)).text();
+  // オーナー指摘（room 2474）: 旧landing（todo-gantt-live.mjsのdashboardHtml）の意匠から
+  // 退行させない。ブランド・見出し・GitHub誘導・カード型list itemの構造を固定する。
+  assert.match(html, /LIVE DEVELOPMENT/u);
+  assert.match(html, /<h1>公開中の工程表<\/h1>/u);
+  assert.match(html, /kitepon\.dev/u);
+  assert.match(html, /github\.com\/kitepon-rgb\/Lattice/u);
+  assert.match(html, /<li><a href="[^"]*"><strong>kikoeru<\/strong>/u);
+  assert.match(html, /class="status-online">オンライン<\/span>/u);
+});
+
+test('オフライン端末は"status-offline"の語彙で明示される（意匠は保ったまま）', async (context) => {
+  let clock = new Date('2026-08-10T00:00:00.000Z');
+  const hub = await startBridgeHubServer({
+    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
+    now: () => clock, ttlMs: 1_000,
+  });
+  context.after(() => hub.close());
+  await registerTerminal(hub, { terminal_id: 'stale-term', display_name: 'stale',
+    project_ids: ['stale-project'], port: 1 });
+  clock = new Date(clock.getTime() + 2_000);
+
+  const html = await (await fetch(`http://127.0.0.1:${hub.port}/projects/`)).text();
+  assert.match(html, /class="status-offline">オフライン<\/span>/u);
+});
+
 test('/projects/<id>/*は所有端末のレスポンスへ中継される', async (context) => {
   let observedPath = null;
   const terminal = await terminalServer((request, response) => {
