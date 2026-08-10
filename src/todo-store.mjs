@@ -1471,7 +1471,13 @@ async function atomicWrite(absolute, bytes) {
   let handle;
   try {
     handle = await open(temporary, 'wx', 0o600);
-    await handle.writeFile(bytes); await handle.sync(); await handle.close(); handle = null;
+    await handle.writeFile(bytes);
+    // WSL2でのNTFSパス（/mnt/以下）ではfsyncがEIOを返すことがある。データ自体は書き込まれている。
+    try { await handle.sync(); } catch (syncError) {
+      if (!(process.platform === 'linux' && /^\/mnt\//.test(absolute) && syncError?.code === 'EIO')) throw syncError;
+      process.stderr.write(`lattice: fsync skipped (WSL2/NTFS EIO) ${absolute}\n`);
+    }
+    await handle.close(); handle = null;
     await rename(temporary, absolute);
     const directory = await open(path.dirname(absolute), 'r');
     // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
@@ -1493,7 +1499,11 @@ async function atomicWriteMode(absolute, bytes, mode) {
   try {
     handle = await open(temporary, 'wx', mode);
     await handle.writeFile(bytes); await handle.chmod(mode);
-    await handle.sync(); await handle.close(); handle = null;
+    try { await handle.sync(); } catch (syncError) {
+      if (!(process.platform === 'linux' && /^\/mnt\//.test(absolute) && syncError?.code === 'EIO')) throw syncError;
+      process.stderr.write(`lattice: fsync skipped (WSL2/NTFS EIO) ${absolute}\n`);
+    }
+    await handle.close(); handle = null;
     await rename(temporary, absolute);
     await fsyncDirectory(path.dirname(absolute));
   } finally {
