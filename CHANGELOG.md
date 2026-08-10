@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.52.3 — 2026-08-10
+
+### 修正
+
+- **store生成時にEOL保護を消費者repoへ同梱するようにした。** 0.52.1の`.gitattributes -text`は
+  Lattice自身のrepoしか守っておらず、storeを作った先のrepoはWindows autocrlf checkoutで
+  store全滅の危険が残っていた。plan create／todo migrateのstore bootstrapが
+  `.lattice/.gitattributes`（`* -text`）を生成する。既存の同名fileは上書きしない。
+  既存storeのrepoには手動で同内容を敷くこと。
+- **`status --json`の`project.root`をOS nativeパスへ正規化した。** gitがWindowsでも
+  forward slashを返すため、`store.absolute_path`と区切りが食い違っていた。
+  runtime-cliと同じ`path.resolve`規律に揃え、末尾空白などnewline以外は改変しない。
+
+### テスト
+
+- POSIX exec意味論（shebang shim）とWindowsが許さないパス（末尾空白dir）に依存する2 fixtureへ
+  理由付きwin32 skipを与え、Windowsでproduct testが判定可能になった。
+
 ## 0.52.2 — 2026-08-10
 
 ### 診断・観測
@@ -21,8 +39,8 @@
 
 - **Windowsで`plan create`が必ず失敗するfsyncバグを直した。** directory fsyncがWindowsでは
   `EPERM`／`EISDIR`になるため許容し、file fsyncの規律は維持した。
-- **git同期したstoreが改行変換で壊れるのを防いだ。** `.lattice` store生成物に`.gitattributes -text`を
-  敷き、既存storeのCRLF混入も読み取りで拒否できるようにした。あわせてrelease gateを塞いでいた
+- **git同期したstoreが改行変換で壊れるのを防いだ。** Lattice repo自身に`.lattice/** -text`の
+  `.gitattributes`を敷いた（消費者repoへの同梱は0.52.3で対応）。あわせてrelease gateを塞いでいた
   `.mjs`の見かけdirty（EOL差分）を全OS LF固定で解消した。
 
 ## 0.52.0 — 2026-08-09
