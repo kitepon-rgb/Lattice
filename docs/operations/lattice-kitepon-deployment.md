@@ -96,7 +96,7 @@ Cloudflare Tunnel → Docker Caddy → hub（192.168.1.2常駐、systemd）→ �
   直接到達できないため、既存bridgeと同じgateway経由の構成）。
 - `LATTICE_HUB_ALLOWED_HOSTS=lattice.kitepon.dev`。
 - ufw: `172.18.0.1:53943`へのcontainer→host許可を追加（既存`53939`ルールと対）。
-- Caddy upstream: `172.18.0.1:53939` → `172.18.0.1:53943`へ差替、`caddy validate`後`caddy reload`。
+- Caddy upstream: `172.18.0.1:53939` → `172.18.0.1:53943`へ差替（後述の是正を経て反映）。
 
 ### 受入結果（サーバー側6手順）
 
@@ -106,8 +106,27 @@ Cloudflare Tunnel → Docker Caddy → hub（192.168.1.2常駐、systemd）→ �
 4. `https://lattice.kitepon.dev/projects/`がHTTP 200、端末が未登録のため空一覧
    （fail-closed設計どおり——黙って旧配信元を出し続けない）。
 
-### 既知の罠への追補
+### 誤報と是正: Caddy差替が実は反映されていなかった
 
+手順⑥「Caddy差替→validate→reload」は当初完了と報告されたが、誤報だった。host側Caddyfileは
+containerへbind mountされており、差替に使った`sed -i`がinodeを新規作成物へ差し替えたため、
+すでにmount済みのcontainerからは旧inode（＝旧`53939`設定）が見え続けていた。`caddy validate`と
+`caddy reload`はどちらも「読める設定として正しいか」しか見ないため、読んでいる中身が
+差し替え前のまま生きているかどうかは検証しない——status codeも`https://lattice.kitepon.dev/`が
+200を返し続けたため、配信元がMac側のままであることに気づけなかった。オーナーが公開面に
+Mac側の工程が出続けている事実から発覚し、`docker restart caddy`でmountを再解決したところ、
+配信内容が実際にhubのページ（title「登録済みプロジェクト — Lattice hub」）へ切り替わった
+ことを確認した。
+
+教訓（既知の罠への追補）:
+
+- **bind mountされたfileへの`sed -i`は禁物。** atomic renameと同じ理由でinodeが差し替わり、
+  container側は旧inodeを見続ける（`docs/bridge-setup.md`が警告するCaddyfile単一file bind mount
+  の罠と同型——原因コマンドが`sed -i`でも同じ穴に落ちる）。in-place書き換え（inodeを維持する
+  形での上書き）を使うか、差替後に`docker restart`で強制的にmountを再解決する。
+- **切替の検証はHTTP status codeだけでなく配信内容の同一性で行う。** `caddy validate`/
+  `caddy reload`の成功と、`curl`の200は「設定ファイルとして正しい」「サーバーが応答している」
+  ことしか示さず、「意図した設定が実際に効いているか」は別に確認しないと分からない。
 - **H申請の事前確認漏れ**: 対象portの実況（既存listenerとの衝突）確認をH操作申請の手順へ
   含めていなかった。今後192.168.1.2上へ新規サービスを追加するH操作では、対象portが
   空いていることを申請段階で確認する手順を含める。
