@@ -137,3 +137,52 @@ Mac側の工程が出続けている事実から発覚し、`docker restart cadd
   存在しない。`lattice bridge status --json`の`hub`は`http://192.168.1.2:53943/`を返す。
 - Windows端末（ChromeBlocker）のbridge常駐はbh6の範囲。WSL2はLANから到達不能なため、
   bridgeはWindows native側で常駐させる必要がある（plan既知の罠「Windows端末の常駐」）。
+
+## 2026-08-10 v0.56.0・公開面の製品ページ化
+
+`docs/plan_bridge-hub-landing.md`とADR 0164に従い、hubの公開面を製品紹介ページへ作り替えた。
+配線（Cloudflare Tunnel → Caddy → hub → 各端末bridge）は変更していない。
+
+- 対象commit `46a93bf`（`origin/main`の祖先）。npm `@quolu/lattice@0.56.0`。
+- 反映: 192.168.1.2で`npm install -g @quolu/lattice@0.56.0` →
+  `~/.lattice/hub/public-visibility.json`（mode 0600）を新規作成 →
+  `sudo systemctl restart lattice-hub.service`。journalに
+  `{"schema":"lattice.hub_daemon_started.v1","port":53943,...}`を確認。
+- Mac端末（工程ページの配信元）は`npm install -g @quolu/lattice@0.56.0`と
+  `launchctl kickstart -k "gui/$(id -u)/dev.kitepon.lattice.bridge"`で更新した。
+
+### 受入結果（配信内容で判定・status codeでは判定しない）
+
+| URL | 判定 |
+| --- | --- |
+| `/`・`/projects/` | JA landing（`特許出願済み`を含む）。301は消えた |
+| `/en/`・`/en/projects/` | EN landing（`PATENT PENDING`を含む） |
+| `/projects/lattice/` | 200・従来の依存工程図。`name="robots"`は0件 |
+| 公開一覧 | `["ChromeBlocker","iine","lattice","root-site-promotion"]`。`smoketest-probe`は不在 |
+| 表示名 | `lattice→Lattice`、`root-site-promotion→kitepon.dev`がカード主見出しへ反映 |
+| `/projects/smoketest-probe/` | 一覧から隠れていても中継は生存（503＝配信元オフライン、404ではない） |
+
+### 可視性ファイル
+
+```
+~/.lattice/hub/public-visibility.json   # mode 0600、hubの再起動なしで反映される
+{ "schema": "lattice.bridge_hub_public_visibility.v1",
+  "hidden_project_ids": ["smoketest-probe"],
+  "hidden_terminal_ids": ["smoketest0000000000000000000001"],
+  "display_names": { "lattice": "Lattice", "root-site-promotion": "kitepon.dev" } }
+```
+
+### 既知の残り
+
+- Windows端末（FOX）が配る`/projects/ChromeBlocker/`だけ、まだ`name="robots"`が残る。
+  この端末の`@quolu/lattice`はregistry installではなく**ローカルcheckoutへのnpm link**
+  （`Documents\Program\Lattice`）なので、registry版へ差し替えるとオーナーの開発構成を
+  変えてしまう。更新はオーナーがそのcheckoutを更新した時に自然に反映される。
+
+### publish時の罠
+
+main worktreeがdirtyだと`prepublishOnly`（`verify-release-commit.mjs`）が通らない。
+並行作業でdirtyな時は対象commitのclean worktreeから出す。その際`sensor/node_modules`は
+**symlinkでなく実ディレクトリとしてcopyする**——`.gitignore`の`node_modules/`は末尾スラッシュ
+のためディレクトリにしか当たらず、symlinkはuntracked扱いになってgateを塞ぐ（実測）。
+
