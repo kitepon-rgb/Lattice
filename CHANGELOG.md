@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.56.0 — 2026-08-10
+
+### 新機能
+
+- **hubの公開面（`lattice.kitepon.dev`）を製品紹介ページへ作り替えた（ADR 0164）。** これまでの
+  公開一覧は端末ホスト名を主見出しにしたリンク集で、ルートサイトから「工程表で見る」で入ってきた
+  人にLatticeが何なのかを何も伝えていなかった。ヒーロー（製品コピー＋公開/特許出願済み）、
+  仕組み3カードとインラインSVG図、ライブ工程一覧、GitHub/kitepon.devへのCTAを持つ1ページにし、
+  一覧はそのページの一部として残した——**この一覧自体が動作デモである**という位置づけを明示した。
+  意匠はkitepon.devのブランド正典（Discovery Orange・Motion Cobalt・Paper）へ合わせ、
+  矢印グリフとlink装飾を廃し、外部fontも外部画像も読まない（CSPは`default-src 'none'`のまま）。
+- **`/`と`/projects/`が同じlandingを返すようになった。** `/`→`/projects/`の301は廃止した。
+  ルートサイトの2導線（バナーとAbout）が別々のpathを指していても同じ製品面へ着地する。
+- **英語面を`/en/`・`/en/projects/`として追加した。** ルートサイトと同じパス分離方式。
+  `Accept-Language`による自動振り分けはしない（`/`の応答が非決定的になり、受入curlと
+  byte比較testが壊れるため）。`/en`は`/en/`へ、`/en/projects/<id>`は`/projects/<id>`へ301する。
+- **公開一覧の可視性と表示名をhub運用者の裁量にした。** hub runtime dirの
+  `public-visibility.json`（`lattice.bridge_hub_public_visibility.v1`）で、公開一覧から外す
+  project／terminalと、project_idに対する表示名を宣言する。リクエスト毎に読むのでhubの再起動は要らない。
+  **一覧から隠すことは非公開化ではない**——`/projects/<id>/`の中継は生かしたままにする（smoke testの
+  自己アクセスと運用者の直URLを殺さないため）。壊れたファイルは黙って無フィルタにせず
+  `BRIDGE_HUB_VISIBILITY_FILE_INVALID`で500にする。端末登録protocolは変更していない。
+- **一覧カードの主従を入れ替えた。** 主見出しがproject（表示名があればそれ）、従がホスト名。
+  これまでは`os.hostname()`が主見出しで、公開面に`KaitonoMacBook-Air.local`のような端末名が並んでいた。
+
+### 修正
+
+- **公開ページから`noindex, nofollow`を撤去した（ADR 0164）。** 紹介を目的とするサイトが
+  検索を拒否しているのは矛盾である、というオーナー裁定。hub landingと各端末の工程ページの両方が対象。
+- `todo migrate`の鮮度検査が、object数の多いrepositoryで必ず
+  `source_reachability_unreadable`になっていた。`git rev-list --objects --all`の出力がNode既定の
+  maxBuffer 1 MiBを超え、ENOBUFSが握られて「読めない」へ変換されていた（本repoの実測は1.06 MB）。
+  隣接する`git show`と同じくmaxBufferを明示する。
+
 ## 0.55.1 — 2026-08-10
 
 ### 修正
