@@ -1,5 +1,6 @@
 #!/bin/bash
 # usage: .team/scripts/done.sh <task_id> [--evidence-from <隔離worktreeの証跡の絶対path>]
+#        .team/scripts/done.sh --landing-run <run_ref>
 # evidence/<plan_key>/<task_id>.md（commit 済みであること）から記述子を作り lattice todo done を実行する。
 # plan key は環境変数 PEERTABLE_PLAN から取る。
 # 証跡を plan key で仕切るのは、task_id が campaign を跨いで再利用される（t1, t2, …）ため。
@@ -19,6 +20,56 @@
 # evidence verifier は descriptor.path の working tree 実在を見ず、object DB の blob と digest、
 # 読み出し時の `rev-list --all` 到達性を見る（mio が実 repo で確認・room [1016]）。
 set -e
+# `todo done` と run receipt の accept は別の正本を持つ。landing-only mode は accept の直後に
+# 同じ run ref を受け取り、受理済み receipt の着地だけを表示する。accept 自体はここへ吸収しない。
+if [ "${1:-}" = "--landing-run" ]; then
+  [ "$#" = 2 ] || {
+    echo "ERROR: --landing-run には run ref を1つ渡すこと（usage: done.sh --landing-run <run_ref>）" >&2
+    exit 1
+  }
+  run_ref="$2"
+  [ -n "$run_ref" ] || { echo "ERROR: --landing-run には run ref を渡すこと" >&2; exit 1; }
+  lattice_cli="${LATTICE_CLI:-$(command -v lattice 2>/dev/null || true)}"
+  if [ -z "$lattice_cli" ] || [ ! -x "$lattice_cli" ]; then
+    echo "着地状態を読めない: LATTICE_CLIが実行可能fileを指さない（${lattice_cli:-未設定}）" >&2
+    exit 0
+  fi
+  landing_report=""
+  landing_rc=0
+  landing_report=$("$lattice_cli" run landing --run "$run_ref" 2>&1) || landing_rc=$?
+  if [ "$landing_rc" != 0 ]; then
+    echo "着地状態を読めない: run landing が rc=${landing_rc} で失敗: ${landing_report}" >&2
+    exit 0
+  fi
+  unlanded_count=""
+  if ! unlanded_count=$(printf '%s' "$landing_report" | python3 -c '
+import json, sys
+raw = sys.stdin.read()
+try:
+    report = json.loads(raw)
+except json.JSONDecodeError as error:
+    sys.exit(f"run landing がJSONでない: {error}")
+if not isinstance(report, dict):
+    sys.exit(f"run landing がobjectでない: {type(report).__name__}")
+actual_schema = report.get("schema")
+if actual_schema != "lattice.run_landing_report.v1":
+    sys.exit(f"run landing の schema が違う: {actual_schema}")
+receipts = report.get("accepted_receipts")
+if not isinstance(receipts, list):
+    sys.exit("run landing に accepted_receipts 配列が無い")
+for index, receipt in enumerate(receipts):
+    if not isinstance(receipt, dict) or not isinstance(receipt.get("landed"), bool):
+        sys.exit(f"accepted_receipts[{index}] の landed が真偽値でない")
+print(sum(1 for receipt in receipts if not receipt["landed"]))
+' 2>&1); then
+    echo "着地状態を読めない: ${unlanded_count}" >&2
+    exit 0
+  fi
+  if [ "$unlanded_count" != 0 ]; then
+    echo "未着地 ${unlanded_count}本: run ${run_ref} の受理済み成果が canonical default branch へ着地していない" >&2
+  fi
+  exit 0
+fi
 # **引数の形を exact に要求する。** 緩く受けると、`--evidnce-from` のような typo が
 # 「option 無し」として通り、**canonical 側の同名証跡を黙って hash する**——別 file を
 # 受理させておいて green に見える（kanade の監査で実測・room [1029]）。
@@ -27,7 +78,7 @@ case $# in
   1) ;;
   3) [ "$2" = "--evidence-from" ] || {
        echo "ERROR: 未知のoption: $2（使えるのは --evidence-from だけ）" >&2; exit 1; } ;;
-  *) echo "ERROR: 引数の数が違う: $#（usage: done.sh <task_id> [--evidence-from <絶対path>]）" >&2; exit 1 ;;
+  *) echo "ERROR: 引数の形が違う（usage: done.sh <task_id> [--evidence-from <絶対path>] | done.sh --landing-run <run_ref>）" >&2; exit 1 ;;
 esac
 t="$1"
 [ -n "$t" ] || { echo "ERROR: task_id が空" >&2; exit 1; }
@@ -70,9 +121,7 @@ trap 'rm -f "$tmp"' EXIT
 printf '{"evidence_id":"ev-%s","repo_id":"self","path":"%s","git_blob_oid":"%s","content_digest":"%s","media_type":"text/markdown","anchor_digest":null}\n' "$t" "$f" "$oid" "$digest" > "$tmp"
 # **PATH の `lattice` へ黙って逸れない。** setup が解決した CLI を席 env の `LATTICE_CLI` で受け、
 # 無い時だけ PATH を使う（bridge の `--lattice` / teardown の `LATTICE_CLI` と同じ選択規律）。
-# store mutationとその3path限定commitを同じ機械lockの内側で閉じる。descriptorや席のsource/stageは
-# commit対象にせず、atomic入口が返すreceiptをそのまま呼出者へ渡す。
-"${LATTICE_CLI:-lattice}" todo done --plan "$PEERTABLE_PLAN" --task "$t" --evidence "$tmp" --commit-store
+"${LATTICE_CLI:-lattice}" todo done --plan "$PEERTABLE_PLAN" --task "$t" --evidence "$tmp"
 rm -f "$tmp"
 
 # 完了の定義は「repo 内の変更は push まで」。done を打つ瞬間はそれが成り立っていなければ
