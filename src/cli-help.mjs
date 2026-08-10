@@ -43,6 +43,7 @@ Commands:
   intake --run .lattice/runs/<id> --task <task_id>
   intake release --run .lattice/runs/<id> --task <task_id>
   intake attach --run .lattice/runs/<id> --task <task_id> --input <worker.json>
+  intake detach --run .lattice/runs/<id> --task <task_id>
   intake intervention --run .lattice/runs/<id> --task <task_id>
   intake accept --run .lattice/runs/<id> --task <task_id>
   adapter register --input <descriptor.json>
@@ -194,6 +195,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'run intake': 'run intake --run .lattice/runs/<id> --task <task_id>',
   'run intake release': 'run intake release --run .lattice/runs/<id> --task <task_id>',
   'run intake attach': 'run intake attach --run .lattice/runs/<id> --task <task_id> --input <worker.json>',
+  'run intake detach': 'run intake detach --run .lattice/runs/<id> --task <task_id>',
   'run intake intervention': 'run intake intervention --run .lattice/runs/<id> --task <task_id>',
   'run intake accept': 'run intake accept --run .lattice/runs/<id> --task <task_id>',
   'run adapter register': 'run adapter register --input <descriptor.json> | --schema --json',

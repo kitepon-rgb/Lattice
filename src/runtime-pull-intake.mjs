@@ -216,6 +216,7 @@ function project(events, meta) {
         sequence: event.sequence,
         ...structuredClone(event.payload),
         worker: null,
+        worker_detached: false,
         accepted: null,
       });
     } else if (event.kind === 'intake_refreshed') {
@@ -235,6 +236,13 @@ function project(events, meta) {
     } else if (event.kind === 'worker_stopped' || event.kind === 'worker_resumed') {
       const intake = intakes.get(event.task_id);
       if (intake?.worker) intake.worker.stopped = event.kind === 'worker_stopped';
+    } else if (event.kind === 'worker_detached') {
+      const intake = intakes.get(event.task_id);
+      // `worker_detached` is remembered separately from `worker === null`: an
+      // intake that never had a worker and one whose worker was deliberately
+      // unbound look identical otherwise, and only the latter may be released
+      // by an operator who is not the original seat.
+      if (intake) { intake.worker = null; intake.worker_detached = true; }
     } else if (event.kind === 'task_accepted') {
       const intake = intakes.get(event.task_id);
       if (intake) intake.accepted = structuredClone(event.payload);
@@ -285,6 +293,20 @@ function actorFromEnvironment(environment = process.env) {
 
 function sameActor(left, right) {
   return left?.host === right.host && left?.session === right.session && left?.agent === right.agent;
+}
+
+/**
+ * The acting actor when the caller has one, `null` when it does not.
+ *
+ * Recovery is performed by an operator who is by definition NOT the seat being
+ * recovered — the seat may be SIGSTOP'd, dead, or from a session that no longer
+ * exists. Demanding the seat's own env-derived identity on a recovery command
+ * would mean only the frozen seat could unfreeze itself, which is the trap this
+ * whole path exists to remove. The actor is recorded when present so the trail
+ * survives, but it is not an authorization gate here.
+ */
+function optionalActorFromEnvironment(environment = process.env) {
+  try { return actorFromEnvironment(environment); } catch { return null; }
 }
 
 function activeMember(store, planKey) {
@@ -805,10 +827,15 @@ export async function releasePullTask({ runDir, taskId, environment = process.en
     if (intake.worker !== null) {
       fail('INTAKE_WORKER_ATTACHED', 'workerがattach済みのintakeはreleaseできない', {
         task_id: taskId,
-        next_action: 'workerを安全に停止・detachできる正規経路を先に使う',
+        next_action: 'lattice run intake detach --run <run> --task <task> --json',
       });
     }
-    if (!sameActor(intake.actor, actor)) {
+    // The actor gate protects a seat's own in-progress work from another seat.
+    // Once the worker is detached there is no seat left to protect, and demanding
+    // the original session's identity would block the operator performing the
+    // recovery — the seat that owned this intake is precisely the one that is
+    // gone. The releasing actor is recorded either way.
+    if (intake.worker_detached !== true && !sameActor(intake.actor, actor)) {
       fail('INTAKE_BINDING_CONFLICT', 'intakeを作成したactorだけがreleaseできる', {
         task_id: taskId,
       });
@@ -927,6 +954,66 @@ export async function attachPullWorker({ runDir, taskId, input, environment = pr
         .intakes.find((entry) => entry.task_id === taskId).worker.stopped };
     result.result_digest = digestArtifact(result);
     return result;
+  } finally { await lock.release(); }
+}
+
+/**
+ * Unbind a worker from its intake, releasing it first if the hold stopped it.
+ *
+ * This is the door `releasePullTask`'s own `next_action` already names. Without
+ * it a hold that can never clear leaves the seat SIGSTOP'd with no legitimate
+ * exit: `run close` refuses while the intake is unaccepted, `run intake release`
+ * refuses while a worker is attached, and `run abandon` is legacy-only. A shared
+ * pull run over a repo with no indexable code reached exactly that state
+ * (2026-08-10) — the sensor could not stamp an empty index, so the boundary was
+ * never verifiable and the hold was permanent.
+ *
+ * Authorization is process identity, not the actor: `signalAttachedWorker`
+ * re-verifies lstart/argv/pgid against the recorded binding before signalling,
+ * which is strictly stronger than an env-derived actor claim (env vars are
+ * trivially settable; a process's start identity is not). See
+ * `optionalActorFromEnvironment` for why the seat's own identity cannot be the
+ * gate on a recovery command.
+ */
+export async function detachPullWorker({ runDir, taskId, environment = process.env }) {
+  if (!identifier(taskId)) fail('INVALID_TASK_ID', 'task idが不正');
+  const actor = optionalActorFromEnvironment(environment);
+  const lock = await acquirePullLock(runDir, 'detach', `${taskId}-${randomUUID()}`);
+  try {
+    let current = await readPullStore(runDir);
+    const state = project(current.events, current.meta);
+    if (state.closed) fail('RUN_CLOSED', 'closed pull runのworkerをdetachできない');
+    const intake = state.intakes.find((entry) => entry.task_id === taskId);
+    if (intake === undefined) fail('INTAKE_NOT_FOUND', 'active intakeが存在しない', { task_id: taskId });
+    if (intake.accepted !== null) {
+      fail('INTAKE_ALREADY_ACCEPTED', 'accepted intakeのworkerはdetachできない', { task_id: taskId });
+    }
+    if (intake.worker === null) {
+      fail('INTAKE_WORKER_ABSENT', 'attach済みworkerが無い', { task_id: taskId });
+    }
+    // Resume before unbinding. Once the binding is gone nothing in this store can
+    // name that pid again, so a worker left stopped here would be unreachable by
+    // any future command — the same one-way door, one step further along.
+    const resumed = intake.worker.stopped;
+    if (resumed) {
+      await signalAttachedWorker(intake, 'SIGCONT');
+      current = await appendEvent(runDir, current, buildEvent({
+        events: current.events, meta: current.meta, kind: 'worker_resumed', taskId,
+        payload: { released_by: 'worker_detach' },
+      }));
+    }
+    current = await appendEvent(runDir, current, buildEvent({
+      events: current.events, meta: current.meta, kind: 'worker_detached', taskId,
+      payload: { detached_by: actor, pid: intake.worker.pid, resumed },
+    }));
+    const output = {
+      schema: 'lattice.pull_worker_detach_result.v1', outcome: 'detached',
+      run_id: state.run_id, task_id: taskId, pid: intake.worker.pid, resumed,
+      next_action: 'lattice run intake release --run <run> --task <task> --json',
+      result_digest: '',
+    };
+    output.result_digest = digestArtifact(output);
+    return output;
   } finally { await lock.release(); }
 }
 

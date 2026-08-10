@@ -610,3 +610,110 @@ test('legacy schema surfaceとpull storeは混在fallbackせず別経路を保�
   ]), 1);
   assert.equal(reverse.code, 'MIXED_RUN_STORE');
 });
+
+test('解けないholdの席はdetachで解放でき、release→closeでrunを退役できる', async (context) => {
+  // 2026-08-10報告の閉じた循環。索引対象コードが1本も無いrepoでboundaryが永久に
+  // 検証できず、holdが解けないままworkerがSIGSTOPで凍り、closeもreleaseもabandonも
+  // 拒否した。releaseのnext_actionは「detachできる正規経路」を名指ししていたが、
+  // その操作は存在しなかった。
+  const { root } = await workspace(context, { outcome: 'unknown' });
+  parsed(startPull(root));
+  await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+  const held = parsed(runCli(root, [
+    'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+  ]));
+  assert.equal(held.intervention.reason, 'boundary_unverified');
+
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    detached: true, stdio: 'ignore',
+  });
+  context.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const identity = await observeManagedProcessStartIdentity(child.pid);
+  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8' }).trim();
+  const attachPath = path.join(root, 'deadlock-attach.json');
+  await writeFile(attachPath, `${JSON.stringify({
+    schema: 'lattice.pull_worker_attach_input.v1', name: ACTOR.agent, session: ACTOR.session,
+    pid: child.pid, started_identity: identity.started_identity,
+    argv_digest: createHash('sha256').update(argv, 'utf8').digest('hex'), recorded_at: NOW,
+  })}\n`);
+  assert.equal(parsed(runCli(root, [
+    'run', 'intake', 'attach', '--run', '.lattice/runs/pull-run', '--task', 'A', '--input', attachPath,
+  ])).stopped, true);
+  const stat = () => execFileSync('/bin/ps', ['-o', 'stat=', '-p', String(child.pid)], {
+    encoding: 'utf8' }).trim();
+  assert.equal(stat().startsWith('T'), true, 'holdは席をSIGSTOPで止める');
+
+  // 扉が3つとも閉まっていることを固定する。ここが緩むとまた出口を失う。
+  assert.equal(parsed(runCli(root, ['run', 'close', '--run', '.lattice/runs/pull-run']), 1).code,
+    'RUN_NOT_COMPLETE');
+  const blocked = parsed(runCli(root, [
+    'run', 'intake', 'release', '--run', '.lattice/runs/pull-run', '--task', 'A',
+  ]), 1);
+  assert.equal(blocked.code, 'INTAKE_WORKER_ATTACHED');
+  assert.match(blocked.detail.next_action, /run intake detach/u,
+    'next_actionは実在する操作を名指ししなければならない');
+  assert.equal(parsed(runCli(root, [
+    'run', 'abandon', '--run', '.lattice/runs/pull-run', '--reason', 'stuck',
+  ]), 1).code, 'RUN_MODE_MISMATCH');
+
+  // detachはSIGCONTで解放してからbindingを外す。順序が逆だと、二度と誰も
+  // そのpidを名指しできないまま止まったprocessが残る。
+  const detached = parsed(runCli(root, [
+    'run', 'intake', 'detach', '--run', '.lattice/runs/pull-run', '--task', 'A',
+  ]));
+  assert.deepEqual([detached.outcome, detached.pid, detached.resumed],
+    ['detached', child.pid, true]);
+  assert.equal(stat().startsWith('T'), false, 'detachは席を止めたまま放置しない');
+  const afterDetach = parsed(runCli(root, [
+    'run', 'intake', 'intervention', '--run', '.lattice/runs/pull-run', '--task', 'A',
+  ]));
+  assert.deepEqual([afterDetach.worker_attached, afterDetach.worker_stopped], [false, false]);
+
+  // 復旧するのは凍った席ではない別のoperatorである。席自身のactorを要求すると
+  // 「凍った席だけが自分を解放できる」という同じ罠に戻る。
+  const released = parsed(runCli(root, [
+    'run', 'intake', 'release', '--run', '.lattice/runs/pull-run', '--task', 'A',
+  ], { LATTICE_TODO_ACTOR_SESSION: 'operator-seat', LATTICE_TODO_ACTOR_AGENT: 'operator-seat' }));
+  assert.equal(released.outcome, 'released');
+  const closed = parsed(runCli(root, ['run', 'close', '--run', '.lattice/runs/pull-run']));
+  assert.equal(closed.outcome, 'closed');
+});
+
+test('detachはattach bindingと一致しないprocessへsignalを送らない', async (context) => {
+  const { root } = await workspace(context, { outcome: 'unknown' });
+  parsed(startPull(root));
+  await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+  parsed(runCli(root, ['run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A']));
+
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    detached: true, stdio: 'ignore',
+  });
+  context.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const identity = await observeManagedProcessStartIdentity(child.pid);
+  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8' }).trim();
+  const attachPath = path.join(root, 'identity-attach.json');
+  await writeFile(attachPath, `${JSON.stringify({
+    schema: 'lattice.pull_worker_attach_input.v1', name: ACTOR.agent, session: ACTOR.session,
+    pid: child.pid, started_identity: identity.started_identity,
+    argv_digest: createHash('sha256').update(argv, 'utf8').digest('hex'), recorded_at: NOW,
+  })}\n`);
+  parsed(runCli(root, [
+    'run', 'intake', 'attach', '--run', '.lattice/runs/pull-run', '--task', 'A', '--input', attachPath,
+  ]));
+
+  // pidが再利用されて別のprocessになった状況。SIGCONTを無関係な相手へ送らない。
+  process.kill(child.pid, 'SIGKILL');
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(parsed(runCli(root, [
+    'run', 'intake', 'detach', '--run', '.lattice/runs/pull-run', '--task', 'A',
+  ]), 1).code, 'WORKER_IDENTITY_MISMATCH');
+
+  // attach済みworkerが無いintakeへのdetachは、成功へ丸めずtypedに落とす。
+  await startTask(root, 'B', '2026-08-09T00:02:00.000Z');
+  parsed(runCli(root, ['run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'B']));
+  assert.equal(parsed(runCli(root, [
+    'run', 'intake', 'detach', '--run', '.lattice/runs/pull-run', '--task', 'B',
+  ]), 1).code, 'INTAKE_WORKER_ABSENT');
+});

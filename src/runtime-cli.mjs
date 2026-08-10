@@ -100,6 +100,7 @@ import {
   acceptPullTask,
   attachPullWorker,
   closePullRun,
+  detachPullWorker,
   inspectRunMode as inspectPullRunMode,
   intakePullTask,
   interventionPullTask,
@@ -4409,6 +4410,15 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     action = async () => {
       const { runDir } = await resolveRunStore(cwd, argv[4]);
       const output = await releasePullTask({ runDir, taskId: argv[6] });
+      stdout.write(`${JSON.stringify(output)}\n`); return 0;
+    };
+  } else if (argv.length === 7
+    && argv[0] === 'run' && argv[1] === 'intake' && argv[2] === 'detach'
+    && argv[3] === '--run' && typeof argv[4] === 'string' && argv[4].length > 0
+    && argv[5] === '--task' && typeof argv[6] === 'string' && argv[6].length > 0) {
+    action = async () => {
+      const { runDir } = await resolveRunStore(cwd, argv[4]);
+      const output = await detachPullWorker({ runDir, taskId: argv[6] });
       stdout.write(`${JSON.stringify(output)}\n`); return 0;
     };
   } else if (argv.length === 9
