@@ -161,7 +161,7 @@ test('live ganttはloopback限定でHTMLを配信しhead変更をSSE通知する
   assert.match(html, /connect-src 'self'/u);
   assert.match(html, /EventSource\("\/projects\/fixture-project\/events"\)/u);
   assert.match(html, /name="description" content="Latticeで管理しているプロジェクトの依存工程と進捗を確認できます。"/u);
-  assert.match(html, /name="robots" content="noindex, nofollow"/u);
+  assert.doesNotMatch(html, /noindex/u); // ADR 0164 Decision 5: noindexはサイト全体で撤去
   assert.match(html, /class="lattice-live-brand"/u);
   assert.match(html, /href="https:\/\/kitepon\.dev\/"/u);
   assert.match(html, /href="\/projects\/">一覧へ戻る/u);
@@ -230,7 +230,7 @@ test('dashboardはactive project一覧とproject別工程表を同じdisplay nam
     assert.match(html, /公開中の工程表/u);
     assert.match(html, /https:\/\/kitepon\.dev\//u);
     assert.match(html, /https:\/\/github\.com\/kitepon-rgb\/Lattice/u);
-    assert.match(html, /name="robots" content="noindex, nofollow"/u);
+    assert.doesNotMatch(html, /noindex/u); // ADR 0164 Decision 5: noindexはサイト全体で撤去
   }
   const project = await fetch(new URL('/projects/aishell/', dashboard.url));
   assert.equal(project.status, 200);
@@ -314,7 +314,7 @@ test('dashboardはブラウザの未知GETだけを戻り先つきHTML 404にす
     assert.match(response.headers.get('content-type'), /^text\/html/u);
     const html = await response.text();
     assert.match(html, /<title>ページが見つかりません — Lattice<\/title>/u);
-    assert.match(html, /name="robots" content="noindex, nofollow"/u);
+    assert.doesNotMatch(html, /noindex/u); // ADR 0164 Decision 5: noindexはサイト全体で撤去
     assert.match(html, /href="\/projects\/">公開工程表の一覧へ/u);
     assert.match(html, /href="https:\/\/kitepon\.dev\/">kitepon\.devへ/u);
   }
