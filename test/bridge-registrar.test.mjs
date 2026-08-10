@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  BridgeRegistrarError, bridgeRegistrarSettings, registerBridgeUpstream,
+  BridgeRegistrarError, bridgeRegistrarSettings, deriveBridgeHubUrlFromRegistration,
+  registerBridgeUpstream,
 } from '../src/bridge-registrar.mjs';
 
 const ENV = Object.freeze({
@@ -85,4 +86,25 @@ test('remoteが解釈不能な出力を返したらfailedにする（成功へ�
 test('不正なportはtypedに拒否する', async () => {
   await assert.rejects(registerBridgeUpstream({ port: 0, env: ENV, runner: runner(ok('{}')) }),
     (error) => error.code === 'BRIDGE_REGISTRAR_INVALID');
+});
+
+test('v2応答のhub_urlはderiveBridgeHubUrlFromRegistrationで取り出せる（正規化して末尾スラッシュ付きで返す）', async () => {
+  const run = runner(ok('{"schema":"lattice.bridge_registration.v2","changed":false,"hub_url":"http://192.168.1.2:53943"}'));
+  const result = await registerBridgeUpstream({ port: 53_939, env: ENV, runner: run });
+  assert.equal(result.state, 'unchanged', '旧daemonのstate判定はchanged:falseのまま互換維持される');
+  assert.equal(deriveBridgeHubUrlFromRegistration(result), 'http://192.168.1.2:53943/');
+});
+
+test('旧v1応答（hub_url無し）はnullを返しmigrationへ進まない', async () => {
+  const run = runner(ok('{"changed":true,"upstream":"192.168.1.103:53939"}'));
+  const result = await registerBridgeUpstream({ port: 53_939, env: ENV, runner: run });
+  assert.equal(deriveBridgeHubUrlFromRegistration(result), null);
+});
+
+test('不正なhub_url（空文字・不正URL・非HTTP scheme）はthrowせずnullを返す', () => {
+  assert.equal(deriveBridgeHubUrlFromRegistration({ remote: { hub_url: '' } }), null);
+  assert.equal(deriveBridgeHubUrlFromRegistration({ remote: { hub_url: 'not a url' } }), null);
+  assert.equal(deriveBridgeHubUrlFromRegistration({ remote: { hub_url: 'file:///etc/passwd' } }), null);
+  assert.equal(deriveBridgeHubUrlFromRegistration({ remote: null }), null);
+  assert.equal(deriveBridgeHubUrlFromRegistration(null), null);
 });

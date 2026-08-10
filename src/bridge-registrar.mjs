@@ -21,6 +21,8 @@
 
 import { execFile } from 'node:child_process';
 
+import { normalizeBridgeHubUrl } from './bridge-config.mjs';
+
 export const REGISTRAR_RESULT_SCHEMA = 'lattice.bridge_registrar_result.v1';
 
 const SSH_HOST = /^[A-Za-z0-9][A-Za-z0-9._-]{0,253}$/u;
@@ -99,4 +101,20 @@ export async function registerBridgeUpstream({
   return { schema: REGISTRAR_RESULT_SCHEMA,
     state: remote.changed === true ? 'updated' : 'unchanged',
     port, host: settings.host, remote, detail: null };
+}
+
+/**
+ * Extract a validated hub URL from a `registerBridgeUpstream` result, or
+ * `null` if this response carries none (old `lattice.bridge_registration.v1`
+ * script, a failed/not_configured registration, or a malformed value).
+ *
+ * Never throws: the caller is bh5's auto-migration path, which must fail
+ * safe into the legacy (no-hub) configuration rather than crash the daemon
+ * over a malformed hint from a remote script it does not control the
+ * deployment of.
+ */
+export function deriveBridgeHubUrlFromRegistration(result) {
+  const hubUrl = result?.remote?.hub_url;
+  if (typeof hubUrl !== 'string' || hubUrl.length === 0) return null;
+  try { return normalizeBridgeHubUrl({ url: hubUrl }).url; } catch { return null; }
 }
