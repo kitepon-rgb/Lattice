@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.55.0 — 2026-08-10
+
+### 修正
+
+- **bridgeの常駐設定がNode更新で沈黙死する欠陥を直した（ADR 0163）。** LaunchAgent plistと
+  WindowsのStartup launcherへ、版付きのNode実体path（homebrewの`Cellar/node/<version>/bin/node`）を
+  焼き込んでいた。`process.execPath`はlibuvが既にrealpath解決するため、`/opt/homebrew/bin/node`
+  経由で起動しても版付きpathになる。`brew upgrade node`で旧versionのディレクトリが消えると
+  launchdの実行対象が消滅し、KeepAliveが起動できないprocessを回し続ける。エラー面が無いため、
+  症状は「公開viewerから端末が消えた」だけだった（2026-08-08・2026-08-10に2度被弾）。
+  同じbinaryを指すとrealpathで検証できた安定alias（`/opt/homebrew/bin/node`、nvm-windowsなら
+  `C:\Program Files\nodejs\node.exe`）を焼くよう変更した。実体binaryの所有者・mode検査は従来どおり。
+  shim方式（asdf・volta）は検証が一致しないので版付きpathのままとし、その場合の防御は下記statusが持つ。
+  **既存の常駐設定は自動移行しない。更新後に各端末で`lattice bridge reconfigure --json`を1回打つ。**
+
+### 新機能
+
+- **`lattice bridge status`が常駐設定と実走processの乖離を報告するようになった。**
+  結果schemaは`lattice.bridge_cli_result.v4`（v3からの差分は下記4フィールドの追加）。
+  - `persistence` — 常駐設定が実際に起動する対象（Node実体・bridge script）と、その実在。
+    読めなかった場合は`unreadable`とtyped codeで返し、正常へ丸めない。
+  - `runtime` — 応答しているprocess自身が名乗る識別（pid・Lattice版・Node実体・Node版・bridge
+    script）。attested health応答にだけ載せ、無認証の可用性probeへは出さない。
+  - `runtime_drift` — `bridge_path`（別treeのcodeが走っている）／`node_path`（realpath比較）／
+    `version`（npm更新後の版持ち）。
+  - `remedy` — 自己解消しない状態にだけ`lattice bridge reconfigure --json`を出す。版差だけの時は
+    daemonが自ら降りて新codeで起動し直すので出さない。
+- **`setup`／`reconfigure`が開発treeからの常駐化を警告するようになった。** node_modules配下でない
+  実体を常駐させると、npm更新を追従せずtreeを動かせば二度と起動しない。結果の`warnings`へ
+  `BRIDGE_PERSISTED_FROM_DEVELOPMENT_TREE`を入れる（拒否はしない）。
+
 ## 0.54.0 — 2026-08-10
 
 ### 新機能
