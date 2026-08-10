@@ -33,6 +33,41 @@ fileを除去し、JSON結果の`recovery`へ処置を明示する。その後�
 自動化・隔離testではabsoluteな`LATTICE_CONFIG_DIR`で設定rootを変更できる。無効な設定、低いport、
 使用中の明示port、危険なrequest target、到達不能upstreamはsilent fallbackせずtyped errorを返す。
 
+## 常駐が黙って死んでいないか確かめる
+
+`reachable`は「設定したaddressで誰かが応答しているか」しか答えない。常駐設定（macOSのLaunchAgent、
+WindowsのStartup launcher）が消えたbinaryを指していると、supervisorは起動できないprocessを回し続け、
+どこにもエラーが出ないまま公開面から端末だけが消える。`status`はそれを1回で名指しする。
+
+```bash
+lattice bridge status --json
+```
+
+- `persistence` — 常駐設定が実際に起動する対象。`node_path`／`bridge_path`と、その`*_exists`。
+  `state`は`installed`／`not_installed`／`unreadable`（読めなかった理由は`error`にtyped codeで入る）。
+- `runtime` — いま実際に応答しているprocess自身の申告（`pid`・製品版・node実体・node版・bridge script）。
+  `state`が`running`以外なら申告は取れていない。identityを返さない旧版daemonが走っている間は各値がnullになる。
+- `runtime_drift` — 両者の食い違い。`bridge_path`（別treeのcodeが走っている）、`node_path`（常駐設定が指す
+  nodeと実走nodeが別実体）、`version`（npm更新後まだ旧moduleを保持している）。
+- `remedy` — 自己解消しない状態にだけ、打つべきコマンドが入る。`version`だけの差はdaemonが版差を検知して
+  自ら降り、supervisorが新codeで起動し直すので`remedy`は出ない。
+
+`node_exists`がfalse、または`runtime_drift`に`node_path`／`bridge_path`がある時は`reconfigure`で作り直す。
+plistやlauncherを手で書き換えない。
+
+```bash
+lattice bridge reconfigure --json
+```
+
+常駐設定へ焼くnodeのpathは、版付きの実体（homebrewの`Cellar/node/<version>/bin/node`、nvm-windowsの
+版ディレクトリ）ではなく、同じbinaryを指すと検証できた安定alias（`/opt/homebrew/bin/node`、
+`C:\Program Files\nodejs\node.exe`）を選ぶ。`brew upgrade node`が旧versionのディレクトリごと消しても
+起動対象が残るようにするためである。安定aliasを検証できない環境（shim方式のasdf／volta等）では
+版付きpathのまま焼き、消滅は上記`node_exists`で読めるようにする。
+
+なお`setup`／`reconfigure`をnode_modules配下でない実体（開発tree）から実行すると、結果の`warnings`へ
+`BRIDGE_PERSISTED_FROM_DEVELOPMENT_TREE`が入る。そのtreeを動かすと常駐が止まり、`npm`更新も反映されない。
+
 ## listen IPがDHCPで動く場合
 
 設定したlisten IPがホストから消えると、古いsocketは死んだアドレスへ取り残され、LANから到達できなくなる。
