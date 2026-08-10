@@ -1,2 +1,6 @@
 # Acquired research is retained byte-for-byte; do not rewrite source whitespace.
 rag/parallel-ready-planning/** -whitespace
+
+# Lattice storeはcanonical JSON+LFのバイト列契約。EOL変換されると
+# artifact_truncated_or_trailing_bytesでstore全体がfail closedする（Windows checkoutで実害）。
+.lattice/** -text
