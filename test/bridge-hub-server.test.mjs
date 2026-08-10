@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer, request as httpRequest } from 'node:http';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -235,6 +235,22 @@ test('heartbeatが途絶えTTLを超えた端末は503で配信元オフライ�
   assert.equal(listing.find((entry) => entry.project_id === 'stale-project').status, 'offline');
 });
 
+/**
+ * 明示bindの検証に使う「既定ではない、この機械に実在するアドレス」。
+ * `127.0.0.2`は使えない——Linuxは127/8全体がloopbackに応答するがmacOSのlo0は
+ * `127.0.0.1`しか持たず、EADDRNOTAVAILになる（実測）。この機械が実際に持つ
+ * non-internalなIPv4を使えば3 OSとも同じ検証が走り、hubが本番でLAN literalへ
+ * bindする形にも近い。持たない機械では既定へ落とす。
+ */
+function explicitBindAddress() {
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family === 'IPv4' && !entry.internal) return entry.address;
+    }
+  }
+  return '127.0.0.1';
+}
+
 test('listenAddressは既定でloopbackだが明示すればそこへbindする', async (context) => {
   const defaultHub = await startBridgeHubServer({
     registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.1']),
@@ -242,12 +258,13 @@ test('listenAddressは既定でloopbackだが明示すればそこへbindする'
   context.after(() => defaultHub.close());
   assert.equal(defaultHub.host, '127.0.0.1');
 
+  const explicit = explicitBindAddress();
   const explicitHub = await startBridgeHubServer({
-    registryStore: memoryRegistryStore(), allowedHosts: new Set(['127.0.0.2']), listenAddress: '127.0.0.2',
+    registryStore: memoryRegistryStore(), allowedHosts: new Set([explicit]), listenAddress: explicit,
   });
   context.after(() => explicitHub.close());
-  assert.equal(explicitHub.host, '127.0.0.2');
-  const response = await fetch(`http://127.0.0.2:${explicitHub.port}/projects/`,
+  assert.equal(explicitHub.host, explicit);
+  const response = await fetch(`http://${explicit}:${explicitHub.port}/projects/`,
     { headers: { accept: 'application/json' } });
   assert.equal(response.status, 200);
 });
