@@ -32,13 +32,16 @@ import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import {
-  lstat, mkdir, open, readFile, realpath, rename, rm, writeFile,
+  lstat, mkdir, open, readFile, realpath, rename, rm, stat, writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { BridgeConfigError, readBridgeConfig } from './bridge-config.mjs';
 import { readBridgeDaemonDescriptor } from './bridge-daemon.mjs';
+import {
+  DEFAULT_BRIDGE_PATH, DEFAULT_SUPERVISOR_PATH, stableNodePath,
+} from './bridge-executable.mjs';
 import { bridgeRegistrarSettings } from './bridge-registrar.mjs';
 
 export const BRIDGE_STARTUP_LABEL = 'LatticeBridge';
@@ -242,6 +245,33 @@ export async function snapshotBridgeStartupFolder({ env = process.env } = {}) {
   return Object.freeze({ installed: launcherContent !== null, launcherContent, descriptorContent });
 }
 
+async function pathPresent(ref) {
+  if (typeof ref !== 'string') return false;
+  try { await stat(ref); return true; } catch { return false; }
+}
+
+/**
+ * The Windows counterpart of `describeBridgeLaunchAgent`, reporting the same
+ * shape: what the persisted launcher runs and whether it is still there. The
+ * node path comes from the `.vbs` (first triple-quoted argument), the bridge
+ * script from the supervisor descriptor that owns it.
+ */
+export async function describeBridgeStartupFolder({ snapshot } = {}) {
+  if (snapshot?.installed !== true) return null;
+  const quoted = typeof snapshot.launcherContent === 'string'
+    ? [...snapshot.launcherContent.matchAll(/"""([^"]*)"""/gu)].map((match) => match[1]) : [];
+  const nodePath = quoted.length > 0 ? quoted[0] : null;
+  let bridgePath = null;
+  try {
+    const parsed = JSON.parse(snapshot.descriptorContent);
+    if (typeof parsed?.bridgePath === 'string') bridgePath = parsed.bridgePath;
+  } catch {}
+  return {
+    node_path: nodePath, node_exists: await pathPresent(nodePath),
+    bridge_path: bridgePath, bridge_exists: await pathPresent(bridgePath),
+  };
+}
+
 /** Read the supervisor's own recorded pid and kill its whole process tree
   * (`taskkill /T /F`) — a forcibly-terminated supervisor cannot clean up its
   * child itself, so the tree kill is what actually stops the bridge, not the
@@ -266,17 +296,21 @@ async function stopRunning({ env, listen, runner, waitStopped }) {
 
 export async function installBridgeStartupFolder({ config, env = process.env,
   runner = defaultStartupRunner, nodePath = process.execPath,
-  bridgePath = path.resolve(import.meta.dirname, '../bin/lattice-bridge.mjs'),
-  supervisorPath = path.resolve(import.meta.dirname, '../bin/lattice-bridge-supervisor.mjs'),
+  bridgePath = DEFAULT_BRIDGE_PATH, supervisorPath = DEFAULT_SUPERVISOR_PATH,
   waitReady = defaultWaitReady, waitStopped = defaultWaitStopped,
-  previousListen = null } = {}) {
+  stableNode = stableNodePath, previousListen = null } = {}) {
   if (config?.enabled !== true) throw fail('BRIDGE_DISABLED', 'bridge is disabled');
   const refs = bridgeStartupFolderPaths(env);
   await prepareDirectory(refs.startupDirectory);
   await prepareDirectory(refs.runtimeDirectory);
   await strictFile(refs.launcher);
   await strictFile(refs.descriptor);
+  // Same reasoning as the LaunchAgent: validate the real binary, bake a
+  // verified stable alias for it. nvm-windows swaps the version behind the
+  // `C:\Program Files\nodejs` junction exactly the way Homebrew swaps the
+  // Cellar directory behind `/opt/homebrew/bin/node`.
   const resolvedNode = await executablePath(nodePath, 'node executable');
+  const bakedNode = await stableNode({ resolved: resolvedNode, env });
   const resolvedBridge = await executablePath(bridgePath, 'bridge executable');
   const resolvedSupervisor = await executablePath(supervisorPath, 'supervisor executable');
   const instanceToken = randomBytes(32).toString('hex');
@@ -286,7 +320,7 @@ export async function installBridgeStartupFolder({ config, env = process.env,
   await stopRunning({ env, listen: previousListen, runner, waitStopped });
   await atomicFile(refs.descriptor, descriptorContent);
   await atomicFile(refs.launcher,
-    launcherScript({ nodePath: resolvedNode, supervisorPath: resolvedSupervisor, descriptorPath: refs.descriptor }));
+    launcherScript({ nodePath: bakedNode, supervisorPath: resolvedSupervisor, descriptorPath: refs.descriptor }));
   await launch(runner, ['wscript.exe', refs.launcher], 'BRIDGE_STARTUP_LAUNCHER_FAILED',
     'could not start the bridge startup process');
   return waitReady({ config, instanceToken, env });

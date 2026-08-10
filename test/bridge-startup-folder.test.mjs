@@ -13,8 +13,9 @@ import test from 'node:test';
 // happen on real Windows and was done by hand against a live machine, not in
 // this suite — see evidence/bridge-hub for that record.
 import {
-  BRIDGE_STARTUP_LABEL, bridgeStartupFolderPaths, disableBridgeStartupFolder,
-  installBridgeStartupFolder, restoreBridgeStartupFolder, snapshotBridgeStartupFolder,
+  BRIDGE_STARTUP_LABEL, bridgeStartupFolderPaths, describeBridgeStartupFolder,
+  disableBridgeStartupFolder, installBridgeStartupFolder, restoreBridgeStartupFolder,
+  snapshotBridgeStartupFolder,
 } from '../src/bridge-startup-folder.mjs';
 
 async function fixture(context, prefix) {
@@ -69,6 +70,43 @@ test('installは絶対pathの引用符付き起動scriptとdescriptorをatomic w
   assert.equal(descriptorContent.env.LATTICE_CONFIG_DIR, env.LATTICE_CONFIG_DIR);
   assert.match(ready.instanceToken, /^[0-9a-f]{64}$/u);
   assert.deepEqual(control.calls.at(-1), ['wscript.exe', refs.launcher]);
+});
+
+test('launcherは検証済みの安定aliasを焼き、describeが実行対象と実在を返す', async (context) => {
+  // nvm-windowsのjunction差し替えは、homebrewのCellar削除と同じ形で起動対象を
+  // 消す。焼くのは実体pathでなくstableNodePathが検証した側でなければならない。
+  const { root, env } = await fixture(context, 'lattice-startup-stable-node-');
+  const control = taskkillDouble();
+  const stable = path.join(root, 'nodejs', 'node.exe');
+  await mkdir(path.dirname(stable), { recursive: true });
+  await writeFile(stable, 'binary', { mode: 0o755 });
+  const asked = [];
+  await installBridgeStartupFolder({ config: config(58_776), env, runner: control.runner,
+    stableNode: async ({ resolved }) => { asked.push(resolved); return stable; },
+    waitReady: async () => {} });
+  assert.equal(asked.length, 1, '実体pathを解決してから安定aliasを問い合わせる');
+  const launcherContent = await readFile(bridgeStartupFolderPaths(env).launcher, 'utf8');
+  assert.ok(launcherContent.includes(`"""${stable}"""`), launcherContent);
+
+  const described = await describeBridgeStartupFolder({
+    snapshot: await snapshotBridgeStartupFolder({ env }) });
+  assert.equal(described.node_path, stable);
+  assert.equal(described.node_exists, true);
+  assert.match(described.bridge_path, /lattice-bridge\.mjs$/u);
+  assert.equal(described.bridge_exists, true);
+
+  // node実体が消えた状態は必ず読み取れる（KeepAlive相当の空回りを黙らせない）。
+  await rm(stable, { force: true });
+  const dead = await describeBridgeStartupFolder({
+    snapshot: await snapshotBridgeStartupFolder({ env }) });
+  assert.equal(dead.node_path, stable);
+  assert.equal(dead.node_exists, false);
+});
+
+test('未installのstartup folderはdescribeでnullを返す（存在しないものを説明しない）', async (context) => {
+  const { env } = await fixture(context, 'lattice-startup-describe-absent-');
+  assert.equal(await describeBridgeStartupFolder({
+    snapshot: await snapshotBridgeStartupFolder({ env }) }), null);
 });
 
 test('reconfigureは旧supervisorをtaskkillで止めてから新descriptor/launcherへ差し替える', async (context) => {

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { chmod, lstat, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod, lstat, mkdir, readFile, realpath, rm, symlink, unlink, writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -10,9 +12,22 @@ import test from 'node:test';
 const macOnly = { skip: process.platform === 'darwin' ? false : 'launchd is macOS only' };
 
 import {
-  BRIDGE_LAUNCH_AGENT_LABEL, bridgeLaunchAgentPaths, disableBridgeLaunchAgent,
-  installBridgeLaunchAgent, restoreBridgeLaunchAgent, snapshotBridgeLaunchAgent,
+  BRIDGE_LAUNCH_AGENT_LABEL, bridgeLaunchAgentPaths, describeBridgeLaunchAgent,
+  disableBridgeLaunchAgent, installBridgeLaunchAgent, restoreBridgeLaunchAgent,
+  snapshotBridgeLaunchAgent,
 } from '../src/bridge-launch-agent.mjs';
+
+/** homebrew相当の版付きnode実体と、それを指す安定alias。 */
+async function nodeTree(root, version) {
+  const cellar = path.join(root, 'Cellar', 'node', version, 'bin');
+  const stable = path.join(root, 'bin');
+  await mkdir(cellar, { recursive: true });
+  await mkdir(stable, { recursive: true });
+  await writeFile(path.join(cellar, 'node'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  await rm(path.join(stable, 'node'), { force: true });
+  await symlink(path.join(cellar, 'node'), path.join(stable, 'node'));
+  return { cellar, stable, resolved: await realpath(path.join(cellar, 'node')) };
+}
 
 async function fixture(context, prefix) {
   const { mkdtemp } = await import('node:fs/promises');
@@ -143,6 +158,51 @@ test('launchctl bootstrap失敗はtyped errorで、symlink/緩いmode plistは�
     await assert.rejects(snapshotBridgeLaunchAgent({ env, runner: control.runner }),
       { code: 'BRIDGE_LAUNCH_AGENT_PLIST_UNSAFE' });
   });
+
+test('plistは版付き実体でなく安定aliasを焼き、node更新後も実行対象が生き残る', macOnly, async (context) => {
+  // 2026-08-08と2026-08-10に実被弾した経路そのもの。brew upgrade nodeで旧Cellarが
+  // 消えるとProgramArgumentsの実行対象が消滅し、KeepAliveが空回りするだけで
+  // どこにもエラーが出ず、症状は「公開viewerから端末が消えた」だけになる。
+  const { root, env } = await fixture(context, 'lattice-launch-agent-node-upgrade-');
+  const control = launchctlDouble();
+  const before = await nodeTree(root, '26.7.0');
+  await installBridgeLaunchAgent({ config: config(58_766),
+    env: { ...env, PATH: before.stable }, runner: control.runner,
+    nodePath: before.resolved, waitReady: async () => {} });
+  const content = await readFile(bridgeLaunchAgentPaths(env).plist, 'utf8');
+  assert.match(content, new RegExp(`<string>${path.join(before.stable, 'node')}</string>`, 'u'));
+  assert.doesNotMatch(content, /26\.7\.0/u, '版付きpathを焼いた時点でnode更新に殺される');
+
+  // brew upgrade node: 旧Cellarが消え、aliasが新しい実体を指す。
+  await rm(path.join(root, 'Cellar', 'node', '26.7.0'), { recursive: true, force: true });
+  await nodeTree(root, '26.8.0');
+  const snapshot = await snapshotBridgeLaunchAgent({ env, runner: control.runner });
+  const described = await describeBridgeLaunchAgent({ snapshot });
+  assert.equal(described.node_exists, true, 'node更新後もlaunchdの実行対象は存在していなければならない');
+  assert.equal(described.bridge_exists, true);
+});
+
+test('安定aliasが無い環境では版付きpathを焼き、消滅をstatusが読める形で報告する', macOnly, async (context) => {
+  // 安定aliasを検証できない環境（nvm等）では起動継続は原理的に保証できない。
+  // その時に守るべき条件は「継続」ではなく「沈黙しないこと」である。
+  const { root, env } = await fixture(context, 'lattice-launch-agent-node-pinned-');
+  const control = launchctlDouble();
+  const tree = await nodeTree(root, '26.7.0');
+  await unlink(path.join(tree.stable, 'node'));
+  await installBridgeLaunchAgent({ config: config(58_767),
+    env: { ...env, PATH: path.join(root, 'absent') }, runner: control.runner,
+    nodePath: tree.resolved, waitReady: async () => {} });
+  assert.match(await readFile(bridgeLaunchAgentPaths(env).plist, 'utf8'), /26\.7\.0/u);
+
+  const live = await describeBridgeLaunchAgent({
+    snapshot: await snapshotBridgeLaunchAgent({ env, runner: control.runner }) });
+  assert.equal(live.node_exists, true);
+  await rm(path.join(root, 'Cellar', 'node', '26.7.0'), { recursive: true, force: true });
+  const dead = await describeBridgeLaunchAgent({
+    snapshot: await snapshotBridgeLaunchAgent({ env, runner: control.runner }) });
+  assert.equal(dead.node_path, tree.resolved);
+  assert.equal(dead.node_exists, false, '実行対象の消滅は必ず読み取れなければならない');
+});
 
 test('registrar設定はplistへ焼き込まれる（launchdはshell環境を継承しない）', macOnly, async (context) => {
   const { env } = await fixture(context, 'lattice-launch-agent-registrar-');

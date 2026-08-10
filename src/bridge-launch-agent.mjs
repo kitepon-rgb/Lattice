@@ -2,13 +2,14 @@ import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import {
-  chmod, lstat, mkdir, open, readFile, realpath, rename, rm, writeFile,
+  chmod, lstat, mkdir, open, realpath, rename, rm, stat, writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { BridgeConfigError, readBridgeConfig } from './bridge-config.mjs';
 import { readBridgeDaemonDescriptor } from './bridge-daemon.mjs';
+import { DEFAULT_BRIDGE_PATH, stableNodePath } from './bridge-executable.mjs';
 import { bridgeRegistrarSettings } from './bridge-registrar.mjs';
 
 export const BRIDGE_LAUNCH_AGENT_LABEL = 'dev.kitepon.lattice.bridge';
@@ -252,6 +253,40 @@ export async function snapshotBridgeLaunchAgent({ env = process.env,
   return Object.freeze({ installed: content !== null, loaded, content });
 }
 
+const PROGRAM_ARGUMENTS_PATTERN =
+  /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]*)<\/string>\s*<string>([^<]*)<\/string>\s*<\/array>/u;
+
+/** Inverse of `xml`, innermost-last so an escaped `&amp;lt;` survives intact. */
+function unxml(value) {
+  return value.replaceAll('&apos;', "'").replaceAll('&quot;', '"')
+    .replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&amp;', '&');
+}
+
+async function pathPresent(ref) {
+  if (typeof ref !== 'string') return false;
+  try { await stat(ref); return true; } catch { return false; }
+}
+
+/**
+ * What the installed plist actually tells launchd to run, and whether those
+ * paths still exist. A LaunchAgent whose ProgramArguments point at a deleted
+ * binary is the product's worst failure mode: KeepAlive keeps respinning it,
+ * nothing logs, and the only visible symptom is a terminal missing from the
+ * published view. Reporting it here is what turns that into an answer
+ * `lattice bridge status` can give in one call.
+ */
+export async function describeBridgeLaunchAgent({ snapshot } = {}) {
+  if (snapshot?.installed !== true) return null;
+  const match = typeof snapshot.content === 'string'
+    ? snapshot.content.match(PROGRAM_ARGUMENTS_PATTERN) : null;
+  const nodePath = match === null ? null : unxml(match[1]);
+  const bridgePath = match === null ? null : unxml(match[2]);
+  return {
+    node_path: nodePath, node_exists: await pathPresent(nodePath),
+    bridge_path: bridgePath, bridge_exists: await pathPresent(bridgePath),
+  };
+}
+
 async function bootoutIfLoaded({ runner, uid }) {
   if (!await loadedState(runner, uid)) return false;
   await launchctl(runner, ['bootout', service(uid)], 'BRIDGE_LAUNCHCTL_BOOTOUT_FAILED',
@@ -261,17 +296,22 @@ async function bootoutIfLoaded({ runner, uid }) {
 
 export async function installBridgeLaunchAgent({ config, env = process.env,
   runner = defaultLaunchctlRunner, uid = userId(), nodePath = process.execPath,
-  bridgePath = path.resolve(import.meta.dirname, '../bin/lattice-bridge.mjs'),
+  bridgePath = DEFAULT_BRIDGE_PATH,
   waitReady = defaultWaitReady, waitStopped = defaultWaitStopped,
-  previousListen = null } = {}) {
+  stableNode = stableNodePath, previousListen = null } = {}) {
   if (config?.enabled !== true) throw fail('BRIDGE_DISABLED', 'bridge is disabled');
   const refs = bridgeLaunchAgentPaths(env);
   await prepareDirectory(refs.directory, uid);
   await strictPlist(refs.plist, uid);
+  // The safety checks run against the real binary; what goes into the plist is
+  // a stable alias for it when one can be verified, so a version-manager
+  // upgrade cannot delete the path launchd was told to exec. See
+  // bridge-executable.mjs for why the alias is not additionally permission-checked.
   const resolvedNode = await executablePath(nodePath, 'node executable', { uid });
+  const bakedNode = await stableNode({ resolved: resolvedNode, env });
   const resolvedBridge = await executablePath(bridgePath, 'bridge executable', { executable: false, uid });
   const instanceToken = randomBytes(32).toString('hex');
-  const content = plistDocument({ nodePath: resolvedNode, bridgePath: resolvedBridge, instanceToken, env });
+  const content = plistDocument({ nodePath: bakedNode, bridgePath: resolvedBridge, instanceToken, env });
   const stopped = await bootoutIfLoaded({ runner, uid });
   if (stopped) await waitStopped({ listen: previousListen, env });
   await atomicPlist(refs.plist, content);
