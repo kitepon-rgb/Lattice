@@ -1408,7 +1408,11 @@ async function atomicWrite(absolute, bytes) {
     await handle.writeFile(bytes); await handle.sync(); await handle.close(); handle = null;
     await rename(temporary, absolute);
     const directory = await open(path.dirname(absolute), 'r');
-    try { await directory.sync(); } finally { await directory.close(); }
+    // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
+    // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
+    try { await directory.sync(); } catch (error) {
+      if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
+    } finally { await directory.close(); }
   } finally {
     if (handle) await handle.close();
     await rm(temporary, { force: true });
@@ -1434,7 +1438,11 @@ async function atomicWriteMode(absolute, bytes, mode) {
 
 async function fsyncDirectory(absolute) {
   const directory = await open(absolute, 'r');
-  try { await directory.sync(); } finally { await directory.close(); }
+  // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
+  // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
+  try { await directory.sync(); } catch (error) {
+    if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
+  } finally { await directory.close(); }
 }
 
 async function withLock(repoRoot, callback) {

@@ -194,7 +194,11 @@ async function atomicWrite(ref, bytes) {
     handle = null;
     await rename(temporary, ref);
     const directory = await open(path.dirname(ref), 'r');
-    try { await directory.sync(); } finally { await directory.close(); }
+    // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
+    // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
+    try { await directory.sync(); } catch (error) {
+      if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
+    } finally { await directory.close(); }
   } finally {
     if (handle) await handle.close();
     await rm(temporary, { force: true });

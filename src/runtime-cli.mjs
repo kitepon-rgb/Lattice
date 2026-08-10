@@ -794,7 +794,11 @@ async function durableReplaceBytes(directory, name, bytes) {
     handle = null;
     await rename(temporaryPath, path.join(directory, name));
     const directoryHandle = await open(directory, fsConstants.O_RDONLY);
-    try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
+    // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
+    // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
+    try { await directoryHandle.sync(); } catch (error) {
+      if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
+    } finally { await directoryHandle.close(); }
   } finally {
     if (handle) await handle.close().catch(() => {});
     await rm(temporaryPath, { force: true }).catch(() => {});

@@ -126,7 +126,11 @@ async function ownerIsLive(artifact, observer) {
 
 async function syncDirectory(directory) {
   const handle = await open(directory, fsConstants.O_RDONLY);
-  try { await handle.sync(); } finally { await handle.close(); }
+  // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
+  // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
+  try { await handle.sync(); } catch (error) {
+    if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
+  } finally { await handle.close(); }
 }
 
 async function recoverStaleLock(lockPath, expectedDigest) {
