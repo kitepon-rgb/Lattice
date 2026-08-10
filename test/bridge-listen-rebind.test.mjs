@@ -56,7 +56,7 @@ test('設定アドレスがホストから消えるとstatusがrebindableと到�
 
   const status = await statusOf(env, { interfaces: MOVED, probe: async () => false });
 
-  assert.equal(status.schema, 'lattice.bridge_cli_result.v2');
+  assert.equal(status.schema, 'lattice.bridge_cli_result.v3');
   assert.equal(status.enabled, true, '設定は有効なまま');
   assert.equal(status.listen.address, LIVE, '設定の意図は保持する');
   assert.equal(status.listen_state, 'rebindable');
