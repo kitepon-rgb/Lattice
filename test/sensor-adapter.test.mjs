@@ -366,6 +366,20 @@ test('fails loud for arbitrary non-JSON and nonzero command results', async () =
   assert.equal(evidence.outcomes[1].outcome, 'command_failure');
 });
 
+test('索引対象0件の完了indexはreadyであって、未解決へ落とさない', async () => {
+  // 最初のsource fileを書く前のprojectは新規repoの正常な初期状態である。
+  // sensorがこの索引に出自を刻まなかった時代（builtWithVersion: null）、ここは
+  // 永久にunresolvedになり、shared pull runがboundaryを検証できず退役もできない
+  // 閉じた循環を作った（2026-08-10）。件数はreadyの条件ではない。
+  const emptyIndex = { ...JSON.parse(READY_STATUS), fileCount: 0, nodeCount: 0, edgeCount: 0 };
+  const evidence = await collectSensorEvidence({
+    cwd: '/repo',
+    querySet: { queries: [{ id: 'status', operation: 'status' }] },
+    execute: fakeExecutor({ status: { code: 0, stdout: JSON.stringify(emptyIndex), stderr: '' } }),
+  });
+  assert.equal(evidence.outcomes[0].outcome, 'ready');
+});
+
 test('fails loud for stale, unresolved, and unsupported status', async () => {
   const cases = [
     ['stale', {

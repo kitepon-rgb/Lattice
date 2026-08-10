@@ -653,7 +653,17 @@ export class LatticeSensor {
         // engine produces richer extraction than the one on disk. Only on a
         // real full index — a sync touches a subset, so it must NOT advance the
         // extraction stamp (the bulk would still be stale). See extraction-version.ts.
-        if (result.success && result.filesIndexed > 0) {
+        //
+        // Deliberately NOT gated on `filesIndexed > 0`. Being in `indexAll` is
+        // already what makes this a full index; the file count says nothing about
+        // that. A repo with no indexable code (a project before its first source
+        // file) completes a full index of zero files, and that index is exactly as
+        // current as any other — but leaving it unstamped reports `builtWithVersion:
+        // null`, which every consumer must read as "provenance unknown". Lattice's
+        // boundary adapter does, and the result was a shared pull run that could
+        // never verify a boundary and never be retired (2026-08-10). An empty repo
+        // is the normal initial state of a new project, not an error.
+        if (result.success) {
           try {
             this.queries.setMetadata('indexed_with_version', LatticeSensorPackageVersion);
             this.queries.setMetadata('indexed_with_extraction_version', String(EXTRACTION_VERSION));

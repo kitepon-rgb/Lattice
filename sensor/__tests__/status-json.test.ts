@@ -118,6 +118,32 @@ describe('index completeness marker (index_state)', () => {
     expect((out.index as Record<string, unknown>).state).toBe('complete');
   });
 
+  it('a full index of a repo with no indexable code still stamps its own provenance', async () => {
+    // A project before its first source file is the normal initial state of a new
+    // repo, not an error. Gating the provenance stamp on `filesIndexed > 0` left
+    // such an index reporting `builtWithVersion: null`, which every consumer has to
+    // read as "provenance unknown" — Lattice's boundary adapter did, and a shared
+    // pull run could then never verify a boundary nor be retired (2026-08-10).
+    fs.writeFileSync(path.join(tempDir, 'README.md'), '# plan only\n');
+    fs.writeFileSync(path.join(tempDir, 'plan.json'), '{"tasks":[]}\n');
+    const cg = LatticeSensor.initSync(tempDir);
+    const result = await cg.indexAll();
+    expect(result.success).toBe(true);
+    expect(result.filesIndexed).toBe(0);
+
+    const buildInfo = cg.getIndexBuildInfo();
+    expect(buildInfo.version).toBe(PKG_VERSION);
+    expect(buildInfo.extractionVersion).not.toBeNull();
+    expect(cg.getIndexState()).toBe('complete');
+    cg.close();
+
+    const out = runStatusJson(tempDir);
+    const index = out.index as Record<string, unknown>;
+    expect(index.builtWithVersion).toBe(PKG_VERSION);
+    expect(index.state).toBe('complete');
+    expect(out.fileCount).toBe(0);
+  });
+
   it('a run killed mid-index leaves state=indexing, and status --json surfaces it', async () => {
     fs.writeFileSync(path.join(tempDir, 'a.ts'), 'export const x = 1;\n');
     const cg = LatticeSensor.initSync(tempDir);
