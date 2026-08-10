@@ -74,3 +74,45 @@ ssh逆トンネル、Caddy、Cloudflare Tunnel、LaunchAgent plist、portは変�
 
 GitHub Releaseは
 [`v0.35.0`](https://github.com/kitepon-rgb/Lattice/releases/tag/v0.35.0)。
+
+## 2026-08-10 v0.53.0・bridge hub配備（サーバー側手順1〜6）
+
+`docs/plan_bridge-hub.md`の設計どおり、配信元を単一Mac固定から複数端末を集約するhubへ切り替える
+配備を開始した。本節はサーバー側手順（1〜6、bellがH操作として実行）の記録。Mac側手順（7〜8、
+逆トンネル退役とbridge reconfigure）はオーナー実施待ちで別途追記する。
+
+### 変更後の配備構成（サーバー側のみ完了、Mac側は移行中）
+
+```
+Cloudflare Tunnel → Docker Caddy → hub（192.168.1.2常駐、systemd）→ 各端末のbridge
+```
+
+- hub: `192.168.1.2`にsystemd unit `lattice-hub.service`として常駐（`User=kite`、
+  `Restart=on-failure`）。`@quolu/lattice@0.53.0`の`bin/lattice-hub.mjs`。
+- **listen port: `53943`。** 申請時の想定`53940`は同一host `172.18.0.1`で稼働中の別サービス
+  （spotter dashboard）と衝突するため、配備直前の偵察で発見し変更した。今後この構成に触れる時は
+  `53943`を正とする（room内の初期申請に残る`53940`は訂正済みの旧案）。
+- `LATTICE_HUB_LISTEN=172.18.0.1`（Docker bridge gateway。Caddy containerからは`127.0.0.1`へ
+  直接到達できないため、既存bridgeと同じgateway経由の構成）。
+- `LATTICE_HUB_ALLOWED_HOSTS=lattice.kitepon.dev`。
+- ufw: `172.18.0.1:53943`へのcontainer→host許可を追加（既存`53939`ルールと対）。
+- Caddy upstream: `172.18.0.1:53939` → `172.18.0.1:53943`へ差替、`caddy validate`後`caddy reload`。
+
+### 受入結果（サーバー側6手順）
+
+1. `172.18.0.1:53943/projects/`へHost付きcurlがHTTP 200（Docker/Caddy host上）。
+2. Caddy container内から同endpointがHTTP 200。
+3. `https://lattice.kitepon.dev/`が公開HTTPSでHTTP 200。
+4. `https://lattice.kitepon.dev/projects/`がHTTP 200、端末が未登録のため空一覧
+   （fail-closed設計どおり——黙って旧配信元を出し続けない）。
+
+### 既知の罠への追補
+
+- **H申請の事前確認漏れ**: 対象portの実況（既存listenerとの衝突）確認をH操作申請の手順へ
+  含めていなかった。今後192.168.1.2上へ新規サービスを追加するH操作では、対象portが
+  空いていることを申請段階で確認する手順を含める。
+- Mac側手順（7: `lattice bridge reconfigure --listen <Mac LAN IP> --port auto --dashboard
+  --hub http://192.168.1.2:53943 --allow-host lattice.kitepon.dev --json`、8: 逆トンネル
+  LaunchAgent `dev.kitepon.lattice.bridge-tunnel`の退役）はMac端末が必要なためオーナー実施待ち。
+- Windows端末（ChromeBlocker）のbridge常駐はbh6の範囲。WSL2はLANから到達不能なため、
+  bridgeはWindows native側で常駐させる必要がある（plan既知の罠「Windows端末の常駐」）。
