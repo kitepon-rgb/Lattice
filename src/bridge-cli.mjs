@@ -21,7 +21,8 @@ import {
 // v2 adds the liveness fields. `enabled` only says the configuration is on;
 // it never said the bridge could actually be reached, which let a DHCP lease
 // change take the published surface down while status kept reporting health.
-const RESULT_SCHEMA = 'lattice.bridge_cli_result.v2';
+// v3 adds `hub` (bh3): the terminal's registered bridge-hub, if any.
+const RESULT_SCHEMA = 'lattice.bridge_cli_result.v3';
 const REACHABILITY_PROBE_TIMEOUT_MS = 750;
 
 /** TCP connect probe. Answers "is anything accepting there right now". */
@@ -71,7 +72,7 @@ function fail(stderr, code, message) {
 }
 
 function parseOptions(words) {
-  const options = { address: undefined, port: undefined, upstream: undefined, allowedHosts: [] };
+  const options = { address: undefined, port: undefined, upstream: undefined, hub: undefined, allowedHosts: [] };
   for (let index = 0; index < words.length; index += 1) {
     const flag = words[index];
     if (flag === '--listen') {
@@ -88,9 +89,13 @@ function parseOptions(words) {
     } else if (flag === '--upstream') {
       if (options.upstream !== undefined) throw new BridgeConfigError('USAGE', 'upstream option is ambiguous');
       options.upstream = { mode: 'url', url: words[++index] };
+    } else if (flag === '--hub') {
+      if (options.hub !== undefined) throw new BridgeConfigError('USAGE', 'duplicate --hub');
+      const value = words[++index];
+      options.hub = value === 'none' ? null : { url: value };
     } else if (flag === '--allow-host') options.allowedHosts.push(words[++index]);
     else throw new BridgeConfigError('USAGE', `unknown bridge option: ${flag}`);
-    if ((flag === '--listen' || flag === '--port' || flag === '--upstream' || flag === '--allow-host')
+    if ((flag === '--listen' || flag === '--port' || flag === '--upstream' || flag === '--hub' || flag === '--allow-host')
       && words[index] === undefined) throw new BridgeConfigError('USAGE', `missing value for ${flag}`);
   }
   return options;
@@ -99,7 +104,7 @@ function parseOptions(words) {
 function result(action, config, recovery = null, liveness = null) {
   return { schema: RESULT_SCHEMA, action, configured: config !== null, enabled: config?.enabled ?? false,
     listen: config?.listen ?? null, allowed_hosts: config?.allowed_hosts ?? null,
-    upstream: config?.upstream ?? null, updated_at: config?.updated_at ?? null, recovery,
+    upstream: config?.upstream ?? null, hub: config?.hub ?? null, updated_at: config?.updated_at ?? null, recovery,
     listen_state: liveness?.listen_state ?? null,
     effective_listen: liveness?.effective_listen ?? null,
     listen_candidates: liveness?.listen_candidates ?? null,
@@ -255,7 +260,8 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
         const configured = await configureBridge({
           address: options.address ?? current?.listen.address,
           port: options.port === undefined ? (command === 'reconfigure' ? current?.listen.port ?? null : null) : options.port,
-          upstream: options.upstream ?? current?.upstream ?? { mode: 'dashboard_descriptor' }, env,
+          upstream: options.upstream ?? current?.upstream ?? { mode: 'dashboard_descriptor' },
+          hub: options.hub === undefined ? current?.hub ?? null : options.hub, env,
           allowedHosts: options.allowedHosts.length > 0 ? options.allowedHosts
             : current?.allowed_hosts?.filter((host) => host !== current.listen.address) ?? [],
           reuseCurrentPort: options.port === undefined,

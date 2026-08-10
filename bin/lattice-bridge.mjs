@@ -5,9 +5,11 @@ import {
   readBridgeStopRequest, removeBridgeDaemonActiveMarker, removeBridgeDaemonDescriptor,
   writeBridgeDaemonDescriptor, writeBridgeStopReceipt,
 } from '../src/bridge-daemon.mjs';
+import { createBridgeHubHeartbeatController } from '../src/bridge-hub-heartbeat.mjs';
 import { bridgeRuntimeController } from '../src/bridge-server.mjs';
 
 const env = process.env;
+const hubHeartbeat = createBridgeHubHeartbeatController({ env });
 const instanceToken = env.LATTICE_BRIDGE_INSTANCE_TOKEN;
 if (typeof instanceToken !== 'string' || !/^[0-9a-f]{64}$/u.test(instanceToken)) {
   process.stderr.write(`${JSON.stringify({ schema: 'lattice.bridge_daemon_error.v1',
@@ -20,6 +22,7 @@ let closing = false;
 let descriptorFingerprint = null;
 let checking = false;
 let failClosedError = null;
+let hubHeartbeatError = null;
 const close = async () => {
   if (closing) return;
   closing = true;
@@ -70,6 +73,28 @@ timer = setInterval(async () => {
     if (descriptorFingerprint !== config.updated_at) {
       await writeBridgeDaemonDescriptor({ config, env });
       descriptorFingerprint = config.updated_at;
+    }
+    // Hub heartbeat failures are reported but never fail-close local traffic:
+    // an unreachable hub is a routing problem for the hub's aggregate view,
+    // not a reason to stop serving this terminal's own dashboard directly.
+    // Network/hub-rejection failures already come back as typed results, not
+    // throws (sendBridgeHubHeartbeat's contract) — only a local error (e.g.
+    // the terminal identity file) reaches this catch.
+    try {
+      const heartbeat = await hubHeartbeat.tick({ config });
+      hubHeartbeatError = null;
+      if (heartbeat?.state === 'unreachable' || heartbeat?.state === 'rejected') {
+        const fingerprint = JSON.stringify(heartbeat);
+        if (fingerprint !== hubHeartbeatError) process.stderr.write(`${fingerprint}\n`);
+        hubHeartbeatError = fingerprint;
+      }
+    } catch (error) {
+      const failure = { schema: 'lattice.bridge_daemon_error.v1',
+        code: error?.code ?? 'BRIDGE_HUB_HEARTBEAT_FAILED',
+        message: error?.message ?? 'bridge hub heartbeat failed' };
+      const fingerprint = JSON.stringify(failure);
+      if (fingerprint !== hubHeartbeatError) process.stderr.write(`${fingerprint}\n`);
+      hubHeartbeatError = fingerprint;
     }
   } catch (error) {
     const failure = { schema: 'lattice.bridge_daemon_error.v1',

@@ -111,8 +111,32 @@ export function normalizeBridgeUpstream(upstream) {
   return Object.freeze({ mode: 'url', url: parsed.href });
 }
 
+/**
+ * The hub this terminal heartbeats to (bh3), or null when unconfigured — most
+ * terminals never opt in. Unlike `upstream`, there is only one shape: an
+ * explicit HTTP(S) origin. There is no descriptor-derived variant because the
+ * hub is a separate host on the LAN, not something this terminal can discover
+ * from its own local state.
+ */
+export function normalizeBridgeHubUrl(hub) {
+  if (hub === null) return null;
+  if (!exact(hub, ['url']) || typeof hub.url !== 'string') {
+    throw new BridgeConfigError('BRIDGE_HUB_URL_INVALID', 'bridge hub configuration is invalid');
+  }
+  let parsed;
+  try { parsed = new URL(hub.url); } catch {
+    throw new BridgeConfigError('BRIDGE_HUB_URL_INVALID', 'bridge hub URL is invalid');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username !== '' || parsed.password !== ''
+    || parsed.hash !== '' || parsed.search !== '') {
+    throw new BridgeConfigError('BRIDGE_HUB_URL_INVALID', 'bridge hub URL must be an HTTP origin');
+  }
+  parsed.pathname = parsed.pathname.endsWith('/') ? parsed.pathname : `${parsed.pathname}/`;
+  return Object.freeze({ url: parsed.href });
+}
+
 export function validateBridgeConfig(value) {
-  if (!exact(value, ['schema', 'enabled', 'listen', 'allowed_hosts', 'upstream', 'updated_at'])
+  if (!exact(value, ['schema', 'enabled', 'listen', 'allowed_hosts', 'upstream', 'hub', 'updated_at'])
     || value.schema !== BRIDGE_CONFIG_SCHEMA || typeof value.enabled !== 'boolean'
     || !validTimestamp(value.updated_at)) {
     throw new BridgeConfigError('BRIDGE_CONFIG_INVALID', 'bridge configuration schema is invalid');
@@ -124,12 +148,14 @@ export function validateBridgeConfig(value) {
     throw new BridgeConfigError('BRIDGE_CONFIG_INVALID', 'allowed hosts are not canonical');
   }
   const upstream = normalizeBridgeUpstream(value.upstream);
+  const hub = normalizeBridgeHubUrl(value.hub);
   return Object.freeze({
     schema: BRIDGE_CONFIG_SCHEMA,
     enabled: value.enabled,
     listen: Object.freeze({ address: value.listen.address, port: value.listen.port }),
     allowed_hosts: allowedHosts,
     upstream,
+    hub,
     updated_at: value.updated_at,
   });
 }
@@ -274,24 +300,25 @@ async function reservePort({ address, requestedPort, createCandidateServer, choo
     { address, attempts: attempted.size });
 }
 
-function validateMutation({ address, port, upstream, allowedHosts }) {
+function validateMutation({ address, port, upstream, hub, allowedHosts }) {
   if (typeof address !== 'string' || isIP(address) === 0) {
     throw new BridgeConfigError('BRIDGE_LISTEN_INVALID', 'bridge listen address must be an IP literal');
   }
   if (port !== null && (!Number.isSafeInteger(port) || port < BRIDGE_PORT_MIN || port > BRIDGE_PORT_MAX)) {
     throw new BridgeConfigError('BRIDGE_PORT_INVALID', `bridge port must be ${BRIDGE_PORT_MIN}..${BRIDGE_PORT_MAX}`);
   }
-  return { upstream: normalizeBridgeUpstream(upstream), allowedHosts: normalizeAllowedHosts(address, allowedHosts) };
+  return { upstream: normalizeBridgeUpstream(upstream), hub: normalizeBridgeHubUrl(hub),
+    allowedHosts: normalizeAllowedHosts(address, allowedHosts) };
 }
 
 export async function configureBridge({
-  address, port = null, upstream = { mode: 'dashboard_descriptor' }, allowedHosts = [],
+  address, port = null, upstream = { mode: 'dashboard_descriptor' }, hub = null, allowedHosts = [],
   env = process.env, now = () => new Date(),
   createCandidateServer = () => createServer(),
   choosePort = () => randomInt(BRIDGE_PORT_MIN, BRIDGE_PORT_MAX + 1),
   reuseCurrentPort = true,
 } = {}) {
-  const normalized = validateMutation({ address, port, upstream, allowedHosts });
+  const normalized = validateMutation({ address, port, upstream, hub, allowedHosts });
   const refs = bridgeConfigPaths(env);
   await prepareRoot(refs.root);
   return withLock(refs.lock, async () => {
@@ -312,6 +339,7 @@ export async function configureBridge({
         listen: { address, port: bindingUnchanged ? selectedPort : reservation.port },
         allowed_hosts: normalized.allowedHosts,
         upstream: normalized.upstream,
+        hub: normalized.hub,
         updated_at: now().toISOString(),
       });
       await atomicWrite(refs.config, config);

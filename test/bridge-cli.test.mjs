@@ -58,6 +58,33 @@ test('bridge CLIはsetup/status/reconfigure/disableをJSON契約で提供する'
   assert.deepEqual(calls, ['install:58742', 'install:58742', 'disable']);
 });
 
+test('bridge CLIは--hubの設定・持ち越し・noneでの解除をJSON契約で提供する', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-cli-hub-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { LATTICE_CONFIG_DIR: root };
+  const daemon = { ensure: async () => {}, stop: async () => {} };
+  const launchAgent = launchAgentDouble();
+  const invoke = async (argv) => {
+    const stdout = output(); const stderr = output();
+    const code = await runBridgeCli({ argv, stdout: stdout.stream, stderr: stderr.stream,
+      env, daemon, launchAgent });
+    return { code, stdout: stdout.read(), stderr: stderr.read() };
+  };
+  const setup = await invoke(['setup', '--listen', '127.0.0.1', '--port', '58743', '--dashboard',
+    '--hub', 'http://192.168.1.2:8080', '--json']);
+  assert.equal(setup.code, 0, setup.stderr);
+  assert.deepEqual(JSON.parse(setup.stdout).hub, { url: 'http://192.168.1.2:8080/' });
+  const carried = await invoke(['reconfigure', '--upstream', 'http://127.0.0.1:4318', '--json']);
+  assert.equal(carried.code, 0, carried.stderr);
+  assert.deepEqual(JSON.parse(carried.stdout).hub, { url: 'http://192.168.1.2:8080/' },
+    'reconfigure without --hub must carry the current hub forward, matching --upstream');
+  const cleared = await invoke(['reconfigure', '--hub', 'none', '--json']);
+  assert.equal(cleared.code, 0, cleared.stderr);
+  assert.equal(JSON.parse(cleared.stdout).hub, null);
+  const status = await invoke(['status', '--json']);
+  assert.equal(JSON.parse(status.stdout).hub, null);
+});
+
 test('bridge registerはbridge無効なら拒否し、registrar未設定ならnot_configuredを返す', async (context) => {
   // 出荷しているのにCLIから一度も走らせていないコマンドを残さない。
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-register-'));

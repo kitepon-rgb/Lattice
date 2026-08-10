@@ -126,6 +126,26 @@ test('invalid listen/upstream/config modeはtyped failでsilent defaultしない
   assert.equal(JSON.parse(await readFile(path.join(root, 'bridge.json'), 'utf8')).schema, undefined);
 });
 
+test('hubは既定nullで、明示URLを渡すと正規化して永続化する', async (context) => {
+  const { env } = await fixture(context);
+  const noHub = await configureBridge({ address: '127.0.0.1', port: 58_749, env });
+  assert.equal(noHub.hub, null);
+  const withHub = await configureBridge({ address: '127.0.0.1', env,
+    hub: { url: 'http://192.168.1.2:8080' } });
+  assert.deepEqual(withHub.hub, { url: 'http://192.168.1.2:8080/' });
+  assert.deepEqual((await readBridgeConfig({ env })).hub, { url: 'http://192.168.1.2:8080/' });
+});
+
+test('invalid hub URLはtyped failでBRIDGE_HUB_URL_INVALIDになる', async (context) => {
+  const { env } = await fixture(context);
+  await assert.rejects(configureBridge({ address: '127.0.0.1', env,
+    hub: { url: 'file:///tmp/no' } }),
+  (error) => error.code === 'BRIDGE_HUB_URL_INVALID');
+  await assert.rejects(configureBridge({ address: '127.0.0.1', env,
+    hub: { url: 'http://192.168.1.2:8080', extra: true } }),
+  (error) => error.code === 'BRIDGE_HUB_URL_INVALID');
+});
+
 test('config JSONはduplicate keyを拒否する', async (context) => {
   const { root, env } = await fixture(context);
   await writeFile(path.join(root, 'bridge.json'),

@@ -169,8 +169,8 @@ Commands:
   bridge: `Usage: lattice bridge <command> [options] --json
 
 Commands:
-  setup --listen <IP> [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--allow-host <host>...]
-  reconfigure [--listen <IP>] [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--allow-host <host>...]
+  setup --listen <IP> [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--hub <URL>|none] [--allow-host <host>...]
+  reconfigure [--listen <IP>] [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--hub <URL>|none] [--allow-host <host>...]
   status
   disable
   register    # 現在のlisten portをreverse proxy hostへ自己登録する
@@ -266,8 +266,8 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'runtime-errors resolve': 'runtime-errors resolve <fingerprint> --json',
   'runtime-errors reopen': 'runtime-errors reopen <fingerprint> --json',
   'runtime-errors compact': 'runtime-errors compact --json',
-  'bridge setup': 'bridge setup --listen <IP> [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--allow-host <host>...] --json',
-  'bridge reconfigure': 'bridge reconfigure [--listen <IP>] [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--allow-host <host>...] --json',
+  'bridge setup': 'bridge setup --listen <IP> [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--hub <URL>|none] [--allow-host <host>...] --json',
+  'bridge reconfigure': 'bridge reconfigure [--listen <IP>] [--port <49152..65535|auto>] [--dashboard|--upstream <URL>] [--hub <URL>|none] [--allow-host <host>...] --json',
   'bridge status': 'bridge status --json',
   'bridge disable': 'bridge disable --json',
   'bridge register': 'bridge register --json',
