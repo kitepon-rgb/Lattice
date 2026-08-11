@@ -1,7 +1,7 @@
 # ToDo構造検査・未完了coverage一致修理
 
 日付: 2026-08-12  
-状態: 実装中  
+状態: 完了
 管理方法: Markdown ToDo（Lattice plan／ToDo／runは使わない）
 
 ## 再現
@@ -20,7 +20,7 @@ pending／in-progress／blocked taskをすべて列挙した入力をvalidとし
 - pending／in-progress／blocked taskの列挙漏れは従来どおり拒否する。
 - structure setに含めたtaskが登録topologyに存在しない場合は従来どおり拒否する。
 - realization、finalization、構造schemaは変更しない。
-- Peertableの再現入力6 planが`consistent`になり、公開dashboardへ表示される。
+- Peertableの再現入力6 planが`consistent`になり、Latticeの公開dashboardへ表示される。
 
 ## ToDo
 
@@ -28,9 +28,9 @@ pending／in-progress／blocked taskをすべて列挙した入力をvalidとし
 - [x] overlayへplan全taskの状態を渡し、topology-only判定からdoneだけを除外する。
 - [x] 未完了taskのcoverage漏れが残る回帰を追加する。
 - [x] focused testと関連testを通す。
-- [ ] version、CHANGELOG、公開証跡を0.58.2へ揃える。
-- [ ] main着地、npm公開、global install、bridge再起動を行う。
-- [ ] Peertableで全structure sourceを再compileしdashboardを確認する。
+- [x] version、CHANGELOG、公開証跡を0.58.2へ揃える。
+- [x] main着地、npm公開、global install、bridge再起動を行う。
+- [x] Peertableで全structure sourceを再compileし、Latticeの公開dashboardを確認する。
 
 ## 非目標
 
