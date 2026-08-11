@@ -224,7 +224,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
 
 ### Phase D — CLI・realization・機械gate
 
-- [ ] **sg09 — compile／read CLIと自己記述guidanceを完成させる**
+- [x] **sg09 — compile／read CLIと自己記述guidanceを完成させる**
   - Depends: sg04, sg08
   - Write: `src/todo-cli.mjs`、`src/cli-help.mjs`、必要なguidance module、CLI tests
   - 内容:
@@ -234,6 +234,18 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
   - 受入:
     - helpだけで入力→compile→read→realize→finalizeの順へ到達できる。
     - readがcompileを暗黙実行せず、missingを空consistentへ丸めない。
+  - 実施記録（2026-08-11）:
+    - `todo structure compile --plan --input`をsource adapter→Git provenance→既存ToDo DAG→overlay→storeの
+      一方向dataflowとして配線した。保存済みcanonical sourceと入力が一致する時だけcompileし、
+      `consistent`だけimmutable bindingを発行する。`inconsistent`／`unknown`はfinding付きderived artifactを
+      残すが有効化せず、入力修正後の再compileを許す。
+    - `todo structure [--plan] --json`は保存artifactだけを投影し、plan曖昧、missing、inconsistent、unknown、
+      consistent、staleを別coverageにした。staleではcompiled verdictを履歴表示しても有効verdictはnullにする。
+    - finding自身の`next_action`を重複なく表出し、helpへinput→compile→read→realize→finalizeの全順序を載せた。
+      read-only呼出しはdashboard ownershipを取得せず、sensorを暗黙更新しない。
+    - 実測: 実sensor初期化＋実Git＋実CLIのconsistent、sensor未初期化unknown、orphan output inconsistent、
+      missing、plan曖昧、sensor DB削除後read、HEAD driftを含むstructure関連49 testがgreen。
+      syntax checkとCLI surface検査（67 command、undocumented／unexercised 0）がgreen。
 
 - [ ] **sg10 — task realization chainを実装する**
   - Depends: sg08, sg09

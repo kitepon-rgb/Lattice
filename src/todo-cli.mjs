@@ -51,6 +51,9 @@ import {
   readTodoIndependenceArtifact,
   readTodoSeamProposalArtifact,
   readTodoStore,
+  readTodoStructureBinding,
+  readTodoStructureRealizationChain,
+  readTodoStructureSource,
   todoStructureSourceRef,
   resolveTodoStartRetractionBinding,
   readTodoWitnessSet,
@@ -60,13 +63,23 @@ import {
   rebuildTodoSnapshot,
   writeTodoIndependenceArtifact,
   writeTodoSeamProposalArtifact,
+  writeTodoStructureBinding,
+  writeTodoStructureCompileArtifact,
   writeTodoStructureSource,
   verifyEffectivePhaseTodoRevisionSources,
   verifyTodoRevisionSources,
 } from './todo-store.mjs';
 import {
+  TODO_STRUCTURE_BINDING_SCHEMA,
   explainTodoStructureSet,
 } from './todo-structure-contracts.mjs';
+import { collectTodoStructureSourceEvidence } from './todo-structure-source-adapter.mjs';
+import { collectTodoStructureGitProvenance } from './todo-structure-git-adapter.mjs';
+import { compileTodoStructureOverlay } from './todo-structure-overlay.mjs';
+import {
+  buildTodoStructureCompileArtifact,
+  readTodoStructureState,
+} from './todo-structure-store.mjs';
 import { withStartRetractionGuard } from './runtime-pull-intake.mjs';
 import {
   appendTodoExtraction,
@@ -1906,6 +1919,182 @@ async function structureInput({ repoRoot, planKey, inputRef }) {
   return result;
 }
 
+function structurePlanMember(store, requestedPlanKey) {
+  if (requestedPlanKey !== null) {
+    const member = store.members.find(({ plan }) => plan.plan_key === requestedPlanKey);
+    if (member === undefined) {
+      throw new TodoStoreError('STRUCTURE_PLAN_NOT_FOUND', 'plan_not_active', undefined, {
+        plan_key: requestedPlanKey,
+      });
+    }
+    return member;
+  }
+  if (store.members.length !== 1) {
+    throw new TodoStoreError('STRUCTURE_PLAN_AMBIGUOUS', 'plan_selection_ambiguous', undefined, {
+      plan_keys: store.members.map(({ plan }) => plan.plan_key).sort(),
+      next_action: 'rerun_with_plan_flag',
+    });
+  }
+  return store.members[0];
+}
+
+function structureNextActions({ coverage, planKey, findings = [], staleReasons = [] }) {
+  const actions = [];
+  const add = (value) => { if (!actions.includes(value)) actions.push(value); };
+  if (coverage === 'missing') {
+    add(`lattice todo structure input --plan ${planKey} --input <structure-set.json> --dry-run --json`);
+    add(`lattice todo structure input --plan ${planKey} --input <structure-set.json>`);
+    add(`lattice todo structure compile --plan ${planKey} --input .lattice/todo/structure/${planKey}.json`);
+  } else if (['inconsistent', 'unknown'].includes(coverage)) {
+    findings.forEach(({ next_action: nextAction }) => add(nextAction));
+    add(`lattice todo structure input --plan ${planKey} --input <corrected-structure-set.json> --dry-run --json`);
+    add(`lattice todo structure compile --plan ${planKey} --input .lattice/todo/structure/${planKey}.json`);
+  } else if (coverage === 'stale') {
+    if (staleReasons.includes('realization_head_digest')) {
+      add(`lattice todo structure --plan ${planKey} --json`);
+    } else {
+      add(`lattice todo structure realize --plan ${planKey} --task <task-id> --input <realization.json>`);
+    }
+    add(`lattice todo structure finalize --plan ${planKey} --json`);
+  } else if (coverage === 'superseded') {
+    add(`lattice todo structure input --plan ${planKey} --input <migrated-structure-set.json> --dry-run --json`);
+  } else if (coverage === 'consistent') {
+    add(`lattice todo structure --plan ${planKey} --json`);
+    add(`lattice todo structure realize --plan ${planKey} --task <task-id> --input <realization.json>`);
+    add(`lattice todo structure finalize --plan ${planKey} --json`);
+  }
+  return actions;
+}
+
+async function structureCompile({ repoRoot, env, planKey, inputRef }) {
+  const structureSet = await readStructureSetDraft(repoRoot, inputRef);
+  const explained = explainTodoStructureSet(structureSet);
+  if (!explained.valid) {
+    throw new TodoStoreError('INVALID_TODO_STRUCTURE_SET', explained.reason, undefined, {
+      input_ref: inputRef, path: explained.path,
+      next_action: `lattice todo structure input --plan ${planKey} --input ${inputRef} --dry-run --json`,
+    });
+  }
+  const store = await readTodoStore({ repoRoot });
+  const member = structurePlanMember(store, planKey);
+  const source = await readTodoStructureSource({ repoRoot, planKey });
+  if (source === null) {
+    throw new TodoStoreError('STRUCTURE_SOURCE_MISSING', 'planned_source_missing', undefined, {
+      plan_key: planKey,
+      next_action: `lattice todo structure input --plan ${planKey} --input ${inputRef}`,
+    });
+  }
+  if (canonicalizeTodoArtifact(source) !== canonicalizeTodoArtifact(structureSet)) {
+    throw new TodoStoreError('STRUCTURE_SOURCE_MISMATCH', 'compile_input_is_not_saved_source', undefined, {
+      input_ref: inputRef, source_ref: todoStructureSourceRef(planKey),
+      next_action: `lattice todo structure input --plan ${planKey} --input ${inputRef}`,
+    });
+  }
+  const existingBinding = await readTodoStructureBinding({
+    repoRoot, planKey, planVersion: member.plan.plan_version,
+  });
+  if (existingBinding !== null) {
+    throw new TodoStoreError('STRUCTURE_ALREADY_ENABLED', 'immutable_binding_exists', undefined, {
+      plan_key: planKey, plan_version: member.plan.plan_version,
+      next_action: `lattice todo structure --plan ${planKey} --json`,
+    });
+  }
+  const actor = mutationActor(env);
+  const sourceEvidence = await collectTodoStructureSourceEvidence({ cwd: repoRoot, structureSet });
+  const gitProvenance = collectTodoStructureGitProvenance({ repoRoot, structureSet });
+  const realizations = [];
+  for (const task of structureSet.tasks.filter(({ applicability }) => applicability === 'graph')) {
+    realizations.push(...await readTodoStructureRealizationChain({
+      repoRoot, structureSet, taskId: task.task_id,
+    }));
+  }
+  const overlay = compileTodoStructureOverlay({
+    structureSet,
+    topology: mergedTopology(store),
+    taskStates: structureSet.tasks.map(({ task_id: taskId }) => ({
+      task_id: taskId,
+      status: member.tasks.find(({ task_id: id }) => id === taskId)?.status ?? 'pending',
+    })),
+    sourceProjection: sourceEvidence.projection,
+    gitProvenance,
+    realizations,
+  });
+  const compiledAt = new Date().toISOString();
+  const artifact = buildTodoStructureCompileArtifact({
+    structureSet, sourceProjection: sourceEvidence.projection, gitProvenance, overlay,
+    realizations, compiledAt, actor,
+  });
+  const written = await writeTodoStructureCompileArtifact({ repoRoot, artifact });
+  let bindingRef = null;
+  if (overlay.verdict === 'consistent') {
+    const binding = {
+      schema: TODO_STRUCTURE_BINDING_SCHEMA,
+      project_id: structureSet.project_id, plan_key: structureSet.plan_key,
+      plan_version: structureSet.plan_version, topology_digest: structureSet.topology_digest,
+      profile: structureSet.profile, baseline_sha: structureSet.baseline_sha,
+      structure_set_digest: structureSet.structure_set_digest,
+      compiled_head_sha: artifact.current_head_sha,
+      compile_artifact_digest: artifact.artifact_digest,
+      activated_at: compiledAt, actor, binding_digest: '',
+    };
+    binding.binding_digest = todoSelfDigest(binding, 'binding_digest');
+    bindingRef = (await writeTodoStructureBinding({ repoRoot, binding })).ref;
+  }
+  const nextActions = structureNextActions({
+    coverage: overlay.verdict, planKey, findings: overlay.findings,
+  });
+  const result = {
+    schema: 'lattice.todo_structure_compile_result.v1',
+    project_id: structureSet.project_id, plan_key: planKey,
+    plan_version: structureSet.plan_version, topology_digest: structureSet.topology_digest,
+    structure_set_digest: structureSet.structure_set_digest,
+    current_head_sha: artifact.current_head_sha,
+    verdict: overlay.verdict, enabled: bindingRef !== null,
+    artifact_ref: written.ref, binding_ref: bindingRef,
+    finding_summary: overlay.finding_summary, findings: overlay.findings,
+    next_actions: nextActions, result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
+async function structure({ repoRoot, requestedPlanKey }) {
+  const store = await readTodoStore({ repoRoot });
+  const member = structurePlanMember(store, requestedPlanKey);
+  const state = await readTodoStructureState({
+    repoRoot, store, planKey: member.plan.plan_key,
+  });
+  const unboundVerdict = state.status === 'missing'
+    && state.reason === 'activation_binding_missing'
+    && ['inconsistent', 'unknown'].includes(state.compiled_verdict)
+    ? state.compiled_verdict : null;
+  const coverage = unboundVerdict
+    ?? (state.status === 'fresh' ? state.effective_verdict : state.status);
+  const findings = state.artifact?.overlay?.findings ?? [];
+  const nextActions = structureNextActions({
+    coverage, planKey: member.plan.plan_key, findings, staleReasons: state.stale_reasons,
+  });
+  const result = {
+    schema: 'lattice.todo_structure_projection.v1',
+    project_id: store.project_id, plan_key: member.plan.plan_key,
+    plan_version: member.plan.plan_version, topology_digest: member.plan.topology_digest,
+    coverage, freshness: state.status,
+    enabled: state.binding_digest !== null,
+    structure_set_digest: state.structure_set_digest,
+    artifact_digest: state.artifact_digest,
+    compiled_verdict: state.compiled_verdict,
+    verdict: unboundVerdict ?? state.effective_verdict,
+    stale_reasons: state.stale_reasons,
+    graph: state.artifact?.overlay?.graph ?? null,
+    finding_summary: state.artifact?.overlay?.finding_summary ?? null,
+    findings,
+    next_actions: nextActions,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
 async function independenceCompile({ repoRoot, planKey, inputRef }) {
   const witnessSet = await readWitnessSetInput(repoRoot, inputRef);
   requireCleanWorktree(repoRoot);
@@ -2881,7 +3070,8 @@ function writesTodoStore(argv) {
     case 'snapshot': return argv.includes('--rebuild');
     case 'independence': return second === 'compile'
       || (second === 'witness' && ['migrate', 'scaffold'].includes(third));
-    case 'structure': return second === 'input' && !argv.includes('--dry-run');
+    case 'structure': return second === 'compile'
+      || (second === 'input' && !argv.includes('--dry-run'));
     case 'seam-proposal': return ['compile', 'apply', 'land'].includes(second);
     case 'evidence': return second === 'promote';
     case 'dependency': return second === 'connect';
@@ -3046,7 +3236,7 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     });
   }
 
-  if (argv[0] === 'structure' && argv[1] === 'input'
+  if (argv[0] === 'structure' && ['input', 'compile'].includes(argv[1])
     && argv[4] === '--input' && typeof argv[5] === 'string' && path.isAbsolute(argv[5])) {
     return typedArgumentFailure(stderr, 'INPUT_OUTSIDE_REPOSITORY', 'absolute_input_path_rejected', {
       argument: '--input', expected: 'repo-relative path', actual: 'absolute path',
@@ -3177,6 +3367,17 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     action = (repoRoot) => structureInput({
       repoRoot, planKey: argv[3], inputRef: argv[5],
     });
+  } else if (argv.length === 6 && argv[0] === 'structure' && argv[1] === 'compile'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--input' && isTodoRef(argv[5])) {
+    action = (repoRoot) => structureCompile({
+      repoRoot, env, planKey: argv[3], inputRef: argv[5],
+    });
+  } else if (argv.length === 2 && argv[0] === 'structure' && argv[1] === '--json') {
+    action = (repoRoot) => structure({ repoRoot, requestedPlanKey: null });
+  } else if (argv.length === 4 && argv[0] === 'structure'
+    && argv[1] === '--plan' && isTodoIdentifier(argv[2]) && argv[3] === '--json') {
+    action = (repoRoot) => structure({ repoRoot, requestedPlanKey: argv[2] });
   } else if ((argv.length === 1 && argv[0] === 'independence')
     || (argv.length === 2 && argv[0] === 'independence' && argv[1] === '--json')) {
     action = (repoRoot) => independence({ repoRoot, requestedPlanKey: null });

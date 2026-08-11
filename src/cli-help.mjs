@@ -78,6 +78,7 @@ Read commands:
   bindings [--plan <key>] [--json]   # compile_binding付きTaskをTODO identityつきで投影する
   independence [--plan <key>] [--json]  # readyを検証済み並列・要直列・未検査へ分けて投影する
   structure --schema --json  # plan定義後に入力する論理dataflow契約をstore非依存で返す
+  structure [--plan <key>] --json  # 保存済み構造をsensor再実行なしでfreshness・finding付き投影する
   seam-profile --plan <key> --file <path> [--json]  # 係争fileの切断コスト内訳を投影する（read-only）
   seam-proposal [--plan <key>] [--json]  # 記録済みseam提案をsensor無しで投影する
   verify [--plan <key>] [--json]
@@ -110,6 +111,12 @@ Write commands:
       # plan identity・topology・unfinished task coverage・baseline祖先を無変更で検査する
   structure input --plan <key> --input <file>
       # 検査済みplanned sourceをcanonical refへ保存する。compile成功までは有効化しない
+  structure compile --plan <key> --input <file>
+      # source graph・Git provenance・ToDo DAGを結合する。consistent時だけplanへimmutableに有効化する
+  structure realize --plan <key> --task <id> --input <file>
+      # 実装後の構造をappend-onlyで記録してからtodo doneへ進む
+  structure finalize --plan <key> --json
+      # 全対象task完了後、最終HEADと全realizationを再結合してterminal受理へ進む
   seam-proposal compile --plan <key>  # 並列可否記録と実sensorからseam提案を記録する
   seam-proposal apply --plan <key>  # 記録済み提案を隔離worktreeで適用し五条件で採否を決める
   seam-proposal land --plan <key> --names <file>  # 採用された変換を本ツリーへ着地させる
@@ -229,7 +236,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo note list': 'todo note list --plan <key> [--task <id>] --json',
   'todo bindings': 'todo bindings [--plan <key>] [--json]',
   'todo independence': 'todo independence [--plan <key>] [--json] | compile --plan <key> --input <file> | witness migrate --plan <key>',
-  'todo structure': 'todo structure --schema --json | input --plan <key> --input <file> [--dry-run --json]',
+  'todo structure': 'todo structure --schema --json | [--plan <key>] --json | input --plan <key> --input <file> [--dry-run --json] | compile --plan <key> --input <file> | realize --plan <key> --task <id> --input <file> | finalize --plan <key> --json',
   'todo seam-profile': 'todo seam-profile --plan <key> --file <path> [--json]',
   'todo seam-proposal': 'todo seam-proposal [--plan <key>] [--json] | compile --plan <key>',
   'todo verify': 'todo verify [--plan <key>] [--json]',
