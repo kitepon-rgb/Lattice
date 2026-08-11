@@ -1,6 +1,6 @@
 # plan: 2026-08-11 campaign群の締め（closeout）
 
-- Status: Active
+- Status: Completed
 - 関連: [plan_bridge-persistence-recovery.md](plan_bridge-persistence-recovery.md)・
   [plan_carry-removal-retirement.md](plan_carry-removal-retirement.md)・
   [ADR 0165](adr/0165-terminals-advertise-exactly-what-they-serve.md)・
@@ -17,7 +17,8 @@
 ## 非目標
 
 - 新しい機能の追加。本campaignは記録・退役・還流だけを行う。
-- bpr5-fox-install の代行。FOXの常駐起動はオーナーの対話logonでしか行えない。
+- bpr5-fox-install の実行。FOXの公開面は永続PTY経由で復旧済みだが、registry installへの切替は
+  本campaignの記録・退役・還流の範囲外とする。
 
 ## 既知の罠
 
@@ -35,7 +36,7 @@
 
 ## ToDo
 
-- [ ] co1-deploy-record: 0.57.3の配備記録を`docs/operations/lattice-kitepon-deployment.md`へ追記する
-- [ ] co2-retire-bpr6: 裁定で不要となったbpr6-offline-noticeを退役revisionで工程から外す
-- [ ] co3-plan-status: 完了したplan文書2件のStatusを実態へ合わせ、bridge-hub散文の正本記述を現行versionと archive参照へ直す
-- [ ] co4-knowledge: 「同じものを2箇所で別々に定義すると、どちらも正しいまま噛み合わなくなる」形を正典へ還流する
+- [x] co1-deploy-record: 0.57.3の配備記録を`docs/operations/lattice-kitepon-deployment.md`へ追記する
+- [x] co2-retire-bpr6: 裁定で不要となったbpr6-offline-noticeを退役revisionで工程から外す
+- [x] co3-plan-status: 完了したplan文書2件のStatusを実態へ合わせ、bridge-hub散文の正本記述を現行versionと archive参照へ直す
+- [x] co4-knowledge: 「同じものを2箇所で別々に定義すると、どちらも正しいまま噛み合わなくなる」形を正典へ還流する
