@@ -646,7 +646,7 @@ function terminalAuditDoneAdvisory(plan, phases) {
 
 async function mutate({
   repoRoot, env, planKey, taskId, kind, payload, evidenceRef, advisory = null,
-  noteContext = null,
+  noteContext = null, structureContext = null,
 }) {
   const actor = mutationActor(env);
   const evidence = evidenceRef === null ? null : await readEvidenceInput(repoRoot, evidenceRef);
@@ -674,7 +674,7 @@ async function mutate({
     throw new TypeError('start mutation requires note context');
   }
   const result = {
-    schema: includesNoteContext ? 'lattice.todo_mutation_result.v4' : 'lattice.todo_mutation_result.v2',
+    schema: includesNoteContext ? 'lattice.todo_mutation_result.v5' : 'lattice.todo_mutation_result.v2',
     project_id: event.project_id,
     plan_key: event.plan_key,
     plan_version: event.plan_version,
@@ -689,11 +689,44 @@ async function mutate({
     ...(includesNoteContext ? {
       design_memo: designMemoProjection(authoredTask),
       note_context: noteContext,
+      structure_context: structureContext,
     } : {}),
     result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
+}
+
+async function startStructureContext({ repoRoot, store, planKey, taskId }) {
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (member === undefined) throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active');
+  const source = await readTodoStructureSource({ repoRoot, planKey });
+  const binding = await readTodoStructureBinding({
+    repoRoot, planKey, planVersion: member.plan.plan_version,
+  });
+  if (source === null || binding === null) return {
+    status: 'not_enabled', enabled: false, freshness: null, stale_reasons: [],
+    structure_set_digest: null, task: null, next_actions: [],
+  };
+  if (source.structure_set_digest !== binding.structure_set_digest) {
+    throw new TodoStoreError('STRUCTURE_LIFECYCLE_GATE_FAILED',
+      'enabled_structure_source_unreadable', undefined, { plan_key: planKey });
+  }
+  const task = source.tasks.find(({ task_id: id }) => id === taskId);
+  if (task === undefined) {
+    throw new TodoStoreError('STRUCTURE_LIFECYCLE_GATE_FAILED',
+      'enabled_structure_task_missing', undefined, { plan_key: planKey, task_id: taskId });
+  }
+  const state = await readTodoStructureState({ repoRoot, store, planKey });
+  return {
+    status: 'available', enabled: true, freshness: state.status,
+    stale_reasons: state.stale_reasons,
+    structure_set_digest: source.structure_set_digest,
+    task: structuredClone(task),
+    next_actions: task.applicability === 'graph'
+      ? [`lattice todo structure realize --plan ${planKey} --task ${taskId} --input <realization.json>`]
+      : [],
+  };
 }
 
 function designMemoProjection(task) {
@@ -898,8 +931,12 @@ async function startTask({
   const advisory = await startAdvisory({
     repoRoot, store, projection, planKey, taskId: resolvedTaskId,
   });
+  const structureContext = await startStructureContext({
+    repoRoot, store, planKey, taskId: resolvedTaskId,
+  });
   return mutate({ repoRoot, env, planKey, taskId: resolvedTaskId, kind: 'start',
-    payload: { override_reason: overrideReason }, evidenceRef: null, advisory, noteContext });
+    payload: { override_reason: overrideReason }, evidenceRef: null, advisory, noteContext,
+    structureContext });
 }
 
 async function retractStart({ repoRoot, env, planKey, taskId, reason }) {

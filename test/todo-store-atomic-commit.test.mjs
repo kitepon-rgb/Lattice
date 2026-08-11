@@ -100,7 +100,7 @@ test('dirty sourceと既存stageを保ったままstore pathだけをcommitしre
   assert.equal(started.status, 0, started.stderr);
   const result = JSON.parse(started.stdout);
   assert.equal(result.schema, 'lattice.todo_store_atomic_commit_result.v1');
-  assert.equal(result.operation_result.schema, 'lattice.todo_mutation_result.v4');
+  assert.equal(result.operation_result.schema, 'lattice.todo_mutation_result.v5');
   assert.match(result.commit.commit_sha, /^[0-9a-f]{40}$/u);
   assert.equal(git(root, ['rev-parse', 'HEAD']).stdout.trim(), result.commit.commit_sha);
   assert.deepEqual(result.commit.paths, [...result.commit.paths].sort());

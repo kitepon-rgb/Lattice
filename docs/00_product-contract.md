@@ -358,12 +358,15 @@ mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,
 `LATTICE_TODO_ACTOR_AGENT`をすべてtodo identifierとして明示し、欠落時は書き込まない。`done`の
 evidenceはrepo内descriptor JSONとpinned Git objectをwrite時にhard検証する。成功は
 `lattice.todo_mutation_result.v2`一行（`note_context`を同梱する成功は
-`lattice.todo_mutation_result.v4`）、失敗とusage違反は`lattice.cli_error.v2`一行で、
+`lattice.todo_mutation_result.v5`）、失敗とusage違反は`lattice.cli_error.v2`一行で、
 失敗時のstore bytesは不変とする。`advisory`は`todo start`だけが非nullで返し、着手対象と
 進行中ToDoの競合・切断可能性・未検査の内訳を機械可読で載せる（ADR 0128）。助言であって拒否ではなく、
 ready frontier dispatch契約は変えない。ただし記録があるのに鮮度を判定できない場合は、
 助言なしで通さずjournal書込前に失敗させる。actor解決失敗はrequired／missing／invalid環境キーと正規次操作を
-error detailへ返し、OS由来の偽identityへfallbackしない。
+error detailへ返し、OS由来の偽identityへfallbackしない。`todo start`はさらに`structure_context`を
+必ず返す。構造機能が有効なら対象taskのcanonical planned構造、structure set identity、compile freshness、
+realizationの次操作を同梱し、未適用なら`status=not_enabled`を明示する。実装者へ別コマンドやsource file探索を
+要求しない（ADR 0172）。
 
 PhaseはToDoの直列化groupではなく重監査の制御境界である。現行`todo_plan.v7`は各ToDoの`phase_id`、
 gate policy、前段Phase、required evidence slotを所有するが、通常ToDoのstart/done readinessはToDo DAGだけで決める。
