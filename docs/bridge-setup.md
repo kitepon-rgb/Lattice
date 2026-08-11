@@ -54,6 +54,11 @@ bridgeが無効な間は以下すべてnullで、bridgeを有効にしている�
 | `node_path`・`node_exists` | 起動するNode実行体と、それが今も存在するか |
 | `bridge_path`・`bridge_exists` | 起動するbridge scriptと、それが今も存在するか |
 | `error` | `unreadable`のときだけtyped code（例`BRIDGE_LAUNCH_AGENT_PLIST_UNSAFE`） |
+| `error=BRIDGE_PERSISTENCE_STATE_SPLIT` | launcherまたはplistの片割れだけが残った状態。手でfileを消さず、`lattice bridge reconfigure --json`で常駐設定を揃える（0.57.2以降） |
+
+`BRIDGE_PERSISTENCE_STATE_SPLIT`は、常駐設定の一方（macOSのplist、またはWindowsのlauncher／descriptor）だけが
+存在することを示す。これは復旧対象そのものが壊れている状態なので、手作業でfileを削除せず、
+`lattice bridge reconfigure --json`を実行して正規のinstall経路で両方を再生成する。
 
 **`runtime`** — いま応答しているprocess自身の申告。`state`は`running`／`not_running`／`unattested`／
 `descriptor_invalid`で、`running`以外では各値がnullになる。`running`でも、identityを返さない
