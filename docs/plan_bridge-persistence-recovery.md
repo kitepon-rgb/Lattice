@@ -47,14 +47,14 @@
 
 ## ToDo
 
-- [ ] bpr1-selfheal: 常駐設定の分裂状態を製品が自力で畳めるようにする（Windows/macOS両方・test込み）
-- [ ] bpr2-doc-split: `docs/bridge-setup.md`へ新しいpersistence状態の読み方を追記する
-- [ ] bpr3-adr: ADR 0166「復旧経路は復旧対象の状態に拒否されてはならない」を起草する
-- [ ] bpr4-release: 0.57.2をrelease（CHANGELOG・bump・publish）し、Mac／WSL2へ配って実測する（H）
-- [ ] bpr5-fox-install: FOXをregistry installへ切り替え、対話logonで常駐を起こして実測する（H）
-- [ ] bpr6-offline-notice: 端末のonline→offline遷移を運用者へ届ける機構を設計・実装する（設計承認待ち）
-- [ ] bpr7-kitepon-visibility: 停止中projectを公開一覧へ載せるかを裁定する（裁定待ち）
-- [ ] bpr8-caveat: SSH session連動でWindows常駐が落ちる罠を罠DBへ記録する
+- bpr1-selfheal: 常駐設定の分裂状態を製品が自力で畳めるようにする（完了・工程正本はLattice store）
+- bpr2-doc-split: docs/bridge-setup.mdへ新しいpersistence状態の読み方を追記する（完了・工程正本はLattice store）
+- bpr3-adr: ADR 0166「復旧経路は復旧対象の状態に拒否されてはならない」を起草する（完了・工程正本はLattice store）
+- bpr4-release: 0.57.2をreleaseしMac／WSL2へ配って実測する（完了・工程正本はLattice store）
+- bpr5-fox-install: FOXをregistry installへ切り替え常駐を起こして実測する（完了・工程正本はLattice store）
+- bpr6-offline-notice: オーナー裁定2026-08-10で打ち切り。工程から除外し再開しない
+- bpr7-kitepon-visibility: 停止中projectを公開一覧へ載せるかを裁定する（完了・工程正本はLattice store）
+- bpr8-caveat: SSH session連動でWindows常駐が落ちる罠を罠DBへ記録する（完了・工程正本はLattice store）
 
 ## オーナー裁定待ち（着手前に必要）
 
