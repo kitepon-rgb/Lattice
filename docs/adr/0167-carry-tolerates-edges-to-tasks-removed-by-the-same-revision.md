@@ -1,6 +1,6 @@
 # ADR 0167 — carryは、同じrevisionで削除される相手への辺の消滅だけを許す
 
-- Status: Proposed
+- Status: Accepted（2026-08-11、実コード反証を通過。必須条件をDecision 5へ取り込んだ）
 - Date: 2026-08-11
 - Extends: [0166 — 復旧経路は、復旧対象の状態に拒否されてはならない](0166-recovery-paths-must-not-refuse-the-state-they-repair.md)
 - 計画正本: [plan_bridge-persistence-recovery.md](../plan_bridge-persistence-recovery.md)
@@ -36,6 +36,14 @@ source digest照合、live_replacementのlist構造、reconciliation）。残る
    同じ厳しさで拒む理由が無い。
 4. **task属性の一致要求は変えない。** title・lane・compile_binding・narrative（policyに依る）の
    比較は従来のままとする。本決定が触るのは辺だけである。
+5. **`joins.after`からremovedを除外した結果が空になる場合、そのjoinはpredecessor意味論から
+   join全体を除外する。** 空の`after`を残してはならない——desired plan側のvalidatorが
+   `after.length > 0`を要求するため、空afterを持つjoinは表現不能であり、比較も一致しない。
+   複数`after`から一部だけを抜いた場合は、残ったafterをsortしてからjoinを比較する。
+   （2026-08-11の反証で発見。この条件を欠くと、joinを持つplanで本決定は成立しない。）
+6. **`acquire_phase`も同じfilterを通す。** `reset_pending`はcarry比較自体を通らない別系統なので
+   触らない。`carry_reconciled_metadata`は同一filterの下で従来どおり属性比較を残す。
+   既存の分岐構造は変えない。
 
 ## Consequences
 
@@ -48,7 +56,14 @@ source digest照合、live_replacementのlist構造、reconciliation）。残る
   task_idに触れる辺だけ**で、他の辺は従来どおり完全一致を要求するため、緩和の範囲は削除宣言の
   範囲を超えない。
 
+## 棄却した代替
+
+**`removed`ではなく`retired`状態を新設する案**を検討し、棄却した。state machine・runtime task
+migration・source cutoverのいずれも広げることになり、辺の比較だけを削除宣言の範囲で緩める本決定より
+影響面が広い。「より安全な代替」として成立しない（2026-08-11の反証で確認）。
+
 ## 非目標
 
 - planそのものの退役・削除機能。本決定はtask単位の退役だけを解く。plan単位の始末は別の問題として扱う。
 - `reset_pending`の意味論の変更。
+- carry判定の一般的な緩和。緩めるのは削除が宣言された相手への辺だけとする。
