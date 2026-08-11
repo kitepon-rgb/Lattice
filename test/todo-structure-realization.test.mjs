@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { renderTodoGanttForProject } from '../src/todo-cli.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 import {
   TODO_STRUCTURE_REALIZATION_SCHEMA,
@@ -366,6 +367,15 @@ test('doneとterminal gateはfresh realization／finalizationを要求し拒否�
   assert.equal(finalized.status, 0, finalized.stderr);
   assert.equal(parse(finalized.stdout).verdict, 'consistent');
   assert.equal(parse(finalized.stdout).finalized, true);
+  const dashboard = await renderTodoGanttForProject({
+    repoRoot: data.root, displayName: 'fixture', scope: 'all',
+  });
+  assert.match(dashboard.rendered.html, /data-show-structure>構造検査/u);
+  assert.match(dashboard.rendered.html, /data-right-panel="structure" hidden/u);
+  assert.match(dashboard.rendered.html, /<code>main<\/code><span class="structure-verdict verdict-consistent">consistent/u);
+  assert.match(dashboard.rendered.html, /finalization: fresh/u);
+  assert.match(dashboard.rendered.html, /data-structure-node-ref="task:T1"/u);
+  assert.match(dashboard.rendered.html, new RegExp(`data-structure-node-ref="commit:${data.implementationCommit}"`, 'u'));
   const clear = run(data.root, ['status']);
   assert.equal(clear.status, 0, clear.stderr);
   assert.deepEqual(parse(clear.stdout).structure_finalization_pending, []);

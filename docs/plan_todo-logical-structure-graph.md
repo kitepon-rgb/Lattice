@@ -303,7 +303,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
 
 ### Phase E — 表示と実動受入
 
-- [ ] **sg12 — dashboardへ独立した構造検査面を追加する**
+- [x] **sg12 — dashboardへ独立した構造検査面を追加する**
   - Depends: sg09, sg10
   - Write: todo Gantt／dashboard presentationの加算module、HTML/SVG tests
   - 内容:
@@ -314,6 +314,19 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
   - 受入:
     - 工程依存とdataflowを同じ線として誤読しない。
     - 問題箇所と修正対象を3秒で特定でき、非script環境でもfinding一覧は読める。
+  - 実施記録（2026-08-12）:
+    - 保存済みsource／realization／compile／finalization artifactだけからboundedなGantt用projectionを作る
+      加算moduleを追加した。描画時にsensorを起動せず、finalization後は着手前のactivation artifactでなく
+      最終形態を再compileしたfinalization artifactを表示正本にする。
+    - 既存の工程依存SVGは変更せず、右ペインへ独立した「構造検査」を追加した。task変換、data、code、
+      既存source symbol、external contract、commit provenanceを種別付きnode／edgeとして表示し、
+      planned／realized／effective差分、code anchor、変更path、freshness、finalization状態を同じ面で読める。
+    - findingを先頭に置き、severity、関係node、既存edge、次の一手を表示した。node／edgeへのbuttonは対象を
+      focusして中央へ移動する。unknownはconsistentへ丸めず、script無効時も`noscript`のfinding一覧を残す。
+    - live head digestへstructure projection digestを束縛したため、保存artifactの変化も既存SSE更新経路で
+      dashboard再描画を起こす。構造未適用planはbutton／panelを追加しない。
+    - 実測: Gantt全110 test、finalization→通常Gantt描画を含むrealization 4 test、syntax 168 files、
+      CLI surface 68 command（undocumented／unexercised 0）がgreen。
 
 - [ ] **sg13 — 正負E2Eと互換回帰を通す**
   - Depends: sg11, sg12

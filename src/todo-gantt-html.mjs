@@ -6,8 +6,9 @@ import { renderTodoGanttSvg, TODO_GANTT_STATUS_PRESENTATION } from './todo-gantt
 import { renderDiagramLegend, renderRightPane } from './todo-gantt-html-independence.mjs';
 import { escapeHtmlAttribute, escapeHtmlText, refKey } from './todo-gantt-html-shared.mjs';
 import { CSS, NESTED_CSS } from './todo-gantt-html-style.mjs';
+import { TODO_STRUCTURE_PRESENTATION_SCHEMA } from './todo-structure-presentation.mjs';
 
-export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v19';
+export const TODO_GANTT_RENDERER_VERSION = 'lattice.todo_gantt_renderer.v20';
 export const TODO_GANTT_PROSE_MAX_BYTES = 8 * 1024 * 1024;
 export const TODO_GANTT_HTML_MAX_BYTES = 24 * 1024 * 1024;
 
@@ -135,6 +136,7 @@ const CONTROLLER = `
   const overviewPanel=root.querySelector('[data-right-panel="overview"]');
   const detailsPanel=root.querySelector('[data-right-panel="details"]');
   const taskIndexPanel=root.querySelector('[data-right-panel="task-index"]');
+  const structurePanel=root.querySelector('[data-right-panel="structure"]');
   const selectedReturnButton=root.querySelector('[data-show-selected]');
   const detailPanels=[...root.querySelectorAll('[data-detail-key]')];
   const nodes=[...root.querySelectorAll('[data-node-key]')];
@@ -157,7 +159,7 @@ const CONTROLLER = `
   const toggleLane=(key)=>applyLane(activeLaneKey===key?null:key);
   // Both diagrams ship in the page; the badge picks which one is on screen.
   const setExpanded=(next)=>{if(diagrams.length<2)return;expanded=next;for(const diagram of diagrams)diagram.hidden=(diagram.dataset.diagram==='expanded')!==expanded;svg=diagrams.find(diagram=>!diagram.hidden)?.querySelector('[data-gantt-svg]')??svg;baseWidth=Number(svg?.dataset.svgWidth??0);baseHeight=Number(svg?.dataset.svgHeight??0);if(expandToggle){expandToggle.setAttribute('aria-expanded',String(expanded));}if(toggleLabel){toggleLabel.textContent=expanded?toggleLabel.dataset.expandedLabel:toggleLabel.dataset.collapsedLabel;}setZoom(zoom);applyLane(activeLaneKey);syncSelection();scroller?.scrollTo(0,0);};
-  const showPanel=(name)=>{if(overviewPanel)overviewPanel.hidden=name!=='overview';if(detailsPanel)detailsPanel.hidden=name!=='details';if(taskIndexPanel)taskIndexPanel.hidden=name!=='task-index';if(selectedReturnButton)selectedReturnButton.hidden=name!=='task-index'||selectedKey===null;root.dataset.viewState=name;};
+  const showPanel=(name)=>{if(overviewPanel)overviewPanel.hidden=name!=='overview';if(detailsPanel)detailsPanel.hidden=name!=='details';if(taskIndexPanel)taskIndexPanel.hidden=name!=='task-index';if(structurePanel)structurePanel.hidden=name!=='structure';if(selectedReturnButton)selectedReturnButton.hidden=name!=='task-index'||selectedKey===null;root.dataset.viewState=name;};
   const syncSelection=()=>{for(const detail of detailPanels)detail.hidden=detail.dataset.detailKey!==selectedKey;for(const node of nodes){const selected=node.dataset.nodeKey===selectedKey;node.setAttribute('aria-selected',String(selected));node.classList.toggle('selected-node',selected);}for(const edge of edges){const selected=selectedKey!==null;edge.classList.toggle('selected-incident-edge',selected&&(edge.dataset.fromNodeKey===selectedKey||edge.dataset.toNodeKey===selectedKey));}};
   const showOverview=()=>{selectedKey=null;syncSelection();showPanel('overview');};
   const showTaskIndex=()=>showPanel('task-index');
@@ -167,6 +169,8 @@ const CONTROLLER = `
     const overviewButton=event.target.closest('[data-show-overview]');if(overviewButton&&root.contains(overviewButton)){showOverview();return;}
     const selectedButton=event.target.closest('[data-show-selected]');if(selectedButton&&root.contains(selectedButton)){showSelected();return;}
     const taskIndexButton=event.target.closest('[data-show-task-index]');if(taskIndexButton&&root.contains(taskIndexButton)){showTaskIndex();return;}
+    const structureButton=event.target.closest('[data-show-structure]');if(structureButton&&root.contains(structureButton)){showPanel('structure');return;}
+    const structureTarget=event.target.closest('[data-structure-target-id]');if(structureTarget&&root.contains(structureTarget)){const target=document.getElementById(structureTarget.dataset.structureTargetId);if(target&&root.contains(target)){for(const item of root.querySelectorAll('.structure-node.focused,.structure-edge-list li.focused'))item.classList.remove('focused');target.classList.add('focused');target.scrollIntoView({block:'center'});}return;}
     const expandButton=event.target.closest('[data-toggle-expanded]');if(expandButton&&root.contains(expandButton)){setExpanded(!expanded);return;}
     const selectButton=event.target.closest('[data-select-node-key]');if(selectButton&&root.contains(selectButton)){select(selectButton.dataset.selectNodeKey);return;}
     const zoomButton=event.target.closest('[data-zoom-action]');if(zoomButton&&root.contains(zoomButton)){const action=zoomButton.dataset.zoomAction;if(action==='in')setZoom(zoom<1&&zoom*1.25>=1?1:zoom*1.25,.001);else if(action==='out')setZoom(zoom>1&&zoom/1.25<=1?1:zoom/1.25,.001);else if(action==='reset')setZoom(1);else if(action==='fit'&&scroller){setZoom(Math.min(1,(scroller.clientWidth-16)/baseWidth),.001);scroller.scrollTo(0,0);}return;}
@@ -202,7 +206,7 @@ const NESTED_CONTROLLER = `
 
 export function renderTodoGanttHtml({
   readModel, layout, narratives = [], anchorOutcomes = [], presentation = null, metadata = {},
-  expandedLayout = null, noteContexts = null, noteWarnings = [],
+  expandedLayout = null, noteContexts = null, noteWarnings = [], structurePresentation = null,
 }) {
   if (readModel?.schema !== 'lattice.todo_store_read.v1' || !Array.isArray(readModel.members)) {
     throw new TypeError('readModel must be lattice.todo_store_read.v1');
@@ -218,6 +222,11 @@ export function renderTodoGanttHtml({
       || presentation.project_id !== readModel.project_id)) {
     throw new TypeError('presentation must be lattice.todo_gantt_presentation_model.v1');
   }
+  if (structurePresentation !== null
+    && (structurePresentation?.schema !== TODO_STRUCTURE_PRESENTATION_SCHEMA
+      || structurePresentation.project_id !== readModel.project_id)) {
+    throw new TypeError('structurePresentation must be lattice.todo_structure_presentation.v1');
+  }
   const normalized = normalizeSections(readModel, narratives, anchorOutcomes, noteContexts);
   const displayName = projectDisplayName(readModel, metadata);
   const hasHierarchy = layout?.hierarchy?.schema === 'lattice.todo_gantt_hierarchy.v1';
@@ -230,12 +239,13 @@ export function renderTodoGanttHtml({
     : `<div data-diagram="live">${svg}</div><div data-diagram="expanded" hidden>${expandedSvg}</div>`;
   const rightPane = renderRightPane(
     normalized.sections, layout, presentation, readModel, noteContexts !== null, noteWarnings,
-    expandedSvg !== '',
+    expandedSvg !== '', structurePresentation,
   );
   const staticData = serializeJsonForScript({
     renderer_version: TODO_GANTT_RENDERER_VERSION,
     metadata,
     presentation,
+    structure_presentation: structurePresentation,
   });
   const html = `<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lattice — ${escapeHtmlText(displayName)} 依存工程図</title><style>${CSS}${hasHierarchy ? NESTED_CSS : ''}</style></head><body data-gantt-root data-view-state="overview"><main class="shell"><section class="gantt-pane" aria-label="${escapeHtmlAttribute(displayName)} 依存工程図"><div class="diagram-toolbar" role="group" aria-label="図のズーム"><strong class="project-heading">${escapeHtmlText(displayName)} 依存工程図</strong>${renderAuditPendingChip(readModel)}<button type="button" data-zoom-action="out" aria-label="縮小">−</button><button type="button" data-zoom-action="reset">等倍</button><button type="button" data-zoom-action="in" aria-label="拡大">＋</button><button type="button" data-zoom-action="fit">全体表示</button><output class="zoom-readout" data-zoom-output aria-live="polite">100%</output><span class="diagram-note">縦=依存段階（時間ではない）</span></div>${renderDiagramLegend(presentation, layout, expandedSvg !== '')}<div class="diagram-scroll" data-diagram-scroll tabindex="0" aria-label="縦方向を主にスクロール可能な依存工程図">${diagrams}</div></section><div class="pane-divider" data-pane-divider aria-hidden="true"></div><aside class="narrative-pane" aria-label="選択工程の詳細と全工程一覧">${rightPane}</aside></main><script type="application/json" id="todo-gantt-data">${staticData}</script><script>${CONTROLLER}${hasHierarchy ? NESTED_CONTROLLER : ''}</script></body></html>`;
   const htmlBytes = Buffer.byteLength(html, 'utf8');

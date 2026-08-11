@@ -1,4 +1,9 @@
 import { DOCUMENT_STATUS, SEVERABILITY_LABEL, escapeHtmlAttribute, escapeHtmlText, foldIndex, planActivity, presentationLookup, refKey, renderPhaseProgress, renderRelationList, renderSeamProposalOverview, renderTaskIndex, statusMarkup, taskReference } from './todo-gantt-html-shared.mjs';
+import {
+  hasTodoStructurePresentation,
+  renderTodoStructureNoscript,
+  renderTodoStructurePanel,
+} from './todo-gantt-structure.mjs';
 import { renderTodoMarkdown } from './todo-markdown-renderer.mjs';
 
 function renderNoteContext(context) {
@@ -136,6 +141,7 @@ export function renderIndependenceNote(ref, node, summary, status) {
 
 export function renderRightPane(
   sections, layout, presentation, readModel, notesEnabled = false, noteWarnings = [], expandable = false,
+  structurePresentation = null,
 ) {
   const lookup = presentationLookup(presentation);
   const sectionByKey = new Map(sections.map((section) => [refKey(section.ref), section]));
@@ -211,7 +217,9 @@ export function renderRightPane(
     return `<article class="task-detail" data-detail-key="${escapeHtmlAttribute(key)}" hidden><header><span class="detail-status status-${escapeHtmlAttribute(section.state.status)}">${escapeHtmlText(status.mark)} ${escapeHtmlText(status.label)}</span><span class="detail-reference">${escapeHtmlText(taskReference(section, lookup))}</span></header><h1>${escapeHtmlText(section.task.title)}</h1><p class="detail-category"><strong>カテゴリ:</strong> ${escapeHtmlText(category)}</p>${categoryDescription}<p><strong>正規ID:</strong> <code>${escapeHtmlText(`${section.ref.plan_key}/${section.task.task_id}`)}</code></p>${blockedReason}${readiness}${independenceNote}${foldedNote}${designMemo}<section><h2>前提工程</h2>${renderRelationList(incoming.get(key), sectionByKey, lookup, '登録済みの前提工程はありません。', folds)}</section><section><h2>後続工程</h2>${renderRelationList(outgoing.get(key), sectionByKey, lookup, '登録済みの後続工程はありません。', folds)}</section>${workLog}<p class="anchor-status">${escapeHtmlText(anchorText)}</p><details class="task-diagnostics"><summary>開発者向け診断</summary><dl><dt>canonical ref</dt><dd><code>${escapeHtmlText(`${section.ref.project_id}/${section.ref.plan_key}/${section.task.task_id}`)}</code></dd><dt>anchor</dt><dd>${escapeHtmlText(section.anchorOutcome.anchored ? 'verified' : section.anchorOutcome.reason)}</dd></dl></details></article>`;
   }).join('');
   const taskIndex = renderTaskIndex(sections, lookup, folds, planActivity(readModel));
-  return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>全工程一覧</button></div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を現在の状態とともに表示しています。planは動いているものを最終活動の新しい順で上に、完走したものを古い順で下にまとめ、plan内は登録順です。</p>${taskIndex}</section></div>`;
+  const structureButton = hasTodoStructurePresentation(structurePresentation)
+    ? '<button type="button" data-show-structure>構造検査</button>' : '';
+  return `<div class="right-toolbar"><button type="button" data-show-overview>概要</button><button type="button" data-show-selected hidden>選択工程へ戻る</button><button type="button" data-show-task-index>全工程一覧</button>${structureButton}</div><div class="right-content">${overview}<div data-right-panel="details" hidden>${details}</div><section class="task-index" data-right-panel="task-index" hidden><h1>全工程</h1><p>Latticeに登録された全工程を現在の状態とともに表示しています。planは動いているものを最終活動の新しい順で上に、完走したものを古い順で下にまとめ、plan内は登録順です。</p>${taskIndex}</section>${renderTodoStructurePanel(structurePresentation)}${renderTodoStructureNoscript(structurePresentation)}</div>`;
 }
 
 export function renderDiagramLegend(presentation, layout = null, expandable = false) {

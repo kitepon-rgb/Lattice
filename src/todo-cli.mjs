@@ -31,6 +31,7 @@ import { readProjectExternalPane, resolveProjectIdentity } from './project-ident
 import { layoutTodoGantt } from './todo-gantt-layout.mjs';
 import { TODO_GANTT_SCOPES } from './todo-gantt-scope.mjs';
 import { loadTodoGanttPresentation } from './todo-gantt-presentation.mjs';
+import { loadTodoStructurePresentation } from './todo-structure-presentation.mjs';
 import { startTodoGanttLiveServer } from './todo-gantt-live.mjs';
 import {
   renderTodoGanttHtml,
@@ -2922,13 +2923,14 @@ async function loadNarratives(store, repoRoot) {
  * 一つの関数だけが組む。
  */
 export async function ganttLiveHeadDigest({ repoRoot, store }) {
-  const [independence, seamProposals, noteHeads] = await Promise.all([
+  const [independence, seamProposals, noteHeads, structures] = await Promise.all([
     independenceForGantt({ repoRoot, store }),
     seamProposalsForGantt({ repoRoot, store }),
     noteHeadsForGantt({ repoRoot, store }),
+    loadTodoStructurePresentation({ repoRoot, readModel: store }),
   ]);
   return digestTodoArtifact({
-    schema: 'lattice.todo_gantt_live_head.v2',
+    schema: 'lattice.todo_gantt_live_head.v3',
     manifest_digest: store.manifest.manifest_digest,
     independence: independence === null ? null : independence.map((entry) => ({
       plan_key: entry.plan_key,
@@ -2941,6 +2943,7 @@ export async function ganttLiveHeadDigest({ repoRoot, store }) {
       projection_digest: digestTodoArtifact(entry),
     })),
     note_heads: noteHeads,
+    structure_projection_digest: structures.projection_digest,
   });
 }
 
@@ -3132,10 +3135,11 @@ export async function renderTodoGanttForProject({
   const presentation = await loadTodoGanttPresentation({ repoRoot, readModel: store });
   const topology = mergedTopology(store);
   const chain = projectTodoChainV1(topology);
-  const [independence, seamProposals, notes] = await Promise.all([
+  const [independence, seamProposals, notes, structures] = await Promise.all([
     independenceForGantt({ repoRoot, store }),
     seamProposalsForGantt({ repoRoot, store }),
     notesForGantt({ repoRoot, store }),
+    loadTodoStructurePresentation({ repoRoot, readModel: store }),
   ]);
   const layout = layoutTodoGantt(store, chain, { scope, independence, seamProposals });
   // When the diagram hides history, the page also carries the full diagram so
@@ -3170,6 +3174,7 @@ export async function renderTodoGanttForProject({
     chain_digest: digestTodoArtifact(chain),
     layout_digest: digestTodoArtifact(layout),
     note_bindings_digest: digestTodoArtifact(notes.headBindings),
+    structure_projection_digest: structures.projection_digest,
     renderer_version: TODO_GANTT_RENDERER_VERSION,
     project_display_name: identity.displayName,
     folded_task_count: layout.scope.folded_task_count,
@@ -3184,6 +3189,7 @@ export async function renderTodoGanttForProject({
     metadata,
     noteContexts: notes.contexts,
     noteWarnings: notes.warnings,
+    structurePresentation: structures,
   });
   return { store, metadata, memberBindings, rendered };
 }
