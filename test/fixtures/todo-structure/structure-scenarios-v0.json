@@ -1,0 +1,41 @@
+{
+  "schema": "lattice.todo_structure_scenarios.fixture.v0",
+  "scenarios": [
+    {
+      "scenario_id": "consistent",
+      "mutation": "none",
+      "expected_verdict": "consistent",
+      "expected_finding_code": null
+    },
+    {
+      "scenario_id": "dependency-missing",
+      "mutation": "consumerのtask_output参照を保ったままToDo DAGのproducer→consumer edgeを外す",
+      "expected_verdict": "inconsistent",
+      "expected_finding_code": "STRUCTURE_DEPENDENCY_MISSING"
+    },
+    {
+      "scenario_id": "shape-mismatch",
+      "mutation": "producerとconsumerのshape_idを非互換にする",
+      "expected_verdict": "inconsistent",
+      "expected_finding_code": "STRUCTURE_CONTRACT_MISMATCH"
+    },
+    {
+      "scenario_id": "orphan-output",
+      "mutation": "consumerと明示sinkの両方を削る",
+      "expected_verdict": "inconsistent",
+      "expected_finding_code": "STRUCTURE_OUTPUT_ORPHANED"
+    },
+    {
+      "scenario_id": "unknown-anchor",
+      "mutation": "exact解決不能なcode symbolを入力する",
+      "expected_verdict": "unknown",
+      "expected_finding_code": "STRUCTURE_CODE_ANCHOR_AMBIGUOUS"
+    },
+    {
+      "scenario_id": "planned-realized-drift",
+      "mutation": "planned outputをrealizedと最終sourceから欠落させる",
+      "expected_verdict": "inconsistent",
+      "expected_finding_code": "STRUCTURE_FINAL_DRIFT"
+    }
+  ]
+}

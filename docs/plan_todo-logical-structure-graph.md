@@ -53,9 +53,10 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
 
 ### Phase A — ベースラインと不変Decision
 
-- [ ] **sg01 — 既存面のcharacterizationとfixtureを固定する**
+- [x] **sg01 — 既存面のcharacterizationとfixtureを固定する**
   - Depends: なし
-  - Write: `test/`の新規fixture／test、必要なら`docs/evidence/`の新規記録だけ
+  - Write: `test/`の新規fixture／test、`docs/evidence/`の新規記録。baselineを止めた既存store競合だけ
+    `src/todo-store.mjs`を最小修理する
   - 内容:
     - 詳細構想§4.5の再利用対応表を実コード・既存testと照合し、各能力の正本module／関数／入出力を記録する。
     - 新規実装が必要な欄を「structure固有contract／adapter／finding／gate」に限定し、parser、index、
@@ -65,6 +66,8 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - Peertable 16 ToDoの`logical_dataflow.v0`を、外部秘密と絶対pathを除いた固定fixtureへ移す。
     - consistent、dependency missing、shape mismatch、orphan output、unknown anchor、planned→realized driftの
       最小正負例を作る。
+    - `readTodoStoreStable`が一時的なmanifest書込み窓を恒久破損と誤判定する既存競合を、attempt上限まで
+      typed errorを保持する形へ直す。恒久破損は最後の具体的reasonを返す。
   - 受入:
     - 再利用対応表の各行に、呼び出せる既存関数または不足を示す再現結果がある。
     - 既存関数の使い方が分からないことを理由にした代替実装が0件である。
