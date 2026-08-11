@@ -405,7 +405,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - 実測: help／contract 16 test、syntax 168 files、CLI surface 68 command
       （undocumented／unexercised 0）、product reachability 114 module（未到達0）がgreen。
 
-- [ ] **sg16 — 最終品質gateとMarkdown工程を閉じる**
+- [x] **sg16 — 最終品質gateとMarkdown工程を閉じる**
   - Depends: sg15
   - Write: 本文checkbox、必要なevidence
   - 内容:
@@ -418,6 +418,20 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
   - 受入:
     - 全checkboxと実態が一致し、未実装・未検証・carry overを明示する。
     - 新機能の正負E2Eと全関連gateがgreen。
+  - 実施記録（2026-08-12）:
+    - sg01〜sg15の差分63 file（9,033 insertions／102 deletions）を`main...HEAD`で照合し、
+      planned compile、三値finding、realization／finalization gate、独立dashboard面、未適用plan互換、
+      Peertable由来16件fixtureが各受入へ対応していることを確認した。`git diff --check`もgreen。
+    - `npm test`はproduct gate 196 suite／1,756 testが全件成功した。`npm run test:sensor`は
+      147 file／2,308 testが成功し、環境別parity 183 testは既定skip、失敗0だった。
+    - syntax 168 files、CLI surface 68 command（undocumented／unexercised 0）、open question 29件
+      （unanchored 0）、product reachability 114 module／research artifact 33件（未到達・stale宣言0）がgreen。
+      `npm run ci`でも同じ全gateと`verify:todo-store`を一括再実行して完走した。
+    - `npm pack --dry-run --json`はexit 0、825 entry、tarball予定7,482,429 bytesだった。structure set／
+      realization／bindingの3 schema、`todo-structure-*` runtime、独立Gantt moduleが配布一覧に入ることを
+      実物で確認した。publish、version bump、global install、公開dashboard変更は行っていない。
+    - 未追跡は依存物`node_modules/`と`sensor/node_modules/`だけで、成果commitへ含めない。
+      実装上のcarry overはなく、残るsg17はオーナー承認が必要な公開H操作として分離した。
 
 - [ ] **sg17 — H操作: version／publish／install／公開smoke**
   - Depends: sg16
