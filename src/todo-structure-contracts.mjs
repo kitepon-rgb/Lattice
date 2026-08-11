@@ -26,6 +26,10 @@ export const TODO_STRUCTURE_LIMITS = Object.freeze({
   textBytes: 4_096,
   constantBytes: 16_384,
   commitsPerRealization: 256,
+  totalAnchors: 512,
+  totalPorts: 4_096,
+  totalOperations: 2_048,
+  totalSinks: 4_096,
 });
 
 const GIT_SHA = /^[0-9a-f]{40}$/u;
@@ -409,6 +413,27 @@ export function explainTodoStructureSet(value, { expectedTaskIds = null } = {}) 
     }
     if (!strictlySorted(value.tasks, (entry) => entry.task_id)) {
       return rejection('unsorted_or_duplicate_collection', '/tasks');
+    }
+    const graphTasks = value.tasks.filter(({ applicability }) => applicability === 'graph');
+    const totals = {
+      anchors: graphTasks.reduce((sum, task) => sum + task.planned.code_anchors.length, 0),
+      ports: graphTasks.reduce((sum, task) => sum
+        + task.planned.inputs.length + task.planned.outputs.length, 0),
+      operations: graphTasks.reduce((sum, task) => sum + task.planned.operations.length, 0),
+      sinks: graphTasks.reduce((sum, task) => sum
+        + task.planned.outputs.reduce((count, output) => count + output.sinks.length, 0), 0),
+    };
+    for (const [kind, limit] of [
+      ['anchors', TODO_STRUCTURE_LIMITS.totalAnchors],
+      ['ports', TODO_STRUCTURE_LIMITS.totalPorts],
+      ['operations', TODO_STRUCTURE_LIMITS.totalOperations],
+      ['sinks', TODO_STRUCTURE_LIMITS.totalSinks],
+    ]) {
+      if (totals[kind] > limit) {
+        return rejection('bounded_total_collection_violation', '/tasks', {
+          collection: kind, limit, actual: totals[kind],
+        });
+      }
     }
     const references = validateStructureReferences(value);
     if (!references.valid) return references;

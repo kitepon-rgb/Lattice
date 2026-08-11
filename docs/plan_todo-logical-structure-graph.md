@@ -1,11 +1,11 @@
 # plan: ToDo構造データとソース結合グラフ検査
 
-- Status: Planned
+- Status: In Progress
 - Lane: 統括（受入が多段に連鎖するため）。ただしオーナー裁定により、本campaignはLattice store、
   Peertable、Control、子エージェントを使わず、本文のMarkdown checkboxだけを工程正本とする
 - Detailed design: [design_todo-logical-structure-graph.md](design_todo-logical-structure-graph.md)
 - Owner: このCodex親が単独writerとして直列実装する
-- Started: 未着手
+- Started: 2026-08-11
 
 ## 1. 成果
 
@@ -116,7 +116,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
 
 ### Phase C — ソース・commit・ToDo結合コンパイラ
 
-- [ ] **sg05 — 既存source graphへのstructure anchor adapterを作る**
+- [x] **sg05 — 既存source graphへのstructure anchor adapterを作る**
   - Depends: sg03, sg01
   - Write: 新規の薄い`src/todo-structure-source-adapter.mjs`、既存sensor adapterの必要最小加算、focused／integration tests
   - 内容:
@@ -130,6 +130,18 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - fuzzy一致が一件も検証済みanchorへ入らない。
     - 全codebaseをartifactへ複製せず、excluded／omitted件数を保持する。
     - 同じqueryに対するstructure adapterとindependence側のsensor outcomeが同じportable evidenceを指す。
+  - 実施記録（2026-08-11）:
+    - structure setを既存`status`／`affected`／`query`／`callers`／`callees`へ決定的に変換し、
+      anchor到達範囲だけを自然キー・128 edge/方向・portable evidence digestへ投影した。
+    - read／modify／deleteのexact存在、createの不在、path-only、複数候補、時点保留、sensor非readyを
+      `consistent | inconsistent | unknown`とtyped reasonで区別した。excluded task数、既知omitted edge数、
+      sensor側200件上限到達もartifactへ残す。
+    - 既存traversal CLIがexact候補とsuffix候補のedgeを混載し得る不足を実コード照合で発見したため、
+      通常挙動を変えない`--exact-path`を追加した。既存indexのnode IDは内部走査だけに使い、projectionへ出さない。
+    - plan全体で最大512 anchor、4096 port、2048 operation、4096 sinkへboundedにし、最大query数が
+      task別上限の積で無制限に膨らまないようcontractで止めた。
+    - 実測: rootの関連27 test、sensor型検査、strict選択3 test、実build済みCLI E2E 2 testがgreen。
+      `npm pack --dry-run --ignore-scripts`でsource adapter、sensor CLI、strict helperの同梱を確認した。
 
 - [ ] **sg06 — 既存sensor diffをcommit provenanceへ投影する**
   - Depends: sg03, sg05

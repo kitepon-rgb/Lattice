@@ -52,6 +52,7 @@ import { buildNode25BlockBanner, buildNodeTooOldBanner, isNode25Affected, MIN_NO
 import { installFatalHandlers } from './fatal-handler';
 import { relaunchWithWasmRuntimeFlagsIfNeeded } from '../extraction/wasm-runtime-flags';
 import { installCommandSupervision } from './command-supervision';
+import { selectExactTraversalCandidate } from './exact-traversal';
 import { EXTRACTION_VERSION } from '../extraction/extraction-version';
 import { getTelemetry, TELEMETRY_DOCS, recordIndexEvent } from '../telemetry';
 
@@ -1922,8 +1923,11 @@ program
   .description('Find all functions/methods that call a specific symbol')
   .option('-p, --path <path>', 'Project path')
   .option('-l, --limit <number>', 'Maximum results', '20')
+  .option('--exact-path <repo-relative-path>', 'Traverse one exact symbol in this repo-relative file')
   .option('-j, --json', 'Output as JSON')
-  .action(async (symbol: string, options: { path?: string; limit?: string; json?: boolean }) => {
+  .action(async (symbol: string, options: {
+    path?: string; limit?: string; exactPath?: string; json?: boolean;
+  }) => {
     const projectPath = resolveProjectPath(options.path);
 
     try {
@@ -1946,9 +1950,14 @@ program
       const seen = new Set<string>();
       const allCallers: Array<{ name: string; kind: string; filePath: string; startLine?: number; edgeKind: string; valueRef: boolean; valueWrite: boolean }> = [];
 
-      for (const match of matches) {
+      const strict = options.exactPath === undefined
+        ? null : selectExactTraversalCandidate(matches, symbol, options.exactPath);
+      const traversalMatches = strict === null
+        ? matches : strict.outcome === 'ready' ? [strict.candidate] : [];
+
+      for (const match of traversalMatches) {
         const exactMatch = match.node.name === symbol || match.node.name.endsWith(`.${symbol}`) || match.node.name.endsWith(`::${symbol}`);
-        if (!exactMatch && matches.length > 1) continue;
+        if (strict === null && !exactMatch && matches.length > 1) continue;
         for (const c of cg.getCallers(match.node.id)) {
           if (!seen.has(c.node.id)) {
             seen.add(c.node.id);
@@ -1958,7 +1967,7 @@ program
       }
 
       // Fallback: if exact filter removed everything, use the top match
-      if (allCallers.length === 0 && matches[0]) {
+      if (strict === null && allCallers.length === 0 && matches[0]) {
         for (const c of cg.getCallers(matches[0].node.id)) {
           if (!seen.has(c.node.id)) {
             seen.add(c.node.id);
@@ -1970,7 +1979,11 @@ program
       const limited = allCallers.slice(0, limit);
 
       if (options.json) {
-        console.log(JSON.stringify({ symbol, callers: limited }, null, 2));
+        console.log(JSON.stringify({
+          symbol,
+          ...(strict === null ? {} : { exactPath: options.exactPath, exactResolution: strict.outcome }),
+          callers: limited,
+        }, null, 2));
       } else if (limited.length === 0) {
         info(`No callers found for "${symbol}"`);
       } else {
@@ -2001,8 +2014,11 @@ program
   .description('Find all functions/methods that a specific symbol calls')
   .option('-p, --path <path>', 'Project path')
   .option('-l, --limit <number>', 'Maximum results', '20')
+  .option('--exact-path <repo-relative-path>', 'Traverse one exact symbol in this repo-relative file')
   .option('-j, --json', 'Output as JSON')
-  .action(async (symbol: string, options: { path?: string; limit?: string; json?: boolean }) => {
+  .action(async (symbol: string, options: {
+    path?: string; limit?: string; exactPath?: string; json?: boolean;
+  }) => {
     const projectPath = resolveProjectPath(options.path);
 
     try {
@@ -2025,9 +2041,14 @@ program
       const seen = new Set<string>();
       const allCallees: Array<{ name: string; kind: string; filePath: string; startLine?: number; edgeKind: string; valueRef: boolean; valueWrite: boolean }> = [];
 
-      for (const match of matches) {
+      const strict = options.exactPath === undefined
+        ? null : selectExactTraversalCandidate(matches, symbol, options.exactPath);
+      const traversalMatches = strict === null
+        ? matches : strict.outcome === 'ready' ? [strict.candidate] : [];
+
+      for (const match of traversalMatches) {
         const exactMatch = match.node.name === symbol || match.node.name.endsWith(`.${symbol}`) || match.node.name.endsWith(`::${symbol}`);
-        if (!exactMatch && matches.length > 1) continue;
+        if (strict === null && !exactMatch && matches.length > 1) continue;
         for (const c of cg.getCallees(match.node.id)) {
           if (!seen.has(c.node.id)) {
             seen.add(c.node.id);
@@ -2036,7 +2057,7 @@ program
         }
       }
 
-      if (allCallees.length === 0 && matches[0]) {
+      if (strict === null && allCallees.length === 0 && matches[0]) {
         for (const c of cg.getCallees(matches[0].node.id)) {
           if (!seen.has(c.node.id)) {
             seen.add(c.node.id);
@@ -2048,7 +2069,11 @@ program
       const limited = allCallees.slice(0, limit);
 
       if (options.json) {
-        console.log(JSON.stringify({ symbol, callees: limited }, null, 2));
+        console.log(JSON.stringify({
+          symbol,
+          ...(strict === null ? {} : { exactPath: options.exactPath, exactResolution: strict.outcome }),
+          callees: limited,
+        }, null, 2));
       } else if (limited.length === 0) {
         info(`No callees found for "${symbol}"`);
       } else {

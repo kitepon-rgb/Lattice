@@ -179,6 +179,25 @@ test('malformed・過大・絶対path・task重複をpointer付きで拒否す�
   assert.equal(explainTodoStructureSet(duplicate).path, '/tasks');
 });
 
+test('task別上限を足し合わせたplan全体のanchor総数もboundedにする', () => {
+  const anchors = (prefix, count) => Array.from({ length: count }, (_, index) => ({
+    anchor_id: `${prefix}-${String(index).padStart(3, '0')}`,
+    effect: 'read', path: `src/${prefix}-${String(index).padStart(3, '0')}.mjs`,
+    symbol: null, expected_at: 'current',
+  }));
+  const value = structureSet({
+    tasks: [
+      { task_id: 'task-1', applicability: 'graph', planned: planned({ code_anchors: anchors('a', 256) }) },
+      { task_id: 'task-2', applicability: 'graph', planned: planned({ code_anchors: anchors('b', 256) }) },
+      { task_id: 'task-3', applicability: 'graph', planned: planned({ code_anchors: anchors('c', 1) }) },
+    ],
+  });
+  const explained = explainTodoStructureSet(value);
+  assert.equal(explained.reason, 'bounded_total_collection_violation');
+  assert.equal(explained.path, '/tasks');
+  assert.deepEqual(explained.detail, { collection: 'anchors', limit: 512, actual: 513 });
+});
+
 test('graph／excludedの全task coverageをplan task集合とexact照合する', () => {
   const set = structureSet();
   assert.equal(validateTodoStructureSet(set, { expectedTaskIds: ['task-2', 'task-1'] }), true);

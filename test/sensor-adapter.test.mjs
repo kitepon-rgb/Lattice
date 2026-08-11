@@ -315,6 +315,44 @@ test('accepts traversal JSON only after an exact query identity resolves', async
   assert.equal(evidence.outcomes[0].resolution[0].node.name, 'buildDispatchRecord');
 });
 
+test('strict traversalは宣言pathをCLIへ渡しportable outcomeへ保持する', async () => {
+  const commands = [];
+  const evidence = await collectSensorEvidence({
+    cwd: '/repo',
+    querySet: {
+      queries: [{
+        id: 'callers', operation: 'callers', target: 'buildDispatchRecord',
+        exact_path: 'src/runtime.mjs',
+      }],
+    },
+    execute: async (command) => {
+      commands.push(command);
+      if (command.operation === 'query') {
+        return {
+          code: 0, stderr: '', stdout: JSON.stringify([{
+            node: {
+              name: 'buildDispatchRecord', qualifiedName: 'buildDispatchRecord',
+              kind: 'function', filePath: 'src/runtime.mjs',
+            },
+          }]),
+        };
+      }
+      return {
+        code: 0, stderr: '', stdout: JSON.stringify({
+          symbol: 'buildDispatchRecord', exactPath: 'src/runtime.mjs',
+          exactResolution: 'ready', callers: [],
+        }),
+      };
+    },
+  });
+
+  assert.deepEqual(commands[0].args, [
+    'callers', 'buildDispatchRecord', '--path', '.', '--limit', '200',
+    '--exact-path', 'src/runtime.mjs', '--json',
+  ]);
+  assert.equal(evidence.outcomes[0].data.exactResolution, 'ready');
+});
+
 test('accepts only the observed ANSI info-prefixed Symbol not found output', async () => {
   const evidence = await collectSensorEvidence({
     cwd: '/repo',

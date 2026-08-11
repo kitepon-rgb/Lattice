@@ -277,7 +277,7 @@ async function resolveExactSymbol({ cwd, target, execute }) {
 }
 
 async function collectOne({ cwd, query, execute, inspectAffectedPath }) {
-  const { id, operation, target } = query;
+  const { id, operation, target, exact_path: exactPath } = query;
   if (!OPERATIONS.has(operation)) {
     return { id, operation, outcome: 'unsupported' };
   }
@@ -332,6 +332,11 @@ async function collectOne({ cwd, query, execute, inspectAffectedPath }) {
   if (operation !== 'status' && (typeof target !== 'string' || target.length === 0)) {
     return { id, operation, outcome: 'unresolved' };
   }
+  if (Object.hasOwn(query, 'exact_path')
+    && (!['callers', 'callees'].includes(operation)
+      || typeof exactPath !== 'string' || exactPath.length === 0 || path.isAbsolute(exactPath))) {
+    return { id, operation, target, outcome: 'unresolved' };
+  }
 
   const command = {
     operation,
@@ -343,7 +348,8 @@ async function collectOne({ cwd, query, execute, inspectAffectedPath }) {
     args: operation === 'status'
       ? ['status', '.', '--json']
       : ['callers', 'callees'].includes(operation)
-        ? [operation, target, '--path', '.', '--limit', '200', '--json']
+        ? [operation, target, '--path', '.', '--limit', '200',
+          ...(exactPath === undefined ? [] : ['--exact-path', exactPath]), '--json']
         : [operation, target, '--path', '.', '--json'],
   };
   const result = await executeCommand(execute, command);
