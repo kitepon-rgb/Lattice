@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_structure_realization.v1.schema.json",
+  "title": "lattice.todo_structure_realization.v1",
+  "description": "Append-only realized logical dataflow for one applicable task.",
+  "$comment": "Runtime validation additionally enforces canonical ordering, chain continuity, supersedes membership, structure-set identity, planned digest, UTF-8 byte bounds, and the canonical self-digest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "project_id", "plan_key", "plan_version", "task_id", "sequence",
+    "previous_digest", "structure_set_digest", "planned_digest", "head_sha", "commit_oids",
+    "realized", "supersedes", "actor", "recorded_at", "realization_digest"
+  ],
+  "properties": {
+    "schema": { "const": "lattice.todo_structure_realization.v1" },
+    "project_id": { "$ref": "#/$defs/identifier" },
+    "plan_key": { "$ref": "#/$defs/identifier" },
+    "plan_version": { "$ref": "#/$defs/identifier" },
+    "task_id": { "$ref": "#/$defs/identifier" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "previous_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+    "structure_set_digest": { "$ref": "#/$defs/digest" },
+    "planned_digest": { "$ref": "#/$defs/digest" },
+    "head_sha": { "$ref": "#/$defs/gitSha" },
+    "commit_oids": {
+      "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true,
+      "items": { "$ref": "#/$defs/gitSha" }
+    },
+    "realized": {
+      "$ref": "lattice.todo_structure_set.v1.schema.json#/$defs/transform"
+    },
+    "supersedes": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+    "actor": { "$ref": "#/$defs/actor" },
+    "recorded_at": { "$ref": "#/$defs/strictTimestamp" },
+    "realization_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "strictTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "actor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["host", "session", "agent"],
+      "properties": {
+        "host": { "$ref": "#/$defs/identifier" },
+        "session": { "$ref": "#/$defs/identifier" },
+        "agent": { "$ref": "#/$defs/identifier" }
+      }
+    }
+  }
+}

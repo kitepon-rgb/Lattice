@@ -89,12 +89,13 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
 
 ### Phase B — 構造入力契約
 
-- [ ] **sg03 — structure setとrealizationのexact contractを実装する**
+- [x] **sg03 — structure setとrealizationのexact contractを実装する**
   - Depends: sg02
   - Write: 新規`src/todo-structure-contracts.mjs`、`docs/schemas/`、focused tests、`package.json`のfiles
   - 内容:
     - `lattice.todo_structure_set.v1`、task planned構造、data port、data contract、code anchor、external contractを定義する。
     - `lattice.todo_structure_realization.v1`とsupersedesを含むappend-only recordを定義する。
+    - planned compile成功を不可逆に記録する`lattice.todo_structure_binding.v1`を定義する。
     - exact key、bounded collection、canonical order、repo相対path、self digestを検証する。
     - graph／excludedの全task coverageとexcluded reasonを検証する。
   - 受入:
