@@ -29,6 +29,9 @@ independence記録を作らない原則、runtime holdの物理的barrier、Latt
    `dependency_source_terminal`で拒否され、既に満たされた前提を機械記録へ残せなかった。
 5. active planへ部分CRUDを足さない判断は正しいが、実戦中の欠陥をcompanion campaignとして
    起票する正規手順が、計画文書・source inventory・extractionをAIが手組みする作業へ寄りすぎている。
+6. `todo migrate`は通常実行でtyped JSONを返す一方、`--json`を付けると拒否し、同じcommandの
+   `--dry-run`と`--schema`では`--json`を要求する。helpに正解があっても、modeごとに反転する
+   flag契約をAIが都度精読して避ける前提になっている。
 
 ## 所有境界
 
@@ -70,20 +73,21 @@ Peertable本開発で使う。残りを実戦結果で補正してWave 2を配�
 - [ ] ldr-04 clean independence bindingとtask外WIPを分離し、landing混入を検知する
 - [ ] ldr-05 完了済みsourceを「既に満たされたcross-plan前提」として記録できるようにする
 - [ ] ldr-06 companion campaignの正規起票を軽くし、active topology不変を保つ
+- [ ] ldr-10 typed JSONを返すCLIの`--json`受理を一貫させる
 - [ ] ldr-07 Wave 1を配備し、進行中Peertable campaignで実戦smokeする
 - [ ] ldr-08 Wave 1の実測を反映し、残修理をWave 2として配備する
 - [ ] ldr-09 全工程のpeer audit・配備証跡・実戦結果を照合してcampaignを閉じる
 
 ## 依存
 
-- `ldr-01`と`ldr-02`〜`ldr-06`は同時に着手できる。配備基線の照合は修理の調査・実装を塞がない。
+- `ldr-01`と`ldr-02`〜`ldr-06`・`ldr-10`は同時に着手できる。配備基線の照合は修理の調査・実装を塞がない。
 - `ldr-01`・`ldr-02`・`ldr-03`のpeer audit後に`ldr-07`を行う。
-- `ldr-04`〜`ldr-06`と`ldr-07`の実戦結果が揃った後に`ldr-08`を行う。
+- `ldr-04`〜`ldr-06`・`ldr-10`と`ldr-07`の実戦結果が揃った後に`ldr-08`を行う。
 - `ldr-08`後に`ldr-09`を行う。
 
 ## 受入
 
-- 5件すべてが「既存契約を維持した修理」または「実測に基づく明示的な契約変更」として、
+- 6件すべてが「既存契約を維持した修理」または「実測に基づく明示的な契約変更」として、
   focused test・typed CLI出力・証拠へ束縛されている。
 - Peertableからは公開CLIとversioned JSONだけで新しい導線を利用できる。
 - 各修理は担当外メンバーのpeer auditを通り、親の事前監査や工程代行を受入条件にしていない。
