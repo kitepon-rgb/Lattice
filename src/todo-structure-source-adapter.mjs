@@ -79,11 +79,23 @@ export function todoStructurePortableEvidenceDigest(query, outcome) {
     || typeof outcome.outcome !== 'string') {
     throw new TypeError('queryとsensor outcomeが一致しない');
   }
+  const portable = portableSensorOutcome(outcome);
+  // exact symbol候補のscoreは検索順位の実行時telemetryであり、構造projectionが読むのはnodeだけ。
+  // 浮動小数のscoreをcanonical artifact identityへ混ぜると、同じsymbolでも索引状況でdigestが揺れる。
+  const stripCandidateScores = (entries) => Array.isArray(entries)
+    ? entries.map((entry) => isPlain(entry) && isPlain(entry.node)
+      ? Object.fromEntries(Object.entries(entry).filter(([key]) => key !== 'score')) : entry)
+    : entries;
+  if (query.operation === 'query') portable.data = stripCandidateScores(portable.data);
+  if (['callers', 'callees'].includes(query.operation)
+    && Object.hasOwn(portable, 'resolution')) {
+    portable.resolution = stripCandidateScores(portable.resolution);
+  }
   return digestTodoArtifact({
     query_id: query.id,
     operation: query.operation,
     status: outcome.outcome,
-    portable: portableSensorOutcome(outcome),
+    portable,
   });
 }
 

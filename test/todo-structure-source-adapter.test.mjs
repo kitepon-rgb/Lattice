@@ -208,6 +208,18 @@ test('exact symbolと自然キーedgeだけを投影しportable evidence identit
   }, 'portable_digest'));
 });
 
+test('exact symbolの浮動小数scoreは構造evidence identityへ混ぜない', () => {
+  const set = structureSet([anchor()]);
+  const query = buildTodoStructureSensorQuerySet(set).queries
+    .find(({ operation }) => operation === 'query');
+  const first = collectedFor(set).outcomes.find(({ operation }) => operation === 'query');
+  first.data[0].score = 104.7963087899178;
+  const second = structuredClone(first);
+  second.data[0].score = 2.5;
+  assert.equal(todoStructurePortableEvidenceDigest(query, first),
+    todoStructurePortableEvidenceDigest(query, second));
+});
+
 test('fuzzy不在・複数候補・宣言path外のexact候補を検証済みにしない', () => {
   const set = structureSet([anchor()]);
   const fuzzy = collectedFor(set, {

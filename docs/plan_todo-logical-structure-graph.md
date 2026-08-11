@@ -328,7 +328,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - 実測: Gantt全110 test、finalization→通常Gantt描画を含むrealization 4 test、syntax 168 files、
       CLI surface 68 command（undocumented／unexercised 0）がgreen。
 
-- [ ] **sg13 — 正負E2Eと互換回帰を通す**
+- [x] **sg13 — 正負E2Eと互換回帰を通す**
   - Depends: sg11, sg12
   - Write: `test/integration/`、fixture、必要な共通test helper
   - 内容:
@@ -340,6 +340,21 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
   - 受入:
     - 欠陥版で負例が落ち、修正版でgreenになる。
     - fixture外のlive Lattice／Peertable storeを変更しない。
+  - 実施記録（2026-08-12）:
+    - 共通fixtureでtemp Git repo、実todo store、三plan、実sensorを作り、fixture pathを含む残存processを
+      SIGTERM→SIGKILLで回収してからtemp repoを削除する終了契約へ載せた。全CLIはfixture cwdと相対refだけを
+      使い、live Lattice／Peertable storeへ触れない。
+    - `negative` planでsensor未初期化unknown、dependency missing、shape mismatch、orphan output、
+      anchor absent、dirty worktreeを別の期待codeへ固定した。consistentだけがbindingを発行し、その後の
+      HEAD変更でcompiled verdictを有効なconsistentへ残さずstaleへ戻すところまで実Gitで確認した。
+    - `lifecycle` planでpending→in-progress→実装commit→realize→done、excluded done、全task done、
+      sensor再同期、finalize、terminal closeを一周した。`plain` planはstructure入力なしで従来の
+      start→done→terminal closeを完走した。
+    - 実sensor exact symbolの検索候補に浮動小数`score`が含まれ、構造artifact digestが拒否される欠陥を
+      E2Eで発見した。shared sensor outcomeは変えず、構造evidence identityが消費するnode候補からだけ
+      非意味的な検索順位scoreを除外し、異なるscoreでも同じdigestになる退行testを追加した。
+    - 実測: 新規統合E2E 1件と構造全59 test、syntax 168 files、CLI surface 68 command
+      （undocumented／unexercised 0）がgreen。
 
 - [ ] **sg14 — Peertable由来16件を移行fixtureとして実証する**
   - Depends: sg13
