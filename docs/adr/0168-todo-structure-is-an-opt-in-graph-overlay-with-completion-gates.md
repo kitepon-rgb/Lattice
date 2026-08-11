@@ -116,8 +116,12 @@ independence verdictを変えない。並列候補の判定と構造整合性は
 
 ### 6. authoritative compileだけがlive source、Git、sensorを読む
 
-planned compileとfinal compileは、clean worktree、current HEAD、baseline ancestor、plan identity、fresh sensorを
-実測するauthoritative operationである。dirty worktreeをcommit済み構造として保存せず、baseline非祖先、
+planned compileとfinal compileは、cleanなauthoritative observation scope、current HEAD、baseline ancestor、
+plan identity、fresh sensorを実測するauthoritative operationである。管理worktreeがdirtyな場合も、current
+HEADを一時detached worktreeへ自動展開し、Git来歴とsource graphはそのclean snapshotだけから収集する。
+Lattice store、planned source、realization、artifactは管理worktreeで読書きし、一時worktreeへ持ち込まない。
+一時worktreeでは同梱sensorを初期化し、成功・失敗のどちらでも観測後に破棄する。これにより未コミット実装を
+commit済み構造として保存せず、同時に無関係なdirty entryだけを理由として構造検査を拒否しない。baseline非祖先、
 Git object欠落、sensor stale、anchor曖昧を別のtyped finding／errorとして返す。
 
 通常の`todo structure`読取とdashboardは保存済みartifactを読む。参照時にsensorを再実行せず、現在の

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -15,6 +15,7 @@ import {
   writeStructureE2eEvidence,
   writeStructureE2eJson,
 } from '../helpers/todo-structure-e2e-fixture.mjs';
+import { collectTodoStructureAuthoritativeObservation } from '../../src/todo-structure-authoritative-observation.mjs';
 
 function ok(result, label) {
   assert.equal(result.status, 0, `${label}: ${result.stderr}`);
@@ -105,12 +106,17 @@ test('実Git・sensorで正負compile、realize、finalize、未適用互換を�
     { task_id: 'L2', applicability: 'excluded', excluded_reason: '構造を変えない受入工程' },
   ]);
   const unknownSet = structureSet(fixture, 'negative', graphTasks(
-    emptyTransform('A'), emptyTransform('B'),
+    emptyTransform('A', { codeAnchors: [{
+      anchor_id: 'future-file', effect: 'create', path: 'src/future.mjs',
+      symbol: null, expected_at: 'after_task',
+    }] }),
+    emptyTransform('B'),
   ));
   await installSource(fixture, lifecycleSet, 'lifecycle-planned');
   await installSource(fixture, unknownSet, 'unknown');
 
-  // sensor未初期化はunknownであり、missingやconsistentへ丸めない。
+  // authoritative observationは管理木のsensor有無に依存せずfresh indexを作る。
+  // それでもafter_task anchorはまだ観測不能なのでunknownを維持する。
   const unknown = ok(compile(root, 'negative'), 'unknown compile');
   assert.equal(unknown.verdict, 'unknown');
   assert.equal(unknown.enabled, false);
@@ -149,12 +155,19 @@ test('実Git・sensorで正負compile、realize、finalize、未適用互換を�
     commitTodo(root, `${scenario.id} compile artifact`);
   }
 
-  // dirtyはfindingへ変換せず、Git境界のtyped errorとして止める。
+  // 管理木がdirtyでもauthoritative observationはcurrent HEADだけを見る。
+  // planned anchorと同名の未コミットfileを置き、誤って観測すればfindingが消える形で固定する。
+  const worktreesBeforeDirtyCompile = structureE2eGit(root, ['worktree', 'list', '--porcelain']);
   await writeFile(path.join(root, 'README.md'), 'dirty structure e2e\n');
-  const dirty = compile(root, 'negative');
-  assert.equal(dirty.status, 1);
-  assert.equal(parseStructureE2eJson(dirty.stderr).code, 'STRUCTURE_GIT_WORKTREE_DIRTY');
+  await writeFile(path.join(root, 'src/missing.mjs'), 'export const uncommittedOnly = true;\n');
+  const dirty = ok(compile(root, 'negative'), 'dirty management tree compile');
+  assert.equal(dirty.verdict, 'inconsistent');
+  assert.equal(dirty.findings.some(({ code }) => code === 'STRUCTURE_CODE_ANCHOR_ABSENT'), true);
+  assert.equal(dirty.current_head_sha, structureE2eGit(root, ['rev-parse', 'HEAD']));
+  assert.equal(structureE2eGit(root, ['worktree', 'list', '--porcelain']), worktreesBeforeDirtyCompile);
   await writeFile(path.join(root, 'README.md'), 'structure e2e\n');
+  await rm(path.join(root, 'src/missing.mjs'));
+  commitTodo(root, 'dirty management tree compile artifact');
   assert.equal(structureE2eGit(root, ['status', '--porcelain']), '');
 
   // consistentだけがimmutable bindingを作り、後続HEADでstaleへ戻る。
@@ -214,4 +227,22 @@ test('実Git・sensorで正負compile、realize、finalize、未適用互換を�
   ]), 'lifecycle terminal');
   const finalStatus = ok(todo(root, ['status']), 'final status');
   assert.deepEqual(finalStatus.structure_finalization_pending, []);
+});
+
+test('authoritative observationはsensor失敗でも一時worktreeを回収する', async (t) => {
+  const fixture = await createTodoStructureE2eFixture(t);
+  const set = structureSet(fixture, 'negative', graphTasks(
+    emptyTransform('A'), emptyTransform('B'),
+  ));
+  const worktreesBefore = structureE2eGit(fixture.root, ['worktree', 'list', '--porcelain']);
+  await assert.rejects(collectTodoStructureAuthoritativeObservation({
+    repoRoot: fixture.root,
+    structureSet: set,
+    initializeSensor: async () => {
+      const error = new Error('fixture_sensor_failure');
+      error.code = 'FIXTURE_SENSOR_FAILURE';
+      throw error;
+    },
+  }), (error) => error?.code === 'FIXTURE_SENSOR_FAILURE');
+  assert.equal(structureE2eGit(fixture.root, ['worktree', 'list', '--porcelain']), worktreesBefore);
 });

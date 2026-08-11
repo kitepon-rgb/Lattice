@@ -40,22 +40,28 @@ planned anchorとの一致・不一致へ正直に現れる。利用者へworktr
 
 ### Phase A — 再現と観測境界
 
-- [ ] **lo01 — dirty管理木のcharacterizationを固定する**
+- [x] **lo01 — dirty管理木のcharacterizationを固定する**
   - dirtyなtracked／untracked実装があるfixtureで現行compileが`STRUCTURE_GIT_WORKTREE_DIRTY`になることを再現する。
   - dirty実装がsensor evidenceへ入らず、current HEADのsourceだけが観測される期待値を固定する。
   - worktree作成失敗・sensor失敗でも一時worktreeが回収される受入を置く。
+  - 実測: dirty管理木では旧実装が`STRUCTURE_GIT_WORKTREE_DIRTY`で停止。新testは同名の未コミットanchorを
+    置いてもHEAD側の`STRUCTURE_CODE_ANCHOR_ABSENT`を維持し、一時worktree数が前後一致する。
 
 ### Phase B — 実装
 
-- [ ] **lo02 — current HEADのclean観測scopeを実装する**
+- [x] **lo02 — current HEADのclean観測scopeを実装する**
   - 既存Git processとsensor adapterを再利用し、一時detached worktreeの生成・検証・回収を一つの内部境界へ置く。
   - compile／finalizeのsource evidenceとGit provenanceを同じ観測rootへ向ける。
   - 管理面のsource、artifact、binding、realizationの読書きrootは変更しない。
+  - 実装: `todo-structure-authoritative-observation.mjs`がcurrent HEADのdetached worktree作成、Git provenance、
+    同梱sensor初期化、source evidence、強制回収を一つの内部境界として所有する。
 
-- [ ] **lo03 — lifecycle退行を閉じる**
+- [x] **lo03 — lifecycle退行を閉じる**
   - clean／dirty双方でcompileを通し、同じHEADなら同じ構造verdictになることを確認する。
   - dirty実装が未採用であること、finalizeも同じ境界を使うこと、残存worktreeがゼロであることを確認する。
   - focused test、関連integration、`npm run check`を通す。
+  - 実測: `node --test test/integration/todo-structure-lifecycle.integration.mjs` 2件green、`npm run check` green。
+    sensor初期化の注入失敗でもworktree list前後一致を確認した。
 
 ### Phase C — Peertable実運用
 
@@ -77,4 +83,3 @@ planned anchorとの一致・不一致へ正直に現れる。利用者へworktr
 4. dirty entryをstash、commit、削除、複製しない。
 5. 一時worktreeが正常系・異常系とも残らない。
 6. clean repoの既存structure lifecycleが退行しない。
-

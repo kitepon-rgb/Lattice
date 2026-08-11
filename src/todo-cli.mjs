@@ -77,8 +77,7 @@ import {
   explainTodoStructureRealization,
   explainTodoStructureSet,
 } from './todo-structure-contracts.mjs';
-import { collectTodoStructureSourceEvidence } from './todo-structure-source-adapter.mjs';
-import { collectTodoStructureGitProvenance } from './todo-structure-git-adapter.mjs';
+import { collectTodoStructureAuthoritativeObservation } from './todo-structure-authoritative-observation.mjs';
 import { compileTodoStructureOverlay } from './todo-structure-overlay.mjs';
 import {
   buildTodoStructureCompileArtifact,
@@ -2024,8 +2023,9 @@ async function structureCompile({ repoRoot, env, planKey, inputRef }) {
     });
   }
   const actor = mutationActor(env);
-  const sourceEvidence = await collectTodoStructureSourceEvidence({ cwd: repoRoot, structureSet });
-  const gitProvenance = collectTodoStructureGitProvenance({ repoRoot, structureSet });
+  const observation = await collectTodoStructureAuthoritativeObservation({ repoRoot, structureSet });
+  const sourceEvidence = observation.source_evidence;
+  const gitProvenance = observation.git_provenance;
   const realizations = [];
   for (const task of structureSet.tasks.filter(({ applicability }) => applicability === 'graph')) {
     realizations.push(...await readTodoStructureRealizationChain({
@@ -2188,10 +2188,11 @@ async function structureFinalize({ repoRoot, env, planKey }) {
     effectiveTransforms.set(task.task_id, latest.realized);
   }
   const actor = mutationActor(env);
-  const sourceEvidence = await collectTodoStructureSourceEvidence({
-    cwd: repoRoot, structureSet: source, effectiveTransforms,
+  const observation = await collectTodoStructureAuthoritativeObservation({
+    repoRoot, structureSet: source, effectiveTransforms,
   });
-  const gitProvenance = collectTodoStructureGitProvenance({ repoRoot, structureSet: source });
+  const sourceEvidence = observation.source_evidence;
+  const gitProvenance = observation.git_provenance;
   const overlay = compileTodoStructureOverlay({
     structureSet: source,
     topology: mergedTopology(store),
