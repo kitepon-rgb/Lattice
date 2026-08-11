@@ -62,11 +62,11 @@ Cloudflare Tunnel → Caddy → hub（192.168.1.2 常駐・新規）→ 各開�
 
 ## 暫定チェックリスト（todo migrate までの仮置き。store 導入後はこの節を削除し store が正本）
 
-- [ ] hub 登録プロトコル契約の設計文書（F）
-- [ ] hub server 実装（登録簿・合成一覧・中継・SSE）+ focused tests（A）
-- [ ] 端末 bridge の hub 登録・heartbeat 実装 + focused tests（A）
-- [ ] 疑似2端末の統合テスト（受入2）
-- [ ] 192.168.1.2 配備 + Caddy 差し替え + 逆トンネル退役（H）
-- [ ] Mac/Windows 実端末配線と多端末実証（受入4）
-- [ ] 知識還流と archive
+- bh1-protocol: hub 登録プロトコル契約の設計文書（F）（完了・工程正本はLattice store）
+- bh2-hub-server: hub server 実装（登録簿・合成一覧・中継・SSE）+ focused tests（完了・工程正本はLattice store）
+- bh3-terminal-heartbeat: 端末 bridge の hub 登録・heartbeat 実装 + focused tests（完了・工程正本はLattice store）
+- bh4-integration-test: 疑似2端末の統合テスト（受入2）（完了・工程正本はLattice store）
+- bh5-deploy: オーナー裁定2026-08-10で打ち切り。工程から除外し再開しない
+- bh6-multi-terminal-proof: オーナー裁定2026-08-10で打ち切り。工程から除外し再開しない
+- bh7-knowledge-return: オーナー裁定2026-08-10で打ち切り。工程から除外し再開しない
 （工程・ToDo は Lattice store `bridge-hub` v1 が唯一の正本。本書は目的・思想・判断理由・非目標・受入条件だけを所有する）
