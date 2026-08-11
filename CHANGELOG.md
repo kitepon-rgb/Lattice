@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.58.3 — 2026-08-12
+
+### 新機能
+
+- 構造機能が有効なplanの`lattice todo start`が、対象taskのcanonical planned構造、structure set identity、
+  compile freshness、realizationの次操作を`structure_context`として直接返すようにした。着手するAIは
+  別コマンドやsource file探索なしにinput／operation／output／contract／code anchorを受け取れる。
+- start mutation resultを`lattice.todo_mutation_result.v5`へ更新。構造機能未適用planは従来どおり着手でき、
+  `structure_context.status=not_enabled`を明示する。graph対象taskのrealization-before-doneと、plan終端の
+  fresh consistent finalization gateは変更しない。
+
 ## 0.58.2 — 2026-08-12
 
 ### 修正
