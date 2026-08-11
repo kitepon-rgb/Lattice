@@ -1,0 +1,55 @@
+{
+  "schema": "lattice.todo_witness_set.v5",
+  "project_id": "lattice",
+  "plan_key": "carry-removal-retirement",
+  "capacity": {
+    "executors": 2
+  },
+  "sensor_query_set": {
+    "queries": []
+  },
+  "manual_witness": {
+    "cr2-impl": {
+      "affected_tests": [
+        "test/todo-revision-writer.test.mjs",
+        "test/todo-phase-revision-v3.test.mjs"
+      ],
+      "owns": [
+        {
+          "creates": true,
+          "kind": "path",
+          "target": "evidence/carry-removal-retirement/cr2-impl.md"
+        },
+        {
+          "kind": "path",
+          "target": "src/todo-store.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/todo-revision-writer.test.mjs"
+        },
+        {
+          "kind": "path",
+          "target": "test/todo-phase-revision-v3.test.mjs"
+        }
+      ],
+      "reads": [
+        "docs/adr/0167-carry-tolerates-edges-to-tasks-removed-by-the-same-revision.md",
+        "docs/plan_carry-removal-retirement.md"
+      ],
+      "resources": [],
+      "sensor_provenance": {
+        "queries": []
+      },
+      "state_effects": [],
+      "unknowns": [],
+      "writes": [
+        "evidence/carry-removal-retirement/cr2-impl.md",
+        "src/todo-store.mjs",
+        "test/todo-revision-writer.test.mjs",
+        "test/todo-phase-revision-v3.test.mjs"
+      ]
+    }
+  },
+  "witness_set_digest": "ea63233939191e48190ee525c61f54f56315779884833c128e2aeb985e7ab5cb"
+}
