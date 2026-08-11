@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.58.1 — 2026-08-12
+
+### 修正
+
+- ToDo構造compileが管理worktreeの未コミット変更で停止しないよう、現在のHEADからcleanな一時観測scopeを
+  作り、SensorとGit来歴をそこで収集するよう修正。管理中の未コミットcodeを権威sourceへ混ぜない。
+- planned `after_task` anchorを実装前のpostconditionとして扱い、進行中taskへrealizationを先取り要求する
+  循環を解消。task完了後のfinalizationでは同じanchorを実際のpostconditionとして検査する。
+
 ## 0.58.0 — 2026-08-12
 
 ### 新機能
