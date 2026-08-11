@@ -1,10 +1,14 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { canonicalizeTodoArtifact, digestTodoArtifact, todoSelfDigest } from '/Users/kite/Developer/Lattice/src/todo-contracts.mjs';
-import { todoRevisionPlanVersion, todoLegacyReconciliationDigest,
-  todoSourceInventoryDigest, todoReconciliationDigest } from '/Users/kite/Developer/Lattice/src/todo-revision.mjs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-const ROOT = '/Users/kite/Developer/Lattice';
+const ROOT = resolve(process.env.LATTICE_REPO_ROOT ?? process.cwd());
+const contracts = await import(pathToFileURL(resolve(ROOT, 'src/todo-contracts.mjs')).href);
+const revisionTools = await import(pathToFileURL(resolve(ROOT, 'src/todo-revision.mjs')).href);
+const { canonicalizeTodoArtifact, digestTodoArtifact, todoSelfDigest } = contracts;
+const { todoRevisionPlanVersion, todoLegacyReconciliationDigest,
+  todoSourceInventoryDigest, todoReconciliationDigest } = revisionTools;
 const plan = JSON.parse(readFileSync(`${ROOT}/.lattice/todo/plans/bridge-hub/v1/plan.json`, 'utf8'));
 const snap = JSON.parse(readFileSync(`${ROOT}/.lattice/todo/plans/bridge-hub/v1/snapshot.json`, 'utf8'));
 const ARCHIVE = 'docs/archive/plan_bridge-hub_tasks.md';
