@@ -16,6 +16,10 @@
 
 - 構造検査はplan単位のopt-inであり、未適用planの既存lifecycle、dispatch、dashboard表示は変更しない。
 
+### 依存更新
+
+- Lattice Sensorの本番依存`picomatch`を4.0.5へ更新し、4.0.3までのReDoS脆弱性を解消。
+
 ## 0.57.3 — 2026-08-11
 
 ### 修正
