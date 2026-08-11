@@ -197,7 +197,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - 実測: DAG共通API、sg03〜sg07 adapter、実Git分類、finding正負例の関連60 testがgreen。
       pack dry-runでoverlay／source／Git adapterの同梱を確認した。
 
-- [ ] **sg08 — derived artifact、鮮度、revision migrationを実装する**
+- [x] **sg08 — derived artifact、鮮度、revision migrationを実装する**
   - Depends: sg07
   - Write: 新規`src/todo-structure-store.mjs`、必要な`todo-store.mjs`加算、store tests
   - 内容:
@@ -208,6 +208,19 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
   - 受入:
     - readは保存artifactと安いGit identity照合だけで閉じる。
     - staleなartifactがconsistentとして表示されない。
+  - 実施記録（2026-08-11）:
+    - source projection、Git provenance、overlay、realization head集合を相互digestで束縛する
+      `lattice.todo_structure_compile_artifact.v1`を追加し、plan version並置のcanonical storeへ保存した。
+      activation前のderived artifactは再生成でき、immutable binding発行後は上書きを拒否する。
+    - 読取はsensor／Git diffを実行せず、保存artifactと`rev-parse HEAD`、active topology、planned source digest、
+      task別realization chain headだけで`fresh | stale | superseded | missing`を返す。stale時は過去の
+      compiled verdictを履歴として残すが、effective verdictへ`consistent`を出さない。
+    - realization chain readerはcanonical JSONL、sequence、previous digest、supersedes、planned identityを検証し、
+      chain未作成の`[]`と破損のtyped failureを分離した。append writerはsg10へ残した。
+    - revision helperは既存`task_migration`によるtask／task-output／sink IDの一対一写像だけを行い、
+      `semantic_validation: required`を明示して意味の継続を主張しない。
+    - 実測: structure sg03〜sg08と既存independence storeの関連54 test、syntax checkがgreen。
+      pack dry-runで新規store moduleの同梱を確認した。
 
 ### Phase D — CLI・realization・機械gate
 

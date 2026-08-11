@@ -11,6 +11,7 @@ import {
 export const TODO_STRUCTURE_SET_SCHEMA = 'lattice.todo_structure_set.v1';
 export const TODO_STRUCTURE_REALIZATION_SCHEMA = 'lattice.todo_structure_realization.v1';
 export const TODO_STRUCTURE_BINDING_SCHEMA = 'lattice.todo_structure_binding.v1';
+export const TODO_STRUCTURE_COMPILE_ARTIFACT_SCHEMA = 'lattice.todo_structure_compile_artifact.v1';
 export const TODO_STRUCTURE_PROFILE = 'code-dataflow';
 export const TODO_STRUCTURE_CONTRACT_ERROR = 'TODO_STRUCTURE_CONTRACT_INVALID';
 
@@ -577,6 +578,128 @@ export function explainTodoStructureBinding(value) {
 }
 
 export const validateTodoStructureBinding = (value) => explainTodoStructureBinding(value).valid;
+
+function realizationHead(value, at) {
+  if (!exactRecord(value, ['task_id', 'sequence', 'realization_digest'])) {
+    return rejection('unexpected_or_missing_keys', at);
+  }
+  if (!isTodoIdentifier(value.task_id)) return rejection('invalid_identifier', `${at}/task_id`);
+  if (!Number.isSafeInteger(value.sequence) || value.sequence < 1) {
+    return rejection('invalid_sequence', `${at}/sequence`);
+  }
+  if (!isTodoDigest(value.realization_digest)) {
+    return rejection('invalid_digest', `${at}/realization_digest`);
+  }
+  return { valid: true };
+}
+
+/** realization chainの現行headだけをportableな鮮度identityへ畳む。 */
+export function digestTodoStructureRealizationHeads(heads) {
+  if (!Array.isArray(heads) || heads.length > TODO_STRUCTURE_LIMITS.tasks) {
+    throw new TypeError('realization heads must be a bounded array');
+  }
+  for (const [index, head] of heads.entries()) {
+    const result = realizationHead(head, `/realization_heads/${index}`);
+    if (!result.valid) throw new TypeError(`realization head invalid: ${result.reason}`);
+  }
+  if (!strictlySorted(heads, (entry) => entry.task_id)) {
+    throw new TypeError('realization heads must be sorted and unique');
+  }
+  return todoSelfDigest({
+    schema: 'lattice.todo_structure_realization_heads.v1',
+    heads,
+    realization_head_digest: '',
+  }, 'realization_head_digest');
+}
+
+/**
+ * compile時に保存するbounded derived artifactのexact contract。
+ * nested artifactはそれぞれのself digestと相互bindingまで検証し、sensorを再実行しない。
+ */
+export function explainTodoStructureCompileArtifact(value) {
+  try {
+    if (!exactRecord(value, [
+      'schema', 'project_id', 'plan_key', 'plan_version', 'topology_digest', 'profile',
+      'baseline_sha', 'current_head_sha', 'structure_set_digest', 'source_projection',
+      'git_provenance', 'realization_heads', 'realization_head_digest', 'overlay',
+      'compiled_at', 'actor', 'artifact_digest',
+    ])) return rejection('unexpected_or_missing_keys');
+    if (value.schema !== TODO_STRUCTURE_COMPILE_ARTIFACT_SCHEMA) {
+      return rejection('unsupported_schema', '/schema');
+    }
+    for (const field of ['project_id', 'plan_key', 'plan_version']) {
+      if (!isTodoIdentifier(value[field])) return rejection('invalid_identifier', `/${field}`);
+    }
+    if (!isTodoDigest(value.topology_digest)) return rejection('invalid_digest', '/topology_digest');
+    if (value.profile !== TODO_STRUCTURE_PROFILE) return rejection('invalid_enum', '/profile');
+    if (!isGitSha(value.baseline_sha)) return rejection('invalid_git_sha', '/baseline_sha');
+    if (!isGitSha(value.current_head_sha)) return rejection('invalid_git_sha', '/current_head_sha');
+    if (!isTodoDigest(value.structure_set_digest)) {
+      return rejection('invalid_digest', '/structure_set_digest');
+    }
+    const source = value.source_projection;
+    if (!isPlain(source)
+      || source.schema !== 'lattice.todo_structure_source_projection.v1'
+      || source.structure_set_digest !== value.structure_set_digest
+      || !isTodoDigest(source.projection_digest)
+      || source.projection_digest !== todoSelfDigest(source, 'projection_digest')) {
+      return rejection('source_projection_invalid', '/source_projection');
+    }
+    const provenance = value.git_provenance;
+    if (!isPlain(provenance)
+      || provenance.schema !== 'lattice.todo_structure_git_provenance.v1'
+      || provenance.structure_set_digest !== value.structure_set_digest
+      || provenance.baseline_sha !== value.baseline_sha
+      || provenance.head_sha !== value.current_head_sha
+      || !isTodoDigest(provenance.provenance_digest)
+      || provenance.provenance_digest !== todoSelfDigest(provenance, 'provenance_digest')) {
+      return rejection('git_provenance_invalid', '/git_provenance');
+    }
+    if (!Array.isArray(value.realization_heads)
+      || value.realization_heads.length > TODO_STRUCTURE_LIMITS.tasks) {
+      return rejection('bounded_collection_violation', '/realization_heads');
+    }
+    for (const [index, head] of value.realization_heads.entries()) {
+      const result = realizationHead(head, `/realization_heads/${index}`);
+      if (!result.valid) return result;
+    }
+    if (!strictlySorted(value.realization_heads, (entry) => entry.task_id)) {
+      return rejection('unsorted_or_duplicate_collection', '/realization_heads');
+    }
+    if (!isTodoDigest(value.realization_head_digest)
+      || value.realization_head_digest
+        !== digestTodoStructureRealizationHeads(value.realization_heads)) {
+      return rejection('realization_head_digest_mismatch', '/realization_head_digest');
+    }
+    const overlay = value.overlay;
+    if (!isPlain(overlay) || overlay.schema !== 'lattice.todo_structure_overlay.v1'
+      || overlay.structure_set_digest !== value.structure_set_digest
+      || overlay.source_projection_digest !== source.projection_digest
+      || overlay.git_provenance_digest !== provenance.provenance_digest
+      || !isTodoDigest(overlay.overlay_digest)
+      || overlay.overlay_digest !== todoSelfDigest(overlay, 'overlay_digest')) {
+      return rejection('overlay_invalid', '/overlay');
+    }
+    if (!isStrictTodoTimestamp(value.compiled_at)) {
+      return rejection('invalid_timestamp', '/compiled_at');
+    }
+    if (!exactRecord(value.actor, ['host', 'session', 'agent'])
+      || ![value.actor.host, value.actor.session, value.actor.agent].every(isTodoIdentifier)) {
+      return rejection('invalid_actor', '/actor');
+    }
+    if (!isTodoDigest(value.artifact_digest)) return rejection('invalid_digest', '/artifact_digest');
+    if (value.artifact_digest !== todoSelfDigest(value, 'artifact_digest')) {
+      return rejection('artifact_digest_mismatch', '/artifact_digest');
+    }
+    return { valid: true };
+  } catch {
+    return rejection('invalid_json_tree');
+  }
+}
+
+export const validateTodoStructureCompileArtifact = (value) => (
+  explainTodoStructureCompileArtifact(value).valid
+);
 
 /** fixture／writerがcontractと同じcanonical orderを作るための公開比較key。 */
 export const todoStructureSinkKey = sinkKey;
