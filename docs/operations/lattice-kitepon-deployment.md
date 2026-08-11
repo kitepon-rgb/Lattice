@@ -186,3 +186,55 @@ main worktreeがdirtyだと`prepublishOnly`（`verify-release-commit.mjs`）が�
 **symlinkでなく実ディレクトリとしてcopyする**——`.gitignore`の`node_modules/`は末尾スラッシュ
 のためディレクトリにしか当たらず、symlinkはuntracked扱いになってgateを塞ぐ（実測）。
 
+
+## 2026-08-11 v0.57.1・端末が名乗る集合の是正とFOX復旧
+
+`lattice.kitepon.dev`の公開一覧が全projectオフラインになった事故への対応。原因は
+ADR 0165（端末は配信している集合をそのまま名乗る）と CHANGELOG 0.57.1 が持つ。
+配線（Cloudflare Tunnel → Caddy → hub → 各端末bridge）は変更していない。
+
+- 対象commit `81dfce2`（`origin/main`の祖先）。npm `@quolu/lattice@0.57.1`。
+- hub（192.168.1.2）は**更新していない**。0.57.1は端末側だけの修正で、登録protocolは
+  v2のまま変わらない。hubを触らない方がrelease時の停止面が小さい。
+
+### 端末ごとの反映
+
+| 端末 | 反映方法 | 結果 |
+| --- | --- | --- |
+| Mac（KaitonoMacBook-Air） | `npm install -g @quolu/lattice@0.57.1` → `launchctl kickstart -k` | `heartbeat: accepted`・`runtime_drift: []`・iine／kikoeru／latticeがオンライン |
+| FOX（Windows） | checkoutを`git pull --rebase`（installはこのcheckoutへのjunction） | heartbeat再開・ChromeBlockerはオンライン表示まで回復。inbound到達性は未解決（下記） |
+| FOX（WSL2） | `npm install -g @quolu/lattice@0.57.1` | CLIは0.57.1。常駐dashboard daemonは0.57.0のまま——置換は`ensureTodoDashboardActivity`を通るstore書込みcommandでだけ起きる（`dashboard adopt`では起きない）。WSL2はbridgeを持たないので公開面への影響は無い |
+
+### FOXで実際に踏んだもの
+
+1. **Startup launcherとdescriptorの状態が食い違い、`reconfigure`自体が拒否された**
+   （`BRIDGE_STARTUP_FOLDER_STATE_INVALID`）。`Startup\LatticeBridge.vbs`は在るのに
+   `%LOCALAPPDATA%\Lattice\bridge-startup\descriptor.json`が消えていた。片方だけ在る状態は
+   moduleが自力で直せない。**orphanになったlauncherを退避して消してから`reconfigure`**すると
+   両方が揃って`persistence: installed`へ戻る。
+2. **checkoutにunpushedのローカルcommitが1本あった。** installがcheckoutへのjunctionである
+   以上、更新は`git pull`であり、他端末の作業commitを踏む可能性が常にある。`--rebase`で
+   載せ替えること。NTFS上ではrebase中に`index.lock`のPermission deniedで停止することがあり、
+   その時は`git commit -C <元のsha>`してから`git rebase --continue`で閉じる（実測）。
+3. **bridgeは生きているのに`bridge status`が`unattested`／`listener_not_accepting`を返す。**
+   attestationは**listen addressを経由する**ので、inbound firewallが閉じていると
+   自ホストからでも自分のbridgeを観測できない。`netstat`はLISTENINGを示すため、
+   「listenしているのに繋がらない」という形になる。切り分けは
+   `Test-NetConnection -ComputerName <listen IP> -Port <port>`を**その端末自身で**実行する。
+
+### 未解決（オーナーの管理者操作が要る）
+
+FOXのinbound TCP 61578が閉じている。node.exeにも当該portにも許可ruleが無く、
+全profileの既定inboundはblockである。このためhubは
+`http://192.168.1.11:61578/`へ到達できず、`/projects/ChromeBlocker/`は応答しない
+（一覧では**オンライン**と出る——heartbeatはoutboundなので通るため）。
+
+管理者PowerShellで次を1回実行すると開通する。
+
+```
+New-NetFirewallRule -DisplayName "Lattice bridge (61578)" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 61578 -Profile Private
+```
+
+**heartbeatが通ること（＝一覧のオンライン表示）は、そのprojectのページが開けることを
+意味しない。** heartbeatはoutbound、配信はinboundで、経路が別である。受入は必ず
+`/projects/<id>/`の実応答で判定する。
