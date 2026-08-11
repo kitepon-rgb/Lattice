@@ -2,8 +2,9 @@
  * Terminal-side bridge-hub heartbeat client (bh3).
  *
  * Wires the pure wire contract in `bridge-hub-protocol.mjs` (bh1) around this
- * terminal's own state: a persisted terminal identity, the locally active
- * project set (`todo-dashboard-registry.mjs`), and the configured hub origin
+ * terminal's own state: a persisted terminal identity, the project set this
+ * terminal is actually serving (asked of the dashboard daemon itself, ADR
+ * 0165), and the configured hub origin
  * (`bridge-config.mjs`'s `hub` field). It sends `POST /__lattice/hub/register`
  * on `bridge-hub-server.mjs`'s (bh2) contract — the request body is the raw
  * `lattice.bridge_hub_registration_request.v1` object, unmodified in transit.
@@ -21,7 +22,7 @@ import path from 'node:path';
 
 import { bridgeConfigPaths } from './bridge-config.mjs';
 import { BRIDGE_HUB_HEARTBEAT_INTERVAL_MS, validateBridgeHubRegistrationRequest } from './bridge-hub-protocol.mjs';
-import { readActiveTodoDashboardProjects } from './todo-dashboard-registry.mjs';
+import { readServedTodoDashboardProjectIds } from './todo-dashboard-registry.mjs';
 
 export { BRIDGE_HUB_HEARTBEAT_INTERVAL_MS };
 
@@ -180,7 +181,7 @@ export function bridgeHubHeartbeatSummary(result, at = null) {
 export function createBridgeHubHeartbeatController({
   env = process.env, fetchImpl = fetch, now = () => Date.now(),
   intervalMs = BRIDGE_HUB_HEARTBEAT_INTERVAL_MS,
-  readActiveProjects = readActiveTodoDashboardProjects,
+  readServedProjectIds = readServedTodoDashboardProjectIds,
 } = {}) {
   let lastSentAt = null;
   let lastResult = null;
@@ -198,13 +199,18 @@ export function createBridgeHubHeartbeatController({
       const nowMs = now();
       if (lastSentAt !== null && nowMs - lastSentAt < intervalMs) return lastResult;
       lastSentAt = nowMs;
-      const projects = await readActiveProjects({ env });
-      if (projects.length === 0) {
+      // 名乗る集合は、この端末が実際に配信している集合そのものを使う。登録簿から別途
+      // 数え直すと、配信している側と名乗る側が別々の基準を持ち、必ずずれる（ADR 0165）。
+      const projectIds = await readServedProjectIds({ env });
+      if (projectIds === null) {
+        return record({ schema: HEARTBEAT_RESULT_SCHEMA, state: 'skipped_no_dashboard' }, nowMs);
+      }
+      if (projectIds.length === 0) {
         return record({ schema: HEARTBEAT_RESULT_SCHEMA, state: 'skipped_no_projects' }, nowMs);
       }
       const terminalId = await readOrCreateBridgeHubTerminalId({ env });
       const request = buildBridgeHubRegistrationRequest({
-        terminalId, port: config.listen.port, projectIds: projects.map((project) => project.project_id),
+        terminalId, port: config.listen.port, projectIds,
       });
       return record(
         await sendBridgeHubHeartbeat({ hubUrl: config.hub.url, request, fetchImpl }), nowMs,

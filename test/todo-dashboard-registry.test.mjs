@@ -12,6 +12,7 @@ import {
   ensureTodoDashboardDaemon,
   ensureTodoDashboardActivity,
   readActiveTodoDashboardProjects,
+  readServedTodoDashboardProjectIds,
   readVisibleTodoDashboardProjects,
   registerTodoDashboardActivity,
   removeTodoDashboardProject,
@@ -107,6 +108,41 @@ test('session activity registryはprojectをupsertし期限切れentryを一覧�
   assert.equal(active.length, 1);
   assert.equal(active[0].display_name, 'Lattice');
   assert.equal(active[0].session_id, 'session-b');
+});
+
+test('配信中idはdaemon自身のhealthから読み、登録簿のstaleでは落ちない', async (context) => {
+  // 名乗る集合と配信する集合を別々に数えると必ずずれる。登録簿が全件stale——つまり
+  // readActiveTodoDashboardProjectsが0件——でも、daemonが配信していれば名乗る。
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-served-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runtime = path.join(root, 'runtime');
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const env = { LATTICE_DASHBOARD_RUNTIME_DIR: runtime };
+  const served = await currentHealthServer(4_242);
+  context.after(() => new Promise((resolve) => served.server.close(resolve)));
+  await writeDaemonDescriptor(runtime, daemonDescriptor(4_242, served.port));
+  await registerTodoDashboardActivity({ repoRoot: process.cwd(), projectId: 'lattice',
+    displayName: 'Lattice', sessionId: 'session-a', env,
+    now: new Date(Date.now() - TODO_DASHBOARD_STALE_MS - 1) });
+
+  assert.deepEqual(await readActiveTodoDashboardProjects({ env }), []);
+  assert.deepEqual(await readServedTodoDashboardProjectIds({ env }), ['lattice']);
+});
+
+test('配信中idはdaemonが観測できなければnullを返し、0件と区別する', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-served-absent-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const runtime = path.join(root, 'runtime');
+  await mkdir(runtime, { recursive: true, mode: 0o700 });
+  const env = { LATTICE_DASHBOARD_RUNTIME_DIR: runtime };
+
+  assert.equal(await readServedTodoDashboardProjectIds({ env }), null, 'descriptorが無い');
+
+  const served = await currentHealthServer(4_243);
+  context.after(() => new Promise((resolve) => served.server.close(resolve)));
+  await writeDaemonDescriptor(runtime, daemonDescriptor(9_999, served.port));
+  assert.equal(await readServedTodoDashboardProjectIds({ env }), null,
+    'healthのpidがdescriptorと食い違う相手を配信元として採らない');
 });
 
 test('同一project_idを別canonical rootから登録しても既存registryを置換しない', async (context) => {

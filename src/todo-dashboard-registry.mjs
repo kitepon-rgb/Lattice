@@ -158,6 +158,34 @@ export async function readVisibleTodoDashboardProjects({
 }
 
 /**
+ * この端末がいま実際に配信しているproject id。登録簿を自分で数え直さず、配信している
+ * dashboard daemon自身へ問い、loopback healthをdescriptorと突き合わせてから答える。
+ * daemonが居ない・応答しない・descriptorと食い違う時はnull——「配信していない」であって
+ * 「0件を配信している」ではない。
+ *
+ * 公開面へ在ると名乗る集合は、実際に配信している集合と同じでなければならない。別々に
+ * 数えると必ずずれる（2026-08-11に実測）。daemonはactive runを持つprojectを配信し続ける
+ * のに、hub heartbeatは登録簿の2時間staleだけを見て0件と判断し、送信ごと省いた。中身は
+ * 配信できるのに、公開面からは端末ごとofflineになる——障害と見分けがつかない消え方をする。
+ */
+export async function readServedTodoDashboardProjectIds({
+  env = process.env, fetchImpl = fetch, timeoutMs = 2_000,
+} = {}) {
+  let descriptor;
+  try { descriptor = await readJson(paths(env).descriptor, null); } catch { return null; }
+  if (!validDaemonDescriptor(descriptor)) return null;
+  let body;
+  try {
+    const response = await fetchImpl(`http://127.0.0.1:${descriptor.port}/__lattice/health`,
+      { signal: AbortSignal.timeout(timeoutMs) });
+    body = response.status === 200 ? await response.json() : null;
+  } catch { return null; }
+  if (body?.schema !== 'lattice.todo_dashboard_health.v1' || body.pid !== descriptor.pid
+    || body.port !== descriptor.port || !Array.isArray(body.project_ids)) return null;
+  return body.project_ids.filter(identifier).sort((left, right) => left.localeCompare(right, 'en'));
+}
+
+/**
  * 見るのはrepo_root directoryの存在だけ。`.lattice`の有無で判定すると、storeを持たない
  * 生きたrepoまで登録簿から消える。ENOENT／ENOTDIR以外のerrorは「消えた証拠」ではないので
  * 生存扱いのまま残す——判定できない相手を消す方が損害が大きい。

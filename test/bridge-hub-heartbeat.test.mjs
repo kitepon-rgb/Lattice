@@ -119,14 +119,43 @@ test('controllerはhub未設定ならfetchせずnullを返す', async (context) 
   assert.equal(fetchImpl.calls.length, 0);
 });
 
-test('controllerは活動projectが無ければfetchせずskipped_no_projectsを返す', async (context) => {
+test('controllerは配信中projectが無ければfetchせずskipped_no_projectsを返す', async (context) => {
   const { env } = await fixture(context);
   const fetchImpl = fetchStub(async () => jsonResponse(200, {}));
-  const controller = createBridgeHubHeartbeatController({ env, fetchImpl, readActiveProjects: async () => [] });
+  const controller = createBridgeHubHeartbeatController({ env, fetchImpl, readServedProjectIds: async () => [] });
   const config = { hub: { url: 'http://192.168.1.2:8080/' }, listen: { address: '127.0.0.1', port: 53_939 } };
   const result = await controller.tick({ config });
   assert.equal(result.state, 'skipped_no_projects');
   assert.equal(fetchImpl.calls.length, 0);
+});
+
+test('controllerはdashboard daemonが居なければskipped_no_dashboardとして0件と区別する', async (context) => {
+  const { env } = await fixture(context);
+  const fetchImpl = fetchStub(async () => jsonResponse(200, {}));
+  const controller = createBridgeHubHeartbeatController({
+    env, fetchImpl, readServedProjectIds: async () => null,
+  });
+  const config = { hub: { url: 'http://192.168.1.2:8080/' }, listen: { address: '127.0.0.1', port: 53_939 } };
+  const result = await controller.tick({ config });
+  assert.equal(result.state, 'skipped_no_dashboard');
+  assert.equal(fetchImpl.calls.length, 0);
+});
+
+test('controllerは配信中のidをそのまま名乗る（登録簿のstaleで落とさない）', async (context) => {
+  // 実被弾（2026-08-11）: daemonはactive runを持つprojectを配信し続けたのに、heartbeatが
+  // 登録簿の2時間staleで0件と判断して送信ごと省き、公開面から端末の全projectが消えた。
+  const { env } = await fixture(context);
+  const fetchImpl = fetchStub(async () => jsonResponse(200, {
+    schema: 'lattice.bridge_hub_registration_result.v1', terminal_id: 't1',
+    registered: ['iine', 'lattice'], adopted: [],
+  }));
+  const controller = createBridgeHubHeartbeatController({
+    env, fetchImpl, readServedProjectIds: async () => ['iine', 'lattice'],
+  });
+  const config = { hub: { url: 'http://192.168.1.2:8080/' }, listen: { address: '127.0.0.1', port: 53_939 } };
+  const result = await controller.tick({ config });
+  assert.equal(result.state, 'accepted');
+  assert.deepEqual(JSON.parse(fetchImpl.calls[0].init.body).project_ids, ['iine', 'lattice']);
 });
 
 test('controllerは初回tickで即送信しintervalMs未満の次tickは再送しない', async (context) => {
