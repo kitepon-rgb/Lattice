@@ -296,13 +296,11 @@ test('consumerもsinkも無いoutputをorphanとして返す', () => {
   assert.deepEqual(orphan.data_refs, ['task-b/public-out']);
 });
 
-test('in-progressの未束縛実装はunknown、doneのrealization欠損はerrorにする', () => {
+test('in-progressはrealizationを先取りせず、doneのrealization欠損だけをerrorにする', () => {
   const set = structureSet();
   const active = compile(set, { taskStates: states('in-progress', 'pending') });
-  const unbound = active.findings.find(({ code }) => code === 'STRUCTURE_COMMIT_UNBOUND');
-  assert.equal(active.verdict, 'unknown');
-  assert.equal(unbound.severity, 'unknown');
-  assert.deepEqual(unbound.task_ids, ['task-a']);
+  assert.equal(active.verdict, 'consistent');
+  assert.equal(active.findings.some(({ code }) => code === 'STRUCTURE_COMMIT_UNBOUND'), false);
 
   const done = compile(set, { taskStates: states('done', 'pending') });
   const missing = done.findings.find(({ code }) => code === 'STRUCTURE_REALIZATION_MISSING');

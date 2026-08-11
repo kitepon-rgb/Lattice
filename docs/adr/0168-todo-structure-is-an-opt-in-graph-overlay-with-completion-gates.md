@@ -124,6 +124,13 @@ Lattice store、planned source、realization、artifactは管理worktreeで読�
 commit済み構造として保存せず、同時に無関係なdirty entryだけを理由として構造検査を拒否しない。baseline非祖先、
 Git object欠落、sensor stale、anchor曖昧を別のtyped finding／errorとして返す。
 
+planned compileでは`expected_at: after_task`を将来検証するpostconditionとして受理し、current source上の
+不在をunknownへしない。final compileではtask完了後のsourceに対し、`create`／`modify`／`read`は存在、
+`delete`は不在を要求する。`expected_at: baseline`はcurrent HEADのsnapshotだけで証明せずunknownを維持する。
+またin-progress taskにrealization未作成を要求しない。realizationはbinding有効化後にtask成果commitを束縛する
+記録であり、初回compileへ先取り要求するとactivationとの循環になる。done時のrealization欠損と、存在する
+realizationのcommit到達不能／anchor非交差だけをfindingにする。
+
 通常の`todo structure`読取とdashboardは保存済みartifactを読む。参照時にsensorを再実行せず、現在の
 plan identity／HEADとartifact identityを比較して`fresh`／`stale`／`superseded`／`missing`を投影する。
 read操作がsource index、store、artifactを書き換えることはない。

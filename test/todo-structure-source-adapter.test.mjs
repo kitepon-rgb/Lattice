@@ -291,6 +291,29 @@ test('path-onlyとcreate不在を区別し、baseline／after_taskは後段へ�
     assert.equal(result.verdict, 'unknown');
     assert.equal(result.reason, 'STRUCTURE_CODE_ANCHOR_TIME_DEFERRED');
   }
+
+  const plannedCreate = structureSet([anchor({
+    effect: 'create', symbol: null, expected_at: 'after_task',
+  })]);
+  const planned = projectTodoStructureSourceEvidence({
+    structureSet: plannedCreate,
+    collected: collectedFor(plannedCreate),
+    observationStage: 'planned',
+  }).anchors[0];
+  assert.equal(planned.verdict, 'consistent');
+  assert.equal(planned.coverage, 'deferred');
+
+  const finalMissing = projectTodoStructureSourceEvidence({
+    structureSet: plannedCreate,
+    collected: collectedFor(plannedCreate, {
+      affected: (outcome) => ({
+        ...outcome, targets: [{ ...outcome.targets[0], path_state: 'absent' }],
+      }),
+    }),
+    observationStage: 'final',
+  }).anchors[0];
+  assert.equal(finalMissing.verdict, 'inconsistent');
+  assert.equal(finalMissing.reason, 'STRUCTURE_CODE_ANCHOR_ABSENT');
 });
 
 test('sensor非readyとedge欠損をunknownにし、edge上限とomitted件数を保持する', () => {

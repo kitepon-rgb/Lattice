@@ -62,13 +62,20 @@ planned anchorとの一致・不一致へ正直に現れる。利用者へworktr
   - focused test、関連integration、`npm run check`を通す。
   - 実測: `node --test test/integration/todo-structure-lifecycle.integration.mjs` 2件green、`npm run check` green。
     sensor初期化の注入失敗でもworktree list前後一致を確認した。
+  - Peertable初回適用で、planned `after_task`とin-progress realization未作成がactivationを循環停止させる
+    不足を発見。planned postconditionの遅延受理、final postcondition検証、done時realization必須へ段階を分離し、
+    source adapter／overlayのfocused testへ固定した。
 
 ### Phase C — Peertable実運用
 
-- [ ] **lo04 — Peertableの停滞工程へ再適用する**
+- [x] **lo04 — Peertableの停滞工程へ再適用する**
   - `peertable-dm-delivery-fx4e-20260811`の保存済み構造入力を、dirtyな実運用repoからcompileする。
   - current HEADだけを観測したverdict／findingを読み、未コミット成果を完成扱いしていないことを確認する。
   - 機能不足またはtyped defectが出た場合は本planへ追記してLattice側を直し、同じ入力で再試行する。
+  - 実測: Peertable管理木73 dirty entries、HEAD `103fbfb7e4a6273b11c14d80c9e782a7f6053214`で
+    `peertable-dm-delivery-fx4e-20260811`を再compile。verdict `consistent`、finding 0、binding作成、
+    read projectionは`fresh`／`enabled: true`。未コミット`member-turn-completed.mjs`はnatural sourceとして
+    取り込まず、planned deferred anchorとして保持した。一時worktree残数は前後不変。
 
 - [ ] **lo05 — 契約・変更履歴・受入証拠を閉じる**
   - ADR 0168のclean worktree契約を「cleanなauthoritative observation scope」へ精密化する。

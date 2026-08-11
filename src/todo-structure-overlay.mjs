@@ -466,12 +466,6 @@ function realizationFindings(structureSet, states, realizations, gitProvenance, 
           observed: null, expected: 'fresh task realization',
           nextAction: 'record_the_task_realization_before_done',
         }));
-      } else if (state === 'in-progress') {
-        findings.push(finding({
-          code: 'STRUCTURE_COMMIT_UNBOUND', severity: 'unknown', taskIds: [task.task_id],
-          observed: { commits: [] }, expected: 'explicit realization commit OIDs when implementation exists',
-          nextAction: 'record_a_realization_when_the_task_has_committed_implementation',
-        }));
       }
       continue;
     }

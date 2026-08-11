@@ -234,12 +234,25 @@ function edgeObservation(outcome, expectedNode, direction, expectedPath) {
   };
 }
 
-function effectVerdict(anchor, existence) {
-  if (anchor.expected_at !== 'current') {
+function effectVerdict(anchor, existence, observationStage) {
+  if (anchor.expected_at === 'baseline') {
     return { verdict: 'unknown', reason: 'STRUCTURE_CODE_ANCHOR_TIME_DEFERRED' };
+  }
+  if (anchor.expected_at === 'after_task' && observationStage === 'planned') {
+    return { verdict: 'consistent', reason: null, deferred: true };
   }
   if (existence === 'unknown') {
     return { verdict: 'unknown', reason: 'STRUCTURE_CODE_ANCHOR_UNRESOLVED' };
+  }
+  if (anchor.expected_at === 'after_task' && observationStage === 'final') {
+    const expected = anchor.effect === 'delete' ? 'absent' : 'present';
+    return existence === expected
+      ? { verdict: 'consistent', reason: null }
+      : { verdict: 'inconsistent', reason: expected === 'present'
+        ? 'STRUCTURE_CODE_ANCHOR_ABSENT' : 'STRUCTURE_DELETE_STILL_EXISTS' };
+  }
+  if (anchor.expected_at !== 'current') {
+    return { verdict: 'unknown', reason: 'STRUCTURE_CODE_ANCHOR_TIME_DEFERRED' };
   }
   if (anchor.effect === 'create') {
     return existence === 'absent'
@@ -274,7 +287,21 @@ function unknownAnchor(anchor, evidence, reason) {
   };
 }
 
-function projectAnchor({ anchor, querySet, outcomes, statusReady }) {
+function deferredAnchor(anchor, evidence) {
+  return {
+    ...unknownAnchor(anchor, evidence, null),
+    verdict: 'consistent',
+    reason: null,
+    coverage: 'deferred',
+    edges: {
+      state: 'not_applicable',
+      incoming: [], outgoing: [], incoming_omitted: 0, outgoing_omitted: 0,
+      incoming_source_limit_reached: false, outgoing_source_limit_reached: false,
+    },
+  };
+}
+
+function projectAnchor({ anchor, querySet, outcomes, statusReady, observationStage }) {
   const pathQuery = queryFor('affected', anchor.path);
   const pathOutcome = outcomes.get(pathQuery.id);
   const evidence = {
@@ -284,11 +311,14 @@ function projectAnchor({ anchor, querySet, outcomes, statusReady }) {
     callers: null,
     callees: null,
   };
+  if (anchor.expected_at === 'after_task' && observationStage === 'planned') {
+    return deferredAnchor(anchor, evidence);
+  }
   if (!statusReady) return unknownAnchor(anchor, evidence, 'STRUCTURE_SENSOR_NOT_READY');
 
   const pathResult = pathObservation(pathQuery, pathOutcome, anchor.path);
   if (anchor.symbol === null) {
-    const decision = effectVerdict(anchor, pathResult.existence);
+    const decision = effectVerdict(anchor, pathResult.existence, observationStage);
     return {
       ...unknownAnchor(anchor, evidence, decision.reason),
       verdict: decision.verdict,
@@ -321,7 +351,7 @@ function projectAnchor({ anchor, querySet, outcomes, statusReady }) {
     candidates: symbolResult.candidates,
   };
 
-  const decision = effectVerdict(anchor, symbolResult.existence);
+  const decision = effectVerdict(anchor, symbolResult.existence, observationStage);
   if (symbolResult.existence !== 'present') {
     return {
       ...unknownAnchor(anchor, evidence, decision.reason),
@@ -366,15 +396,18 @@ function projectAnchor({ anchor, querySet, outcomes, statusReady }) {
 
 /** 収集済みsensor outcomeから、anchor到達範囲だけのbounded projectionを作る。 */
 export function projectTodoStructureSourceEvidence({
-  structureSet, collected, effectiveTransforms = null,
+  structureSet, collected, effectiveTransforms = null, observationStage = 'current',
 } = {}) {
   assertStructureSet(structureSet);
+  if (!['current', 'planned', 'final'].includes(observationStage)) {
+    throw new TypeError('observationStageが不正');
+  }
   const querySet = buildTodoStructureSensorQuerySet(structureSet, { effectiveTransforms });
   const outcomes = indexOutcomes(querySet, collected);
   const statusQuery = querySet.queries[0];
   const statusOutcome = outcomes.get(statusQuery.id);
   const anchors = graphAnchors(structureSet, effectiveTransforms).map((anchor) => projectAnchor({
-    anchor, querySet, outcomes, statusReady: statusOutcome.outcome === 'ready',
+    anchor, querySet, outcomes, statusReady: statusOutcome.outcome === 'ready', observationStage,
   }));
   const projection = {
     schema: TODO_STRUCTURE_SOURCE_PROJECTION_SCHEMA,
@@ -400,7 +433,7 @@ export function projectTodoStructureSourceEvidence({
 
 /** 実sensor収集とpure projectionを同じ既存adapter経由で行う。 */
 export async function collectTodoStructureSourceEvidence({
-  cwd, structureSet, effectiveTransforms = null,
+  cwd, structureSet, effectiveTransforms = null, observationStage = 'current',
   execute = undefined, inspectAffectedPath = undefined,
 } = {}) {
   const querySet = buildTodoStructureSensorQuerySet(structureSet, { effectiveTransforms });
@@ -412,6 +445,8 @@ export async function collectTodoStructureSourceEvidence({
   });
   return {
     query_set: querySet,
-    projection: projectTodoStructureSourceEvidence({ structureSet, collected, effectiveTransforms }),
+    projection: projectTodoStructureSourceEvidence({
+      structureSet, collected, effectiveTransforms, observationStage,
+    }),
   };
 }

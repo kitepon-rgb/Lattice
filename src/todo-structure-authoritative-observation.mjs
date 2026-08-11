@@ -125,6 +125,7 @@ export async function collectTodoStructureAuthoritativeObservation({
     await initializeSensor(observationRoot);
     const sourceEvidence = await collectTodoStructureSourceEvidence({
       cwd: observationRoot, structureSet, effectiveTransforms,
+      observationStage: effectiveTransforms === null ? 'planned' : 'final',
     });
     result = {
       head_sha: headSha,

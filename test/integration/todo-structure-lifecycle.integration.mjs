@@ -108,7 +108,7 @@ test('実Git・sensorで正負compile、realize、finalize、未適用互換を�
   const unknownSet = structureSet(fixture, 'negative', graphTasks(
     emptyTransform('A', { codeAnchors: [{
       anchor_id: 'future-file', effect: 'create', path: 'src/future.mjs',
-      symbol: null, expected_at: 'after_task',
+      symbol: null, expected_at: 'baseline',
     }] }),
     emptyTransform('B'),
   ));
