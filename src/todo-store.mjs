@@ -2286,8 +2286,19 @@ function localTaskRef(ref, plan, taskId) {
     && ref.task_id === taskId;
 }
 
+function removedTaskIdsFor(revision) {
+  return new Set(revision.task_migration
+    .filter(({ to_task_id, state_policy }) => to_task_id === 'removed' && state_policy === 'removed')
+    .map(({ from_task_id }) => from_task_id));
+}
+
+function removedTaskRef(ref, plan, removedTaskIds) {
+  return ref.project_id === plan.project_id && ref.plan_key === plan.plan_key
+    && removedTaskIds.has(ref.task_id);
+}
+
 function taskSemantics(plan, taskId, idMap, {
-  reconciliationMetadata = false, includeDesignMemo = false,
+  reconciliationMetadata = false, includeDesignMemo = false, removedTaskIds = new Set(),
 } = {}) {
   const task = plan.tasks.find(({ task_id }) => task_id === taskId);
   if (!task) return null;
@@ -2302,17 +2313,23 @@ function taskSemantics(plan, taskId, idMap, {
     compile_binding: task.compile_binding, parent_task_id: mapId(task.parent_task_id ?? null),
   };
   const edges = plan.hard_dependencies
-    .filter(({ from, to }) => localTaskRef(from, plan, taskId) || localTaskRef(to, plan, taskId))
+    .filter(({ from, to }) => !removedTaskRef(from, plan, removedTaskIds)
+      && !removedTaskRef(to, plan, removedTaskIds)
+      && (localTaskRef(from, plan, taskId) || localTaskRef(to, plan, taskId)))
     .map(({ from, to }) => ({ from: mappedNodeRef(from, plan, idMap), to: mappedNodeRef(to, plan, idMap) }))
     .sort((left, right) => canonicalizeTodoArtifact(left) < canonicalizeTodoArtifact(right) ? -1 : 1);
   const joins = plan.joins
-    .filter(({ after, before }) => localTaskRef(before, plan, taskId)
-      || after.some((ref) => localTaskRef(ref, plan, taskId)))
-    .map((join) => ({ ...join,
-      after: join.after.map((ref) => mappedNodeRef(ref, plan, idMap))
+    .flatMap((join) => {
+      if (removedTaskRef(join.before, plan, removedTaskIds)) return [];
+      const after = join.after.filter((ref) => !removedTaskRef(ref, plan, removedTaskIds));
+      if (after.length === 0 || (!localTaskRef(join.before, plan, taskId)
+        && !after.some((ref) => localTaskRef(ref, plan, taskId)))) return [];
+      return [{ ...join,
+        after: after.map((ref) => mappedNodeRef(ref, plan, idMap))
         .sort((left, right) => canonicalizeTodoArtifact(left) < canonicalizeTodoArtifact(right) ? -1 : 1),
-      before: mappedNodeRef(join.before, plan, idMap),
-    })).sort((left, right) => left.id < right.id ? -1 : 1);
+        before: mappedNodeRef(join.before, plan, idMap),
+      }];
+    }).sort((left, right) => left.id < right.id ? -1 : 1);
   const phaseAcceptDependencies = isDecoupledPhaseTodoPlanSchema(plan.schema)
     ? plan.phase_accept_dependencies
       .filter(({ to }) => localTaskRef(to, plan, taskId))
@@ -2323,7 +2340,7 @@ function taskSemantics(plan, taskId, idMap, {
 }
 
 function phaseV3CarrySemantics(plan, taskId, taskIdMap, phaseIdMap,
-  { reconciliationMetadata = false, includeDesignMemo = false } = {}) {
+  { reconciliationMetadata = false, includeDesignMemo = false, removedTaskIds = new Set() } = {}) {
   const task = plan.tasks.find(({ task_id: id }) => id === taskId);
   if (task === undefined) return null;
   const mapTaskRef = (ref) => ref.project_id === plan.project_id && ref.plan_key === plan.plan_key
@@ -2351,13 +2368,17 @@ function phaseV3CarrySemantics(plan, taskId, taskIdMap, phaseIdMap,
   const incoming = [];
   const outgoing = [];
   for (const edge of plan.hard_dependencies) {
+    if (removedTaskRef(edge.from, plan, removedTaskIds)
+      || removedTaskRef(edge.to, plan, removedTaskIds)) continue;
     const mapped = { kind: 'hard', from: mapTaskRef(edge.from), to: mapTaskRef(edge.to) };
     if (localTaskRef(edge.to, plan, taskId)) incoming.push(mapped);
     if (localTaskRef(edge.from, plan, taskId)) outgoing.push(mapped);
   }
   for (const join of plan.joins) {
+    if (removedTaskRef(join.before, plan, removedTaskIds)) continue;
     const to = mapTaskRef(join.before);
     for (const after of join.after) {
+      if (removedTaskRef(after, plan, removedTaskIds)) continue;
       const tuple = { kind: 'join', join_id: join.id, from: mapTaskRef(after), to };
       if (localTaskRef(join.before, plan, taskId)) incoming.push(tuple);
       if (localTaskRef(after, plan, taskId)) outgoing.push(tuple);
@@ -2375,11 +2396,12 @@ function validatePhaseV3Carry(previous, revision, migration, idMap, state) {
   const reconciliationMetadata = migration.state_policy === 'carry_reconciled_metadata';
   const predecessorTask = previous.plan.tasks.find(({ task_id }) => task_id === migration.from_task_id);
   const includeDesignMemo = !reconciliationMetadata && typeof predecessorTask?.design_memo === 'string';
+  const removedTaskIds = removedTaskIdsFor(revision);
   const phaseIdMap = new Map(revision.phase_migration
     .filter(({ from_phase_id, to_phase_id }) => from_phase_id !== null && to_phase_id !== 'removed')
     .map(({ from_phase_id, to_phase_id }) => [from_phase_id, to_phase_id]));
   const before = phaseV3CarrySemantics(previous.plan, migration.from_task_id, idMap, phaseIdMap,
-    { reconciliationMetadata, includeDesignMemo });
+    { reconciliationMetadata, includeDesignMemo, removedTaskIds });
   const after = phaseV3CarrySemantics(revision.desired_plan, migration.to_task_id,
     new Map(), new Map(),
     { reconciliationMetadata, includeDesignMemo });
@@ -2412,8 +2434,9 @@ function validateAcquirePhaseCarry(previous, revision, migration, idMap) {
     .map(({ from_phase_id, to_phase_id }) => [from_phase_id, to_phase_id]));
   const predecessorTask = previous.plan.tasks.find(({ task_id }) => task_id === migration.from_task_id);
   const includeDesignMemo = typeof predecessorTask?.design_memo === 'string';
+  const removedTaskIds = removedTaskIdsFor(revision);
   const before = phaseV3CarrySemantics(previous.plan, migration.from_task_id, idMap, phaseIdMap,
-    { includeDesignMemo });
+    { includeDesignMemo, removedTaskIds });
   const after = phaseV3CarrySemantics(revision.desired_plan, migration.to_task_id, new Map(), new Map(),
     { includeDesignMemo });
   if (before.task.phase_id !== null) {
@@ -2448,6 +2471,7 @@ function stateMigrationFor(previous, revision) {
   const idMap = new Map(revision.task_migration
     .filter(({ to_task_id }) => to_task_id !== 'removed')
     .map(({ from_task_id, to_task_id }) => [from_task_id, to_task_id]));
+  const removedTaskIds = removedTaskIdsFor(revision);
   const states = new Map(previous.tasks.map((state) => [state.task_id, state]));
   return revision.task_migration.map((migration) => {
     const carriesState = ['carry', 'carry_reconciled_metadata', 'acquire_phase'].includes(migration.state_policy);
@@ -2467,7 +2491,7 @@ function stateMigrationFor(previous, revision) {
           .find(({ task_id }) => task_id === migration.from_task_id);
         const includeDesignMemo = typeof predecessorTask?.design_memo === 'string';
         const before = taskSemantics(previous.plan, migration.from_task_id, idMap,
-          { includeDesignMemo });
+          { includeDesignMemo, removedTaskIds });
         const after = taskSemantics(revision.desired_plan, migration.to_task_id, new Map(),
           { includeDesignMemo });
         if (canonicalizeTodoArtifact(before) !== canonicalizeTodoArtifact(after)) {
@@ -2482,7 +2506,7 @@ function stateMigrationFor(previous, revision) {
       const includeDesignMemo = !reconciliationMetadata
         && typeof predecessorTask?.design_memo === 'string';
       const before = taskSemantics(previous.plan, migration.from_task_id, idMap,
-        { reconciliationMetadata, includeDesignMemo });
+        { reconciliationMetadata, includeDesignMemo, removedTaskIds });
       const after = taskSemantics(revision.desired_plan, migration.to_task_id, new Map(),
         { reconciliationMetadata, includeDesignMemo });
       if (canonicalizeTodoArtifact(before) !== canonicalizeTodoArtifact(after)) {
