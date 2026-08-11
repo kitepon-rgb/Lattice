@@ -1,9 +1,12 @@
-import { exactRecord, todoSelfDigest, validateTodoPlan } from './todo-contracts.mjs';
+import {
+  canonicalizeTodoArtifact, exactRecord, todoSelfDigest, validateTodoPlan,
+} from './todo-contracts.mjs';
 import { gitSync } from './git-process.mjs';
 import {
   TODO_STRUCTURE_COMPILE_ARTIFACT_SCHEMA,
   TODO_STRUCTURE_PROFILE,
   digestTodoStructureRealizationHeads,
+  digestTodoStructureTransform,
   explainTodoStructureCompileArtifact,
   explainTodoStructureRealization,
   explainTodoStructureSet,
@@ -96,6 +99,58 @@ export function buildTodoStructureCompileArtifact({
     fail('STRUCTURE_COMPILE_INPUT_INVALID', explained.reason, { path: explained.path });
   }
   return artifact;
+}
+
+/** plannedを残したまま、最新realizationをeffectiveへ投影するdiagnostic面。 */
+export function projectTodoStructureEffective({ structureSet, realizations = [] } = {}) {
+  const structure = explainTodoStructureSet(structureSet);
+  if (!structure.valid) fail('STRUCTURE_EFFECTIVE_INPUT_INVALID', structure.reason, {
+    path: structure.path,
+  });
+  const heads = latestRealizationHeads(structureSet, realizations);
+  const headDigests = new Map(heads.map((head) => [head.task_id, head.realization_digest]));
+  const latest = new Map(realizations
+    .filter((entry) => headDigests.get(entry.task_id) === entry.realization_digest)
+    .map((entry) => [entry.task_id, entry]));
+  const transformFields = [
+    'outcome', 'inputs', 'operations', 'outputs', 'code_anchors', 'failures',
+    'first_live_e2e', 'non_goals',
+  ];
+  const tasks = structureSet.tasks.map((task) => {
+    if (task.applicability === 'excluded') return {
+      task_id: task.task_id, applicability: 'excluded', form: 'excluded',
+      planned_digest: null, realization_digest: null,
+      changed_fields: [], effective: null,
+    };
+    const realization = latest.get(task.task_id) ?? null;
+    const changedFields = realization === null ? [] : transformFields.filter((field) => (
+      canonicalizeTodoArtifact(task.planned[field])
+        !== canonicalizeTodoArtifact(realization.realized[field])
+    ));
+    return {
+      task_id: task.task_id, applicability: 'graph',
+      form: realization === null ? 'planned' : 'realized',
+      planned_digest: digestTodoStructureTransform(task.planned),
+      realization_digest: realization?.realization_digest ?? null,
+      changed_fields: changedFields,
+      effective: structuredClone(realization?.realized ?? task.planned),
+    };
+  });
+  const history = [...realizations]
+    .sort((left, right) => compareText(left.task_id, right.task_id) || left.sequence - right.sequence)
+    .map((entry) => ({
+      task_id: entry.task_id, sequence: entry.sequence,
+      realization_digest: entry.realization_digest, supersedes: entry.supersedes,
+      head_sha: entry.head_sha, commit_oids: entry.commit_oids,
+    }));
+  const projection = {
+    schema: 'lattice.todo_structure_effective.v1',
+    structure_set_digest: structureSet.structure_set_digest,
+    realization_head_digest: digestTodoStructureRealizationHeads(heads),
+    tasks, history, projection_digest: '',
+  };
+  projection.projection_digest = todoSelfDigest(projection, 'projection_digest');
+  return projection;
 }
 
 function resolveCurrentHead(repoRoot, resolveHead) {

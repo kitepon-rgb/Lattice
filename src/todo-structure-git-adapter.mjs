@@ -84,15 +84,17 @@ function shallowRepository(run, cwd) {
     .trim() === 'true';
 }
 
-function resolveGitIdentity(run, cwd, baselineSha) {
-  const dirty = runGit(run, cwd, [
-    'status', '--porcelain=v1', '-z', '--untracked-files=all',
-  ]);
-  if (dirty.length > 0) {
-    fail('STRUCTURE_GIT_WORKTREE_DIRTY', 'worktree_not_clean', {
-      changed_entries: dirty.toString('utf8').split('\0').filter(Boolean).length,
-      next_action: 'commit_or_stash_then_retry',
-    });
+function resolveGitIdentity(run, cwd, baselineSha, { requireClean }) {
+  if (requireClean) {
+    const dirty = runGit(run, cwd, [
+      'status', '--porcelain=v1', '-z', '--untracked-files=all',
+    ]);
+    if (dirty.length > 0) {
+      fail('STRUCTURE_GIT_WORKTREE_DIRTY', 'worktree_not_clean', {
+        changed_entries: dirty.toString('utf8').split('\0').filter(Boolean).length,
+        next_action: 'commit_or_stash_then_retry',
+      });
+    }
   }
   const headSha = utf8(runGit(run, cwd, ['rev-parse', '--verify', 'HEAD^{commit}']), 'head').trim();
   if (!SHA.test(headSha)) fail('STRUCTURE_GIT_HEAD_INVALID', 'git_head_invalid', { actual: headSha });
@@ -361,15 +363,16 @@ export function collectTodoStructureGitProvenance({
   repoRoot,
   structureSet,
   sensorDiffRequest = null,
+  requireClean = true,
   runGit: run = defaultRunGit,
   compareSensor = compareSensorIndexes,
 } = {}) {
-  if (typeof repoRoot !== 'string' || repoRoot.length === 0 || typeof run !== 'function'
-    || typeof compareSensor !== 'function') {
+  if (typeof repoRoot !== 'string' || repoRoot.length === 0 || typeof requireClean !== 'boolean'
+    || typeof run !== 'function' || typeof compareSensor !== 'function') {
     fail('STRUCTURE_GIT_INPUT_INVALID', 'git_adapter_options_invalid');
   }
   assertStructureSet(structureSet);
-  const headSha = resolveGitIdentity(run, repoRoot, structureSet.baseline_sha);
+  const headSha = resolveGitIdentity(run, repoRoot, structureSet.baseline_sha, { requireClean });
   const revisionText = utf8(runGit(run, repoRoot, [
     'rev-list', '--parents', '--reverse', '--topo-order',
     `${structureSet.baseline_sha}..${headSha}`,

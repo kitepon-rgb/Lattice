@@ -36,6 +36,10 @@ import {
   validateTodoStructureCompileArtifact,
   validateTodoStructureSet,
 } from './todo-structure-contracts.mjs';
+import {
+  bindTodoStructureRealizationCommits,
+  collectTodoStructureGitProvenance,
+} from './todo-structure-git-adapter.mjs';
 import { sha256Bytes, verifyLinearHashChain } from './hash-chain.mjs';
 import { gitCatFileBatch, gitSync } from './git-process.mjs';
 import {
@@ -4706,5 +4710,116 @@ export async function readTodoStructureRealizationChain(options = {}) {
   if (state === null) return [];
   return parseTodoStructureRealizationChain(await readFile(state.absolute), {
     structureSet: options.structureSet, taskId: options.taskId,
+  });
+}
+
+/**
+ * active binding配下のtask realizationをappend-onlyで追記する。
+ * Git objectと他task chainを追記前に照合し、拒否時はchain bytesを変えない。
+ */
+export async function appendTodoStructureRealization(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const { realization } = options;
+  const initial = explainTodoStructureRealization(realization);
+  if (!initial.valid) {
+    fail('INVALID_TODO_STRUCTURE_REALIZATION', initial.reason, { path: initial.path });
+  }
+  return withLock(repoRoot, async () => {
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
+    const member = activeMember(store, realization.plan_key);
+    if (store.project_id !== realization.project_id
+      || member.plan.plan_version !== realization.plan_version) {
+      fail('STRUCTURE_REALIZATION_BINDING_MISMATCH', 'active_plan_identity_mismatch');
+    }
+    const structureSet = await readTodoStructureSource({
+      repoRoot, planKey: realization.plan_key,
+    });
+    const binding = await readTodoStructureBinding({
+      repoRoot, planKey: realization.plan_key, planVersion: realization.plan_version,
+    });
+    if (structureSet === null || binding === null
+      || structureSet.structure_set_digest !== binding.structure_set_digest
+      || realization.structure_set_digest !== binding.structure_set_digest) {
+      fail('STRUCTURE_REALIZATION_BINDING_MISMATCH', 'structure_not_enabled_or_stale');
+    }
+    const task = structureSet.tasks.find(({ task_id: id }) => id === realization.task_id);
+    if (task?.applicability !== 'graph') {
+      fail('STRUCTURE_REALIZATION_BINDING_MISMATCH', 'task_not_graph_applicable');
+    }
+    let currentHead;
+    try {
+      currentHead = gitSync(['rev-parse', '--verify', 'HEAD^{commit}'], {
+        cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      fail('STRUCTURE_GIT_HEAD_UNAVAILABLE', 'current_head_unavailable');
+    }
+    if (realization.head_sha !== currentHead) {
+      fail('STRUCTURE_REALIZATION_STALE', 'realization_head_mismatch', {
+        expected: currentHead, actual: realization.head_sha,
+      });
+    }
+    const chain = await readTodoStructureRealizationChain({
+      repoRoot, structureSet, taskId: realization.task_id,
+    });
+    const priorDigests = new Set(chain.map(({ realization_digest: digest }) => digest));
+    const explained = explainTodoStructureRealization(realization, {
+      structureSet, previous: chain.at(-1) ?? null, priorDigests,
+    });
+    if (!explained.valid) {
+      fail('INVALID_TODO_STRUCTURE_REALIZATION_CHAIN', explained.reason, {
+        path: explained.path, task_id: realization.task_id,
+      });
+    }
+
+    for (const otherTask of structureSet.tasks.filter(({ applicability, task_id: taskId }) => (
+      applicability === 'graph' && taskId !== realization.task_id
+    ))) {
+      const otherChain = await readTodoStructureRealizationChain({
+        repoRoot, structureSet, taskId: otherTask.task_id,
+      });
+      const claimed = new Set(otherChain.flatMap(({ commit_oids: commitOids }) => commitOids));
+      const reused = realization.commit_oids.filter((commitOid) => claimed.has(commitOid));
+      if (reused.length > 0) {
+        fail('STRUCTURE_REALIZATION_COMMIT_CLAIMED', 'commit_claimed_by_other_task', {
+          task_id: realization.task_id, other_task_id: otherTask.task_id,
+          commit_oids: reused,
+        });
+      }
+    }
+
+    const provenance = collectTodoStructureGitProvenance({
+      repoRoot, structureSet, requireClean: false,
+    });
+    bindTodoStructureRealizationCommits({ provenance, realizations: [realization] });
+    const declared = new Set(realization.commit_oids);
+    const changedPaths = new Set(provenance.changesets
+      .filter(({ commit_oid: commitOid }) => declared.has(commitOid))
+      .flatMap(({ changes }) => changes.flatMap(({ path: changedPath, previous_path: previousPath }) => (
+        previousPath === null ? [changedPath] : [changedPath, previousPath]
+      ))));
+    const mutatingAnchors = realization.realized.code_anchors
+      .filter(({ effect }) => ['create', 'modify', 'delete'].includes(effect));
+    const unboundAnchors = mutatingAnchors.filter(({ path: anchorPath }) => !changedPaths.has(anchorPath));
+    if (mutatingAnchors.length === 0 || unboundAnchors.length > 0) {
+      fail('STRUCTURE_REALIZATION_ANCHOR_UNBOUND',
+        mutatingAnchors.length === 0 ? 'mutating_code_anchor_missing' : 'commit_does_not_touch_anchor', {
+          task_id: realization.task_id,
+          anchor_ids: unboundAnchors.map(({ anchor_id: anchorId }) => anchorId).sort(),
+          changed_paths: [...changedPaths].sort(),
+        });
+    }
+
+    const ref = todoStructureRealizationRef(
+      structureSet.plan_key, structureSet.plan_version, realization.task_id,
+    );
+    const absolute = path.resolve(repoRoot, ref);
+    await ensureSafeStoreDirectory(repoRoot, path.dirname(absolute));
+    const before = await exactFileOrNull(absolute);
+    await atomicWrite(absolute, Buffer.concat([before ?? Buffer.alloc(0), canonicalLine(realization)]));
+    return {
+      ref, realization, history_length: chain.length + 1,
+      previous_realization_digest: chain.at(-1)?.realization_digest ?? null,
+    };
   });
 }

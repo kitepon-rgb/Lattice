@@ -247,7 +247,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
       missing、plan曖昧、sensor DB削除後read、HEAD driftを含むstructure関連49 testがgreen。
       syntax checkとCLI surface検査（67 command、undocumented／unexercised 0）がgreen。
 
-- [ ] **sg10 — task realization chainを実装する**
+- [x] **sg10 — task realization chainを実装する**
   - Depends: sg08, sg09
   - Write: structure store／CLI、realization tests
   - 内容:
@@ -258,6 +258,19 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
   - 受入:
     - stale planned、他task commit、unreachable commit、壊れたsupersedes chainを拒否する。
     - correction後も全履歴と現行recordを区別して読める。
+  - 実施記録（2026-08-11）:
+    - `todo structure realize --plan --task --input`を追加し、active binding、planned digest、CLI target／actor、
+      current HEAD、sequence／previous digest／supersedesをstore lock内で検証してcanonical JSONLへ追記する。
+      拒否時はchain fileを作らず、既存chain bytesも変えない。
+    - 既存Git provenance adapterへ`requireClean: false`のcommit-only読取を加えた。realization入力等のdirty
+      worktreeを証拠へ混ぜず、明示commitが`baseline..HEAD` changesetに存在するかを既存binding関数で照合する。
+      commit messageは引き続き読まない。
+    - 他task chainがclaim済みのcommitを拒否し、realizedの全create／modify／delete anchor pathが明示commitの
+      changesetと交差することを要求した。同一taskの訂正は同じcommitを再利用できる。
+    - 通常readへplannedを保持したeffective transform、changed fields、全realization履歴、現行head digestを追加した。
+      superseded recordは履歴に残り、最新sequenceだけがeffectiveになる。
+    - 実測: stale planned、unreachable commit、anchor非交差、他task claim、壊れたsupersedes、正常訂正、
+      planned→realized差分を含むrealization 3 E2Eと関連store／CLI／Git adapter計28 testがgreen。
 
 - [ ] **sg11 — todo doneとplan終端へ構造義務を配線する**
   - Depends: sg10

@@ -216,6 +216,20 @@ test('dirty・baseline不在・非祖先を別のtyped errorで止める', async
     && error.code === 'STRUCTURE_GIT_BASELINE_NOT_ANCESTOR');
 });
 
+test('realization用のcommit-only読取はdirty worktreeを証拠へ混ぜず無視できる', async (context) => {
+  const fixture = await fixtureRepo(context);
+  await writeFile(path.join(fixture.repo, 'realization-input.json'), '{"draft":true}\n');
+  const provenance = collectTodoStructureGitProvenance({
+    repoRoot: fixture.repo,
+    structureSet: structureSet(fixture.baseline),
+    requireClean: false,
+  });
+  assert.equal(provenance.head_sha, fixture.head);
+  assert.equal(provenance.changesets.some(({ changes }) => (
+    changes.some(({ path: changedPath }) => changedPath === 'realization-input.json')
+  )), false);
+});
+
 test('shallow欠損とcommit上限をtypedに分類する', () => {
   const head = 'a'.repeat(40);
   const result = (status, stdout = '') => ({
