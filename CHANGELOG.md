@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.57.2 — 2026-08-11
+
+### 修正
+
+- **常駐設定が半端に壊れると、直すためのcommandがその状態に拒否されて詰む欠陥を直した（ADR 0166）。**
+  Windowsの常駐はStartup folderのlauncherと`%LOCALAPPDATA%`のdescriptorの2つで表され、
+  片方だけが残った状態で`lattice bridge reconfigure`——**その状態を直すために存在するcommand**——が
+  `BRIDGE_STARTUP_FOLDER_STATE_INVALID`で停止した。snapshotが「片方だけ在る」をthrowで拒否しており、
+  それはsetup／reconfigure／disableが必ず最初に通る一点だったためである。復旧できたのは、人が
+  Startup folderのfileを手で削除してからreconfigureを打ち直した時だった。
+
+  異常の検出は読み手（status）が行い、両fileの唯一の書き手であるinstallが上書きで畳む形へ変えた。
+  snapshotは分裂をthrowせず事実として返し、rollbackは分裂を忠実に戻すだけで起動しない
+  （操作前に無かった健全さを発明しない）。同型のthrowはmacOS側（launchdにloadされているのにplistが無い）
+  にもあったので、両platformを揃えて直した。
+- **分裂状態は`lattice bridge status`が名指しする。** `persistence.error`へ
+  `BRIDGE_PERSISTENCE_STATE_SPLIT`が入り、既存の`remedy`がそのまま`reconfigure`を出す。
+  **0.57.2以降、手でfileを消す必要は無い。**
+- **hub heartbeatの重複抑止が毎周期リセットされ、同じ結果をstderrへ書き続けていたのを直した。**
+  指紋を捨てる代入を判定より前に置いていたため比較相手が毎回nullになり、実測で1端末が6秒間に23行、
+  同一内容のpartial結果を書いていた（hub側で1件だけ拒否されている定常状態は解消しないので延々と続く）。
+  指紋を捨てるのは健全な状態へ戻った時だけにした。stderrの消費者が居ない常駐
+  （WindowsのStartup launcher、macOSのLaunchAgent）では、この書込みが積み上がること自体が
+  常駐を不安定にする。
+
 ## 0.57.1 — 2026-08-11
 
 ### 修正
