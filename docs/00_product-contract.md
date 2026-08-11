@@ -211,6 +211,26 @@ dashboardは保存artifactを投影し、live sensorを引くのはclean worktre
 finalizationを必要とする。bindingを持たないplanのcreate／migrate／read／lifecycle／Phase操作は変えない。
 planned、append-only realized、effectiveを分離し、plannedを実装結果で上書きしない。
 
+公開入口は次の5操作と2読取で閉じる。
+
+- `todo structure --schema --json`: `lattice.todo_structure_set.v1`をstore非依存で返す。
+- `todo structure input --plan <key> --input <file> [--dry-run --json]`: plan identity、全task coverage、
+  topology、baseline祖先を検証し、planned sourceだけを保存する。この時点では有効化しない。
+- `todo structure compile --plan <key> --input <file>`: clean worktreeの既存source graph、Git provenance、
+  ToDo DAGを結合し、三値verdictを返す。`consistent`時だけimmutable bindingを発行する。
+- `todo structure [--plan <key>] --json`: 保存artifactのmissing／fresh／stale／supersededとfindingを
+  sensor再実行なしで返す。
+- `todo structure realize --plan <key> --task <id> --input <file>`: planned digest、HEAD、commit、anchorへ
+  束縛したtask別realizationをappend-onlyで記録する。訂正はsupersedesで行う。
+- `todo structure finalize --plan <key> --json`: 全task完了後のeffective構造を最終HEADで再compileする。
+- 動的Gantt／dashboardの独立した「構造検査」面: task／data／code／external／commit provenance、
+  planned／realized／effective、finding、unknown、freshness、次の一手を保存artifactから表示する。
+
+JSON Schemaの公開正本は`lattice.todo_structure_set.v1`、`lattice.todo_structure_realization.v1`、
+`lattice.todo_structure_binding.v1`である。packageはこの3 schemaと、それらを消費する`src/` moduleを含む。
+工程依存SVGとdataflow graphは別の表示面であり、同じedgeとして描かない。findingから問題node／edgeへ
+移動でき、script無効時もfinding一覧を読める。dashboard描画はsensor ownershipを取得しない。
+
 readyが複数ある状態での直列着手は、`--override-reason`の申告だけでは通さない。一度
 `PARALLEL_DISPATCH_RECONSIDER`で突き返し、同じ理由に`--serial-confirmed`を付けた再実行だけを
 受理する。足止めは一度だけとし、再実行した直列着手は受理する。さらに、理由がworker数・

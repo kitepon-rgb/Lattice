@@ -73,6 +73,20 @@ test('run helpはpull runの生成からintake完了までを公開する', () =
   }
 });
 
+test('todo helpは構造opt-inからrealization・finalization・独立dashboard面まで案内する', () => {
+  const result = runCli(['todo', '--help']);
+  assert.equal(result.status, 0, result.stderr);
+  for (const pattern of [
+    /structure --schema --json/u,
+    /structure input --plan <key> --input <file> --dry-run --json/u,
+    /consistent時だけplanへimmutableに有効化/u,
+    /構造対象taskはfresh realizationを要求/u,
+    /structure realize --plan <key> --task <id> --input <file>/u,
+    /fresh consistentだけterminal受理/u,
+    /工程図と別の構造検査面/u,
+  ]) assert.match(result.stdout, pattern);
+});
+
 test('公開subcommand helpは正規構文をstore非依存で表示する', () => {
   const cases = [
     [['todo', 'show', '--help'], /show --plan <key> --task <id> --json/u],

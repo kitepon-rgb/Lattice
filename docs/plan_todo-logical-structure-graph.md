@@ -381,7 +381,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
 
 ### Phase F — 正典・品質・配布準備
 
-- [ ] **sg15 — 公開契約・help・README・package surfaceを同期する**
+- [x] **sg15 — 公開契約・help・README・package surfaceを同期する**
   - Depends: sg11, sg12, sg14
   - Write: `docs/00_product-contract.md`、README、help、schema、package files、ADR参照
   - 内容:
@@ -391,6 +391,19 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
   - 受入:
     - CLI surface検査とproduct reachabilityが新機能の全入口を確認する。
     - package dry-runに必要なschema／module／fixture外公開資産が入る。
+  - 実施記録（2026-08-12）:
+    - README日英へ、code planだけの明示opt-in、schema→input→compile→read、三値verdict、
+      append-only realization、done／finalize gate、未適用plan不変を同じ操作順で追加した。
+    - 動的dashboardの構造検査を工程依存図とは別面として説明し、task／data／code／external／commit、
+      planned／realized／effective、finding／freshnessを保存artifactから読むこと、dataflow edgeを工程線へ
+      混ぜないことを公開した。
+    - `docs/00_product-contract.md`へ5操作＋2読取、公開schema三面、sensor ownership、node／edge移動と
+      noscript findingを正本化した。helpはfresh realization done gate、fresh consistent terminal gate、
+      独立dashboard面をstore非依存で案内する。
+    - package filesにstructure set／realization／bindingのJSON Schema三面と全`src` moduleが入る既存契約を
+      維持し、公開文書の必須語彙を退行testへ固定した。
+    - 実測: help／contract 16 test、syntax 168 files、CLI surface 68 command
+      （undocumented／unexercised 0）、product reachability 114 module（未到達0）がgreen。
 
 - [ ] **sg16 — 最終品質gateとMarkdown工程を閉じる**
   - Depends: sg15

@@ -310,3 +310,20 @@ test('配布JSON Schemaはruntime contract三面とpackage filesへ載る', asyn
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   for (const name of names) assert.equal(packageJson.files.includes(`docs/schemas/${name}`), true);
 });
+
+test('公開文書はopt-in・三値・realization gate・独立dashboard面を同時に案内する', async () => {
+  const [english, japanese, contract] = await Promise.all([
+    readFile(new URL('../README.md', import.meta.url), 'utf8'),
+    readFile(new URL('../README.ja.md', import.meta.url), 'utf8'),
+    readFile(new URL('../docs/00_product-contract.md', import.meta.url), 'utf8'),
+  ]);
+  for (const document of [english, japanese, contract]) {
+    assert.match(document, /structure --schema --json/u);
+    assert.match(document, /consistent.*inconsistent.*unknown/us);
+    assert.match(document, /structure realize --plan <key> --task <id> --input/u);
+    assert.match(document, /structure finalize --plan <key> --json/u);
+  }
+  assert.match(english, /separate \*\*Structure inspection\*\* pane/u);
+  assert.match(japanese, /工程依存図とは別の面/u);
+  assert.match(contract, /findingから問題node／edgeへ/u);
+});

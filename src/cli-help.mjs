@@ -83,7 +83,7 @@ Read commands:
   seam-proposal [--plan <key>] [--json]  # 記録済みseam提案をsensor無しで投影する
   verify [--plan <key>] [--json]
   snapshot --rebuild --plan <key>
-  gantt serve --port <port> [--scope live|all]  # 動的表示。静的HTML生成とstatusは廃止
+  gantt serve --port <port> [--scope live|all]  # 動的表示。opt-in済みplanは工程図と別の構造検査面を持つ
   phase status --plan <key>
 
 Write commands:
@@ -99,7 +99,7 @@ Write commands:
         # 既定は全ready同時dispatch。直列にするには理由の申告後、再考を経て --serial-confirmed が要る
   block --plan <key> --task <id> --reason <text>
   unblock --plan <key> --task <id>
-  done --plan <key> --task <id> --evidence <file>
+  done --plan <key> --task <id> --evidence <file>  # 構造対象taskはfresh realizationを要求する
   reopen --plan <key> --task <id> --reason <text> [--override-reason <text>]
   evidence promote --plan <key> --task <id> --evidence <file>
   dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>
@@ -116,7 +116,7 @@ Write commands:
   structure realize --plan <key> --task <id> --input <file>
       # 実装後の構造をappend-onlyで記録してからtodo doneへ進む
   structure finalize --plan <key> --json
-      # 全対象task完了後、最終HEADと全realizationを再結合してterminal受理へ進む
+      # 全対象task完了後、最終HEADと全realizationを再結合する。fresh consistentだけterminal受理へ進む
   seam-proposal compile --plan <key>  # 並列可否記録と実sensorからseam提案を記録する
   seam-proposal apply --plan <key>  # 記録済み提案を隔離worktreeで適用し五条件で採否を決める
   seam-proposal land --plan <key> --names <file>  # 採用された変換を本ツリーへ着地させる

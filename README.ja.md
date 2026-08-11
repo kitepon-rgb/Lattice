@@ -67,6 +67,38 @@ lattice todo show --plan <key> --task <id> --json
 後続工程それぞれの状態（未着手／作業中／完了／ブロック中）と、その工程の並列可否を示します。
 note本文はHTMLを描くすべての面へ載ります。project別HTMLの生成や再生成は不要です。
 
+### ToDoのdataflowを実装前と実装後で照合する
+
+codeを変更するplanだけ、plan定義後に論理dataflow検査を明示的に有効化できます。出版や運用など
+code-dataflowを持たないplanへは適用しません。入力schemaはCLIから取得でき、planned sourceを保存しても
+まだ有効化されません。clean worktreeでのauthoritative compileが`consistent`になった時だけ、
+そのplan version専用のimmutable bindingが発行されます。
+
+```bash
+lattice todo structure --schema --json
+lattice todo structure input --plan <key> --input structure.json --dry-run --json
+lattice todo structure input --plan <key> --input structure.json
+lattice todo structure compile --plan <key> --input .lattice/todo/structure/<key>.json
+lattice todo structure --plan <key> --json
+```
+
+verdictは`consistent | inconsistent | unknown`の三値です。`unknown`を問題なしへ丸めず、findingはtask、
+data port、code anchor、commitと次の操作を返します。plannedは不変で、実装後の形はtaskごとの
+append-only realizationとして記録します。有効化済みplanのgraph taskはfresh realizationなしに
+`todo done`できません。全task完了後は最終HEADで再compileし、freshかつconsistentなfinalizationが
+できてからterminalを閉じます。
+
+```bash
+lattice todo structure realize --plan <key> --task <id> --input realization.json
+lattice todo done --plan <key> --task <id> --evidence evidence.json
+lattice todo structure finalize --plan <key> --json
+```
+
+動的dashboardの「構造検査」は工程依存図とは別の面です。task／data／code／external／commit provenance、
+planned／realized／effective、findingと鮮度を表示します。工程依存線へdataflow edgeを混ぜません。
+通常読取とdashboardは保存artifactだけを読み、暗黙にsensorを再実行しません。構造未適用planの
+lifecycleとdashboardには、このgateも構造panelも追加されません。
+
 ### 変換の受入五条件
 
 **5つすべて**を満たしたときだけ採用します。1つでも欠ければ棄却です。

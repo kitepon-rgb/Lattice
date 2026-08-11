@@ -82,6 +82,39 @@ can run in parallel. Note bodies are carried by every rendered surface, includin
 repository. Static per-project HTML is not generated; `lattice todo gantt serve` and the shared dashboard
 read the store dynamically.
 
+### Check a ToDo's dataflow before and after implementation
+
+A code-changing plan can explicitly opt into logical dataflow inspection after the plan is defined.
+Non-code plans such as publishing or operations are left unchanged. Saving a planned source does not
+enable the feature. Only an authoritative compile on a clean worktree that returns `consistent` emits
+an immutable binding for that exact plan version.
+
+```bash
+lattice todo structure --schema --json
+lattice todo structure input --plan <key> --input structure.json --dry-run --json
+lattice todo structure input --plan <key> --input structure.json
+lattice todo structure compile --plan <key> --input .lattice/todo/structure/<key>.json
+lattice todo structure --plan <key> --json
+```
+
+The verdict is three-valued: `consistent | inconsistent | unknown`. Unknown is never treated as success.
+Findings identify the relevant task, data port, code anchor, and commit, and include the next action.
+The planned form remains immutable; implementation changes are appended as per-task realizations. A graph
+task in an enabled plan cannot complete without a fresh realization. After every task is done, Lattice
+recompiles the final HEAD and requires a fresh, consistent finalization before the terminal phase can close.
+
+```bash
+lattice todo structure realize --plan <key> --task <id> --input realization.json
+lattice todo done --plan <key> --task <id> --evidence evidence.json
+lattice todo structure finalize --plan <key> --json
+```
+
+The dynamic dashboard exposes this as a separate **Structure inspection** pane. It shows task, data, code,
+external contract, and commit-provenance nodes; planned, realized, and effective forms; findings; and
+freshness. Dataflow edges are never mixed into the process-dependency diagram. Normal reads and dashboard
+renders use saved artifacts without silently running the sensor. Plans that do not opt in retain their
+existing lifecycle and do not gain a structure pane.
+
 ### The five acceptance conditions
 
 A transform is adopted only when **all five** hold. One missing condition rejects it:
