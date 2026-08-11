@@ -143,7 +143,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - 実測: rootの関連27 test、sensor型検査、strict選択3 test、実build済みCLI E2E 2 testがgreen。
       `npm pack --dry-run --ignore-scripts`でsource adapter、sensor CLI、strict helperの同梱を確認した。
 
-- [ ] **sg06 — 既存sensor diffをcommit provenanceへ投影する**
+- [x] **sg06 — 既存sensor diffをcommit provenanceへ投影する**
   - Depends: sg03, sg05
   - Write: 新規の薄い`src/todo-structure-git-adapter.mjs`、`src/git-process.mjs`は必要な共通入口だけ、tests
   - 内容:
@@ -155,6 +155,17 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - current sourceとcommit内容を二重node化せず、commitはprovenance edgeになる。
     - Windowsを含むGit processは`src/git-process.mjs`だけを通る。
     - node自然キー、edge差分、comparability、excluded／truncationの意味を`compareSensorIndexes`と二重定義しない。
+  - 実施記録（2026-08-11）:
+    - clean worktree、HEAD、baseline object、祖先関係を別々のtyped errorで検査し、`rev-list --parents`と
+      range単位のraw／numstatから最大512 commit・4096 path change・500万変更行のchangesetを作った。
+      merge commitの差分はGitの`--diff-merges=first-parent`へ委ね、messageは取得していない。
+    - add／modify／delete／rename／copy／type change、regular／symlink／submodule／special、binaryを
+      Gitのstatus・mode・numstatから分類した。shallow、非祖先、非UTF-8 path、過大履歴／差分を別codeで止める。
+    - `compareSensorIndexes`のbounded resultからhost固有root／databaseだけを除き、自然キー明細、
+      comparability、summary、excluded、integrity、truncationを改変せずdigestへ束縛した。
+    - realizationは明示されたcommit OIDだけをchangeset digestへ結び、range外OIDを拒否するpure入口を追加した。
+    - 実測: sg06固有7 test（実Git rename／binary／symlink／Gitlinkを含む）と既存sensor diff 15 test、
+      sg03／sg05関連15 testの合計37件がgreen。
 
 - [ ] **sg07 — task transform overlayとstructure固有findingを実装する**
   - Depends: sg03, sg05, sg06
