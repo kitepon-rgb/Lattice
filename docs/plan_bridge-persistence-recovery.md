@@ -1,6 +1,6 @@
 # plan: bridge常駐の自己修復と可視化（2026-08-11 campaign）
 
-- Status: Blocked（bpr5-fox-install：FOXのオーナー対話logon待ち）
+- Status: Active（公開面は復帰済み。未了は`bpr5-fox-install`のregistry install切替だけ）
 - 起点: 2026-08-11、`lattice.kitepon.dev`の全projectオフライン事故
 - 関連: [ADR 0165](adr/0165-terminals-advertise-exactly-what-they-serve.md)（原因の不変Decision）・
   [配備記録](operations/lattice-kitepon-deployment.md)（実測とFOXで踏んだ罠）
@@ -9,14 +9,15 @@
 
 ## 背景
 
-事故そのもの（端末が名乗る集合と配信する集合の二重計算）は0.57.1で根治済み。本campaignが扱うのは、
-その復旧作業中に露出した**残り5件**である。オーナー裁定（2026-08-11）により、5件すべてを
-「npmに載って全端末へ届くまで」を完了条件として扱う。手作業の復旧を完了と呼ばない。
+事故そのもの（端末が名乗る集合と配信する集合の二重計算）は0.57.1で根治済み。復旧作業中に露出した
+残件のうち、`bpr1`〜`bpr4`・`bpr7`・`bpr8`は完了し、`bpr6`はオーナー裁定で不要として工程から退役した。
+公開面も永続PTYで復帰済みであり、残るのはFOXを開発checkoutへのjunctionからregistry installへ
+切り替える`bpr5`だけである。手作業のオンライン復旧と配布経路の是正を同じ完了として扱わない。
 
 ## 目標
 
 1. 常駐設定が半端な状態になっても、製品が正規経路だけで自己修復できる。
-2. 端末が公開面から消えたことに、人が気づける。
+2. 生存端末をofflineと誤判定しない。通常の端末停止で表示が消えることは異常扱いしない。
 3. 全端末が同じ配布経路で最新版を受け取る。
 
 ## 非目標（やらないこと）
@@ -29,9 +30,10 @@
 
 ## 既知の罠
 
-- **SSH越しに起動したWindowsのprocessは、SSH sessionが閉じた瞬間に落ちる**（3回再現）。
-  遠隔からできるのは常駐設定の修復までで、常駐の開始はオーナーの対話logon sessionを要する。
-  受入を「起動できたか」で測ると、この罠に必ず騙される。
+- 通常のSSH sessionを閉じると、そのsessionで起動したWindows processも落ちる。ただし、aitermの
+  永続PTYでSSH session自体を保てば遠隔起動を維持でき、2026-08-11に公開面の復帰まで実測済みである。
+  Startup launcherはlogon時に一度だけ走るため、すでにlogon済みの端末を「オーナーの対話logon待ち」と
+  記録しない。現在の`bpr5`はオンライン復旧ではなく、registry installへ配布経路を寄せる工程である。
 - **「繋がらない」の観測は、対象processが生きている同じ窓の中で取る。** 死んだlistenerへの
   接続失敗は経路遮断と同じ症状を出す。2026-08-11にこれでfirewallの誤診を1回出している。
 - FOXの`@quolu/lattice`はregistry installではなく開発checkoutへのjunction。releaseは自動で届かない。
@@ -51,13 +53,12 @@
 - bpr2-doc-split: docs/bridge-setup.mdへ新しいpersistence状態の読み方を追記する（完了・工程正本はLattice store）
 - bpr3-adr: ADR 0166「復旧経路は復旧対象の状態に拒否されてはならない」を起草する（完了・工程正本はLattice store）
 - bpr4-release: 0.57.2をreleaseしMac／WSL2へ配って実測する（完了・工程正本はLattice store）
-- bpr5-fox-install: FOXをregistry installへ切り替え常駐を起こして実測する（完了・工程正本はLattice store）
+- bpr5-fox-install: 公開面は復帰済み。FOXをregistry installへ切り替えて配布経路を是正する（未完了・工程正本はLattice store）
 - bpr6-offline-notice: オーナー裁定2026-08-10で打ち切り。工程から除外し再開しない
 - bpr7-kitepon-visibility: 停止中projectを公開一覧へ載せるかを裁定する（完了・工程正本はLattice store）
 - bpr8-caveat: SSH session連動でWindows常駐が落ちる罠を罠DBへ記録する（完了・工程正本はLattice store）
 
-## オーナー裁定待ち（着手前に必要）
+## 残件
 
-- **bpr5**: FOXのjunction installをregistry installへ寄せてよいか（開発構成を変える）。
-- **bpr6**: 通知の形（webhook POST先）と、そもそもこの形でよいか。
-- **bpr7**: kitepon.devを「動いていないので出さない」のままにするか、停止中も載せる機能を足すか。
+- **bpr5**: FOXの`@quolu/lattice`は開発checkoutへのjunctionのままで、releaseが自動では届かない。
+  公開面の復帰とは分けて、registry installへ切り替えた後のCLI・bridge・公開応答を実測する。

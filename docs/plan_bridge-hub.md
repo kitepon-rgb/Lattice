@@ -1,8 +1,8 @@
 # plan_bridge-hub — 公開工程表の多端末化（サーバ常駐ブリッジ装置）
 
-- 状態: 設計裁定済み（オーナー 2026-08-10）・円卓で実装進行中（room `lattice`・bridge-hub 卓 2026-08-10 開始。進捗の正本は store と room ログ）
+- 状態: 完了（実装・配備済み。bh5〜bh7はオーナー裁定で退役。進捗の正本はstoreとroomログ）
 - レーン: 統括（複数repo/面の書込調整: Lattice repo・192.168.1.2 配備・Mac/Windows 端末配線）
-- 工程正本: Lattice store（本repo）plan_key `bridge-hub` v1（2026-08-10 todo migrate 済み。task・依存・状態は store だけが持つ）
+- 工程正本: Lattice store（本repo）の`bridge-hub` plan（active versionはstoreが選ぶ。task・依存・状態はstoreだけが持つ）
 
 ## Context — なぜやるか
 
@@ -60,7 +60,7 @@ Cloudflare Tunnel → Caddy → hub（192.168.1.2 常駐・新規）→ 各開�
 4. **多端末実証**: Mac と Windows の両端末が同時に登録され、`https://lattice.kitepon.dev/` に kikoeru（Mac）と ChromeBlocker（Windows）が**同時に**表示される。片方を落とすとオフライン明示になる。
 5. 還流: 配備記録を docs/operations/ へ、罠を caveat へ、本 plan を archive へ。
 
-## 暫定チェックリスト（todo migrate までの仮置き。store 導入後はこの節を削除し store が正本）
+## 工程の結果（正本はstore）
 
 - bh1-protocol: hub 登録プロトコル契約の設計文書（F）（完了・工程正本はLattice store）
 - bh2-hub-server: hub server 実装（登録簿・合成一覧・中継・SSE）+ focused tests（完了・工程正本はLattice store）

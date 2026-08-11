@@ -2,7 +2,7 @@
 
 - Status: Completed（0.57.3を公開し、Mac／WSL2への配布実測まで完了）
 - 起点: 2026-08-11、打ち切り済みのbridge-hub bh5/bh6/bh7をplanから退役できないと判明した
-- 関連: [ADR 0167](adr/0167-carry-tolerates-edges-to-tasks-removed-by-the-same-revision.md)（Proposed・反証中）・
+- 関連: [ADR 0167](adr/0167-carry-tolerates-edges-to-tasks-removed-by-the-same-revision.md)（Accepted）・
   [ADR 0166](adr/0166-recovery-paths-must-not-refuse-the-state-they-repair.md)（同型の欠陥）
 - 工程正本: Lattice store（`plan_key: carry-removal-retirement`）。本書は散文と裁定を持つ。
 
@@ -49,8 +49,8 @@ ADR 0166と同型である——片付けるための経路が、片付け対象
 
 ## ToDo
 
-- [ ] cr1-refute: ADR 0167を実コードで反証し、採用可否と代替案を所見として出す
-- [ ] cr2-impl: carry判定の緩和を実装し、削除以外の辺変化が拒否されることをtestで固定する
-- [ ] cr3-adr: 反証結果を反映してADR 0167をAcceptedへ確定する
-- [ ] cr4-retire: bh5/bh6/bh7をreviseで退役させ、工程表から消えたことを実測する
-- [ ] cr5-release: 本修正を含む版をreleaseし、全端末へ配って実測する（H）
+- [x] cr1-refute: ADR 0167を実コードで反証し、採用可否と代替案を所見として出す
+- [x] cr2-impl: carry判定の緩和を実装し、削除以外の辺変化が拒否されることをtestで固定する
+- [x] cr3-adr: 反証結果を反映してADR 0167をAcceptedへ確定する
+- [x] cr4-retire: bh5/bh6/bh7をreviseで退役させ、工程表から消えたことを実測する
+- [x] cr5-release: 本修正を含む版をreleaseし、全端末へ配って実測する（H）
