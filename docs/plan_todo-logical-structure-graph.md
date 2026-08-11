@@ -433,7 +433,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - 未追跡は依存物`node_modules/`と`sensor/node_modules/`だけで、成果commitへ含めない。
       実装上のcarry overはなく、残るsg17はオーナー承認が必要な公開H操作として分離した。
 
-- [ ] **sg17 — H操作: version／publish／install／公開smoke**
+- [x] **sg17 — H操作: version／publish／install／公開smoke**
   - Depends: sg16
   - Approval: オーナーの明示承認が必要
   - 内容:
@@ -444,6 +444,20 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
   - 受入:
     - registryとnpmの公開version、global install、公開dashboardが同じcommitを指す。
     - 公開後smokeとrollback条件を記録する。
+  - 実施記録（2026-08-12）:
+    - オーナーの`H承認　やれ`を受け、0.58.0へversion bumpしたrelease commitを`origin/main`へ通常pushした。
+      公開直前にSensor本番依存`picomatch 4.0.3`のReDoSを検出し、4.0.5へ更新、本番依存audit 0、
+      Sensor 147 files／2,308 tests passを確認した修正commit `59095c77…`だけを公開対象にした。
+    - `npm publish --access public`は成功し、registryの`latest`は0.58.0。事前packとregistry tarballのSHA-1は
+      `a786dbfe00a8cd2996eeaa82e35354855b938f5d`で一致した。packは825 entries、7,482,428 bytes。
+    - 公開npmをMacへglobal installし、`lattice --version`、global package、bridge runtimeを全て0.58.0へ揃えた。
+      bridgeはheartbeat accepted、runtime driftなし。公開dashboardはHTTP 200で、HTMLに
+      `lattice.todo_structure_presentation.v1`を確認した。現在の公開planは未適用なので`plans: []`が正しい。
+    - global install版CLIで実Git＋Sensorの正負compile、finding、realize、finalize、未適用plan互換を一周し、
+      integration 1/1 pass。rollbackはglobal installを0.57.3へ戻してdashboard／bridgeを再起動し、
+      npm unpublishやmain履歴巻き戻しは行わない。
+    - 受入matrix、依存監査、公開操作、rollback条件は
+      `docs/evidence/2026-08-12-v0.58.0-todo-structure-release.md`、最終受理はADR 0169へ固定した。
 
 ## 6. 依存の要約
 
