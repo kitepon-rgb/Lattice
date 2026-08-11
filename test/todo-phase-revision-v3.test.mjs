@@ -957,7 +957,7 @@ test('phase v3 reset_pendingはPhase無し先行planからPhaseを獲得でき�
 // 状態で、v3 phase revisionへacquire_phaseを渡す。carryと違いphase_id獲得だけを許すpolicyであり、
 // done等の状態は完全に持ち越る。retitleT1でtitle変更を混ぜ、獲得以外の意味論変化が従来どおり
 // 拒否されることも同じfixtureで検証できるようにする。
-async function acquirePhaseFixture(t, { retitleT1 = false } = {}) {
+async function acquirePhaseFixture(t, { retitleT1 = false, retireT2 = false } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-phase-v3-acquire-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   execFileSync('git', ['init', '--quiet'], { cwd: root });
@@ -965,8 +965,11 @@ async function acquirePhaseFixture(t, { retitleT1 = false } = {}) {
     plan_key: 'main', plan_version: 'v1', predecessor_plan_digest: null,
     tasks: [{ task_id: 'T1', title: 'T1', lane: 'main',
       narrative_ref: '.lattice/todo/source-ledger/cutover.md#L6',
+      narrative_anchor: null, compile_binding: null, parent_task_id: null },
+    { task_id: 'T2', title: 'T2', lane: 'main',
+      narrative_ref: '.lattice/todo/source-ledger/cutover.md#L7',
       narrative_anchor: null, compile_binding: null, parent_task_id: null }],
-    hard_dependencies: [], joins: [] });
+    hard_dependencies: retireT2 ? [{ from: ref('T1'), to: ref('T2') }] : [], joins: [] });
   await initializeTodoStore({ repoRoot: root,
     writer: createTodoStoreWriter({ caller: 'g4-migration' }), projectId: 'project-1',
     repositories: [{ repo_id: 'self', path: '.' }],
@@ -995,17 +998,25 @@ async function acquirePhaseFixture(t, { retitleT1 = false } = {}) {
     plan_version: member.plan.plan_version };
   const phase = { phase_id: 'phase-1', title: 'Phase 1', gate_policy: 'heavy',
     predecessor_phase_ids: [], required_evidence_slots: ['heavy'] };
-  const sourceLines = ['- [ ] T1 source'];
+  const sourceLines = ['- [ ] T1 source', '- [ ] T2 source'];
   const sourceCutoverBatch = { batch_id: 'acquire-phase-cutover',
-    archive_ref: '.lattice/todo/source-ledger/cutover.md',
-    operations: [{ task_id: 'T1', disposition: 'active', source_ref: 'docs/plan.md#L1',
-      source_digest: createHash('sha256').update(sourceLines[0]).digest('hex'),
-      live_replacement: '- T1 state is managed by Lattice' }], batch_digest: '' };
+    archive_ref: '.lattice/todo/source-ledger/cutover.md', operations: sourceLines.map((line, index) => ({
+      task_id: retireT2 && index === 1 ? null : `T${index + 1}`,
+      disposition: retireT2 && index === 1 ? 'excluded' : 'active',
+      source_ref: `docs/plan.md#L${index + 1}`,
+      source_digest: createHash('sha256').update(line).digest('hex'),
+      live_replacement: `- T${index + 1} state is managed by Lattice`,
+    })), batch_digest: '' };
   sourceCutoverBatch.batch_digest = todoSelfDigest(sourceCutoverBatch, 'batch_digest');
-  const taskMigration = [{ from_task_id: 'T1', to_task_id: 'T1', state_policy: 'acquire_phase' }];
+  const taskMigration = [{ from_task_id: 'T1', to_task_id: 'T1', state_policy: 'acquire_phase' },
+    ...(retireT2 ? [{ from_task_id: 'T2', to_task_id: 'removed', state_policy: 'removed' }]
+      : [{ from_task_id: 'T2', to_task_id: 'T2', state_policy: 'reset_pending' }])];
   const runtimeTaskMigration = { schema: 'lattice.runtime_task_migration.v1', entries: [
     { predecessor_task_id: 'T1', disposition: 'carry', successor_task_ids: ['T1'],
       reason: 'Phase獲得', evidence_digests: ['1'.repeat(64)] },
+    { predecessor_task_id: 'T2', disposition: retireT2 ? 'retire' : 'replace',
+      successor_task_ids: retireT2 ? [] : ['T2'],
+      reason: retireT2 ? '削除' : '未完了taskの再起動', evidence_digests: ['2'.repeat(64)] },
   ], migration_digest: '' };
   runtimeTaskMigration.migration_digest = migrationDigest(runtimeTaskMigration);
   const phaseMigration = [{ from_phase_id: null, to_phase_id: 'phase-1', state_policy: 'reset' }];
@@ -1013,14 +1024,23 @@ async function acquirePhaseFixture(t, { retitleT1 = false } = {}) {
     plan_version: 'pending', predecessor_plan_digest: predecessor.plan_digest,
     tasks: [{ task_id: 'T1', title: retitleT1 ? 'T1 retitled' : 'T1', lane: 'main',
       narrative_ref: `${sourceCutoverBatch.archive_ref}#L6`,
-      narrative_anchor: null, compile_binding: null, parent_task_id: null, phase_id: 'phase-1' }],
+      narrative_anchor: null, compile_binding: null, parent_task_id: null, phase_id: 'phase-1' },
+    ...(retireT2 ? [] : [{ task_id: 'T2', title: 'T2', lane: 'main',
+      narrative_ref: `${sourceCutoverBatch.archive_ref}#L7`,
+      narrative_anchor: null, compile_binding: null, parent_task_id: null, phase_id: 'phase-1' }])],
     phases: [phase], hard_dependencies: [], joins: [], phase_accept_dependencies: [] };
   desiredSeed.plan_version = phaseTodoRevisionPlanVersion({ projectId: 'project-1', planKey: 'main',
     predecessor, desiredPlan: desiredSeed, taskMigration, phaseMigration });
   const desiredPlan = buildTodoPlan(desiredSeed);
-  const sourceInventory = { active: [{ task_id: 'T1',
-    source_ref: `${sourceCutoverBatch.archive_ref}#L6`,
-    source_digest: sourceCutoverBatch.operations[0].source_digest }], excluded_tombstones: [] };
+  const sourceInventory = { active: sourceCutoverBatch.operations
+    .filter(({ disposition }) => disposition === 'active').map((operation, index) => ({
+      task_id: operation.task_id, source_ref: `${sourceCutoverBatch.archive_ref}#L${index + 6}`,
+      source_digest: operation.source_digest,
+    })), excluded_tombstones: sourceCutoverBatch.operations
+    .flatMap((operation, index) => operation.disposition === 'excluded' ? [{
+      source_ref: `${sourceCutoverBatch.archive_ref}#L${index + 6}`,
+      source_digest: operation.source_digest, exclusion_reason: 'removed task source',
+    }] : []) };
   const reconciliation = { predecessor_reconciliation_digest: todoLegacyReconciliationDigest({
     planDigest: predecessor.plan_digest, journalHeadDigest: predecessor.journal_head_digest }),
   source_inventory_digest: digestTodoArtifact(sourceInventory),
@@ -1054,6 +1074,16 @@ test('phase v3 acquire_phaseはPhase無し先行planのdoneを保ったままPha
   assert.equal(t1.started_at, INITIAL_AT);
   assert.equal(t1.done_at, INITIAL_AT);
   assert.notEqual(t1.evidence, null);
+});
+
+test('phase v3 acquire_phaseもremoved taskへのoutgoingだけを除外する', async (t) => {
+  const value = await acquirePhaseFixture(t, { retireT2: true });
+  assert.equal(validatePhaseTodoRevision(value.revision), true);
+  await applyPhaseTodoRevision({ repoRoot: value.root, writer: value.writer,
+    revision: value.revision, actor: ACTOR, recordedAt: COMMIT_AT, now: COMMIT_AT });
+  const store = await readTodoStore({ repoRoot: value.root, now: COMMIT_AT });
+  assert.equal(store.members[0].tasks.find(({ task_id }) => task_id === 'T1').status, 'done');
+  assert.equal(store.members[0].tasks.some(({ task_id }) => task_id === 'T2'), false);
 });
 
 test('phase v3 acquire_phaseはtitle変更をcarry_semantics_changedで拒否する', async (t) => {

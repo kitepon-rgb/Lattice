@@ -35,7 +35,7 @@ const task = (taskId, title = taskId) => ({
 const ref = (taskId) => ({ project_id: 'project-1', plan_key: 'main', task_id: taskId });
 const digest = (text) => createHash('sha256').update(text).digest('hex');
 
-async function fixture(context, { hardDependencies = [] } = {}) {
+async function fixture(context, { hardDependencies = [], joins = [] } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-revision-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   execFileSync('git', ['init', '--quiet'], { cwd: root });
@@ -49,7 +49,7 @@ async function fixture(context, { hardDependencies = [] } = {}) {
         schema: 'lattice.todo_plan.v3', project_id: 'project-1', plan_key: 'main',
         plan_version: 'v1', predecessor_plan_digest: null,
         tasks: [task('T1'), task('T2'), task('T3'), task('T4'), task('T5')],
-        hard_dependencies: hardDependencies, joins: [],
+        hard_dependencies: hardDependencies, joins,
       },
       genesis: { actor: ACTOR, recorded_at: NOW },
     }],
@@ -72,7 +72,7 @@ async function promoteManifestV2(root) {
 async function revisionFor(root, {
   title = 'T1', migrationPolicy = 'carry', removeT5 = false,
   removeT5Reason = 'task removed by successor revision', extraTombstones = [],
-  hardDependencies = [], t6Anchor = null, t1ParentTaskId = null, migrationPolicies = {},
+  hardDependencies = [], joins = [], t6Anchor = null, t1ParentTaskId = null, migrationPolicies = {},
   sourceTextByTask = {}, planSchema = 'lattice.todo_plan.v3', designMemoByTask = {},
 } = {}) {
   const store = await readTodoStore({ repoRoot: root, now: NOW });
@@ -129,7 +129,7 @@ async function revisionFor(root, {
         narrative_ref: t6Anchor === null ? null : t6Anchor.origin_plan_ref,
         narrative_anchor: t6Anchor,
       }],
-    hard_dependencies: hardDependencies, joins: [],
+    hard_dependencies: hardDependencies, joins,
   };
   desiredInput.plan_version = todoRevisionPlanVersion({
     projectId: 'project-1', planKey: 'main', predecessor, desiredPlan: desiredInput,
@@ -553,6 +553,53 @@ test('removed taskはsuccessorから除外しpredecessor v1履歴とevidenceを�
   const predecessorEvents = oldJournal.toString('utf8').trimEnd().split('\n').map(JSON.parse);
   assert.deepEqual(predecessorEvents.slice(-2).map(({ kind }) => kind), ['start', 'done']);
   assert.deepEqual(predecessorEvents.at(-1).payload.evidence, evidence);
+});
+
+test('removed宣言は無関係なhard edgeの削除を許可しない', async (context) => {
+  const dependency = { from: ref('T1'), to: ref('T2') };
+  const root = await fixture(context, { hardDependencies: [dependency] });
+  const revision = await revisionFor(root, { removeT5: true, hardDependencies: [] });
+  await assert.rejects(apply(root, revision), (error) => error instanceof TodoStoreError
+    && error.code === 'REVISION_INVALID' && error.detail.reason === 'carry_semantics_changed'
+    && error.detail.from_task_id === 'T1');
+});
+
+test('carryはremoved taskへのhard incomingとoutgoingだけを除外する', async (context) => {
+  const incomingRoot = await fixture(context, {
+    hardDependencies: [{ from: ref('T5'), to: ref('T1') }],
+  });
+  await apply(incomingRoot, await revisionFor(incomingRoot, { removeT5: true }));
+
+  const outgoingRoot = await fixture(context, {
+    hardDependencies: [{ from: ref('T1'), to: ref('T5') }],
+  });
+  await apply(outgoingRoot, await revisionFor(outgoingRoot, { removeT5: true }));
+});
+
+test('carryはremovedを含むjoinから残差をsortし単独joinは全体を除外する', async (context) => {
+  const partialJoin = { id: 'join-partial', after: [ref('T2'), ref('T5')], before: ref('T1') };
+  const partialRoot = await fixture(context, { joins: [partialJoin] });
+  await apply(partialRoot, await revisionFor(partialRoot, {
+    removeT5: true,
+    joins: [{ ...partialJoin, after: [ref('T2')] }],
+  }));
+
+  const singleRoot = await fixture(context, {
+    joins: [{ id: 'join-single', after: [ref('T5')], before: ref('T1') }],
+  });
+  await apply(singleRoot, await revisionFor(singleRoot, { removeT5: true }));
+});
+
+test('carry_reconciled_metadataもremoved taskへのedgeだけを除外する', async (context) => {
+  const root = await fixture(context, {
+    hardDependencies: [{ from: ref('T1'), to: ref('T5') }],
+  });
+  await apply(root, await revisionFor(root, {
+    removeT5: true,
+    migrationPolicies: { T1: 'carry_reconciled_metadata' },
+  }));
+  const member = (await readTodoStore({ repoRoot: root, now: NOW })).members[0];
+  assert.equal(member.tasks.find(({ task_id }) => task_id === 'T1').status, 'pending');
 });
 
 test('historical importのdone・in-progress stateとsource evidenceもv2 genesisへcarryする', async (context) => {
