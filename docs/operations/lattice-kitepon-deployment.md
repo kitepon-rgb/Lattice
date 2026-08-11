@@ -186,6 +186,23 @@ main worktreeがdirtyだと`prepublishOnly`（`verify-release-commit.mjs`）が�
 **symlinkでなく実ディレクトリとしてcopyする**——`.gitignore`の`node_modules/`は末尾スラッシュ
 のためディレクトリにしか当たらず、symlinkはuntracked扱いになってgateを塞ぐ（実測）。
 
+ただし、外側の`node_modules` symlinkを実dir化するためにtree全体へ`cp -R -L`してはいけない。
+2026-08-12の0.58.1公開で、内部の`node_modules/.bin/tsc`まで通常fileへ展開され、元の
+`../typescript/bin/tsc`というsymlink相対参照を失って`Cannot find module '../lib/tsc.js'`になった。
+正しいcopyは、外側symlinkの参照先だけを`realpath`で解き、その**参照先directoryを`cp -R`する**形である。
+これならpublish worktree上の最上位は実directoryになり、内部の`.bin/*` symlinkは保持される。
+
+## 2026-08-12 v0.58.1・ToDo構造HEAD観測修理
+
+- 対象commit `50f559e472687b4ee726150f3e7ad88941fef81a`（`origin/main`の祖先）。
+- npm `@quolu/lattice@0.58.1`、dist SHA-1
+  `8f7f1965e1747cf3b2aeff5d7c41e8796749f527`。事前packとregistryで一致した。
+- Mac global CLI、dashboard health、bridge runtimeを0.58.1へ更新。bridge heartbeatはaccepted。
+- 公開`/projects/lattice/`はHTTP 200で、構造検査presentationを含む。
+- 公開版CLIでPeertableの保存projectionをfresh consistentと確認し、HEAD 103fbfb7の一時再現環境でも
+  compileがconsistent／finding 0になった。元Peertable WIPは変更していない。
+- rollbackはMacを0.58.0へ戻してdashboard／bridgeを再起動する。npm unpublishと履歴巻き戻しは行わない。
+
 
 ## 2026-08-11 v0.57.1・端末が名乗る集合の是正とFOX復旧
 

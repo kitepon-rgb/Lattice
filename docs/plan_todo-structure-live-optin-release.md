@@ -1,6 +1,6 @@
 # plan: ToDo構造HEAD観測修理の公開
 
-- Status: In Progress
+- Status: Complete
 - Lane: 統括（version、remote main、npm、global install、常駐面、公開smokeの多段受入）
 - Owner: Codex親
 - Started: 2026-08-12
@@ -20,18 +20,26 @@ Lattice dashboard／bridgeへ届け、Peertable実工程で公開版CLIの判定
 
 ## 工程
 
-- [ ] **lr01 — release candidateを固定する**
+- [x] **lr01 — release candidateを固定する**
   - 恒久承認をAGENTS.mdへ限定付きで正本化する。
   - CHANGELOG、package version、lockfileを0.58.1へ揃える。
   - focused test、`npm run ci`、production dependency audit、pack内容を確認する。
-- [ ] **lr02 — 既定ブランチとnpmへ届ける（H）**
+  - `npm run ci`はproduct 1,757／1,757、Sensor、静的・公開面・store gateを含めexit 0。
+    root／Sensor production auditは0。packは826 files、SHA-1 `8f7f1965…`。
+- [x] **lr02 — 既定ブランチとnpmへ届ける（H）**
   - release commitを`origin/main`へfast-forward pushし、祖先gate通過後だけpublic publishする。
   - 事前packとregistry tarballのSHA-1を照合する。
-- [ ] **lr03 — global installと公開面を実測する（H）**
+  - `50f559e472687b4ee726150f3e7ad88941fef81a`を`origin/main`へ着地後、0.58.1をpublic publish。
+    registry SHA-1は事前packと一致し、`latest`も0.58.1。
+- [x] **lr03 — global installと公開面を実測する（H）**
   - 公開versionをMacへversion pinでglobal installし、dashboard登録とbridgeを再起動する。
   - CLI、bridge heartbeat、公開dashboard、Peertable構造compileをsmokeする。
-- [ ] **lr04 — 証拠と受理Decisionを固定する**
+  - global CLI、dashboard health、bridge runtimeは0.58.1。heartbeat accepted、公開HTTP 200。
+    Peertable保存projectionはfresh consistent、一時再現環境のcompileもconsistent／finding 0。
+- [x] **lr04 — 証拠と受理Decisionを固定する**
   - 受入matrix、公開操作、rollbackをevidenceへ記録し、不変ADRで受理する。
+  - [公開証跡](evidence/2026-08-12-v0.58.1-live-optin-release.md)と
+    [ADR 0170](adr/0170-v0-58-1-live-optin-release-is-accepted.md)へ固定した。
 
 ## 受入条件
 
@@ -44,5 +52,7 @@ Lattice dashboard／bridgeへ届け、Peertable実工程で公開版CLIの判定
 ## 既知の罠
 
 - publish worktreeはuntracked symlinkを含めてもdirty gateで止まる。clean release worktreeを使う。
+- node_modulesの参照先を実dir化する時、tree全体へ`cp -L`しない。内部の`.bin/*` symlinkまで展開されて
+  相対参照が壊れる。外側symlinkだけ`realpath`で解き、参照先を通常`cp -R`して内部symlinkを保持する。
 - `latest`の伝播よりversion pinを優先し、導入物を曖昧にしない。
 - status codeだけで配備を受理せず、bridge version／heartbeatと公開HTMLの内容を確認する。
