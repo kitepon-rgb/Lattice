@@ -218,6 +218,24 @@ ADR 0165（端末は配信している集合をそのまま名乗る）と CHANG
    その時は`git commit -C <元のsha>`してから`git rebase --continue`で閉じる（実測）。
 3. **SSH越しに起動したbridgeは、そのSSH sessionが閉じた瞬間に道連れで死ぬ。** Windowsでは
    `wscript`でStartupのlauncherを叩いても、起動元sessionの終了で落ちる（3回再現）。
+
+## 2026-08-11 v0.57.3・配備記録
+
+- 対象commit: `8bfd0023`（`origin/main`の祖先）。npm `@quolu/lattice@0.57.3`、dist shasumは
+  `510e7ab8e75d501c8227063eff3085d555041430`。
+- Mac: global install後、`lattice --version`は`0.57.3`。常駐bridgeは自動入替え後に
+  `runtime.version=0.57.3`、`runtime_drift=[]`、heartbeat `accepted`、`remedy=null`。
+- FOX/WSL2: `ssh fox-wsl`経由で`npm install -g @quolu/lattice@0.57.3`を実施し、
+  `/home/kite/.npm-global/bin/lattice --version`は`0.57.3`。WSL2側はbridge未設定のため、
+  常駐bridgeと公開面は測定対象外。FOXの対話logon依存はcarry overとする。
+- 公開面: `https://lattice.kitepon.dev/projects/lattice/`はHTTP 200。
+
+### 今回の罠
+
+インストール版CLIのPATHが端末ごとに異なるため、SSH経由のWSL2では`lattice`の裸コマンドが
+見つからない場合がある。`npm prefix -g`でglobal prefixを確認し、今回のFOXでは
+`/home/kite/.npm-global/bin/lattice`を絶対パスで実測した。配備結果を「コマンドが無い」と
+誤って未実施扱いせず、インストール成否とPATH設定を分けて記録する。
    session中は`netstat`にLISTENINGが出るので、**同じsession内では生きて見え、次の接続では
    消えている**。常駐させられるのはオーナーの対話logon sessionだけで、それを行うのが
    Startup folderのlauncherである。遠隔からできるのは常駐設定の修復までとする。
