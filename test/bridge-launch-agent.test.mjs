@@ -121,6 +121,17 @@ test('disableはbootoutとsocket停止確認の後だけplistを除去し、snap
     assert.equal(control.isLoaded(), true);
   });
 
+test('split rollbackは存在しないplistをbootstrapせず、分裂状態を忠実に戻す', macOnly,
+  async (context) => {
+    const { env } = await fixture(context, 'lattice-launch-agent-split-');
+    const control = launchctlDouble();
+    const snapshot = { installed: false, loaded: true, split: true, content: null };
+    const restored = await restoreBridgeLaunchAgent({ snapshot, env, runner: control.runner });
+    assert.deepEqual(restored, snapshot);
+    assert.equal(control.calls.filter((args) => args[0] === 'bootstrap').length, 0);
+    assert.equal(control.isLoaded(), false);
+  });
+
 test('再起動後も永続plistから同じProgramArguments/environmentでbootstrapできる', macOnly, async (context) => {
   const { env } = await fixture(context, 'lattice-launch-agent-reboot-');
   const control = launchctlDouble();

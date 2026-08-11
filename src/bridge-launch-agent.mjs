@@ -344,6 +344,10 @@ export async function restoreBridgeLaunchAgent({ snapshot, listen = null, env = 
   await prepareDirectory(refs.directory, uid);
   const stopped = await bootoutIfLoaded({ runner, uid });
   if (stopped) await waitStopped({ listen, env });
+  if (snapshot.split === true) {
+    await rm(refs.plist, { force: true });
+    return snapshot;
+  }
   if (snapshot.installed) await atomicPlist(refs.plist, snapshot.content);
   else await rm(refs.plist, { force: true });
   if (snapshot.loaded) {
