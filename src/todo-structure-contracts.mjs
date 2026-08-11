@@ -467,6 +467,11 @@ export const digestTodoStructureTransform = (value) => todoSelfDigest(
   { schema: 'lattice.todo_structure_transform.v1', transform: value, digest: '' }, 'digest',
 );
 
+/** AIが判断して渡す実体構造だけを、realization envelopeとは独立に検証する。 */
+export function explainTodoStructureTransform(value) {
+  return transform(value, '');
+}
+
 export function explainTodoStructureRealization(value, { structureSet = null, previous = null,
   priorDigests = null } = {}) {
   try {

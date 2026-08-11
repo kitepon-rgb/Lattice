@@ -74,6 +74,10 @@ import {
 } from './todo-store.mjs';
 import {
   TODO_STRUCTURE_BINDING_SCHEMA,
+  TODO_STRUCTURE_LIMITS,
+  TODO_STRUCTURE_REALIZATION_SCHEMA,
+  digestTodoStructureTransform,
+  explainTodoStructureTransform,
   explainTodoStructureRealization,
   explainTodoStructureSet,
 } from './todo-structure-contracts.mjs';
@@ -724,7 +728,10 @@ async function startStructureContext({ repoRoot, store, planKey, taskId }) {
     structure_set_digest: source.structure_set_digest,
     task: structuredClone(task),
     next_actions: task.applicability === 'graph'
-      ? [`lattice todo structure realize --plan ${planKey} --task ${taskId} --input <realization.json>`]
+      ? [
+        `lattice todo structure realize --plan ${planKey} --task ${taskId} --planned`,
+        `lattice todo structure realize --plan ${planKey} --task ${taskId} --realized <actual-structure.json>`,
+      ]
       : [],
   };
 }
@@ -1998,6 +2005,31 @@ function structurePlanMember(store, requestedPlanKey) {
   return store.members[0];
 }
 
+function parseAutomatedStructureRealizeArgs(argv) {
+  if (argv[0] !== 'structure' || argv[1] !== 'realize'
+    || argv[2] !== '--plan' || !isTodoIdentifier(argv[3])
+    || argv[4] !== '--task' || !isTodoIdentifier(argv[5])) return null;
+  let cursor;
+  let usePlanned;
+  let realizedRef = null;
+  if (argv[6] === '--planned') {
+    cursor = 7; usePlanned = true;
+  } else if (argv[6] === '--realized' && isTodoRef(argv[7])) {
+    cursor = 8; usePlanned = false; realizedRef = argv[7];
+  } else {
+    return null;
+  }
+  const commitRefs = [];
+  while (cursor < argv.length) {
+    if (argv[cursor] !== '--commit' || typeof argv[cursor + 1] !== 'string') return null;
+    commitRefs.push(argv[cursor + 1]);
+    cursor += 2;
+  }
+  return {
+    planKey: argv[3], taskId: argv[5], usePlanned, realizedRef, commitRefs,
+  };
+}
+
 function structureNextActions({ coverage, planKey, findings = [], staleReasons = [] }) {
   const actions = [];
   const add = (value) => { if (!actions.includes(value)) actions.push(value); };
@@ -2013,14 +2045,16 @@ function structureNextActions({ coverage, planKey, findings = [], staleReasons =
     if (staleReasons.includes('realization_head_digest')) {
       add(`lattice todo structure --plan ${planKey} --json`);
     } else {
-      add(`lattice todo structure realize --plan ${planKey} --task <task-id> --input <realization.json>`);
+      add(`lattice todo structure realize --plan ${planKey} --task <task-id> --planned`);
+      add(`lattice todo structure realize --plan ${planKey} --task <task-id> --realized <actual-structure.json>`);
     }
     add(`lattice todo structure finalize --plan ${planKey} --json`);
   } else if (coverage === 'superseded') {
     add(`lattice todo structure input --plan ${planKey} --input <migrated-structure-set.json> --dry-run --json`);
   } else if (coverage === 'consistent') {
     add(`lattice todo structure --plan ${planKey} --json`);
-    add(`lattice todo structure realize --plan ${planKey} --task <task-id> --input <realization.json>`);
+    add(`lattice todo structure realize --plan ${planKey} --task <task-id> --planned`);
+    add(`lattice todo structure realize --plan ${planKey} --task <task-id> --realized <actual-structure.json>`);
     add(`lattice todo structure finalize --plan ${planKey} --json`);
   }
   return actions;
@@ -2134,6 +2168,24 @@ async function readStructureRealizationInput(repoRoot, inputRef) {
   });
 }
 
+async function readStructureRealizedTransformInput(repoRoot, inputRef) {
+  let explained = null;
+  return readJsonInput(repoRoot, inputRef, {
+    validate: (value) => {
+      explained = explainTodoStructureTransform(value);
+      return explained.valid;
+    },
+    invalidCode: 'INVALID_TODO_STRUCTURE_TRANSFORM',
+  }).catch((error) => {
+    if (error?.code === 'INVALID_TODO_STRUCTURE_TRANSFORM' && explained !== null) {
+      throw new TodoStoreError(error.code, explained.reason, undefined, {
+        input_ref: inputRef, path: explained.path,
+      });
+    }
+    throw error;
+  });
+}
+
 async function readCurrentStructureEffective(repoRoot, structureSet) {
   const realizations = [];
   for (const task of structureSet.tasks.filter(({ applicability }) => applicability === 'graph')) {
@@ -2144,22 +2196,7 @@ async function readCurrentStructureEffective(repoRoot, structureSet) {
   return projectTodoStructureEffective({ structureSet, realizations });
 }
 
-async function structureRealize({ repoRoot, env, planKey, taskId, inputRef }) {
-  const realization = await readStructureRealizationInput(repoRoot, inputRef);
-  const actor = mutationActor(env);
-  if (realization.plan_key !== planKey || realization.task_id !== taskId) {
-    throw new TodoStoreError('STRUCTURE_REALIZATION_BINDING_MISMATCH',
-      'cli_target_mismatch', undefined, {
-        expected: { plan_key: planKey, task_id: taskId },
-        actual: { plan_key: realization.plan_key, task_id: realization.task_id },
-      });
-  }
-  if (canonicalizeTodoArtifact(realization.actor) !== canonicalizeTodoArtifact(actor)) {
-    throw new TodoStoreError('STRUCTURE_REALIZATION_BINDING_MISMATCH',
-      'actor_environment_mismatch', undefined, {
-        expected_actor: actor, actual_actor: realization.actor,
-      });
-  }
+async function recordStructureRealization({ repoRoot, planKey, taskId, realization }) {
   const appended = await appendTodoStructureRealization({ repoRoot, realization });
   const structureSet = await readTodoStructureSource({ repoRoot, planKey });
   const effective = await readCurrentStructureEffective(repoRoot, structureSet);
@@ -2178,6 +2215,103 @@ async function structureRealize({ repoRoot, env, planKey, taskId, inputRef }) {
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
+}
+
+async function structureRealize({ repoRoot, env, planKey, taskId, inputRef }) {
+  const realization = await readStructureRealizationInput(repoRoot, inputRef);
+  const actor = mutationActor(env);
+  if (realization.plan_key !== planKey || realization.task_id !== taskId) {
+    throw new TodoStoreError('STRUCTURE_REALIZATION_BINDING_MISMATCH',
+      'cli_target_mismatch', undefined, {
+        expected: { plan_key: planKey, task_id: taskId },
+        actual: { plan_key: realization.plan_key, task_id: realization.task_id },
+      });
+  }
+  if (canonicalizeTodoArtifact(realization.actor) !== canonicalizeTodoArtifact(actor)) {
+    throw new TodoStoreError('STRUCTURE_REALIZATION_BINDING_MISMATCH',
+      'actor_environment_mismatch', undefined, {
+      expected_actor: actor, actual_actor: realization.actor,
+    });
+  }
+  return recordStructureRealization({ repoRoot, planKey, taskId, realization });
+}
+
+function resolveStructureRealizationCommits(repoRoot, refs) {
+  const requested = refs.length === 0 ? ['HEAD'] : refs;
+  if (requested.length > TODO_STRUCTURE_LIMITS.commitsPerRealization) {
+    throw new TodoStoreError('STRUCTURE_REALIZATION_COMMIT_REF_INVALID',
+      'commit_ref_count_exceeds_limit', undefined, {
+        actual: requested.length, limit: TODO_STRUCTURE_LIMITS.commitsPerRealization,
+      });
+  }
+  const resolved = [];
+  for (const ref of requested) {
+    if (!(ref === 'HEAD' || /^[0-9a-f]{40}$/u.test(ref))) {
+      throw new TodoStoreError('STRUCTURE_REALIZATION_COMMIT_REF_INVALID',
+        'commit_ref_must_be_head_or_full_sha', undefined, { commit_ref: ref });
+    }
+    let oid;
+    try {
+      oid = gitSync(['rev-parse', '--verify', `${ref}^{commit}`], {
+        cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      throw new TodoStoreError('STRUCTURE_REALIZATION_COMMIT_REF_INVALID',
+        'commit_ref_unresolved', undefined, { commit_ref: ref });
+    }
+    if (!/^[0-9a-f]{40}$/u.test(oid)) {
+      throw new TodoStoreError('STRUCTURE_REALIZATION_COMMIT_REF_INVALID',
+        'commit_ref_resolved_invalid_oid', undefined, { commit_ref: ref });
+    }
+    if (resolved.includes(oid)) {
+      throw new TodoStoreError('STRUCTURE_REALIZATION_COMMIT_REF_INVALID',
+        'duplicate_commit_ref', undefined, { commit_ref: ref, commit_oid: oid });
+    }
+    resolved.push(oid);
+  }
+  return resolved.sort();
+}
+
+async function structureRealizeActual({
+  repoRoot, env, planKey, taskId, realizedRef, usePlanned, commitRefs,
+}) {
+  const structureSet = await readTodoStructureSource({ repoRoot, planKey });
+  if (structureSet === null) {
+    throw new TodoStoreError('STRUCTURE_REALIZATION_BINDING_MISMATCH',
+      'planned_structure_source_missing', undefined, { plan_key: planKey });
+  }
+  const task = structureSet.tasks.find(({ task_id: id }) => id === taskId);
+  if (task?.applicability !== 'graph') {
+    throw new TodoStoreError('STRUCTURE_REALIZATION_BINDING_MISMATCH',
+      'task_not_graph_applicable', undefined, { plan_key: planKey, task_id: taskId });
+  }
+  const realized = usePlanned
+    ? structuredClone(task.planned)
+    : await readStructureRealizedTransformInput(repoRoot, realizedRef);
+  const chain = await readTodoStructureRealizationChain({
+    repoRoot, structureSet, taskId,
+  });
+  const previous = chain.at(-1) ?? null;
+  const realization = {
+    schema: TODO_STRUCTURE_REALIZATION_SCHEMA,
+    project_id: structureSet.project_id,
+    plan_key: structureSet.plan_key,
+    plan_version: structureSet.plan_version,
+    task_id: taskId,
+    sequence: (previous?.sequence ?? 0) + 1,
+    previous_digest: previous?.realization_digest ?? null,
+    structure_set_digest: structureSet.structure_set_digest,
+    planned_digest: digestTodoStructureTransform(task.planned),
+    head_sha: currentHeadSha(repoRoot),
+    commit_oids: resolveStructureRealizationCommits(repoRoot, commitRefs),
+    realized,
+    supersedes: previous?.realization_digest ?? null,
+    actor: mutationActor(env),
+    recorded_at: new Date().toISOString(),
+    realization_digest: '',
+  };
+  realization.realization_digest = todoSelfDigest(realization, 'realization_digest');
+  return recordStructureRealization({ repoRoot, planKey, taskId, realization });
 }
 
 async function structureFinalize({ repoRoot, env, planKey }) {
@@ -2215,7 +2349,7 @@ async function structureFinalize({ repoRoot, env, planKey }) {
       throw new TodoStoreError('STRUCTURE_FINALIZATION_UNAVAILABLE',
         'realization_missing', undefined, {
           plan_key: planKey, task_id: task.task_id,
-          next_action: `lattice todo structure realize --plan ${planKey} --task ${task.task_id} --input <realization.json>`,
+          next_action: `lattice todo structure realize --plan ${planKey} --task ${task.task_id} --realized <actual-structure.json>`,
         });
     }
     realizations.push(...chain);
@@ -3479,6 +3613,14 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     });
   }
 
+  if (argv[0] === 'structure' && argv[1] === 'realize'
+    && argv[6] === '--realized' && typeof argv[7] === 'string' && path.isAbsolute(argv[7])) {
+    return typedArgumentFailure(stderr, 'INPUT_OUTSIDE_REPOSITORY', 'absolute_input_path_rejected', {
+      argument: '--realized', expected: 'repo-relative path', actual: 'absolute path',
+      next_action: 'place_the_input_inside_the_repository_and_pass_a_repo_relative_path',
+    });
+  }
+
   // `--schema --json`はstoreを読まない決定的な出力（`plan create --schema`と同じ規律）。
   // 通常dispatchより前に処理し、repoRoot解決やdashboard daemon起動を経由させない。
   if (argv.length === 3 && argv[1] === '--schema' && argv[2] === '--json'
@@ -3513,6 +3655,7 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     }
   }
 
+  const automatedStructureRealize = parseAutomatedStructureRealizeArgs(argv);
   let action = null;
   if ((argv.length === 1 && argv[0] === 'status')
     || (argv.length === 2 && argv[0] === 'status' && argv[1] === '--json')) {
@@ -3614,6 +3757,10 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[6] === '--input' && isTodoRef(argv[7])) {
     action = (repoRoot) => structureRealize({
       repoRoot, env, planKey: argv[3], taskId: argv[5], inputRef: argv[7],
+    });
+  } else if (automatedStructureRealize !== null) {
+    action = (repoRoot) => structureRealizeActual({
+      repoRoot, env, ...automatedStructureRealize,
     });
   } else if (argv.length === 5 && argv[0] === 'structure' && argv[1] === 'finalize'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--json') {

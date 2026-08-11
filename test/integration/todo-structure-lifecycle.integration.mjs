@@ -10,7 +10,6 @@ import {
   runStructureE2eCli,
   structureContract,
   structureE2eGit,
-  structureRealization,
   structureSet,
   writeStructureE2eEvidence,
   writeStructureE2eJson,
@@ -202,11 +201,8 @@ test('実Git・sensorで正負compile、realize、finalize、未適用互換を�
     'export function runLifecycle(value) { return { value, realized: true }; }\n');
   structureE2eGit(root, ['add', '--', 'src/lifecycle.mjs', '.lattice/todo']);
   structureE2eGit(root, ['commit', '--quiet', '-m', 'implement lifecycle task']);
-  const implementationCommit = structureE2eGit(root, ['rev-parse', 'HEAD']);
-  const realizationRef = await writeStructureE2eJson(root, 'L1-realization.json',
-    structureRealization(lifecycleSet, 'L1', implementationCommit));
   ok(todo(root, [
-    'structure', 'realize', '--plan', 'lifecycle', '--task', 'L1', '--input', realizationRef,
+    'structure', 'realize', '--plan', 'lifecycle', '--task', 'L1', '--planned',
   ]), 'L1 realize');
   const l1Evidence = await writeStructureE2eEvidence(root, 'L1');
   ok(todo(root, ['done', '--plan', 'lifecycle', '--task', 'L1', '--evidence', l1Evidence]), 'L1 done');

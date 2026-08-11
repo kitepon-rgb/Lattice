@@ -242,10 +242,12 @@ test('todo helpはstructure schema・dry-run・保存後も未有効であるこ
   assert.match(namespace, /structure input --plan <key> --input <file> --dry-run --json/u);
   assert.match(namespace, /structure compile --plan <key> --input <file>/u);
   assert.match(namespace, /structure realize --plan <key> --task <id> --input <file>/u);
+  assert.match(namespace, /structure realize --plan <key> --task <id> \(--planned\|--realized/u);
+  assert.match(namespace, /--realized <actual-structure\.json>/u);
   assert.match(namespace, /structure finalize --plan <key> --json/u);
   assert.match(namespace, /compile成功までは有効化しない/u);
   assert.equal(renderCliHelp(['todo', 'structure', '--help']),
-    'Usage: lattice todo structure --schema --json | [--plan <key>] --json | input --plan <key> --input <file> [--dry-run --json] | compile --plan <key> --input <file> | realize --plan <key> --task <id> --input <file> | finalize --plan <key> --json\n');
+    'Usage: lattice todo structure --schema --json | [--plan <key>] --json | input --plan <key> --input <file> [--dry-run --json] | compile --plan <key> --input <file> | realize --plan <key> --task <id> (--planned|--realized <actual-structure.json>) [--commit <HEAD|sha>]... | realize --plan <key> --task <id> --input <full-realization.json> | finalize --plan <key> --json\n');
 });
 
 test('structure readは未適用を空consistentへ丸めず、plan省略の曖昧さを拒否する', async (context) => {

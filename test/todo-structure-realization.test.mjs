@@ -193,7 +193,8 @@ test('todo startは対象taskのcanonical planned構造とrealize案内を直接
     structure_set_digest: data.set.structure_set_digest,
     task: data.set.tasks[0],
     next_actions: [
-      'lattice todo structure realize --plan main --task T1 --input <realization.json>',
+      'lattice todo structure realize --plan main --task T1 --planned',
+      'lattice todo structure realize --plan main --task T1 --realized <actual-structure.json>',
     ],
   });
 });
@@ -208,6 +209,83 @@ test('todo startはexcluded taskにも除外理由を構造コンテキストと
   assert.equal(structure.status, 'available');
   assert.deepEqual(structure.task, data.set.tasks[1]);
   assert.deepEqual(structure.next_actions, []);
+});
+
+test('plannedどおりの実装はrealization envelopeを機械生成してHEADへ束縛する', async (context) => {
+  const data = await fixture(context);
+  const result = run(data.root, [
+    'structure', 'realize', '--plan', 'main', '--task', 'T1', '--planned',
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(parse(result.stdout).history_length, 1);
+
+  const source = await readTodoStructureSource({ repoRoot: data.root, planKey: 'main' });
+  const [record] = await readTodoStructureRealizationChain({
+    repoRoot: data.root, structureSet: source, taskId: 'T1',
+  });
+  assert.equal(record.sequence, 1);
+  assert.equal(record.previous_digest, null);
+  assert.equal(record.supersedes, null);
+  assert.equal(record.head_sha, data.implementationCommit);
+  assert.deepEqual(record.commit_oids, [data.implementationCommit]);
+  assert.deepEqual(record.actor, ACTOR);
+  assert.deepEqual(record.realized, data.set.tasks[0].planned);
+  assert.equal(record.planned_digest, digestTodoStructureTransform(data.set.tasks[0].planned));
+  assert.equal(record.realization_digest, todoSelfDigest(record, 'realization_digest'));
+});
+
+test('実体構造だけを渡すとmetadataと訂正chainを機械生成する', async (context) => {
+  const data = await fixture(context);
+  const first = run(data.root, [
+    'structure', 'realize', '--plan', 'main', '--task', 'T1', '--planned', '--commit', 'HEAD',
+  ]);
+  assert.equal(first.status, 0, first.stderr);
+  const firstDigest = parse(first.stdout).realization_digest;
+
+  await writeFile(path.join(data.root, 'src/shared.mjs'), 'export const value = 3;\n');
+  git(data.root, ['add', 'src/shared.mjs']);
+  git(data.root, ['commit', '--quiet', '-m', 'correct implementation']);
+  const correctionCommit = git(data.root, ['rev-parse', 'HEAD']);
+  const actual = transform('T1', { outcome: 'T1が実体に合わせた構造へ更新する' });
+  const actualRef = await writeInput(data.root, 'actual-structure.json', actual);
+  const corrected = run(data.root, [
+    'structure', 'realize', '--plan', 'main', '--task', 'T1',
+    '--realized', actualRef, '--commit', correctionCommit,
+  ]);
+  assert.equal(corrected.status, 0, corrected.stderr);
+  assert.equal(parse(corrected.stdout).history_length, 2);
+
+  const source = await readTodoStructureSource({ repoRoot: data.root, planKey: 'main' });
+  const chain = await readTodoStructureRealizationChain({
+    repoRoot: data.root, structureSet: source, taskId: 'T1',
+  });
+  assert.equal(chain[1].sequence, 2);
+  assert.equal(chain[1].previous_digest, firstDigest);
+  assert.equal(chain[1].supersedes, firstDigest);
+  assert.equal(chain[1].head_sha, correctionCommit);
+  assert.deepEqual(chain[1].commit_oids, [correctionCommit]);
+  assert.deepEqual(chain[1].realized, actual);
+});
+
+test('不正な実体構造やcommit refはrealization chainを変更せずtyped拒否する', async (context) => {
+  const data = await fixture(context);
+  const invalidRef = await writeInput(data.root, 'invalid-actual.json', { outcome: '不足' });
+  const invalid = run(data.root, [
+    'structure', 'realize', '--plan', 'main', '--task', 'T1', '--realized', invalidRef,
+  ]);
+  assert.equal(invalid.status, 1);
+  assert.equal(parse(invalid.stderr).code, 'INVALID_TODO_STRUCTURE_TRANSFORM');
+
+  const badCommit = run(data.root, [
+    'structure', 'realize', '--plan', 'main', '--task', 'T1',
+    '--planned', '--commit', 'not-a-commit',
+  ]);
+  assert.equal(badCommit.status, 1);
+  assert.equal(parse(badCommit.stderr).code, 'STRUCTURE_REALIZATION_COMMIT_REF_INVALID');
+  const source = await readTodoStructureSource({ repoRoot: data.root, planKey: 'main' });
+  assert.deepEqual(await readTodoStructureRealizationChain({
+    repoRoot: data.root, structureSet: source, taskId: 'T1',
+  }), []);
 });
 
 test('realizeはstale planned・unreachable commitを無変更で拒否する', async (context) => {

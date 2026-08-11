@@ -220,8 +220,13 @@ planned、append-only realized、effectiveを分離し、plannedを実装結果�
   ToDo DAGを結合し、三値verdictを返す。`consistent`時だけimmutable bindingを発行する。
 - `todo structure [--plan <key>] --json`: 保存artifactのmissing／fresh／stale／supersededとfindingを
   sensor再実行なしで返す。
-- `todo structure realize --plan <key> --task <id> --input <file>`: planned digest、HEAD、commit、anchorへ
-  束縛したtask別realizationをappend-onlyで記録する。訂正はsupersedesで行う。
+- `todo structure realize --plan <key> --task <id> --planned [--commit <HEAD|sha>]...`: 実装後も
+  planned構造どおりであることだけをAIが明示し、identity、HEAD、履歴鎖、actor、時刻、digestは機械生成する。
+- `todo structure realize --plan <key> --task <id> --realized <file> [--commit <HEAD|sha>]...`:
+  plannedと異なる実体構造transformだけを受け取り、同じ機械生成envelopeへ格納する。`--commit`省略時はHEAD。
+- `todo structure realize --plan <key> --task <id> --input <file>`: 完全な
+  `lattice.todo_structure_realization.v1`を移送・再生する互換入口。どの入口もcommit reachability、他taskとの
+  重複claim、mutating anchor、current HEADを検証してappend-onlyで記録し、訂正は最新recordをsupersedeする。
 - `todo structure finalize --plan <key> --json`: 全task完了後のeffective構造を最終HEADで再compileする。
 - 動的Gantt／dashboardの独立した「構造検査」面: task／data／code／external／commit provenance、
   planned／realized／effective、finding、unknown、freshness、次の一手を保存artifactから表示する。

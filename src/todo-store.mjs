@@ -1640,7 +1640,7 @@ async function enforceTodoStructureLifecycleGate(repoRoot, member, eventInput) {
     if (latest === undefined) {
       fail('STRUCTURE_REALIZATION_REQUIRED', 'fresh_realization_missing', {
         plan_key: member.plan.plan_key, task_id: eventInput.task_id,
-        next_action: `lattice todo structure realize --plan ${member.plan.plan_key} --task ${eventInput.task_id} --input <realization.json>`,
+        next_action: `lattice todo structure realize --plan ${member.plan.plan_key} --task ${eventInput.task_id} --realized <actual-structure.json>`,
       });
     }
     let currentHead;
@@ -1655,7 +1655,7 @@ async function enforceTodoStructureLifecycleGate(repoRoot, member, eventInput) {
       fail('STRUCTURE_REALIZATION_REQUIRED', 'realization_head_stale', {
         plan_key: member.plan.plan_key, task_id: eventInput.task_id,
         realization_head_sha: latest.head_sha, current_head_sha: currentHead,
-        next_action: `lattice todo structure realize --plan ${member.plan.plan_key} --task ${eventInput.task_id} --input <realization.json>`,
+        next_action: `lattice todo structure realize --plan ${member.plan.plan_key} --task ${eventInput.task_id} --realized <actual-structure.json>`,
       });
     }
   }

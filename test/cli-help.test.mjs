@@ -82,6 +82,9 @@ test('todo helpは構造opt-inからrealization・finalization・独立dashboard
     /consistent時だけplanへimmutableに有効化/u,
     /構造対象taskはfresh realizationを要求/u,
     /structure realize --plan <key> --task <id> --input <file>/u,
+    /--planned/u,
+    /--realized <actual-structure\.json>/u,
+    /identity・HEAD・履歴鎖・digest/u,
     /fresh consistentだけterminal受理/u,
     /工程図と別の構造検査面/u,
   ]) assert.match(result.stdout, pattern);

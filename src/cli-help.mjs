@@ -113,8 +113,10 @@ Write commands:
       # 検査済みplanned sourceをcanonical refへ保存する。compile成功までは有効化しない
   structure compile --plan <key> --input <file>
       # source graph・Git provenance・ToDo DAGを結合する。consistent時だけplanへimmutableに有効化する
+  structure realize --plan <key> --task <id> (--planned|--realized <actual-structure.json>) [--commit <HEAD|sha>]...
+      # AIはplannedどおりか実体構造だけを判断する。identity・HEAD・履歴鎖・digest・actor・時刻は機械生成する
   structure realize --plan <key> --task <id> --input <file>
-      # 実装後の構造をappend-onlyで記録してからtodo doneへ進む
+      # 完全なrealization envelopeを移送・再生する互換入口
   structure finalize --plan <key> --json
       # 全対象task完了後、最終HEADと全realizationを再結合する。fresh consistentだけterminal受理へ進む
   seam-proposal compile --plan <key>  # 並列可否記録と実sensorからseam提案を記録する
@@ -236,7 +238,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo note list': 'todo note list --plan <key> [--task <id>] --json',
   'todo bindings': 'todo bindings [--plan <key>] [--json]',
   'todo independence': 'todo independence [--plan <key>] [--json] | compile --plan <key> --input <file> | witness migrate --plan <key>',
-  'todo structure': 'todo structure --schema --json | [--plan <key>] --json | input --plan <key> --input <file> [--dry-run --json] | compile --plan <key> --input <file> | realize --plan <key> --task <id> --input <file> | finalize --plan <key> --json',
+  'todo structure': 'todo structure --schema --json | [--plan <key>] --json | input --plan <key> --input <file> [--dry-run --json] | compile --plan <key> --input <file> | realize --plan <key> --task <id> (--planned|--realized <actual-structure.json>) [--commit <HEAD|sha>]... | realize --plan <key> --task <id> --input <full-realization.json> | finalize --plan <key> --json',
   'todo seam-profile': 'todo seam-profile --plan <key> --file <path> [--json]',
   'todo seam-proposal': 'todo seam-proposal [--plan <key>] [--json] | compile --plan <key>',
   'todo verify': 'todo verify [--plan <key>] [--json]',
