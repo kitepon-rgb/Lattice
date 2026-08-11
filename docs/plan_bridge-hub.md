@@ -69,4 +69,4 @@ Cloudflare Tunnel → Caddy → hub（192.168.1.2 常駐・新規）→ 各開�
 - bh5-deploy: オーナー裁定2026-08-10で打ち切り。工程から除外し再開しない
 - bh6-multi-terminal-proof: オーナー裁定2026-08-10で打ち切り。工程から除外し再開しない
 - bh7-knowledge-return: オーナー裁定2026-08-10で打ち切り。工程から除外し再開しない
-（工程・ToDo は Lattice store `bridge-hub` v1 が唯一の正本。本書は目的・思想・判断理由・非目標・受入条件だけを所有する）
+（工程・ToDo の正本は Lattice store の `bridge-hub` planであり、active versionはstoreが選ぶ。初期ToDoの原本は[archive/plan_bridge-hub_tasks.md](archive/plan_bridge-hub_tasks.md)へ移設済み。本書は目的・思想・判断理由・非目標・受入条件だけを所有する）

@@ -1,6 +1,6 @@
 # plan: 打ち切り工程の退役を可能にする（2026-08-11 campaign）
 
-- Status: Active
+- Status: Completed（0.57.3を公開し、Mac／WSL2への配布実測まで完了）
 - 起点: 2026-08-11、打ち切り済みのbridge-hub bh5/bh6/bh7をplanから退役できないと判明した
 - 関連: [ADR 0167](adr/0167-carry-tolerates-edges-to-tasks-removed-by-the-same-revision.md)（Proposed・反証中）・
   [ADR 0166](adr/0166-recovery-paths-must-not-refuse-the-state-they-repair.md)（同型の欠陥）

@@ -1,6 +1,6 @@
 # plan: bridge常駐の自己修復と可視化（2026-08-11 campaign）
 
-- Status: Active
+- Status: Blocked（bpr5-fox-install：FOXのオーナー対話logon待ち）
 - 起点: 2026-08-11、`lattice.kitepon.dev`の全projectオフライン事故
 - 関連: [ADR 0165](adr/0165-terminals-advertise-exactly-what-they-serve.md)（原因の不変Decision）・
   [配備記録](operations/lattice-kitepon-deployment.md)（実測とFOXで踏んだ罠）
