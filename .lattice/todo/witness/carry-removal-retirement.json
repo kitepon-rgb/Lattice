@@ -6,7 +6,12 @@
     "executors": 2
   },
   "sensor_query_set": {
-    "queries": []
+    "queries": [
+      {
+        "id": "witness-status",
+        "operation": "status"
+      }
+    ]
   },
   "manual_witness": {
     "cr2-impl": {
@@ -39,7 +44,14 @@
       ],
       "resources": [],
       "sensor_provenance": {
-        "queries": []
+        "queries": [
+          {
+            "expect": {
+              "kind": "status"
+            },
+            "query_id": "witness-status"
+          }
+        ]
       },
       "state_effects": [],
       "unknowns": [],
@@ -51,5 +63,5 @@
       ]
     }
   },
-  "witness_set_digest": "ea63233939191e48190ee525c61f54f56315779884833c128e2aeb985e7ab5cb"
+  "witness_set_digest": "08be0210e4e43b35f3e6c51c0aae4d3f5a6c27b770b76af9d4ada338c33c8ea9"
 }
