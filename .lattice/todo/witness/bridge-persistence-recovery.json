@@ -160,9 +160,8 @@
         "docs/bridge-setup.md",
         "evidence/bridge-persistence-recovery/bpr2-doc-split.md"
       ]
-    }
-  },
-  "bpr8-caveat": {
+    },
+    "bpr8-caveat": {
     "affected_tests": [],
     "owns": [
       {
@@ -185,6 +184,7 @@
     "writes": [
       "evidence/bridge-persistence-recovery/bpr8-caveat.md"
     ]
+    }
   },
-  "witness_set_digest": "f921e1b60d189ab96fbebcbff7313b4078cc1a4ac03e667aba8de69bdd74f324"
+  "witness_set_digest": "283fac02e82044edd6053632bbf88807bd52ed4e059281ede42a4277d402be5b"
 }
