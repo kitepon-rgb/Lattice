@@ -655,7 +655,7 @@ test('pretty-printされたwitnessをcompileするとstoreへcanonical bytesで�
     project_id: 'project-1', plan_key: 'main', capacity: { executors: 1 },
     sensor_query_set: { queries: [{ id: 'q-status', operation: 'status' }] },
     manual_witness: {
-      T1: {
+      T2: {
         owns: [{ kind: 'path', target: 'src/t1.mjs' }], reads: [], writes: ['src/t1.mjs'],
         resources: [], state_effects: [], sensor_provenance: { queries: [] },
         affected_tests: [], unknowns: [],
@@ -669,6 +669,31 @@ test('pretty-printされたwitnessをcompileするとstoreへcanonical bytesで�
   git(root, ['add', '.gitignore', 'witness.json']);
   git(root, ['commit', '--quiet', '-m', 'pretty witness']);
   assert.equal(git(root, ['status', '--porcelain']), '');
+
+  const rejected = runCli(root, [
+    'independence', 'compile', '--plan', 'main', '--input', 'witness.json',
+  ]);
+  assert.equal(rejected.status, 1);
+  assert.equal(parse(rejected.stderr).code, 'INDEPENDENCE_TASK_ABSENT');
+  assert.equal(await readTodoWitnessSet({ repoRoot: root, planKey: 'main' }), null);
+
+  witnessSet.manual_witness.T1 = witnessSet.manual_witness.T2;
+  delete witnessSet.manual_witness.T2;
+  witnessSet.witness_set_digest = todoSelfDigest(witnessSet, 'witness_set_digest');
+  await writeFile(path.join(root, 'witness.json'), `${JSON.stringify(witnessSet, null, 2)}\n`);
+  git(root, ['add', 'witness.json']);
+  git(root, ['commit', '--quiet', '-m', 'valid pretty witness']);
+
+  const artifactRef = path.join(
+    root, '.lattice', 'todo', 'plans', 'main', 'v1', 'independence.json',
+  );
+  await mkdir(artifactRef);
+  const artifactWriteFailed = runCli(root, [
+    'independence', 'compile', '--plan', 'main', '--input', 'witness.json',
+  ]);
+  assert.equal(artifactWriteFailed.status, 1);
+  assert.equal(await readTodoWitnessSet({ repoRoot: root, planKey: 'main' }), null);
+  await rm(artifactRef, { recursive: true });
 
   const compiled = runCli(root, [
     'independence', 'compile', '--plan', 'main', '--input', 'witness.json',
