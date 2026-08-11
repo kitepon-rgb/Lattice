@@ -681,8 +681,10 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
           affected_tests: [], graph_evidence: [], witness_provenance: {}, manifest_digest: '',
         };
         manifest.manifest_digest = selfDigest(manifest, 'manifest_digest');
-        verdict.state = 'hold'; verdict.reason = 'boundary_unverified';
-        verdict.next_action = 'declare_and_recompile'; verdict.detail = { cause: error.code };
+        if (verdict.state !== 'hold') {
+          verdict.state = 'hold'; verdict.reason = 'boundary_unverified';
+          verdict.next_action = 'declare_and_recompile'; verdict.detail = { cause: error.code };
+        }
       }
       const constraint = verdict.state === 'none'
         ? planningConstraint(verdict.artifact, taskId, state, member) : null;
@@ -760,8 +762,10 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
         affected_tests: [], graph_evidence: [], witness_provenance: {}, manifest_digest: '',
       };
       manifest.manifest_digest = selfDigest(manifest, 'manifest_digest');
-      verdict.state = 'hold'; verdict.reason = 'boundary_unverified';
-      verdict.next_action = 'declare_and_recompile'; verdict.detail = { cause: error.code };
+      if (verdict.state !== 'hold') {
+        verdict.state = 'hold'; verdict.reason = 'boundary_unverified';
+        verdict.next_action = 'declare_and_recompile'; verdict.detail = { cause: error.code };
+      }
     }
     const packet = packetFor({ meta: current.meta, taskId, baseSha, manifest });
     const worktreePath = await ensureScriptedWorktree({ repoRoot, runDir, packet });

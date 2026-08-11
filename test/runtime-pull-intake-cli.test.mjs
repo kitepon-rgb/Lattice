@@ -332,6 +332,49 @@ test('independence outcome unknownはtask局所unknownが空でもboundary hold�
     ['hold', 'boundary_unverified', 'independence_outcome_unknown', 'withheld']);
   });
 
+test('pull intakeは先行holdの原因をplaceholder manifestで上書きしない', async (context) => {
+  const { root, artifact, witnessSet } = await workspace(context);
+  const witnessRef = path.join(root, '.lattice', 'todo', 'witness', `${PLAN_KEY}.json`);
+  parsed(startPull(root));
+  await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+
+  await rm(witnessRef);
+  const first = parsed(runCli(root, [
+    'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+  ]));
+  assert.deepEqual([first.already_intaked, first.intervention.state,
+    first.intervention.detail.cause], [false, 'hold', 'artifact_binding_mismatch']);
+
+  await writeTodoWitnessSet({ repoRoot: root, witnessSet });
+  const released = parsed(runCli(root, [
+    'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+  ]));
+  assert.deepEqual([released.already_intaked, released.intervention.state], [true, 'none']);
+
+  await rm(witnessRef);
+  const refreshed = parsed(runCli(root, [
+    'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+  ]));
+  assert.deepEqual([refreshed.already_intaked, refreshed.intervention.state,
+    refreshed.intervention.detail.cause], [true, 'hold', 'artifact_binding_mismatch']);
+
+  const missingTaskWitness = structuredClone(witnessSet);
+  delete missingTaskWitness.manual_witness.A;
+  missingTaskWitness.witness_set_digest = todoSelfDigest(
+    missingTaskWitness, 'witness_set_digest',
+  );
+  const matchingArtifact = structuredClone(artifact);
+  matchingArtifact.witness_set_digest = missingTaskWitness.witness_set_digest;
+  matchingArtifact.result_digest = todoSelfDigest(matchingArtifact, 'result_digest');
+  await writeTodoWitnessSet({ repoRoot: root, witnessSet: missingTaskWitness });
+  await writeTodoIndependenceArtifact({ repoRoot: root, artifact: matchingArtifact });
+  const actualMissing = parsed(runCli(root, [
+    'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+  ]));
+  assert.deepEqual([actualMissing.intervention.state, actualMissing.intervention.reason,
+    actualMissing.intervention.detail.cause], ['hold', 'boundary_unverified', 'BOUNDARY_UNVERIFIED']);
+});
+
 test('再intakeはequipment identity不変で実効manifestを更新し、境界変更はholdする',
   async (context) => {
     const { root, baseSha, artifact, witnessSet } = await workspace(context, { outcome: 'unknown' });
