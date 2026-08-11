@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +14,7 @@ import {
   createTodoStoreWriter,
   initializeTodoStore,
   readTodoStore,
+  readTodoWitnessSet,
   writeTodoIndependenceArtifact,
   writeTodoWitnessSet,
 } from '../src/todo-store.mjs';
@@ -645,6 +646,40 @@ test('dirty worktreeではcompileを拒否する', async (context) => {
   const error = parse(result.stderr);
   assert.equal(error.code, 'INDEPENDENCE_WORKTREE_DIRTY');
   assert.equal(error.detail.next_action, 'commit_or_stash_then_retry');
+});
+
+test('pretty-printされたwitnessをcompileするとstoreへcanonical bytesで保存する', async (context) => {
+  const root = await workspace(context, { tasks: ['T1'] });
+  const witnessSet = {
+    schema: TODO_WITNESS_SET_SCHEMA,
+    project_id: 'project-1', plan_key: 'main', capacity: { executors: 1 },
+    sensor_query_set: { queries: [{ id: 'q-status', operation: 'status' }] },
+    manual_witness: {
+      T1: {
+        owns: [{ kind: 'path', target: 'src/t1.mjs' }], reads: [], writes: ['src/t1.mjs'],
+        resources: [], state_effects: [], sensor_provenance: { queries: [] },
+        affected_tests: [], unknowns: [],
+      },
+    },
+    witness_set_digest: '',
+  };
+  witnessSet.witness_set_digest = todoSelfDigest(witnessSet, 'witness_set_digest');
+  await writeFile(path.join(root, '.gitignore'), '.lattice/\n');
+  await writeFile(path.join(root, 'witness.json'), `${JSON.stringify(witnessSet, null, 2)}\n`);
+  git(root, ['add', '.gitignore', 'witness.json']);
+  git(root, ['commit', '--quiet', '-m', 'pretty witness']);
+  assert.equal(git(root, ['status', '--porcelain']), '');
+
+  const compiled = runCli(root, [
+    'independence', 'compile', '--plan', 'main', '--input', 'witness.json',
+  ]);
+  assert.equal(compiled.status, 0, compiled.stderr);
+
+  assert.deepEqual(await readTodoWitnessSet({ repoRoot: root, planKey: 'main' }), witnessSet);
+  assert.equal(
+    (await readFile(path.join(root, '.lattice', 'todo', 'witness', 'main.json'))).toString('utf8'),
+    `${canonicalizeTodoArtifact(witnessSet)}\n`,
+  );
 });
 
 test('契約を満たさないwitness setはtyped errorで止まる', async (context) => {

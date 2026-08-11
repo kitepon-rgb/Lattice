@@ -1740,6 +1740,9 @@ function requireCleanWorktree(repoRoot) {
 async function independenceCompile({ repoRoot, planKey, inputRef }) {
   const witnessSet = await readWitnessSetInput(repoRoot, inputRef);
   requireCleanWorktree(repoRoot);
+  // compileで受理した宣言は、以後のruntime readerが要求するcanonical bytesでstoreへ固定する。
+  // inputがstore自身でも、外部draftでも、唯一の正規writerを通して同じ契約へ収束させる。
+  await writeTodoWitnessSet({ repoRoot, witnessSet });
   const baseSha = currentHeadSha(repoRoot);
   const store = await readTodoStore({ repoRoot });
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
