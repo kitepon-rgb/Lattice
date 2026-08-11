@@ -216,25 +216,30 @@ ADR 0165（端末は配信している集合をそのまま名乗る）と CHANG
    以上、更新は`git pull`であり、他端末の作業commitを踏む可能性が常にある。`--rebase`で
    載せ替えること。NTFS上ではrebase中に`index.lock`のPermission deniedで停止することがあり、
    その時は`git commit -C <元のsha>`してから`git rebase --continue`で閉じる（実測）。
-3. **bridgeは生きているのに`bridge status`が`unattested`／`listener_not_accepting`を返す。**
-   attestationは**listen addressを経由する**ので、inbound firewallが閉じていると
-   自ホストからでも自分のbridgeを観測できない。`netstat`はLISTENINGを示すため、
-   「listenしているのに繋がらない」という形になる。切り分けは
-   `Test-NetConnection -ComputerName <listen IP> -Port <port>`を**その端末自身で**実行する。
+3. **SSH越しに起動したbridgeは、そのSSH sessionが閉じた瞬間に道連れで死ぬ。** Windowsでは
+   `wscript`でStartupのlauncherを叩いても、起動元sessionの終了で落ちる（3回再現）。
+   session中は`netstat`にLISTENINGが出るので、**同じsession内では生きて見え、次の接続では
+   消えている**。常駐させられるのはオーナーの対話logon sessionだけで、それを行うのが
+   Startup folderのlauncherである。遠隔からできるのは常駐設定の修復までとする。
 
-### 未解決（オーナーの管理者操作が要る）
+### 到達性を測るなら、listenerが生きている同じ窓の中で測る（誤診の記録）
 
-FOXのinbound TCP 61578が閉じている。node.exeにも当該portにも許可ruleが無く、
-全profileの既定inboundはblockである。このためhubは
-`http://192.168.1.11:61578/`へ到達できず、`/projects/ChromeBlocker/`は応答しない
-（一覧では**オンライン**と出る——heartbeatはoutboundなので通るため）。
+この復旧作業中、`bridge status`の`listener_not_accepting`と自ホストからの
+`Test-NetConnection`失敗を根拠に「inbound firewallが閉じている」と誤って結論した。
+実際には**測定した時点でbridge processが既に死んでいた**（上記3の通り、前のSSH sessionと
+一緒に落ちていた）。listenerを生かしたまま同一session内で測り直すと、結果は逆になる。
 
-管理者PowerShellで次を1回実行すると開通する。
+| 測り方 | 結果 |
+| --- | --- |
+| 自ホスト`Test-NetConnection 192.168.1.11:61578`（listener生存中） | `TcpTestSucceeded = True` |
+| hub（192.168.1.2）から`http://192.168.1.11:61578/projects/ChromeBlocker/` | 200 |
+| 公開面`https://lattice.kitepon.dev/projects/ChromeBlocker/` | 200 |
 
-```
-New-NetFirewallRule -DisplayName "Lattice bridge (61578)" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 61578 -Profile Private
-```
+FOXのinbound TCP 61578は最初から通っていて、firewall ruleの追加は不要だった。
+**「繋がらない」を観測したら、まず対象processが今この瞬間生きているかを同じ窓で確認する。**
+死んだlistenerへの接続失敗は、経路の遮断と同じ症状を出す。
 
-**heartbeatが通ること（＝一覧のオンライン表示）は、そのprojectのページが開けることを
-意味しない。** heartbeatはoutbound、配信はinboundで、経路が別である。受入は必ず
-`/projects/<id>/`の実応答で判定する。
+### heartbeatと配信は別経路である
+
+heartbeatはoutbound、配信はinboundなので、**一覧の「オンライン」はそのページが開けることを
+意味しない**。受入は必ず`/projects/<id>/`の実応答で判定する。
