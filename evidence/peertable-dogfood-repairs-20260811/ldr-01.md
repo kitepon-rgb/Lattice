@@ -3,8 +3,8 @@
 ## 結論
 
 - `origin/main` から計画起点の親 `41a5fc1^`（`1133d7f8`）までは20 commitで、計画の「既存20 commit」と一致した。
-- 現在の `main` は `origin/main` より25 commit先行している。20件に、計画本体 `41a5fc1` と、その後の4件（依存修正、migrate工程追加、store登録、独立性宣言）が加わっている。
-- `origin/main..HEAD` の `package.json`、`bin`、`src`、`sensor` には差分が無い。今回の25 commitは製品実行payloadを変更していない。
+- 基線測定時の `main`（`bfacdf84`）は `origin/main` より25 commit先行していた。20件に、計画本体 `41a5fc1` と、その後の4件（依存修正、migrate工程追加、store登録、独立性宣言）が加わった状態である。その後、この証跡commit `9c4f0ab5` が1件加わったため、現在の `main` は26 commit先行している。
+- 基線測定時の25 commitと証跡commitを含め、`origin/main..HEAD` の `package.json`、`bin`、`src`、`sensor` には差分が無い。製品実行payloadは変更していない。
 - `package.json` は `@quolu/lattice@0.57.3`。local `npm pack --dry-run --json` のintegrityは、registryの公開 `@quolu/lattice@0.57.3` と一致した。
 - `/opt/homebrew/bin/lattice` は global `@quolu/lattice@0.57.3` を指し、`lattice --version` も `0.57.3`。
 - `campaign-closeout-20260811` と `bridge-persistence-recovery` の terminal-audit phase はいずれも `accepted`。ただし前者の `todo verify` は `snapshot_stale=false` でも `reconciliation_state=registered_unreconciled` なので、campaign store の完全reconciledとは扱わない。
@@ -18,13 +18,13 @@
 | todo status（着手前） | activeなし、`ldr-01`〜`ldr-06`/`ldr-10`がready |
 | independence | `verified`、`ldr-01` は `ldr-02`・`ldr-05` と同じparallel group、activeとの競合なし |
 | `ldr-01` start advisory | `coverage=verified`、`conflicts_with_active=[]`、`independence_verified` |
-| branch基線 | `main...origin/main [ahead 25]`、left/right `0/25` |
+| branch基線 | 測定時 `bfacdf84` は `main...origin/main [ahead 25]`、left/right `0/25`。証跡commit後の現在値はahead 26 |
 | 計画起点 | `41a5fc1^=1133d7f8`、`origin/main..41a5fc1^` は20件 |
 | product payload差分 | `git diff --name-status origin/main..HEAD -- package.json bin src sensor` は空 |
 | 公開registry | `npm view @quolu/lattice@0.57.3` のtarballは `https://registry.npmjs.org/@quolu/lattice/-/lattice-0.57.3.tgz`、integrityは `sha512-5Mu98kkTvHbu+zAVOsIF2ibwvsqPVEzM3KXFMe1jO3WVcurb9LsQKbK/gFxQRHGLu3qDlCeBDvkAWSoYCnTF3Q==` |
 | local package dry-run | version `0.57.3`、size `7445284`、unpackedSize `77842924`、entryCount `811`、integrityは公開値と一致 |
 | global install | `npm list --global @quolu/lattice --depth=0` は `0.57.3` |
-| pull run | `lattice run list --json` に対象campaignのactive pull runなし。read-only基線照合のためrun intakeは行っていない |
+| pull run | 測定時の `lattice run list --json` では対象campaignのactive pull runなし。その後minoriが共有run `.lattice/runs/peertable-dogfood-repairs-20260811-20260811-minori-01` を生成した。read-only基線照合はcanonicalで完了済みのため、ldr-01は後発runへintakeしていない |
 
 ## 既存20 commitの内容と監査扱い
 
@@ -59,7 +59,8 @@
 ## 公開判定の境界
 
 公開済み0.57.3とのpayload一致は、registry integrityとlocal dry-run integrity、および
-`origin/main..HEAD`の実行payload差分なしで確認できた。一方、現在のbranchが25 commit先行している
+基線測定時の `origin/main..bfacdf84` の実行payload差分なしで確認できた。証跡commit後の
+`origin/main..HEAD` でも同じpayload差分なしである。一方、現在のbranchが26 commit先行している
 こと、working treeにLattice store変更・`.team/scripts/done.sh`変更・未追跡archiveがあることは別の
 履歴／作業tree状態である。これらを「公開済み」とは呼ばず、次のpush・publish対象へ混ぜる判断は
 別工程で行う。
