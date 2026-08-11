@@ -51,6 +51,7 @@ import {
   readTodoIndependenceArtifact,
   readTodoSeamProposalArtifact,
   readTodoStore,
+  todoStructureSourceRef,
   resolveTodoStartRetractionBinding,
   readTodoWitnessSet,
   todoWitnessRef,
@@ -59,9 +60,13 @@ import {
   rebuildTodoSnapshot,
   writeTodoIndependenceArtifact,
   writeTodoSeamProposalArtifact,
+  writeTodoStructureSource,
   verifyEffectivePhaseTodoRevisionSources,
   verifyTodoRevisionSources,
 } from './todo-store.mjs';
+import {
+  explainTodoStructureSet,
+} from './todo-structure-contracts.mjs';
 import { withStartRetractionGuard } from './runtime-pull-intake.mjs';
 import {
   appendTodoExtraction,
@@ -159,6 +164,9 @@ const TODO_SCHEMA_COMMANDS = Object.freeze({
     title: 'lattice.phase_todo_revision.v3', file: 'lattice.phase_todo_revision.v3.schema.json',
   },
   migrate: { title: 'lattice.todo_extraction.v3', file: 'lattice.todo_extraction.v3.schema.json' },
+  structure: {
+    title: 'lattice.todo_structure_set.v1', file: 'lattice.todo_structure_set.v1.schema.json',
+  },
 });
 
 async function runTodoSchemaCommand(command, stdout) {
@@ -207,7 +215,7 @@ function internalFailure(stderr, error) {
 }
 
 const TODO_COMMAND_NAMES = Object.freeze([
-  'status', 'show', 'note', 'bindings', 'independence', 'seam-profile', 'seam-proposal',
+  'status', 'show', 'note', 'bindings', 'independence', 'structure', 'seam-profile', 'seam-proposal',
   'verify', 'snapshot', 'gantt', 'dashboard', 'phase', 'migrate', 'start', 'block',
   'unblock', 'done', 'reopen', 'evidence', 'split', 'revise', 'revise-phase', 'revise-set',
 ]);
@@ -551,6 +559,14 @@ async function readWitnessSetInput(repoRoot, inputRef) {
     throw error;
   });
   return witnessSet;
+}
+
+/** structure draftはpointer診断のためcontract違反でもparseし、判定はdry-runへ返す。 */
+async function readStructureSetDraft(repoRoot, inputRef) {
+  return readJsonInput(repoRoot, inputRef, {
+    validate: () => true,
+    invalidCode: 'INVALID_TODO_STRUCTURE_SET',
+  });
 }
 
 function mutationActor(env) {
@@ -1737,6 +1753,159 @@ function requireCleanWorktree(repoRoot) {
   }
 }
 
+function structureGitIdentity(repoRoot, baselineSha, violations) {
+  let currentHeadSha = null;
+  try {
+    currentHeadSha = gitSync(['rev-parse', 'HEAD'], {
+      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).replace(/\r?\n$/u, '');
+  } catch {
+    violations.push({
+      code: 'git_head_unresolved', path: '/baseline_sha',
+      expected: 'current repository HEAD commit', actual: null,
+      next_action: 'repair_git_head_then_rerun_structure_input_dry_run',
+    });
+    return { currentHeadSha: null };
+  }
+  if (!/^[0-9a-f]{40}$/u.test(currentHeadSha)) {
+    violations.push({
+      code: 'git_head_invalid', path: '/baseline_sha',
+      expected: '40 lowercase hex commit OID', actual: currentHeadSha,
+      next_action: 'repair_git_head_then_rerun_structure_input_dry_run',
+    });
+    return { currentHeadSha: null };
+  }
+  try {
+    gitSync(['cat-file', '-e', `${baselineSha}^{commit}`], {
+      cwd: repoRoot, stdio: ['ignore', 'ignore', 'ignore'],
+    });
+  } catch {
+    violations.push({
+      code: 'baseline_commit_unresolved', path: '/baseline_sha',
+      expected: 'commit object reachable in this repository', actual: baselineSha,
+      next_action: 'fetch_the_baseline_or_correct_baseline_sha',
+    });
+    return { currentHeadSha };
+  }
+  try {
+    gitSync(['merge-base', '--is-ancestor', baselineSha, currentHeadSha], {
+      cwd: repoRoot, stdio: ['ignore', 'ignore', 'ignore'],
+    });
+  } catch {
+    violations.push({
+      code: 'baseline_not_ancestor', path: '/baseline_sha',
+      expected: { ancestor_of: currentHeadSha }, actual: baselineSha,
+      next_action: 'select_an_ancestor_baseline_or_rebase_the_structure_input',
+    });
+  }
+  return { currentHeadSha };
+}
+
+async function analyzeStructureInput({ repoRoot, planKey, inputRef }) {
+  const structureSet = await readStructureSetDraft(repoRoot, inputRef);
+  const violations = [];
+  const explained = explainTodoStructureSet(structureSet);
+  if (!explained.valid) {
+    violations.push({
+      code: explained.reason,
+      path: explained.path,
+      ...(explained.detail === undefined ? {} : { actual: explained.detail }),
+      next_action: 'correct_the_reported_pointer_then_rerun_structure_input_dry_run',
+    });
+  }
+
+  const store = await readTodoStore({ repoRoot });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey) ?? null;
+  if (member === null) {
+    violations.push({
+      code: 'plan_not_active', path: '/plan_key', expected: planKey,
+      actual: typeof structureSet?.plan_key === 'string' ? structureSet.plan_key : null,
+      next_action: 'define_the_plan_before_adding_structure_input',
+    });
+  }
+
+  let currentHeadSha = null;
+  if (explained.valid && member !== null) {
+    const identities = [
+      ['project_id', store.project_id, structureSet.project_id],
+      ['plan_key', planKey, structureSet.plan_key],
+      ['plan_version', member.plan.plan_version, structureSet.plan_version],
+      ['topology_digest', member.plan.topology_digest, structureSet.topology_digest],
+    ];
+    for (const [field, expected, actual] of identities) {
+      if (actual !== expected) {
+        violations.push({
+          code: `${field}_mismatch`, path: `/${field}`, expected, actual,
+          next_action: 'regenerate_structure_input_for_the_active_plan_identity',
+        });
+      }
+    }
+    const expectedTaskIds = member.tasks.filter(({ status }) => status !== 'done')
+      .map(({ task_id: taskId }) => taskId);
+    const coverage = explainTodoStructureSet(structureSet, { expectedTaskIds });
+    if (!coverage.valid && ['coverage_missing', 'coverage_extra'].includes(coverage.reason)) {
+      violations.push({
+        code: coverage.reason, path: coverage.path,
+        expected: { task_ids: [...expectedTaskIds].sort() },
+        actual: coverage.detail,
+        next_action: 'list_every_unfinished_task_as_graph_or_excluded',
+      });
+    }
+    ({ currentHeadSha } = structureGitIdentity(repoRoot, structureSet.baseline_sha, violations));
+  }
+
+  const bounded = violations.slice(0, 64);
+  const result = {
+    schema: 'lattice.todo_structure_input_dry_run_result.v1',
+    valid: bounded.length === 0,
+    project_id: member?.plan.project_id ?? null,
+    plan_key: member?.plan.plan_key ?? planKey,
+    plan_version: member?.plan.plan_version ?? null,
+    input_ref: inputRef,
+    source_ref: todoStructureSourceRef(planKey),
+    current_head_sha: currentHeadSha,
+    violations: bounded,
+    overflow_count: Math.max(0, violations.length - bounded.length),
+    next_action: bounded.length === 0
+      ? `lattice todo structure input --plan ${planKey} --input ${inputRef}`
+      : 'correct_the_reported_violations_then_rerun_structure_input_dry_run',
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return { result, structureSet };
+}
+
+async function structureInputDryRun({ repoRoot, planKey, inputRef }) {
+  return (await analyzeStructureInput({ repoRoot, planKey, inputRef })).result;
+}
+
+async function structureInput({ repoRoot, planKey, inputRef }) {
+  const analyzed = await analyzeStructureInput({ repoRoot, planKey, inputRef });
+  if (!analyzed.result.valid) {
+    throw new TodoStoreError('INVALID_TODO_STRUCTURE_SET', 'structure_input_dry_run_failed', undefined, {
+      violations: analyzed.result.violations,
+      overflow_count: analyzed.result.overflow_count,
+      next_action: `lattice todo structure input --plan ${planKey} --input ${inputRef} --dry-run --json`,
+    });
+  }
+  const written = await writeTodoStructureSource({ repoRoot, structureSet: analyzed.structureSet });
+  const result = {
+    schema: 'lattice.todo_structure_input_result.v1',
+    project_id: analyzed.structureSet.project_id,
+    plan_key: analyzed.structureSet.plan_key,
+    plan_version: analyzed.structureSet.plan_version,
+    topology_digest: analyzed.structureSet.topology_digest,
+    baseline_sha: analyzed.structureSet.baseline_sha,
+    structure_set_digest: analyzed.structureSet.structure_set_digest,
+    source_ref: written.ref,
+    enabled: false,
+    next_action: `commit ${written.ref}, then run lattice todo structure compile --plan ${planKey} --input ${written.ref}`,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
 async function independenceCompile({ repoRoot, planKey, inputRef }) {
   const witnessSet = await readWitnessSetInput(repoRoot, inputRef);
   requireCleanWorktree(repoRoot);
@@ -2712,6 +2881,7 @@ function writesTodoStore(argv) {
     case 'snapshot': return argv.includes('--rebuild');
     case 'independence': return second === 'compile'
       || (second === 'witness' && ['migrate', 'scaffold'].includes(third));
+    case 'structure': return second === 'input' && !argv.includes('--dry-run');
     case 'seam-proposal': return ['compile', 'apply', 'land'].includes(second);
     case 'evidence': return second === 'promote';
     case 'dependency': return second === 'connect';
@@ -2876,6 +3046,14 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     });
   }
 
+  if (argv[0] === 'structure' && argv[1] === 'input'
+    && argv[4] === '--input' && typeof argv[5] === 'string' && path.isAbsolute(argv[5])) {
+    return typedArgumentFailure(stderr, 'INPUT_OUTSIDE_REPOSITORY', 'absolute_input_path_rejected', {
+      argument: '--input', expected: 'repo-relative path', actual: 'absolute path',
+      next_action: 'place_the_input_inside_the_repository_and_pass_a_repo_relative_path',
+    });
+  }
+
   // `--schema --json`はstoreを読まない決定的な出力（`plan create --schema`と同じ規律）。
   // 通常dispatchより前に処理し、repoRoot解決やdashboard daemon起動を経由させない。
   if (argv.length === 3 && argv[1] === '--schema' && argv[2] === '--json'
@@ -2984,6 +3162,19 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   } else if (argv.length === 6 && argv[0] === 'independence' && argv[1] === 'compile'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--input') {
     action = (repoRoot) => independenceCompile({
+      repoRoot, planKey: argv[3], inputRef: argv[5],
+    });
+  } else if (argv.length === 8 && argv[0] === 'structure' && argv[1] === 'input'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--input' && isTodoRef(argv[5])
+    && argv[6] === '--dry-run' && argv[7] === '--json') {
+    action = (repoRoot) => structureInputDryRun({
+      repoRoot, planKey: argv[3], inputRef: argv[5],
+    });
+  } else if (argv.length === 6 && argv[0] === 'structure' && argv[1] === 'input'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--input' && isTodoRef(argv[5])) {
+    action = (repoRoot) => structureInput({
       repoRoot, planKey: argv[3], inputRef: argv[5],
     });
   } else if ((argv.length === 1 && argv[0] === 'independence')

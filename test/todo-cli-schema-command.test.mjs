@@ -35,6 +35,7 @@ const CASES = [
   { argv: ['revise-set', '--schema', '--json'], title: 'lattice.todo_revision_set.v3' },
   { argv: ['revise-phase', '--schema', '--json'], title: 'lattice.phase_todo_revision.v3' },
   { argv: ['migrate', '--schema', '--json'], title: 'lattice.todo_extraction.v3' },
+  { argv: ['structure', '--schema', '--json'], title: 'lattice.todo_structure_set.v1' },
 ];
 
 for (const { argv, title } of CASES) {

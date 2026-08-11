@@ -77,6 +77,7 @@ Read commands:
   note list --plan <key> [--task <id>] --json  # note全履歴の診断面（通常read/startでは不要）
   bindings [--plan <key>] [--json]   # compile_binding付きTaskをTODO identityつきで投影する
   independence [--plan <key>] [--json]  # readyを検証済み並列・要直列・未検査へ分けて投影する
+  structure --schema --json  # plan定義後に入力する論理dataflow契約をstore非依存で返す
   seam-profile --plan <key> --file <path> [--json]  # 係争fileの切断コスト内訳を投影する（read-only）
   seam-proposal [--plan <key>] [--json]  # 記録済みseam提案をsensor無しで投影する
   verify [--plan <key>] [--json]
@@ -105,6 +106,10 @@ Write commands:
   independence compile --plan <key> --input <file>  # witness setとsensorから並列可否を記録する
   independence witness migrate --plan <key>  # revision後の宣言をtask migrationで写す
   independence witness scaffold --plan <key> --input <draft>  # 下書きとfresh観測から宣言を書き出す
+  structure input --plan <key> --input <file> --dry-run --json
+      # plan identity・topology・unfinished task coverage・baseline祖先を無変更で検査する
+  structure input --plan <key> --input <file>
+      # 検査済みplanned sourceをcanonical refへ保存する。compile成功までは有効化しない
   seam-proposal compile --plan <key>  # 並列可否記録と実sensorからseam提案を記録する
   seam-proposal apply --plan <key>  # 記録済み提案を隔離worktreeで適用し五条件で採否を決める
   seam-proposal land --plan <key> --names <file>  # 採用された変換を本ツリーへ着地させる
@@ -112,7 +117,7 @@ Write commands:
   revise --plan <key> --input <file>
   revise-phase --plan <key> --input <file>
   revise-set --input <file>
-  <revise|revise-phase|revise-set|migrate> --schema --json
+  <revise|revise-phase|revise-set|migrate|structure> --schema --json
       # 実際に受理する最新契約のJSON Schemaを返す（storeを読まない）。
       # 入力が契約に合わないときは、違反フィールドのpathがerror detailへ載る
   phase review --plan <key> --phase <id> --reason <text>
@@ -224,6 +229,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo note list': 'todo note list --plan <key> [--task <id>] --json',
   'todo bindings': 'todo bindings [--plan <key>] [--json]',
   'todo independence': 'todo independence [--plan <key>] [--json] | compile --plan <key> --input <file> | witness migrate --plan <key>',
+  'todo structure': 'todo structure --schema --json | input --plan <key> --input <file> [--dry-run --json]',
   'todo seam-profile': 'todo seam-profile --plan <key> --file <path> [--json]',
   'todo seam-proposal': 'todo seam-proposal [--plan <key>] [--json] | compile --plan <key>',
   'todo verify': 'todo verify [--plan <key>] [--json]',

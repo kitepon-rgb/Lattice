@@ -102,7 +102,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - malformed、過大、非canonical、digest不一致、未知field、task重複がpointer付きtyped errorになる。
     - 既存plan schemaとindependence schemaを変更しない。
 
-- [ ] **sg04 — schema取得・dry-run・入力保存を実装する**
+- [x] **sg04 — schema取得・dry-run・入力保存を実装する**
   - Depends: sg03
   - Write: `src/todo-cli.mjs`、必要な小module、CLI tests、help／schema tests
   - 内容:

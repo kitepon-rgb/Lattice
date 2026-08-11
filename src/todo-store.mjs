@@ -28,6 +28,10 @@ import {
   validateTodoWitnessSet,
 } from './todo-independence-contracts.mjs';
 import { validateSeamProposal } from './seam-proposal-contracts.mjs';
+import {
+  explainTodoStructureSet,
+  validateTodoStructureSet,
+} from './todo-structure-contracts.mjs';
 import { sha256Bytes, verifyLinearHashChain } from './hash-chain.mjs';
 import { gitCatFileBatch, gitSync } from './git-process.mjs';
 import {
@@ -4394,4 +4398,87 @@ export async function writeTodoWitnessSet(options = {}) {
   const ref = todoWitnessRef(witnessSet.plan_key);
   await atomicWrite(path.resolve(repoRoot, ref), canonicalLine(witnessSet));
   return { ref, witnessSet };
+}
+
+const STRUCTURE_SOURCE_BYTES = 8_388_608;
+
+/** AI-authored planned sourceの正規ref。derived artifact／bindingとは所有を分ける。 */
+export function todoStructureSourceRef(planKey) {
+  if (!isTodoIdentifier(planKey)) throw new TypeError('planKey must be a todo identifier');
+  return `${STORE_ROOT_REF}/structure/${planKey}.json`;
+}
+
+/** plan versionごとのimmutable activation binding ref。sourceだけでは有効化しない。 */
+export function todoStructureBindingRef(planKey, planVersion) {
+  if (!isTodoIdentifier(planKey) || !isTodoIdentifier(planVersion)) {
+    throw new TypeError('planKey and planVersion must be todo identifiers');
+  }
+  return `${STORE_ROOT_REF}/plans/${planKey}/${planVersion}/structure/binding.json`;
+}
+
+/** sourceが無ければnull、壊れていればtyped failure。missingをinvalidへ丸めない。 */
+export async function readTodoStructureSource(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  return readArtifact(repoRoot, todoStructureSourceRef(options.planKey), {
+    code: 'INVALID_TODO_STRUCTURE_SET', maxBytes: STRUCTURE_SOURCE_BYTES,
+    validate: validateTodoStructureSet, missing: true,
+  });
+}
+
+/**
+ * dry-run済みplanned sourceをcanonical JSON+LFで保存する唯一のwriter。
+ * bindingは発行しない——authoritative compileが成功するまではdraftであり、完了gateを有効化しない。
+ */
+export async function writeTodoStructureSource(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const { structureSet } = options;
+  const explained = explainTodoStructureSet(structureSet);
+  if (!explained.valid) {
+    fail('INVALID_TODO_STRUCTURE_SET', explained.reason, { path: explained.path });
+  }
+  return withLock(repoRoot, async () => {
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
+    if (store.project_id !== structureSet.project_id) {
+      fail('STRUCTURE_BINDING_MISMATCH', 'project_id_mismatch', {
+        expected: store.project_id, actual: structureSet.project_id,
+      });
+    }
+    const member = activeMember(store, structureSet.plan_key);
+    if (member.plan.plan_version !== structureSet.plan_version) {
+      fail('STRUCTURE_BINDING_MISMATCH', 'plan_version_mismatch', {
+        expected: member.plan.plan_version, actual: structureSet.plan_version,
+      });
+    }
+    if (member.plan.topology_digest !== structureSet.topology_digest) {
+      fail('STRUCTURE_BINDING_MISMATCH', 'topology_digest_mismatch', {
+        expected: member.plan.topology_digest, actual: structureSet.topology_digest,
+      });
+    }
+    const expectedTaskIds = member.tasks.filter(({ status }) => status !== 'done')
+      .map(({ task_id: taskId }) => taskId);
+    const coverage = explainTodoStructureSet(structureSet, { expectedTaskIds });
+    if (!coverage.valid) {
+      fail('STRUCTURE_BINDING_MISMATCH', coverage.reason, {
+        path: coverage.path, ...(coverage.detail ?? {}),
+      });
+    }
+    const bindingRef = todoStructureBindingRef(structureSet.plan_key, structureSet.plan_version);
+    if (await exactFileOrNull(path.resolve(repoRoot, bindingRef)) !== null) {
+      fail('STRUCTURE_ALREADY_ENABLED', 'immutable_binding_exists', {
+        binding_ref: bindingRef,
+        next_action: 'revise_the_plan_or_run_authoritative_compile_with_the_existing_source',
+      });
+    }
+    const ref = todoStructureSourceRef(structureSet.plan_key);
+    try {
+      await ensureSafeStoreDirectory(repoRoot, path.dirname(path.resolve(repoRoot, ref)));
+    } catch (error) {
+      if (error instanceof TodoStoreError && error.code === 'REVISION_CONFLICT') {
+        fail('INVALID_TODO_STRUCTURE_SET', 'structure_source_directory_unsafe', { source_ref: ref });
+      }
+      throw error;
+    }
+    await atomicWrite(path.resolve(repoRoot, ref), canonicalLine(structureSet));
+    return { ref, structureSet };
+  });
 }

@@ -406,6 +406,8 @@ plannedをrealizedで物理上書きしない。
 
 ```text
 lattice todo structure --schema --json
+lattice todo structure input --plan <key> --input <ref> --dry-run --json
+lattice todo structure input --plan <key> --input <ref>
 lattice todo structure compile --plan <key> --input <ref>
 lattice todo structure [--plan <key>] --json
 lattice todo structure realize --plan <key> --task <id> --input <ref>
@@ -413,6 +415,8 @@ lattice todo structure finalize --plan <key> --json
 ```
 
 - `--schema`はstoreを読まず、最新版入力契約を決定的に返す。
+- `input --dry-run`はplan identity、topology、unfinished task coverage、baseline祖先を無変更で照合する。
+- `input`は検査済みplanned sourceをcanonical refへ保存するだけで、bindingを発行せず有効化しない。
 - `compile`は入力、plan、Git、sensorを照合し、planned sourceとderived artifactを記録する。
 - 読取面はsensorを再実行せず、保存済みartifactと現在のHEAD／plan identityから鮮度を投影する。
 - `realize`はtask、commit、HEAD、planned refへ束縛した実現構造をappendする。
