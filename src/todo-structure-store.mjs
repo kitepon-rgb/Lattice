@@ -15,6 +15,7 @@ import {
   readTodoStore,
   readTodoStructureBinding,
   readTodoStructureCompileArtifact,
+  readTodoStructureFinalization,
   readTodoStructureRealizationChain,
   readTodoStructureSource,
 } from './todo-store.mjs';
@@ -281,6 +282,95 @@ export async function readTodoStructureState(options = {}) {
     reason: staleReasons.length === 0 ? null : 'freshness_key_changed',
     plan, source, binding, artifact, staleReasons,
   });
+}
+
+/**
+ * terminal gateが読むfinalizationの鮮度。sensorやdiffを再実行せず、保存artifactを
+ * active plan/source、現在HEAD、現在realization headsへexactに照合する。
+ */
+export async function readTodoStructureFinalizationState(options = {}) {
+  const repoRoot = options.repoRoot ?? process.cwd();
+  const store = options.store ?? await readTodoStore({ repoRoot, now: options.now });
+  const member = store.members.find(({ plan }) => plan.plan_key === options.planKey);
+  if (member === undefined) fail('STRUCTURE_PLAN_NOT_FOUND', 'plan_not_active', {
+    plan_key: options.planKey,
+  });
+  const plan = member.plan;
+  const binding = await readTodoStructureBinding({
+    repoRoot, planKey: plan.plan_key, planVersion: plan.plan_version,
+  });
+  if (binding === null) return {
+    schema: 'lattice.todo_structure_finalization_state.v1',
+    plan_key: plan.plan_key, plan_version: plan.plan_version,
+    enabled: false, required: false, status: 'not_applicable', reason: 'structure_not_enabled',
+    finalization_digest: null, stale_reasons: [], artifact: null,
+  };
+  const source = await readTodoStructureSource({ repoRoot, planKey: plan.plan_key });
+  if (source === null || source.structure_set_digest !== binding.structure_set_digest) {
+    fail('STRUCTURE_SOURCE_MISSING', 'activated_planned_source_missing', {
+      plan_key: plan.plan_key, plan_version: plan.plan_version,
+    });
+  }
+  const terminalClosed = Array.isArray(member.phases) && member.phases.length > 0
+    && member.phases.every(({ status }) => ['accepted', 'closed_unaudited'].includes(status));
+  const required = member.tasks.every(({ status }) => status === 'done') && !terminalClosed;
+  const artifact = await readTodoStructureFinalization({
+    repoRoot, planKey: plan.plan_key, planVersion: plan.plan_version,
+  });
+  if (artifact === null) return {
+    schema: 'lattice.todo_structure_finalization_state.v1',
+    plan_key: plan.plan_key, plan_version: plan.plan_version,
+    enabled: true, required,
+    status: required ? 'missing' : terminalClosed ? 'complete' : 'not_ready',
+    reason: required ? 'finalization_missing' : terminalClosed ? 'terminal_closed' : 'tasks_incomplete',
+    finalization_digest: null, stale_reasons: [], artifact: null,
+  };
+  const currentHeadSha = resolveCurrentHead(repoRoot, options.resolveHead);
+  const realizationHeads = await currentRealizationHeads(repoRoot, source);
+  const staleReasons = [];
+  if (artifact.project_id !== plan.project_id) staleReasons.push('project_id');
+  if (artifact.plan_key !== plan.plan_key) staleReasons.push('plan_key');
+  if (artifact.plan_version !== plan.plan_version) staleReasons.push('plan_version');
+  if (artifact.topology_digest !== plan.topology_digest) staleReasons.push('topology_digest');
+  if (artifact.structure_set_digest !== source.structure_set_digest) {
+    staleReasons.push('structure_set_digest');
+  }
+  if (artifact.current_head_sha !== currentHeadSha) staleReasons.push('current_head_sha');
+  if (artifact.realization_head_digest
+    !== digestTodoStructureRealizationHeads(realizationHeads)) {
+    staleReasons.push('realization_head_digest');
+  }
+  if (artifact.overlay.verdict !== 'consistent') staleReasons.push('verdict');
+  return {
+    schema: 'lattice.todo_structure_finalization_state.v1',
+    plan_key: plan.plan_key, plan_version: plan.plan_version,
+    enabled: true, required,
+    status: staleReasons.length === 0 ? 'fresh' : 'stale',
+    reason: staleReasons.length === 0 ? null : 'freshness_key_changed',
+    finalization_digest: artifact.artifact_digest,
+    stale_reasons: staleReasons.sort(compareText), artifact,
+  };
+}
+
+/** todo/project statusへ載せる、終端を保留しているplanだけのbounded入力。 */
+export async function readTodoStructureFinalizationsForStatus(options = {}) {
+  const repoRoot = options.repoRoot ?? process.cwd();
+  const store = options.store ?? await readTodoStore({ repoRoot, now: options.now });
+  const entries = [];
+  for (const member of store.members) {
+    const state = await readTodoStructureFinalizationState({
+      repoRoot, store, planKey: member.plan.plan_key,
+    });
+    if (!state.required || state.status === 'fresh') continue;
+    entries.push({
+      plan_key: member.plan.plan_key,
+      status: state.status,
+      reason: state.reason,
+      stale_reasons: state.stale_reasons,
+      next_commands: [`lattice todo structure finalize --plan ${member.plan.plan_key} --json`],
+    });
+  }
+  return entries.sort((left, right) => compareText(left.plan_key, right.plan_key));
 }
 
 function validateTaskMigration(taskMigration) {

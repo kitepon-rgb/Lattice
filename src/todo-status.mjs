@@ -22,12 +22,13 @@ import {
 } from './todo-store.mjs';
 
 /**
- * v6で`plan_notes`を足す。ADR 0054・0063の前例どおり既存versionへのin-place追加はしない。
+ * v7で`structure_finalization_pending`を足す。構造機能が未適用のplanでは空配列になり、
+ * dispatch面は変えない。ADR 0054・0063の前例どおり既存versionへのin-place追加はしない。
  *
  * plan単位noteは工程に属する義務で、taskへ着手した人のcontextには届くが、**まだ誰も
  * 着手していない工程の義務は、この欄が無いとどこにも出ない**。
  */
-export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v6';
+export const TODO_STATUS_SCHEMA = 'lattice.todo_status_result.v7';
 export const TODO_DISPATCH_FRONTIER_SCHEMA = 'lattice.todo_dispatch_frontier.v1';
 export const TODO_STATUS_LIST_LIMIT = 2_000;
 export const TODO_STATUS_LABEL_LIMIT = 160;
@@ -234,6 +235,18 @@ function parallelCandidateEntry(value) {
       || value.serialize_pairs.length > 0);
 }
 
+function structureFinalizationPendingEntry(value) {
+  return exactRecord(value, ['plan_key', 'status', 'reason', 'stale_reasons', 'next_commands'])
+    && isTodoIdentifier(value.plan_key)
+    && ['missing', 'stale'].includes(value.status)
+    && isTodoStatusBoundedText(value.reason, TODO_STATUS_REASON_LIMIT)
+    && boundedList(value.stale_reasons,
+      (reason) => isTodoStatusBoundedText(reason, TODO_STATUS_LABEL_LIMIT))
+    && Array.isArray(value.next_commands) && value.next_commands.length > 0
+    && boundedList(value.next_commands,
+      (command) => isTodoStatusBoundedText(command, TODO_STATUS_REASON_LIMIT));
+}
+
 function memberHead(value) {
   return exactRecord(value, [
     'plan_key', 'plan_version', 'through_sequence', 'journal_head_digest',
@@ -287,17 +300,19 @@ function dispatchFrontierEntry(value, projectId, nextReady) {
     && value.frontier_digest === expected.frontier_digest;
 }
 
-/** todo status v6 wire shapeを検証し、digestも再計算する。 */
+/** todo status v7 wire shapeを検証し、digestも再計算する。 */
 export function validateTodoStatusResult(value) {
   try {
     return exactRecord(value, [
       'schema', 'project_id', 'active_set', 'next_ready', 'dispatch_frontier',
-      'blocked', 'audit_pending', 'plan_notes', 'coordination', 'parallel_candidates',
+      'blocked', 'audit_pending', 'structure_finalization_pending', 'plan_notes',
+      'coordination', 'parallel_candidates',
       'member_heads', 'result_digest',
     ]) && value.schema === TODO_STATUS_SCHEMA && isTodoIdentifier(value.project_id)
       && boundedList(value.active_set, activeTaskEntry) && boundedList(value.next_ready, taskEntry)
       && dispatchFrontierEntry(value.dispatch_frontier, value.project_id, value.next_ready)
       && boundedList(value.blocked, blockedEntry) && boundedList(value.audit_pending, auditPendingEntry)
+      && boundedList(value.structure_finalization_pending, structureFinalizationPendingEntry)
       && boundedList(value.plan_notes, planNoteEntry)
       && boundedList(value.coordination, coordinationEntry)
       && boundedList(value.parallel_candidates, parallelCandidateEntry)
@@ -535,6 +550,7 @@ export function computeReadyFrontier(readModel) {
  */
 export const TODO_STATUS_DISPATCH_ONLY = Object.freeze({
   planNotes: Object.freeze([]), parallelCandidates: Object.freeze([]),
+  structureFinalizations: Object.freeze([]),
 });
 
 /**
@@ -547,17 +563,23 @@ export const TODO_STATUS_DISPATCH_ONLY = Object.freeze({
  * 呼び出し元だけがそれを渡す。dispatch面しか見ない内部呼び出しは`TODO_STATUS_DISPATCH_ONLY`を使う。
  */
 export function projectTodoStatus(readModel, options = undefined) {
-  if (!exactRecord(options, ['planNotes', 'parallelCandidates'])
+  if (!(exactRecord(options, ['planNotes', 'parallelCandidates'])
+      || exactRecord(options, ['planNotes', 'parallelCandidates', 'structureFinalizations']))
     || !Array.isArray(options.planNotes)) {
     fail('TODO_STATUS_INVALID_INPUT', 'todo_status_plan_notes_missing');
   }
   if (!Array.isArray(options.parallelCandidates)) {
     fail('TODO_STATUS_INVALID_INPUT', 'todo_status_parallel_candidates_missing');
   }
+  if (options.structureFinalizations !== undefined
+    && !Array.isArray(options.structureFinalizations)) {
+    fail('TODO_STATUS_INVALID_INPUT', 'todo_status_structure_finalizations_invalid');
+  }
   const graph = buildTodoGraph(readModel);
   const { nodes, incoming, memberHeads, auditPending, coordination } = graph;
   const planNotes = [...options.planNotes];
   const parallelCandidates = [...options.parallelCandidates];
+  const structureFinalizations = [...(options.structureFinalizations ?? [])];
 
   const activeSet = [];
   const nextReady = [];
@@ -590,7 +612,8 @@ export function projectTodoStatus(readModel, options = undefined) {
   memberHeads.sort((left, right) => left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1 : 0);
   for (const [name, value] of [
     ['active_set', activeSet], ['next_ready', nextReady], ['blocked', blocked],
-    ['audit_pending', auditPending], ['plan_notes', planNotes],
+    ['audit_pending', auditPending], ['structure_finalization_pending', structureFinalizations],
+    ['plan_notes', planNotes],
     ['coordination', coordination], ['parallel_candidates', parallelCandidates],
     ['member_heads', memberHeads],
   ]) enforceListLimit(name, value);
@@ -605,6 +628,9 @@ export function projectTodoStatus(readModel, options = undefined) {
     // 監査待ちは`member.phases`だけから作った別の列で、dispatch(next_ready/dispatch_frontier)へは
     // 影響しない。監査が進んでもfrontier_digestは動かない。
     audit_pending: auditPending,
+    // 全task done後、構造finalizationが無い／古いplanだけを別列へ出す。監査状態と
+    // dispatch状態を混ぜず、terminal受理へ進めない理由と正規コマンドを同時に示す。
+    structure_finalization_pending: structureFinalizations,
     // plan単位noteも同じく別の列である。noteの有無・件数はdispatchへ影響しないので、
     // next_ready・dispatch_frontier・frontier_digestはnoteを書いても1バイトも動かない。
     plan_notes: planNotes,

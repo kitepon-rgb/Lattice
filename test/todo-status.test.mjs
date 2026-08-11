@@ -130,10 +130,11 @@ test('todo statusはactive/next-ready/blockedを混在投影しstore bytesを変
   const result = JSON.parse(execution.stdout);
   assertExactKeys(result, [
     'schema', 'project_id', 'active_set', 'next_ready', 'dispatch_frontier',
-    'blocked', 'audit_pending', 'plan_notes', 'coordination', 'parallel_candidates',
+    'blocked', 'audit_pending', 'structure_finalization_pending', 'plan_notes',
+    'coordination', 'parallel_candidates',
     'member_heads', 'result_digest',
   ]);
-  assert.equal(result.schema, 'lattice.todo_status_result.v6');
+  assert.equal(result.schema, 'lattice.todo_status_result.v7');
   // このstoreはまだ全taskがdoneではない(Phaseはactive)ので監査待ちは無い。
   assert.deepEqual(result.audit_pending, []);
   assert.deepEqual(result.active_set, [{
@@ -255,7 +256,7 @@ function syntheticReadModel(activeCount) {
 
 function syntheticStatusResult(activeCount) {
   const result = {
-    schema: 'lattice.todo_status_result.v6',
+    schema: 'lattice.todo_status_result.v7',
     project_id: 'scale-project',
     active_set: Array.from({ length: activeCount }, (_, index) => ({
       plan_key: 'main', task_id: `t${String(index).padStart(4, '0')}`, label: 'x', unmet_dependencies: [],
@@ -272,6 +273,7 @@ function syntheticStatusResult(activeCount) {
     },
     blocked: [],
     audit_pending: [],
+    structure_finalization_pending: [],
     plan_notes: [],
     coordination: [],
     parallel_candidates: [],

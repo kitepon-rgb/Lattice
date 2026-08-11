@@ -272,7 +272,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - 実測: stale planned、unreachable commit、anchor非交差、他task claim、壊れたsupersedes、正常訂正、
       planned→realized差分を含むrealization 3 E2Eと関連store／CLI／Git adapter計28 testがgreen。
 
-- [ ] **sg11 — todo doneとplan終端へ構造義務を配線する**
+- [x] **sg11 — todo doneとplan終端へ構造義務を配線する**
   - Depends: sg10
   - Write: `src/todo-cli.mjs`、`src/todo-store.mjs`、audit/status投影、focused tests
   - 内容:
@@ -285,6 +285,21 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - gate拒否時にlifecycle journal、snapshot、manifest、structure chainのbytesが変わらない。
     - 全task doneでもfinalization不足がaudit_pending／statusで見える。
     - 構造未適用planの既存E2Eがbyte互換または明示したschema互換を保つ。
+  - 実施記録（2026-08-12）:
+    - immutable bindingを持つplanのgraph taskだけにdone前gateを接続した。realization欠落とHEAD driftを
+      journal書込前にtyped拒否し、excluded／未適用planは従来経路を保った。
+    - `todo structure finalize --plan <key> --json`を追加し、全task done、全realization、最終HEAD、
+      effective code anchorのsensor観測、Git provenance、ToDo DAGを再結合する。consistent時だけ
+      finalization artifactを書き、HEAD／topology／structure／realization headの変化をstaleへ戻す。
+    - terminal `phase_accept`／`phase_close_unaudited`をfresh consistent finalizationで保持した。
+      `todo status`はv7の`structure_finalization_pending`、`phase status`はv2のtyped状態とguidance、
+      `project status`は同じ正規commandを返す。dispatch frontierはこの列を入力にしない。
+    - 実Git・実sensor E2Eでmissing/stale realization、excluded done、finalization不足、finalize成功、
+      terminal受理、受理後HEAD staleを一周した。拒否前後でmanifest、journal、snapshot、realization chain、
+      finalization refのbytesが同一であることを固定した。
+    - CLI surface正本に従来漏れていた`todo structure` namespaceも追加し、68 commandで
+      undocumented／unexercised 0を確認した。
+    - 実測: structure／status／terminal／project関連134 test、syntax 166 filesがgreen。
 
 ### Phase E — 表示と実動受入
 

@@ -66,6 +66,7 @@ import {
   writeTodoSeamProposalArtifact,
   writeTodoStructureBinding,
   writeTodoStructureCompileArtifact,
+  writeTodoStructureFinalization,
   writeTodoStructureSource,
   verifyEffectivePhaseTodoRevisionSources,
   verifyTodoRevisionSources,
@@ -81,6 +82,8 @@ import { compileTodoStructureOverlay } from './todo-structure-overlay.mjs';
 import {
   buildTodoStructureCompileArtifact,
   projectTodoStructureEffective,
+  readTodoStructureFinalizationState,
+  readTodoStructureFinalizationsForStatus,
   readTodoStructureState,
 } from './todo-structure-store.mjs';
 import { withStartRetractionGuard } from './runtime-pull-intake.mjs';
@@ -1048,6 +1051,9 @@ async function dependencyConnect({
 async function phaseStatus({ repoRoot, planKey }) {
   const store = await readTodoStore({ repoRoot });
   const [member] = selectMembers(store, planKey);
+  const structureFinalization = await readTodoStructureFinalizationState({
+    repoRoot, store, planKey: member.plan.plan_key,
+  });
   // ADR 0147以降、phase無しplan(v1/v2/v3)もreadTodoStoreが導出済みの暗黙terminal-audit
   // Phaseをmember.phasesへ積んでいる(snapshot artifactの形式は変えない・v1にはphasesキーが
   // 無いのでsnapshot.phasesは直接読まない)。ここでPHASE_UNAVAILABLEへ拒否せず、その暗黙Phase
@@ -1059,13 +1065,26 @@ async function phaseStatus({ repoRoot, planKey }) {
   const phases = member.phases.map((phase) => ({
     ...phase,
     guidance: phase.status === 'gate_ready'
-      ? auditGateGuidance(member.plan.plan_key, phase.phase_id) : null,
+      ? [
+        auditGateGuidance(member.plan.plan_key, phase.phase_id),
+        ...(structureFinalization.required && structureFinalization.status !== 'fresh'
+          ? [`構造finalizationが${structureFinalization.status}です。先に lattice todo structure finalize --plan ${member.plan.plan_key} --json を実行してください。`]
+          : []),
+      ].join('\n') : null,
   }));
   const result = {
-    schema: 'lattice.phase_status_result.v1', project_id: store.project_id,
+    schema: 'lattice.phase_status_result.v2', project_id: store.project_id,
     plan_key: member.plan.plan_key, plan_version: member.plan.plan_version,
     journal_head_digest: member.journal.events.at(-1).event_digest,
-    implicit, phases, result_digest: '',
+    implicit, phases,
+    structure_finalization: {
+      enabled: structureFinalization.enabled, required: structureFinalization.required,
+      status: structureFinalization.status, reason: structureFinalization.reason,
+      stale_reasons: structureFinalization.stale_reasons,
+      next_command: structureFinalization.required && structureFinalization.status !== 'fresh'
+        ? `lattice todo structure finalize --plan ${member.plan.plan_key} --json` : null,
+    },
+    result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
@@ -1576,6 +1595,7 @@ async function status({ repoRoot }) {
     parallelCandidates: await readTodoParallelCandidatesForStatus({
       repoRoot, store, gitHead: currentHeadSha, changedPathsSince,
     }),
+    structureFinalizations: await readTodoStructureFinalizationsForStatus({ repoRoot, store }),
   });
 }
 
@@ -2125,6 +2145,93 @@ async function structureRealize({ repoRoot, env, planKey, taskId, inputRef }) {
   return result;
 }
 
+async function structureFinalize({ repoRoot, env, planKey }) {
+  const store = await readTodoStore({ repoRoot });
+  const member = structurePlanMember(store, planKey);
+  const source = await readTodoStructureSource({ repoRoot, planKey });
+  const binding = await readTodoStructureBinding({
+    repoRoot, planKey, planVersion: member.plan.plan_version,
+  });
+  if (source === null || binding === null
+    || source.structure_set_digest !== binding.structure_set_digest) {
+    throw new TodoStoreError('STRUCTURE_FINALIZATION_UNAVAILABLE',
+      'structure_not_enabled_or_stale', undefined, {
+        plan_key: planKey,
+        next_action: `lattice todo structure compile --plan ${planKey} --input .lattice/todo/structure/${planKey}.json`,
+      });
+  }
+  const incompleteTaskIds = member.tasks
+    .filter(({ status }) => status !== 'done')
+    .map(({ task_id: taskId }) => taskId).sort();
+  if (incompleteTaskIds.length > 0) {
+    throw new TodoStoreError('STRUCTURE_FINALIZATION_UNAVAILABLE',
+      'plan_not_fully_done', undefined, {
+        plan_key: planKey, incomplete_task_ids: incompleteTaskIds,
+      });
+  }
+  const realizations = [];
+  const effectiveTransforms = new Map();
+  for (const task of source.tasks.filter(({ applicability }) => applicability === 'graph')) {
+    const chain = await readTodoStructureRealizationChain({
+      repoRoot, structureSet: source, taskId: task.task_id,
+    });
+    const latest = chain.at(-1);
+    if (latest === undefined) {
+      throw new TodoStoreError('STRUCTURE_FINALIZATION_UNAVAILABLE',
+        'realization_missing', undefined, {
+          plan_key: planKey, task_id: task.task_id,
+          next_action: `lattice todo structure realize --plan ${planKey} --task ${task.task_id} --input <realization.json>`,
+        });
+    }
+    realizations.push(...chain);
+    effectiveTransforms.set(task.task_id, latest.realized);
+  }
+  const actor = mutationActor(env);
+  const sourceEvidence = await collectTodoStructureSourceEvidence({
+    cwd: repoRoot, structureSet: source, effectiveTransforms,
+  });
+  const gitProvenance = collectTodoStructureGitProvenance({ repoRoot, structureSet: source });
+  const overlay = compileTodoStructureOverlay({
+    structureSet: source,
+    topology: mergedTopology(store),
+    taskStates: source.tasks.map(({ task_id: taskId }) => ({ task_id: taskId, status: 'done' })),
+    sourceProjection: sourceEvidence.projection,
+    gitProvenance,
+    realizations,
+  });
+  const artifact = buildTodoStructureCompileArtifact({
+    structureSet: source, sourceProjection: sourceEvidence.projection,
+    gitProvenance, overlay, realizations,
+    compiledAt: new Date().toISOString(), actor,
+  });
+  let finalizationRef = null;
+  if (overlay.verdict === 'consistent') {
+    finalizationRef = (await writeTodoStructureFinalization({ repoRoot, artifact })).ref;
+  }
+  const finalizationNextActions = [...new Set([
+    ...overlay.findings.map(({ next_action: nextAction }) => nextAction),
+    `lattice todo structure finalize --plan ${planKey} --json`,
+  ])];
+  const result = {
+    schema: 'lattice.todo_structure_finalize_result.v1',
+    project_id: source.project_id, plan_key: source.plan_key,
+    plan_version: source.plan_version, topology_digest: source.topology_digest,
+    structure_set_digest: source.structure_set_digest,
+    current_head_sha: artifact.current_head_sha,
+    realization_head_digest: artifact.realization_head_digest,
+    verdict: overlay.verdict, finalized: finalizationRef !== null,
+    finalization_ref: finalizationRef,
+    finalization_digest: finalizationRef === null ? null : artifact.artifact_digest,
+    finding_summary: overlay.finding_summary, findings: overlay.findings,
+    next_actions: finalizationRef === null
+      ? finalizationNextActions
+      : [`lattice todo phase status --plan ${planKey}`],
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
 async function structure({ repoRoot, requestedPlanKey }) {
   const store = await readTodoStore({ repoRoot });
   const member = structurePlanMember(store, requestedPlanKey);
@@ -2144,6 +2251,9 @@ async function structure({ repoRoot, requestedPlanKey }) {
   const nextActions = structureNextActions({
     coverage, planKey: member.plan.plan_key, findings, staleReasons: state.stale_reasons,
   });
+  const finalization = await readTodoStructureFinalizationState({
+    repoRoot, store, planKey: member.plan.plan_key,
+  });
   const result = {
     schema: 'lattice.todo_structure_projection.v1',
     project_id: store.project_id, plan_key: member.plan.plan_key,
@@ -2159,6 +2269,11 @@ async function structure({ repoRoot, requestedPlanKey }) {
     finding_summary: state.artifact?.overlay?.finding_summary ?? null,
     findings,
     effective,
+    finalization: {
+      required: finalization.required, status: finalization.status,
+      reason: finalization.reason, finalization_digest: finalization.finalization_digest,
+      stale_reasons: finalization.stale_reasons,
+    },
     next_actions: nextActions,
     result_digest: '',
   };
@@ -3141,7 +3256,7 @@ function writesTodoStore(argv) {
     case 'snapshot': return argv.includes('--rebuild');
     case 'independence': return second === 'compile'
       || (second === 'witness' && ['migrate', 'scaffold'].includes(third));
-    case 'structure': return ['compile', 'realize'].includes(second)
+    case 'structure': return ['compile', 'realize', 'finalize'].includes(second)
       || (second === 'input' && !argv.includes('--dry-run'));
     case 'seam-proposal': return ['compile', 'apply', 'land'].includes(second);
     case 'evidence': return second === 'promote';
@@ -3459,6 +3574,9 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     action = (repoRoot) => structureRealize({
       repoRoot, env, planKey: argv[3], taskId: argv[5], inputRef: argv[7],
     });
+  } else if (argv.length === 5 && argv[0] === 'structure' && argv[1] === 'finalize'
+    && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--json') {
+    action = (repoRoot) => structureFinalize({ repoRoot, env, planKey: argv[3] });
   } else if (argv.length === 2 && argv[0] === 'structure' && argv[1] === '--json') {
     action = (repoRoot) => structure({ repoRoot, requestedPlanKey: null });
   } else if (argv.length === 4 && argv[0] === 'structure'

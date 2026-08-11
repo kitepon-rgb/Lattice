@@ -19,6 +19,7 @@ import { projectTodoStatus } from './todo-status.mjs';
 import { readTodoPlanNotesForStatus } from './todo-note-store.mjs';
 import { projectIndependenceFrontier } from './todo-independence.mjs';
 import { readTodoParallelCandidatesForStatus } from './todo-parallel-candidates.mjs';
+import { readTodoStructureFinalizationsForStatus } from './todo-structure-store.mjs';
 import { isTodoIndependenceLegacyMarker } from './todo-independence-contracts.mjs';
 import { selectIndependenceGuidance } from './todo-independence-guidance.mjs';
 import { ensureTodoDashboardActivity } from './todo-dashboard-registry.mjs';
@@ -273,6 +274,7 @@ async function resolveProjectState({ cwd, cliVersion }) {
     const todo = projectTodoStatus(store, {
       planNotes: await readTodoPlanNotesForStatus({ repoRoot, store }),
       parallelCandidates: await readTodoParallelCandidatesForStatus({ repoRoot, store, gitHead }),
+      structureFinalizations: await readTodoStructureFinalizationsForStatus({ repoRoot, store }),
     });
     const activeRuns = todo.active_set.map((entry) => ({
       plan_key: entry.plan_key, task_id: entry.task_id, label: entry.label,
@@ -283,14 +285,18 @@ async function resolveProjectState({ cwd, cliVersion }) {
       : todo.next_ready.length > 0
         ? { command: `lattice todo start --plan ${todo.next_ready[0].plan_key} --task ${todo.next_ready[0].task_id}${todo.next_ready.length > 1 ? ' --parallel-frontier' : ''}`,
           reason: todo.next_ready.length > 1 ? 'parallel_frontier_present' : 'next_ready_present' }
-        // 監査待ちが在る限り「残作業なし」と答えない。優先順位はactive_run > next_ready >
-        // audit_pending > なしで、ready frontierが在る間はADR 0063の並列開始コマンドが勝つ
+        // 監査／構造finalization待ちが在る限り「残作業なし」と答えない。優先順位は
+        // active_run > next_ready > structure finalization > audit_pending > なし。
+        // ready frontierが在る間はADR 0063の並列開始コマンドが勝つ
         // ——ここを監査で上書きするとdispatchが再直列化する。監査待ちはtodo statusの
         // audit_pending欄に常在するので、順位を下げても消えない。
         // commandはverbatim実行可能で読み取り専用のものにする。`phase review`は
         // `--reason <text>`のplaceholderを含みjournalを書き換えるので置かない
         // （`todo phase status`の結果には既に両分岐のguidanceが載っている）。
-        : todo.audit_pending.length > 0
+        : todo.structure_finalization_pending.length > 0
+          ? { command: todo.structure_finalization_pending[0].next_commands[0],
+            reason: 'structure_finalization_pending' }
+          : todo.audit_pending.length > 0
           ? { command: `lattice todo phase status --plan ${todo.audit_pending[0].plan_key}`,
             reason: 'audit_pending' }
           : { command: 'lattice todo status', reason: 'no_ready_task' };

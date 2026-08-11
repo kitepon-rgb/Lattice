@@ -102,8 +102,8 @@ function edge(name, overrides = {}) {
   };
 }
 
-function collectedFor(set, overrides = {}) {
-  const querySet = buildTodoStructureSensorQuerySet(set);
+function collectedFor(set, overrides = {}, options = {}) {
+  const querySet = buildTodoStructureSensorQuerySet(set, options);
   const outcomes = querySet.queries.map((query) => {
     if (query.operation === 'status') return readyStatus(query.id);
     if (query.operation === 'affected') {
@@ -152,6 +152,27 @@ test('anchorを既存status／affected／exact query／traversalへ決定的に�
     'status', 'affected', 'query', 'callers', 'callees',
   ]);
   assert.equal(first.queries.filter(({ operation }) => operation === 'affected').length, 1);
+});
+
+test('final compileはplannedでなく最新realizedのcode anchorをsensorへ問い合わせる', () => {
+  const set = structureSet([anchor()]);
+  const realized = transform([anchor({
+    path: 'src/final-room-event.mjs', symbol: 'compileFinalRoomEvent',
+  })]);
+  const effectiveTransforms = new Map([['task-1', realized]]);
+  const querySet = buildTodoStructureSensorQuerySet(set, { effectiveTransforms });
+  assert.equal(querySet.queries.some(({ target }) => target === 'src/room-event.mjs'), false);
+  assert.equal(querySet.queries.some(({ target }) => target === 'compileRoomEvent'), false);
+  assert.equal(querySet.queries.some(({ target }) => target === 'src/final-room-event.mjs'), true);
+  assert.equal(querySet.queries.some(({ target }) => target === 'compileFinalRoomEvent'), true);
+  const collected = collectedFor(set, {}, { effectiveTransforms });
+  const projection = projectTodoStructureSourceEvidence({
+    structureSet: set, collected, effectiveTransforms,
+  });
+  assert.deepEqual(projection.anchors.map(({ path, symbol }) => ({ path, symbol })), [{
+    path: 'src/final-room-event.mjs', symbol: 'compileFinalRoomEvent',
+  }]);
+  assert.equal(projection.structure_set_digest, set.structure_set_digest);
 });
 
 test('exact symbolと自然キーedgeだけを投影しportable evidence identityを共有する', () => {

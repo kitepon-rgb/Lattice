@@ -1621,6 +1621,98 @@ function resolveCanonicalTaskId(plan, requestedTaskId) {
   return matches[0].task_id;
 }
 
+async function enforceTodoStructureLifecycleGate(repoRoot, member, eventInput) {
+  const binding = await readTodoStructureBinding({
+    repoRoot, planKey: member.plan.plan_key, planVersion: member.plan.plan_version,
+  });
+  if (binding === null) return;
+  const source = await readTodoStructureSource({ repoRoot, planKey: member.plan.plan_key });
+  if (source === null || source.structure_set_digest !== binding.structure_set_digest) {
+    fail('STRUCTURE_LIFECYCLE_GATE_FAILED', 'enabled_structure_source_unreadable');
+  }
+  if (eventInput.kind === 'done') {
+    const task = source.tasks.find(({ task_id: id }) => id === eventInput.task_id);
+    if (task?.applicability !== 'graph') return;
+    const chain = await readTodoStructureRealizationChain({
+      repoRoot, structureSet: source, taskId: eventInput.task_id,
+    });
+    const latest = chain.at(-1);
+    if (latest === undefined) {
+      fail('STRUCTURE_REALIZATION_REQUIRED', 'fresh_realization_missing', {
+        plan_key: member.plan.plan_key, task_id: eventInput.task_id,
+        next_action: `lattice todo structure realize --plan ${member.plan.plan_key} --task ${eventInput.task_id} --input <realization.json>`,
+      });
+    }
+    let currentHead;
+    try {
+      currentHead = gitSync(['rev-parse', '--verify', 'HEAD^{commit}'], {
+        cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      fail('STRUCTURE_GIT_HEAD_UNAVAILABLE', 'current_head_unavailable');
+    }
+    if (latest.head_sha !== currentHead) {
+      fail('STRUCTURE_REALIZATION_REQUIRED', 'realization_head_stale', {
+        plan_key: member.plan.plan_key, task_id: eventInput.task_id,
+        realization_head_sha: latest.head_sha, current_head_sha: currentHead,
+        next_action: `lattice todo structure realize --plan ${member.plan.plan_key} --task ${eventInput.task_id} --input <realization.json>`,
+      });
+    }
+  }
+  if (!['phase_accept', 'phase_close_unaudited'].includes(eventInput.kind)
+    || member.tasks.some(({ status }) => status !== 'done')) return;
+  const finalization = await readTodoStructureFinalization({
+    repoRoot, planKey: member.plan.plan_key, planVersion: member.plan.plan_version,
+  });
+  if (finalization === null) {
+    fail('STRUCTURE_FINALIZATION_REQUIRED', 'fresh_consistent_finalization_missing', {
+      plan_key: member.plan.plan_key,
+      next_action: `lattice todo structure finalize --plan ${member.plan.plan_key} --json`,
+    });
+  }
+  let currentHead;
+  try {
+    currentHead = gitSync(['rev-parse', '--verify', 'HEAD^{commit}'], {
+      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    fail('STRUCTURE_GIT_HEAD_UNAVAILABLE', 'current_head_unavailable');
+  }
+  const realizationHeads = [];
+  for (const task of source.tasks.filter(({ applicability }) => applicability === 'graph')) {
+    const chain = await readTodoStructureRealizationChain({
+      repoRoot, structureSet: source, taskId: task.task_id,
+    });
+    const head = chain.at(-1);
+    if (head !== undefined) realizationHeads.push({
+      task_id: task.task_id, sequence: head.sequence,
+      realization_digest: head.realization_digest,
+    });
+  }
+  const staleReasons = [];
+  if (finalization.project_id !== member.plan.project_id) staleReasons.push('project_id');
+  if (finalization.plan_key !== member.plan.plan_key) staleReasons.push('plan_key');
+  if (finalization.plan_version !== member.plan.plan_version) staleReasons.push('plan_version');
+  if (finalization.topology_digest !== member.plan.topology_digest) {
+    staleReasons.push('topology_digest');
+  }
+  if (finalization.structure_set_digest !== source.structure_set_digest) {
+    staleReasons.push('structure_set_digest');
+  }
+  if (finalization.current_head_sha !== currentHead) staleReasons.push('current_head_sha');
+  if (finalization.realization_head_digest
+    !== digestTodoStructureRealizationHeads(realizationHeads)) {
+    staleReasons.push('realization_head_digest');
+  }
+  if (finalization.overlay.verdict !== 'consistent') staleReasons.push('verdict');
+  if (staleReasons.length > 0) {
+    fail('STRUCTURE_FINALIZATION_REQUIRED', 'finalization_stale', {
+      plan_key: member.plan.plan_key, stale_reasons: staleReasons.sort(),
+      next_action: `lattice todo structure finalize --plan ${member.plan.plan_key} --json`,
+    });
+  }
+}
+
 export async function appendTodoEvent(options = {}) {
   requireWriter(options.writer, 'g5-authoring');
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
@@ -1645,6 +1737,7 @@ export async function appendTodoEvent(options = {}) {
       task_id: resolveCanonicalTaskId(member.plan, options.event.task_id),
       recorded_at: options.event.recorded_at ?? new Date().toISOString(),
     }, member);
+    await enforceTodoStructureLifecycleGate(repoRoot, member, input);
     const event = nextEvent(input, member);
     if ((event.kind === 'start' && event.payload.start_mode === 'historical_import')
       || (event.kind === 'done' && event.payload.done_mode === 'historical_import')) {
@@ -4434,6 +4527,14 @@ export function todoStructureCompileArtifactRef(planKey, planVersion) {
   return `${STORE_ROOT_REF}/plans/${planKey}/${planVersion}/structure/compile.json`;
 }
 
+/** plan終端で再compileした最終構造artifactの正規ref。 */
+export function todoStructureFinalizationRef(planKey, planVersion) {
+  if (!isTodoIdentifier(planKey) || !isTodoIdentifier(planVersion)) {
+    throw new TypeError('planKey and planVersion must be todo identifiers');
+  }
+  return `${STORE_ROOT_REF}/plans/${planKey}/${planVersion}/structure/finalization.json`;
+}
+
 /** task単位append-only realization chainの正規ref。 */
 export function todoStructureRealizationRef(planKey, planVersion, taskId) {
   if (![planKey, planVersion, taskId].every(isTodoIdentifier)) {
@@ -4528,6 +4629,17 @@ export async function readTodoStructureCompileArtifact(options = {}) {
       validate: validateTodoStructureCompileArtifact,
       missing: true,
     });
+}
+
+/** finalizationが無ければnull、壊れていればtyped failure。 */
+export async function readTodoStructureFinalization(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  return readArtifact(repoRoot, todoStructureFinalizationRef(options.planKey, options.planVersion), {
+    code: 'INVALID_TODO_STRUCTURE_FINALIZATION',
+    maxBytes: STRUCTURE_COMPILE_ARTIFACT_BYTES,
+    validate: validateTodoStructureCompileArtifact,
+    missing: true,
+  });
 }
 
 /**
@@ -4660,6 +4772,68 @@ export async function writeTodoStructureBinding(options = {}) {
     await ensureSafeStoreDirectory(repoRoot, path.dirname(path.resolve(repoRoot, ref)));
     await atomicWrite(path.resolve(repoRoot, ref), canonicalLine(binding));
     return { ref, binding };
+  });
+}
+
+/** 全task done後のfresh consistent artifactだけをfinalization refへ固定する。 */
+export async function writeTodoStructureFinalization(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const { artifact } = options;
+  if (!validateTodoStructureCompileArtifact(artifact) || artifact.overlay.verdict !== 'consistent') {
+    fail('INVALID_TODO_STRUCTURE_FINALIZATION', 'finalization_not_consistent');
+  }
+  return withLock(repoRoot, async () => {
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
+    const member = activeMember(store, artifact.plan_key);
+    if (store.project_id !== artifact.project_id || member.plan.project_id !== artifact.project_id) {
+      fail('STRUCTURE_BINDING_MISMATCH', 'project_id_mismatch');
+    }
+    if (member.plan.plan_version !== artifact.plan_version
+      || member.plan.topology_digest !== artifact.topology_digest
+      || member.tasks.some(({ status }) => status !== 'done')) {
+      fail('STRUCTURE_FINALIZATION_UNAVAILABLE', 'plan_not_fully_done');
+    }
+    const source = await readTodoStructureSource({ repoRoot, planKey: artifact.plan_key });
+    const binding = await readTodoStructureBinding({
+      repoRoot, planKey: artifact.plan_key, planVersion: artifact.plan_version,
+    });
+    if (source === null || binding === null
+      || source.structure_set_digest !== artifact.structure_set_digest
+      || binding.structure_set_digest !== artifact.structure_set_digest) {
+      fail('STRUCTURE_FINALIZATION_UNAVAILABLE', 'structure_not_enabled_or_stale');
+    }
+    const heads = [];
+    for (const task of source.tasks.filter(({ applicability }) => applicability === 'graph')) {
+      const chain = await readTodoStructureRealizationChain({
+        repoRoot, structureSet: source, taskId: task.task_id,
+      });
+      const head = chain.at(-1);
+      if (head === undefined) {
+        fail('STRUCTURE_FINALIZATION_UNAVAILABLE', 'realization_missing', { task_id: task.task_id });
+      }
+      heads.push({
+        task_id: task.task_id, sequence: head.sequence,
+        realization_digest: head.realization_digest,
+      });
+    }
+    if (artifact.realization_head_digest !== digestTodoStructureRealizationHeads(heads)) {
+      fail('STRUCTURE_FINALIZATION_STALE', 'realization_head_changed');
+    }
+    let currentHead;
+    try {
+      currentHead = gitSync(['rev-parse', '--verify', 'HEAD^{commit}'], {
+        cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      fail('STRUCTURE_GIT_HEAD_UNAVAILABLE', 'current_head_unavailable');
+    }
+    if (artifact.current_head_sha !== currentHead) {
+      fail('STRUCTURE_FINALIZATION_STALE', 'current_head_changed');
+    }
+    const ref = todoStructureFinalizationRef(artifact.plan_key, artifact.plan_version);
+    await ensureSafeStoreDirectory(repoRoot, path.dirname(path.resolve(repoRoot, ref)));
+    await atomicWrite(path.resolve(repoRoot, ref), canonicalLine(artifact));
+    return { ref, artifact };
   });
 }
 

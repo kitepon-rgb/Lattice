@@ -38,6 +38,7 @@ const COMMANDS = [
   ['run', 'finding', 'record'], ['run', 'seam', 'resolve'], ['run', 'seam', 'profile'],
   ['event', 'verify'],
   ['todo', 'status'], ['todo', 'bindings'], ['todo', 'independence'],
+  ['todo', 'structure'],
   ['todo', 'seam-proposal'], ['todo', 'seam-profile'], ['todo', 'verify'], ['todo', 'snapshot'],
   ['todo', 'gantt'], ['todo', 'gantt', 'serve'],
   ['todo', 'dashboard'], ['todo', 'dashboard', 'adopt'],

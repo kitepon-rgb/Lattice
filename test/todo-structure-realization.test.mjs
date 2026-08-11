@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +19,10 @@ import {
   readTodoStore,
   readTodoStructureRealizationChain,
   readTodoStructureSource,
+  todoStructureFinalizationRef,
+  todoStructureRealizationRef,
 } from '../src/todo-store.mjs';
+import { readTodoStructureFinalizationState } from '../src/todo-structure-store.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(REPO_ROOT, 'bin/lattice.mjs');
@@ -60,13 +64,15 @@ function transform(taskId, overrides = {}) {
   };
 }
 
-async function fixture(context) {
+async function fixture(context, { secondExcluded = false } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-structure-realize-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   execFileSync('git', ['init', '--quiet'], { cwd: root });
   git(root, ['config', 'user.email', 'fixture@example.com']);
   git(root, ['config', 'user.name', 'fixture']);
-  await writeFile(path.join(root, '.gitignore'), '.lattice/sensor/\n');
+  await writeFile(path.join(root, '.gitignore'), [
+    '.lattice/sensor/', '.lattice/test-inputs/', '.lattice/evidence/', '',
+  ].join('\n'));
   await mkdir(path.join(root, 'src'));
   await writeFile(path.join(root, 'src/shared.mjs'), 'export const value = 1;\n');
   git(root, ['add', '.gitignore', 'src/shared.mjs']);
@@ -90,7 +96,9 @@ async function fixture(context) {
     profile: 'code-dataflow', baseline_sha: baselineSha, external_contracts: [],
     tasks: [
       { task_id: 'T1', applicability: 'graph', planned: transform('T1') },
-      { task_id: 'T2', applicability: 'graph', planned: transform('T2') },
+      secondExcluded
+        ? { task_id: 'T2', applicability: 'excluded', excluded_reason: '構造を変更しない確認工程' }
+        : { task_id: 'T2', applicability: 'graph', planned: transform('T2') },
     ],
     structure_set_digest: '',
   };
@@ -140,6 +148,34 @@ function realization(fixture, taskId, overrides = {}) {
 async function writeInput(root, name, value) {
   await writeFile(path.join(root, name), `${JSON.stringify(value)}\n`);
   return name;
+}
+
+async function evidenceFile(root, taskId) {
+  const directory = path.join(root, '.lattice/evidence');
+  await mkdir(directory, { recursive: true });
+  const evidenceRef = `.lattice/evidence/${taskId}.txt`;
+  const bytes = Buffer.from(`${taskId} evidence\n`, 'utf8');
+  await writeFile(path.join(root, evidenceRef), bytes);
+  const oid = execFileSync('git', ['hash-object', '-w', evidenceRef], {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+  const descriptor = {
+    evidence_id: `${taskId}-evidence`, repo_id: 'self', path: evidenceRef,
+    git_blob_oid: oid, content_digest: createHash('sha256').update(bytes).digest('hex'),
+    media_type: 'text/plain', anchor_digest: null,
+  };
+  const descriptorRef = `.lattice/evidence/${taskId}.json`;
+  await writeFile(path.join(root, descriptorRef), `${JSON.stringify(descriptor)}\n`);
+  return descriptorRef;
+}
+
+async function bytesOrMissing(root, refs) {
+  return Promise.all(refs.map(async (ref) => {
+    try { return await readFile(path.join(root, ref)); } catch (error) {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    }
+  }));
 }
 
 test('realizeはstale planned・unreachable commitを無変更で拒否する', async (context) => {
@@ -234,4 +270,117 @@ test('訂正はsupersedesで追記し、readは全履歴・最新effective・pla
   assert.equal(body.effective.tasks[0].realization_digest, corrected.realization_digest);
   assert.deepEqual(body.effective.tasks[0].changed_fields, ['outcome']);
   assert.equal(body.effective.tasks[1].form, 'planned');
+});
+
+test('doneとterminal gateはfresh realization／finalizationを要求し拒否時にstore bytesを変えない', async (context) => {
+  const data = await fixture(context, { secondExcluded: true });
+  assert.equal(run(data.root, [
+    'start', '--plan', 'main', '--task', 'T1', '--parallel-frontier',
+  ]).status, 0);
+  assert.equal(run(data.root, [
+    'start', '--plan', 'main', '--task', 'T2',
+  ]).status, 0);
+  const store = await readTodoStore({ repoRoot: data.root });
+  const member = store.members[0];
+  const guardedRefs = [
+    '.lattice/todo/manifest.json', member.descriptor.journal_ref,
+    member.descriptor.snapshot_ref,
+    todoStructureRealizationRef('main', 'v1', 'T1'),
+    todoStructureFinalizationRef('main', 'v1'),
+  ];
+  const beforeMissingRealization = await bytesOrMissing(data.root, guardedRefs);
+  const t1Evidence = await evidenceFile(data.root, 'T1');
+  const rejectedDone = run(data.root, [
+    'done', '--plan', 'main', '--task', 'T1', '--evidence', t1Evidence,
+  ]);
+  assert.equal(rejectedDone.status, 1);
+  assert.equal(parse(rejectedDone.stderr).code, 'STRUCTURE_REALIZATION_REQUIRED');
+  assert.deepEqual(await bytesOrMissing(data.root, guardedRefs), beforeMissingRealization);
+
+  await mkdir(path.join(data.root, '.lattice/test-inputs'), { recursive: true });
+  const realizationRef = '.lattice/test-inputs/T1.json';
+  const firstRealization = realization(data, 'T1');
+  await writeFile(path.join(data.root, realizationRef), `${JSON.stringify(firstRealization)}\n`);
+  const realized = run(data.root, [
+    'structure', 'realize', '--plan', 'main', '--task', 'T1', '--input', realizationRef,
+  ]);
+  assert.equal(realized.status, 0, realized.stderr);
+  git(data.root, ['add', '.lattice/todo']);
+  git(data.root, ['commit', '--quiet', '-m', 'record task realization']);
+  const beforeStaleRealization = await bytesOrMissing(data.root, guardedRefs);
+  const staleDone = run(data.root, [
+    'done', '--plan', 'main', '--task', 'T1', '--evidence', t1Evidence,
+  ]);
+  assert.equal(staleDone.status, 1);
+  assert.equal(parse(staleDone.stderr).detail.reason, 'realization_head_stale');
+  assert.deepEqual(await bytesOrMissing(data.root, guardedRefs), beforeStaleRealization);
+  const correctedRealization = realization(data, 'T1', {
+    sequence: 2, previous_digest: firstRealization.realization_digest,
+    supersedes: firstRealization.realization_digest,
+    head_sha: git(data.root, ['rev-parse', 'HEAD']),
+    recorded_at: '2026-08-11T14:01:00.000Z',
+  });
+  await writeFile(path.join(data.root, realizationRef), `${JSON.stringify(correctedRealization)}\n`);
+  const corrected = run(data.root, [
+    'structure', 'realize', '--plan', 'main', '--task', 'T1', '--input', realizationRef,
+  ]);
+  assert.equal(corrected.status, 0, corrected.stderr);
+  assert.equal(run(data.root, [
+    'done', '--plan', 'main', '--task', 'T1', '--evidence', t1Evidence,
+  ]).status, 0);
+  const t2Evidence = await evidenceFile(data.root, 'T2');
+  const excludedDone = run(data.root, [
+    'done', '--plan', 'main', '--task', 'T2', '--evidence', t2Evidence,
+  ]);
+  assert.equal(excludedDone.status, 0, excludedDone.stderr);
+
+  const pending = run(data.root, ['status']);
+  assert.equal(pending.status, 0, pending.stderr);
+  assert.deepEqual(parse(pending.stdout).structure_finalization_pending, [{
+    plan_key: 'main', status: 'missing', reason: 'finalization_missing', stale_reasons: [],
+    next_commands: ['lattice todo structure finalize --plan main --json'],
+  }]);
+  const auditPending = run(data.root, ['phase', 'status', '--plan', 'main']);
+  assert.equal(auditPending.status, 0, auditPending.stderr);
+  assert.deepEqual(parse(auditPending.stdout).structure_finalization, {
+    enabled: true, required: true, status: 'missing', reason: 'finalization_missing',
+    stale_reasons: [], next_command: 'lattice todo structure finalize --plan main --json',
+  });
+  assert.match(parse(auditPending.stdout).phases[0].guidance, /structure finalize/u);
+  const beforeMissingFinalization = await bytesOrMissing(data.root, guardedRefs);
+  const rejectedTerminal = run(data.root, [
+    'phase', 'close-unaudited', '--plan', 'main', '--phase', 'terminal-audit',
+    '--reason', 'fixture close',
+  ]);
+  assert.equal(rejectedTerminal.status, 1);
+  assert.equal(parse(rejectedTerminal.stderr).code, 'STRUCTURE_FINALIZATION_REQUIRED');
+  assert.deepEqual(await bytesOrMissing(data.root, guardedRefs), beforeMissingFinalization);
+
+  git(data.root, ['add', '.lattice/todo']);
+  git(data.root, ['commit', '--quiet', '-m', 'complete todo store']);
+  const sensor = spawnSync(process.execPath, [CLI, 'sensor', 'sync', '.', '--json'], {
+    cwd: data.root, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' },
+  });
+  assert.equal(sensor.status, 0, sensor.stderr);
+  const finalized = run(data.root, ['structure', 'finalize', '--plan', 'main', '--json']);
+  assert.equal(finalized.status, 0, finalized.stderr);
+  assert.equal(parse(finalized.stdout).verdict, 'consistent');
+  assert.equal(parse(finalized.stdout).finalized, true);
+  const clear = run(data.root, ['status']);
+  assert.equal(clear.status, 0, clear.stderr);
+  assert.deepEqual(parse(clear.stdout).structure_finalization_pending, []);
+
+  const accepted = run(data.root, [
+    'phase', 'close-unaudited', '--plan', 'main', '--phase', 'terminal-audit',
+    '--reason', 'fixture close',
+  ]);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  git(data.root, ['add', '.lattice/todo']);
+  git(data.root, ['commit', '--quiet', '-m', 'close terminal phase']);
+  const stale = await readTodoStructureFinalizationState({
+    repoRoot: data.root, planKey: 'main',
+  });
+  assert.equal(stale.status, 'stale');
+  assert.equal(stale.required, false);
+  assert.deepEqual(stale.stale_reasons, ['current_head_sha']);
 });

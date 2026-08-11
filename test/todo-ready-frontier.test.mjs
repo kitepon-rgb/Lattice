@@ -84,7 +84,7 @@ async function workspace(context) {
 }
 
 // 切り出し前のprojectTodoStatusが出していたバイト列。挙動不変の錨。
-const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v6","project_id":"project-1",'
+const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v7","project_id":"project-1",'
   + '"active_set":[{"plan_key":"main","task_id":"A","label":"Active work",'
   + '"unmet_dependencies":[]}],'
   + '"next_ready":[{"plan_key":"main","task_id":"C","label":"Ready work"},'
@@ -97,6 +97,8 @@ const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v6","project_id":"p
   + '"blocked":[{"plan_key":"main","task_id":"B","reason":"waiting on review"}],'
   // 全taskがdoneではない(Phaseはactive)ので監査待ちは空。v5で足した欄はblockedとmember_headsの間。
   + '"audit_pending":[],'
+  // v7で足した構造finalization待ち欄。未適用planでは空でdispatchを変えない。
+  + '"structure_finalization_pending":[],'
   // v6で足したplan_notes欄。このfixtureはplan単位noteを持たないので空。挿入位置は
   // audit_pendingとmember_headsの間で、dispatch側のバイトは1つも動いていない。
   + '"plan_notes":[],'
@@ -107,7 +109,7 @@ const GOLDEN_STATUS = '{"schema":"lattice.todo_status_result.v6","project_id":"p
   + '"parallel_candidates":[],'
   + '"member_heads":[__HEADS__],"result_digest":"__RESULT__"}';
 
-test('status v6の出力バイト列がaudit_pending・plan_notes以外変わらない', async (context) => {
+test('status v7の出力バイト列が加算列以外変わらない', async (context) => {
   const readModel = await workspace(context);
   const result = projectTodoStatus(readModel, { parallelCandidates: [], planNotes: [] });
   const actual = JSON.stringify(result);

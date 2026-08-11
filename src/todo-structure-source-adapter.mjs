@@ -32,10 +32,12 @@ function queryFor(operation, target = undefined, exactPath = null) {
     };
 }
 
-function graphAnchors(structureSet) {
+function graphAnchors(structureSet, effectiveTransforms = null) {
   return structureSet.tasks
     .filter(({ applicability }) => applicability === 'graph')
-    .flatMap(({ task_id: taskId, planned }) => planned.code_anchors.map((anchor) => ({
+    .flatMap(({ task_id: taskId, planned }) => (
+      effectiveTransforms?.get(taskId) ?? planned
+    ).code_anchors.map((anchor) => ({
       task_id: taskId,
       ...anchor,
     })));
@@ -45,9 +47,9 @@ function graphAnchors(structureSet) {
  * structure anchorを既存LatticeSensorの公開queryだけへ決定的に変換する。
  * parser、index、node ID、edge抽出はここでは所有しない。
  */
-export function buildTodoStructureSensorQuerySet(structureSet) {
+export function buildTodoStructureSensorQuerySet(structureSet, { effectiveTransforms = null } = {}) {
   assertStructureSet(structureSet);
-  const anchors = graphAnchors(structureSet);
+  const anchors = graphAnchors(structureSet, effectiveTransforms);
   const paths = [...new Set(anchors.map(({ path }) => path))].sort(compareText);
   const symbols = [...new Set(anchors
     .map(({ symbol }) => symbol)
@@ -351,13 +353,15 @@ function projectAnchor({ anchor, querySet, outcomes, statusReady }) {
 }
 
 /** 収集済みsensor outcomeから、anchor到達範囲だけのbounded projectionを作る。 */
-export function projectTodoStructureSourceEvidence({ structureSet, collected } = {}) {
+export function projectTodoStructureSourceEvidence({
+  structureSet, collected, effectiveTransforms = null,
+} = {}) {
   assertStructureSet(structureSet);
-  const querySet = buildTodoStructureSensorQuerySet(structureSet);
+  const querySet = buildTodoStructureSensorQuerySet(structureSet, { effectiveTransforms });
   const outcomes = indexOutcomes(querySet, collected);
   const statusQuery = querySet.queries[0];
   const statusOutcome = outcomes.get(statusQuery.id);
-  const anchors = graphAnchors(structureSet).map((anchor) => projectAnchor({
+  const anchors = graphAnchors(structureSet, effectiveTransforms).map((anchor) => projectAnchor({
     anchor, querySet, outcomes, statusReady: statusOutcome.outcome === 'ready',
   }));
   const projection = {
@@ -384,9 +388,10 @@ export function projectTodoStructureSourceEvidence({ structureSet, collected } =
 
 /** 実sensor収集とpure projectionを同じ既存adapter経由で行う。 */
 export async function collectTodoStructureSourceEvidence({
-  cwd, structureSet, execute = undefined, inspectAffectedPath = undefined,
+  cwd, structureSet, effectiveTransforms = null,
+  execute = undefined, inspectAffectedPath = undefined,
 } = {}) {
-  const querySet = buildTodoStructureSensorQuerySet(structureSet);
+  const querySet = buildTodoStructureSensorQuerySet(structureSet, { effectiveTransforms });
   const collected = await collectSensorEvidence({
     cwd,
     querySet,
@@ -395,6 +400,6 @@ export async function collectTodoStructureSourceEvidence({
   });
   return {
     query_set: querySet,
-    projection: projectTodoStructureSourceEvidence({ structureSet, collected }),
+    projection: projectTodoStructureSourceEvidence({ structureSet, collected, effectiveTransforms }),
   };
 }
