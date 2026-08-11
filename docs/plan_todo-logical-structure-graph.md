@@ -356,7 +356,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - 実測: 新規統合E2E 1件と構造全59 test、syntax 168 files、CLI surface 68 command
       （undocumented／unexercised 0）がgreen。
 
-- [ ] **sg14 — Peertable由来16件を移行fixtureとして実証する**
+- [x] **sg14 — Peertable由来16件を移行fixtureとして実証する**
   - Depends: sg13
   - Write: Lattice repo内のfixture／evidenceだけ。Peertable repoはread-only
   - 内容:
@@ -366,6 +366,18 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
   - 受入:
     - 「問題なし」の判断がfixtureの意図した正解と一致する。
     - Peertableのlive工程、room、credential、絶対pathへ依存しない。
+  - 実施記録（2026-08-12）:
+    - 秘密除去済み`logical_dataflow.v0` fixtureの16件を、plan境界ごとのv1 structure set 9本へ
+      test専用の決定的変換で移した。outcome／receive／organize／emit／failure／初回E2E／非目標を
+      v1 contractへ保持し、全setがruntime validatorを通過した。
+    - v0がcode path／symbolを持たない16件は推測で埋めず、同じtask refへ
+      `logical_dataflow_v0_has_no_code_path_or_symbol`を列挙し、code anchorを空のまま残した。
+    - task announcementの`a2 → a3`へ意図的なhard dependency欠落とshape不一致を入れ、findingが
+      `a2`／`a3`および`a2/emit-01`／`a3/announcement-in`を指すことを固定した。
+    - dependencyとconsumer shapeを修正してplannedをconsistentへ収束させ、a2のrealization、done状態、
+      commit provenanceを重ねたfinal compileでもconsistent、realized node、a3 sinkを確認した。
+    - Peertable live repo／room／credential／絶対pathは未使用。移行判断と実測は
+      `docs/evidence/2026-08-12-peertable-structure-migration.md`へ記録し、fixture test 4/4がgreen。
 
 ### Phase F — 正典・品質・配布準備
 
