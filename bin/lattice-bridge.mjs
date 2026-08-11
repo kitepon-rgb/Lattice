@@ -140,12 +140,15 @@ timer = setInterval(async () => {
     // the terminal identity file) reaches this catch.
     try {
       const heartbeat = await hubHeartbeat.tick({ config });
-      hubHeartbeatError = null;
+      // 直前に書いた指紋は、健全な状態へ戻った時にだけ捨てる。判定より前に捨てると
+      // 比較相手が毎周期nullになり、同じ結果をpoll周期ごとに書き続ける。stderrの
+      // 消費者が居ない常駐（WindowsのStartup launcher、LaunchAgent）では、この
+      // 書込みが積み上がること自体が常駐を不安定にする。
       if (['unreachable', 'rejected', 'partial'].includes(heartbeat?.state)) {
         const fingerprint = JSON.stringify(heartbeat);
         if (fingerprint !== hubHeartbeatError) process.stderr.write(`${fingerprint}\n`);
         hubHeartbeatError = fingerprint;
-      }
+      } else hubHeartbeatError = null;
     } catch (error) {
       const failure = { schema: 'lattice.bridge_daemon_error.v1',
         code: error?.code ?? 'BRIDGE_HUB_HEARTBEAT_FAILED',
