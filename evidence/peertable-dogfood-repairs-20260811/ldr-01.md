@@ -3,8 +3,8 @@
 ## 結論
 
 - `origin/main` から計画起点の親 `41a5fc1^`（`1133d7f8`）までは20 commitで、計画の「既存20 commit」と一致した。
-- 基線測定時の `main`（`bfacdf84`）は `origin/main` より25 commit先行していた。20件に、計画本体 `41a5fc1` と、その後の4件（依存修正、migrate工程追加、store登録、独立性宣言）が加わった状態である。その後、この証跡commit `9c4f0ab5` が1件加わったため、現在の `main` は26 commit先行している。
-- 基線測定時の25 commitと証跡commitを含め、`origin/main..HEAD` の `package.json`、`bin`、`src`、`sensor` には差分が無い。製品実行payloadは変更していない。
+- 基線測定時の `main`（`bfacdf84`）は `origin/main` より25 commit先行していた。20件に、計画本体 `41a5fc1` と、その後の4件（依存修正、migrate工程追加、store登録、独立性宣言）が加わった状態である。
+- 基線測定後の `9c4f0ab5` と `fc819ee3` はこの証跡だけを追加・補正するcommitで、`package.json`、`bin`、`src`、`sensor`には触れていない。branchの先行数はこの後も証跡commitで変わり得るため、公開判断では固定値として扱わない。
 - `package.json` は `@quolu/lattice@0.57.3`。local `npm pack --dry-run --json` のintegrityは、registryの公開 `@quolu/lattice@0.57.3` と一致した。
 - `/opt/homebrew/bin/lattice` は global `@quolu/lattice@0.57.3` を指し、`lattice --version` も `0.57.3`。
 - `campaign-closeout-20260811` と `bridge-persistence-recovery` の terminal-audit phase はいずれも `accepted`。ただし前者の `todo verify` は `snapshot_stale=false` でも `reconciliation_state=registered_unreconciled` なので、campaign store の完全reconciledとは扱わない。
@@ -18,7 +18,7 @@
 | todo status（着手前） | activeなし、`ldr-01`〜`ldr-06`/`ldr-10`がready |
 | independence | `verified`、`ldr-01` は `ldr-02`・`ldr-05` と同じparallel group、activeとの競合なし |
 | `ldr-01` start advisory | `coverage=verified`、`conflicts_with_active=[]`、`independence_verified` |
-| branch基線 | 測定時 `bfacdf84` は `main...origin/main [ahead 25]`、left/right `0/25`。証跡commit後の現在値はahead 26 |
+| branch基線 | 測定時 `bfacdf84` は `main...origin/main [ahead 25]`、left/right `0/25`。後続の証跡commitはpayload外であり、先行数の現在値はこの証跡の判定軸にしない |
 | 計画起点 | `41a5fc1^=1133d7f8`、`origin/main..41a5fc1^` は20件 |
 | product payload差分 | `git diff --name-status origin/main..HEAD -- package.json bin src sensor` は空 |
 | 公開registry | `npm view @quolu/lattice@0.57.3` のtarballは `https://registry.npmjs.org/@quolu/lattice/-/lattice-0.57.3.tgz`、integrityは `sha512-5Mu98kkTvHbu+zAVOsIF2ibwvsqPVEzM3KXFMe1jO3WVcurb9LsQKbK/gFxQRHGLu3qDlCeBDvkAWSoYCnTF3Q==` |
@@ -59,9 +59,8 @@
 ## 公開判定の境界
 
 公開済み0.57.3とのpayload一致は、registry integrityとlocal dry-run integrity、および
-基線測定時の `origin/main..bfacdf84` の実行payload差分なしで確認できた。証跡commit後の
-`origin/main..HEAD` でも同じpayload差分なしである。一方、現在のbranchが26 commit先行している
-こと、working treeにLattice store変更・`.team/scripts/done.sh`変更・未追跡archiveがあることは別の
+基線測定時の `origin/main..bfacdf84` の実行payload差分なしで確認できた。後続の証跡commitも
+payload外である。一方、branchの先行数、working treeにLattice store変更・`.team/scripts/done.sh`変更・未追跡archiveがあることは別の
 履歴／作業tree状態である。これらを「公開済み」とは呼ばず、次のpush・publish対象へ混ぜる判断は
 別工程で行う。
 
