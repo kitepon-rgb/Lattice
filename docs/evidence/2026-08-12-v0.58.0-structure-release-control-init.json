@@ -1,0 +1,36 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice-release-v0.58.0",
+  "control_id": "todo-structure-release-20260812",
+  "objective_ref": "docs/plan_todo-logical-structure-graph.md",
+  "actor_id": "codex-parent-structure-release-20260812",
+  "document_refs": [
+    "docs/adr/0168-todo-structure-is-an-opt-in-graph-overlay-with-completion-gates.md",
+    "docs/plan_todo-logical-structure-graph.md",
+    "docs/evidence/2026-08-12-v0.58.0-structure-release-approval.md"
+  ],
+  "budget": {
+    "max_worker_runs": 1,
+    "max_consultations": 1,
+    "max_external_runs": 1,
+    "max_wall_time_seconds": null,
+    "max_cost_microusd": null,
+    "max_runs_per_approach_family": 1,
+    "max_retries_per_assignment": 1,
+    "max_integration_runs": 2
+  },
+  "lane_admission": {
+    "contract_version": "dotagents.lane-admission.v1",
+    "conditions": {
+      "planned_interruption": true,
+      "chained_acceptance": true,
+      "multi_repo_write_coordination": false,
+      "decision_evidence_required": true
+    },
+    "decision": {
+      "type": "decision",
+      "ref": "docs/adr/0168-todo-structure-is-an-opt-in-graph-overlay-with-completion-gates.md",
+      "digest": "24b2544dd2410ccbbccce00dc38e75b78e97c64c6e3f390665186d76a464c1ae",
+      "observed_at": "2026-08-11T16:02:14.000Z"
+    }
+  }
+}

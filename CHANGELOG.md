@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.58.0 — 2026-08-12
+
+### 新機能
+
+- code planだけが明示的に有効化できるToDo構造グラフ検査を追加。task間のdataflow、code anchor、
+  external contract、commit provenanceを既存Lattice Sensor graphと結合し、`consistent`／
+  `inconsistent`／`unknown`を証拠付きで返す。
+- planned structure、append-only realization、全task完了後のfinalizationを公開CLIとJSON Schemaへ追加。
+  有効化済みplanではfresh realizationをtask完了条件、fresh consistent finalizationを終端受理条件にする。
+- dashboardへ工程依存図とは独立した「構造検査」面を追加。planned／realized／effective差分、finding、
+  freshness、task／data／code／external／commit nodeを保存artifactだけから表示する。
+
+### 互換性
+
+- 構造検査はplan単位のopt-inであり、未適用planの既存lifecycle、dispatch、dashboard表示は変更しない。
+
 ## 0.57.3 — 2026-08-11
 
 ### 修正

@@ -1,0 +1,69 @@
+{
+  "cwd": "/Users/kite/Developer/Lattice-release-v0.58.0",
+  "control_id": "todo-structure-release-20260812",
+  "actor_id": "codex-parent-structure-release-20260812",
+  "expected_revision": 1,
+  "task": {
+    "task_id": "sg17-release",
+    "title": "v0.58.0を公開・global install・公開dashboardでsmokeする",
+    "classification": "H",
+    "effect": "write",
+    "doc_ref": "docs/plan_todo-logical-structure-graph.md",
+    "role": "implementer",
+    "lane": "behavior-change",
+    "depends_on": [],
+    "required_capabilities": [
+      "npm-registry-publish",
+      "global-package-install",
+      "production-dashboard-restart"
+    ],
+    "isolation": "none",
+    "context_policy": {
+      "share_objective": true,
+      "share_current_candidate": true,
+      "share_existing_findings": true,
+      "share_failed_approaches": true,
+      "share_test_results": true
+    },
+    "validation": [
+      "release commitがorigin/mainの祖先である",
+      "@quolu/lattice@0.58.0がregistryから取得できる",
+      "global latticeとbridge runtimeが0.58.0を返す",
+      "公開dashboardがHTTP 200で構造検査の配布runtimeを使う"
+    ],
+    "non_goals": [
+      "公開済みversionのunpublish",
+      "他端末の開発checkout変更",
+      "構造未適用planへの自動有効化"
+    ],
+    "known_traps": [
+      "dirtyなmain worktreeをreleaseに使わない",
+      "node_modules symlinkはuntrackedになりrelease gateを塞ぐ",
+      "registry反映遅延をpublish失敗と誤認しない",
+      "dashboardはglobal installだけでなくstatus入口で新版へ置換する"
+    ],
+    "read_scope": [
+      { "kind": "directory", "path": "docs" },
+      { "kind": "directory", "path": "src" },
+      { "kind": "directory", "path": "test" }
+    ],
+    "write_scope": [
+      { "kind": "file", "path": "package.json" },
+      { "kind": "file", "path": "package-lock.json" },
+      { "kind": "file", "path": "CHANGELOG.md" },
+      { "kind": "file", "path": "docs/plan_todo-logical-structure-graph.md" },
+      { "kind": "directory", "path": "docs/evidence" }
+    ],
+    "approval": {
+      "approval_ref": "docs/evidence/2026-08-12-v0.58.0-structure-release-approval.md",
+      "purpose": "ToDo構造グラフ検査をnpm、global CLI、公開dashboardへ同じrelease commitから届ける",
+      "impact": "remote mainをfast-forwardし、npm 0.58.0、Mac global install、dashboardとbridgeを更新する",
+      "rollback": "npmはunpublishせず、Macを0.57.3へ戻してdashboardとbridgeを再起動する",
+      "operation_digest": "464a018f8779bf51b36fe75e83c2b89cc19bf5b38157d2ea044340bf789ed61e",
+      "approved_by": "クオ",
+      "approved_at": "2026-08-11T16:02:14.000Z",
+      "expires_at": null
+    },
+    "alternative_group": null
+  }
+}
