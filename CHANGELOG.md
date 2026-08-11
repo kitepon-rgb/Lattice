@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.58.2 — 2026-08-12
+
+### 修正
+
+- 既存planへの途中適用で、`structure input --dry-run`が未完了taskだけを正しく要求した後に、
+  `structure compile`が完了済みtaskまで再要求して`STRUCTURE_COVERAGE_MISSING`にする不一致を修正。
+  compileへplan全taskの状態を渡し、topology-onlyな完了済みtaskだけをcoverage対象外とする。
+  pending／in-progress／blocked taskの漏れと未登録taskは従来どおり拒否する。
+
 ## 0.58.1 — 2026-08-12
 
 ### 修正

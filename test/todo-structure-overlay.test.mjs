@@ -340,6 +340,18 @@ test('同一planのtopology-only taskをstructure coverage漏れとして返す'
   assert.deepEqual(coverage.evidence.observed, { topology_only_task_ids: ['task-c'] });
 });
 
+test('同一planの完了済みtopology taskは途中適用のstructure coverageへ要求しない', () => {
+  const set = structureSet();
+  const expanded = topology();
+  expanded.nodes.push(ref('task-c'));
+  const result = compile(set, {
+    topology: expanded,
+    taskStates: [...states(), { task_id: 'task-c', status: 'done' }],
+  });
+  assert.equal(result.verdict, 'consistent');
+  assert.equal(result.findings.some(({ code }) => code === 'STRUCTURE_COVERAGE_MISSING'), false);
+});
+
 test('source／provenance digest改竄を未設定へ丸めず拒否する', () => {
   const set = structureSet();
   const source = sourceProjection(set); source.anchors[0].verdict = 'unknown';

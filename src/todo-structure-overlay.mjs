@@ -62,12 +62,14 @@ function normalizeTaskStates(structureSet, taskStates) {
     if (!isPlain(entry) || Object.keys(entry).length !== 2
       || typeof entry.task_id !== 'string'
       || !['pending', 'in-progress', 'blocked', 'done'].includes(entry.status)
-      || !expected.has(entry.task_id) || states.has(entry.task_id)) {
+      || states.has(entry.task_id)) {
       fail('STRUCTURE_OVERLAY_INPUT_INVALID', 'task_state_entry_invalid');
     }
     states.set(entry.task_id, entry.status);
   }
-  if (states.size !== expected.size) fail('STRUCTURE_OVERLAY_INPUT_INVALID', 'task_state_coverage_invalid');
+  if ([...expected].some((taskId) => !states.has(taskId))) {
+    fail('STRUCTURE_OVERLAY_INPUT_INVALID', 'task_state_coverage_invalid');
+  }
   return states;
 }
 
@@ -302,7 +304,7 @@ function buildOverlayGraph(structureSet, states, latestRealizations, sourceProje
   return { nodes: uniqueNodes, edges, effective };
 }
 
-function connectionFindings(structureSet, effective, topologyDag) {
+function connectionFindings(structureSet, effective, topologyDag, states) {
   const findings = [];
   const externalById = new Map(structureSet.external_contracts
     .map((external) => [external.contract_id, external]));
@@ -322,7 +324,8 @@ function connectionFindings(structureSet, effective, topologyDag) {
   const structureTaskIds = new Set(structureSet.tasks.map(({ task_id: id }) => id));
   const extraTopologyTasks = topologyDag.nodes
     .filter(({ ref }) => ref.project_id === structureSet.project_id
-      && ref.plan_key === structureSet.plan_key && !structureTaskIds.has(ref.task_id))
+      && ref.plan_key === structureSet.plan_key && !structureTaskIds.has(ref.task_id)
+      && states.get(ref.task_id) !== 'done')
     .map(({ ref }) => ref.task_id).sort(compareText);
   if (extraTopologyTasks.length > 0) findings.push(finding({
     code: 'STRUCTURE_COVERAGE_MISSING', severity: 'error', taskIds: extraTopologyTasks,
@@ -557,7 +560,7 @@ export function compileTodoStructureOverlay({
   const rawFindings = [
     ...anchorFindings(structureSet, sourceProjection),
     ...missingEffectiveAnchors,
-    ...connectionFindings(structureSet, graph.effective, topologyDag),
+    ...connectionFindings(structureSet, graph.effective, topologyDag, states),
     ...realizationFindings(
       structureSet, states, normalizedRealizations, gitProvenance, graph.effective,
     ),

@@ -2035,10 +2035,7 @@ async function structureCompile({ repoRoot, env, planKey, inputRef }) {
   const overlay = compileTodoStructureOverlay({
     structureSet,
     topology: mergedTopology(store),
-    taskStates: structureSet.tasks.map(({ task_id: taskId }) => ({
-      task_id: taskId,
-      status: member.tasks.find(({ task_id: id }) => id === taskId)?.status ?? 'pending',
-    })),
+    taskStates: member.tasks.map(({ task_id: taskId, status }) => ({ task_id: taskId, status })),
     sourceProjection: sourceEvidence.projection,
     gitProvenance,
     realizations,
@@ -2196,7 +2193,7 @@ async function structureFinalize({ repoRoot, env, planKey }) {
   const overlay = compileTodoStructureOverlay({
     structureSet: source,
     topology: mergedTopology(store),
-    taskStates: source.tasks.map(({ task_id: taskId }) => ({ task_id: taskId, status: 'done' })),
+    taskStates: member.tasks.map(({ task_id: taskId, status }) => ({ task_id: taskId, status })),
     sourceProjection: sourceEvidence.projection,
     gitProvenance,
     realizations,
