@@ -409,15 +409,19 @@ test('authoring CLIはclosed遷移をappendしmutation resultをdigest束縛す�
       'event_digest', 'journal_head_digest', 'snapshot_digest', 'status', 'advisory',
       'result_digest',
     ];
-    if (kind === 'start') keys.push('design_memo', 'note_context');
+    if (kind === 'start') keys.push('design_memo', 'note_context', 'structure_context');
     assertExactKeys(output, keys);
     assert.equal(output.schema, kind === 'start'
-      ? 'lattice.todo_mutation_result.v4' : 'lattice.todo_mutation_result.v2');
+      ? 'lattice.todo_mutation_result.v5' : 'lattice.todo_mutation_result.v2');
     // 助言はstartだけが持つ。他の遷移で独立性を語らない（ADR 0128 Decision 5）。
     if (kind === 'start') {
       assert.deepEqual(output.design_memo.status, 'missing_legacy');
       assert.equal(output.design_memo.markdown, null);
       assert.deepEqual(output.note_context.notes, []);
+      assert.deepEqual(output.structure_context, {
+        status: 'not_enabled', enabled: false, freshness: null, stale_reasons: [],
+        structure_set_digest: null, task: null, next_actions: [],
+      });
       assertExactKeys(output.advisory, [
         'coverage', 'drift_intersecting', 'conflicts_with_active',
         'scope_expansion_recommendations', 'uncovered_active_task_ids', 'self_unknowns', 'guidance',

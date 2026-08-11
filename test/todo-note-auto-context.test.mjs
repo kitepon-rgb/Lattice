@@ -64,11 +64,12 @@ test('todo start成功resultは事前取得した同じnote contextを必ず同�
   const started = run(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']);
   assert.equal(started.status, 0, started.stderr);
   const result = JSON.parse(started.stdout);
-  assert.equal(result.schema, 'lattice.todo_mutation_result.v4');
+  assert.equal(result.schema, 'lattice.todo_mutation_result.v5');
   assert.equal(result.kind, 'start');
   assert.equal(result.design_memo.status, 'missing_legacy');
   assert.equal(result.note_context.notes[0].body, 'start時に読む');
   assert.equal(result.note_context.note_head_digest, result.note_context.notes[0].event_digest);
+  assert.equal(result.structure_context.status, 'not_enabled');
 });
 
 test('note無しでも詳細/startは明示的な空contextを返す', async (t) => {

@@ -179,6 +179,37 @@ async function bytesOrMissing(root, refs) {
   }));
 }
 
+test('todo startは対象taskのcanonical planned構造とrealize案内を直接返す', async (context) => {
+  const data = await fixture(context);
+  const started = run(data.root, [
+    'start', '--plan', 'main', '--task', 'T1', '--parallel-frontier',
+  ]);
+  assert.equal(started.status, 0, started.stderr);
+  const result = parse(started.stdout);
+  assert.equal(result.schema, 'lattice.todo_mutation_result.v5');
+  assert.deepEqual(result.structure_context, {
+    status: 'available', enabled: true, freshness: 'stale',
+    stale_reasons: ['current_head_sha'],
+    structure_set_digest: data.set.structure_set_digest,
+    task: data.set.tasks[0],
+    next_actions: [
+      'lattice todo structure realize --plan main --task T1 --input <realization.json>',
+    ],
+  });
+});
+
+test('todo startはexcluded taskにも除外理由を構造コンテキストとして渡す', async (context) => {
+  const data = await fixture(context, { secondExcluded: true });
+  const started = run(data.root, [
+    'start', '--plan', 'main', '--task', 'T2', '--parallel-frontier',
+  ]);
+  assert.equal(started.status, 0, started.stderr);
+  const structure = parse(started.stdout).structure_context;
+  assert.equal(structure.status, 'available');
+  assert.deepEqual(structure.task, data.set.tasks[1]);
+  assert.deepEqual(structure.next_actions, []);
+});
+
 test('realizeはstale planned・unreachable commitを無変更で拒否する', async (context) => {
   const data = await fixture(context);
   const stale = realization(data, 'T1', { planned_digest: 'a'.repeat(64) });
