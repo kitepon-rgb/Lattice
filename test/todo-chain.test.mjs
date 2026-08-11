@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 
-import { analyzeDagChains } from '../src/dag-chain.mjs';
+import { analyzeDagChains, analyzeDagReachability } from '../src/dag-chain.mjs';
 import {
   projectTodoChainV1,
+  projectTodoTopologyDagV1,
   TodoChainCycleError,
 } from '../src/todo-chain.mjs';
 
@@ -113,6 +114,33 @@ test('空graph: 深さと本数は0でassumptionsは常在する', () => {
     limits: defaultLimits,
     representative_chains: [],
     assumptions,
+  });
+});
+
+test('要求pairの推移到達性を既存DAG normalizeとcycle判定の上で返す', () => {
+  assert.deepEqual(analyzeDagReachability(
+    ['A', 'B', 'C', 'D'], [['A', 'B'], ['B', 'C']],
+    [['A', 'C'], ['A', 'D'], ['B', 'C']],
+  ), [true, false, true]);
+  assert.throws(
+    () => analyzeDagReachability(['A', 'B'], [['A', 'B'], ['B', 'A']], [['A', 'B']]),
+    (error) => error.code === 'DAG_CYCLE',
+  );
+});
+
+test('structure消費側へhard edgeとjoinを同じ正本からlossless投影する', () => {
+  const A = ref('A');
+  const B = ref('B');
+  const C = ref('C');
+  const projected = projectTodoTopologyDagV1(topology(
+    [A, B, C], [edge(A, B)], [{ id: 'join', after: [B], before: C }],
+  ));
+  const key = (taskId) => JSON.stringify(['project', 'plan', taskId]);
+  assert.deepEqual(projected, {
+    nodes: [
+      { key: key('A'), ref: A }, { key: key('B'), ref: B }, { key: key('C'), ref: C },
+    ],
+    edges: [{ from: key('A'), to: key('B') }, { from: key('B'), to: key('C') }],
   });
 });
 

@@ -90,11 +90,7 @@ function normalizeOptions(options) {
   return { countCap, representativeLimit };
 }
 
-export function projectTodoChainV1(
-  mergedTodoTopology,
-  options,
-) {
-  const { countCap, representativeLimit } = normalizeOptions(options);
+function normalizeTodoTopology(mergedTodoTopology) {
   if (!isPlainObject(mergedTodoTopology)) {
     fail('TODO_CHAIN_INVALID_TOPOLOGY', 'mergedTodoTopology must be an object');
   }
@@ -145,6 +141,24 @@ export function projectTodoChainV1(
       );
     }
   }
+  return { refsByKey, edges };
+}
+
+/** structure等の消費側が同じToDo node／edge正本を使うためのlossless投影。 */
+export function projectTodoTopologyDagV1(mergedTodoTopology) {
+  const { refsByKey, edges } = normalizeTodoTopology(mergedTodoTopology);
+  return {
+    nodes: [...refsByKey].map(([key, ref]) => ({ key, ref: { ...ref } })),
+    edges: edges.map(([from, to]) => ({ from, to })),
+  };
+}
+
+export function projectTodoChainV1(
+  mergedTodoTopology,
+  options,
+) {
+  const { countCap, representativeLimit } = normalizeOptions(options);
+  const { refsByKey, edges } = normalizeTodoTopology(mergedTodoTopology);
 
   let analysis;
   try {

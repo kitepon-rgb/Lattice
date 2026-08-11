@@ -259,3 +259,40 @@ export function analyzeDagChains(
     topologicalOrder: order,
   };
 }
+
+/**
+ * 既存DAG正本と同じnormalize／cycle判定を使い、要求されたpairだけの到達性を返す。
+ * structure overlayが独自のnode／edge検証やcycle algorithmを持たないための狭い公開面。
+ */
+export function analyzeDagReachability(nodes, edges, pairs) {
+  if (!Array.isArray(pairs)) {
+    throw new DagChainError('DAG_INVALID_REACHABILITY_PAIRS', 'pairs must be an array');
+  }
+  const graph = normalizeGraph(nodes, edges);
+  topologicalOrder(nodes, graph.successors, graph.predecessors);
+  const nodeSet = new Set(nodes);
+  for (const pair of pairs) {
+    if (!Array.isArray(pair) || pair.length !== 2
+      || !nodeSet.has(pair[0]) || !nodeSet.has(pair[1])) {
+      throw new DagChainError(
+        'DAG_INVALID_REACHABILITY_PAIRS',
+        'each pair must be a [from, to] using graph nodes',
+      );
+    }
+  }
+  const reachedBySource = new Map();
+  for (const [from] of pairs) {
+    if (reachedBySource.has(from)) continue;
+    const reached = new Set([from]);
+    const pending = [from];
+    for (let cursor = 0; cursor < pending.length; cursor += 1) {
+      for (const successor of graph.successors.get(pending[cursor])) {
+        if (reached.has(successor)) continue;
+        reached.add(successor);
+        pending.push(successor);
+      }
+    }
+    reachedBySource.set(from, reached);
+  }
+  return pairs.map(([from, to]) => reachedBySource.get(from).has(to));
+}

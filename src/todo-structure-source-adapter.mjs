@@ -149,25 +149,29 @@ function sameNode(left, right) {
 
 function symbolObservation(outcome, anchor) {
   if (outcome.outcome === 'symbol_absent') {
-    return { existence: 'absent', node: null, reason: null };
+    return { existence: 'absent', node: null, candidates: [], reason: null };
   }
   if (outcome.outcome !== 'ready' || !Array.isArray(outcome.data)) {
-    return { existence: 'unknown', node: null, reason: 'STRUCTURE_SENSOR_SYMBOL_UNRESOLVED' };
+    return { existence: 'unknown', node: null, candidates: [], reason: 'STRUCTURE_SENSOR_SYMBOL_UNRESOLVED' };
   }
   if (outcome.data.length > 1) {
-    return { existence: 'unknown', node: null, reason: 'STRUCTURE_CODE_ANCHOR_AMBIGUOUS' };
+    const candidates = outcome.data.map(naturalNode);
+    if (candidates.some((candidate) => candidate === null)) {
+      return { existence: 'unknown', node: null, candidates: [], reason: 'STRUCTURE_SENSOR_SYMBOL_MALFORMED' };
+    }
+    return { existence: 'unknown', node: null, candidates, reason: 'STRUCTURE_CODE_ANCHOR_AMBIGUOUS' };
   }
   if (outcome.data.length === 0) {
-    return { existence: 'absent', node: null, reason: null };
+    return { existence: 'absent', node: null, candidates: [], reason: null };
   }
   const node = naturalNode(outcome.data[0]);
   if (node === null) {
-    return { existence: 'unknown', node: null, reason: 'STRUCTURE_SENSOR_SYMBOL_MALFORMED' };
+    return { existence: 'unknown', node: null, candidates: [], reason: 'STRUCTURE_SENSOR_SYMBOL_MALFORMED' };
   }
   if (node.path !== anchor.path) {
-    return { existence: 'absent', node: null, reason: null };
+    return { existence: 'absent', node: null, candidates: [], reason: null };
   }
-  return { existence: 'present', node, reason: null };
+  return { existence: 'present', node, candidates: [node], reason: null };
 }
 
 function naturalEdge(entry) {
@@ -246,6 +250,7 @@ function unknownAnchor(anchor, evidence, reason) {
     existence: 'unknown',
     coverage: 'unknown',
     node: null,
+    candidates: [],
     edges: {
       state: anchor.symbol === null ? 'not_applicable' : 'unknown',
       incoming: [], outgoing: [], incoming_omitted: 0, outgoing_omitted: 0,
@@ -297,7 +302,10 @@ function projectAnchor({ anchor, querySet, outcomes, statusReady }) {
   if (pathResult.existence === 'absent' && symbolResult.existence === 'present') {
     return unknownAnchor(anchor, evidence, 'STRUCTURE_SENSOR_EVIDENCE_CONFLICT');
   }
-  if (symbolResult.reason !== null) return unknownAnchor(anchor, evidence, symbolResult.reason);
+  if (symbolResult.reason !== null) return {
+    ...unknownAnchor(anchor, evidence, symbolResult.reason),
+    candidates: symbolResult.candidates,
+  };
 
   const decision = effectVerdict(anchor, symbolResult.existence);
   if (symbolResult.existence !== 'present') {
@@ -328,6 +336,7 @@ function projectAnchor({ anchor, querySet, outcomes, statusReady }) {
     existence: 'present',
     coverage: 'exact_symbol',
     node: symbolResult.node,
+    candidates: symbolResult.candidates,
     edges: {
       state: edgeUnknown ? 'unknown' : 'complete',
       incoming: incoming.edges,

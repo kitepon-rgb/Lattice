@@ -212,6 +212,7 @@ test('fuzzy不在・複数候補・宣言path外のexact候補を検証済みに
   }).anchors[0];
   assert.equal(ambiguousAnchor.verdict, 'unknown');
   assert.equal(ambiguousAnchor.reason, 'STRUCTURE_CODE_ANCHOR_AMBIGUOUS');
+  assert.deepEqual(ambiguousAnchor.candidates.map(({ start_line: line }) => line), [10, 30]);
 
   const elsewhere = collectedFor(set, {
     query: (outcome) => ({ ...outcome, data: [{ node: node({ filePath: 'src/other.mjs' }) }] }),

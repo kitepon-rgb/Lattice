@@ -167,7 +167,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - 実測: sg06固有7 test（実Git rename／binary／symlink／Gitlinkを含む）と既存sensor diff 15 test、
       sg03／sg05関連15 testの合計37件がgreen。
 
-- [ ] **sg07 — task transform overlayとstructure固有findingを実装する**
+- [x] **sg07 — task transform overlayとstructure固有findingを実装する**
   - Depends: sg03, sg05, sg06
   - Write: 新規`src/todo-structure-overlay.mjs`とstructure固有rule module、contract／compiler tests
   - 内容:
@@ -182,6 +182,20 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - shape／identity／lifecycle不一致と、証拠不足unknownが別codeになる。
     - independenceのconflict／wave／severabilityへ影響しない。
     - source node／edge、ToDo DAG、cycle algorithmの新しい正本を作らない。
+  - 実施記録（2026-08-11）:
+    - planned／latest realized transform、data port、bounded source node／edge、changeset、external contractを
+      digestで束縛したoverlayを作り、realization commit→taskも明示edgeにした。current sourceやcommit内容を
+      別のcode nodeとして二重計上していない。
+    - ToDo topologyは`projectTodoChainV1`と同じnormalize結果をlossless投影する共通入口を追加し、
+      pair到達性も`dag-chain.mjs`のnormalize／cycle判定上で行う狭い共通APIへ置いた。overlay固有の
+      topology parser・cycle algorithmは作っていない。
+    - coverage、input、orphan output、contract、dependency、cycle、anchor、sensor、commit、realizationの
+      typed findingを実装し、同じcode／severity／evidence／next actionの原因はtask・data・code・commit参照を
+      一件へ束ねた。最大1024件を返し、全件severity集計とomitted件数を残す。
+    - exact symbol複数候補をsource projectionから失わずbounded自然キーでfinding evidenceへ渡すよう、
+      sg05 adapterの投影不足も同時に修正した。
+    - 実測: DAG共通API、sg03〜sg07 adapter、実Git分類、finding正負例の関連60 testがgreen。
+      pack dry-runでoverlay／source／Git adapterの同梱を確認した。
 
 - [ ] **sg08 — derived artifact、鮮度、revision migrationを実装する**
   - Depends: sg07
