@@ -98,6 +98,24 @@ bridgeが無効な間は以下すべてnullで、bridgeを有効にしている�
 lattice bridge reconfigure --json
 ```
 
+### 公開面から自分のprojectが消えた時（`last_heartbeat`）
+
+hubへ繋いでいる端末では、`runtime.last_heartbeat`が最後にhubへ名乗った結果を持つ。公開一覧で
+自分のprojectがofflineになっている時、原因が端末側か配線側かはここで分かれる。
+
+| `state` | 意味 | 打つ手 |
+| --- | --- | --- |
+| `accepted` | 全件受理された。公開面に出ていないならhub側の可視性設定を見る | — |
+| `partial` | 一部が他の生きた端末に所有されている。`rejected_projects`が名指しする | 意図した端末なら放置。奪うなら`adopt` |
+| `rejected` | hubがrequest全体を拒否した。`detail`にtyped code | detailのcodeで分岐 |
+| `unreachable` | hubへ届かない。配線かhubの停止 | hubのURLと生死を確認 |
+| `skipped_no_projects` | 配信しているprojectが0件。名乗るものが無い | 正常な静止。公開したいならそのrepoで作業する |
+| `skipped_no_dashboard` | dashboard daemonを観測できない。配信そのものが立っていない | daemonの生死を見る。`todo`系commandを1回打てば起動する |
+| `null` | hub未設定、またはまだ1回も送っていない | — |
+
+名乗る集合はdaemonが実際に配信している集合そのもの（ADR 0165）。登録簿の`last_seen_at`が古い
+ことは露出に影響しない——**人がCLIを叩かなくなっただけで公開面から消えることはない**。
+
 ### 焼き込むnode pathの選び方（ADR 0163）
 
 常駐設定へ焼くnodeのpathは、版付きの実体（homebrewの`Cellar/node/<version>/bin/node`、nvm-windowsの

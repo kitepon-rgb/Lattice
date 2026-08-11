@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.57.1 — 2026-08-11
+
+### 修正
+
+- **端末を2時間触らないだけで、公開面から全projectが消える欠陥を直した。** `lattice.kitepon.dev`の
+  公開一覧が全projectオフラインになった。中身は生きていた——dashboard daemonは3件を配信中、
+  bridgeもLISTENして応答し、hub自身も200を返していた。それでも端末ごと消えた。
+
+  「この端末が公開しているproject」を2箇所が別々の基準で数えていたのが原因である。配信する側
+  （`readVisibleTodoDashboardProjects`）は「2時間以内 **または** active run有り」で数え、hubへ
+  名乗る側（`readActiveTodoDashboardProjects`）は「2時間以内だけ」で数えていた。`last_seen_at`は
+  store書込みのCLIを叩いた時にしか更新されないので、一晩触らなければ全件が2時間を超え、
+  heartbeatは`skipped_no_projects`として送信ごと省く。hubは90秒のTTLでofflineへ落とす。
+  配信できるのに名乗らないという消え方なので、外からは障害と区別がつかない。
+
+  heartbeatが名乗る集合を、配信しているdashboard daemon自身の`/__lattice/health`が返す
+  `project_ids`にした。配信の実体を唯一の情報源にし、名乗る側が二次的に数え直さない（ADR 0165）。
+  `TODO_DASHBOARD_STALE_MS`（2時間）は登録簿の掃除にだけ使い、公開面の露出判定へは使わない。
+- **「daemonが居ない」と「0件を配信している」を混ぜないようにした。** descriptor不在・health無応答・
+  descriptorとhealthのpid／port不一致は`skipped_no_dashboard`、配信0件は`skipped_no_projects`として
+  `lattice bridge status`の`runtime.last_heartbeat`まで届く。前者は配線の故障、後者は正常な静止で、
+  運用者が取る手が違う。
+
 ## 0.57.0 — 2026-08-10
 
 独立した2件の欠陥報告への対応。どちらも**失敗が沈黙し、正規APIに復旧経路が無い**という
