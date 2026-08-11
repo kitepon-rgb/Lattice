@@ -44,14 +44,7 @@
       ],
       "resources": [],
       "sensor_provenance": {
-        "queries": [
-          {
-            "expect": {
-              "kind": "status"
-            },
-            "query_id": "witness-status"
-          }
-        ]
+        "queries": []
       },
       "state_effects": [],
       "unknowns": [],
@@ -63,5 +56,5 @@
       ]
     }
   },
-  "witness_set_digest": "08be0210e4e43b35f3e6c51c0aae4d3f5a6c27b770b76af9d4ada338c33c8ea9"
+  "witness_set_digest": "63e341213bbc2f48e5be5e6418f89b44bbcb84cf8daa95d48a312b80b932324a"
 }
