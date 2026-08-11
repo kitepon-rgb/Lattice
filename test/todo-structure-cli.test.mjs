@@ -310,7 +310,13 @@ test('compileは実sensor・Git・DAGを結合し、readはsensor無しでfresh 
 
 test('compileとreadはunknown／inconsistentをmissingやconsistentと区別する', async (context) => {
   const unknownFixture = await workspace(context);
-  const unknownInput = await writeDraft(unknownFixture.root, structureSet(unknownFixture));
+  const unknownSet = structureSet(unknownFixture);
+  unknownSet.tasks[0].planned.code_anchors = [{
+    anchor_id: 'baseline-only', effect: 'read', path: 'README.md',
+    symbol: null, expected_at: 'baseline',
+  }];
+  unknownSet.structure_set_digest = todoSelfDigest(unknownSet, 'structure_set_digest');
+  const unknownInput = await writeDraft(unknownFixture.root, unknownSet);
   assert.equal(runCli(unknownFixture.root, [
     'structure', 'input', '--plan', 'main', '--input', unknownInput,
   ]).status, 0);

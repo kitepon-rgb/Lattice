@@ -1,6 +1,6 @@
 # plan: 進行中工程へのToDo構造検査の適用
 
-- Status: In Progress
+- Status: Complete
 - Lane: 統括（Latticeの実装修正とPeertableの実運用再適用を一つの受入へ束縛する複数repo書込み）
 - Owner: Codex親が単独writerとして直列実装する
 - Started: 2026-08-12
@@ -77,10 +77,13 @@ planned anchorとの一致・不一致へ正直に現れる。利用者へworktr
     read projectionは`fresh`／`enabled: true`。未コミット`member-turn-completed.mjs`はnatural sourceとして
     取り込まず、planned deferred anchorとして保持した。一時worktree残数は前後不変。
 
-- [ ] **lo05 — 契約・変更履歴・受入証拠を閉じる**
+- [x] **lo05 — 契約・変更履歴・受入証拠を閉じる**
   - ADR 0168のclean worktree契約を「cleanなauthoritative observation scope」へ精密化する。
   - focused regressionとPeertable dogfood結果を証拠化し、対象限定commitを作る。
   - publish／global install／本番dashboard deployはH操作として別途承認を得る。
+  - ADR 0168へclean observation scope、planned／final postcondition、realization順序を反映した。
+  - 受入証拠: [evidence/todo-structure-live-optin.md](evidence/todo-structure-live-optin.md)。publish／install／deployは
+    本campaignの未完了ではなく、明示H承認後に行う別操作として残した。
 
 ## 5. 受入条件
 
