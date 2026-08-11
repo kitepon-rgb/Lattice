@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.58.4 — 2026-08-12
+
+### 新機能
+
+- 構造付き工程の完了記録を機械化。実装が計画どおりなら`todo structure realize ... --planned`、
+  差異がある場合は実体構造transformだけを`--realized <file>`で渡せば、identity、現在HEAD、commit、
+  sequence、previous／supersedes、actor、時刻、digestをLatticeが生成する。
+- `--commit`省略時はHEADを使用し、複数commitの工程は反復指定できる。既存のfull realization
+  `--input`は移送・再生用の互換入口として維持する。commit／anchor検証とdone／finalization gateは変更しない。
+
 ## 0.58.3 — 2026-08-12
 
 ### 新機能
