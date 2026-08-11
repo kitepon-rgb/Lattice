@@ -74,7 +74,7 @@ Lattice工程表の定義後、対象planだけがcode-dataflow構造を入力�
     - 新機能実装前の現行挙動でbaseline testがgreen。
     - fixtureがLattice／Peertableのlive storeを読まず、単独で再現する。
 
-- [ ] **sg02 — ADRで所有境界とgateを固定する**
+- [x] **sg02 — ADRで所有境界とgateを固定する**
   - Depends: sg01
   - Write: `docs/adr/`の新規ADR、`docs/00_product-contract.md`はDecision確定後だけ
   - 内容:

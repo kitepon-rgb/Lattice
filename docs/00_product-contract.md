@@ -200,6 +200,17 @@ v5は`lines`を任意で持ち、pathを共有しないTODO間でも、同じpro
 指していない記録をverified独立として読ませない。`dispatch_frontier`の
 `all_ready_parallel_by_default`は変更せず、independenceはhostがsubsetを選ぶ根拠を与える別面とする。
 
+**ToDoの論理dataflow検査はplan定義後の明示opt-inである**（ADR 0168）。成功したplanned compileが
+plan version専用のimmutable structure bindingを発行したplanだけ、既存source graph、commit来歴、
+in-progress／pending／blocked ToDoを結ぶstructure overlayを持つ。判定は`consistent`／`inconsistent`／
+`unknown`を区別し、並列性判定と`next_ready`／`active_set`／`dispatch_frontier`を変えない。通常読取と
+dashboardは保存artifactを投影し、live sensorを引くのはclean worktreeでのauthoritative compileだけとする。
+
+有効化済みplanのgraph taskはfresh realization無しに`todo done`できない。全task done後にplanを閉じる
+`phase_accept`／`phase_close_unaudited`は、全realizationと最終HEADを再結合したfreshかつ`consistent`な
+finalizationを必要とする。bindingを持たないplanのcreate／migrate／read／lifecycle／Phase操作は変えない。
+planned、append-only realized、effectiveを分離し、plannedを実装結果で上書きしない。
+
 readyが複数ある状態での直列着手は、`--override-reason`の申告だけでは通さない。一度
 `PARALLEL_DISPATCH_RECONSIDER`で突き返し、同じ理由に`--serial-confirmed`を付けた再実行だけを
 受理する。足止めは一度だけとし、再実行した直列着手は受理する。さらに、理由がworker数・
