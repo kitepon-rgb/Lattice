@@ -112,6 +112,10 @@ async function bridgePersistence({ launchAgent, env }) {
     // `loaded` is launchd-specific; the Windows Startup folder has no such
     // concept and reports null rather than pretending to know.
     const loaded = typeof snapshot?.loaded === 'boolean' ? snapshot.loaded : null;
+    if (snapshot?.split === true) {
+      return { state: 'unreadable', ...UNREADABLE_PERSISTENCE, loaded,
+        error: 'BRIDGE_PERSISTENCE_STATE_SPLIT' };
+    }
     if (described === null) return { state: 'not_installed', ...UNREADABLE_PERSISTENCE, loaded, error: null };
     return { state: 'installed', loaded, ...described, error: null };
   } catch (error) {

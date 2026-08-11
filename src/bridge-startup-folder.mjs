@@ -239,10 +239,9 @@ export async function snapshotBridgeStartupFolder({ env = process.env } = {}) {
   await prepareDirectory(refs.runtimeDirectory);
   const launcherContent = await strictFile(refs.launcher);
   const descriptorContent = await strictFile(refs.descriptor);
-  if ((launcherContent === null) !== (descriptorContent === null)) {
-    throw fail('BRIDGE_STARTUP_FOLDER_STATE_INVALID', 'startup launcher and descriptor disagree on installed state');
-  }
-  return Object.freeze({ installed: launcherContent !== null, launcherContent, descriptorContent });
+  const split = (launcherContent === null) !== (descriptorContent === null);
+  return Object.freeze({ installed: launcherContent !== null && descriptorContent !== null,
+    split, launcherContent, descriptorContent });
 }
 
 async function pathPresent(ref) {

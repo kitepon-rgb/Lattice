@@ -109,6 +109,19 @@ test('未installのstartup folderはdescribeでnullを返す（存在しない�
     snapshot: await snapshotBridgeStartupFolder({ env }) }), null);
 });
 
+test('launcherだけ残る分裂状態はsnapshotで記録し、復旧経路を拒否しない', async (context) => {
+  const { env } = await fixture(context, 'lattice-startup-split-');
+  const refs = bridgeStartupFolderPaths(env);
+  await mkdir(path.dirname(refs.launcher), { recursive: true });
+  await mkdir(path.dirname(refs.descriptor), { recursive: true });
+  await writeFile(refs.launcher, 'orphan launcher');
+  const snapshot = await snapshotBridgeStartupFolder({ env });
+  assert.equal(snapshot.split, true);
+  assert.equal(snapshot.installed, false);
+  assert.equal(snapshot.launcherContent, 'orphan launcher');
+  assert.equal(snapshot.descriptorContent, null);
+});
+
 test('reconfigureは旧supervisorをtaskkillで止めてから新descriptor/launcherへ差し替える', async (context) => {
   const { env } = await fixture(context, 'lattice-startup-reconfigure-');
   const control = taskkillDouble();

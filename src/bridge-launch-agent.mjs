@@ -247,10 +247,8 @@ export async function snapshotBridgeLaunchAgent({ env = process.env,
   await prepareDirectory(refs.directory, uid);
   const content = await strictPlist(refs.plist, uid);
   const loaded = await loadedState(runner, uid);
-  if (loaded && content === null) {
-    throw fail('BRIDGE_LAUNCH_AGENT_STATE_INVALID', 'loaded bridge LaunchAgent has no owned plist');
-  }
-  return Object.freeze({ installed: content !== null, loaded, content });
+  const split = loaded && content === null;
+  return Object.freeze({ installed: content !== null, loaded, split, content });
 }
 
 const PROGRAM_ARGUMENTS_PATTERN =
