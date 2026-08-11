@@ -1,0 +1,36 @@
+{
+  "schema": "lattice.todo_witness_draft.v2",
+  "project_id": "lattice",
+  "plan_key": "peertable-dogfood-repairs-20260811",
+  "capacity": {"executors": 4},
+  "tasks": {
+    "ldr-01": {
+      "owns": [{"path":"evidence/peertable-dogfood-repairs-20260811/ldr-01.md","creates":true}],
+      "reads": ["docs/operations/lattice-kitepon-deployment.md","docs/plan_campaign-closeout-20260811.md","package.json"]
+    },
+    "ldr-02": {
+      "owns": ["src/todo-independence-guidance.mjs","src/runtime-pull-intake.mjs","test/todo-coordination-mode.test.mjs","test/runtime-pull-intake-cli.test.mjs",{"path":"evidence/peertable-dogfood-repairs-20260811/ldr-02.md","creates":true}],
+      "reads": ["docs/adr/0160-process-obligations-are-machine-held.md","docs/00_product-contract.md"]
+    },
+    "ldr-03": {
+      "owns": ["src/runtime-pull-intake.mjs","src/runtime-cli.mjs","test/runtime-pull-intake-cli.test.mjs",{"path":"evidence/peertable-dogfood-repairs-20260811/ldr-03.md","creates":true}],
+      "reads": ["docs/00_product-contract.md","docs/plan_backlog.md"]
+    },
+    "ldr-04": {
+      "owns": ["src/todo-cli.mjs","src/runtime-pull-intake.mjs","test/todo-independence-cli.test.mjs","test/runtime-pull-intake-cli.test.mjs",{"path":"evidence/peertable-dogfood-repairs-20260811/ldr-04.md","creates":true}],
+      "reads": ["docs/00_product-contract.md","scripts/verify-release-commit.mjs"]
+    },
+    "ldr-05": {
+      "owns": ["src/todo-store.mjs","src/todo-cli.mjs","test/todo-cross-plan-dependency.test.mjs","test/todo-cross-plan-status.test.mjs",{"path":"evidence/peertable-dogfood-repairs-20260811/ldr-05.md","creates":true}],
+      "reads": ["docs/00_product-contract.md","docs/plan_backlog.md"]
+    },
+    "ldr-06": {
+      "owns": ["src/todo-cli.mjs","src/todo-migration.mjs","src/cli-help.mjs","test/todo-migration.test.mjs","test/todo-cli-schema-command.test.mjs",{"path":"evidence/peertable-dogfood-repairs-20260811/ldr-06.md","creates":true}],
+      "reads": ["docs/00_product-contract.md","docs/plan_backlog.md","src/witness-scaffold.mjs"]
+    },
+    "ldr-10": {
+      "owns": ["src/todo-cli.mjs","test/todo-cli-schema-command.test.mjs","test/todo-cli.test.mjs",{"path":"evidence/peertable-dogfood-repairs-20260811/ldr-10.md","creates":true}],
+      "reads": ["src/cli-help.mjs"]
+    }
+  }
+}
