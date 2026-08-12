@@ -992,10 +992,10 @@ function validateCrossPlanDependencyRebindTransition(store, owner, input, option
       supersedes: payload.supersedes,
     });
   }
-  const source = crossPlanDependencyTask(store, from);
-  const target = crossPlanDependencyTask(store, to);
-  if (source.task.status === 'done') fail('DEPENDENCY_REBIND_INVALID', 'dependency_source_terminal');
-  if (target.task.status === 'done') fail('DEPENDENCY_REBIND_INVALID', 'dependency_target_terminal');
+  // 新規接続と違い、rebindは既に存在する依存のtopology bindingだけを更新する。
+  // revision後にendpointがdoneでも履歴上の依存は消えないため、terminal状態を拒否しない。
+  crossPlanDependencyTask(store, from);
+  crossPlanDependencyTask(store, to);
   if (from.expected_topology_digest === previousFrom.expected_topology_digest
     && to.expected_topology_digest === previousTo.expected_topology_digest) {
     fail('DEPENDENCY_REBIND_INVALID', 'rebind_not_stale');

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -22,7 +23,7 @@ const ACTOR = Object.freeze({ host: 'host-1', session: 'session-1', agent: 'agen
 const task = (taskId) => ({ task_id: taskId, title: taskId, lane: 'main',
   narrative_ref: null, compile_binding: null });
 
-async function staleWorkspace(context, { consumerCount = 1 } = {}) {
+async function staleWorkspace(context, { consumerCount = 1, terminalSource = false } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-cross-plan-rebind-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   execFileSync('git', ['init', '--quiet'], { cwd: root });
@@ -77,6 +78,29 @@ async function staleWorkspace(context, { consumerCount = 1 } = {}) {
         payload: { from, to: targetRef, reason: `fixture edge ${index + 1}` } },
     });
     connections.push({ connected, from, to: targetRef, planKey, taskId });
+  }
+  if (terminalSource) {
+    const evidence = {
+      evidence_id: 'fixture', repo_id: 'self', path: 'evidence.md',
+      git_blob_oid: execFileSync('git', ['rev-parse', 'HEAD:evidence.md'], {
+        cwd: root, encoding: 'utf8',
+      }).trim(),
+      content_digest: createHash('sha256')
+        .update(await readFile(path.join(root, 'evidence.md'))).digest('hex'),
+      media_type: 'text/markdown', anchor_digest: null,
+    };
+    await appendTodoEvent({
+      repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+      planKey: 'producer', now: NOW,
+      event: { kind: 'start', task_id: 'P', actor: ACTOR, recorded_at: NOW,
+        payload: { override_reason: null } },
+    });
+    await appendTodoEvent({
+      repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+      planKey: 'producer', now: NOW,
+      event: { kind: 'done', task_id: 'P', actor: ACTOR, recorded_at: NOW,
+        payload: { evidence } },
+    });
   }
 
   const successor = buildTodoPlan({
@@ -189,6 +213,36 @@ test('同じrevisionで複数edgeがstaleでもbatch rebindで一括復旧する
   assert.ok(dependencies.every(({ from: value }) => (
     value.expected_topology_digest === successor.topology_digest
   )));
+});
+
+test('revision前に完了したendpointのstale edgeも履歴を保って再束縛する', async (context) => {
+  const { root, successor, connections } = await staleWorkspace(context, { terminalSource: true });
+  const [{ connected, from, to, planKey, taskId }] = connections;
+  const input = {
+    schema: 'lattice.todo_dependency_rebind_batch.v1', project_id: 'project-1',
+    bindings: [{
+      from_plan_key: 'producer', from_task_id: 'P', to_plan_key: planKey, to_task_id: taskId,
+      old_event_digest: connected.event.event_digest,
+      old_from_topology_digest: from.expected_topology_digest,
+      old_to_topology_digest: to.expected_topology_digest,
+      current_from_topology_digest: successor.topology_digest,
+      current_to_topology_digest: to.expected_topology_digest,
+      reason: '完了済みendpointの履歴依存を再束縛',
+    }],
+  };
+  await writeFile(path.join(root, 'terminal-rebind.json'), `${JSON.stringify(input)}\n`);
+  let stdout = '';
+  let stderr = '';
+  const exit = await runTodoCli({
+    argv: ['dependency', 'rebind', '--input', 'terminal-rebind.json'], cwd: root,
+    stdout: { write: (chunk) => { stdout += chunk; } },
+    stderr: { write: (chunk) => { stderr += chunk; } },
+    env: { ...process.env, LATTICE_TODO_ACTOR_HOST: ACTOR.host,
+      LATTICE_TODO_ACTOR_SESSION: ACTOR.session, LATTICE_TODO_ACTOR_AGENT: ACTOR.agent,
+      LATTICE_DASHBOARD_AUTOSTART: '0' },
+  });
+  assert.equal(exit, 0, stderr);
+  assert.equal(JSON.parse(stdout).rebound_count, 1);
 });
 
 test('公開CLIは旧新topologyとfrontier diffを含むrebind receiptを返す', async (context) => {
