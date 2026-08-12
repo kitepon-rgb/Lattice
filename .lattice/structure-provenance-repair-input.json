@@ -1,0 +1,133 @@
+{
+  "schema": "lattice.todo_structure_set.v1",
+  "project_id": "lattice",
+  "plan_key": "structure-provenance-repair-20260812",
+  "plan_version": "v1",
+  "topology_digest": "8d36a330031fb94bc609a98fb1b45039295caddcb5d8e00f5ce8a7db4cd567a2",
+  "profile": "code-dataflow",
+  "baseline_sha": "a82c405e5d19fac95543a2e3faae14f81e3217f2",
+  "external_contracts": [],
+  "tasks": [
+    {
+      "task_id": "spr-01",
+      "applicability": "graph",
+      "planned": {
+        "outcome": "正当なpre-baseline実装commitとpost-baseline証跡commitを、明示OIDとGit changeset digestでrealizationへ束縛する",
+        "inputs": [
+          {
+            "port_id": "realization-oids",
+            "source": {
+              "kind": "constant",
+              "constant_id": "explicit-realization-commit-oids",
+              "value": ["pre-baseline-implementation", "post-baseline-evidence"]
+            },
+            "access": "observe",
+            "contract": {
+              "shape_id": "realization-commit-set",
+              "schema_ref": {
+                "path": "src/todo-structure-contracts.mjs",
+                "symbol": "TODO_STRUCTURE_REALIZATION_SCHEMA",
+                "json_pointer": null
+              },
+              "identity_fields": ["structure_set_digest", "task_id"],
+              "lifecycle": "immutable_artifact",
+              "cardinality": "one",
+              "compatible_shape_ids": []
+            }
+          }
+        ],
+        "operations": [
+          {
+            "operation_id": "classify-and-bind",
+            "input_port_ids": ["realization-oids"],
+            "output_port_ids": ["provenance-bundle"],
+            "summary": "Git到達性とbaseline前後関係を判定しchangeset digestへ束縛する"
+          }
+        ],
+        "outputs": [
+          {
+            "port_id": "provenance-bundle",
+            "data_id": "realization-provenance-bundle",
+            "contract": {
+              "shape_id": "realization-provenance-bundle",
+              "schema_ref": {
+                "path": "src/todo-structure-git-adapter.mjs",
+                "symbol": "TODO_STRUCTURE_GIT_PROVENANCE_SCHEMA",
+                "json_pointer": null
+              },
+              "identity_fields": ["head_sha", "structure_set_digest"],
+              "lifecycle": "immutable_artifact",
+              "cardinality": "one",
+              "compatible_shape_ids": []
+            },
+            "sinks": [
+              {
+                "kind": "final_product",
+                "product_id": "realization-chain"
+              }
+            ]
+          }
+        ],
+        "code_anchors": [
+          {
+            "anchor_id": "authoritative-observation",
+            "effect": "modify",
+            "path": "src/todo-structure-authoritative-observation.mjs",
+            "symbol": "collectTodoStructureAuthoritativeObservation",
+            "expected_at": "current"
+          },
+          {
+            "anchor_id": "git-binding",
+            "effect": "modify",
+            "path": "src/todo-structure-git-adapter.mjs",
+            "symbol": "bindTodoStructureRealizationCommits",
+            "expected_at": "current"
+          },
+          {
+            "anchor_id": "git-provenance",
+            "effect": "modify",
+            "path": "src/todo-structure-git-adapter.mjs",
+            "symbol": "collectTodoStructureGitProvenance",
+            "expected_at": "current"
+          },
+          {
+            "anchor_id": "realization-append",
+            "effect": "modify",
+            "path": "src/todo-store.mjs",
+            "symbol": "appendTodoStructureRealization",
+            "expected_at": "current"
+          },
+          {
+            "anchor_id": "structure-cli",
+            "effect": "modify",
+            "path": "src/todo-cli.mjs",
+            "symbol": "structureCompile",
+            "expected_at": "current"
+          },
+          {
+            "anchor_id": "structure-finalize",
+            "effect": "modify",
+            "path": "src/todo-cli.mjs",
+            "symbol": "structureFinalize",
+            "expected_at": "current"
+          }
+        ],
+        "failures": [
+          "anchor非交差commit",
+          "baseline自身commit",
+          "current HEADから到達不能なcommit",
+          "他taskがclaim済みのcommit"
+        ],
+        "first_live_e2e": "pre-baseline実装commitとpost-baseline証跡commitを同一realizationでstructure finalizeする",
+        "non_goals": [
+          "Latticeの一般plan CRUD変更",
+          "Peertable側実装変更",
+          "commit messageからの実装推定",
+          "公開・push・publish",
+          "新しいsensor/parserの追加"
+        ]
+      }
+    }
+  ],
+  "structure_set_digest": "1e86bc2e9701dc2e7e35710af0c0c126dadae7e1871c672914012550ff1c67c1"
+}

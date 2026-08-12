@@ -1,0 +1,54 @@
+{
+  "schema": "lattice.todo_extraction.v3",
+  "project_id": "lattice",
+  "plan_key": "structure-provenance-repair-20260812",
+  "plan_version": "v1",
+  "actor": {
+    "host": "KaitonoMacBook-Air",
+    "session": "hinata-lattice-repair-20260812",
+    "agent": "hinata"
+  },
+  "recorded_at": "2026-08-12T02:45:00.000Z",
+  "tasks": [
+    {
+      "task_id": "spr-01",
+      "title": "pre-baseline実装＋post-baseline証跡をrealizationへ束縛する",
+      "lane": "provenance",
+      "design_memo": "## 目的\n\n構造検査のbaselineより前に着地した正当な実装commitと、baselineより後の証跡commitを一つのrealizationへ束縛できるようにする。Gitの明示OIDをobject存在・current HEAD到達性・baselineとの前後関係で分類し、既存baseline..HEAD provenanceを保ったままpre-baseline補足changesetを収集する。\n\n## データフロー\n\nrealization.commit_oids → Git到達性/基線区分 → baseline範囲changeset＋pre-baseline補足changeset → changeset digest binding → mutating code anchor/path照合 → realization chain。\n\n## 負例\n\nunreachable、baseline自身、anchor非交差、他task claimをtypedに拒否し、commit message推測や偽no-opを使わない。\n\n## 受入\n\n正当なpre-baseline実装＋post-baseline証跡を通し、無関係/unreachableをrealization chain無変更で拒否し、既存provenance・digest・dirty worktree・claim契約を維持する。focused fixtureとCLI/store経路のtestをgreenにする。",
+      "narrative_ref": "docs/plan_structure-provenance-repair-20260812.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_structure-provenance-repair-20260812.md",
+        "origin_line": 32,
+        "source_commit": "d52c01070462eca77a77ff3c251dc75656f9ddcd",
+        "heading_path": [
+          "structure-provenance-repair-20260812 — pre-baseline実装commitのrealization束縛修理",
+          "実装工程"
+        ],
+        "markdown_depth": 2,
+        "parent_task_id": null,
+        "checkbox_state": "unchecked"
+      },
+      "migration_context": {
+        "external_canonical_ref": "Peertable f2実測: pre-baseline実装commitとpost-baseline証跡commitのrealization束縛",
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [
+          "docs/plan_structure-provenance-repair-20260812.md",
+          "docs/design_todo-logical-structure-graph.md"
+        ],
+        "notes": [
+          "既存baseline..HEAD provenanceの意味を変えず、明示realization commitのpre-baseline分だけを補足収集する",
+          "実装・証跡・負例を同一fixtureで機械検証し、unrelated/unreachableを成功扱いしない"
+        ]
+      }
+    }
+  ],
+  "hard_dependencies": [],
+  "joins": [],
+  "extraction_digest": "2b76b6c2ef9f1bb810f6005d7bc72ca839da926d5ecade7d83bf8e348d3c5f23"
+}
