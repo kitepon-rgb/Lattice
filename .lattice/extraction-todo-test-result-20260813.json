@@ -1,0 +1,48 @@
+{
+  "schema": "lattice.todo_extraction.v3",
+  "project_id": "lattice",
+  "plan_key": "todo-test-result-20260813",
+  "plan_version": "v1",
+  "actor": {
+    "host": "mac",
+    "session": "test-result-release-20260813",
+    "agent": "bell"
+  },
+  "recorded_at": "2026-08-12T20:35:00.000Z",
+  "tasks": [
+    {
+      "task_id": "ltr1",
+      "title": "`test_result`を実装・出荷し、インストール後の一時projectで保存と読出しを確認する",
+      "lane": "implementation",
+      "design_memo": "公開契約IDは lattice.todo_test_result.v1。非空Markdownのtest_resultをdone eventと同じtransactionへ保存し、旧storeではnull、todo showでは既存evidenceと同時に返す。schema・永続化・CLI・公開契約・focused testを完成させ、関連gateと監査後に承認済みのrelease・global installを行い、一時projectでstart→done→showを一往復する。evidence代替、自動生成・採点、Peertable固有処理、project横断dependencyは作らない。",
+      "narrative_ref": "docs/plan_todo-test-result-20260813.md",
+      "compile_binding": null,
+      "disposition": "register_pending",
+      "start": null,
+      "completion": null,
+      "source": {
+        "origin_plan_ref": "docs/plan_todo-test-result-20260813.md",
+        "origin_line": 20,
+        "source_commit": "50953a7db206e55304669d8992440baa74619e6e",
+        "heading_path": [
+          "ToDo試験結果の正式項目化（todo-test-result-20260813）— 計画正本",
+          "工程"
+        ],
+        "markdown_depth": 0,
+        "parent_task_id": null,
+        "checkbox_state": "absent"
+      },
+      "migration_context": {
+        "external_canonical_ref": null,
+        "carry_over_ref": null,
+        "h_required": false,
+        "condition": null,
+        "evidence_refs": [],
+        "notes": []
+      }
+    }
+  ],
+  "hard_dependencies": [],
+  "joins": [],
+  "extraction_digest": "2bed7542fe8360dd42c012f80355bccdfb88c1b738ed413a88839d6c5bda4c69"
+}
