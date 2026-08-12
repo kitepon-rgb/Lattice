@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.58.5 — 2026-08-12
+
+### 修正
+
+- 構造provenance修理のartifact、snapshot、証跡を公開候補へ統合し、spr-01の7コミットを同じ来歴で検証できるようにした。
+- carry-removal-retirementのcr4-retire実行証跡を候補へ固定し、clean cloneでもToDo storeの証拠検証を完了できるようにした。
+
 ## 0.58.4 — 2026-08-12
 
 ### 新機能
