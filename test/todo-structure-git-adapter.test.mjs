@@ -336,3 +336,57 @@ test('realizationの明示commitだけをchangeset digestへ束縛しmessage推�
   }), (error) => error instanceof TodoStructureGitError
     && error.code === 'STRUCTURE_REALIZATION_COMMIT_UNREACHABLE');
 });
+
+test('strict pre-baseline commitだけを補足changesetへ分離し、既存baseline範囲を変えない', async (context) => {
+  const repo = await mkdtemp(path.join(tmpdir(), 'lattice-structure-git-supplemental-'));
+  context.after(() => rm(repo, { recursive: true, force: true }));
+  git(repo, ['init', '-q']);
+  git(repo, ['config', 'user.name', 'Lattice Test']);
+  git(repo, ['config', 'user.email', 'lattice@example.invalid']);
+  await mkdir(path.join(repo, 'src'));
+  await writeFile(path.join(repo, 'src/core.mjs'), 'export const version = 1;\n');
+  git(repo, ['add', '--', 'src/core.mjs']);
+  git(repo, ['commit', '-q', '-m', 'implementation before baseline']);
+  const preBaseline = git(repo, ['rev-parse', 'HEAD']);
+  await writeFile(path.join(repo, 'src/core.mjs'), 'export const version = 2;\n');
+  git(repo, ['add', '--', 'src/core.mjs']);
+  git(repo, ['commit', '-q', '-m', 'second implementation before baseline']);
+  const secondPreBaseline = git(repo, ['rev-parse', 'HEAD']);
+  await writeFile(path.join(repo, 'README.md'), 'baseline\n');
+  git(repo, ['add', '--', 'README.md']);
+  git(repo, ['commit', '-q', '-m', 'baseline']);
+  const baseline = git(repo, ['rev-parse', 'HEAD']);
+  await writeFile(path.join(repo, 'README.md'), 'post-baseline evidence\n');
+  git(repo, ['add', '--', 'README.md']);
+  git(repo, ['commit', '-q', '-m', 'evidence']);
+  const postBaseline = git(repo, ['rev-parse', 'HEAD']);
+  const set = structureSet(baseline);
+
+  const ordinary = collectTodoStructureGitProvenance({ repoRoot: repo, structureSet: set });
+  const supplemented = collectTodoStructureGitProvenance({
+    repoRoot: repo,
+    structureSet: set,
+    supplementalCommitOids: [preBaseline, secondPreBaseline, postBaseline],
+  });
+  assert.deepEqual(supplemented.commit_order, ordinary.commit_order);
+  assert.deepEqual(supplemented.changesets, ordinary.changesets);
+  assert.deepEqual(supplemented.summary, ordinary.summary);
+  assert.deepEqual(supplemented.supplemental_changesets.map(({ commit_oid: oid }) => oid),
+    [preBaseline, secondPreBaseline].sort());
+  const bound = bindTodoStructureRealizationCommits({
+    provenance: supplemented,
+    realizations: [realization(set, postBaseline, {
+      commit_oids: [preBaseline, secondPreBaseline, postBaseline].sort(),
+    })],
+  });
+  assert.deepEqual(bound[0].commits.map(({ commit_oid: oid }) => oid),
+    [preBaseline, secondPreBaseline, postBaseline].sort());
+  assert.throws(() => collectTodoStructureGitProvenance({
+    repoRoot: repo, structureSet: set, supplementalCommitOids: [baseline],
+  }), (error) => error instanceof TodoStructureGitError
+    && error.code === 'STRUCTURE_REALIZATION_COMMIT_UNREACHABLE');
+  assert.throws(() => collectTodoStructureGitProvenance({
+    repoRoot: repo, structureSet: set, supplementalCommitOids: ['f'.repeat(40)],
+  }), (error) => error instanceof TodoStructureGitError
+    && error.code === 'STRUCTURE_REALIZATION_COMMIT_UNREACHABLE');
+});

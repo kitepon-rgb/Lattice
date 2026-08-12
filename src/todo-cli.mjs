@@ -2093,16 +2093,21 @@ async function structureCompile({ repoRoot, env, planKey, inputRef }) {
       next_action: `lattice todo structure --plan ${planKey} --json`,
     });
   }
-  const actor = mutationActor(env);
-  const observation = await collectTodoStructureAuthoritativeObservation({ repoRoot, structureSet });
-  const sourceEvidence = observation.source_evidence;
-  const gitProvenance = observation.git_provenance;
   const realizations = [];
   for (const task of structureSet.tasks.filter(({ applicability }) => applicability === 'graph')) {
     realizations.push(...await readTodoStructureRealizationChain({
       repoRoot, structureSet, taskId: task.task_id,
     }));
   }
+  const actor = mutationActor(env);
+  const observation = await collectTodoStructureAuthoritativeObservation({
+    repoRoot, structureSet,
+    supplementalCommitOids: [...new Set(
+      realizations.flatMap(({ commit_oids: commitOids }) => commitOids),
+    )],
+  });
+  const sourceEvidence = observation.source_evidence;
+  const gitProvenance = observation.git_provenance;
   const overlay = compileTodoStructureOverlay({
     structureSet,
     topology: mergedTopology(store),
@@ -2358,6 +2363,9 @@ async function structureFinalize({ repoRoot, env, planKey }) {
   const actor = mutationActor(env);
   const observation = await collectTodoStructureAuthoritativeObservation({
     repoRoot, structureSet: source, effectiveTransforms,
+    supplementalCommitOids: [...new Set(
+      realizations.flatMap(({ commit_oids: commitOids }) => commitOids),
+    )],
   });
   const sourceEvidence = observation.source_evidence;
   const gitProvenance = observation.git_provenance;

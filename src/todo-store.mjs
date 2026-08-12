@@ -4964,10 +4964,11 @@ export async function appendTodoStructureRealization(options = {}) {
 
     const provenance = collectTodoStructureGitProvenance({
       repoRoot, structureSet, requireClean: false,
+      supplementalCommitOids: realization.commit_oids,
     });
     bindTodoStructureRealizationCommits({ provenance, realizations: [realization] });
     const declared = new Set(realization.commit_oids);
-    const changedPaths = new Set(provenance.changesets
+    const changedPaths = new Set([...provenance.changesets, ...provenance.supplemental_changesets]
       .filter(({ commit_oid: commitOid }) => declared.has(commitOid))
       .flatMap(({ changes }) => changes.flatMap(({ path: changedPath, previous_path: previousPath }) => (
         previousPath === null ? [changedPath] : [changedPath, previousPath]

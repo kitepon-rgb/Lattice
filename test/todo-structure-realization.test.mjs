@@ -75,6 +75,10 @@ async function fixture(context, { secondExcluded = false } = {}) {
     '.lattice/sensor/', '.lattice/test-inputs/', '.lattice/evidence/', '',
   ].join('\n'));
   await mkdir(path.join(root, 'src'));
+  await writeFile(path.join(root, 'src/shared.mjs'), 'export const value = 0;\n');
+  git(root, ['add', 'src/shared.mjs']);
+  git(root, ['commit', '--quiet', '-m', 'pre-baseline implementation']);
+  const preBaselineImplementation = git(root, ['rev-parse', 'HEAD']);
   await writeFile(path.join(root, 'src/shared.mjs'), 'export const value = 1;\n');
   git(root, ['add', '.gitignore', 'src/shared.mjs']);
   git(root, ['commit', '--quiet', '-m', 'baseline']);
@@ -124,7 +128,7 @@ async function fixture(context, { secondExcluded = false } = {}) {
   git(root, ['add', 'src/shared.mjs']);
   git(root, ['commit', '--quiet', '-m', 'implementation']);
   return {
-    root, set, implementationCommit: git(root, ['rev-parse', 'HEAD']),
+    root, set, preBaselineImplementation, implementationCommit: git(root, ['rev-parse', 'HEAD']),
   };
 }
 
@@ -234,6 +238,20 @@ test('plannedどおりの実装はrealization envelopeを機械生成してHEAD�
   assert.equal(record.realization_digest, todoSelfDigest(record, 'realization_digest'));
 });
 
+test('pre-baseline実装commitとbaseline後commitを同じrealizationへ束縛する', async (context) => {
+  const data = await fixture(context);
+  const result = run(data.root, [
+    'structure', 'realize', '--plan', 'main', '--task', 'T1', '--planned',
+    '--commit', data.preBaselineImplementation, '--commit', data.implementationCommit,
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const source = await readTodoStructureSource({ repoRoot: data.root, planKey: 'main' });
+  const [record] = await readTodoStructureRealizationChain({
+    repoRoot: data.root, structureSet: source, taskId: 'T1',
+  });
+  assert.deepEqual(record.commit_oids, [data.implementationCommit, data.preBaselineImplementation].sort());
+});
+
 test('実体構造だけを渡すとmetadataと訂正chainを機械生成する', async (context) => {
   const data = await fixture(context);
   const first = run(data.root, [
@@ -305,6 +323,14 @@ test('realizeはstale planned・unreachable commitを無変更で拒否する', 
   ]);
   assert.equal(unreachableResult.status, 1);
   assert.equal(parse(unreachableResult.stderr).code, 'STRUCTURE_REALIZATION_COMMIT_UNREACHABLE');
+
+  const baseline = realization(data, 'T1', { commit_oids: [data.set.baseline_sha] });
+  const baselineRef = await writeInput(data.root, 'baseline.json', baseline);
+  const baselineResult = run(data.root, [
+    'structure', 'realize', '--plan', 'main', '--task', 'T1', '--input', baselineRef,
+  ]);
+  assert.equal(baselineResult.status, 1);
+  assert.equal(parse(baselineResult.stderr).code, 'STRUCTURE_REALIZATION_COMMIT_UNREACHABLE');
 
   const unboundTransform = transform('T1');
   unboundTransform.code_anchors[0].path = 'src/not-changed.mjs';

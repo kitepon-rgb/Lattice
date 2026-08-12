@@ -81,7 +81,7 @@ function errorSummary(error) {
  * 管理repoで行うため、ここへは持ち込まない。
  */
 export async function collectTodoStructureAuthoritativeObservation({
-  repoRoot, structureSet, effectiveTransforms = null,
+  repoRoot, structureSet, effectiveTransforms = null, supplementalCommitOids = [],
   initializeSensor = initializeObservationSensor,
 } = {}) {
   if (typeof repoRoot !== 'string' || repoRoot.length === 0
@@ -120,7 +120,7 @@ export async function collectTodoStructureAuthoritativeObservation({
     // sensor DBを作る前にclean treeをGit provenanceへ束縛する。sensorの一時fileは証拠対象外で、
     // source projection収集後にworktreeごと破棄する。
     const gitProvenance = collectTodoStructureGitProvenance({
-      repoRoot: observationRoot, structureSet,
+      repoRoot: observationRoot, structureSet, supplementalCommitOids,
     });
     await initializeSensor(observationRoot);
     const sourceEvidence = await collectTodoStructureSourceEvidence({

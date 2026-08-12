@@ -292,6 +292,51 @@ function buildChangesets(commits, rawByCommit, statsByCommit) {
   return { changesets, totalChanges, totalChangedLines };
 }
 
+function collectChangesets(run, cwd, commits, revision) {
+  if (commits.length === 0) return { changesets: [], totalChanges: 0, totalChangedLines: 0 };
+  const revisions = Array.isArray(revision) ? revision : [revision];
+  const raw = runGit(run, cwd, [
+    'log', '--reverse', '--topo-order', '--format=%x1e%H%x00', '--raw', '-z', '--no-abbrev',
+    '--find-renames=50%', '--diff-merges=first-parent', ...revisions,
+  ]);
+  const numstat = runGit(run, cwd, [
+    'log', '--reverse', '--topo-order', '--format=%x1e%H%x00', '--numstat', '-z',
+    '--no-renames', '--diff-merges=first-parent', ...revisions,
+  ]);
+  return buildChangesets(commits, parseRawChanges(raw), parseNumstat(numstat));
+}
+
+function supplementalCommits(run, cwd, baselineSha, headSha, requested) {
+  if (!Array.isArray(requested) || requested.some((oid) => !SHA.test(oid))
+    || new Set(requested).size !== requested.length) {
+    fail('STRUCTURE_GIT_INPUT_INVALID', 'supplemental_commit_oids_invalid');
+  }
+  const supplemental = [];
+  for (const commitOid of requested) {
+    const object = gitResult(run, cwd, ['cat-file', '-e', `${commitOid}^{commit}`], {
+      allow: [0, 1, 128], maxBuffer: 1_024,
+    });
+    const reachable = object.status === 0 && gitResult(run, cwd, [
+      'merge-base', '--is-ancestor', commitOid, headSha,
+    ], { allow: [0, 1], maxBuffer: 1_024 }).status === 0;
+    if (!reachable || commitOid === baselineSha) {
+      fail('STRUCTURE_REALIZATION_COMMIT_UNREACHABLE',
+        !reachable ? 'realization_commit_unreachable_from_head' : 'realization_commit_is_baseline',
+        { commit_oid: commitOid, baseline_sha: baselineSha, head_sha: headSha });
+    }
+    const preBaseline = gitResult(run, cwd, [
+      'merge-base', '--is-ancestor', commitOid, baselineSha,
+    ], { allow: [0, 1], maxBuffer: 1_024 }).status === 0;
+    if (preBaseline) supplemental.push(commitOid);
+  }
+  if (supplemental.length > TODO_STRUCTURE_GIT_LIMITS.commits) {
+    fail('STRUCTURE_GIT_HISTORY_TOO_LARGE', 'supplemental_commit_count_exceeds_limit', {
+      actual: supplemental.length, limit: TODO_STRUCTURE_GIT_LIMITS.commits,
+    });
+  }
+  return supplemental.sort(compareText);
+}
+
 function boundedSensorLists(result) {
   return [
     result?.files?.added, result?.files?.removed, result?.files?.changed,
@@ -362,6 +407,7 @@ function collectSensorDiff(sensorDiffRequest, compareSensor) {
 export function collectTodoStructureGitProvenance({
   repoRoot,
   structureSet,
+  supplementalCommitOids = [],
   sensorDiffRequest = null,
   requireClean = true,
   runGit: run = defaultRunGit,
@@ -379,15 +425,19 @@ export function collectTodoStructureGitProvenance({
   ]), 'rev_list');
   const commits = parseRevisionList(revisionText);
   const range = `${structureSet.baseline_sha}..${headSha}`;
-  const raw = runGit(run, repoRoot, [
-    'log', '--reverse', '--topo-order', '--format=%x1e%H%x00', '--raw', '-z', '--no-abbrev',
-    '--find-renames=50%', '--diff-merges=first-parent', range,
-  ]);
-  const numstat = runGit(run, repoRoot, [
-    'log', '--reverse', '--topo-order', '--format=%x1e%H%x00', '--numstat', '-z',
-    '--no-renames', '--diff-merges=first-parent', range,
-  ]);
-  const built = buildChangesets(commits, parseRawChanges(raw), parseNumstat(numstat));
+  const built = collectChangesets(run, repoRoot, commits, range);
+  const changesets = built.changesets;
+  const supplementalOids = supplementalCommits(
+    run, repoRoot, structureSet.baseline_sha, headSha, supplementalCommitOids,
+  );
+  const supplementalRevision = supplementalOids.map((oid) => `${oid}^!`);
+  const supplementalRevisionText = supplementalOids.length === 0 ? '' : utf8(runGit(run, repoRoot, [
+    'rev-list', '--parents', '--no-walk=unsorted', ...supplementalOids,
+  ]), 'supplemental_rev_list');
+  const supplemental = collectChangesets(
+    run, repoRoot, parseRevisionList(supplementalRevisionText), supplementalRevision,
+  ).changesets;
+  const summaryChanges = changesets.flatMap(({ changes }) => changes);
   const sensorDiff = collectSensorDiff(sensorDiffRequest, compareSensor);
   const provenance = {
     schema: TODO_STRUCTURE_GIT_PROVENANCE_SCHEMA,
@@ -395,22 +445,23 @@ export function collectTodoStructureGitProvenance({
     baseline_sha: structureSet.baseline_sha,
     head_sha: headSha,
     commit_order: commits.map(({ commit_oid: oid }) => oid),
-    changesets: built.changesets,
+    changesets,
+    supplemental_changesets: supplemental,
     summary: {
       commits: commits.length,
       changes: built.totalChanges,
       changed_lines: built.totalChangedLines,
-      regular: built.changesets.flatMap(({ changes }) => changes)
+      regular: summaryChanges
         .filter(({ file_kind: kind }) => kind === 'regular').length,
-      symlink: built.changesets.flatMap(({ changes }) => changes)
+      symlink: summaryChanges
         .filter(({ file_kind: kind }) => kind === 'symlink').length,
-      submodule: built.changesets.flatMap(({ changes }) => changes)
+      submodule: summaryChanges
         .filter(({ file_kind: kind }) => kind === 'submodule').length,
-      special: built.changesets.flatMap(({ changes }) => changes)
+      special: summaryChanges
         .filter(({ file_kind: kind }) => kind === 'special').length,
-      binary: built.changesets.flatMap(({ changes }) => changes)
+      binary: summaryChanges
         .filter(({ binary }) => binary === true).length,
-      renames: built.changesets.flatMap(({ changes }) => changes)
+      renames: summaryChanges
         .filter(({ change }) => change === 'rename').length,
     },
     sensor_diff: sensorDiff,
@@ -426,7 +477,7 @@ export function bindTodoStructureRealizationCommits({ provenance, realizations }
     || !Array.isArray(provenance.changesets) || !Array.isArray(realizations)) {
     fail('STRUCTURE_GIT_INPUT_INVALID', 'realization_binding_input_invalid');
   }
-  const changesets = new Map(provenance.changesets
+  const changesets = new Map([...provenance.changesets, ...(provenance.supplemental_changesets ?? [])]
     .map((changeset) => [changeset.commit_oid, changeset.changeset_digest]));
   return realizations.map((realization) => {
     const explained = explainTodoStructureRealization(realization);

@@ -283,7 +283,7 @@ function buildOverlayGraph(structureSet, states, latestRealizations, sourceProje
       contract_id: external.contract_id, contract: structuredClone(external.contract),
     });
   }
-  for (const changeset of gitProvenance.changesets) {
+  for (const changeset of [...gitProvenance.changesets, ...(gitProvenance.supplemental_changesets ?? [])]) {
     nodes.push({
       kind: 'changeset', ref: `commit:${changeset.commit_oid}`,
       commit_oid: changeset.commit_oid, changeset_digest: changeset.changeset_digest,
@@ -457,7 +457,8 @@ function connectionFindings(structureSet, effective, topologyDag, states) {
 
 function realizationFindings(structureSet, states, realizations, gitProvenance, effective) {
   const findings = [];
-  const changesets = new Map(gitProvenance.changesets.map((entry) => [entry.commit_oid, entry]));
+  const changesets = new Map([...gitProvenance.changesets, ...(gitProvenance.supplemental_changesets ?? [])]
+    .map((entry) => [entry.commit_oid, entry]));
   for (const task of structureSet.tasks) {
     if (task.applicability !== 'graph') continue;
     const state = states.get(task.task_id);
