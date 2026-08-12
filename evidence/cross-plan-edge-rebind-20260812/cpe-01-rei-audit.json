@@ -1,0 +1,9 @@
+{
+  "evidence_id": "cpe-01-rei-audit",
+  "repo_id": "lattice",
+  "path": "evidence/cross-plan-edge-rebind-20260812/cpe-01-rei-audit.md",
+  "git_blob_oid": "81aabd877dafd9a80ed64acea9bb2ed303c7f598",
+  "content_digest": "f82726d295af8641afdf2284cf890a8501d6d04430894a38a56f4b6dc0600d9b",
+  "media_type": "text/markdown",
+  "anchor_digest": null
+}
