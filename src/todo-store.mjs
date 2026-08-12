@@ -302,7 +302,7 @@ async function readPlanScopedJournal(repoRoot, journalRef) {
 
 function taskState(taskId) {
   return { task_id: taskId, status: 'pending', started_at: null, done_at: null, blocked_reason: null,
-    evidence: null, evidence_unverified: false, imported: false };
+    evidence: null, evidence_unverified: false, imported: false, test_result: null };
 }
 
 function emptyPhaseState(phaseId) {
@@ -685,6 +685,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           plan_key: plan.plan_key, task_id: event.task_id,
         });
         state.status = 'done'; state.done_at = event.recorded_at; state.evidence = event.payload.evidence;
+        state.test_result = event.payload.test_result ?? null;
         state.imported = false;
         completion.set(event.task_id, { mode: 'authored', completed_at: event.recorded_at });
       } else if (event.payload.done_mode === 'historical_import') {
@@ -731,7 +732,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
       }
       const startedSuccessor = localSuccessors(plan, event.task_id).some((id) => states.get(id).status !== 'pending');
       if (startedSuccessor && event.payload.override_reason === null) fail('STORE_INCONSISTENT', 'reopen_has_started_successor');
-      state.status = 'in-progress'; state.done_at = null; state.evidence = null;
+      state.status = 'in-progress'; state.done_at = null; state.evidence = null; state.test_result = null;
       completion.delete(event.task_id);
     }
   }
@@ -774,11 +775,21 @@ function snapshotFor(plan, events, tasks) {
   // ——ADR 0147以降の暗黙terminal-audit Phaseの状態は、この関数の外(readTodoStore/
   // appendTodoEventが返す`phases`という導出ビュー)で供給する。
   const phasePlan = isPhaseTodoPlanSchema(plan.schema);
+  const resultAware = events.some((event) => event.kind === 'done'
+    && typeof event.payload?.test_result === 'string')
+    || events.some((event) => event.kind === 'plan_genesis'
+      && event.state_migration?.some(({ state }) => typeof state?.test_result === 'string'));
+  const snapshotTasks = resultAware ? tasks.map((task) => ({ ...task, test_result: task.test_result ?? null }))
+    : tasks.map(({ test_result: _testResult, ...task }) => task);
   const snapshot = {
-    schema: phasePlan ? 'lattice.todo_snapshot.v2' : 'lattice.todo_snapshot.v1',
+    schema: resultAware
+      ? (phasePlan ? 'lattice.todo_snapshot.v4' : 'lattice.todo_snapshot.v3')
+      : (phasePlan ? 'lattice.todo_snapshot.v2' : 'lattice.todo_snapshot.v1'),
     project_id: plan.project_id, plan_key: plan.plan_key,
-    plan_version: plan.plan_version, projection_version: phasePlan ? 2 : 1, through_sequence: head.sequence,
-    journal_head_digest: head.event_digest, tasks, snapshot_digest: '',
+    plan_version: plan.plan_version,
+    projection_version: resultAware ? (phasePlan ? 4 : 3) : (phasePlan ? 2 : 1),
+    through_sequence: head.sequence,
+    journal_head_digest: head.event_digest, tasks: snapshotTasks, snapshot_digest: '',
     ...(phasePlan ? { phases: projectPhaseStates(plan, events,
       new Map(tasks.map((task) => [task.task_id, task]))) } : {}),
   };
@@ -1515,9 +1526,14 @@ export async function rebuildTodoSnapshot(options = {}) {
 
 function nextEvent(input, storeMember) {
   const previous = storeMember.journal.events.at(-1);
-  const payload = input.kind === 'done' && exactRecord(input.payload, ['evidence'])
-    ? { done_mode: 'authored', imported: false, evidence: input.payload.evidence }
-    : input.payload;
+  let payload = input.payload;
+  if (input.kind === 'done' && (exactRecord(input.payload, ['evidence'])
+    || exactRecord(input.payload, ['evidence', 'test_result']))) {
+    payload = {
+      done_mode: 'authored', imported: false, evidence: input.payload.evidence,
+      ...(input.payload.test_result === undefined ? {} : { test_result: input.payload.test_result }),
+    };
+  }
   const phaseCapablePlan = isPhaseTodoPlanSchema(storeMember.plan.schema);
   const phaseKind = ['phase_review', 'phase_accept', 'phase_reject', 'phase_reopen', 'phase_close_unaudited']
     .includes(input.kind);
@@ -2613,6 +2629,7 @@ function stateMigrationFor(previous, revision) {
     return { ...migration, state: {
       status: state.status, started_at: state.started_at, done_at: state.done_at,
       blocked_reason: state.blocked_reason, evidence: state.evidence, imported: state.imported,
+      ...(typeof state.test_result === 'string' ? { test_result: state.test_result } : {}),
     } };
   });
 }

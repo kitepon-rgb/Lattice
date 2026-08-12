@@ -262,7 +262,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo retract': 'todo retract --plan <key> --task <id> --reason <text>',
   'todo block': 'todo block --plan <key> --task <id> --reason <text>',
   'todo unblock': 'todo unblock --plan <key> --task <id>',
-  'todo done': 'todo done --plan <key> --task <id> --evidence <file>',
+  'todo done': 'todo done --plan <key> --task <id> --evidence <file> [--test-result <markdown-file>]',
   'todo reopen': 'todo reopen --plan <key> --task <id> --reason <text> [--override-reason <text>]',
   'todo evidence': 'todo evidence promote --plan <key> --task <id> --evidence <file>',
   'todo evidence promote': 'todo evidence promote --plan <key> --task <id> --evidence <file>',

@@ -334,6 +334,27 @@ test('todo reviseはcanonical revisionだけを発行しstatus/verifyへreconcil
   assert.equal(JSON.parse(drifted.stderr).code, 'RECONCILIATION_INCOMPLETE');
 });
 
+test('todo reviseのcarryは完了済みTaskのtest_resultを次版へ引き継ぐ', async (context) => {
+  const root = await workspace(context);
+  const { descriptor } = await evidenceFixture(root);
+  const markdown = '## 最終試験\n\n- focused: 2/2\n';
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T1', actor: ACTOR, recorded_at: NOW,
+      payload: { override_reason: null } } });
+  await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'done', task_id: 'T1', actor: ACTOR, recorded_at: NOW,
+      payload: { evidence: descriptor, test_result: markdown } } });
+
+  const revision = await revisionInput(root);
+  await writeCanonical(root, 'revision.json', revision);
+  successJson(runCli(root, ['todo', 'revise', '--plan', 'main', '--input', 'revision.json']));
+
+  const shown = successJson(runCli(root, ['todo', 'show', '--plan', 'main', '--task', 'T1', '--json']));
+  assert.equal(shown.state.status, 'done');
+  assert.equal(shown.state.test_result, markdown);
+});
+
 test('todo verifyはactive phase v1/v2でも履歴上のsource inventoryを検証する', async (context) => {
   const root = await workspace(context);
   const revision = await revisionInput(root);

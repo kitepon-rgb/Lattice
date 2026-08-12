@@ -35,7 +35,8 @@
   `lattice.todo_binding_projection.v1`を返す（[ADR 0124](adr/0124-todo-binding-projection.md)）。
   `todo_status_result`とは独立した加算の別面なので、statusの版に関わらず既存hostはそのまま動く。
 - TODO工程: 現行authoringは`lattice.plan_create_input.v4`、planは`lattice.todo_plan.v7`、
-  eventは`lattice.todo_event.v4`、snapshotは`lattice.todo_snapshot.v2`、Phase revisionは
+  eventは`lattice.todo_event.v4`、snapshotは通常`lattice.todo_snapshot.v1`／`v2`、`test_result`を
+  一度でも持つplanでは`v3`／`v4`（後者がPhase付き）、Phase revisionは
   `lattice.phase_todo_revision.v3`、cross-plan revisionは`lattice.todo_revision_set.v3`、
   statusは`lattice.todo_status_result.v6`を使う（`audit_pending`に加えて工程に属する義務を出す
   `plan_notes`、調整方式の宣言を出す`coordination`、並列候補を出す`parallel_candidates`を持つ。

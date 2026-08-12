@@ -49,7 +49,7 @@ test('通常の個別ToDo詳細はnote listなしでbounded note contextを返�
   const shown = run(root, ['todo', 'show', '--plan', 'main', '--task', 'T1', '--json']);
   assert.equal(shown.status, 0, shown.stderr);
   const result = JSON.parse(shown.stdout);
-  assert.equal(result.schema, 'lattice.todo_detail_result.v2');
+  assert.equal(result.schema, 'lattice.todo_detail_result.v3');
   assert.equal(result.task.task_id, 'T1');
   assert.equal(result.design_memo.status, 'missing_legacy');
   assert.equal(result.note_context.notes[0].body, '既定方針');

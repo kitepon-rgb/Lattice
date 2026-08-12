@@ -62,10 +62,14 @@ const CONTROL = /[\u0000-\u001f\u007f]/u;
 const NOTE_FORBIDDEN_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
 
 export const TODO_DESIGN_MEMO_PROMPT = 'あなたがこのToDoに対して、何も考えていないならば、設計メモに `NO_PLAN` と書いてください';
+export const TODO_TEST_RESULT_CONTRACT_ID = 'lattice.todo_test_result.v1';
 
 export const isTodoDigest = (value) => typeof value === 'string' && DIGEST.test(value);
 export const isTodoIdentifier = (value) => typeof value === 'string' && IDENTIFIER.test(value);
 export const isNonNegativeSafeInteger = (value) => Number.isSafeInteger(value) && value >= 0;
+export const isTodoTestResult = (value) => typeof value === 'string' && value.trim().length > 0
+  && Buffer.byteLength(value, 'utf8') <= TODO_LIMITS.noteBodyBytes
+  && !NOTE_FORBIDDEN_CONTROL.test(value);
 
 export function isStrictTodoTimestamp(value) {
   return isCanonicalUtcTimestamp(value);
@@ -527,8 +531,10 @@ function validPayload(event) {
   if (event.kind === 'block') return exactRecord(payload, ['reason']) && nullableText(payload.reason) && payload.reason !== null;
   if (event.kind === 'unblock') return exactRecord(payload, []);
   if (event.kind === 'done' && payload?.done_mode === 'authored') {
-    return exactRecord(payload, ['done_mode', 'imported', 'evidence'])
-      && payload.imported === false && evidence(payload.evidence);
+    return (exactRecord(payload, ['done_mode', 'imported', 'evidence'])
+      || exactRecord(payload, ['done_mode', 'imported', 'evidence', 'test_result']))
+      && payload.imported === false && evidence(payload.evidence)
+      && (payload.test_result === undefined || isTodoTestResult(payload.test_result));
   }
   if (event.kind === 'done' && payload?.done_mode === 'historical_import') {
     return exactRecord(payload, ['done_mode', 'imported', 'status', 'completed_at', 'evidence'])
@@ -569,22 +575,29 @@ function validPayload(event) {
 }
 
 function validCarriedState(value) {
-  if (!exactRecord(value, [
+  const legacy = exactRecord(value, [
     'status', 'started_at', 'done_at', 'blocked_reason', 'evidence', 'imported',
-  ]) || !['pending', 'in-progress', 'blocked', 'done'].includes(value.status)
+  ]);
+  const resultAware = exactRecord(value, [
+    'status', 'started_at', 'done_at', 'blocked_reason', 'evidence', 'imported', 'test_result',
+  ]);
+  if ((!legacy && !resultAware) || !['pending', 'in-progress', 'blocked', 'done'].includes(value.status)
     || (value.started_at !== null && !isStrictTodoTimestamp(value.started_at))
     || (value.done_at !== null && !isStrictTodoTimestamp(value.done_at))
     || (value.blocked_reason !== null && !nullableText(value.blocked_reason))
     || typeof value.imported !== 'boolean') return false;
+  const testResult = resultAware ? value.test_result : null;
+  if (testResult !== null && !isTodoTestResult(testResult)) return false;
   if (value.status === 'pending') return value.started_at === null && value.done_at === null
-    && value.blocked_reason === null && value.evidence === null && value.imported === false;
+    && value.blocked_reason === null && value.evidence === null && value.imported === false
+    && testResult === null;
   const activeEvidenceValid = value.imported
     ? value.evidence === null || validateTodoImportSource(value.evidence)
     : value.evidence === null;
   if (value.status === 'in-progress') return value.done_at === null && value.blocked_reason === null
-    && activeEvidenceValid;
+    && activeEvidenceValid && testResult === null;
   if (value.status === 'blocked') return value.done_at === null && value.blocked_reason !== null
-    && activeEvidenceValid;
+    && activeEvidenceValid && testResult === null;
   return value.blocked_reason === null && value.evidence !== null
     && (value.imported ? validateTodoImportSource(value.evidence) : evidence(value.evidence));
 }
@@ -700,20 +713,35 @@ export function validateTodoSnapshot(value) {
       'schema', 'project_id', 'plan_key', 'plan_version', 'projection_version', 'through_sequence',
       'journal_head_digest', 'tasks', 'phases', 'snapshot_digest',
     ]);
-    return (v1 || v2) && isTodoIdentifier(value.project_id)
+    const v3 = value?.schema === 'lattice.todo_snapshot.v3' && exactRecord(value, [
+      'schema', 'project_id', 'plan_key', 'plan_version', 'projection_version', 'through_sequence',
+      'journal_head_digest', 'tasks', 'snapshot_digest',
+    ]);
+    const v4 = value?.schema === 'lattice.todo_snapshot.v4' && exactRecord(value, [
+      'schema', 'project_id', 'plan_key', 'plan_version', 'projection_version', 'through_sequence',
+      'journal_head_digest', 'tasks', 'phases', 'snapshot_digest',
+    ]);
+    const resultAware = v3 || v4;
+    const phaseAware = v2 || v4;
+    return (v1 || v2 || v3 || v4) && isTodoIdentifier(value.project_id)
       && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.plan_version)
-      && value.projection_version === (v1 ? 1 : 2) && isNonNegativeSafeInteger(value.through_sequence)
+      && value.projection_version === (v1 ? 1 : v2 ? 2 : v3 ? 3 : 4)
+      && isNonNegativeSafeInteger(value.through_sequence)
       && isTodoDigest(value.journal_head_digest) && Array.isArray(value.tasks)
       && value.tasks.length > 0 && value.tasks.length <= TODO_LIMITS.tasksPerPlan
       && value.tasks.every((entry) => exactRecord(entry, [
         'task_id', 'status', 'started_at', 'done_at', 'blocked_reason', 'evidence', 'evidence_unverified', 'imported',
+        ...(resultAware ? ['test_result'] : []),
       ]) && isTodoIdentifier(entry.task_id) && ['pending', 'in-progress', 'blocked', 'done'].includes(entry.status)
         && (entry.started_at === null || isStrictTodoTimestamp(entry.started_at))
         && (entry.done_at === null || isStrictTodoTimestamp(entry.done_at)) && nullableText(entry.blocked_reason)
         && (entry.evidence === null || evidence(entry.evidence) || validateTodoImportSource(entry.evidence))
-        && typeof entry.evidence_unverified === 'boolean' && typeof entry.imported === 'boolean')
+        && typeof entry.evidence_unverified === 'boolean' && typeof entry.imported === 'boolean'
+        && (!resultAware || (entry.status === 'done'
+          ? entry.test_result === null || isTodoTestResult(entry.test_result)
+          : entry.test_result === null)))
       && value.tasks.every((entry, index) => index === 0 || value.tasks[index - 1].task_id < entry.task_id)
-      && (!v2 || (Array.isArray(value.phases) && value.phases.length > 0
+      && (!phaseAware || (Array.isArray(value.phases) && value.phases.length > 0
         && value.phases.every((entry) => exactRecord(entry, [
           'phase_id', 'status', 'review_event_digest', 'decision_event_digest', 'decision_evidence',
         ]) && isTodoIdentifier(entry.phase_id)

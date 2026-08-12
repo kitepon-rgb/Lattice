@@ -10,6 +10,7 @@ import { parseTree } from 'jsonc-parser';
 import {
   TODO_COORDINATION_MODES,
   TODO_DESIGN_MEMO_PROMPT,
+  TODO_TEST_RESULT_CONTRACT_ID,
   canonicalizeTodoArtifact,
   digestTodoArtifact,
   exactRecord,
@@ -18,6 +19,7 @@ import {
   isTodoDesignMemo,
   isTodoIdentifier,
   isTodoRef,
+  isTodoTestResult,
   todoSelfDigest,
   validateEvidenceDescriptor,
 } from './todo-contracts.mjs';
@@ -331,6 +333,16 @@ async function readNoteTextInput(repoRoot, inputRef) {
   if (bytes.length > MAX_NOTE_INPUT_BYTES) throw new TodoStoreError('INPUT_TOO_LARGE', 'note_input_too_large');
   try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
   catch { throw new TodoStoreError('INPUT_UNREADABLE', 'note_input_invalid_utf8'); }
+}
+
+async function readTestResultInput(repoRoot, inputRef) {
+  const result = await readNoteTextInput(repoRoot, inputRef);
+  if (!isTodoTestResult(result)) {
+    throw new TodoStoreError('INVALID_TEST_RESULT', 'test_result_must_be_non_empty_markdown', undefined, {
+      contract_id: TODO_TEST_RESULT_CONTRACT_ID,
+    });
+  }
+  return result;
 }
 
 function taskRef(plan, taskId) {
@@ -650,12 +662,15 @@ function terminalAuditDoneAdvisory(plan, phases) {
 
 async function mutate({
   repoRoot, env, planKey, taskId, kind, payload, evidenceRef, advisory = null,
-  noteContext = null, structureContext = null,
+  noteContext = null, structureContext = null, testResultRef = null,
 }) {
   const actor = mutationActor(env);
   const evidence = evidenceRef === null ? null : await readEvidenceInput(repoRoot, evidenceRef);
+  const testResult = testResultRef === null ? null : await readTestResultInput(repoRoot, testResultRef);
   let eventPayload = payload;
-  if (kind === 'done' && payload === 'authored') eventPayload = { evidence };
+  if (kind === 'done' && payload === 'authored') {
+    eventPayload = { evidence, ...(testResult === null ? {} : { test_result: testResult }) };
+  }
   if (kind === 'done' && payload === 'evidence_promotion') {
     eventPayload = { done_mode: 'evidence_promotion', imported: true, evidence };
   }
@@ -1672,7 +1687,7 @@ async function todoDetail({ repoRoot, planKey, taskId }) {
     repoRoot, store, planKey, taskId: task.task_id,
   });
   const result = {
-    schema: 'lattice.todo_detail_result.v2',
+    schema: 'lattice.todo_detail_result.v3',
     project_id: store.project_id,
     plan_key: planKey,
     plan_version: member.plan.plan_version,
@@ -3926,12 +3941,13 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[3] === '--task' && isTodoIdentifier(argv[4])) {
     action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
       kind: 'unblock', payload: {}, evidenceRef: null });
-  } else if (argv.length === 7 && argv[0] === 'done'
+  } else if ((argv.length === 7 || argv.length === 9) && argv[0] === 'done'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--task' && isTodoIdentifier(argv[4])
-    && argv[5] === '--evidence' && isTodoRef(argv[6])) {
+    && argv[5] === '--evidence' && isTodoRef(argv[6])
+    && (argv.length === 7 || (argv[7] === '--test-result' && isTodoRef(argv[8])))) {
     action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
-      kind: 'done', payload: 'authored', evidenceRef: argv[6] });
+      kind: 'done', payload: 'authored', evidenceRef: argv[6], testResultRef: argv[8] ?? null });
   } else if (argv.length === 8 && argv[0] === 'evidence' && argv[1] === 'promote'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])
     && argv[4] === '--task' && isTodoIdentifier(argv[5])

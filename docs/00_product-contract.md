@@ -454,9 +454,11 @@ Peertable（MIT・npm `peertable`）はLatticeの外部消費者である。公�
   lease／hold／resume。席自身が先にclaim／`todo start`したtaskだけをintakeし、隔離worktreeと競合介入を
   設備として受け取る。bridgeはrun進行と介入のread-only中継に限る。eventのactorは操作主体の記録であり、
   taskへassigneeを持たせて消費者側のclaimと二重正本にしない。
-- **結果・証跡・着地の束縛**: `todo done --evidence <descriptor>`のrepo内descriptorとpinned Git objectの
-  hard検証、`run intake accept`、`run close`、`run landing`。完了報告が散文だけで通らないことをLatticeの
-  fail closedへ委ね、accept後もcanonical統合とremote既定branchへのlandingが確認できるまで完走へ丸めない。
+- **結果・証跡・着地の束縛**: `todo done --evidence <descriptor> [--test-result <markdown-file>]`は、
+  repo内descriptorとpinned Git objectをhard検証し、任意の非空Markdown `test_result`を同じdone eventへ保存する
+  （公開契約`lattice.todo_test_result.v1`）。未記録の既存ToDoは`todo show`で`test_result: null`として読み、
+  evidenceの代替・自動生成・採点には使わない。`run intake accept`、`run close`、`run landing`まで束縛し、
+  accept後もcanonical統合とremote既定branchへのlandingが確認できるまで完走へ丸めない。
 - **監査状態と公開観測**: `todo status`の`audit_pending`、`todo phase status`、`lattice status`の
   `next_action.reason`、常設dashboardと`todo gantt serve`の公開工程表。全task doneが`gate_ready`であって
   完走でないこと（ADR 0147・0159）が、消費者側の解散判断の早さを機械的に抑える。公開工程表は監査状態、
