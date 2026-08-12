@@ -45,14 +45,14 @@ compile時点から保全されている未追跡structure生成物と、todo st
 
 ## 実artifactへの束縛
 
-以下は `structure-provenance-repair-20260812/v1/structure` に保存された実artifactであり、
-証跡commitの対象SHAから参照する。各ファイルのSHA-256と、artifact内部の自己digestを併記する。
+以下は元のLattice生成物からbyte-for-byteで固定した、証跡commit内のimmutable snapshotである。
+元の生成元pathも併記し、証跡commitの固定SHAだけでbytes・SHA-256・artifact内部の自己digestを再検証できるようにする。
 
 | artifact | SHA-256 | 内部digest / 束縛 |
 | --- | --- | --- |
-| `.lattice/todo/plans/structure-provenance-repair-20260812/v1/structure/binding.json` | `06187bb5369cd598f432c528956c450c38d23359eacd773a3860995c5a1ba624` | `binding_digest=a7d0b13ad5fd97d7511d8cb34b4f7e57a0b9ff664719f28fbe03f78ce9b583e6`, `compile_artifact_digest=aec9994d3d554eb162d28a2eea1deae9f5398b9707cb339f5b5a7f6120350ae4` |
-| `.lattice/todo/plans/structure-provenance-repair-20260812/v1/structure/compile.json` | `b90b0c9b207a685787d48c4497873711ec1ecd517a0fa7fc13a79ecc650b2411` | `artifact_digest=aec9994d3d554eb162d28a2eea1deae9f5398b9707cb339f5b5a7f6120350ae4`, `realization_head_digest=8fa9f30dd230910669d36f2c26b7d037eef41cb672678df4db5d91a689575db8` |
-| `.lattice/todo/plans/structure-provenance-repair-20260812/v1/structure/realizations/spr-01.jsonl` | `3a1074298cf98d39bade8336a31eeeb219ca8e11822ae2ffd9d30a935e5585e1` | `realization_digest=ad4e0bf194fe193ce906775610e9ee808b0b20f97045efeebe87b02b3e3988a4`, `commit_oids=[88e3ede69ad628e8010cb03d4eaee3ba15d9833b]` |
+| snapshot `evidence/structure-provenance-repair-20260812/artifacts/v1/structure/binding.json` (source `.lattice/todo/plans/structure-provenance-repair-20260812/v1/structure/binding.json`) | `06187bb5369cd598f432c528956c450c38d23359eacd773a3860995c5a1ba624` | `binding_digest=a7d0b13ad5fd97d7511d8cb34b4f7e57a0b9ff664719f28fbe03f78ce9b583e6`, `compile_artifact_digest=aec9994d3d554eb162d28a2eea1deae9f5398b9707cb339f5b5a7f6120350ae4` |
+| snapshot `evidence/structure-provenance-repair-20260812/artifacts/v1/structure/compile.json` (source `.lattice/todo/plans/structure-provenance-repair-20260812/v1/structure/compile.json`) | `b90b0c9b207a685787d48c4497873711ec1ecd517a0fa7fc13a79ecc650b2411` | `artifact_digest=aec9994d3d554eb162d28a2eea1deae9f5398b9707cb339f5b5a7f6120350ae4`, `realization_head_digest=8fa9f30dd230910669d36f2c26b7d037eef41cb672678df4db5d91a689575db8` |
+| snapshot `evidence/structure-provenance-repair-20260812/artifacts/v1/structure/realizations/spr-01.jsonl` (source `.lattice/todo/plans/structure-provenance-repair-20260812/v1/structure/realizations/spr-01.jsonl`) | `3a1074298cf98d39bade8336a31eeeb219ca8e11822ae2ffd9d30a935e5585e1` | `realization_digest=ad4e0bf194fe193ce906775610e9ee808b0b20f97045efeebe87b02b3e3988a4`, `commit_oids=[88e3ede69ad628e8010cb03d4eaee3ba15d9833b]` |
 
 共通の構造束縛は `structure_set_digest=1e86bc2e9701dc2e7e35710af0c0c126dadae7e1871c672914012550ff1c67c1`、
 `topology_digest=8d36a330031fb94bc609a98fb1b45039295caddcb5d8e00f5ce8a7db4cd567a2`、
