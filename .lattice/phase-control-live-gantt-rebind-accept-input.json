@@ -1,0 +1,52 @@
+{
+  "decision_evidence": {
+    "anchor_digest": null,
+    "content_digest": "c6017d9b1c7b0c03ef0709c13ab0cc7e1bd212bd3e999255e64841b537cc5db6",
+    "evidence_id": "phase-control-live-gantt-adversarial-review-20260725",
+    "git_blob_oid": "c222f0c1b7379dd239b8b6dcb0051bc629da698c",
+    "media_type": "text/markdown",
+    "path": "docs/evidence/2026-07-25-phase-control-live-gantt-adversarial-review.md",
+    "repo_id": "self"
+  },
+  "evidence_slots": [
+    {
+      "evidence": {
+        "anchor_digest": null,
+        "content_digest": "c6017d9b1c7b0c03ef0709c13ab0cc7e1bd212bd3e999255e64841b537cc5db6",
+        "evidence_id": "phase-control-live-gantt-adversarial-review-20260725",
+        "git_blob_oid": "c222f0c1b7379dd239b8b6dcb0051bc629da698c",
+        "media_type": "text/markdown",
+        "path": "docs/evidence/2026-07-25-phase-control-live-gantt-adversarial-review.md",
+        "repo_id": "self"
+      },
+      "slot_id": "adversarial-review"
+    },
+    {
+      "evidence": {
+        "anchor_digest": null,
+        "content_digest": "0642c71725ce20f4cf7dee5d85e51bb43b50769ff32b754c6ad43c568a987b64",
+        "evidence_id": "phase-control-live-gantt-fresh-dogfood-full-gate-20260725",
+        "git_blob_oid": "d2c61eafb3c3044872b940d100d6fc812c6fb259",
+        "media_type": "text/markdown",
+        "path": "docs/evidence/2026-07-25-phase-control-live-gantt-fresh-dogfood-and-full-gate.md",
+        "repo_id": "self"
+      },
+      "slot_id": "fresh-dogfood"
+    },
+    {
+      "evidence": {
+        "anchor_digest": null,
+        "content_digest": "0642c71725ce20f4cf7dee5d85e51bb43b50769ff32b754c6ad43c568a987b64",
+        "evidence_id": "phase-control-live-gantt-fresh-dogfood-full-gate-20260725",
+        "git_blob_oid": "d2c61eafb3c3044872b940d100d6fc812c6fb259",
+        "media_type": "text/markdown",
+        "path": "docs/evidence/2026-07-25-phase-control-live-gantt-fresh-dogfood-and-full-gate.md",
+        "repo_id": "self"
+      },
+      "slot_id": "full-gate"
+    }
+  ],
+  "review_event_digest": "7fe04ef92d95560fac61ac4b2c778c048f6e1bc714c30af2400f3e39f56f0c2e",
+  "schema": "lattice.phase_accept_input.v1",
+  "input_digest": "83962c8dd8a4ce4b3f0f8e8981f5f91ba23eef9085514062c681e7dc731e9fb9"
+}
