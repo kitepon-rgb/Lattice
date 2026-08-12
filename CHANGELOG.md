@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.59.0 — 2026-08-13
+
+### 新機能
+
+- `lattice todo done`へ任意の`--test-result <markdown-file>`を追加。作業者の最終試験結果を
+  evidenceと同じdone eventへ保存し、後工程は`lattice todo show --json`の`state.test_result`から読める。
+- 未記録の既存ToDoは`test_result: null`として読み、旧journalと旧snapshotのbytesを維持する。
+  結果を持つsnapshotは`v3`（Phaseなし）／`v4`（Phase付き）となり、revision carryとreopenにも対応する。
+
 ## 0.58.4 — 2026-08-12
 
 ### 新機能
