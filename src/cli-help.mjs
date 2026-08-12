@@ -104,6 +104,10 @@ Write commands:
   evidence promote --plan <key> --task <id> --evidence <file>
   dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>
       # 開発中に発見したplan跨ぎ依存を明示接続する。依存の自動推定は行わない
+  dependency rebind --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --event-digest <digest>
+      --old-from-topology <digest> --old-to-topology <digest>
+      --current-from-topology <digest> --current-to-topology <digest> --reason <text>
+      # revisionでstaleになった旧edgeを直接編集せず、新しいplan-scoped eventで再束縛する
   independence compile --plan <key> --input <file>  # witness setとsensorから並列可否を記録する
   independence witness migrate --plan <key>  # revision後の宣言をtask migrationで写す
   independence witness scaffold --plan <key> --input <draft>  # 下書きとfresh観測から宣言を書き出す

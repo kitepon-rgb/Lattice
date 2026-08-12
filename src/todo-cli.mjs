@@ -49,6 +49,7 @@ import {
   TodoStoreError,
   isPhaselessTodoPlanSchema,
   projectTodoCrossPlanDependencies,
+  rebindTodoCrossPlanDependency,
   TERMINAL_AUDIT_PHASE_ID,
   readTodoIndependenceArtifact,
   readTodoSeamProposalArtifact,
@@ -239,7 +240,7 @@ function internalFailure(stderr, error) {
 
 const TODO_COMMAND_NAMES = Object.freeze([
   'status', 'show', 'note', 'bindings', 'independence', 'structure', 'seam-profile', 'seam-proposal',
-  'verify', 'snapshot', 'gantt', 'dashboard', 'phase', 'migrate', 'start', 'block',
+  'verify', 'snapshot', 'gantt', 'dashboard', 'phase', 'migrate', 'dependency', 'start', 'block',
   'unblock', 'done', 'reopen', 'evidence', 'split', 'revise', 'revise-phase', 'revise-set',
 ]);
 
@@ -1090,6 +1091,70 @@ async function dependencyConnect({
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
+}
+
+/** topology revisionでstaleになったcross-plan edgeをappend-onlyに再束縛する。 */
+async function dependencyRebind({
+  repoRoot, env, fromPlanKey, fromTaskId, toPlanKey, toTaskId, oldEventDigest,
+  oldFromTopologyDigest, oldToTopologyDigest, currentFromTopologyDigest,
+  currentToTopologyDigest, reason,
+}) {
+  const manifest = JSON.parse(await readFile(path.resolve(repoRoot, '.lattice/todo/manifest.json'), 'utf8'));
+  const result = await rebindTodoCrossPlanDependency({
+    repoRoot,
+    writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+    projectId: manifest.project_id,
+    fromPlanKey, fromTaskId, toPlanKey, toTaskId,
+    oldEventDigest, oldFromTopologyDigest, oldToTopologyDigest,
+    currentFromTopologyDigest, currentToTopologyDigest, reason,
+    actor: mutationActor(env),
+  });
+  const beforeFrontier = computeReadyFrontier(result.store_before);
+  const afterStore = await readTodoStore({ repoRoot });
+  const afterFrontier = computeReadyFrontier(afterStore);
+  const entryKey = ({ plan_key: planKey, task_id: taskId }) => `${planKey}\0${taskId}`;
+  const beforeKeys = new Set(beforeFrontier.map(entryKey));
+  const afterKeys = new Set(afterFrontier.map(entryKey));
+  const frontierDiff = {
+    before: beforeFrontier,
+    after: afterFrontier,
+    added: afterFrontier.filter((entry) => !beforeKeys.has(entryKey(entry))),
+    removed: beforeFrontier.filter((entry) => !afterKeys.has(entryKey(entry))),
+    before_digest: digestTodoArtifact(beforeFrontier),
+    after_digest: digestTodoArtifact(afterFrontier),
+  };
+  const event = result.event;
+  const oldEvent = result.old_event;
+  const receipt = {
+    schema: 'lattice.todo_dependency_rebind_result.v1',
+    project_id: afterStore.project_id,
+    from: event.payload.from,
+    to: event.payload.to,
+    reason: event.payload.reason,
+    rebound: true,
+    supersedes: event.payload.supersedes,
+    old_event_digest: oldEvent.event_digest,
+    new_event_digest: event.event_digest,
+    old_topology: {
+      from: oldEvent.payload.from.expected_topology_digest,
+      to: oldEvent.payload.to.expected_topology_digest,
+    },
+    new_topology: {
+      from: event.payload.from.expected_topology_digest,
+      to: event.payload.to.expected_topology_digest,
+    },
+    frontier_diff: frontierDiff,
+    status: {
+      next_ready: afterFrontier,
+      cross_plan_dependencies: projectTodoCrossPlanDependencies(afterStore.members),
+    },
+    rebound_by: event.actor,
+    rebound_at: event.recorded_at,
+    plan_scoped_head_digest: event.event_digest,
+    result_digest: '',
+  };
+  receipt.result_digest = todoSelfDigest(receipt, 'result_digest');
+  return receipt;
 }
 
 async function phaseStatus({ repoRoot, planKey }) {
@@ -3443,7 +3508,7 @@ function writesTodoStore(argv) {
       || (second === 'input' && !argv.includes('--dry-run'));
     case 'seam-proposal': return ['compile', 'apply', 'land'].includes(second);
     case 'evidence': return second === 'promote';
-    case 'dependency': return second === 'connect';
+    case 'dependency': return ['connect', 'rebind'].includes(second);
     case 'phase': return second !== 'status';
     case 'start': case 'retract': case 'block': case 'unblock': case 'done':
     case 'reopen': case 'split': case 'revise': case 'revise-phase': case 'revise-set':
@@ -3734,6 +3799,24 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     action = (repoRoot) => dependencyConnect({
       repoRoot, env, fromPlanKey: argv[3], fromTaskId: argv[5],
       toPlanKey: argv[7], toTaskId: argv[9], reason: argv[11],
+    });
+  } else if (argv.length === 22 && argv[0] === 'dependency' && argv[1] === 'rebind'
+    && argv[2] === '--from-plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--from-task' && isTodoIdentifier(argv[5])
+    && argv[6] === '--to-plan' && isTodoIdentifier(argv[7])
+    && argv[8] === '--to-task' && isTodoIdentifier(argv[9])
+    && argv[10] === '--event-digest' && isTodoDigest(argv[11])
+    && argv[12] === '--old-from-topology' && isTodoDigest(argv[13])
+    && argv[14] === '--old-to-topology' && isTodoDigest(argv[15])
+    && argv[16] === '--current-from-topology' && isTodoDigest(argv[17])
+    && argv[18] === '--current-to-topology' && isTodoDigest(argv[19])
+    && argv[20] === '--reason' && argv[21].length > 0) {
+    action = (repoRoot) => dependencyRebind({
+      repoRoot, env, fromPlanKey: argv[3], fromTaskId: argv[5],
+      toPlanKey: argv[7], toTaskId: argv[9], oldEventDigest: argv[11],
+      oldFromTopologyDigest: argv[13], oldToTopologyDigest: argv[15],
+      currentFromTopologyDigest: argv[17], currentToTopologyDigest: argv[19],
+      reason: argv[21],
     });
   } else if (argv.length === 6 && argv[0] === 'independence' && argv[1] === 'compile'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--input') {

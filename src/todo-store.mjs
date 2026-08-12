@@ -382,9 +382,33 @@ export function projectTodoCoordination(events) {
  * 記録された線だけを返す。順序はtask identityで固定し、status/Ganttが同じ入力を見る。
  */
 export function projectTodoCrossPlanDependencies(members) {
-  const dependencies = [];
+  const records = [];
+  const byDigest = new Map();
   for (const member of members) for (const event of member.plan_scoped?.events ?? []) {
-    if (event.kind !== 'cross_plan_dependency') continue;
+    if (!['cross_plan_dependency', 'cross_plan_dependency_rebind'].includes(event.kind)) continue;
+    const record = { member, event };
+    records.push(record);
+    byDigest.set(event.event_digest, record);
+  }
+  const superseded = new Set();
+  for (const { member, event } of records) {
+    if (event.kind !== 'cross_plan_dependency_rebind') continue;
+    const previous = byDigest.get(event.payload.supersedes);
+    if (previous === undefined || previous.member !== member
+      || !['cross_plan_dependency', 'cross_plan_dependency_rebind'].includes(previous.event.kind)
+      || canonicalizeTodoArtifact(previous.event.payload.from)
+        !== canonicalizeTodoArtifact(event.payload.previous_from)
+      || canonicalizeTodoArtifact(previous.event.payload.to)
+        !== canonicalizeTodoArtifact(event.payload.previous_to)) {
+      fail('STORE_INCONSISTENT', 'cross_plan_dependency_supersession_invalid', {
+        event_digest: event.event_digest, supersedes: event.payload.supersedes,
+      });
+    }
+    superseded.add(event.payload.supersedes);
+  }
+  const dependencies = [];
+  for (const { event } of records) {
+    if (superseded.has(event.event_digest)) continue;
     dependencies.push({
       from: event.payload.from,
       to: event.payload.to,
@@ -392,6 +416,8 @@ export function projectTodoCrossPlanDependencies(members) {
       connected_by: event.actor,
       connected_at: event.recorded_at,
       event_digest: event.event_digest,
+      ...(event.kind === 'cross_plan_dependency_rebind'
+        ? { supersedes: event.payload.supersedes } : {}),
     });
   }
   return dependencies.sort((left, right) => {
@@ -786,7 +812,7 @@ function snapshotFor(plan, events, tasks) {
   return snapshot;
 }
 
-function validateMergedGraph(members, crossPlanDependencies = []) {
+function validateMergedGraph(members, crossPlanDependencies = [], options = {}) {
   const tasks = new Map();
   for (const member of members) for (const task of member.plan.tasks) {
     tasks.set(`${member.plan.project_id}\0${member.plan.plan_key}\0${task.task_id}`, member.plan.topology_digest);
@@ -801,13 +827,19 @@ function validateMergedGraph(members, crossPlanDependencies = []) {
       adjacency.set(key, []);
     }
   }
-  const bind = (ref, ownerPlan) => {
+  const bind = (ref, ownerPlan, dependency = null) => {
     const key = `${ref.project_id}\0${ref.plan_key}\0${ref.task_id}`;
     const topology = tasks.get(key);
     if (topology === undefined) fail('STORE_INCONSISTENT', 'dangling_dependency');
     if ((ref.project_id !== ownerPlan.project_id || ref.plan_key !== ownerPlan.plan_key)
       && ref.expected_topology_digest === undefined) fail('STORE_INCONSISTENT', 'cross_plan_binding_missing');
-    if (ref.expected_topology_digest !== undefined && topology !== ref.expected_topology_digest) {
+    const staleRecovery = options.allowStaleCrossPlanDependency;
+    const allowedStale = staleRecovery !== undefined && dependency !== null
+      && dependency.event_digest === staleRecovery.event_digest
+      && sameDependencyEndpoint(dependency.from, staleRecovery.from)
+      && sameDependencyEndpoint(dependency.to, staleRecovery.to);
+    if (ref.expected_topology_digest !== undefined && topology !== ref.expected_topology_digest
+      && !allowedStale) {
       fail('STORE_INCONSISTENT', 'binding_stale');
     }
     return key;
@@ -858,8 +890,8 @@ function validateMergedGraph(members, crossPlanDependencies = []) {
     const owner = members.find(({ plan }) => plan.project_id === dependency.to.project_id
       && plan.plan_key === dependency.to.plan_key);
     if (owner === undefined) fail('STORE_INCONSISTENT', 'cross_plan_dependency_owner_missing');
-    const from = bind(dependency.from, owner.plan);
-    const to = bind(dependency.to, owner.plan);
+    const from = bind(dependency.from, owner.plan, dependency);
+    const to = bind(dependency.to, owner.plan, dependency);
     if (from === to) fail('STORE_INCONSISTENT', 'self_edge');
     adjacency.get(from).push(to);
   }
@@ -902,6 +934,73 @@ function validateCrossPlanDependencyTransition(store, owner, input) {
   const existing = projectTodoCrossPlanDependencies(store.members);
   if (existing.some((dependency) => mergedTaskKey(dependency.from) === mergedTaskKey(from)
     && mergedTaskKey(dependency.to) === mergedTaskKey(to))) {
+    fail('DEPENDENCY_EXISTS', 'cross_plan_dependency_duplicate', { from, to });
+  }
+  try {
+    validateMergedGraph(store.members, [...existing, { from, to }]);
+  } catch (error) {
+    if (error instanceof TodoStoreError && error.detail?.reason === 'merged_cycle') {
+      fail('DEPENDENCY_CYCLE', 'cross_plan_dependency_cycle', { from, to });
+    }
+    throw error;
+  }
+}
+
+function sameDependencyEndpoint(left, right) {
+  return left.project_id === right.project_id
+    && left.plan_key === right.plan_key && left.task_id === right.task_id;
+}
+
+function validateCrossPlanDependencyRebindTransition(store, owner, input) {
+  const payload = input.payload;
+  const { from, to, previous_from: previousFrom, previous_to: previousTo } = payload;
+  if (from.project_id !== store.project_id || to.project_id !== store.project_id
+    || previousFrom.project_id !== store.project_id || previousTo.project_id !== store.project_id) {
+    fail('DEPENDENCY_REBIND_INVALID', 'rebind_project_mismatch');
+  }
+  if (from.plan_key === to.plan_key || previousFrom.plan_key === previousTo.plan_key) {
+    fail('DEPENDENCY_REBIND_INVALID', 'rebind_must_cross_plans');
+  }
+  if (to.plan_key !== owner.plan.plan_key || to.project_id !== owner.plan.project_id) {
+    fail('DEPENDENCY_REBIND_INVALID', 'rebind_owner_mismatch');
+  }
+  if (!sameDependencyEndpoint(from, previousFrom) || !sameDependencyEndpoint(to, previousTo)) {
+    fail('DEPENDENCY_REBIND_INVALID', 'rebind_endpoint_mismatch', {
+      from, to, previous_from: previousFrom, previous_to: previousTo,
+    });
+  }
+  const historyEvent = owner.plan_scoped.events.find(({ event_digest: digest }) => digest === payload.supersedes);
+  if (historyEvent === undefined) {
+    fail('DEPENDENCY_REBIND_INVALID', 'rebind_event_not_found', { supersedes: payload.supersedes });
+  }
+  const effective = projectTodoCrossPlanDependencies(store.members)
+    .some(({ event_digest: digest }) => digest === payload.supersedes);
+  if (!effective) {
+    fail('DEPENDENCY_REBIND_EXISTS', 'rebind_event_already_superseded', {
+      supersedes: payload.supersedes,
+    });
+  }
+  if (historyEvent.payload.from === undefined || historyEvent.payload.to === undefined
+    || !sameDependencyEndpoint(historyEvent.payload.from, previousFrom)
+    || !sameDependencyEndpoint(historyEvent.payload.to, previousTo)
+    || canonicalizeTodoArtifact(historyEvent.payload.from) !== canonicalizeTodoArtifact(previousFrom)
+    || canonicalizeTodoArtifact(historyEvent.payload.to) !== canonicalizeTodoArtifact(previousTo)) {
+    fail('DEPENDENCY_REBIND_INVALID', 'rebind_event_binding_mismatch', {
+      supersedes: payload.supersedes,
+    });
+  }
+  const source = crossPlanDependencyTask(store, from);
+  const target = crossPlanDependencyTask(store, to);
+  if (source.task.status === 'done') fail('DEPENDENCY_REBIND_INVALID', 'dependency_source_terminal');
+  if (target.task.status === 'done') fail('DEPENDENCY_REBIND_INVALID', 'dependency_target_terminal');
+  if (from.expected_topology_digest === previousFrom.expected_topology_digest
+    && to.expected_topology_digest === previousTo.expected_topology_digest) {
+    fail('DEPENDENCY_REBIND_INVALID', 'rebind_not_stale');
+  }
+  const existing = projectTodoCrossPlanDependencies(store.members)
+    .filter(({ event_digest: digest }) => digest !== payload.supersedes);
+  if (existing.some((dependency) => sameDependencyEndpoint(dependency.from, from)
+    && sameDependencyEndpoint(dependency.to, to))) {
     fail('DEPENDENCY_EXISTS', 'cross_plan_dependency_duplicate', { from, to });
   }
   try {
@@ -1391,7 +1490,10 @@ export async function readTodoStore(options = {}) {
       snapshot: snapshotStale ? expectedSnapshot : snapshot,
       tasks, phases, coordination, snapshot_stale: snapshotStale });
   }
-  validateMergedGraph(loaded, projectTodoCrossPlanDependencies(loaded));
+  validateMergedGraph(loaded, projectTodoCrossPlanDependencies(loaded), {
+    ...(options.allowStaleCrossPlanDependency === undefined ? {}
+      : { allowStaleCrossPlanDependency: options.allowStaleCrossPlanDependency }),
+  });
   return {
     schema: 'lattice.todo_store_read.v1', project_id: manifest.project_id, manifest,
     members: loaded, snapshot_stale: loaded.some((member) => member.snapshot_stale),
@@ -1726,6 +1828,8 @@ export async function appendTodoEvent(options = {}) {
     if (TODO_PLAN_SCOPED_EVENT_KINDS.includes(options.event.kind)) {
       if (options.event.kind === 'cross_plan_dependency') {
         validateCrossPlanDependencyTransition(store, member, options.event);
+      } else if (options.event.kind === 'cross_plan_dependency_rebind') {
+        validateCrossPlanDependencyRebindTransition(store, member, options.event);
       }
       return appendPlanScopedEvent({
         repoRoot, member,
@@ -1780,6 +1884,110 @@ export async function appendTodoEvent(options = {}) {
     const phases = projectPhaseStates(member.plan, [...member.journal.events, event],
       new Map(tasks.map((task) => [task.task_id, task])));
     return { event, snapshot, plan: member.plan, phases };
+  });
+}
+
+/**
+ * revisionでtopology bindingだけが古くなったcross-plan edgeを、対象eventに限定して
+ * recoveryし、新しいplan-scoped eventをappendする。旧journal bytesは書き換えない。
+ */
+export async function rebindTodoCrossPlanDependency(options = {}) {
+  requireWriter(options.writer, 'g5-authoring');
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  return withLock(repoRoot, async () => {
+    const recoveryFrom = {
+      project_id: options.projectId,
+      plan_key: options.fromPlanKey,
+      task_id: options.fromTaskId,
+      expected_topology_digest: options.oldFromTopologyDigest,
+    };
+    const recoveryTo = {
+      project_id: options.projectId,
+      plan_key: options.toPlanKey,
+      task_id: options.toTaskId,
+      expected_topology_digest: options.oldToTopologyDigest,
+    };
+    const store = await readTodoStore({
+      repoRoot, forWrite: true, now: options.now,
+      allowStaleCrossPlanDependency: {
+        event_digest: options.oldEventDigest, from: recoveryFrom, to: recoveryTo,
+      },
+    });
+    if (store.project_id !== options.projectId) {
+      fail('DEPENDENCY_REBIND_INVALID', 'rebind_project_mismatch', {
+        expected_project_id: options.projectId, actual_project_id: store.project_id,
+      });
+    }
+    const owner = store.members.find(({ plan }) => plan.plan_key === options.toPlanKey);
+    const source = store.members.find(({ plan }) => plan.plan_key === options.fromPlanKey);
+    if (owner === undefined || source === undefined) {
+      fail('DEPENDENCY_REBIND_INVALID', 'rebind_plan_not_found');
+    }
+    const oldEvent = owner.plan_scoped.events.find(({ event_digest: digest }) => digest === options.oldEventDigest);
+    if (oldEvent === undefined) {
+      fail('DEPENDENCY_REBIND_INVALID', 'rebind_event_not_found', {
+        supersedes: options.oldEventDigest,
+      });
+    }
+    if (oldEvent.kind !== 'cross_plan_dependency' && oldEvent.kind !== 'cross_plan_dependency_rebind') {
+      fail('DEPENDENCY_REBIND_INVALID', 'rebind_event_kind_invalid', {
+        supersedes: options.oldEventDigest,
+      });
+    }
+    if (oldEvent.payload.from.expected_topology_digest !== options.oldFromTopologyDigest
+      || oldEvent.payload.to.expected_topology_digest !== options.oldToTopologyDigest) {
+      fail('DEPENDENCY_REBIND_INVALID', 'rebind_old_topology_mismatch', {
+        supersedes: options.oldEventDigest,
+        expected_old_from_topology: oldEvent.payload.from.expected_topology_digest,
+        expected_old_to_topology: oldEvent.payload.to.expected_topology_digest,
+      });
+    }
+    if (source.plan.topology_digest !== options.currentFromTopologyDigest
+      || owner.plan.topology_digest !== options.currentToTopologyDigest) {
+      fail('DEPENDENCY_REBIND_INVALID', 'rebind_current_topology_mismatch', {
+        actual_from_topology: source.plan.topology_digest,
+        actual_to_topology: owner.plan.topology_digest,
+      });
+    }
+    const from = {
+      project_id: store.project_id, plan_key: options.fromPlanKey, task_id: options.fromTaskId,
+      expected_topology_digest: options.currentFromTopologyDigest,
+    };
+    const to = {
+      project_id: store.project_id, plan_key: options.toPlanKey, task_id: options.toTaskId,
+      expected_topology_digest: options.currentToTopologyDigest,
+    };
+    const eventInput = {
+      kind: 'cross_plan_dependency_rebind',
+      actor: options.actor,
+      recorded_at: options.recordedAt ?? new Date().toISOString(),
+      payload: {
+        from, to, reason: options.reason,
+        supersedes: options.oldEventDigest,
+        previous_from: oldEvent.payload.from,
+        previous_to: oldEvent.payload.to,
+      },
+    };
+    validateCrossPlanDependencyRebindTransition(store, owner, eventInput);
+    const beforeStore = {
+      ...store,
+      members: store.members.map((member) => ({
+        ...member,
+        plan_scoped: {
+          ...member.plan_scoped,
+          events: [...member.plan_scoped.events],
+        },
+      })),
+    };
+    const appended = await appendPlanScopedEvent({ repoRoot, member: owner, input: eventInput });
+    owner.plan_scoped.events = [...owner.plan_scoped.events, appended.event];
+    validateMergedGraph(store.members, projectTodoCrossPlanDependencies(store.members));
+    return {
+      ...appended,
+      old_event: oldEvent,
+      store_before: beforeStore,
+      store_after: store,
+    };
   });
 }
 

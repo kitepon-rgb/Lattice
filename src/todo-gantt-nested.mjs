@@ -135,8 +135,13 @@ function projectMember(member, hierarchy, containerKey, selectedKeys) {
   // plan-scopedのcross-plan edgeも階層levelのtaskへ射影する。子task同士の接続を
   // root levelで捨てると、nested表示だけ依存線とwaveが消えるため、hard edgeと同じく
   // 各endpointをそのlevel直下のbranchへ束縛し直す。
-  const planScopedEvents = (member.plan_scoped?.events ?? []).flatMap((event) => {
-    if (event.kind !== 'cross_plan_dependency') return [event];
+  const planScopedEventsIn = member.plan_scoped?.events ?? [];
+  const supersededPlanScopedEvents = new Set(planScopedEventsIn
+    .filter((event) => event.kind === 'cross_plan_dependency_rebind')
+    .map((event) => event.payload.supersedes));
+  const planScopedEvents = planScopedEventsIn.flatMap((event) => {
+    if (supersededPlanScopedEvents.has(event.event_digest)) return [];
+    if (!['cross_plan_dependency', 'cross_plan_dependency_rebind'].includes(event.kind)) return [event];
     const from = projectRef(hierarchy, containerKey, event.payload.from);
     const to = projectRef(hierarchy, containerKey, event.payload.to);
     if (from === null || to === null || !selectedKeys.has(refKey(from))
