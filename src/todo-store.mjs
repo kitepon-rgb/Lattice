@@ -833,11 +833,14 @@ function validateMergedGraph(members, crossPlanDependencies = [], options = {}) 
     if (topology === undefined) fail('STORE_INCONSISTENT', 'dangling_dependency');
     if ((ref.project_id !== ownerPlan.project_id || ref.plan_key !== ownerPlan.plan_key)
       && ref.expected_topology_digest === undefined) fail('STORE_INCONSISTENT', 'cross_plan_binding_missing');
-    const staleRecovery = options.allowStaleCrossPlanDependency;
-    const allowedStale = staleRecovery !== undefined && dependency !== null
-      && dependency.event_digest === staleRecovery.event_digest
-      && sameDependencyEndpoint(dependency.from, staleRecovery.from)
-      && sameDependencyEndpoint(dependency.to, staleRecovery.to);
+    const staleRecoveries = options.allowStaleCrossPlanDependencies
+      ?? (options.allowStaleCrossPlanDependency === undefined
+        ? [] : [options.allowStaleCrossPlanDependency]);
+    const allowedStale = dependency !== null && staleRecoveries.some((recovery) => (
+      dependency.event_digest === recovery.event_digest
+      && sameDependencyEndpoint(dependency.from, recovery.from)
+      && sameDependencyEndpoint(dependency.to, recovery.to)
+    ));
     if (ref.expected_topology_digest !== undefined && topology !== ref.expected_topology_digest
       && !allowedStale) {
       fail('STORE_INCONSISTENT', 'binding_stale');
@@ -951,7 +954,7 @@ function sameDependencyEndpoint(left, right) {
     && left.plan_key === right.plan_key && left.task_id === right.task_id;
 }
 
-function validateCrossPlanDependencyRebindTransition(store, owner, input) {
+function validateCrossPlanDependencyRebindTransition(store, owner, input, options = {}) {
   const payload = input.payload;
   const { from, to, previous_from: previousFrom, previous_to: previousTo } = payload;
   if (from.project_id !== store.project_id || to.project_id !== store.project_id
@@ -1003,6 +1006,7 @@ function validateCrossPlanDependencyRebindTransition(store, owner, input) {
     && sameDependencyEndpoint(dependency.to, to))) {
     fail('DEPENDENCY_EXISTS', 'cross_plan_dependency_duplicate', { from, to });
   }
+  if (options.skipMergedGraph === true) return;
   try {
     validateMergedGraph(store.members, [...existing, { from, to }]);
   } catch (error) {
@@ -1493,6 +1497,8 @@ export async function readTodoStore(options = {}) {
   validateMergedGraph(loaded, projectTodoCrossPlanDependencies(loaded), {
     ...(options.allowStaleCrossPlanDependency === undefined ? {}
       : { allowStaleCrossPlanDependency: options.allowStaleCrossPlanDependency }),
+    ...(options.allowStaleCrossPlanDependencies === undefined ? {}
+      : { allowStaleCrossPlanDependencies: options.allowStaleCrossPlanDependencies }),
   });
   return {
     schema: 'lattice.todo_store_read.v1', project_id: manifest.project_id, manifest,
@@ -1895,100 +1901,151 @@ export async function rebindTodoCrossPlanDependency(options = {}) {
   requireWriter(options.writer, 'g5-authoring');
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
   return withLock(repoRoot, async () => {
-    const recoveryFrom = {
-      project_id: options.projectId,
-      plan_key: options.fromPlanKey,
-      task_id: options.fromTaskId,
-      expected_topology_digest: options.oldFromTopologyDigest,
-    };
-    const recoveryTo = {
-      project_id: options.projectId,
-      plan_key: options.toPlanKey,
-      task_id: options.toTaskId,
-      expected_topology_digest: options.oldToTopologyDigest,
-    };
-    const store = await readTodoStore({
-      repoRoot, forWrite: true, now: options.now,
-      allowStaleCrossPlanDependency: {
-        event_digest: options.oldEventDigest, from: recoveryFrom, to: recoveryTo,
-      },
+    const result = await rebindTodoCrossPlanDependenciesLocked({
+      repoRoot, projectId: options.projectId, actor: options.actor,
+      recordedAt: options.recordedAt, now: options.now,
+      bindings: [{
+        fromPlanKey: options.fromPlanKey, fromTaskId: options.fromTaskId,
+        toPlanKey: options.toPlanKey, toTaskId: options.toTaskId,
+        oldEventDigest: options.oldEventDigest,
+        oldFromTopologyDigest: options.oldFromTopologyDigest,
+        oldToTopologyDigest: options.oldToTopologyDigest,
+        currentFromTopologyDigest: options.currentFromTopologyDigest,
+        currentToTopologyDigest: options.currentToTopologyDigest,
+        reason: options.reason,
+      }],
     });
-    if (store.project_id !== options.projectId) {
+    const [rebound] = result.rebindings;
+    return {
+      event: rebound.event, old_event: rebound.old_event,
+      plan: rebound.plan, plan_scoped_head_digest: rebound.event.event_digest,
+      store_before: result.store_before, store_after: result.store_after,
+    };
+  });
+}
+
+/** 複数のstale cross-plan edgeを、全件検証後に一括でappend-only再束縛する。 */
+export async function rebindTodoCrossPlanDependencies(options = {}) {
+  requireWriter(options.writer, 'g5-authoring');
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  return withLock(repoRoot, () => rebindTodoCrossPlanDependenciesLocked({
+    ...options, repoRoot,
+  }));
+}
+
+async function rebindTodoCrossPlanDependenciesLocked(options) {
+  if (!Array.isArray(options.bindings) || options.bindings.length === 0) {
+    throw new TypeError('bindings must be a non-empty array');
+  }
+  const seen = new Set();
+  const recoveries = options.bindings.map((binding) => {
+    if (seen.has(binding.oldEventDigest)) {
+      fail('DEPENDENCY_REBIND_INVALID', 'rebind_event_duplicate', {
+        supersedes: binding.oldEventDigest,
+      });
+    }
+    seen.add(binding.oldEventDigest);
+    return {
+      event_digest: binding.oldEventDigest,
+      from: {
+        project_id: options.projectId, plan_key: binding.fromPlanKey,
+        task_id: binding.fromTaskId,
+        expected_topology_digest: binding.oldFromTopologyDigest,
+      },
+      to: {
+        project_id: options.projectId, plan_key: binding.toPlanKey,
+        task_id: binding.toTaskId,
+        expected_topology_digest: binding.oldToTopologyDigest,
+      },
+    };
+  });
+  const store = await readTodoStore({
+    repoRoot: options.repoRoot, forWrite: true, now: options.now,
+    allowStaleCrossPlanDependencies: recoveries,
+  });
+  if (store.project_id !== options.projectId) {
       fail('DEPENDENCY_REBIND_INVALID', 'rebind_project_mismatch', {
         expected_project_id: options.projectId, actual_project_id: store.project_id,
       });
-    }
-    const owner = store.members.find(({ plan }) => plan.plan_key === options.toPlanKey);
-    const source = store.members.find(({ plan }) => plan.plan_key === options.fromPlanKey);
+  }
+  const beforeStore = {
+    ...store,
+    members: store.members.map((member) => ({
+      ...member,
+      plan_scoped: { ...member.plan_scoped, events: [...member.plan_scoped.events] },
+    })),
+  };
+  const changedOwners = new Set();
+  const rebindings = [];
+  for (const binding of options.bindings) {
+    const owner = store.members.find(({ plan }) => plan.plan_key === binding.toPlanKey);
+    const source = store.members.find(({ plan }) => plan.plan_key === binding.fromPlanKey);
     if (owner === undefined || source === undefined) {
       fail('DEPENDENCY_REBIND_INVALID', 'rebind_plan_not_found');
     }
-    const oldEvent = owner.plan_scoped.events.find(({ event_digest: digest }) => digest === options.oldEventDigest);
+    const oldEvent = owner.plan_scoped.events.find(({ event_digest: digest }) => (
+      digest === binding.oldEventDigest
+    ));
     if (oldEvent === undefined) {
       fail('DEPENDENCY_REBIND_INVALID', 'rebind_event_not_found', {
-        supersedes: options.oldEventDigest,
+        supersedes: binding.oldEventDigest,
       });
     }
     if (oldEvent.kind !== 'cross_plan_dependency' && oldEvent.kind !== 'cross_plan_dependency_rebind') {
       fail('DEPENDENCY_REBIND_INVALID', 'rebind_event_kind_invalid', {
-        supersedes: options.oldEventDigest,
+        supersedes: binding.oldEventDigest,
       });
     }
-    if (oldEvent.payload.from.expected_topology_digest !== options.oldFromTopologyDigest
-      || oldEvent.payload.to.expected_topology_digest !== options.oldToTopologyDigest) {
+    if (oldEvent.payload.from.expected_topology_digest !== binding.oldFromTopologyDigest
+      || oldEvent.payload.to.expected_topology_digest !== binding.oldToTopologyDigest) {
       fail('DEPENDENCY_REBIND_INVALID', 'rebind_old_topology_mismatch', {
-        supersedes: options.oldEventDigest,
+        supersedes: binding.oldEventDigest,
         expected_old_from_topology: oldEvent.payload.from.expected_topology_digest,
         expected_old_to_topology: oldEvent.payload.to.expected_topology_digest,
       });
     }
-    if (source.plan.topology_digest !== options.currentFromTopologyDigest
-      || owner.plan.topology_digest !== options.currentToTopologyDigest) {
+    if (source.plan.topology_digest !== binding.currentFromTopologyDigest
+      || owner.plan.topology_digest !== binding.currentToTopologyDigest) {
       fail('DEPENDENCY_REBIND_INVALID', 'rebind_current_topology_mismatch', {
         actual_from_topology: source.plan.topology_digest,
         actual_to_topology: owner.plan.topology_digest,
       });
     }
     const from = {
-      project_id: store.project_id, plan_key: options.fromPlanKey, task_id: options.fromTaskId,
-      expected_topology_digest: options.currentFromTopologyDigest,
+      project_id: store.project_id, plan_key: binding.fromPlanKey, task_id: binding.fromTaskId,
+      expected_topology_digest: binding.currentFromTopologyDigest,
     };
     const to = {
-      project_id: store.project_id, plan_key: options.toPlanKey, task_id: options.toTaskId,
-      expected_topology_digest: options.currentToTopologyDigest,
+      project_id: store.project_id, plan_key: binding.toPlanKey, task_id: binding.toTaskId,
+      expected_topology_digest: binding.currentToTopologyDigest,
     };
     const eventInput = {
       kind: 'cross_plan_dependency_rebind',
       actor: options.actor,
       recorded_at: options.recordedAt ?? new Date().toISOString(),
       payload: {
-        from, to, reason: options.reason,
-        supersedes: options.oldEventDigest,
+        from, to, reason: binding.reason,
+        supersedes: binding.oldEventDigest,
         previous_from: oldEvent.payload.from,
         previous_to: oldEvent.payload.to,
       },
     };
-    validateCrossPlanDependencyRebindTransition(store, owner, eventInput);
-    const beforeStore = {
-      ...store,
-      members: store.members.map((member) => ({
-        ...member,
-        plan_scoped: {
-          ...member.plan_scoped,
-          events: [...member.plan_scoped.events],
-        },
-      })),
-    };
-    const appended = await appendPlanScopedEvent({ repoRoot, member: owner, input: eventInput });
+    validateCrossPlanDependencyRebindTransition(store, owner, eventInput, {
+      skipMergedGraph: true,
+    });
+    const appended = buildPlanScopedEvent(owner, eventInput);
     owner.plan_scoped.events = [...owner.plan_scoped.events, appended.event];
-    validateMergedGraph(store.members, projectTodoCrossPlanDependencies(store.members));
-    return {
-      ...appended,
-      old_event: oldEvent,
-      store_before: beforeStore,
-      store_after: store,
-    };
-  });
+    owner.plan_scoped.activeBytes = Buffer.concat([
+      owner.plan_scoped.activeBytes, appended.bytes,
+    ]);
+    changedOwners.add(owner);
+    rebindings.push({ event: appended.event, old_event: oldEvent, plan: owner.plan });
+  }
+  validateMergedGraph(store.members, projectTodoCrossPlanDependencies(store.members));
+  for (const owner of changedOwners) {
+    await atomicWrite(path.resolve(options.repoRoot, owner.plan_scoped.ref), owner.plan_scoped.activeBytes);
+  }
+  return { rebindings, store_before: beforeStore, store_after: store };
 }
 
 /**
@@ -2000,6 +2057,18 @@ export async function rebindTodoCrossPlanDependency(options = {}) {
  * （合成すると型も値域も同じまま意味だけずれ、消費者はexact検証を通してしまう）。
  */
 async function appendPlanScopedEvent({ repoRoot, member, input }) {
+  const { event, bytes } = buildPlanScopedEvent(member, input);
+  await atomicWrite(path.resolve(repoRoot, member.plan_scoped.ref),
+    Buffer.concat([member.plan_scoped.activeBytes, bytes]));
+  const events = [...member.plan_scoped.events, event];
+  return {
+    event, plan: member.plan, snapshot: member.snapshot,
+    plan_scoped_head_digest: event.event_digest,
+    coordination: projectTodoCoordination(events),
+  };
+}
+
+function buildPlanScopedEvent(member, input) {
   const previous = member.plan_scoped.events.at(-1) ?? null;
   const event = {
     schema: 'lattice.todo_event.v3',
@@ -2024,14 +2093,7 @@ async function appendPlanScopedEvent({ repoRoot, member, input }) {
       ref: member.plan_scoped.ref, limit: TODO_LIMITS.journalSegmentBytes,
     });
   }
-  await atomicWrite(path.resolve(repoRoot, member.plan_scoped.ref),
-    Buffer.concat([member.plan_scoped.activeBytes, bytes]));
-  const events = [...member.plan_scoped.events, event];
-  return {
-    event, plan: member.plan, snapshot: member.snapshot,
-    plan_scoped_head_digest: event.event_digest,
-    coordination: projectTodoCoordination(events),
-  };
+  return { event, bytes };
 }
 
 export function buildTodoPlan(input) {

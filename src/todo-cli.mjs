@@ -49,6 +49,7 @@ import {
   TodoStoreError,
   isPhaselessTodoPlanSchema,
   projectTodoCrossPlanDependencies,
+  rebindTodoCrossPlanDependencies,
   rebindTodoCrossPlanDependency,
   TERMINAL_AUDIT_PHASE_ID,
   readTodoIndependenceArtifact,
@@ -1151,6 +1152,95 @@ async function dependencyRebind({
     rebound_by: event.actor,
     rebound_at: event.recorded_at,
     plan_scoped_head_digest: event.event_digest,
+    result_digest: '',
+  };
+  receipt.result_digest = todoSelfDigest(receipt, 'result_digest');
+  return receipt;
+}
+
+function validateDependencyRebindBatchInput(value) {
+  const bindingKeys = [
+    'from_plan_key', 'from_task_id', 'to_plan_key', 'to_task_id', 'old_event_digest',
+    'old_from_topology_digest', 'old_to_topology_digest', 'current_from_topology_digest',
+    'current_to_topology_digest', 'reason',
+  ];
+  return exactRecord(value, ['schema', 'project_id', 'bindings'])
+    && value.schema === 'lattice.todo_dependency_rebind_batch.v1'
+    && isTodoIdentifier(value.project_id)
+    && Array.isArray(value.bindings) && value.bindings.length > 0
+    && value.bindings.every((binding) => exactRecord(binding, bindingKeys)
+      && isTodoIdentifier(binding.from_plan_key) && isTodoIdentifier(binding.from_task_id)
+      && isTodoIdentifier(binding.to_plan_key) && isTodoIdentifier(binding.to_task_id)
+      && isTodoDigest(binding.old_event_digest)
+      && isTodoDigest(binding.old_from_topology_digest)
+      && isTodoDigest(binding.old_to_topology_digest)
+      && isTodoDigest(binding.current_from_topology_digest)
+      && isTodoDigest(binding.current_to_topology_digest)
+      && typeof binding.reason === 'string' && binding.reason.length > 0);
+}
+
+/** 複数のstale edgeを1入力で再束縛し、全件反映後のfrontierを返す。 */
+async function dependencyRebindBatch({ repoRoot, env, inputRef }) {
+  const input = await readJsonInput(repoRoot, inputRef, {
+    validate: validateDependencyRebindBatchInput,
+    invalidCode: 'INVALID_DEPENDENCY_REBIND_BATCH',
+  });
+  const result = await rebindTodoCrossPlanDependencies({
+    repoRoot,
+    writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+    projectId: input.project_id,
+    bindings: input.bindings.map((binding) => ({
+      fromPlanKey: binding.from_plan_key, fromTaskId: binding.from_task_id,
+      toPlanKey: binding.to_plan_key, toTaskId: binding.to_task_id,
+      oldEventDigest: binding.old_event_digest,
+      oldFromTopologyDigest: binding.old_from_topology_digest,
+      oldToTopologyDigest: binding.old_to_topology_digest,
+      currentFromTopologyDigest: binding.current_from_topology_digest,
+      currentToTopologyDigest: binding.current_to_topology_digest,
+      reason: binding.reason,
+    })),
+    actor: mutationActor(env),
+  });
+  const beforeFrontier = computeReadyFrontier(result.store_before);
+  const afterStore = await readTodoStore({ repoRoot });
+  const afterFrontier = computeReadyFrontier(afterStore);
+  const entryKey = ({ plan_key: planKey, task_id: taskId }) => `${planKey}\0${taskId}`;
+  const beforeKeys = new Set(beforeFrontier.map(entryKey));
+  const afterKeys = new Set(afterFrontier.map(entryKey));
+  const receipt = {
+    schema: 'lattice.todo_dependency_rebind_batch_result.v1',
+    project_id: afterStore.project_id,
+    rebound_count: result.rebindings.length,
+    rebindings: result.rebindings.map(({ event, old_event: oldEvent }) => {
+      const owner = afterStore.members.find(({ plan }) => (
+        plan.plan_key === event.payload.to.plan_key
+      ));
+      return {
+        from: event.payload.from, to: event.payload.to, reason: event.payload.reason,
+        supersedes: event.payload.supersedes,
+        old_event_digest: oldEvent.event_digest, new_event_digest: event.event_digest,
+        old_topology: {
+          from: oldEvent.payload.from.expected_topology_digest,
+          to: oldEvent.payload.to.expected_topology_digest,
+        },
+        new_topology: {
+          from: event.payload.from.expected_topology_digest,
+          to: event.payload.to.expected_topology_digest,
+        },
+        plan_scoped_head_digest: owner.plan_scoped.events.at(-1).event_digest,
+      };
+    }),
+    frontier_diff: {
+      before: beforeFrontier, after: afterFrontier,
+      added: afterFrontier.filter((entry) => !beforeKeys.has(entryKey(entry))),
+      removed: beforeFrontier.filter((entry) => !afterKeys.has(entryKey(entry))),
+      before_digest: digestTodoArtifact(beforeFrontier),
+      after_digest: digestTodoArtifact(afterFrontier),
+    },
+    status: {
+      next_ready: afterFrontier,
+      cross_plan_dependencies: projectTodoCrossPlanDependencies(afterStore.members),
+    },
     result_digest: '',
   };
   receipt.result_digest = todoSelfDigest(receipt, 'result_digest');
@@ -3817,6 +3907,11 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
       oldFromTopologyDigest: argv[13], oldToTopologyDigest: argv[15],
       currentFromTopologyDigest: argv[17], currentToTopologyDigest: argv[19],
       reason: argv[21],
+    });
+  } else if (argv.length === 4 && argv[0] === 'dependency' && argv[1] === 'rebind'
+    && argv[2] === '--input' && isTodoRef(argv[3])) {
+    action = (repoRoot) => dependencyRebindBatch({
+      repoRoot, env, inputRef: argv[3],
     });
   } else if (argv.length === 6 && argv[0] === 'independence' && argv[1] === 'compile'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--input') {

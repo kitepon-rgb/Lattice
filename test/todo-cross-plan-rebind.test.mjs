@@ -22,7 +22,7 @@ const ACTOR = Object.freeze({ host: 'host-1', session: 'session-1', agent: 'agen
 const task = (taskId) => ({ task_id: taskId, title: taskId, lane: 'main',
   narrative_ref: null, compile_binding: null });
 
-async function staleWorkspace(context) {
+async function staleWorkspace(context, { consumerCount = 1 } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-cross-plan-rebind-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   execFileSync('git', ['init', '--quiet'], { cwd: root });
@@ -42,7 +42,11 @@ async function staleWorkspace(context) {
     projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }],
     plans: [
       { plan: plan('producer', 'P'), genesis: { actor: ACTOR, recorded_at: NOW } },
-      { plan: plan('consumer', 'C'), genesis: { actor: ACTOR, recorded_at: NOW } },
+      ...Array.from({ length: consumerCount }, (_, index) => ({
+        plan: plan(index === 0 ? 'consumer' : `consumer-${index + 1}`,
+          index === 0 ? 'C' : `C${index + 1}`),
+        genesis: { actor: ACTOR, recorded_at: NOW },
+      })),
     ],
     now: NOW,
   });
@@ -57,12 +61,23 @@ async function staleWorkspace(context) {
     project_id: before.project_id, plan_key: 'consumer', task_id: 'C',
     expected_topology_digest: consumer.plan.topology_digest,
   };
-  const connected = await appendTodoEvent({
-    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
-    planKey: 'consumer', now: NOW,
-    event: { kind: 'cross_plan_dependency', actor: ACTOR, recorded_at: NOW,
-      payload: { from, to, reason: 'fixture edge' } },
-  });
+  const connections = [];
+  for (let index = 0; index < consumerCount; index += 1) {
+    const planKey = index === 0 ? 'consumer' : `consumer-${index + 1}`;
+    const taskId = index === 0 ? 'C' : `C${index + 1}`;
+    const target = before.members.find(({ plan: value }) => value.plan_key === planKey);
+    const targetRef = {
+      project_id: before.project_id, plan_key: planKey, task_id: taskId,
+      expected_topology_digest: target.plan.topology_digest,
+    };
+    const connected = await appendTodoEvent({
+      repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+      planKey, now: NOW,
+      event: { kind: 'cross_plan_dependency', actor: ACTOR, recorded_at: NOW,
+        payload: { from, to: targetRef, reason: `fixture edge ${index + 1}` } },
+    });
+    connections.push({ connected, from, to: targetRef, planKey, taskId });
+  }
 
   const successor = buildTodoPlan({
     ...producer.plan,
@@ -76,7 +91,10 @@ async function staleWorkspace(context) {
     genesis: { actor: ACTOR, recorded_at: NOW, task_migration: [{ from_task_id: 'P', to_task_id: 'P' }] },
     now: NOW,
   });
-  return { root, connected, oldFrom: from, oldTo: to, successor };
+  return {
+    root, connected: connections[0].connected, oldFrom: from, oldTo: to,
+    successor, connections,
+  };
 }
 
 test('revision後のstale cross-plan edgeをrebindするred fixture', async (context) => {
@@ -115,6 +133,62 @@ test('stale edgeは旧eventを残したappend-only rebindでready読取へ戻る
   const consumer = after.members.find(({ plan }) => plan.plan_key === 'consumer');
   assert.equal(consumer.plan_scoped.events.length, 2);
   assert.equal(consumer.plan_scoped.events[0].event_digest, connected.event.event_digest);
+});
+
+test('同じrevisionで複数edgeがstaleでもbatch rebindで一括復旧する', async (context) => {
+  const { root, successor, connections } = await staleWorkspace(context, { consumerCount: 2 });
+  await assert.rejects(() => readTodoStore({
+    repoRoot: root, now: NOW,
+    allowStaleCrossPlanDependency: {
+      event_digest: connections[0].connected.event.event_digest,
+      from: connections[0].from,
+      to: connections[0].to,
+    },
+  }), (error) => error.code === 'STORE_INCONSISTENT' && error.detail.reason === 'binding_stale');
+
+  const input = {
+    schema: 'lattice.todo_dependency_rebind_batch.v1',
+    project_id: 'project-1',
+    bindings: connections.map(({ connected, from, to, planKey, taskId }) => ({
+      from_plan_key: 'producer', from_task_id: 'P',
+      to_plan_key: planKey, to_task_id: taskId,
+      old_event_digest: connected.event.event_digest,
+      old_from_topology_digest: from.expected_topology_digest,
+      old_to_topology_digest: to.expected_topology_digest,
+      current_from_topology_digest: successor.topology_digest,
+      current_to_topology_digest: to.expected_topology_digest,
+      reason: '同じrevisionでstaleになったedgeを一括再束縛',
+    })),
+  };
+  await writeFile(path.join(root, 'rebind-batch.json'), `${JSON.stringify(input)}\n`);
+  let stdout = '';
+  let stderr = '';
+  const exit = await runTodoCli({
+    argv: ['dependency', 'rebind', '--input', 'rebind-batch.json'],
+    cwd: root,
+    stdout: { write: (chunk) => { stdout += chunk; } },
+    stderr: { write: (chunk) => { stderr += chunk; } },
+    env: {
+      ...process.env,
+      LATTICE_TODO_ACTOR_HOST: ACTOR.host,
+      LATTICE_TODO_ACTOR_SESSION: ACTOR.session,
+      LATTICE_TODO_ACTOR_AGENT: ACTOR.agent,
+      LATTICE_DASHBOARD_AUTOSTART: '0',
+    },
+  });
+  assert.equal(exit, 0, stderr);
+  const receipt = JSON.parse(stdout);
+  assert.equal(receipt.schema, 'lattice.todo_dependency_rebind_batch_result.v1');
+  assert.equal(receipt.rebound_count, 2);
+  assert.equal(receipt.rebindings.length, 2);
+  assert.match(receipt.result_digest, /^[0-9a-f]{64}$/u);
+
+  const after = await readTodoStore({ repoRoot: root, now: NOW });
+  const dependencies = projectTodoCrossPlanDependencies(after.members);
+  assert.equal(dependencies.length, 2);
+  assert.ok(dependencies.every(({ from: value }) => (
+    value.expected_topology_digest === successor.topology_digest
+  )));
 });
 
 test('公開CLIは旧新topologyとfrontier diffを含むrebind receiptを返す', async (context) => {

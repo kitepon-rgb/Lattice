@@ -108,6 +108,8 @@ Write commands:
       --old-from-topology <digest> --old-to-topology <digest>
       --current-from-topology <digest> --current-to-topology <digest> --reason <text>
       # revisionでstaleになった旧edgeを直接編集せず、新しいplan-scoped eventで再束縛する
+  dependency rebind --input <batch.json>
+      # 同じrevisionでstaleになった複数edgeを、全件検証してから一括再束縛する
   independence compile --plan <key> --input <file>  # witness setとsensorから並列可否を記録する
   independence witness migrate --plan <key>  # revision後の宣言をtask migrationで写す
   independence witness scaffold --plan <key> --input <draft>  # 下書きとfresh観測から宣言を書き出す
@@ -272,6 +274,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo evidence promote': 'todo evidence promote --plan <key> --task <id> --evidence <file>',
   'todo dependency': 'todo dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>',
   'todo dependency connect': 'todo dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>',
+  'todo dependency rebind': 'todo dependency rebind --input <batch.json> | --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --event-digest <digest> --old-from-topology <digest> --old-to-topology <digest> --current-from-topology <digest> --current-to-topology <digest> --reason <text>',
   'todo split': 'todo split --plan <key> --input <file>',
   'todo revise': 'todo revise --plan <key> --input <file> | --schema --json',
   'todo revise-phase': 'todo revise-phase --plan <key> --input <file> | --schema --json',
