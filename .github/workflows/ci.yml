@@ -2,8 +2,21 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 実行する環境
+        type: choice
+        default: all
+        options:
+          - all
+          - macos-native
+          - linux-native
+          - windows-native
+          - wsl2
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -14,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [macos-native, linux-native, windows-native, wsl2]
+        environment: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.environment != 'all' && format('["{0}"]', inputs.environment) || '["macos-native","linux-native","windows-native","wsl2"]') }}
     timeout-minutes: 15
     runs-on: [self-hosted, factory, "${{ matrix.environment }}"]
     steps:
