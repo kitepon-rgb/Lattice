@@ -21,8 +21,7 @@ jobs:
     uses: kitepon/dotagents/.github/workflows/factory-full-ci.yml@main
     with:
       environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'all' }}
+      dependency-command: npm ci && npm --prefix sensor ci
       full-command: >-
-        npm ci &&
-        npm --prefix sensor ci &&
         npm --prefix sensor run build &&
         npm run ci
