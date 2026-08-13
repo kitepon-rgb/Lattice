@@ -775,6 +775,10 @@ describe('FileWatcher', () => {
       const results = cg.searchNodes('added');
       expect(results.length).toBeGreaterThan(0);
 
+      // nodeCount/search become observable before the async sync has finished
+      // its maintenance and WAL teardown. The end-to-end contract is the
+      // completed watch sync, so wait for that boundary before closing the DB.
+      await waitFor(() => !cg.isIndexing(), 8000);
       cg.unwatch();
     });
   });
