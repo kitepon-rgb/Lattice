@@ -21,7 +21,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22.22.3'
-          cache: npm
       - run: npm ci
       - run: npm --prefix sensor ci
       - run: npm --prefix sensor run build
@@ -42,7 +41,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22.22.3'
-          cache: npm
       - run: npm ci
       - run: npm --prefix sensor ci
       - run: npm --prefix sensor run build
@@ -73,6 +71,5 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22.22.3'
-          cache: npm
       - run: npm ci
       - run: npm run test:profile -- --profile=wsl2
