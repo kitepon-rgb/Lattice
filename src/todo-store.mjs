@@ -1811,7 +1811,7 @@ export async function appendTodoEvent(options = {}) {
  * 「この planの lifecycleがどこまで進んだか」という意味を、方式の宣言で動かさない
  * （合成すると型も値域も同じまま意味だけずれ、消費者はexact検証を通してしまう）。
  */
-async function appendPlanScopedEvent({ repoRoot, member, input }) {
+function buildPlanScopedEvent(member, input) {
   const previous = member.plan_scoped.events.at(-1) ?? null;
   const event = {
     schema: 'lattice.todo_event.v3',
@@ -1827,7 +1827,10 @@ async function appendPlanScopedEvent({ repoRoot, member, input }) {
   };
   event.event_digest = todoSelfDigest(event, 'event_digest');
   if (!validateTodoEvent(event)) throw new TypeError('todo event input violates its declared schema');
+  return event;
+}
 
+function planScopedEventBytes(member, event) {
   const bytes = canonicalLine(event);
   if (member.plan_scoped.activeBytes.length + bytes.length > TODO_LIMITS.journalSegmentBytes) {
     // 宣言は1 planあたり数件の想定なので封緘機構は持たない。上限へ達したら黙って捨てず、
@@ -1836,6 +1839,12 @@ async function appendPlanScopedEvent({ repoRoot, member, input }) {
       ref: member.plan_scoped.ref, limit: TODO_LIMITS.journalSegmentBytes,
     });
   }
+  return bytes;
+}
+
+async function appendPlanScopedEvent({ repoRoot, member, input }) {
+  const event = buildPlanScopedEvent(member, input);
+  const bytes = planScopedEventBytes(member, event);
   await atomicWrite(path.resolve(repoRoot, member.plan_scoped.ref),
     Buffer.concat([member.plan_scoped.activeBytes, bytes]));
   const events = [...member.plan_scoped.events, event];
@@ -2074,6 +2083,69 @@ async function protocolStage(options, stage) {
   if (typeof options.onProtocolStage === 'function') await options.onProtocolStage(stage);
 }
 
+function cloneImportedDependencyMember(member) {
+  return {
+    ...member,
+    plan_scoped: {
+      ...(member.plan_scoped ?? {}),
+      events: [...(member.plan_scoped?.events ?? [])],
+      activeBytes: Buffer.from(member.plan_scoped?.activeBytes ?? Buffer.alloc(0)),
+    },
+  };
+}
+
+function importedDependencyRef(ref, plan) {
+  if (ref.project_id !== plan.project_id || ref.plan_key !== plan.plan_key
+    || ref.expected_topology_digest !== undefined) return ref;
+  return { ...ref, expected_topology_digest: plan.topology_digest };
+}
+
+function prepareImportedCrossPlanDependencies({ store, plan, tasks, dependencies, genesis, journalRef }) {
+  if (!Array.isArray(dependencies) || dependencies.length === 0) {
+    return { events: [], artifacts: [] };
+  }
+  const importedMember = {
+    plan, tasks,
+    plan_scoped: { ref: planScopedJournalRef(journalRef), events: [], activeBytes: Buffer.alloc(0) },
+  };
+  const members = [...store.members.map(cloneImportedDependencyMember), importedMember];
+  const artifacts = new Map();
+  const events = [];
+  for (const dependency of dependencies) {
+    const from = importedDependencyRef(dependency.from, plan);
+    const to = importedDependencyRef(dependency.to, plan);
+    const target = members.find(({ plan: targetPlan }) => targetPlan.project_id === to.project_id
+      && targetPlan.plan_key === to.plan_key);
+    if (target === undefined) {
+      // Reuse the existing dependency presence diagnostic for an unknown target plan.
+      crossPlanDependencyTask({ ...store, members }, to);
+    }
+    const input = {
+      kind: 'cross_plan_dependency', actor: genesis.actor, recorded_at: genesis.recorded_at,
+      provenance: genesis.provenance ?? null,
+      payload: { from, to, reason: dependency.reason },
+    };
+    const validationStore = { ...store, members };
+    validateCrossPlanDependencyTransition(validationStore, target, input);
+    const event = buildPlanScopedEvent(target, input);
+    const bytes = planScopedEventBytes(target, event);
+    const key = target.plan_scoped.ref;
+    const artifact = artifacts.get(key) ?? {
+      ref: key,
+      originalBytes: Buffer.from(target.plan_scoped.activeBytes),
+      finalBytes: Buffer.from(target.plan_scoped.activeBytes),
+      events: [],
+    };
+    artifact.finalBytes = Buffer.concat([artifact.finalBytes, bytes]);
+    artifact.events.push(event);
+    artifacts.set(key, artifact);
+    target.plan_scoped.events.push(event);
+    target.plan_scoped.activeBytes = Buffer.concat([target.plan_scoped.activeBytes, bytes]);
+    events.push(event);
+  }
+  return { events, artifacts: [...artifacts.values()] };
+}
+
 /** G4-only atomic import, with optional all-or-nothing store bootstrap. */
 export async function appendImportedPlan(options = {}) {
   requireWriter(options.writer, 'g4-migration');
@@ -2099,9 +2171,10 @@ export async function appendImportedPlan(options = {}) {
     }
     await protocolStage(options, 'plan_key_absent');
 
-    const { plan, genesis, events, snapshot } = prepareImportedArtifacts(
+    const prepared = prepareImportedArtifacts(
       repoRoot, options, store.project_id, store.members.map(({ plan: memberPlan }) => ({ plan: memberPlan })),
     );
+    const { plan, genesis, events, snapshot, tasks } = prepared;
 
     const base = `${STORE_ROOT_REF}/plans/${plan.plan_key}/${plan.plan_version}`;
     const planRef = `${base}/plan.json`;
@@ -2110,6 +2183,9 @@ export async function appendImportedPlan(options = {}) {
     const transactionRef = `${STORE_ROOT_REF}/transactions/${plan.plan_key}-${plan.plan_version}`;
     const transactionAbsolute = path.resolve(repoRoot, transactionRef);
     const finalBaseAbsolute = path.resolve(repoRoot, base);
+    const importedCrossPlan = prepareImportedCrossPlanDependencies({
+      store, plan, tasks, dependencies: options.crossPlanDependencies, genesis, journalRef,
+    });
     // These paths can only be leftovers from a transaction whose plan key is still absent.
     await rm(transactionAbsolute, { recursive: true, force: true });
     await rm(finalBaseAbsolute, { recursive: true, force: true });
@@ -2121,40 +2197,88 @@ export async function appendImportedPlan(options = {}) {
     await atomicWrite(stagedPlan, canonicalLine(plan));
     await atomicWrite(stagedJournal, Buffer.concat(events.map(canonicalLine)));
     await atomicWrite(stagedSnapshot, canonicalLine(snapshot));
+    for (const [index, artifact] of importedCrossPlan.artifacts.entries()) {
+      artifact.stagedAbsolute = path.join(transactionAbsolute, 'plan-scoped', `${index}.jsonl`);
+      await atomicWrite(artifact.stagedAbsolute, artifact.finalBytes);
+    }
+    if (importedCrossPlan.artifacts.length > 0) {
+      await protocolStage(options, 'cross_plan_dependencies_staged');
+    }
     await protocolStage(options, 'staging_fsynced');
 
     // 4. Re-read canonical manifest bytes under the lock and compare the captured digest.
     const currentManifest = await readArtifact(repoRoot, MANIFEST_REF, {
       code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
     });
+    const originalManifest = structuredClone(currentManifest);
     if (currentManifest.manifest_digest !== expectedManifestDigest) {
       fail('STORE_WRITE_CONFLICT', 'manifest_digest_changed');
     }
     await protocolStage(options, 'manifest_cas_matched');
 
     // 5. Pre-activation paths remain invisible until the final manifest rename.
-    await mkdir(path.dirname(path.resolve(repoRoot, planRef)), { recursive: true });
-    await mkdir(path.dirname(path.resolve(repoRoot, journalRef)), { recursive: true });
-    await rename(stagedPlan, path.resolve(repoRoot, planRef));
-    await rename(stagedJournal, path.resolve(repoRoot, journalRef));
-    await rename(stagedSnapshot, path.resolve(repoRoot, snapshotRef));
-    await fsyncDirectory(path.dirname(path.resolve(repoRoot, planRef)));
-    await fsyncDirectory(path.dirname(path.resolve(repoRoot, journalRef)));
-    await protocolStage(options, 'pre_activation_renamed');
-
+    let importedPlanActivated = false;
+    let manifestActivated = false;
+    const activatedDependencies = [];
     const descriptor = { plan_key: plan.plan_key, active_plan_version: plan.plan_version,
       plan_ref: planRef, journal_ref: journalRef, snapshot_ref: snapshotRef,
       topology_digest: plan.topology_digest, journal_head_digest: events.at(-1).event_digest,
       ...(currentManifest.schema === 'lattice.todo_manifest.v2'
         ? { active_revision_digest: plan.plan_digest } : {}) };
-    currentManifest.members.push(descriptor);
-    currentManifest.members.sort((left, right) => left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1 : 0);
-    currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');
-    if (!validateTodoManifest(currentManifest)) throw new TypeError('import activation manifest invalid');
-    await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(currentManifest));
-    await protocolStage(options, 'manifest_activated');
-    await rm(transactionAbsolute, { recursive: true, force: true });
-    return { plan, genesis, events, snapshot, descriptor };
+    try {
+      await mkdir(path.dirname(path.resolve(repoRoot, planRef)), { recursive: true });
+      await mkdir(path.dirname(path.resolve(repoRoot, journalRef)), { recursive: true });
+      await rename(stagedPlan, path.resolve(repoRoot, planRef));
+      await rename(stagedJournal, path.resolve(repoRoot, journalRef));
+      await rename(stagedSnapshot, path.resolve(repoRoot, snapshotRef));
+      importedPlanActivated = true;
+      await fsyncDirectory(path.dirname(path.resolve(repoRoot, planRef)));
+      await fsyncDirectory(path.dirname(path.resolve(repoRoot, journalRef)));
+      await protocolStage(options, 'pre_activation_renamed');
+
+      currentManifest.members.push(descriptor);
+      currentManifest.members.sort((left, right) => left.plan_key < right.plan_key ? -1 : left.plan_key > right.plan_key ? 1 : 0);
+      currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');
+      if (!validateTodoManifest(currentManifest)) throw new TypeError('import activation manifest invalid');
+      await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(currentManifest));
+      manifestActivated = true;
+      await protocolStage(options, 'manifest_activated');
+
+      for (const artifact of importedCrossPlan.artifacts) {
+        const stagedBytes = await readFile(artifact.stagedAbsolute);
+        await atomicWrite(path.resolve(repoRoot, artifact.ref), stagedBytes);
+        activatedDependencies.push(artifact);
+      }
+      if (importedCrossPlan.artifacts.length > 0) {
+        await protocolStage(options, 'cross_plan_dependencies_activated');
+      }
+      await rm(transactionAbsolute, { recursive: true, force: true });
+      return {
+        plan, genesis, events, snapshot, descriptor,
+        crossPlanDependencies: importedCrossPlan.events,
+      };
+    } catch (error) {
+      // The normal historical-import recovery contract intentionally leaves a
+      // manifest-activated plan for retry. Once a cross-plan edge is part of
+      // the request, roll back every activated artifact so plan and edge never
+      // become independently durable.
+      if (importedCrossPlan.artifacts.length > 0) {
+        for (const artifact of [...activatedDependencies].reverse()) {
+          const targetAbsolute = path.resolve(repoRoot, artifact.ref);
+          if (artifact.originalBytes.length > 0) {
+            await atomicWrite(targetAbsolute, artifact.originalBytes);
+          } else {
+            await rm(targetAbsolute, { force: true });
+          }
+        }
+        if (manifestActivated) {
+          await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(originalManifest));
+        }
+        if (importedPlanActivated) await rm(finalBaseAbsolute, { recursive: true, force: true });
+        await rm(transactionAbsolute, { recursive: true, force: true });
+      }
+      throw error;
+    }
   });
 }
 

@@ -1270,6 +1270,23 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
   assertTodoDispatchShapeReviewed({ shape: dispatchShape, reviewed: serializationReviewed });
 
   const imported = await appendTodoExtraction({ repoRoot, extraction });
+  let companion = null;
+  if ((imported.crossPlanDependencies ?? []).length > 0) {
+    const connectedStore = await readTodoStore({ repoRoot });
+    const connections = imported.crossPlanDependencies.map((event) => ({
+      repair: event.payload.from,
+      target: event.payload.to,
+      reason: event.payload.reason,
+      event_digest: event.event_digest,
+    }));
+    companion = {
+      connections,
+      connected_frontier: computeReadyFrontier(connectedStore),
+      next_action: isPhaselessTodoPlanSchema(imported.plan.schema)
+        ? `lattice todo revise-phase --plan ${imported.plan.plan_key} --input <phase-revision.json>`
+        : 'lattice todo status --json',
+    };
+  }
   const result = {
     // ob03: 調整方式の案内をv3で足す。ADR 0054のとおり既存versionへのin-place追加はしない。
     schema: 'lattice.todo_migrate_result.v3',
@@ -1308,6 +1325,7 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
       modes: [...TODO_COORDINATION_MODES],
       next_action: `lattice todo independence mode --plan ${imported.plan.plan_key} --set <witness|conversation> --reason <text>`,
     },
+    ...(companion === null ? {} : { companion }),
     result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');

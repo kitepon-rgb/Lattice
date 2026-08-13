@@ -116,9 +116,22 @@ function extractionTask(value, schema) {
   return value.start === null && value.completion === null;
 }
 
-function validateEdges(value) {
+function isCrossPlanEdge(edge) {
+  return edge.from.project_id !== edge.to.project_id || edge.from.plan_key !== edge.to.plan_key;
+}
+
+function validateEdges(value, schema) {
   return Array.isArray(value) && value.length <= TODO_LIMITS.edgesPerPlan
-    && value.every((edge) => exactRecord(edge, ['from', 'to']) && nodeRef(edge.from) && nodeRef(edge.to))
+    && value.every((edge) => {
+      const basic = exactRecord(edge, ['from', 'to']);
+      const refsValid = nodeRef(edge?.from) && nodeRef(edge?.to);
+      const crossPlan = refsValid && isCrossPlanEdge(edge);
+      const withReason = schema === TODO_EXTRACTION_SCHEMA_V3 && crossPlan
+        && exactRecord(edge, ['from', 'to', 'reason'])
+        && boundedText(edge.reason);
+      return (basic || withReason) && refsValid
+        && (!crossPlan || schema !== TODO_EXTRACTION_SCHEMA_V3 || withReason);
+    })
     && sortedStrictly(value, (edge) => `${refKey(edge.from)}\0${refKey(edge.to)}`);
 }
 
@@ -241,7 +254,7 @@ export function explainTodoExtraction(value) {
     if (new Set(value.tasks.map(({ task_id: taskId }) => taskId)).size !== value.tasks.length) {
       return reject('duplicate_task_id', '/tasks');
     }
-    if (!validateEdges(value.hard_dependencies)) return reject('hard_dependencies_invalid', '/hard_dependencies');
+    if (!validateEdges(value.hard_dependencies, schema)) return reject('hard_dependencies_invalid', '/hard_dependencies');
     if (!validateJoins(value.joins)) return reject('joins_invalid', '/joins');
     if (!isTodoDigest(value.extraction_digest)) return reject('invalid_digest', '/extraction_digest');
     const expectedDigest = todoSelfDigest(value, 'extraction_digest');
@@ -329,7 +342,7 @@ export function validateTodoExtraction(value) {
       || !value.tasks.every((task) => extractionTask(task, schema))
       || !sortedStrictly(value.tasks, (task) => task.task_id)
       || new Set(value.tasks.map(({ task_id }) => task_id)).size !== value.tasks.length
-      || !validateEdges(value.hard_dependencies) || !validateJoins(value.joins)
+      || !validateEdges(value.hard_dependencies, schema) || !validateJoins(value.joins)
       || !isTodoDigest(value.extraction_digest)
       || value.extraction_digest !== todoSelfDigest(value, 'extraction_digest')) return false;
 
@@ -384,6 +397,12 @@ export function compileTodoExtraction(value, repoRoot) {
   if (registered.length === 0) {
     throw new TodoStoreError('MIGRATION_EMPTY', 'no_registered_tasks');
   }
+  const hardDependencies = value.hard_dependencies.map(({ from, to }) => ({ from, to }));
+  const crossPlanDependencies = value.schema === TODO_EXTRACTION_SCHEMA_V3
+    ? value.hard_dependencies
+      .filter(isCrossPlanEdge)
+      .map(({ from, to, reason }) => ({ from, to, reason }))
+    : [];
   return {
     repoRoot,
     writer: createTodoStoreWriter({ caller: 'g4-migration' }),
@@ -410,9 +429,10 @@ export function compileTodoExtraction(value, repoRoot) {
         ...(value.schema === TODO_EXTRACTION_SCHEMA_V3
           ? { parent_task_id: task.source.parent_task_id } : {}),
       })),
-      hard_dependencies: value.hard_dependencies,
+      hard_dependencies: hardDependencies,
       joins: value.joins,
     },
+    crossPlanDependencies,
     narrativeAnchorSources: registered.map((task) => ({
       task_id: task.task_id,
       origin_plan_ref: task.source.origin_plan_ref,

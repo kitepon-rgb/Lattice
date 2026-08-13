@@ -22,7 +22,11 @@
       "type": "array", "maxItems": 2048,
       "items": {
         "type": "object", "additionalProperties": false, "required": ["from", "to"],
-        "properties": { "from": { "$ref": "#/$defs/nodeRef" }, "to": { "$ref": "#/$defs/nodeRef" } }
+        "properties": {
+          "from": { "$ref": "#/$defs/nodeRef" },
+          "to": { "$ref": "#/$defs/nodeRef" },
+          "reason": { "$ref": "#/$defs/text" }
+        }
       }
     },
     "joins": {
