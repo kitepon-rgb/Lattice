@@ -60,7 +60,8 @@ test('設定アドレスがホストから消えるとstatusがrebindableと到�
   // HOMEを持たないこのfixtureではLaunchAgentを読めない。読めないことを
   // 「常駐設定は正常」へ丸めず、typed codeのまま報告する。
   assert.equal(status.persistence.state, 'unreadable');
-  assert.equal(status.persistence.error, 'BRIDGE_LAUNCH_AGENT_HOME_INVALID');
+  assert.equal(status.persistence.error, process.platform === 'win32'
+    ? 'BRIDGE_STARTUP_FOLDER_APPDATA_INVALID' : 'BRIDGE_LAUNCH_AGENT_HOME_INVALID');
   assert.equal(status.enabled, true, '設定は有効なまま');
   assert.equal(status.listen.address, LIVE, '設定の意図は保持する');
   assert.equal(status.listen_state, 'rebindable');

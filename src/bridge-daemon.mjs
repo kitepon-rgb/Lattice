@@ -21,6 +21,7 @@ const CONTROL_MAX_BYTES = 65_536;
 /** control fileの差し替え競合だけを吸収する再読の上限と間隔（`readStrictJson`が唯一の使用者）。 */
 const CONTROL_READ_RETRY_LIMIT = 5;
 const CONTROL_READ_RETRY_DELAY_MS = 20;
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export function bridgeDaemonDescriptorPath(env = process.env) {
   return path.join(bridgeConfigPaths(env).root, 'bridge-daemon.json');
@@ -48,7 +49,14 @@ async function atomicDescriptor(ref, value) {
   const temporary = `${ref}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
   try {
     await writeFile(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-    await rename(temporary, ref);
+    for (let attempt = 0;; attempt += 1) {
+      try { await rename(temporary, ref); break; }
+      catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error?.code)
+          || attempt >= CONTROL_READ_RETRY_LIMIT - 1) throw error;
+        await sleep(CONTROL_READ_RETRY_DELAY_MS);
+      }
+    }
     await chmod(ref, 0o600);
   } finally { await rm(temporary, { force: true }); }
 }

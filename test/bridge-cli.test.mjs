@@ -79,7 +79,7 @@ test('bridge CLIは--hubの設定・持ち越し・noneでの解除をJSON契約
       env, daemon, launchAgent });
     return { code, stdout: stdout.read(), stderr: stderr.read() };
   };
-  const setup = await invoke(['setup', '--listen', '127.0.0.1', '--port', '58743', '--dashboard',
+  const setup = await invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto', '--dashboard',
     '--hub', 'http://192.168.1.2:8080', '--json']);
   assert.equal(setup.code, 0, setup.stderr);
   assert.deepEqual(JSON.parse(setup.stdout).hub, { url: 'http://192.168.1.2:8080/' });
@@ -238,7 +238,7 @@ test('daemon bind失敗はsetup configをrollbackし成功を返さない', asyn
   const failure = Object.assign(new Error('bind failed'), { code: 'BRIDGE_DAEMON_UNAVAILABLE' });
   const launchAgent = launchAgentDouble({ install: async () => { throw failure; } });
   const code = await runBridgeCli({
-    argv: ['setup', '--listen', '127.0.0.1', '--port', '58743', '--json'],
+    argv: ['setup', '--listen', '127.0.0.1', '--port', 'auto', '--json'],
     stdout: stdout.stream, stderr: stderr.stream, env: { LATTICE_CONFIG_DIR: root },
     daemon: { ensure: async () => {}, stop: async () => {} }, launchAgent,
   });

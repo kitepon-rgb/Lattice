@@ -395,5 +395,5 @@ test('registryStoreのfile永続化はread/writeを往復できる', async (cont
   assert.deepEqual(roundTripped, registry);
 
   const registryFileStat = await stat(path.join(root, 'terminals.json'));
-  assert.equal(registryFileStat.mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(registryFileStat.mode & 0o777, 0o600);
 });

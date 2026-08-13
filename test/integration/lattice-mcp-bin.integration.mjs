@@ -163,12 +163,16 @@ test(
   'lattice-mcp: initialize→lattice_sensor_status往復でstdoutが純粋なJSON-RPC、serverInfo versionがLattice系列、mode/reasonが機械可読',
   async (t) => {
     const root = await mkdtemp(path.join(tmpdir(), 'lattice-mcp-smoke-'));
-    t.after(async () => { await rm(root, { recursive: true, force: true }); });
+    let child = null;
+    t.after(async () => {
+      await stopChild(child);
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    });
     await scaffoldIndexedRepo(root);
 
     // Direct mode (LATTICE_SENSOR_NO_DAEMON=1) — no detached daemon process to leak
     // out of this particular test; the daemon re-invoke path has its own test.
-    const child = spawn(process.execPath, [MCP_BIN, '--path', root], {
+    child = spawn(process.execPath, [MCP_BIN, '--path', root], {
       stdio: ['pipe', 'pipe', 'pipe'],
       // LATTICE_SENSOR_ALLOW_UNSAFE_NODE: same override as UNSAFE_NODE_ENV above —
       // this exercises the JSON-RPC round trip regardless of whether the
@@ -178,7 +182,6 @@ test(
       // spawn test below).
       env: { ...process.env, LATTICE_SENSOR_NO_DAEMON: '1', LATTICE_SENSOR_ALLOW_UNSAFE_NODE: '1' },
     });
-    t.after(() => { try { child.kill(); } catch { /* already gone */ } });
     const client = jsonRpcClient(child);
 
     client.send({

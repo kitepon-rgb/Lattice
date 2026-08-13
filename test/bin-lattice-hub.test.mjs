@@ -42,6 +42,10 @@ function waitForExit(child) {
   return new Promise((resolve) => child.once('exit', (code) => resolve(code)));
 }
 
+function waitForExitResult(child) {
+  return new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })));
+}
+
 function waitForLine(getter) {
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + 5_000;
@@ -112,7 +116,13 @@ test('妥当な環境変数で起動しSIGTERMで正常終了する', async (con
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), []);
 
+  const exited = waitForExitResult(child);
   child.kill('SIGTERM');
-  const code = await waitForExit(child);
-  assert.equal(code, 0);
+  const result = await exited;
+  if (process.platform === 'win32') {
+    assert.equal(result.code, null);
+    assert.equal(result.signal, 'SIGTERM');
+  } else {
+    assert.equal(result.code, 0);
+  }
 });

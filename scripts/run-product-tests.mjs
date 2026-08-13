@@ -43,10 +43,8 @@ const retiredArtifactReplaySuites = new Set([
   'treatment-runner.test.mjs',
 ]);
 
-// CIはportableな製品全体を最も強いWSL2ホストで一度だけ検証し、他の実行環境では
-// OS境界を実際に通るsuiteだけを検証する。同じ約1800 testを各OSへ複製しない。
-// suiteを追加する時は、通常はcoreへ自動収載される。特定環境でしか意味を
-// 持たないtestだけを対応profileへ明示する。
+// CIはcoreを全対象OSへ同時投入する。個別profileは、特定OSのfocused再現を
+// ローカルで短く回すためだけに残す。
 export const nativeTestProfiles = Object.freeze({
   linux: Object.freeze([
     'bridge-daemon.test.mjs',

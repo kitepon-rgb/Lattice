@@ -4,6 +4,25 @@ import { rm } from 'node:fs/promises';
 
 /** argvがfixtureのtemp pathを指すprocessだけを列挙する。 */
 export function daemonPidsUnder(temporary) {
+  if (process.platform === 'win32') {
+    const listed = spawnSync('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      'Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress',
+    ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    if (listed.status !== 0 || typeof listed.stdout !== 'string') return [];
+    try {
+      const parsed = JSON.parse(listed.stdout.replace(/^\uFEFF/u, '').trim());
+      const records = Array.isArray(parsed) ? parsed : [parsed];
+      const needle = temporary.toLowerCase();
+      return records
+        .filter((record) => typeof record?.CommandLine === 'string'
+          && record.CommandLine.toLowerCase().includes(needle))
+        .map((record) => Number(record.ProcessId))
+        .filter((pid) => Number.isSafeInteger(pid) && pid > 0 && pid !== process.pid);
+    } catch {
+      return [];
+    }
+  }
   const listed = spawnSync('ps', ['-eo', 'pid=,command='], {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
@@ -17,6 +36,10 @@ export function daemonPidsUnder(temporary) {
 
 // kill(pid, 0)は回収前のzombieにも通るので、生存判定にはpsの状態を使う。
 function processAlive(pid) {
+  if (process.platform === 'win32') {
+    try { process.kill(pid, 0); return true; }
+    catch { return false; }
+  }
   const listed = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
   const state = (listed.stdout ?? '').trim();
   return state.length > 0 && !state.startsWith('Z');
@@ -24,21 +47,27 @@ function processAlive(pid) {
 
 /** fixture配下のdaemonをSIGTERMからSIGKILLへ上げ、残存pidを返す。 */
 export async function reapDaemonsUnder(temporary, tracked = []) {
+  const discovered = process.platform === 'win32' ? daemonPidsUnder(temporary) : null;
   const survivors = () => [...new Set([
-    ...daemonPidsUnder(temporary),
+    ...(discovered ?? daemonPidsUnder(temporary)),
     ...tracked.filter(processAlive),
-  ])];
+  ])].filter(processAlive);
   for (const signal of ['SIGTERM', 'SIGKILL']) {
     if (survivors().length === 0) return [];
-    for (const pid of tracked) {
+    for (const pid of survivors()) {
       try {
-        process.kill(-pid, 'SIGCONT');
-        process.kill(-pid, signal);
+        if (process.platform === 'win32') {
+          spawnSync('taskkill.exe', ['/PID', String(pid), '/T', ...(signal === 'SIGKILL' ? ['/F'] : [])],
+            { stdio: 'ignore' });
+        } else {
+          process.kill(-pid, 'SIGCONT');
+          process.kill(-pid, signal);
+        }
       } catch {
         // 既に停止済み。
       }
     }
-    for (const pid of daemonPidsUnder(temporary)) {
+    for (const pid of process.platform === 'win32' ? [] : daemonPidsUnder(temporary)) {
       try {
         process.kill(pid, signal);
       } catch {

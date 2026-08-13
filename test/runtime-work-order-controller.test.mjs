@@ -22,6 +22,7 @@ import {
   runtimeWorkOrderControllerInternal,
   spawnWorkOrderWorker,
 } from '../src/runtime-work-order-controller.mjs';
+import { reapDaemonsUnder } from './helpers/managed-daemon-fixture.mjs';
 
 function git(args, cwd) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -102,11 +103,16 @@ test('work-order workerはreportを合図にしdiffをLattice自身で観測す�
   const detachedChildPid = Number(String(childPidBytes).trim());
   assert.equal(Number.isSafeInteger(detachedChildPid), true);
   seat.stdout.destroy();
-  t.after(() => {
-    for (const pid of [detachedChildPid, seat.pid]) {
-      try { process.kill(-pid, 'SIGKILL'); } catch { /* 終了済み */ }
-    }
-  });
+  t.after(() => reapDaemonsUnder(root, [detachedChildPid, seat.pid]));
+
+  if (process.platform === 'win32') {
+    await assert.rejects(
+      runtimeWorkOrderControllerInternal.observeWorkerProcessTree(seat.pid),
+      (error) => error.code === 'WORK_ORDER_REPORT_INVALID'
+        && error.message.includes('worker_pidをOS観測できない'),
+    );
+    return;
+  }
 
   const dispatchObservation = await runtimeWorkOrderControllerInternal.observeWorkerProcessTree(
     seat.pid,
