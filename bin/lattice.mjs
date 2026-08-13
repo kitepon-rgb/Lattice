@@ -2,22 +2,21 @@
 
 import { fileURLToPath } from 'node:url';
 import { installPipeCloseGuard } from '../src/cli-stdio.mjs';
-import { runRuntimeCli } from '../src/runtime-cli.mjs';
 import { renderCliHelp } from '../src/cli-help.mjs';
-import { relaunchSensorForNode22IfNeeded } from '../src/sensor-node-runtime.mjs';
+import { relaunchForNode22IfNeeded } from '../src/sensor-node-runtime.mjs';
 import packageJson from '../package.json' with { type: 'json' };
 
 installPipeCloseGuard();
 
 const args = process.argv.slice(2);
-const sensorRelaunchStatus = relaunchSensorForNode22IfNeeded({
+const node22RelaunchStatus = relaunchForNode22IfNeeded({
   args,
   scriptPath: fileURLToPath(import.meta.url),
 });
 const help = renderCliHelp(args);
 
-if (sensorRelaunchStatus !== null) {
-  process.exitCode = sensorRelaunchStatus;
+if (node22RelaunchStatus !== null) {
+  process.exitCode = node22RelaunchStatus;
 } else if (help !== null) {
   process.stdout.write(help);
 } else if (args.length === 1 && args[0] === '--version') {
@@ -125,6 +124,7 @@ if (sensorRelaunchStatus !== null) {
   });
 } else {
   try {
+    const { runRuntimeCli } = await import('../src/runtime-cli.mjs');
     process.exitCode = await runRuntimeCli({
       argv: args,
       cwd: process.cwd(),

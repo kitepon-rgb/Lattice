@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.60.1 — 2026-08-13
+
+### 修正
+
+- Node 22で`node:sqlite`の`ExperimentalWarning`がCLIのJSON出力に混入する問題を修正した。
+  `node:sqlite`を読み込む前に警告抑止付きでCLI全体を再起動する。
+
 ## 0.60.0 — 2026-08-13
 
 ### 新機能
