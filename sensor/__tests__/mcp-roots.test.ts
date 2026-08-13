@@ -21,6 +21,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { LatticeSensor } from '../src';
+import { terminateChild } from './child-process';
 
 const BIN = path.resolve(__dirname, '../dist/bin/lattice-sensor.js');
 
@@ -84,9 +85,9 @@ describe('MCP project resolution via roots/list (issue #196)', () => {
     projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-mcp-proj-'));
   });
 
-  afterEach(() => {
-    if (child && !child.killed) {
-      child.kill('SIGKILL');
+  afterEach(async () => {
+    if (child) {
+      await terminateChild(child);
       child = null;
     }
     fs.rmSync(cwdDir, { recursive: true, force: true });

@@ -15,6 +15,7 @@ import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { terminateChild } from './child-process';
 import { LatticeSensor } from '../src';
 
 const BIN = path.resolve(__dirname, '../dist/bin/lattice-sensor.js');
@@ -107,12 +108,12 @@ describe('MCP initialize handshake (issue #172)', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-mcp-init-'));
   });
 
-  afterEach(() => {
-    if (child && !child.killed) {
-      child.kill('SIGKILL');
+  afterEach(async () => {
+    if (child) {
+      await terminateChild(child);
       child = null;
     }
-    fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
   it('responds to initialize quickly when no .lattice/sensor exists in cwd', async () => {

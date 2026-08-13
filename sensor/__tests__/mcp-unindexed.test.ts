@@ -18,6 +18,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { terminateChild } from './child-process';
 import * as os from 'os';
 import { LatticeSensor } from '../src';
 import { ToolHandler } from '../src/mcp/tools';
@@ -96,18 +97,10 @@ describe('No-root-index session policy', () => {
 
   afterEach(async () => {
     if (child) {
-      // Wait for the child to actually exit before removing its cwd — on
-      // Windows a just-killed process briefly holds the directory/SQLite
-      // handles, and an immediate rmSync fails the teardown with EPERM
-      // (the documented file-locking class that fails the sibling
-      // mcp-initialize/mcp-roots suites). kill + await exit + retried
-      // removal keeps this suite green on Windows.
-      const exited = new Promise<void>((resolve) => child!.once('exit', () => resolve()));
-      child.kill('SIGKILL');
-      await Promise.race([exited, new Promise((r) => setTimeout(r, 3000))]);
+      await terminateChild(child);
       child = null;
     }
-    fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
   it('initialize returns the per-project instructions (not "inactive", not the full playbook)', async () => {
