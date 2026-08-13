@@ -280,7 +280,7 @@ test('writerは8 pathをidempotentに作りproduction／test ownershipをexact�
 });
 
 test('accepted transactionはactual preimage、patch、oracle、6×4 matrix、cleanupをcross-bindする', async (t) => {
-  const { runRc2DeliveryPolicySeamTransform } = await transformModule();
+  const { applyRc2DeliveryPolicyTransform, runRc2DeliveryPolicySeamTransform } = await transformModule();
   const repoRoot = await makeFixtureRepo(t);
   const candidate = await candidateSpec();
   const candidateDigest = digestArtifact(candidate);
@@ -295,10 +295,19 @@ test('accepted transactionはactual preimage、patch、oracle、6×4 matrix、cl
     Object.values(CHANNELS).map(({ todo_id, case_ids }) => ({ todo_id, case_ids })),
   );
 
+  let transformError = null;
   const result = await runRc2DeliveryPolicySeamTransform({
     repoRoot,
     baseRef: baseSha,
     candidateSpec: candidate,
+    transform: async ({ worktreePath }) => {
+      try {
+        await applyRc2DeliveryPolicyTransform({ worktreePath });
+      } catch (error) {
+        transformError = { code: error?.code ?? null, message: error?.message ?? String(error) };
+        throw error;
+      }
+    },
   });
 
   exactKeys(result, [
@@ -317,6 +326,7 @@ test('accepted transactionはactual preimage、patch、oracle、6×4 matrix、cl
     rejection: result.artifact.rejection,
     scope: result.artifact.scope,
     verification: result.artifact.verification,
+    transformError,
   }));
   assert.ok(Buffer.isBuffer(result.patch));
   assert.ok(result.patch.byteLength > 0);
