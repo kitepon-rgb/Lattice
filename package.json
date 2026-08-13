@@ -10,7 +10,7 @@
   "license": "PolyForm-Noncommercial-1.0.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kitepon-rgb/Lattice.git"
+    "url": "git+https://github.com/kitepon/Lattice.git"
   },
   "engines": {
     "node": ">=22.13 <25 || >=26"
@@ -76,6 +76,7 @@
     "verify:release-commit": "node scripts/verify-release-commit.mjs",
     "prepublishOnly": "npm run verify:release-commit",
     "test": "node scripts/run-product-tests.mjs",
+    "test:profile": "node scripts/run-product-tests.mjs",
     "test:sensor": "npm --prefix sensor test",
     "check": "node scripts/check-syntax.mjs",
     "ci": "npm run test && npm run test:sensor && npm run check && npm run check:cli-surface && npm run check:open-questions && npm run check:reachability && npm run verify:todo-store",
@@ -86,9 +87,9 @@
     "upstream:check": "node scripts/upstream-check.mjs",
     "upstream:sync": "node scripts/upstream-sync.mjs"
   },
-  "homepage": "https://github.com/kitepon-rgb/Lattice#readme",
+  "homepage": "https://github.com/kitepon/Lattice#readme",
   "bugs": {
-    "url": "https://github.com/kitepon-rgb/Lattice/issues"
+    "url": "https://github.com/kitepon/Lattice/issues"
   },
   "keywords": [
     "ai",

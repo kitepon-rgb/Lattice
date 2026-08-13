@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_independence.v3.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.todo_independence.v3.schema.json",
   "title": "lattice.todo_independence.v3",
   "description": "Recorded schedulability judgement for a declared ToDo boundary set. Conflicts reference a normalized resource dictionary that preserves each resource's exact compiler target.",
   "$comment": "Runtime validation additionally enforces canonical JSON+LF bytes, the result_digest self-digest, byte-based 4096-byte text limits, strict lexical ordering, unique conflict resource_id values, exact conflict-to-resource references, and absence of unreferenced conflict_resources. JSON Schema uniqueItems covers duplicate full entries; key-based uniqueness, ordering, cross-array references and self-digests are enforced by validateTodoIndependence.",

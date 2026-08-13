@@ -4,7 +4,7 @@
 // npm thin-installer launcher for Lattice sensor.
 //
 // The heavy artifact (a vendored Node runtime + the app) ships as a per-platform
-// optionalDependency: @kitepon-rgb/Lattice-<platform>-<arch>. npm installs
+// optionalDependency: @kitepon/Lattice-<platform>-<arch>. npm installs
 // only the one matching the host, via each package's `os`/`cpu` fields (the
 // esbuild pattern). This shim — run by the user's OWN Node — locates that bundle
 // and execs its launcher, so the real work always runs on the bundled Node 24
@@ -32,9 +32,9 @@ var os = require('os');
 var path = require('path');
 
 var target = process.platform + '-' + process.arch; // e.g. darwin-arm64, linux-x64
-var pkg = '@kitepon-rgb/Lattice-' + target;
+var pkg = '@kitepon/Lattice-' + target;
 var isWindows = process.platform === 'win32';
-var REPO = 'kitepon-rgb/Lattice';
+var REPO = 'kitepon/Lattice';
 
 main().catch(function (e) {
   process.stderr.write('lattice-sensor: ' + (e && e.message ? e.message : String(e)) + '\n');
@@ -271,7 +271,7 @@ function fail(reason) {
     'A registry mirror (e.g. npmmirror/cnpm) that did not mirror the per-platform\n' +
     'package is the usual cause. Fixes:\n' +
     '  - install from the official registry:\n' +
-    '      npm i -g @kitepon-rgb/Lattice --registry=https://registry.npmjs.org\n' +
+    '      npm i -g @kitepon/Lattice --registry=https://registry.npmjs.org\n' +
     '  - or use the standalone installer (no Node required):\n' +
     '      curl -fsSL https://raw.githubusercontent.com/' + REPO + '/main/install.sh | sh\n'
   );

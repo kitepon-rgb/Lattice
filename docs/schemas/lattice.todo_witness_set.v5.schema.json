@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_witness_set.v5.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.todo_witness_set.v5.schema.json",
   "title": "lattice.todo_witness_set.v5",
   "description": "Per-ToDo boundary declaration compiled into a recorded independence judgement (ADR 0127). v5 adds optional semantic line declarations so protocol, stream and schema dependencies can be declared even when file paths do not overlap.",
   "$comment": "Runtime validation additionally enforces canonical JSON+LF bytes, the self-digest rule, unique line_id values per ToDo, and closed line anchor shapes. concern_anchors is stripped before run-request synthesis; lines is preserved because it participates in scheduling. v1-v4 declarations remain valid input without lines, and adding lines to an old schema is rejected rather than reinterpreted.",

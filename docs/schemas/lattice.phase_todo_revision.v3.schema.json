@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.phase_todo_revision.v3.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.phase_todo_revision.v3.schema.json",
   "title": "lattice.phase_todo_revision.v3",
   "description": "`lattice todo revise-phase`が受理する最新契約。v1/v2のphase-audited desired state・task/phase migrationへ、runtime task migration・source inventory・per-ToDo source cutover batchを加えた12 keyの完全契約。",
   "$comment": "Runtime validation (src/todo-revision.mjs validatePhaseTodoRevision) additionally enforces: canonical JSON+LF bytes; strict sort order on task_migration (by from_task_id), runtime_task_migration.entries (by predecessor_task_id), runtime_task_migration.entries[].successor_task_ids/evidence_digests, and source_inventory.excluded_tombstones/source_cutover_batch.operations (by source_ref); uniqueness constraints across all of those; desired_plan.plan_version === phaseTodoRevisionPlanVersion(...); runtime_task_migration projects onto task_migration exactly (validRuntimeTodoProjection) and its successor_task_ids cover exactly desired_plan.tasks; phase_migration's target phase set equals desired_plan.phases exactly; every reconciliation.*_digest field against its own recomputation; and revision_digest as the canonical self-digest over every other top-level field.",

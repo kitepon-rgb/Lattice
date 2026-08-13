@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.runtime_adapter_registration_input.v1.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.runtime_adapter_registration_input.v1.schema.json",
   "title": "lattice.runtime_adapter_registration_input.v1",
   "description": "lattice run adapter register の入力契約。digestと固定capabilitiesはCLIが導出する。",
   "oneOf": [

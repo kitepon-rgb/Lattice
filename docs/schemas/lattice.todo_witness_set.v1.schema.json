@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_witness_set.v1.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.todo_witness_set.v1.schema.json",
   "title": "lattice.todo_witness_set.v1",
   "description": "Per-ToDo boundary declaration compiled into a recorded independence judgement (ADR 0127). Each entry declares what the ToDo owns, reads and writes so that pairwise interference can be decided before dispatch.",
   "$comment": "Superseded by lattice.todo_witness_set.v2, which adds the optional concern_anchors declaration. v1 remains valid input and is never rewritten in place; it simply cannot carry concern_anchors. Runtime validation additionally enforces canonical JSON+LF bytes and the self-digest rule, and delegates manual_witness and sensor_query_set to explainRunRequest so the witness contract is not duplicated (ADR 0123). Declaring nothing is not an assertion of independence: an undeclared ToDo compiles to unknown, never to verified.",

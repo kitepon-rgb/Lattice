@@ -80,7 +80,7 @@ const LANDING_COPY = Object.freeze({
   }),
 });
 
-const GITHUB_URL = 'https://github.com/kitepon-rgb/Lattice';
+const GITHUB_URL = 'https://github.com/kitepon/Lattice';
 
 export function escapeHtml(value) {
   return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;')

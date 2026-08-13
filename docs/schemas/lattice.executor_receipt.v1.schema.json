@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.executor_receipt.v1.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.executor_receipt.v1.schema.json",
   "title": "lattice.executor_receipt.v1",
   "description": "The receipt an executor returns for one dispatched packet. `packet_digest` is what attributes it to the packet it received.",
   "$comment": "Runtime validation additionally enforces canonical JSON bytes and the self-digest rule for `receipt_digest`. Acceptance is decided by event order, not by the receipt's own claims: the binding is checked against the `executor_dispatched` / `epoch_rebound` event that recorded the handle, worktree and packet digest for that TODO.",

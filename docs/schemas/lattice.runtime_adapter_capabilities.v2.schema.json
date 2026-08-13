@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.runtime_adapter_capabilities.v2.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.runtime_adapter_capabilities.v2.schema.json",
   "title": "lattice.runtime_adapter_capabilities.v2",
   "description": "controller handshakeとlaunch descriptorを束縛するruntime adapter能力契約。host_driven_epochはhostによるmanaged epoch駆動の受入宣言である。",
   "type": "object",

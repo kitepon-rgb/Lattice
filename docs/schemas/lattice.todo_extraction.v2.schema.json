@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_extraction.v2.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.todo_extraction.v2.schema.json",
   "title": "lattice.todo_extraction.v2",
   "description": "G4 migration-wave-only intermediate artifact authored by AI. Version 2 adds fail-closed historical in-progress registration without changing v1.",
   "$comment": "Runtime validation additionally enforces UTF-8 byte bounds, strict sort order, unique and resolvable task ids, and extraction_digest as the canonical self-digest. Registration separately rejects an extraction with no register_* task.",

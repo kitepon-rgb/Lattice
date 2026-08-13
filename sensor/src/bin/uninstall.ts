@@ -2,7 +2,7 @@
 /**
  * LatticeSensor preuninstall cleanup script
  *
- * Runs automatically when `npm uninstall -g @kitepon-rgb/Lattice`
+ * Runs automatically when `npm uninstall -g @kitepon/Lattice`
  * is called. Loops over every known agent target's `uninstall(loc)`
  * for the global location only — local-location entries live inside
  * project working trees and aren't ours to nuke at npm-uninstall

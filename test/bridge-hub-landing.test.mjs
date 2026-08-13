@@ -107,7 +107,7 @@ test('未対応言語はRangeErrorで拒否する', () => {
 test('CTAはGitHubとルートサイトを指し、外部リソース参照を持たない', () => {
   for (const lang of BRIDGE_HUB_LANDING_LANGUAGES) {
     const html = renderBridgeHubLanding({ projects: PROJECTS, lang });
-    assert.ok(html.includes('https://github.com/kitepon-rgb/Lattice'));
+    assert.ok(html.includes('https://github.com/kitepon/Lattice'));
     assert.ok(html.includes('https://kitepon.dev/'));
     assert.ok(!/<link rel="stylesheet"|<script|url\(http|@import|fonts\./u.test(html));
   }

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.plan_scope_review.v1.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.plan_scope_review.v1.schema.json",
   "title": "lattice.plan_scope_review.v1",
   "description": "AI-authored review performed after the complete plan is written and before it is registered. Every planned task is judged against the owner-supplied work specifications; task splitting and parallelization are allowed, but a new product purpose is not.",
   "$comment": "Lattice validates complete task coverage, known work-spec references, verdict consistency, and digest binding. The operating AI owns the semantic judgment.",

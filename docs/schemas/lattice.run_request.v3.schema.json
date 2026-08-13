@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.run_request.v3.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.run_request.v3.schema.json",
   "title": "lattice.run_request.v3",
   "description": "Canonical run request accepted by `lattice plan compile --request` and `lattice run start --request`.",
   "$comment": "Runtime validation additionally enforces canonical JSON bytes and the self-digest rule: `request_digest` is the SHA-256 of the canonical JSON of the request with `request_digest` removed. Rejections are reported as `lattice.cli_error.v2` with `detail.reason` and `detail.path`. v3 adds the optional creates marker on an owned path (ADR 0136). It is the only difference from v1; as a boundary declaration the two are otherwise equivalent, and v1 requests stay valid input. The number v2 is not part of this lineage: ADR 0064 already uses lattice.run_request.v2 for the epoch successor request, which carries predecessor_request_digest and task_migration_digest and is validated separately.",

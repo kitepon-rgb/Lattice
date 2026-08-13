@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.run_request.v5.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.run_request.v5.schema.json",
   "title": "lattice.run_request.v5",
   "description": "Canonical run request accepted by `lattice plan compile --request` and `lattice run start --request`. v5 adds optional semantic line declarations while retaining the predictive boundary semantics of v4.",
   "$comment": "Runtime validation additionally enforces canonical JSON bytes, the self-digest rule, unique line_id values per TODO, and closed line anchor shapes. v4 remains valid input without lines; v3 and v1 retain their original declarative semantics. The number v2 belongs to the epoch successor request lineage and is validated separately.",

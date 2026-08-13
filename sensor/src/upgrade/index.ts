@@ -8,7 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export const NPM_PACKAGE = '@kitepon-rgb/Lattice';
+export const NPM_PACKAGE = '@kitepon/Lattice';
 
 export type InstallMethod =
   | { kind: 'bundle'; os: 'unix' | 'windows'; bundleRoot: string; installDir: string | null }

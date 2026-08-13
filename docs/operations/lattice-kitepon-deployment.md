@@ -73,7 +73,7 @@ ssh逆トンネル、Caddy、Cloudflare Tunnel、LaunchAgent plist、portは変�
 4. npm latest、GitHub Release、source tagがすべて`v0.35.0`へ揃う。
 
 GitHub Releaseは
-[`v0.35.0`](https://github.com/kitepon-rgb/Lattice/releases/tag/v0.35.0)。
+[`v0.35.0`](https://github.com/kitepon/Lattice/releases/tag/v0.35.0)。
 
 ## 2026-08-10 v0.53.0・bridge hub配備（サーバー側手順1〜6）
 

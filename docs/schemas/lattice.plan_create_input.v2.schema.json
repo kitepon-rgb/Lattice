@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.plan_create_input.v2.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.plan_create_input.v2.schema.json",
   "title": "lattice.plan_create_input.v2",
   "description": "Canonical initial authoring input for a phase-controlled Lattice plan.",
   "$comment": "Runtime validation additionally enforces canonical JSON+LF bytes, sorted identifiers, unique ids, acyclic task/phase graphs, byte bounds, and input_digest.",

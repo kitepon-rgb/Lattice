@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { productTestEnvironment } from '../scripts/run-product-tests.mjs';
+import {
+  nativeTestProfiles, productTestEnvironment, selectProductTests,
+} from '../scripts/run-product-tests.mjs';
 
 test('product test child envはFORCE_COLORを除去しdashboard autostartを無効化する', () => {
   const parentEnv = {
@@ -23,4 +25,26 @@ test('product test child envはFORCE_COLORを除去しdashboard autostartを無�
     NO_COLOR: '1',
     LATTICE_DASHBOARD_AUTOSTART: '1',
   });
+});
+
+test('CI native profileは環境固有suiteだけを選びcoreの総当たりを複製しない', () => {
+  const retired = 'control-compiler.test.mjs';
+  const all = [
+    retired,
+    'portable-new-feature.test.mjs',
+    ...new Set(Object.values(nativeTestProfiles).flat()),
+  ].sort();
+
+  const core = selectProductTests(all, 'core');
+  assert.equal(core.includes(retired), false);
+  assert.equal(core.includes('portable-new-feature.test.mjs'), true);
+  for (const [profile, expected] of Object.entries(nativeTestProfiles)) {
+    assert.deepEqual(selectProductTests(all, profile), [...expected]);
+  }
+  assert.equal(selectProductTests(all, 'windows').includes('hooks-cli.test.mjs'), false);
+  assert.equal(selectProductTests(all, 'wsl2').includes('hooks-cli.test.mjs'), true);
+});
+
+test('未知のCI profileはcoreへfallbackせず失敗する', () => {
+  assert.throws(() => selectProductTests([], 'unknown'), /unknown product test profile/u);
 });

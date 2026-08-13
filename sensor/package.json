@@ -5,7 +5,7 @@
   "description": "Lattice-owned local structural sensor.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kitepon-rgb/Lattice.git"
+    "url": "git+https://github.com/kitepon/Lattice.git"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

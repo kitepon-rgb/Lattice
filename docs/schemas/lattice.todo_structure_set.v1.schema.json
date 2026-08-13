@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_structure_set.v1.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.todo_structure_set.v1.schema.json",
   "title": "lattice.todo_structure_set.v1",
   "description": "AI-authored logical dataflow overlay for one registered Lattice plan version.",
   "$comment": "Runtime validation additionally enforces UTF-8 byte bounds, strict canonical ordering, referential integrity, exact plan task coverage when supplied, unique data IDs, constant canonical-byte limits, the canonical self-digest, and plan-wide totals of at most 512 anchors, 4096 ports, 2048 operations, and 4096 sinks.",

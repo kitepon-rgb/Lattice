@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_structure_realization.v1.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.todo_structure_realization.v1.schema.json",
   "title": "lattice.todo_structure_realization.v1",
   "description": "Append-only realized logical dataflow for one applicable task.",
   "$comment": "Runtime validation additionally enforces canonical ordering, chain continuity, supersedes membership, structure-set identity, planned digest, UTF-8 byte bounds, and the canonical self-digest.",

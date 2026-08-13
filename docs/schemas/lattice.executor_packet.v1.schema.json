@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.executor_packet.v1.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.executor_packet.v1.schema.json",
   "title": "lattice.executor_packet.v1",
   "description": "The single context packet issued at dispatch. It is the machine record of the context an executor received.",
   "$comment": "Runtime validation additionally enforces canonical JSON bytes, the self-digest rule for `packet_digest`, and that `context_content_digest` equals the SHA-256 of the canonical JSON projection of exactly {todo_id, task_ref, scope, base_sha, verifier_refs, forbidden_operations} — plan attribution fields are excluded so that an epoch rebind is provably content-preserving.",

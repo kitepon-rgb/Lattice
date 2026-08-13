@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.runtime_adapter_registration_input.v2.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.runtime_adapter_registration_input.v2.schema.json",
   "title": "lattice.runtime_adapter_registration_input.v2",
   "description": "lattice run adapter register の入力契約。host_driven_epochでhostによるmanaged epoch駆動への同意を宣言し、digestと固定capabilitiesはCLIが導出する。",
   "oneOf": [

@@ -2,63 +2,74 @@ name: CI
 
 on:
   push:
-  pull_request:
+    branches: ['**']
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  # 挙動を確かめるtest（npm test・sensor test）だけをos matrixで回す。
-  # 「Windows対応したらMacで動かなくなった、は通用しない」（オーナー裁定）を機械化する——
-  # 単一OSのCIだと、他OSでだけ壊れる欠陥（bridge configの権限bit検証がWindowsで
-  # 常に落ちる、等）が長期間気づかれない。fail-fast: falseで、1 OSの失敗が他OSの
-  # 結果を隠さないようにする。
-  test:
-    # timeoutが無いjobは、hangを失敗ではなく「実行中」として無限に見せる。GitHubの既定
-    # （360分）まで走り切るうえ、実行中のjobはlog blobが生成されないため、どこで止まったかを
-    # 読む手段が一切無い——windows-latestが実際にその状態になった（2026-08-10、複数runで
-    # 2時間以上in_progressのままlog取得不能）。実測はubuntu 4.4分・macOS 4.8分なので、
-    # 30分は6倍の余裕がありつつ、hangを30分でlog付きの失敗へ変える。
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  # portableな製品挙動、sensor、静的契約はLinuxで一度だけ完全検証する。
+  core-linux:
+    timeout-minutes: 12
+    runs-on: [self-hosted, factory, linux-native]
     steps:
       - uses: actions/checkout@v5
         with:
-          # 工程storeのevidenceは履歴中のblob OIDを指す。既定のshallow clone（depth 1）だと
-          # そのblobが無く、`todo verify`がevidence_unverifiedで落ちる。証拠の検証を
-          # 諦めるのでなく、検証に要る履歴をCIへ渡す。
           fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version: '22.13'
           cache: npm
       - run: npm ci
-      # sensor/dist is a build output and gitignored, so a fresh checkout has no bundled
-      # sensor. Without this, every sensor-backed test fails with ENOENT (measured: 66
-      # failures). `prepack` builds it for publish; CI needs the same build.
       - run: npm --prefix sensor ci
       - run: npm --prefix sensor run build
-      - run: npm test
+      - run: npm run test:profile -- --profile=core
       - run: npm run test:sensor
-
-  # source内容のみを見る静的検査はOSに依存しないため、3重にせずubuntuだけで回す。
-  static-checks:
-    timeout-minutes: 30
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-      - run: npm --prefix sensor ci
-      - run: npm --prefix sensor run build
       - run: npm run check
       - run: npm run check:cli-surface
       - run: npm run check:open-questions
       - run: npm run check:reachability
       - run: npm run verify:todo-store
+
+  # macOS固有のlaunchd、process lifecycle、実path/filesystem境界だけを実測する。
+  macos-native:
+    timeout-minutes: 8
+    runs-on: [self-hosted, factory, macos-native]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.13'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:profile -- --profile=macos
+
+  # Windows native固有のStartup、NTFS、path、CLI境界だけを実測する。
+  windows-native:
+    timeout-minutes: 8
+    runs-on: [self-hosted, factory, windows-native]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.13'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:profile -- --profile=windows
+
+  # WSL2自身のext4上でgit、store、CLI、POSIX hooksの境界を実測する。
+  wsl2:
+    timeout-minutes: 8
+    runs-on: [self-hosted, factory, wsl2]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.13'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:profile -- --profile=wsl2

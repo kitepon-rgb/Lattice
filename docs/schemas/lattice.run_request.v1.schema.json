@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.run_request.v1.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.run_request.v1.schema.json",
   "title": "lattice.run_request.v1",
   "description": "Canonical run request accepted by `lattice plan compile --request` and `lattice run start --request`.",
   "$comment": "Runtime validation additionally enforces canonical JSON bytes and the self-digest rule: `request_digest` is the SHA-256 of the canonical JSON of the request with `request_digest` removed. Rejections are reported as `lattice.cli_error.v2` with `detail.reason` and `detail.path`.",

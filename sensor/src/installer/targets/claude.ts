@@ -279,7 +279,7 @@ function cleanupLegacyLocalMcp(): WriteResult['files'][number] | null {
  * a pre-0.8 install wrote. Those installers added
  * `PostToolUse(Edit|Write) → latticeSensor mark-dirty` and
  * `Stop → latticeSensor sync-if-dirty` (local builds used the
- * `npx @kitepon-rgb/Lattice …` form, which still contains the
+ * `npx @kitepon/Lattice …` form, which still contains the
  * `latticeSensor <subcommand>` substring). Both subcommands were later
  * removed from the CLI, so the Stop hook fails every turn with
  * "unknown command 'sync-if-dirty'". Matching on the latticeSensor-scoped
@@ -297,7 +297,7 @@ function isLegacyLattice sensorHookCommand(command: unknown): boolean {
 /**
  * The front-load prompt-hook command the installer writes into Claude's
  * `UserPromptSubmit` (see writePromptHookEntry). Matched by substring so an
- * `npx @kitepon-rgb/Lattice prompt-hook` form is recognized too.
+ * `npx @kitepon/Lattice prompt-hook` form is recognized too.
  */
 const PROMPT_HOOK_COMMAND = 'latticeSensor prompt-hook';
 function isPromptHookCommand(command: unknown): boolean {

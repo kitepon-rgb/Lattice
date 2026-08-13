@@ -7,7 +7,7 @@
 # Lattice
 
 [![npm](https://img.shields.io/npm/v/@quolu/lattice?color=cb3837&logo=npm)](https://www.npmjs.com/package/@quolu/lattice)
-[![CI](https://github.com/kitepon-rgb/Lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/kitepon-rgb/Lattice/actions/workflows/ci.yml)
+[![CI](https://github.com/kitepon/Lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/kitepon/Lattice/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)
 [![node](https://img.shields.io/node/v/@quolu/lattice?color=339933&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![patent](https://img.shields.io/badge/patent-pending%20JP%202026--178950-6366f1)](#patent)

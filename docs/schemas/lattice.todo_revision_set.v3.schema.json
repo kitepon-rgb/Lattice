@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_revision_set.v3.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.todo_revision_set.v3.schema.json",
   "title": "lattice.todo_revision_set.v3",
   "description": "`lattice todo revise-set`が受理する最新契約。複数planへ跨がるrevisionを1つのatomic書込みへ束ねる。v3のmemberは`lattice.todo_revision.v1/v2`（非phase plan）と`lattice.phase_todo_revision.v1/v2`（phase-audited plan）のいずれかであり、`lattice.phase_todo_revision.v3`はmemberとして受理されない——v3固有のruntime_task_migration/source_cutover_batchはrevise-setの外で単独revise-phaseとして扱う契約になっている。",
   "$comment": "Runtime validation (src/todo-revision.mjs validateTodoRevisionSet) additionally enforces: canonical JSON+LF bytes; revisions.length in [2, 64]; each member's own digest chain (validateTodoRevision / validatePhaseTodoRevision); every member.project_id === project_id; v3はrevisions内に最低1つphase_todo_revision memberを含む必要がある; revisionsが厳密にplan_key昇順でソートされている（重複plan_key禁止）; revision_set_digestは他の全top-level fieldへの正準self-digest。",

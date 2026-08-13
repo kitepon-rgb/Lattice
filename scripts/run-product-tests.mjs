@@ -43,6 +43,31 @@ const retiredArtifactReplaySuites = new Set([
   'treatment-runner.test.mjs',
 ]);
 
+// CIはportableな製品全体をLinuxで一度だけ検証し、他の実行環境では
+// OS境界を実際に通るsuiteだけを検証する。同じ約1800 testを各OSへ複製しない。
+// suiteを追加する時は、通常はcoreへ自動収載される。特定環境でしか意味を
+// 持たないtestだけを対応profileへ明示する。
+export const nativeTestProfiles = Object.freeze({
+  macos: Object.freeze([
+    'bridge-executable.test.mjs',
+    'bridge-launch-agent.test.mjs',
+    'project-cli.test.mjs',
+    'runtime-conflict-cli.test.mjs',
+  ]),
+  windows: Object.freeze([
+    'bridge-config.test.mjs',
+    'bridge-executable.test.mjs',
+    'bridge-startup-folder.test.mjs',
+    'project-cli.test.mjs',
+    'todo-store.test.mjs',
+  ]),
+  wsl2: Object.freeze([
+    'hooks-cli.test.mjs',
+    'project-cli.test.mjs',
+    'todo-store.test.mjs',
+  ]),
+});
+
 async function collectTests(directory, prefix = '') {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
@@ -63,6 +88,26 @@ export function productTestEnvironment(parentEnv = process.env) {
   return env;
 }
 
+export function selectProductTests(allTests, profile = 'core') {
+  const productTests = allTests.filter((relative) => !retiredArtifactReplaySuites.has(relative));
+  if (profile === 'core') return productTests;
+  const selected = nativeTestProfiles[profile];
+  if (selected === undefined) throw new Error(`unknown product test profile: ${profile}`);
+  const missing = selected.filter((relative) => !productTests.includes(relative));
+  if (missing.length > 0) {
+    throw new Error(`product test profile ${profile} references missing suites: ${missing.join(', ')}`);
+  }
+  return [...selected];
+}
+
+function requestedProfile(argv = process.argv.slice(2)) {
+  const profileArguments = argv.filter((value) => value.startsWith('--profile='));
+  if (profileArguments.length > 1 || argv.some((value) => !value.startsWith('--profile='))) {
+    throw new Error('usage: run-product-tests.mjs [--profile=core|macos|windows|wsl2]');
+  }
+  return profileArguments[0]?.slice('--profile='.length) || 'core';
+}
+
 async function runProductTests() {
   const allTests = (await collectTests(testRoot)).sort();
   const missingRetired = [...retiredArtifactReplaySuites]
@@ -71,9 +116,10 @@ async function runProductTests() {
     throw new Error(`retired artifact replay suite list drifted: ${missingRetired.join(', ')}`);
   }
 
-  const productTests = allTests.filter((relative) => !retiredArtifactReplaySuites.has(relative));
+  const profile = requestedProfile();
+  const productTests = selectProductTests(allTests, profile);
   process.stdout.write([
-    `Current product gate: ${productTests.length} suites`,
+    `Current product gate (${profile}): ${productTests.length} suites`,
     `Retired immutable artifact replay (not used for product verdict): ${retiredArtifactReplaySuites.size} suites`,
     ...[...retiredArtifactReplaySuites].sort().map((relative) => `  - test/${relative}`),
     '',

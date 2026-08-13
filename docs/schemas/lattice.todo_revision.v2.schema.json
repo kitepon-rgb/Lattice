@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.todo_revision.v2.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.todo_revision.v2.schema.json",
   "title": "lattice.todo_revision.v2",
   "description": "`lattice todo revise`が受理する最新契約。v1のdesired state・source inventory・reconciliationへ、per-ToDoのsource cutover batch（Markdown置換の証跡）を加える。",
   "$comment": "Runtime validation (src/todo-revision.mjs validateTodoRevision) additionally enforces: canonical JSON+LF bytes; strict sort order on task_migration (by from_task_id) and source_inventory.excluded_tombstones/source_cutover_batch.operations (by source_ref); uniqueness of from_task_id/to_task_id/source_ref across those collections; desired_plan.plan_version === todoRevisionPlanVersion(...); reconciliation.reconciliation_digest === todoReconciliationDigest(...); revision_digest as the canonical self-digest over every other top-level field; and that every task_migration.to_task_id (other than 'removed') resolves to a desired_plan task.",

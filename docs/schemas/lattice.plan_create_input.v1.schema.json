@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.plan_create_input.v1.schema.json",
+  "$id": "https://github.com/kitepon/Lattice/blob/main/docs/schemas/lattice.plan_create_input.v1.schema.json",
   "title": "lattice.plan_create_input.v1",
   "description": "Canonical initial authoring input for lattice plan create.",
   "$comment": "Runtime validation additionally enforces canonical JSON+LF bytes, strict ordering, unique task ids, graph validity, byte bounds, and input_digest as the canonical self-digest.",

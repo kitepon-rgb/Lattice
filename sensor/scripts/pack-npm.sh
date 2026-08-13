@@ -5,7 +5,7 @@
 # Produces, under release/npm/:
 #   lattice-sensor-<target>/   one per built bundle — the vendored Node + app, tagged
 #                         with os/cpu so npm installs only the matching one.
-#   main/                 the @kitepon-rgb/Lattice shim package: a tiny bin
+#   main/                 the @kitepon/Lattice shim package: a tiny bin
 #                         that execs the matching platform bundle, with every
 #                         platform package in optionalDependencies.
 #
@@ -67,7 +67,7 @@ for archive in "${archives[@]}"; do
         license: "MIT",
         // npm --provenance refuses to publish unless this matches the repo
         // the release workflow runs in.
-        repository: { type: "git", url: "git+https://github.com/kitepon-rgb/Lattice.git" }
+        repository: { type: "git", url: "git+https://github.com/kitepon/Lattice.git" }
       }, null, 2) + "\n");
     ' "$pkgdir/package.json"
   targets+=("$target")
@@ -115,7 +115,7 @@ VERSION="$VERSION" SCOPE="$SCOPE" TARGETS="${targets[*]}" \
       optionalDependencies: opt,
       files: ["npm-shim.js","npm-sdk.js","dist","README.md"],
       license: "MIT",
-      repository: { type: "git", url: "git+https://github.com/kitepon-rgb/Lattice.git" }
+      repository: { type: "git", url: "git+https://github.com/kitepon/Lattice.git" }
     }, null, 2) + "\n");
   ' "$NPM/main/package.json"
 

@@ -21,7 +21,7 @@ HARNESS="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HARNESS/../.." && pwd)"     # lattice-sensor repo root
 CORPUS="${CORPUS:-/tmp/lattice-sensor-corpus}"
 REPO="$CORPUS/$NAME"
-PKG="@kitepon-rgb/Lattice"
+PKG="@kitepon/Lattice"
 
 echo "==================== Lattice sensor audit ===================="
 echo "version=$VERSION  repo=$NAME  mode=$MODE  corpus=$CORPUS"
