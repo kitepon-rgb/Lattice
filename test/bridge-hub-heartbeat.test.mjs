@@ -166,7 +166,7 @@ test('controllerは初回tickで即送信しintervalMs未満の次tickは再送�
   let clock = 1_000_000;
   const controller = createBridgeHubHeartbeatController({
     env, fetchImpl, now: () => clock,
-    readActiveProjects: async () => [{ project_id: 'p1', display_name: 'p1' }],
+    readServedProjectIds: async () => ['p1'],
   });
   const config = { hub: { url: 'http://192.168.1.2:8080/' }, listen: { address: '127.0.0.1', port: 53_939 } };
   const first = await controller.tick({ config });
@@ -189,7 +189,7 @@ test('controllerはhubが外れたら次にhubが戻った時すぐ送信する�
   let clock = 0;
   const controller = createBridgeHubHeartbeatController({
     env, fetchImpl, now: () => clock,
-    readActiveProjects: async () => [{ project_id: 'p1', display_name: 'p1' }],
+    readServedProjectIds: async () => ['p1'],
   });
   const hubUrl = 'http://192.168.1.2:8080/';
   await controller.tick({ config: { hub: { url: hubUrl }, listen: { address: '127.0.0.1', port: 1 } } });
@@ -216,7 +216,7 @@ test('部分受理はacceptedへ丸めず、statusが読める要約を残す', 
     env,
     fetchImpl: async () => new Response(JSON.stringify(body), { status: 200 }),
     now: () => Date.parse('2026-08-10T05:00:00.000Z'),
-    readActiveProjects: async () => [{ project_id: 'ok-project' }, { project_id: 'contested' }],
+    readServedProjectIds: async () => ['ok-project', 'contested'],
   });
 
   const result = await controller.tick({ config: { hub: { url: 'http://hub.example/' }, listen: { port: 1 } } });
@@ -244,7 +244,7 @@ test('全部受理ならacceptedのままで、拒否一覧は空である', asy
     env: { LATTICE_CONFIG_DIR: root },
     fetchImpl: async () => new Response(JSON.stringify(body), { status: 200 }),
     now: () => Date.parse('2026-08-10T05:00:00.000Z'),
-    readActiveProjects: async () => [{ project_id: 'p1' }],
+    readServedProjectIds: async () => ['p1'],
   });
   const result = await controller.tick({ config: { hub: { url: 'http://hub.example/' }, listen: { port: 1 } } });
   assert.equal(result.state, 'accepted');
