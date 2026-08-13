@@ -8,7 +8,7 @@ import {
   forgetTodoDashboardDaemonRecord,
   readVisibleTodoDashboardProjects,
   todoDashboardMemberNeedsVisibility,
-  writeTodoDashboardDaemonDescriptor,
+  writeTodoDashboardDaemonRecord,
 } from '../src/todo-dashboard-registry.mjs';
 import {
   createTodoGanttProjectRegistry,
@@ -122,7 +122,7 @@ const dashboard = await startTodoGanttDashboardServer({
   port,
   onShutdown: process.platform === 'win32' ? () => exit(0) : null,
 });
-await writeTodoDashboardDaemonDescriptor({ port: dashboard.port, env });
+await writeTodoDashboardDaemonRecord({ port: dashboard.port, env });
 const timer = setInterval(() => synchronize().then((count) => {
   if (count === 0) exit(0);
 }).catch(() => exit(1)), 1_000);

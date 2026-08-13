@@ -478,15 +478,24 @@ async function stopSpawnedReplacement(child, descriptor, {
   throw error;
 }
 
-export async function writeTodoDashboardDaemonDescriptor({ port, env = process.env }) {
+function currentDaemonRecord(port) {
+  return { schema: DAEMON_SCHEMA, pid: process.pid, port,
+    started_at: new Date().toISOString() };
+}
+
+export async function writeTodoDashboardDaemonRecord({ port, env = process.env }) {
   if (!Number.isSafeInteger(port) || port <= 0 || port > 65_535) throw new TypeError('daemon port invalid');
   const refs = paths(env);
   await mkdir(refs.daemons, { recursive: true, mode: 0o700 });
-  const record = { schema: DAEMON_SCHEMA, pid: process.pid, port,
-    started_at: new Date().toISOString() };
-  // 記録を先に置く。descriptorだけが在って記録が無い瞬間を作ると、その隙に起動側が
-  // 死んだ時に、まさに直そうとしている「誰からも観測されないdaemon」が生まれる。
+  const record = currentDaemonRecord(port);
   await atomicJson(daemonRecordRef(refs, process.pid), record);
+  return record;
+}
+
+export async function writeTodoDashboardDaemonDescriptor({ port, env = process.env }) {
+  const refs = paths(env);
+  // 直接descriptorを公開する呼出面でも、孤児を再発見できるdaemon固有記録を先に置く。
+  const record = await writeTodoDashboardDaemonRecord({ port, env });
   await atomicJson(refs.descriptor, record);
 }
 
@@ -556,7 +565,8 @@ export async function ensureTodoDashboardDaemon({ env = process.env, spawnDaemon
     const deadline = Date.now() + startupTimeoutMs;
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 50));
-      const descriptor = await readJson(refs.descriptor, null);
+      const descriptor = typeof child.pid === 'number'
+        ? await readJson(daemonRecordRef(refs, child.pid), null) : null;
       const healthy = await daemonHealthy(descriptor);
       if (!healthy && typeof child.pid === 'number'
         && !await replacementIsProcessAlive(child.pid)) break;
@@ -568,17 +578,16 @@ export async function ensureTodoDashboardDaemon({ env = process.env, spawnDaemon
             });
           } catch (error) {
             await stopSpawnedReplacement(child, descriptor, { isProcessAlive: replacementIsProcessAlive });
-            await atomicJson(refs.descriptor, legacy);
             throw error;
           }
         }
+        await atomicJson(refs.descriptor, descriptor);
         await reap(descriptor.pid);
         return descriptor;
       }
     }
     child.kill?.('SIGTERM');
-    if (legacy !== null) await atomicJson(refs.descriptor, legacy);
-    else await rm(refs.descriptor, { force: true });
+    if (legacy === null) await rm(refs.descriptor, { force: true });
     const error = new Error('dashboard daemon did not become ready');
     error.code = 'DASHBOARD_DAEMON_UNAVAILABLE';
     throw error;

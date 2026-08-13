@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -279,6 +280,8 @@ test('legacy health daemonは新daemon成功後だけPID一致を根拠に停止
   });
   replacement = await ensureTodoDashboardDaemon({ env,
     signalProcess(pid, signal) {
+      const published = JSON.parse(readFileSync(path.join(runtime, 'daemon.json'), 'utf8'));
+      assert.equal(published.pid, legacyPid, 'legacy停止までは共有descriptorを置換しない');
       assert.equal(pid, legacyPid); assert.equal(signal, 'SIGTERM'); signaled = true; legacy.server.close();
     },
     isProcessAlive: () => !signaled,
@@ -440,7 +443,7 @@ test('死んだreplacementは猶予の満了を待たず諦め、生きている
       body.pid = 888_888;
       body.version = TODO_DASHBOARD_CODE_VERSION;
       descriptorWritten = true;
-      writeDaemonDescriptor(runtime, { schema: 'lattice.todo_dashboard_daemon.v1', pid: 888_888,
+      plantDaemonRecord(runtime, { schema: 'lattice.todo_dashboard_daemon.v1', pid: 888_888,
         port: served.port, started_at: new Date().toISOString() });
     }, 700);
     const slow = await ensureTodoDashboardDaemon({ env, startupTimeoutMs: 10_000,
