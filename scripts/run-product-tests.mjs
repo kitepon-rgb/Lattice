@@ -1,4 +1,5 @@
 import { readdir } from 'node:fs/promises';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -92,6 +93,10 @@ export function productTestEnvironment(parentEnv = process.env) {
   return env;
 }
 
+export function productTestConcurrency(parallelism = availableParallelism()) {
+  return parallelism;
+}
+
 export function selectProductTests(allTests, profile = 'core') {
   const productTests = allTests.filter((relative) => !retiredArtifactReplaySuites.has(relative));
   if (profile === 'core') return productTests;
@@ -131,7 +136,7 @@ async function runProductTests() {
 
   const result = spawnSync(
     process.execPath,
-    ['--test', '--test-concurrency=4',
+    ['--test', `--test-concurrency=${productTestConcurrency()}`,
       ...productTests.map((relative) => path.join('test', relative))],
     { cwd: repoRoot, encoding: 'utf8', stdio: 'inherit',
       env: productTestEnvironment() },

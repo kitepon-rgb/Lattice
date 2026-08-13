@@ -2,8 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  nativeTestProfiles, productTestEnvironment, selectProductTests,
+  nativeTestProfiles, productTestConcurrency, productTestEnvironment, selectProductTests,
 } from '../scripts/run-product-tests.mjs';
+
+test('product testは端末から利用可能なCPU並列数をそのまま使う', () => {
+  assert.equal(productTestConcurrency(24), 24);
+});
 
 test('product test child envはFORCE_COLORを除去しdashboard autostartを無効化する', () => {
   const parentEnv = {
@@ -27,7 +31,7 @@ test('product test child envはFORCE_COLORを除去しdashboard autostartを無�
   });
 });
 
-test('CI native profileは環境固有suiteだけを選びcoreの総当たりを複製しない', () => {
+test('環境別profileはfocused再現用のsuiteだけを選びcoreの総当たりを複製しない', () => {
   const retired = 'control-compiler.test.mjs';
   const all = [
     retired,
