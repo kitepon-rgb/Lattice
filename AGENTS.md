@@ -96,13 +96,11 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
   死を確認してからfixtureを消し、最後に生き残りゼロをassertする。取り残しは機械を重くして、時間予算を
   見るtestを偽陽性で落とす。既に常駐している分は`node scripts/reap-orphan-test-daemons.mjs`で一覧し、
   `--reap`で停める（既定は一覧のみ、fixture不在のものだけが対象）。
-- commitは独立revert可能な単位にし、並行作業中はpathspecを明示する。remote作成、force系、履歴改変、
-  npm unpublish、credential変更はオーナーの明示指示時だけ行う。
-- **Latticeの通常releaseは恒久承認済み（オーナー裁定 2026-08-12）。** 関連gateを通過したLattice成果は、
-  通常push、SemVer version bump、public npm publish、Mac global install、Lattice所有dashboard／bridgeの
-  再起動、公開後smokeまでを一連の完遂として実施する。この恒久承認はLatticeだけに適用し、別製品、
-  remote作成、force系、履歴改変、npm unpublish、credential変更へは広げない。各releaseでは対象version、
-  影響、rollbackを実行前に明示し、既定ブランチ祖先gateと公開後smokeを省略しない。
+- commitは独立revert可能な単位にし、並行作業中はpathspecを明示する。
+- **Latticeの成果は利用面まで届ける。** 関連gateを通過した成果は、通常push、必要なSemVer version bump、
+  public npm publish、global install、Lattice所有dashboard／bridgeの再起動、公開後smokeまでを一連の完遂として
+  実施する。操作権限はその時点のオーナー依頼と実行環境が与える権限だけに従い、Lattice独自の承認区分や
+  追加の許可条件を設けない。
 - 新しい工程群をLattice storeへ入れる時は`todo migrate`で新planを起こす。初期化済みprojectでは
   `can_create_plan`がfalseになり`plan create`は使えず、既存planへのtask追加はphase revision v3の
   full desired-state全置換（runtime task migration・source inventory・cutover batchの全整合）を要求するため、
