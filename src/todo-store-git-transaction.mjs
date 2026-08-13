@@ -117,7 +117,7 @@ async function actualIndexPath(repoRoot, env) {
 }
 
 async function syncPath(target) {
-  const handle = await open(target, fsConstants.O_RDONLY);
+  const handle = await open(target, fsConstants.O_RDWR);
   try { await handle.sync(); } finally { await handle.close(); }
 }
 

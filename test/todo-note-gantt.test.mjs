@@ -91,7 +91,6 @@ function firstJsonLine(child) {
 // serveがnoteを読まない配線へ戻ると作業記録が丸ごと消える。表示の有無ではなく配線を守る。
 test('gantt serve は作業記録込みでHTMLを配信する', async (t) => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'lattice-note-serve-'));
-  t.after(() => rm(repoRoot, { recursive: true, force: true }));
   assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: repoRoot }).status, 0);
   await initializeTodoStore({
     repoRoot,

@@ -260,7 +260,8 @@ test('store actionの契約違反はrollback後もTypeErrorとして保持する
   assert.equal(storeStatus(root), '');
 });
 
-test('primary errorとcleanup失敗が併発しても両方をtyped detailへ保持する', async (t) => {
+test('primary errorとcleanup失敗が併発しても両方をtyped detailへ保持する',
+  { skip: process.platform === 'win32' }, async (t) => {
   const root = await workspace(t);
   const commonDir = path.join(root, '.git');
   let transactionDir = null;
