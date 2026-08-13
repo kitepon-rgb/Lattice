@@ -98,7 +98,7 @@ test('/projects/一覧はブランド正典のlanding（製品ヒーロー・カ
   // （主=project_id・従=ホスト名）・GitHub誘導・矢印グリフ不在・noindex不在を固定する。
   assert.match(html, /公開 \/ 特許出願済み/u);
   assert.match(html, /schedulability compiler/u);
-  assert.match(html, /github\.com\/kitepon-rgb\/Lattice/u);
+  assert.match(html, /github\.com\/kitepon\/Lattice/u);
   assert.match(html, /<strong>kikoeru<\/strong>/u);
   assert.match(html, /class="host">[^<]*kikoeru-host</u);
   assert.doesNotMatch(html, /[→↗↘⇒➔➜]/u);
