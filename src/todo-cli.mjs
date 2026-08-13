@@ -88,6 +88,7 @@ import { compileTodoStructureOverlay } from './todo-structure-overlay.mjs';
 import {
   buildTodoStructureCompileArtifact,
   projectTodoStructureEffective,
+  readTodoStructureArtifactDiagnostics,
   readTodoStructureFinalizationState,
   readTodoStructureFinalizationsForStatus,
   readTodoStructureState,
@@ -1649,13 +1650,19 @@ async function splitTodo({ repoRoot, env, planKey, inputRef }) {
 
 async function status({ repoRoot }) {
   const store = await readTodoStore({ repoRoot });
-  return projectTodoStatus(store, {
+  const diagnostics = await readTodoStructureArtifactDiagnostics({ repoRoot, store });
+  const structureFinalizations = diagnostics.length === 0
+    ? await readTodoStructureFinalizationsForStatus({ repoRoot, store }) : [];
+  const result = projectTodoStatus(store, {
     planNotes: await readTodoPlanNotesForStatus({ repoRoot, store }),
     parallelCandidates: await readTodoParallelCandidatesForStatus({
       repoRoot, store, gitHead: currentHeadSha, changedPathsSince,
     }),
-    structureFinalizations: await readTodoStructureFinalizationsForStatus({ repoRoot, store }),
+    structureFinalizations,
   });
+  if (diagnostics.length > 0) result.structure_artifact_diagnostics = diagnostics;
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
 }
 
 async function adoptDashboardRoot({ repoRoot, env }) {
@@ -3563,6 +3570,17 @@ async function verify({ repoRoot, requestedPlanKey }) {
     snapshot_stale: verifiedMembers.some((member) => member.snapshot_stale),
     result_digest: '',
   };
+  const structureDiagnostics = [];
+  for (const member of members) {
+    const diagnostics = await readTodoStructureArtifactDiagnostics({
+      repoRoot,
+      store: { ...store, members: [member] },
+    });
+    structureDiagnostics.push(...diagnostics);
+  }
+  if (structureDiagnostics.length > 0) {
+    result.structure_artifact_diagnostics = structureDiagnostics;
+  }
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
 }
