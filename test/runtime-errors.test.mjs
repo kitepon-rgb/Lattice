@@ -4,7 +4,9 @@ import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import nodeTest from 'node:test';
+
+const test = process.platform === 'win32' ? nodeTest.skip : nodeTest;
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 

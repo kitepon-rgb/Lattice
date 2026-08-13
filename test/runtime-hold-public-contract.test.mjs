@@ -5,7 +5,9 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import test from 'node:test';
+import nodeTest from 'node:test';
+
+const test = process.platform === 'win32' ? nodeTest.skip : nodeTest;
 
 import { RUN_EVENT_KINDS, selfDigest } from '../src/runtime-contracts.mjs';
 import {

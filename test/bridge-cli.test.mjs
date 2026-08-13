@@ -52,10 +52,11 @@ test('bridge CLIはsetup/status/reconfigure/disableをJSON契約で提供する'
   const initial = await invoke(['status', '--json']);
   assert.equal(initial.code, 0);
   assert.equal(JSON.parse(initial.stdout).enabled, false);
-  const setup = await invoke(['setup', '--listen', '127.0.0.1', '--port', '58742', '--dashboard',
+  const setup = await invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto', '--dashboard',
     '--allow-host', 'lattice.kitepon.dev', '--allow-host', 'dashboard.example', '--json']);
   assert.equal(setup.code, 0, setup.stderr);
-  assert.equal(JSON.parse(setup.stdout).listen.port, 58_742);
+  const setupPort = JSON.parse(setup.stdout).listen.port;
+  assert.ok(Number.isSafeInteger(setupPort) && setupPort >= 49_152);
   assert.deepEqual(JSON.parse(setup.stdout).allowed_hosts,
     ['127.0.0.1', 'dashboard.example', 'lattice.kitepon.dev']);
   const changed = await invoke(['reconfigure', '--upstream', 'http://127.0.0.1:4318', '--json']);
@@ -64,7 +65,7 @@ test('bridge CLIはsetup/status/reconfigure/disableをJSON契約で提供する'
   const disabled = await invoke(['disable', '--json']);
   assert.equal(disabled.code, 0);
   assert.equal(JSON.parse(disabled.stdout).enabled, false);
-  assert.deepEqual(calls, ['install:58742', 'install:58742', 'disable']);
+  assert.deepEqual(calls, [`install:${setupPort}`, `install:${setupPort}`, 'disable']);
 });
 
 test('bridge CLIは--hubの設定・持ち越し・noneでの解除をJSON契約で提供する', async (context) => {
@@ -111,7 +112,7 @@ test('statusは常駐設定の実行対象の消滅を名指しし、reconfigure
       env, daemon, launchAgent, ...overrides });
     return { code, stdout: stdout.read(), stderr: stderr.read() };
   };
-  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58765',
+  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto',
     '--dashboard', '--json'])).code, 0);
 
   const status = await invoke(['status', '--json'],
@@ -142,7 +143,7 @@ test('bridge有効なのに常駐設定が無い状態にもremedyを出す（�
       env, daemon, launchAgent });
     return { code, stdout: stdout.read(), stderr: stderr.read() };
   };
-  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58768',
+  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto',
     '--dashboard', '--json'])).code, 0);
   await launchAgent.disable();
 
@@ -166,7 +167,7 @@ test('statusは実走processと常駐設定の乖離を分類し、自己解消�
       env, daemon, launchAgent, ...overrides });
     return { code, stdout: stdout.read(), stderr: stderr.read() };
   };
-  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58766',
+  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto',
     '--dashboard', '--json'])).code, 0);
   const running = (extra) => runtimeIdentityDouble({ state: 'running', pid: 777, version: null,
     node_path: null, node_version: 'v26.7.0', bridge_path: globalBridge, ...extra });
@@ -203,15 +204,16 @@ test('bridge registerはbridge無効なら拒否し、registrar未設定ならno
   assert.notEqual(disabled.code, 0);
   assert.equal(JSON.parse(disabled.stderr).code, 'BRIDGE_DISABLED');
 
-  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58761',
-    '--dashboard', '--json'])).code, 0);
+  const setup = await invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto',
+    '--dashboard', '--json']);
+  assert.equal(setup.code, 0);
 
   // registrarのssh設定が無い環境では、失敗ではなくnot_configuredとして返す。
   const registered = await invoke(['register', '--json']);
   assert.equal(registered.code, 0, registered.stderr);
   const result = JSON.parse(registered.stdout);
   assert.equal(result.state, 'not_configured');
-  assert.equal(result.port, 58_761);
+  assert.equal(result.port, JSON.parse(setup.stdout).listen.port);
 });
 
 test('bridge CLIは非JSON・低port・未知flagをtyped errorにする', async (context) => {
@@ -270,10 +272,10 @@ test('reconfigureのLaunchAgent起動失敗は旧config・旧agent・旧daemon�
         env, daemon, launchAgent });
       return { code, stdout: stdout.read(), stderr: stderr.read() };
     };
-    assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58746',
+    assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto',
       '--dashboard', '--json'])).code, 0);
     const original = await readBridgeConfig({ env });
-    const failed = await invoke(['reconfigure', '--port', '58747', '--json']);
+    const failed = await invoke(['reconfigure', '--port', 'auto', '--json']);
     assert.equal(failed.code, 1);
     assert.equal(JSON.parse(failed.stderr).code, 'BRIDGE_LAUNCHCTL_BOOTSTRAP_FAILED');
     assert.deepEqual(await readBridgeConfig({ env }), original);
@@ -351,10 +353,10 @@ test('lifecycle operation lockは遅延失敗Aのrollbackが後発成功Bを消�
     return runBridgeCli({ argv, stdout: stdout.stream, stderr: stderr.stream, env, daemon, launchAgent })
       .then((code) => ({ code, stdout: stdout.read(), stderr: stderr.read() }));
   };
-  const first = invoke(['setup', '--listen', '127.0.0.1', '--port', '58751',
+  const first = invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto',
     '--upstream', 'http://127.0.0.1:4318', '--json'], { ensure: async () => {}, stop: async () => {} });
   await aEntered;
-  const second = invoke(['setup', '--listen', '127.0.0.1', '--port', '58752',
+  const second = invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto',
     '--upstream', 'http://127.0.0.1:4319', '--json'], { ensure: async () => {}, stop: async () => {} });
   releaseA();
   const [a, b] = await Promise.all([first, second]);
@@ -363,7 +365,7 @@ test('lifecycle operation lockは遅延失敗Aのrollbackが後発成功Bを消�
   const statusOut = output();
   await runBridgeCli({ argv: ['status', '--json'], stdout: statusOut.stream, stderr: output().stream, env });
   const final = JSON.parse(statusOut.read());
-  assert.equal(final.listen.port, 58_752);
+  assert.equal(final.listen.port, JSON.parse(b.stdout).listen.port);
   assert.equal(final.upstream.url, 'http://127.0.0.1:4319/');
 });
 
@@ -381,7 +383,7 @@ test('disableはdaemon停止受領証が得られなければ設定を消さず�
   const daemon = { ensure: async () => {}, requestStop: async () => {
     throw Object.assign(new Error('stop receipt timed out'), { code: 'BRIDGE_DAEMON_STOP_FAILED' });
   } };
-  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58753',
+  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto',
     '--dashboard', '--json'], daemon)).code, 0);
   const unmanagedAgent = launchAgentDouble();
   const disabled = await invoke(['disable', '--json'], daemon, unmanagedAgent);
@@ -402,7 +404,7 @@ test('setupはdev treeからの常駐化を警告し、global install配下で�
       env, daemon, launchAgent, bridgePath });
     return { code, stdout: stdout.read(), stderr: stderr.read() };
   };
-  const fromTree = await invoke(['setup', '--listen', '127.0.0.1', '--port', '58767', '--dashboard', '--json'],
+  const fromTree = await invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto', '--dashboard', '--json'],
     '/Users/kite/Developer/Lattice/bin/lattice-bridge.mjs');
   assert.equal(fromTree.code, 0, fromTree.stderr);
   assert.deepEqual(JSON.parse(fromTree.stdout).warnings.map((warning) => warning.code),
@@ -426,7 +428,7 @@ test('statusはhubに拒否されたprojectを名指しし、止め方をremedy�
       env, daemon, launchAgent, ...overrides });
     return { code, stdout: stdout.read(), stderr: stderr.read() };
   };
-  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', '58769',
+  assert.equal((await invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto',
     '--dashboard', '--json'])).code, 0);
 
   const running = (lastHeartbeat) => runtimeIdentityDouble({ state: 'running', pid: 4242,

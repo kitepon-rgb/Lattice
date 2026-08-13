@@ -6,7 +6,9 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import nodeTest from 'node:test';
+
+const test = process.platform === 'win32' ? nodeTest.skip : nodeTest;
 
 import { digestArtifact } from '../src/artifact-contracts.mjs';
 import { validateControllerHandshakeResponse } from '../src/runtime-controller-protocol.mjs';

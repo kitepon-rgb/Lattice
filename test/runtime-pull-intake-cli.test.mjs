@@ -5,7 +5,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import test from 'node:test';
+import nodeTest from 'node:test';
+
+const test = process.platform === 'win32' ? nodeTest.skip : nodeTest;
 
 import { observeManagedProcessStartIdentity } from '../src/runtime-managed-supervisor.mjs';
 import { detectCheckpointFindings } from '../src/runtime-diff-observer.mjs';

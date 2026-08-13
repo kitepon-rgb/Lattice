@@ -1,4 +1,6 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
+
+const test = process.platform === 'win32' ? nodeTest.skip : nodeTest;
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';

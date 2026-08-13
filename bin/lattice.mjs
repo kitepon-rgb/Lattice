@@ -116,6 +116,12 @@ if (help !== null) {
   process.exitCode = await runHooksCli({
     argv: args.slice(1), stdout: process.stdout, stdin: process.stdin, env: process.env,
   });
+} else if (args[0] === 'run' && process.platform === 'win32') {
+  process.stderr.write(`${JSON.stringify({
+    schema: 'lattice.cli_error.v2', code: 'PLATFORM_UNSUPPORTED',
+    message: 'Lattice managed runtime v1 is POSIX-only; use WSL2 on Windows',
+  })}\n`);
+  process.exitCode = 1;
 } else {
   try {
     const { runRuntimeCli } = await import('../src/runtime-cli.mjs');
