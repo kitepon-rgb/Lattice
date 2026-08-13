@@ -132,10 +132,11 @@ function decodeUtf8(bytes, code, reason) {
 function parseCanonicalJsonLine(bytes, { code, reason, maxBytes, validate }) {
   if (bytes.length === 0 || bytes.length > maxBytes) fail(code, bytes.length > maxBytes ? 'size_limit_exceeded' : reason);
   const text = decodeUtf8(bytes, code, 'invalid_utf8');
-  if (!text.endsWith('\n') || text.includes('\r') || text.startsWith('\uFEFF')
-    || text.slice(0, -1).includes('\n')) fail(code, reason);
+  if (text.includes('\r') || text.startsWith('\uFEFF')) fail(code, reason);
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text;
   let value;
-  try { value = JSON.parse(text.slice(0, -1)); } catch { fail(code, reason); }
+  try { value = JSON.parse(body); } catch { fail(code, reason); }
+  if (!text.endsWith('\n')) fail(code, reason);
   let expected;
   try { expected = `${canonicalizeTodoArtifact(value)}\n`; } catch { fail(code, reason); }
   if (text !== expected) fail(code, 'non_canonical_or_duplicate_key');

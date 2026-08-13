@@ -218,6 +218,51 @@ test('repo外inputはgit・store読取より前にtyped usage拒否する', asyn
   assert.equal(error.detail.argument, '--input');
 });
 
+test('structure artifactの4種の破損をstatus/verifyで診断し、明示inputからcanonical復旧する', async (context) => {
+  const cases = [
+    ['pretty_json', (value) => `${JSON.stringify(value, null, 2)}\n`, 'non_canonical_or_duplicate_key'],
+    ['trailing_bytes', (value) => `${canonicalizeTodoArtifact(value)}\nTRAILING`,
+      'artifact_truncated_or_trailing_bytes'],
+    ['truncated_json', (value) => canonicalizeTodoArtifact(value).slice(0, -8),
+      'artifact_truncated_or_trailing_bytes'],
+    ['schema_invalid', (value) => {
+      const invalid = { ...value, schema: 'lattice.todo_structure_set.invalid' };
+      return `${canonicalizeTodoArtifact(invalid)}\n`;
+    }, 'schema_invalid'],
+  ];
+  for (const [name, encode, reason] of cases) {
+    const fixture = await workspace(context);
+    const set = structureSet(fixture);
+    await mkdir(path.dirname(path.join(fixture.root, todoStructureSourceRef('main'))), {
+      recursive: true,
+    });
+    await writeFile(path.join(fixture.root, todoStructureSourceRef('main')), encode(set));
+
+    const status = runCli(fixture.root, ['status', '--json']);
+    assert.equal(status.status, 0, `${name}: ${status.stderr}`);
+    const statusResult = parse(status.stdout);
+    const statusDiagnostic = statusResult.structure_artifact_diagnostics?.find(
+      ({ plan_key }) => plan_key === 'main',
+    );
+    assert.equal(statusDiagnostic?.artifact_path, todoStructureSourceRef('main'), name);
+    assert.equal(statusDiagnostic?.reason, reason, name);
+    assert.match(statusDiagnostic?.next_command ?? '', /structure input --plan main/u, name);
+
+    const verify = runCli(fixture.root, ['verify', '--json']);
+    assert.equal(verify.status, 0, `${name}: ${verify.stderr}`);
+    const verifyResult = parse(verify.stdout);
+    assert.equal(verifyResult.structure_artifact_diagnostics?.[0]?.reason, reason, name);
+
+    const inputRef = await writeDraft(fixture.root, set, `${name}-input.json`);
+    const repaired = runCli(fixture.root, [
+      'structure', 'input', '--plan', 'main', '--input', inputRef,
+    ]);
+    assert.equal(repaired.status, 0, `${name}: ${repaired.stderr}`);
+    assert.equal(await readFile(path.join(fixture.root, todoStructureSourceRef('main')), 'utf8'),
+      `${canonicalizeTodoArtifact(set)}\n`, name);
+  }
+});
+
 test('bindingが既に在るplanのplanned sourceをinput writerで上書きしない', async (context) => {
   const fixture = await workspace(context);
   const set = structureSet(fixture);

@@ -11,8 +11,10 @@
 
 - `node --check src/todo-cli.mjs` — 成功
 - `node --check src/todo-structure-store.mjs` — 成功
+- `node --check src/todo-store.mjs` — 成功
 - `git diff --check` — 成功
-- `node --test test/todo-structure-cli.test.mjs test/todo-cli.test.mjs` — 実行開始したが、worktreeに依存がなく `jsonc-parser` を解決できず、全CLI試験が開始前に失敗。`npm install` はworktreeへignored資産を書き込むため実施していない。
+- `node --test --test-name-pattern='structure artifactの4種' test/todo-structure-cli.test.mjs` — 成功（1 passed）。canonical checkout `/Users/kite/Developer/Lattice/node_modules` を一時symlink参照し、worktreeへinstallしていない。
+- 同focused fileの既存compile試験 — bundled sensorがworktreeに無く `LATTICE_SENSOR_UNAVAILABLE` で2件開始前失敗。今回の中心条件である4種診断・明示input復旧のfocused testは独立して成功。
 
 ## 変更ファイル
 
