@@ -50,7 +50,9 @@ test('auto portは高番帯をactual exclusive bindして0600で永続化し再�
   assert.equal(listened, true);
   assert.equal(first.listen.port, 58_731);
   assert.ok(first.listen.port >= BRIDGE_PORT_MIN && first.listen.port <= BRIDGE_PORT_MAX);
-  assert.equal((await stat(path.join(root, 'bridge.json'))).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') {
+    assert.equal((await stat(path.join(root, 'bridge.json'))).mode & 0o777, 0o600);
+  }
   const second = await configureBridge({ address: '127.0.0.1', env,
     upstream: { mode: 'url', url: 'http://127.0.0.1:4318' },
     createCandidateServer: () => { throw new Error('unchanged binding must not probe'); } });
@@ -120,10 +122,12 @@ test('invalid listen/upstream/config modeはtyped failでsilent defaultしない
   await assert.rejects(configureBridge({ address: '127.0.0.1', env,
     upstream: { mode: 'url', url: 'file:///tmp/no' } }),
   (error) => error.code === 'BRIDGE_UPSTREAM_INVALID');
-  await writeFile(path.join(root, 'bridge.json'), '{}\n', { mode: 0o644 });
-  await chmod(path.join(root, 'bridge.json'), 0o644);
-  await assert.rejects(readBridgeConfig({ env }), (error) => error.code === 'BRIDGE_CONFIG_MODE_INVALID');
-  assert.equal(JSON.parse(await readFile(path.join(root, 'bridge.json'), 'utf8')).schema, undefined);
+  if (process.platform !== 'win32') {
+    await writeFile(path.join(root, 'bridge.json'), '{}\n', { mode: 0o644 });
+    await chmod(path.join(root, 'bridge.json'), 0o644);
+    await assert.rejects(readBridgeConfig({ env }), (error) => error.code === 'BRIDGE_CONFIG_MODE_INVALID');
+    assert.equal(JSON.parse(await readFile(path.join(root, 'bridge.json'), 'utf8')).schema, undefined);
+  }
 });
 
 test('hubは既定nullで、明示URLを渡すと正規化して永続化する', async (context) => {
