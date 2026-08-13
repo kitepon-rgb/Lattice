@@ -129,6 +129,7 @@ async function makeFixtureRepo(t) {
     copyRepoFile(repoRoot, ORACLE_PATH),
   ]);
   git(repoRoot, ['init']);
+  git(repoRoot, ['config', 'core.autocrlf', 'false']);
   git(repoRoot, ['config', 'user.email', 'test@example.invalid']);
   git(repoRoot, ['config', 'user.name', 'Lattice Test']);
   git(repoRoot, ['add', '.']);
@@ -280,7 +281,7 @@ test('writerは8 pathをidempotentに作りproduction／test ownershipをexact�
 });
 
 test('accepted transactionはactual preimage、patch、oracle、6×4 matrix、cleanupをcross-bindする', async (t) => {
-  const { applyRc2DeliveryPolicyTransform, runRc2DeliveryPolicySeamTransform } = await transformModule();
+  const { runRc2DeliveryPolicySeamTransform } = await transformModule();
   const repoRoot = await makeFixtureRepo(t);
   const candidate = await candidateSpec();
   const candidateDigest = digestArtifact(candidate);
@@ -295,24 +296,10 @@ test('accepted transactionはactual preimage、patch、oracle、6×4 matrix、cl
     Object.values(CHANNELS).map(({ todo_id, case_ids }) => ({ todo_id, case_ids })),
   );
 
-  let transformError = null;
-  let transformStatus = null;
   const result = await runRc2DeliveryPolicySeamTransform({
     repoRoot,
     baseRef: baseSha,
     candidateSpec: candidate,
-    transform: async ({ worktreePath }) => {
-      try {
-        await applyRc2DeliveryPolicyTransform({ worktreePath });
-        const status = spawnSync('git', [
-          'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
-        ], { cwd: worktreePath, encoding: 'utf8' });
-        transformStatus = status.stdout.split('\0').filter(Boolean);
-      } catch (error) {
-        transformError = { code: error?.code ?? null, message: error?.message ?? String(error) };
-        throw error;
-      }
-    },
   });
 
   exactKeys(result, [
@@ -331,8 +318,6 @@ test('accepted transactionはactual preimage、patch、oracle、6×4 matrix、cl
     rejection: result.artifact.rejection,
     scope: result.artifact.scope,
     verification: result.artifact.verification,
-    transformError,
-    transformStatus,
   }));
   assert.ok(Buffer.isBuffer(result.patch));
   assert.ok(result.patch.byteLength > 0);
