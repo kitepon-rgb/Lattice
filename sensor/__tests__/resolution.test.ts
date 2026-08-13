@@ -3162,6 +3162,8 @@ int run() {
     // feature can't silently regress to a no-op in the indexing flow.
     it('connects #include to the real header file via include-dir scan (end-to-end)', async () => {
       const tempProject = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-cpp-e2e-'));
+      let projectSensor: LatticeSensor | undefined;
+      let projectDb: DatabaseConnection | undefined;
       try {
         fs.mkdirSync(path.join(tempProject, 'include'), { recursive: true });
         fs.mkdirSync(path.join(tempProject, 'src'), { recursive: true });
@@ -3175,17 +3177,17 @@ int run() {
         );
 
         clearCppIncludeDirCache();
-        cg = await LatticeSensor.init(tempProject, { index: true });
+        projectSensor = await LatticeSensor.init(tempProject, { index: true });
 
         // Sanity: file nodes exist for the header and the cpp.
-        const allFiles = cg.getStats();
+        const allFiles = projectSensor.getStats();
         expect(allFiles.fileCount).toBe(2);
 
         // The `#include "utils.h"` edge should target the real
         // `include/utils.h` file node — not a floating `import` node
         // living inside main.cpp.
-        const db = DatabaseConnection.open(path.join(tempProject, '.lattice/sensor', 'sensor.db'));
-        const rows = db.getDb().prepare(`
+        projectDb = DatabaseConnection.open(path.join(tempProject, '.lattice/sensor', 'sensor.db'));
+        const rows = projectDb.getDb().prepare(`
           select dst.kind as dstKind, dst.file_path as dstPath
           from edges e
           join nodes src on e.source = src.id
@@ -3204,6 +3206,8 @@ int run() {
         );
         expect(stdlibFile).toBeUndefined();
       } finally {
+        projectDb?.close();
+        projectSensor?.close();
         fs.rmSync(tempProject, { recursive: true, force: true });
       }
     });
@@ -3216,9 +3220,11 @@ int run() {
     // name-matched the template, indexed as the bare node `Base`. The `<…>` args
     // are now stripped so the `extends` edge resolves end-to-end.
     it('resolves an extends edge to a templated base (plain, CRTP, struct, multi-base)', async () => {
-      fs.writeFileSync(
-        path.join(tempDir, 'lib.hpp'),
-        `#pragma once
+      let db: DatabaseConnection | undefined;
+      try {
+        fs.writeFileSync(
+          path.join(tempDir, 'lib.hpp'),
+          `#pragma once
 template<typename T> class Base { public: void foo(); };
 template<typename Derived> class CRTPBase {};
 class Plain {};
@@ -3228,29 +3234,32 @@ class App : public CRTPBase<App> {};           // CRTP (curiously-recurring)
 struct Node : public Base<double> {};          // struct inheriting a template
 class Both : public Base<char>, public Plain {}; // templated + plain in one clause
 `
-      );
-      cg = await LatticeSensor.init(tempDir, { index: true });
-      const db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
-      const edges = db
-        .getDb()
-        .prepare(
-          `select src.name as fromName, dst.name as toName
-             from edges e
-             join nodes src on e.source = src.id
-             join nodes dst on e.target = dst.id
-            where e.kind = 'extends'`
-        )
-        .all() as Array<{ fromName: string; toName: string }>;
-      const has = (from: string, to: string) =>
-        edges.some((r) => r.fromName === from && r.toName === to);
+        );
+        cg = await LatticeSensor.init(tempDir, { index: true });
+        db = DatabaseConnection.open(path.join(tempDir, '.lattice/sensor', 'sensor.db'));
+        const edges = db
+          .getDb()
+          .prepare(
+            `select src.name as fromName, dst.name as toName
+               from edges e
+               join nodes src on e.source = src.id
+               join nodes dst on e.target = dst.id
+              where e.kind = 'extends'`
+          )
+          .all() as Array<{ fromName: string; toName: string }>;
+        const has = (from: string, to: string) =>
+          edges.some((r) => r.fromName === from && r.toName === to);
 
-      // Every templated base now resolves to the bare template node.
-      expect(has('Widget', 'Base'), 'Widget : Base<int>').toBe(true);
-      expect(has('App', 'CRTPBase'), 'App : CRTPBase<App> (CRTP)').toBe(true);
-      expect(has('Node', 'Base'), 'struct Node : Base<double>').toBe(true);
-      // A mixed clause resolves BOTH the templated and the plain base.
-      expect(has('Both', 'Base'), 'Both : Base<char>').toBe(true);
-      expect(has('Both', 'Plain'), 'Both : Plain (non-templated, regression guard)').toBe(true);
+        // Every templated base now resolves to the bare template node.
+        expect(has('Widget', 'Base'), 'Widget : Base<int>').toBe(true);
+        expect(has('App', 'CRTPBase'), 'App : CRTPBase<App> (CRTP)').toBe(true);
+        expect(has('Node', 'Base'), 'struct Node : Base<double>').toBe(true);
+        // A mixed clause resolves BOTH the templated and the plain base.
+        expect(has('Both', 'Base'), 'Both : Base<char>').toBe(true);
+        expect(has('Both', 'Plain'), 'Both : Plain (non-templated, regression guard)').toBe(true);
+      } finally {
+        db?.close();
+      }
     });
   });
 
@@ -3277,6 +3286,8 @@ class Both : public Base<char>, public Plain {}; // templated + plain in one cla
 
     it('resolves require_once to a file→file imports edge (#660)', async () => {
       const tempProject = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-php-e2e-'));
+      let projectSensor: LatticeSensor | undefined;
+      let projectDb: DatabaseConnection | undefined;
       try {
         fs.mkdirSync(path.join(tempProject, 'src'), { recursive: true });
         fs.writeFileSync(
@@ -3288,13 +3299,13 @@ class Both : public Base<char>, public Plain {}; // templated + plain in one cla
           `<?php\nrequire_once("lib.php");\necho greet();\n`
         );
 
-        cg = await LatticeSensor.init(tempProject, { index: true });
+        projectSensor = await LatticeSensor.init(tempProject, { index: true });
 
         // reporter's repro: page.php's `require_once("lib.php")` must resolve
         // to the real src/lib.php file node — a file→file `imports` edge, so
         // callers(lib.php) now includes page.php.
-        const db = DatabaseConnection.open(path.join(tempProject, '.lattice/sensor', 'sensor.db'));
-        const rows = db.getDb().prepare(`
+        projectDb = DatabaseConnection.open(path.join(tempProject, '.lattice/sensor', 'sensor.db'));
+        const rows = projectDb.getDb().prepare(`
           select dst.kind as dstKind, dst.file_path as dstPath
           from edges e
           join nodes src on e.source = src.id
@@ -3308,12 +3319,16 @@ class Both : public Base<char>, public Plain {}; // templated + plain in one cla
         );
         expect(resolved, 'page.php → src/lib.php imports edge missing').toBeDefined();
       } finally {
+        projectDb?.close();
+        projectSensor?.close();
         fs.rmSync(tempProject, { recursive: true, force: true });
       }
     });
 
     it('resolves a subdirectory include path to the correct file (#660)', async () => {
       const tempProject = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-php-subdir-'));
+      let projectSensor: LatticeSensor | undefined;
+      let projectDb: DatabaseConnection | undefined;
       try {
         fs.mkdirSync(path.join(tempProject, 'inc'), { recursive: true });
         fs.writeFileSync(
@@ -3325,10 +3340,10 @@ class Both : public Base<char>, public Plain {}; // templated + plain in one cla
           `<?php\nrequire "inc/db.php";\nquery();\n`
         );
 
-        cg = await LatticeSensor.init(tempProject, { index: true });
+        projectSensor = await LatticeSensor.init(tempProject, { index: true });
 
-        const db = DatabaseConnection.open(path.join(tempProject, '.lattice/sensor', 'sensor.db'));
-        const rows = db.getDb().prepare(`
+        projectDb = DatabaseConnection.open(path.join(tempProject, '.lattice/sensor', 'sensor.db'));
+        const rows = projectDb.getDb().prepare(`
           select dst.kind as dstKind, dst.file_path as dstPath
           from edges e
           join nodes src on e.source = src.id
@@ -3342,12 +3357,16 @@ class Both : public Base<char>, public Plain {}; // templated + plain in one cla
           'index.php → inc/db.php imports edge missing'
         ).toBeDefined();
       } finally {
+        projectDb?.close();
+        projectSensor?.close();
         fs.rmSync(tempProject, { recursive: true, force: true });
       }
     });
 
     it('does not mis-connect an unresolvable include to a same-named file elsewhere (#660)', async () => {
       const tempProject = fs.mkdtempSync(path.join(os.tmpdir(), 'lattice-sensor-php-misresolve-'));
+      let projectSensor: LatticeSensor | undefined;
+      let projectDb: DatabaseConnection | undefined;
       try {
         // app/page.php's `require "inc/db.php"` resolves relative to app/, where
         // inc/db.php does NOT exist. A same-named lib/inc/db.php exists elsewhere
@@ -3364,10 +3383,10 @@ class Both : public Base<char>, public Plain {}; // templated + plain in one cla
           `<?php\nrequire "inc/db.php";\n`
         );
 
-        cg = await LatticeSensor.init(tempProject, { index: true });
+        projectSensor = await LatticeSensor.init(tempProject, { index: true });
 
-        const db = DatabaseConnection.open(path.join(tempProject, '.lattice/sensor', 'sensor.db'));
-        const rows = db.getDb().prepare(`
+        projectDb = DatabaseConnection.open(path.join(tempProject, '.lattice/sensor', 'sensor.db'));
+        const rows = projectDb.getDb().prepare(`
           select dst.kind as dstKind, dst.file_path as dstPath
           from edges e
           join nodes src on e.source = src.id
@@ -3381,6 +3400,8 @@ class Both : public Base<char>, public Plain {}; // templated + plain in one cla
           'app/page.php must NOT mis-connect to unrelated lib/inc/db.php'
         ).toBeUndefined();
       } finally {
+        projectDb?.close();
+        projectSensor?.close();
         fs.rmSync(tempProject, { recursive: true, force: true });
       }
     });
