@@ -47,6 +47,11 @@ function processAlive(pid) {
 
 /** fixture配下のdaemonをSIGTERMからSIGKILLへ上げ、残存pidを返す。 */
 export async function reapDaemonsUnder(temporary, tracked = []) {
+  if (process.platform === 'win32') {
+    for (const pid of tracked) {
+      spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    }
+  }
   const discovered = process.platform === 'win32' ? daemonPidsUnder(temporary) : null;
   const survivors = () => [...new Set([
     ...(discovered ?? daemonPidsUnder(temporary)),
@@ -57,8 +62,7 @@ export async function reapDaemonsUnder(temporary, tracked = []) {
     for (const pid of survivors()) {
       try {
         if (process.platform === 'win32') {
-          spawnSync('taskkill.exe', ['/PID', String(pid), '/T', ...(signal === 'SIGKILL' ? ['/F'] : [])],
-            { stdio: 'ignore' });
+          spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
         } else {
           process.kill(-pid, 'SIGCONT');
           process.kill(-pid, signal);

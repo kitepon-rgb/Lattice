@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   realpath,
   rm,
   writeFile,
@@ -58,6 +59,12 @@ async function waitForFile(filePath) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`file did not appear: ${filePath}`);
+}
+
+async function publishReport(reportPath, value) {
+  const temporary = `${reportPath}.publish`;
+  await writeFile(temporary, `${canonicalizeArtifact(value)}\n`, { mode: 0o600 });
+  await rename(temporary, reportPath);
 }
 
 test('work-order controllerはhost駆動managed epochをv2能力で宣言する', () => {
@@ -148,12 +155,12 @@ test('work-order workerはreportを合図にしdiffをLattice自身で観測す�
     state,
     worker_pid: seat.pid,
   });
-  await writeFile(reportPath, `${canonicalizeArtifact(report('working'))}\n`, { mode: 0o600 });
+  await publishReport(reportPath, report('working'));
   const worker = await workerPromise;
   assert.equal(worker.pid, seat.pid);
   assert.equal(worker.process_membership, 'dynamic_group');
   await writeFile(path.join(worktreePath, 'src', 'a.mjs'), 'export const a = 2;\n');
-  await writeFile(reportPath, `${canonicalizeArtifact(report('done'))}\n`, { mode: 0o600 });
+  await publishReport(reportPath, report('done'));
   const completed = await worker.completed;
   assert.deepEqual(completed.observedDiff, [{ path: 'src/a.mjs', change: 'modified' }]);
   assert.match(completed.checkpointDigest, /^[0-9a-f]{64}$/u);

@@ -19,8 +19,8 @@ const STOP_RECEIPT_SCHEMA = 'lattice.bridge_stop_receipt.v1';
 const ACTIVE_MARKER_SCHEMA = 'lattice.bridge_daemon_active.v1';
 const CONTROL_MAX_BYTES = 65_536;
 /** control fileの差し替え競合だけを吸収する再読の上限と間隔（`readStrictJson`が唯一の使用者）。 */
-const CONTROL_READ_RETRY_LIMIT = 5;
-const CONTROL_READ_RETRY_DELAY_MS = 20;
+const CONTROL_READ_RETRY_LIMIT = 50;
+const CONTROL_READ_RETRY_DELAY_MS = 10;
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export function bridgeDaemonDescriptorPath(env = process.env) {
