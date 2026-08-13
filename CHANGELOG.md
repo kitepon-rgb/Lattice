@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.59.1 — 2026-08-13
+
+### 修正
+
+- Outcome compilerがオーナーの作業仕様と受入条件を保存し、要求外の製品目的を工程へ追加しない契約を復元。
+  完成済み工程表を全件照合する`lattice plan scope-review`を追加した。
+- runtime executor packetからLattice独自の禁止操作を撤去。`forbidden_operations`は互換fieldとして空配列を返し、
+  操作権限をhostとオーナー依頼へ委ねる。
+
 ## 0.59.0 — 2026-08-13
 
 ### 新機能
