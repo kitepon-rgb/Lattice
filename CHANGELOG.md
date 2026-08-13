@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.60.0 — 2026-08-13
+
+### 新機能
+
+- `lattice todo migrate`で、既存planのtaskを別planの先行条件へ接続できるようにした。
+  `lattice.todo_extraction.v4`は新規taskを伴わない接続だけの入力も受理し、同じ入力の再実行と
+  crash後の復旧を一つのtransactionとして完了する。
+- ToDo構造artifactが壊れた時、`todo status`と`todo verify`が破損箇所をtypedに示し、
+  元のplanned structure入力から同一内容を復旧できるようにした。
+
+### 修正
+
+- companion接続の並行復旧で、先行processのcrash後に複数processが同じ復旧mutexを奪い合う競合を修正した。
+- `lattice.todo_extraction.v4`の公開schemaをnpm配布物へ含めた。
+
 ## 0.59.1 — 2026-08-13
 
 ### 修正
