@@ -642,7 +642,7 @@ export function validateExecutorPacket(value) {
     && identifier(packet.plan_ref)
     && nonNegativeInteger(packet.plan_epoch)
     && boundedArray(packet.verifier_refs, (entry) => typeof entry === 'string')
-    && boundedArray(packet.forbidden_operations, (entry) => typeof entry === 'string', { min: 1 })
+    && boundedArray(packet.forbidden_operations, (entry) => typeof entry === 'string')
     && packet.context_content_digest === computeContextContentDigest(packet)
     && selfDigestValid(packet, 'packet_digest')
   ));

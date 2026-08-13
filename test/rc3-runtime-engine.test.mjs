@@ -146,6 +146,12 @@ function assertDispatchReplay(plan, events) {
   });
 }
 
+test('runtime packetは操作権限をhostへ委ね、禁止操作を配らない', () => {
+  const { plan, manifests } = buildFixture({ todos: ['TA'], capacity: 1 });
+  const packets = buildExecutorPackets({ plan, manifests });
+  assert.deepEqual(packets.TA.forbidden_operations, []);
+});
+
 test('terminalの独立checkpointはreceipt記録より先に置かれ、受理境界になる', async () => {
   const fixture = buildFixture({ todos: ['TA'], capacity: 1 });
   const { request, plan, manifests } = fixture;

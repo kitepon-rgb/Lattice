@@ -57,7 +57,7 @@ export function validateRunWorkOrder(value) {
     && GIT_SHA1.test(value.base_sha ?? '')
     && stringArray(value.scope_writes, { paths: true })
     && stringArray(value.verifier_refs)
-    && stringArray(value.forbidden_operations, { min: 1 })
+    && stringArray(value.forbidden_operations)
     && SHA256.test(value.packet_digest ?? '')
     && SHA256.test(value.order_digest ?? '')
     && selfDigest(value, 'order_digest') === value.order_digest;

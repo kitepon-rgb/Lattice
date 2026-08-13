@@ -39,9 +39,9 @@
     },
     "forbidden_operations": {
       "type": "array",
-      "minItems": 1,
       "maxItems": 256,
-      "items": { "type": "string" }
+      "items": { "type": "string" },
+      "description": "Compatibility field. Lattice-produced packets use an empty array; operation authority belongs to the host."
     },
     "context_content_digest": { "$ref": "#/$defs/digest" },
     "packet_digest": { "$ref": "#/$defs/digest" }

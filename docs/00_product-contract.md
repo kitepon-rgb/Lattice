@@ -162,6 +162,10 @@ Taskだけを`project_id`／`plan_key`／`plan_version`／`task_id`つきで投�
 `compiled_plan_digest`から`runtime_plan.v1`→`executor_packet.v1`→`executor_receipt.v1`まで辿れる。
 `todo_status_result`は変更せず、加算の別面とする。
 
+executor packetは操作AIの権限を決めない。`forbidden_operations`はv1互換fieldとして空配列を持ち、
+実行可能な操作はhostとオーナー依頼が決める。Latticeは実行後のHEAD・diff・receiptを観測し、工程と
+観測の前提が成立しているかだけを判定する（ADR 0178）。
+
 ToDoの作業記憶はlifecycle journal／snapshotと分離したtask-scoped append-only note chainが正本である
 （ADR 0149）。追記は`todo note --plan <key> --task <id> (--message <text>|--input <file>)`、全履歴の
 診断面は`todo note list --plan <key> [--task <id>] --json`とする。ただし、操作AIがこの診断commandを

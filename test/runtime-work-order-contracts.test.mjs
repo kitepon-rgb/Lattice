@@ -20,7 +20,7 @@ function packet() {
     plan_ref: 'plan-a',
     plan_epoch: 1,
     verifier_refs: ['node --test test/a.test.mjs'],
-    forbidden_operations: ['push', 'branch', 'merge', 'rebase', 'reset', 'stash'],
+    forbidden_operations: [],
     context_content_digest: '',
     packet_digest: '',
   };
@@ -45,6 +45,7 @@ test('work orderはexecutor packetの作業面を逐語投影して自己digest�
   assert.deepEqual(order.scope_writes, source.scope.writes);
   assert.deepEqual(order.verifier_refs, source.verifier_refs);
   assert.deepEqual(order.forbidden_operations, source.forbidden_operations);
+  assert.deepEqual(order.forbidden_operations, []);
   assert.equal(order.packet_digest, source.packet_digest);
 });
 

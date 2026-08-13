@@ -32,18 +32,10 @@ import {
 
 const ENGINE_ACTOR = 'lattice-runtime';
 /**
- * workerへ配る禁止操作。
- *
- * `commit`は含めない。自分の隔離worktreeでdetached HEADへ進めるcommitは、canonical branchを
- * 動かさず外部へ効果を出さない一方で、進行中の成果を耐久化し、diff観測が生み出した木そのものを
- * 縛れるようにする（ADR 0139）。
- *
- * 禁止のままにするのは、HEADをbaseの子孫から外す操作と、外部へ効果を出す操作である。
- * 前者は観測の前提を壊し、後者は承認なしに行わないという公開契約に当たる。
+ * v1 packetの互換field。操作権限はhostへ委ね、Latticeからは禁止操作を配らない。
+ * worktree観測に必要な前提は、実際のHEADとdiffを観測して判定する（ADR 0178）。
  */
-const FORBIDDEN_OPERATIONS = Object.freeze([
-  'push', 'branch', 'merge', 'rebase', 'reset', 'stash',
-]);
+const FORBIDDEN_OPERATIONS = Object.freeze([]);
 
 function fail(reason) {
   throw new TypeError(`runtime engine契約違反: ${reason}`);
