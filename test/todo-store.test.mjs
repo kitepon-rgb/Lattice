@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile,
+  chmod, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, unlink, writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -736,8 +736,15 @@ test('readTodoStoreStableは書込中の一時窓（毎attemptでmanifestが動�
   // 正しいmanifestへ戻す。これは「まだ書込中だった」場合の正常系であり、恒久的な
   // 千切れ（上のtest）とは区別してリトライで解決できることを固定する。
   await writeFile(path.join(root, manifestRef), oldManifest);
-  setTimeout(() => { writeFile(path.join(root, manifestRef), newManifest).catch(() => {}); }, 5);
+  const publication = (async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const manifest = path.join(root, manifestRef);
+    const temporary = `${manifest}.publish`;
+    await writeFile(temporary, newManifest);
+    await rename(temporary, manifest);
+  })();
   const store = await readTodoStoreStable({ repoRoot: root, now: NOW, maximumAttempts: 8 });
+  await publication;
   assert.equal(store.manifest.manifest_digest, JSON.parse(newManifest.toString('utf8')).manifest_digest);
 });
 
