@@ -682,7 +682,12 @@ test('daemonは自分の記録をdescriptorと同時に置き、停止時に落�
     assert.equal((await stat(recordRef)).mode & 0o777, 0o600);
   }
 
-  process.kill(daemonPid, 'SIGTERM');
+  if (process.platform === 'win32') {
+    const response = await fetch(`http://127.0.0.1:${descriptor.port}/__lattice/shutdown`, { method: 'POST' });
+    assert.equal(response.status, 202);
+  } else {
+    process.kill(daemonPid, 'SIGTERM');
+  }
   const deadline = Date.now() + 3_000;
   while (Date.now() < deadline && (await daemonRecordNames(runtime)).length > 0) {
     await new Promise((resolve) => setTimeout(resolve, 50));
