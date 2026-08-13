@@ -908,7 +908,10 @@ function validateCrossPlanDependencyTransition(store, owner, input) {
   }
   const source = crossPlanDependencyTask(store, from);
   const target = crossPlanDependencyTask(store, to);
-  if (source.task.status === 'done') fail('DEPENDENCY_INVALID', 'dependency_source_terminal');
+  // A completed source already satisfies the prerequisite. Keep the existing
+  // completion record as the proof instead of creating a second ledger entry.
+  // The dependency event still records the topology edge for the target and
+  // must pass all of the usual binding, duplicate, and cycle checks below.
   if (target.task.status === 'done') fail('DEPENDENCY_INVALID', 'dependency_target_terminal');
   const existing = projectTodoCrossPlanDependencies(store.members);
   if (existing.some((dependency) => mergedTaskKey(dependency.from) === mergedTaskKey(from)

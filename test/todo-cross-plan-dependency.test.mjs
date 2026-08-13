@@ -138,7 +138,7 @@ test('同一plan・重複・stale binding・cycleをtyped拒否する', async (c
   }), (error) => error.code === 'DEPENDENCY_CYCLE' && error.detail.reason === 'cross_plan_dependency_cycle');
 });
 
-test('完了済みsourceまたはconsumerへ後付けしない', async (context) => {
+test('完了済みsourceは既に満たされた前提として後付けし、完了済みconsumerは拒否する', async (context) => {
   const { root, connect, evidence } = await workspace(context);
   const mutate = (planKey, taskId, kind, payload) => appendTodoEvent({
     repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), planKey, now: NOW,
@@ -146,8 +146,11 @@ test('完了済みsourceまたはconsumerへ後付けしない', async (context)
   });
   await mutate('producer', 'P', 'start', { override_reason: null });
   await mutate('producer', 'P', 'done', { done_mode: 'authored', imported: false, evidence });
-  await assert.rejects(() => connect(),
-    (error) => error.code === 'DEPENDENCY_INVALID' && error.detail.reason === 'dependency_source_terminal');
+  const connected = await connect();
+  assert.equal(connected.event.kind, 'cross_plan_dependency');
+  const connectedStore = await readTodoStore({ repoRoot: root, now: NOW });
+  assert.equal(connectedStore.members.find(({ plan }) => plan.plan_key === 'consumer')
+    .tasks.find(({ task_id: taskId }) => taskId === 'C').status, 'pending');
 
   const second = await workspace(context);
   const mutateSecond = (planKey, taskId, kind, payload) => appendTodoEvent({
