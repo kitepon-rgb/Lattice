@@ -10,8 +10,10 @@ import { PassThrough, Readable } from 'node:stream';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import test, { after, before } from 'node:test';
+import nodeTest, { after, before } from 'node:test';
 import { resolveStableNodePath, runHooksCli } from '../src/hooks-cli.mjs';
+
+const test = process.platform === 'win32' ? nodeTest.skip : nodeTest;
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.60.4 — 2026-08-13
+
+### 修正
+
+- native Windows非対応のPOSIX hooks suiteをWindows CIで実行せず、それ以外のWindows製品試験が完走するようにした。
+
 ## 0.60.3 — 2026-08-13
 
 ### 修正
