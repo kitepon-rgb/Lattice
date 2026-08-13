@@ -43,11 +43,17 @@ const retiredArtifactReplaySuites = new Set([
   'treatment-runner.test.mjs',
 ]);
 
-// CIはportableな製品全体をLinuxで一度だけ検証し、他の実行環境では
+// CIはportableな製品全体を最も強いWSL2ホストで一度だけ検証し、他の実行環境では
 // OS境界を実際に通るsuiteだけを検証する。同じ約1800 testを各OSへ複製しない。
 // suiteを追加する時は、通常はcoreへ自動収載される。特定環境でしか意味を
 // 持たないtestだけを対応profileへ明示する。
 export const nativeTestProfiles = Object.freeze({
+  linux: Object.freeze([
+    'bridge-daemon.test.mjs',
+    'hooks-cli.test.mjs',
+    'project-cli.test.mjs',
+    'todo-store.test.mjs',
+  ]),
   macos: Object.freeze([
     'bridge-executable.test.mjs',
     'bridge-launch-agent.test.mjs',
@@ -103,7 +109,7 @@ export function selectProductTests(allTests, profile = 'core') {
 function requestedProfile(argv = process.argv.slice(2)) {
   const profileArguments = argv.filter((value) => value.startsWith('--profile='));
   if (profileArguments.length > 1 || argv.some((value) => !value.startsWith('--profile='))) {
-    throw new Error('usage: run-product-tests.mjs [--profile=core|macos|windows|wsl2]');
+    throw new Error('usage: run-product-tests.mjs [--profile=core|linux|macos|windows|wsl2]');
   }
   return profileArguments[0]?.slice('--profile='.length) || 'core';
 }

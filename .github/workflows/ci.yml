@@ -10,10 +10,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # portableな製品挙動、sensor、静的契約はLinuxで一度だけ完全検証する。
-  core-linux:
+  # portableな製品挙動は最も強いWSL2ホストで一度だけ完全検証する。
+  core-wsl2:
     timeout-minutes: 12
-    runs-on: [self-hosted, factory, linux-native]
+    runs-on: [self-hosted, factory, wsl2]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -25,6 +25,34 @@ jobs:
       - run: npm --prefix sensor ci
       - run: npm --prefix sensor run build
       - run: npm run test:profile -- --profile=core
+
+  # Linux native固有のdaemon、git、store、CLI、POSIX hooks境界だけを実測する。
+  linux-native:
+    timeout-minutes: 8
+    runs-on: [self-hosted, factory, linux-native]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.22.3'
+      - run: npm ci
+      - run: npm run test:profile -- --profile=linux
+
+  # Windows native固有境界と、sensor・静的契約を強いWindowsホストで検証する。
+  windows-native:
+    timeout-minutes: 8
+    runs-on: [self-hosted, factory, windows-native]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.22.3'
+      - run: npm ci
+      - run: npm --prefix sensor ci
+      - run: npm --prefix sensor run build
+      - run: npm run test:profile -- --profile=windows
       - run: npm run test:sensor
       - run: npm run check
       - run: npm run check:cli-surface
@@ -45,31 +73,3 @@ jobs:
       - run: npm --prefix sensor ci
       - run: npm --prefix sensor run build
       - run: npm run test:profile -- --profile=macos
-
-  # Windows native固有のStartup、NTFS、path、CLI境界だけを実測する。
-  windows-native:
-    timeout-minutes: 8
-    runs-on: [self-hosted, factory, windows-native]
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '22.22.3'
-      - run: npm ci
-      - run: npm --prefix sensor ci
-      - run: npm --prefix sensor run build
-      - run: npm run test:profile -- --profile=windows
-
-  # WSL2自身のext4上でgit、store、CLI、POSIX hooksの境界を実測する。
-  wsl2:
-    timeout-minutes: 8
-    runs-on: [self-hosted, factory, wsl2]
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '22.22.3'
-      - run: npm ci
-      - run: npm run test:profile -- --profile=wsl2

@@ -5,10 +5,10 @@ CIは環境数だけ同じ試験を複製せず、失敗をその環境固有の
 
 | job | 証明すること | 実行内容 |
 | --- | --- | --- |
-| `core-linux` | portableな製品挙動、sensor、静的契約 | `factory-linux-main`で現行製品suite全件と全checkを1回 |
+| `core-wsl2` | portableな製品挙動 | `factory-wsl2-fox`で現行製品suite全件を1回 |
+| `linux-native` | Linux固有のdaemon・git・store・CLI・POSIX hooks境界 | `factory-linux-main`でLinux profile |
 | `macos-native` | macOS固有のlaunchd・process・path/filesystem境界 | `factory-macos-m5`でmacOS profile |
-| `windows-native` | Windows固有のStartup・NTFS・path・CLI境界 | `factory-windows-fox`でWindows profile |
-| `wsl2` | WSL2固有のgit・store・CLI・POSIX hooks境界 | `factory-wsl2-fox`でWSL2 profile |
+| `windows-native` | Windows固有境界、sensor、静的契約 | `factory-windows-fox`でWindows profileと全check |
 
 `npm test`は開発者が手元で使う現行製品suite全件の入口として維持する。CIは
 `npm run test:profile -- --profile=<name>`を使う。通常の新規suiteは自動的に`core`へ入る。
