@@ -151,7 +151,7 @@ export function worktreeMismatchNotice(m: WorktreeIndexMismatch): string {
 /** Resolve symlinks where possible so tmp/realpath quirks don't break equality. */
 function realpath(p: string): string {
   try {
-    return fs.realpathSync(path.resolve(p));
+    return fs.realpathSync.native(path.resolve(p));
   } catch {
     return path.resolve(p);
   }

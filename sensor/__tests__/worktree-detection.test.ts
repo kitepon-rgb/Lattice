@@ -31,7 +31,7 @@ function git(cwd: string, ...args: string[]): void {
 
 /** realpath so macOS /var → /private/var symlinking doesn't break equality. */
 function real(p: string): string {
-  return fs.realpathSync(path.resolve(p));
+  return fs.realpathSync.native(path.resolve(p));
 }
 
 describe('detectWorktreeIndexMismatch (issue #155)', () => {
