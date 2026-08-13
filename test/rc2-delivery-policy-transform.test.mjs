@@ -296,6 +296,7 @@ test('accepted transactionはactual preimage、patch、oracle、6×4 matrix、cl
   );
 
   let transformError = null;
+  let transformStatus = null;
   const result = await runRc2DeliveryPolicySeamTransform({
     repoRoot,
     baseRef: baseSha,
@@ -303,6 +304,10 @@ test('accepted transactionはactual preimage、patch、oracle、6×4 matrix、cl
     transform: async ({ worktreePath }) => {
       try {
         await applyRc2DeliveryPolicyTransform({ worktreePath });
+        const status = spawnSync('git', [
+          'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
+        ], { cwd: worktreePath, encoding: 'utf8' });
+        transformStatus = status.stdout.split('\0').filter(Boolean);
       } catch (error) {
         transformError = { code: error?.code ?? null, message: error?.message ?? String(error) };
         throw error;
@@ -327,6 +332,7 @@ test('accepted transactionはactual preimage、patch、oracle、6×4 matrix、cl
     scope: result.artifact.scope,
     verification: result.artifact.verification,
     transformError,
+    transformStatus,
   }));
   assert.ok(Buffer.isBuffer(result.patch));
   assert.ok(result.patch.byteLength > 0);
