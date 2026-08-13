@@ -1,20 +1,21 @@
 # CI契約
 
 Latticeが対応する実行環境は、macOS native、Linux native、Windows native、Windows WSL2である。
-CIは環境数だけ同じ試験を複製せず、失敗をその環境固有の欠陥へ結び付けられる単位で実行する。
+CIは4環境で同じフル試験を同時実行し、製品契約がどの対応環境でも成立することを確認する。
 
 | job | 証明すること | 実行内容 |
 | --- | --- | --- |
-| `core-wsl2` | portableな製品挙動とsensor | `factory-wsl2-fox`で現行製品suiteとsensor全件を1回 |
-| `linux-native` | Linux固有のdaemon・git・store・CLI・POSIX hooks境界 | `factory-linux-main`でLinux profile |
-| `macos-native` | macOS固有のlaunchd・process・path/filesystem境界 | `factory-macos-m5`でmacOS profile |
-| `windows-native` | Windows固有境界と静的契約 | `factory-windows-fox`でWindows profileと全check |
+| `full (macos-native)` | macOSで全製品契約が成立すること | `factory-macos-m5`でフル試験 |
+| `full (linux-native)` | Linuxで全製品契約が成立すること | `factory-linux-main`でフル試験 |
+| `full (windows-native)` | Windowsで全製品契約が成立すること | `factory-windows-fox`でフル試験 |
+| `full (wsl2)` | WSL2で全製品契約が成立すること | `factory-wsl2-fox`でフル試験 |
 
-`npm test`は開発者が手元で使う現行製品suite全件の入口として維持する。CIは
-`npm run test:profile -- --profile=<name>`を使う。通常の新規suiteは自動的に`core`へ入る。
-OS固有の意味を持つsuiteだけを`scripts/run-product-tests.mjs`の対応profileへ加える。
+各jobは現行製品suite全件、sensor全件、静的check、ToDo store検証を実行する。
+`npm run test:profile -- --profile=<name>`のOS別profileは、実装中のfocused確認用として維持する。
+通常の新規suiteは自動的に`core`へ入り、4環境すべてのCI対象になる。
 
-4 jobはOrganization self-hosted runnerで同時に開始する。外部forkのコードを自宅LAN内のrunnerへ
+4 matrix jobはOrganization self-hosted runnerで同時に開始する。1環境の失敗で残りを中止しない。
+外部forkのコードを自宅LAN内のrunnerへ
 自動投入しないため、triggerは全branchのpushと手動実行だけにする。同一branchの古いrunは
 新しいpushでcancelする。tag pushは同じcommitのbranch CIを再実行しない。timeoutは通常所要時間の
 約2倍に留め、hangを長時間の`in_progress`として保持しない。
