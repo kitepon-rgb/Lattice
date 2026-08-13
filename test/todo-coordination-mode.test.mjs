@@ -22,7 +22,10 @@ import { TODO_COORDINATION_MODES } from '../src/todo-contracts.mjs';
 import {
   appendTodoEvent, createTodoStoreWriter, initializeTodoStore, projectTodoCoordination, readTodoStore,
 } from '../src/todo-store.mjs';
-import { selectIndependenceGuidance } from '../src/todo-independence-guidance.mjs';
+import {
+  pullIntakeReadinessGuidance,
+  selectIndependenceGuidance,
+} from '../src/todo-independence-guidance.mjs';
 
 const NOW = '2026-07-26T00:00:00.000Z';
 const ACTOR = Object.freeze({ host: 'host-1', session: 'session-1', agent: 'agent-1' });
@@ -138,6 +141,32 @@ test('案内は方式で変わる——未宣言は督促でなく選択を指�
 
   // 既定は witness。宣言を渡さない既存の呼び出し側の挙動を変えない。
   assert.deepEqual(selectIndependenceGuidance(base), witness);
+});
+
+test('conversationの一般案内は督促せず、pull設備だけがindependence前提を返す', () => {
+  const general = selectIndependenceGuidance({
+    coverage: 'missing', taskDeclared: false, taskStale: false,
+    coordinationMode: 'conversation',
+  });
+  assert.equal(general.next_action, 'none');
+
+  const required = pullIntakeReadinessGuidance({
+    coordinationMode: 'conversation', ready: false,
+  });
+  assert.deepEqual(
+    [required.code, required.plan_binding_ready,
+      required.coordination_mode, required.next_action],
+    ['pull_independence_required', false, 'conversation',
+      'compile_independence_or_choose_non_pull_execution'],
+  );
+
+  const ready = pullIntakeReadinessGuidance({
+    coordinationMode: 'conversation', ready: true,
+  });
+  assert.deepEqual(
+    [ready.code, ready.plan_binding_ready, ready.coordination_mode, ready.next_action],
+    ['pull_independence_ready', true, 'conversation', 'none'],
+  );
 });
 
 test('方式は2値で、壊れた宣言はstoreへ入らない', async (context) => {

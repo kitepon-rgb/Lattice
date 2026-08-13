@@ -154,6 +154,19 @@ const CATALOG = Object.freeze({
   }),
 });
 
+const PULL_INTAKE_READINESS = Object.freeze({
+  required: Object.freeze({
+    code: 'pull_independence_required',
+    message: 'pull設備のintakeには有効なindependence artifactが必須である。conversation調整はwitness督促を消すが、この実行前提は満たさない。',
+    next_action: 'compile_independence_or_choose_non_pull_execution',
+  }),
+  ready: Object.freeze({
+    code: 'pull_independence_ready',
+    message: 'pull設備が読むplan-level independence bindingは有効である。task固有境界とruntime競合はintake時に検査する。',
+    next_action: 'none',
+  }),
+});
+
 /** 切断可能性の言い換え。conflictの案内へ添える。 */
 const SEVERABILITY_HINT = Object.freeze({
   code_seam: 'symbol／pathの衝突なので、境界を分けるrefactorで並列化しうる。記録済みの競合からseam-proposal compileを検討できる。',
@@ -170,6 +183,18 @@ export function todoIndependenceGuidance(code, { severability = null } = {}) {
     code,
     message: hint === null ? entry.message : `${entry.message}${hint}`,
     next_action: entry.next_action,
+  };
+}
+
+export function pullIntakeReadinessGuidance({ coordinationMode = null, ready }) {
+  if (![null, 'witness', 'conversation'].includes(coordinationMode)
+    || typeof ready !== 'boolean') {
+    throw new TypeError('pull intake readiness input is invalid');
+  }
+  return {
+    ...(ready ? PULL_INTAKE_READINESS.ready : PULL_INTAKE_READINESS.required),
+    plan_binding_ready: ready,
+    coordination_mode: coordinationMode,
   };
 }
 

@@ -146,6 +146,17 @@ async function startTask(root, taskId, timestamp, overrideReason = null) {
   });
 }
 
+async function declareCoordination(root, mode, reason, timestamp) {
+  return appendTodoEvent({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
+    planKey: PLAN_KEY, now: timestamp,
+    event: {
+      kind: 'coordination_mode', actor: ACTOR, recorded_at: timestamp,
+      payload: { mode, reason },
+    },
+  });
+}
+
 async function doneTask(root, taskId, timestamp) {
   const bytes = Buffer.from(`${taskId} evidence\n`);
   const oid = git(root, ['hash-object', '-w', '--stdin'], { input: bytes });
@@ -237,7 +248,13 @@ test('pull startはtodos/baseを要求せず、run後startした未列挙taskを
   async (context) => {
     const { root, baseSha } = await workspace(context);
     const started = parsed(startPull(root));
+    assert.equal(started.schema, 'lattice.pull_run_start_result.v2');
     assert.equal(started.selection, 'pull');
+    assert.deepEqual(
+      [started.intake_readiness.code, started.intake_readiness.plan_binding_ready,
+        started.intake_readiness.next_action],
+      ['pull_independence_ready', true, 'none'],
+    );
     assert.equal(parsed(runCli(root, [
       'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
     ]), 1).code, 'TASK_NOT_STARTED');
@@ -264,6 +281,38 @@ test('pull startはtodos/baseを要求せず、run後startした未列挙taskを
     assert.equal(retried.refreshed, false);
     const status = parsed(runCli(root, ['run', 'status', '--run', '.lattice/runs/pull-run']));
     assert.deepEqual(status.intakes.map(({ task_id: taskId }) => taskId), ['A']);
+  });
+
+test('conversation planのpull startとboundary holdは同じtyped next actionを返す',
+  async (context) => {
+    const { root } = await workspace(context);
+    await declareCoordination(
+      root, 'conversation', '会話で調整する', '2026-08-09T00:00:30.000Z',
+    );
+    await rm(path.join(
+      root, '.lattice', 'todo', 'plans', PLAN_KEY, 'v1', 'independence.json',
+    ));
+
+    const started = parsed(startPull(root));
+    assert.equal(started.schema, 'lattice.pull_run_start_result.v2');
+    assert.deepEqual(
+      [started.intake_readiness.code, started.intake_readiness.plan_binding_ready,
+        started.intake_readiness.coordination_mode,
+        started.intake_readiness.next_action],
+      ['pull_independence_required', false, 'conversation',
+        'compile_independence_or_choose_non_pull_execution'],
+    );
+
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    const held = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.deepEqual(
+      [held.intervention.state, held.intervention.reason,
+        held.intervention.next_action, held.intervention.lease_state],
+      ['hold', 'boundary_unverified',
+        started.intake_readiness.next_action, 'withheld'],
+    );
   });
 
 test('後着planning conflictはhold/lease withheldとなり、未intake自動選択もclose成功もない',

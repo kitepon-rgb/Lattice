@@ -18,6 +18,7 @@ import {
   BOUNDARY_MANIFEST_SCHEMA, selfDigest, validateRuntimeBoundaryManifest, validateRuntimePlan,
 } from './runtime-contracts.mjs';
 import { TODO_INDEPENDENCE_SCHEMA } from './todo-independence-contracts.mjs';
+import { pullIntakeReadinessGuidance } from './todo-independence-guidance.mjs';
 import {
   readTodoIndependenceArtifact, readTodoStore, readTodoWitnessSet,
 } from './todo-store.mjs';
@@ -315,6 +316,29 @@ function activeMember(store, planKey) {
   return member;
 }
 
+async function pullPlanReadiness({ repoRoot, planKey }) {
+  const store = await readTodoStore({ repoRoot });
+  const member = activeMember(store, planKey);
+  const [artifact, witnessSet] = await Promise.all([
+    readTodoIndependenceArtifact({ repoRoot, store, planKey }),
+    readTodoWitnessSet({ repoRoot, planKey }),
+  ]);
+  const ready = artifact !== null
+    && artifact.schema === TODO_INDEPENDENCE_SCHEMA
+    && artifact.project_id === store.project_id
+    && artifact.plan_key === planKey
+    && artifact.plan_version === member.plan.plan_version
+    && artifact.topology_digest === member.plan.topology_digest
+    && artifact.outcome === 'compiled'
+    && witnessSet?.project_id === store.project_id
+    && witnessSet?.plan_key === planKey
+    && witnessSet?.witness_set_digest === artifact.witness_set_digest;
+  return pullIntakeReadinessGuidance({
+    coordinationMode: member.coordination?.mode ?? null,
+    ready,
+  });
+}
+
 function literalEvent(member, { kind, taskId, actor }) {
   return member.journal?.events?.findLast((event) => (
     event.kind === kind && event.task_id === taskId
@@ -354,6 +378,10 @@ function pathTouches(boundary, changed) {
 }
 
 async function boundaryVerdict({ repoRoot, store, member, meta, taskId, intakeBase }) {
+  const pullRequired = pullIntakeReadinessGuidance({
+    coordinationMode: member.coordination?.mode ?? null,
+    ready: false,
+  });
   let artifact;
   let witnessSet;
   try {
@@ -362,7 +390,7 @@ async function boundaryVerdict({ repoRoot, store, member, meta, taskId, intakeBa
       readTodoWitnessSet({ repoRoot, planKey: meta.plan_key }),
     ]);
   } catch (error) {
-    return { state: 'hold', reason: 'boundary_unverified', next_action: 'recompile_independence',
+    return { state: 'hold', reason: 'boundary_unverified', next_action: pullRequired.next_action,
       detail: { cause: error?.code ?? 'artifact_read_failed' }, artifact: null, witnessSet: null };
   }
   const bindingValid = artifact !== null
@@ -375,11 +403,11 @@ async function boundaryVerdict({ repoRoot, store, member, meta, taskId, intakeBa
     && witnessSet?.plan_key === meta.plan_key
     && witnessSet?.witness_set_digest === artifact.witness_set_digest;
   if (!bindingValid) {
-    return { state: 'hold', reason: 'boundary_unverified', next_action: 'recompile_independence',
+    return { state: 'hold', reason: 'boundary_unverified', next_action: pullRequired.next_action,
       detail: { cause: 'artifact_binding_mismatch' }, artifact, witnessSet };
   }
   if (artifact.outcome !== 'compiled') {
-    return { state: 'hold', reason: 'boundary_unverified', next_action: 'recompile_independence',
+    return { state: 'hold', reason: 'boundary_unverified', next_action: pullRequired.next_action,
       detail: { cause: 'independence_outcome_unknown' }, artifact, witnessSet };
   }
   const boundary = boundaryFor(artifact, taskId);
@@ -603,6 +631,7 @@ export async function startPullRun({ repoRoot, runDir, runId, planKey, equipment
     || !identifier(runId) || !identifier(planKey) || equipment !== 'detached-worktree') {
     fail('INVALID_PULL_START', 'pull start入力が不正');
   }
+  const intakeReadiness = await pullPlanReadiness({ repoRoot, planKey });
   const temporary = await mkdtemp(path.join(path.dirname(runDir), `.${runId}.pull-tmp-`));
   const meta = {
     schema: PULL_RUN_META_SCHEMA,
@@ -634,9 +663,10 @@ export async function startPullRun({ repoRoot, runDir, runId, planKey, equipment
     throw error;
   }
   return {
-    schema: 'lattice.pull_run_start_result.v1',
+    schema: 'lattice.pull_run_start_result.v2',
     outcome: 'started', run_id: runId, plan_key: planKey,
     selection: 'pull', equipment, intake_count: 0,
+    intake_readiness: intakeReadiness,
   };
 }
 
