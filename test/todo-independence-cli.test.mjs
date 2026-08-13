@@ -616,7 +616,7 @@ test('存在しないplanはfail closedにする', async (context) => {
   assert.equal(error.detail.reason, 'plan_not_active');
 });
 
-test('dirty worktreeではcompileを拒否する', async (context) => {
+test('dirty worktreeの無関係WIPを残したままclean基準でcompileする', async (context) => {
   const root = await workspace(context);
   const witnessSet = {
     schema: TODO_WITNESS_SET_SCHEMA,
@@ -642,10 +642,11 @@ test('dirty worktreeではcompileを拒否する', async (context) => {
   await writeFile(path.join(root, 'witness.json'), `${JSON.stringify(witnessSet)}\n`);
 
   const result = runCli(root, ['independence', 'compile', '--plan', 'main', '--input', 'witness.json']);
-  assert.equal(result.status, 1);
-  const error = parse(result.stderr);
-  assert.equal(error.code, 'INDEPENDENCE_WORKTREE_DIRTY');
-  assert.equal(error.detail.next_action, 'commit_or_stash_then_retry');
+  assert.equal(result.status, 0, result.stderr);
+  const compiled = parse(result.stdout);
+  assert.equal(compiled.schema, 'lattice.todo_independence_compile_result.v2');
+  assert.equal(compiled.outcome, 'compiled');
+  assert.equal(git(root, ['status', '--porcelain']).includes('?? witness.json'), true);
 });
 
 test('pretty-printされたwitnessをcompileするとstoreへcanonical bytesで保存する', async (context) => {

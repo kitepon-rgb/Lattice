@@ -140,6 +140,7 @@ import {
 } from './seam-proposal-contracts.mjs';
 import { compileSeamProposalArtifact, declaredConcernSymbols } from './seam-proposal.mjs';
 import { collectSensorEvidence } from './sensor-adapter.mjs';
+import { collectTodoIndependenceAuthoritativeObservation } from './todo-independence-authoritative-observation.mjs';
 import { applySeamProposal } from './seam-apply.mjs';
 import { todoPlanPrecedences } from './seam-verification.mjs';
 import {
@@ -2475,8 +2476,8 @@ async function structure({ repoRoot, requestedPlanKey }) {
 
 async function independenceCompile({ repoRoot, planKey, inputRef }) {
   const witnessSet = await readWitnessSetInput(repoRoot, inputRef);
-  requireCleanWorktree(repoRoot);
-  const baseSha = currentHeadSha(repoRoot);
+  const observation = await collectTodoIndependenceAuthoritativeObservation({ repoRoot, witnessSet });
+  const baseSha = observation.head_sha;
   const store = await readTodoStore({ repoRoot });
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
   if (!member) throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, { plan_key: planKey });
@@ -2491,7 +2492,7 @@ async function independenceCompile({ repoRoot, planKey, inputRef }) {
     plan: member.plan,
     baseSha,
     compiledAt: new Date().toISOString(),
-    sensorEvidence: await collectWitnessSensorEvidence({ cwd: repoRoot, witnessSet }),
+    sensorEvidence: observation.sensor_evidence,
     previousArtifact,
   });
   const { ref } = await writeTodoIndependenceArtifact({ repoRoot, artifact });
@@ -3875,10 +3876,13 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     action = (repoRoot) => migrateDryRun({
       repoRoot, inputRef: argv[2], serializationReviewed: argv.length === 6,
     });
-  } else if ((argv.length === 3 || argv.length === 4) && argv[0] === 'migrate' && argv[1] === '--input'
-    && isTodoRef(argv[2]) && (argv.length === 3 || argv[3] === '--serialization-reviewed')) {
+  } else if ((argv.length === 3 || argv.length === 4 || argv.length === 5)
+    && argv[0] === 'migrate' && argv[1] === '--input' && isTodoRef(argv[2])
+    && (argv.length === 3
+      || argv[3] === '--json'
+      || (argv[3] === '--serialization-reviewed' && (argv.length === 4 || argv[4] === '--json')))) {
     action = (repoRoot) => migrate({
-      repoRoot, inputRef: argv[2], serializationReviewed: argv.length === 4,
+      repoRoot, inputRef: argv[2], serializationReviewed: argv[3] === '--serialization-reviewed',
     });
   } else if (argv.length === 5 && argv[0] === 'revise'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
