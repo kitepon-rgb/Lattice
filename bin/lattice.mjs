@@ -2,13 +2,13 @@
 
 import { installPipeCloseGuard } from '../src/cli-stdio.mjs';
 import { renderCliHelp } from '../src/cli-help.mjs';
-import { installNode22SqliteWarningFilter } from '../src/sensor-node-runtime.mjs';
+import { installSqliteExperimentalWarningFilter } from '../src/sensor-node-runtime.mjs';
 import packageJson from '../package.json' with { type: 'json' };
 
 installPipeCloseGuard();
 
 const args = process.argv.slice(2);
-installNode22SqliteWarningFilter();
+installSqliteExperimentalWarningFilter();
 const help = renderCliHelp(args);
 
 if (help !== null) {

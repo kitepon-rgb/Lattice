@@ -4,15 +4,15 @@ export const SQLITE_EXPERIMENTAL_WARNING_MESSAGE =
 
 export function sensorNodeRuntimeFlags(nodeVersion = process.versions.node) {
   const major = Number(nodeVersion.split('.')[0]);
-  return major === 22 ? [SQLITE_EXPERIMENTAL_WARNING_FLAG] : [];
+  return major === 22 || major === 24 ? [SQLITE_EXPERIMENTAL_WARNING_FLAG] : [];
 }
 
 /**
- * Node 22 prints node:sqlite's ExperimentalWarning to stderr. The CLI has a
+ * Node 22/24 print node:sqlite's ExperimentalWarning to stderr. The CLI has a
  * JSON-only output contract, so suppress that exact warning while node:sqlite loads.
  * Every other process warning keeps Node's original behavior.
  */
-export function installNode22SqliteWarningFilter({
+export function installSqliteExperimentalWarningFilter({
   nodeVersion = process.versions.node,
   processObject = process,
 } = {}) {

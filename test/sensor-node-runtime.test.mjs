@@ -2,27 +2,27 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  installNode22SqliteWarningFilter,
+  installSqliteExperimentalWarningFilter,
   sensorNodeRuntimeFlags,
   SQLITE_EXPERIMENTAL_WARNING_FLAG,
   SQLITE_EXPERIMENTAL_WARNING_MESSAGE,
 } from '../src/sensor-node-runtime.mjs';
 
-test('Node 22だけnode:sqliteのExperimentalWarningを対象指定で抑止する', () => {
+test('node:sqliteがexperimentalのNode 22/24だけ警告抑止flagを付ける', () => {
   assert.deepEqual(sensorNodeRuntimeFlags('22.22.0'), [SQLITE_EXPERIMENTAL_WARNING_FLAG]);
-  assert.deepEqual(sensorNodeRuntimeFlags('24.11.0'), []);
+  assert.deepEqual(sensorNodeRuntimeFlags('24.14.0'), [SQLITE_EXPERIMENTAL_WARNING_FLAG]);
   assert.deepEqual(sensorNodeRuntimeFlags('26.5.0'), []);
 });
 
-test('Node 22はSQLite警告だけを抑止し、他の警告とrestore後の動作を保つ', () => {
+test('対象NodeはSQLite警告だけを抑止し、他の警告とrestore後の動作を保つ', () => {
   const emitted = [];
   const processObject = {
     emitWarning(warning, ...args) {
       emitted.push([warning, ...args]);
     },
   };
-  const restore = installNode22SqliteWarningFilter({
-    nodeVersion: '22.22.0',
+  const restore = installSqliteExperimentalWarningFilter({
+    nodeVersion: '24.14.0',
     processObject,
   });
 
