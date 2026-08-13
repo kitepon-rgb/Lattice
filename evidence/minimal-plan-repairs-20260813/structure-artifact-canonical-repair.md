@@ -20,4 +20,6 @@
 
 - `src/todo-cli.mjs`
 - `src/todo-structure-store.mjs`
+- `src/todo-store.mjs`
+- `test/todo-structure-cli.test.mjs`
 - 本証跡ファイル
