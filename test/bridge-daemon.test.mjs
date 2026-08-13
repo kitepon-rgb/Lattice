@@ -43,7 +43,7 @@ test('enabled configでもdaemon socketが存在しなければdisableできる'
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-no-daemon-'));
   const env = { ...process.env, LATTICE_CONFIG_DIR: root };
   context.after(() => rm(root, { recursive: true, force: true }));
-  await configureBridge({ address: '127.0.0.1', port: 58_759, env,
+  await configureBridge({ address: '127.0.0.1', env,
     upstream: { mode: 'url', url: 'http://127.0.0.1:4318/' } });
   let stdout = ''; let stderr = '';
   const code = await runBridgeCli({ argv: ['disable', '--json'], env, launchAgent: unmanagedLaunchAgent,
@@ -60,7 +60,7 @@ test('configが既にdisabledでも残存daemonの停止確認を省略しない
     await stopBridgeDaemon({ env }).catch(() => {});
     await rm(root, { recursive: true, force: true });
   });
-  const config = await configureBridge({ address: '127.0.0.1', port: 58_758, env,
+  const config = await configureBridge({ address: '127.0.0.1', env,
     upstream: { mode: 'url', url: 'http://127.0.0.1:4318/' } });
   await ensureBridgeDaemon({ env });
   const health = `http://127.0.0.1:${config.listen.port}/__lattice/bridge-health`;
@@ -81,7 +81,7 @@ test('config fileが消えても残存daemonの停止確認を省略しない', 
     await stopBridgeDaemon({ env }).catch(() => {});
     await rm(root, { recursive: true, force: true });
   });
-  const config = await configureBridge({ address: '127.0.0.1', port: 58_757, env,
+  const config = await configureBridge({ address: '127.0.0.1', env,
     upstream: { mode: 'url', url: 'http://127.0.0.1:4318/' } });
   await ensureBridgeDaemon({ env });
   const health = `http://127.0.0.1:${config.listen.port}/__lattice/bridge-health`;
@@ -101,7 +101,7 @@ test('configとdescriptorが同時に消えてもactive markerで停止受領証
     await stopBridgeDaemon({ env }).catch(() => {});
     await rm(root, { recursive: true, force: true });
   });
-  const config = await configureBridge({ address: '127.0.0.1', port: 58_756, env,
+  const config = await configureBridge({ address: '127.0.0.1', env,
     upstream: { mode: 'url', url: 'http://127.0.0.1:4318/' } });
   await ensureBridgeDaemon({ env });
   const health = `http://127.0.0.1:${config.listen.port}/__lattice/bridge-health`;
@@ -120,7 +120,7 @@ test('crash後のstale active markerは保存listenのsocket不存在を証明�
     const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-stale-marker-'));
     const env = { ...process.env, LATTICE_CONFIG_DIR: root };
     context.after(() => rm(root, { recursive: true, force: true }));
-    const config = await configureBridge({ address: '127.0.0.1', port: 58_754, env,
+    const config = await configureBridge({ address: '127.0.0.1', env,
       upstream: { mode: 'url', url: 'http://127.0.0.1:4318/' } });
     const descriptor = await ensureBridgeDaemon({ env });
     process.kill(descriptor.pid, 'SIGKILL');
@@ -143,7 +143,7 @@ test('descriptor missingかつactive marker破損でもunknownとしてnonce停�
       await stopBridgeDaemon({ env }).catch(() => {});
       await rm(root, { recursive: true, force: true });
     });
-    const config = await configureBridge({ address: '127.0.0.1', port: 58_755, env,
+    const config = await configureBridge({ address: '127.0.0.1', env,
       upstream: { mode: 'url', url: 'http://127.0.0.1:4318/' } });
     await ensureBridgeDaemon({ env });
     await rm(bridgeDaemonDescriptorPath(env), { force: true });
