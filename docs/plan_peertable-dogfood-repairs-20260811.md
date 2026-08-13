@@ -1,95 +1,87 @@
-# plan: Peertable実戦で露出したLattice摩擦の即時修理
+# plan: Peertable実戦で露出したLattice摩擦の修理
 
 - Status: Planned
 - Date: 2026-08-11
-- 工程正本: Lattice store（`plan_key: peertable-dogfood-repairs-20260811`）
-- 実戦consumer: Peertable（公開CLIとversioned JSONだけを使い、storeを直読・直書きしない）
+- 実戦consumer: Peertable（Latticeの公開CLIとversioned JSONを利用する）
 
 ## 目的
 
-Peertable改良をLatticeで工程管理した実戦中に露出した、Latticeの不具合、案内不足、
-AIの手作業へ不必要に依存する操作を、発見したセッション内で工程化して直す。
-修理した版を段階的に配備し、同じPeertable開発で直ちに使って再測する。
+Peertableの開発をLatticeで進めた際に実際に作業を止めた6件の摩擦を修理する。
+このPLANが定めるのは、利用者が得る機能とその受入条件だけである。試験、作業者の自己監査、
+最終試験結果の提出、配布と実利用確認は現行の共通規範に従って各修理の完遂へ含め、
+基線確認、配備Wave、監査、closeoutを独立工程として追加しない。
 
-厳格な契約そのものを緩めるcampaignではない。active planの不変性、dirty worktreeで
-independence記録を作らない原則、runtime holdの物理的barrier、Latticeがtask選択・会話・
-監査判断を所有しない境界は維持する。直すのは、正しい契約へ安全に到達・復旧・配備する面である。
+## 実現する機能
 
-## 実戦で観測した破断面
+1. `coordination_mode=conversation`を選んだ場合でも、pull設備を使うために必要な
+   independence artifactと次の操作が、実行前に分かる。
+2. hold対象のworkerとAIの会話・制御processを分け、workerが停止してもAIが回復操作を続けられる。
+3. 共有mainの無関係なWIPをcommitせず、隔離されたclean基準からindependence bindingを作れる。
+4. 完了済みtaskを、後から「既に満たされたcross-plan前提」として記録できる。
+5. 実戦中に見つけた欠陥をcompanion campaignとして起票する際、AIが計画文書、source inventory、
+   extractionを一から手組みする量を減らす。
+6. typed JSONを返す`todo migrate`は、通常実行、dry-run、schemaのいずれでも`--json`を一貫して受理する。
 
-1. `coordination_mode=conversation`はwitness督促を消すが、pull runのintakeは有効な
-   independence artifactを要求する。会話調整だけでpull設備まで使えるように読める案内と、
-   実行時の必須条件が食い違った。
-2. hold済みintakeへAIの制御processそのものをattachすると、Latticeは正しく`SIGSTOP`するが、
-   止められたAIはrecoveryを読んで報告できない。process barrierと制御面の接続契約が足りない。
-3. independence compileのclean worktree要件を共有mainで満たすため、無関係な作業までWIP commitになり、
-   別taskのpushが未監査commitを祖先として運んだ。clean bindingは維持しつつ、隔離された基準と
-   landing対象外commitの混入を機械的に判別する面が要る。
-4. 完了済みtaskを後からcross-plan dependencyのsourceにすると
-   `dependency_source_terminal`で拒否され、既に満たされた前提を機械記録へ残せなかった。
-5. active planへ部分CRUDを足さない判断は正しいが、実戦中の欠陥をcompanion campaignとして
-   起票する正規手順が、計画文書・source inventory・extractionをAIが手組みする作業へ寄りすぎている。
-6. `todo migrate`は通常実行でtyped JSONを返す一方、`--json`を付けると拒否し、同じcommandの
-   `--dry-run`と`--schema`では`--json`を要求する。helpに正解があっても、modeごとに反転する
-   flag契約をAIが都度精読して避ける前提になっている。
+## 実装原則
 
-## 所有境界
-
-Lattice側で修理するのは、公開CLI／typed result／実行設備／配備導線である。
-Peertable側の席状態、task開始・終了のroom announcement、モデル／effort変更、Peertableの`done`と
-Lattice acceptの接続、円卓規律は本campaignへ移さない。
-
-## 円卓と監査
-
-- 実装席はCodex系を既定とする。Claude系の既存席には新しい工程を渡さず、原子的作業の区切りで
-  Codex席へ交代する。特にOpusを本campaignの新規担当にしない。
-- ready工程は、空いているメンバーが自分で探して着手する。親からの個別割当を待たない。
-- 各工程の担当者と別の、当該工程の履歴を読んだメンバーがpeer auditを行う。
-- 親は工程管理と通常監査を引き取らない。各工程が`done`かつpeer audit済みになった後だけ、
-  元の設計思想・Lattice工程記録・成果物をメンバーへ言わずに照合し、問題があれば工程へ差し戻す。
-
-## 配備方針
-
-修理を全件ためて一度に公開しない。互いに独立な修理がpeer auditを通ったところでWave 1を配備し、
-Peertable本開発で使う。残りを実戦結果で補正してWave 2を配備する。
-
-各Waveは、対象commitがremote既定branchの祖先であること、package payload、npm版、Mac global install、
-常駐processのruntime version、公開面の実応答を別々に検証する。FOX／WSL2は変更面が届く場合だけ対象にする。
-配備前には、現在`origin/main..HEAD`にある20 commitと公開済み0.57.3の関係を実物で照合する。
-
-## 非目標
-
-- active planへの汎用append／partial CRUDを追加すること。
-- dirty worktreeからindependence artifactを記録できるようにすること。
-- hold時の物理barrierを警告だけに弱めること。
-- Latticeへtask選択、席割当、会話、AI判断、親監査を実装すること。
-- 本campaignと無関係なbacklogを便乗して解消すること。
+- 既存の公開CLI、store transaction、dependency、independence、landingの面を再利用し、
+  この6件のためだけの台帳、承認gate、監視機構、復旧系統を新設しない。
+- 既存制約は、それ自体を守ることを目的にしない。利用者が得る機能に必要なものだけ残す。
+- 外部入力やGitなど制御不能な境界の失敗はtypedに返す。内部処理は検査層を重ねず、
+  状態遷移とtransaction自体を正しくする。
+- PLANにない失敗を想定した追加機能は実装しない。実装中に別の問題を見つけた場合は本工程へ便乗させない。
 
 ## 工程
 
-- [ ] ldr-01 配備基線と既存20 commitの公開・監査状態を照合する
-- [ ] ldr-02 conversation調整とpull実行前提の案内・typed next actionを一致させる
-- [ ] ldr-03 AI制御processを凍結しないworker attach・hold回復契約を作る
-- [ ] ldr-04 clean independence bindingとtask外WIPを分離し、landing混入を検知する
-- [ ] ldr-05 完了済みsourceを「既に満たされたcross-plan前提」として記録できるようにする
-- [ ] ldr-06 companion campaignの正規起票を軽くし、active topology不変を保つ
-- [ ] ldr-10 typed JSONを返すCLIの`--json`受理を一貫させる
-- [ ] ldr-07 Wave 1を配備し、進行中Peertable campaignで実戦smokeする
-- [ ] ldr-08 Wave 1の実測を反映し、残修理をWave 2として配備する
-- [ ] ldr-09 全工程のpeer audit・配備証跡・実戦結果を照合してcampaignを閉じる
+- [ ] ldr-02 conversation調整とpull実行前提の案内を一致させる
+- [ ] ldr-03 hold対象workerとAI制御面を分離して回復可能にする
+- [ ] ldr-04 共有mainを汚さず隔離されたclean基準からindependence bindingを作る
+- [ ] ldr-05 完了済みsourceを既に満たされたcross-plan前提として記録する
+- [ ] ldr-06 companion campaignの起票を軽量化する
+- [ ] ldr-10 `todo migrate --json`の受理を一貫させる
 
-## 依存
+## 受入条件
 
-- `ldr-01`と`ldr-02`〜`ldr-06`・`ldr-10`は同時に着手できる。配備基線の照合は修理の調査・実装を塞がない。
-- `ldr-01`・`ldr-02`・`ldr-03`のpeer audit後に`ldr-07`を行う。
-- `ldr-04`〜`ldr-06`・`ldr-10`と`ldr-07`の実戦結果が揃った後に`ldr-08`を行う。
-- `ldr-08`後に`ldr-09`を行う。
+### ldr-02
 
-## 受入
+conversation調整だけでpull可能だと案内しない。pull設備の実行に不足するものと、
+independence artifactを用意する操作または別の実行方法を、公開CLIのtyped next actionから辿れる。
 
-- 6件すべてが「既存契約を維持した修理」または「実測に基づく明示的な契約変更」として、
-  focused test・typed CLI出力・証拠へ束縛されている。
-- Peertableからは公開CLIとversioned JSONだけで新しい導線を利用できる。
-- 各修理は担当外メンバーのpeer auditを通り、親の事前監査や工程代行を受入条件にしていない。
-- Wave 1／Wave 2ごとに、commit、push、publish／install、runtime、実戦consumerの結果を区別して記録する。
-- 同じPeertable開発で、修理前の再現と修理後の挙動を少なくとも1回ずつ実測する。
+### ldr-03
+
+holdがworkerへ作用している間も、AIの会話・制御processはrecoveryを読み、状況報告と回復操作を行える。
+この実現のためにLatticeがtask選択、会話、席管理を所有しない。
+
+### ldr-04
+
+共有mainを無関係なWIP commitでcleanにすることなく、隔離されたclean基準からindependence bindingを作れる。
+原因となった無関係WIP commit自体を不要にし、その後段へ別のlanding監視機構を追加しない。
+
+### ldr-05
+
+完了済みsourceと未完了targetを指定すると、sourceを「既に満たされた前提」として記録し、
+targetを不必要にblockしない。新しい証拠台帳や完了状態の不変化機構は作らず、既存のtask完了記録を利用する。
+
+### ldr-06
+
+公開CLIからcompanion planの必要入力を取得し、既存planを部分変更せず新planとして起票できる。
+AIが判断すべき目的、工程分割、依存関係をLatticeが推測・生成しない。
+
+### ldr-10
+
+`todo migrate`の通常実行、dry-run、schemaで`--json`の扱いが反転しない。
+既存のversioned JSON出力は維持する。
+
+各工程は変更に直結するfocused test、作業者自身の監査、最終試験結果の記録を持つ。
+監査担当はその結果の妥当性を判断し、試験を再実行しない。成果は現行の共通規範に従い利用面まで届ける。
+
+## 依存関係
+
+6件の製品機能に相互の先決関係は定めない。実装境界の競合は着手時の実測で判断し、
+配備や監査の都合を製品上のhard dependencyへ変換しない。
+
+## 対象外
+
+- Peertableの席、room、モデル／effort、円卓規律の変更。
+- Latticeによるtask選択、会話、監査判断の代行。
+- 本PLANと無関係なbacklogの修理。
