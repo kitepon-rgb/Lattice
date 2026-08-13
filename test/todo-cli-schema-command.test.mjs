@@ -34,7 +34,7 @@ const CASES = [
   { argv: ['revise', '--schema', '--json'], title: 'lattice.todo_revision.v2' },
   { argv: ['revise-set', '--schema', '--json'], title: 'lattice.todo_revision_set.v3' },
   { argv: ['revise-phase', '--schema', '--json'], title: 'lattice.phase_todo_revision.v3' },
-  { argv: ['migrate', '--schema', '--json'], title: 'lattice.todo_extraction.v3' },
+  { argv: ['migrate', '--schema', '--json'], title: 'lattice.todo_extraction.v4' },
   { argv: ['structure', '--schema', '--json'], title: 'lattice.todo_structure_set.v1' },
 ];
 
@@ -54,7 +54,7 @@ for (const { argv, title } of CASES) {
   });
 }
 
-test('todo migrate --schema --jsonはdesign_memoとNO_PLAN案内を持つv3 schemaを返す', async (context) => {
+test('todo migrate --schema --jsonはconnectionOnlyを含むv4 schemaを返す', async (context) => {
   const cwd = await bareCwd(context);
   const { stdout, stderr, out } = stdio();
   await runTodoCli({ argv: ['migrate', '--schema', '--json'], cwd, stdout, stderr });
@@ -63,6 +63,9 @@ test('todo migrate --schema --jsonはdesign_memoとNO_PLAN案内を持つv3 sche
     'schema', 'project_id', 'plan_key', 'plan_version', 'actor', 'recorded_at',
     'tasks', 'hard_dependencies', 'joins', 'extraction_digest',
   ]);
+  assert.equal(schema.title, 'lattice.todo_extraction.v4');
+  assert.equal(schema.properties.tasks.minItems, 0);
+  assert.equal(schema.properties.hard_dependencies.items.properties.reason.$ref, '#/$defs/text');
   assert.equal(schema.$defs.task.required.includes('design_memo'), true);
   assert.match(schema.$comment, /`NO_PLAN`/u);
 });

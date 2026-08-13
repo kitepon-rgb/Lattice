@@ -7,8 +7,9 @@
 - 入力形の取得: `lattice todo migrate --schema --json`
 - 新plan登録: `lattice todo migrate --input <repo-relative-extraction.json> [--serialization-reviewed]`
 - dry-run: `lattice todo migrate --input <repo-relative-extraction.json> --dry-run --json`
-- 入力schema: `lattice.todo_extraction.v3`
-- migrate結果schema: `lattice.todo_migrate_result.v3`
+- 入力schema: `lattice.todo_extraction.v4`（公開入口は既存v3とv4を受理）
+- migrate結果schema: `lattice.todo_migrate_result.v4`
+- dry-run結果schema: `lattice.todo_migrate_dry_run_result.v2`
 
 入力top-level必須keyは `schema`, `project_id`, `plan_key`, `plan_version`, `actor`,
 `recorded_at`, `tasks`, `hard_dependencies`, `joins`, `extraction_digest`。

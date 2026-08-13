@@ -19,7 +19,10 @@ import { projectTodoStatus } from './todo-status.mjs';
 import { readTodoPlanNotesForStatus } from './todo-note-store.mjs';
 import { projectIndependenceFrontier } from './todo-independence.mjs';
 import { readTodoParallelCandidatesForStatus } from './todo-parallel-candidates.mjs';
-import { readTodoStructureFinalizationsForStatus } from './todo-structure-store.mjs';
+import {
+  readTodoStructureArtifactDiagnostics,
+  readTodoStructureFinalizationsForStatus,
+} from './todo-structure-store.mjs';
 import { isTodoIndependenceLegacyMarker } from './todo-independence-contracts.mjs';
 import { selectIndependenceGuidance } from './todo-independence-guidance.mjs';
 import { ensureTodoDashboardActivity } from './todo-dashboard-registry.mjs';
@@ -223,7 +226,7 @@ function invalidStatus({ cliVersion, repoRoot, reason, nextAction = null }) {
  * store読みはここでしか行わない——session開始経路が同じstoreを二度払っていたのが
  * ADR 0131で直した欠陥である。
  */
-async function resolveProjectState({ cwd, cliVersion }) {
+async function resolveProjectState({ cwd, cliVersion, diagnoseStructureArtifacts = false }) {
   const repoRoot = resolveRepoRoot(cwd);
   if (repoRoot === null) {
     return { exitCode: 1, repoRoot: null, store: null, todo: null,
@@ -271,6 +274,14 @@ async function resolveProjectState({ cwd, cliVersion }) {
   }
   try {
     const store = await readTodoStore({ repoRoot });
+    if (diagnoseStructureArtifacts) {
+      const diagnostics = await readTodoStructureArtifactDiagnostics({ repoRoot, store });
+      if (diagnostics.length > 0) {
+        throw new TodoStoreError(
+          'STRUCTURE_ARTIFACT_INVALID', diagnostics[0].reason, undefined, { diagnostics },
+        );
+      }
+    }
     const todo = projectTodoStatus(store, {
       planNotes: await readTodoPlanNotesForStatus({ repoRoot, store }),
       parallelCandidates: await readTodoParallelCandidatesForStatus({ repoRoot, store, gitHead }),
@@ -314,6 +325,7 @@ async function resolveProjectState({ cwd, cliVersion }) {
     });
     return { exitCode: 0, repoRoot, store, todo, result };
   } catch (error) {
+    if (error?.code === 'STRUCTURE_ARTIFACT_INVALID') throw error;
     const reason = error instanceof TodoStoreError
       ? `${error.code}:${error.detail?.reason ?? error.message}` : 'store_validation_failed';
     return invalid(reason);
@@ -322,7 +334,9 @@ async function resolveProjectState({ cwd, cliVersion }) {
 
 export async function runProjectStatus({ cwd, stdout, cliVersion, env = process.env,
   ensureDashboardActivity = ensureTodoDashboardActivity }) {
-  const state = await resolveProjectState({ cwd, cliVersion });
+  const state = await resolveProjectState({
+    cwd, cliVersion, diagnoseStructureArtifacts: true,
+  });
   // dashboard活動の登録はdiscovery面の副作用として維持する（ADR 0131 Decision 4で
   // session-context側だけが持たない、と決めた面である）。
   if (state.store !== null && env.LATTICE_DASHBOARD_AUTOSTART !== '0') {
@@ -680,6 +694,15 @@ export async function runPlanShow({ cwd, planKey, stdout }) {
 }
 
 export function projectStatusFailure({ cwd, stdout, cliVersion, error }) {
+  if (error?.code === 'STRUCTURE_ARTIFACT_INVALID') {
+    const payload = {
+      schema: 'lattice.cli_error.v2', code: error.code,
+      message: error.message ?? 'structure artifact invalid',
+      detail: error.detail,
+    };
+    stdout.write(`${JSON.stringify(payload)}\n`);
+    return 1;
+  }
   const projectRootConflict = error?.code === 'PROJECT_ROOT_CONFLICT';
   const result = invalidStatus({
     cliVersion, repoRoot: resolveRepoRoot(cwd),

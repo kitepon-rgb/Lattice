@@ -180,7 +180,7 @@ test('migrate dry-runは独立した複数違反を一度に返しstoreを作ら
   });
   assert.equal(exitCode, 0, error);
   const result = JSON.parse(output);
-  assert.equal(result.schema, 'lattice.todo_migrate_dry_run_result.v1');
+  assert.equal(result.schema, 'lattice.todo_migrate_dry_run_result.v2');
   assert.equal(result.valid, false);
   assert.deepEqual(result.violations.map(({ code }) => code), [
     'design_memo_type', 'design_memo_type', 'unknown_requires_evidence', 'no_registered_tasks',

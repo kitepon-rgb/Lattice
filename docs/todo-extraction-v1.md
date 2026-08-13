@@ -1,17 +1,21 @@
-# `lattice.todo_extraction.v3`
+# `lattice.todo_extraction.v4`
 
-> 状態: 移行由来の契約だが、既存 store へ plan を足す入口としては現役である。
+> 状態: 移行由来の契約だが、既存 store へ plan を足す現行入口である。
 > **空 store の初回 authoring だけが `lattice plan create --input <lattice.plan_create_input.v4>`**。
 > `plan create` は store 初期化専用で、既に `.lattice/todo` がある project では
 > `STORE_WRITE_CONFLICT: store_already_exists` を返す。**既に plan を持つ store へ新しい plan を
-> 足すのは `lattice todo migrate --input <extraction JSON>` だけ**。Phase gate を伴う plan は
+> 足す、または既存task同士へ明示cross-plan hard dependencyを一件追加する入口は
+> `lattice todo migrate --input <extraction JSON>` だけ**。Phase gate を伴う plan は
 > migrate で登録した後に `lattice todo revise-phase` で Phase を与える。
 
-`lattice.todo_extraction.v3` は既存storeへ新planを足す時にAIが作るauthoring JSONである。
-v1／v2 schemaは過去artifactの参照用であり、新しい入力として受理しない。規範shapeは
-[JSON Schema](schemas/lattice.todo_extraction.v3.schema.json)、実行時のexact-key・
-sort・digest・意味制約は `validateTodoExtraction` が所有する。`todo migrate` は Markdown を読まず、
-この JSON の検証と `appendImportedPlan` による原子的登録だけを行う。
+`lattice.todo_extraction.v4` は既存storeへ新planを足す、または既存task同士の一件の理由付き
+cross-plan hard dependencyを接続する時にAIが作る現行authoring JSONである。
+`todo migrate --schema --json`はこの
+[JSON Schema](schemas/lattice.todo_extraction.v4.schema.json)を返す。公開入口が受理するのは
+既存のv3と現行v4だけであり、v3の`tasks`非空・理由付きcross-plan edge契約は維持する。
+空task接続とcross-plan edge高々一件の制約だけがv4の追加である。exact-key・sort・digest・意味制約は
+`validateTodoExtraction` が所有する。`todo migrate` は Markdown を読まず、この JSON の検証と
+`appendImportedPlan` による原子的登録または接続だけを行う。
 
 各taskの`design_memo`は必須で、Markdownの設計メモをそのままToDo本体へ保存する。AIが何も考えて
 いない場合も空値にはせず、問いかけ
@@ -30,8 +34,11 @@ errorへ複製せず、type／blank／too_large／forbidden_controlとJSON point
 - `unknown_requires_evidence`: status、正本性、条件分岐などの裁定が不足している。schema として保持できるが、
   一件でも存在すれば `todo migrate` は store bytes を変えず `MIGRATION_UNRESOLVED` で拒否する。
 
-`exclude_*` だけの互換文書は schema として記録できるが、登録対象 task がないため `todo migrate` は
-`MIGRATION_EMPTY` で無変更終了する。空の todo plan を捏造しない。
+v4の`tasks`が空の入力は、top-level planをsourceとする理由付きcross-plan hard dependency一件だけを
+既存taskへ後付け接続する場合に限って受理する。この形は新planを作らず、target plan-scoped eventへ
+そのedgeだけを原子的に追加する。v4ではcross-plan hard dependency自体も高々一件であり、v3を含むlocal dependency
+の本数はこの制約で狭めない。それ以外の登録対象taskがない入力（`exclude_*`だけを含む場合を含む）は
+`MIGRATION_EMPTY`で無変更終了し、空のtodo planを捏造しない。
 
 裁定後は入力 JSON の該当 `disposition` と、必要なら `completion`／依存を明示的に更新し、
 `extraction_digest` を再計算して同じコマンドを再実行する。拒否時は plan が member 化されていないため再実行できる。
@@ -52,10 +59,13 @@ tool が散文から edge を補うことはない。
 lattice todo migrate --input <repo-relative-extraction.json>
 ```
 
-成功時は stdout に `lattice.todo_migrate_result.v2` JSON 一行を返す。Phase無しの移送結果には
+成功時は stdout に `lattice.todo_migrate_result.v4` JSON 一行を返す。通常移送では`companion: null`を常在させ、
+cross-plan companion接続を含む移送では接続・frontier・次の操作を同fieldへ返す。Phase無しの移送結果には
 `phase_guidance`として`acquire_phase`の正規schema commandと次の一手を返す。typed failure は stdout を空にして
 stderr に `lattice.cli_error.v2` 一行を返す。入力 JSON は repo 内に置く
 （repo 外 path は `INPUT_OUTSIDE_REPOSITORY`で拒否する）。書込前診断は
-`lattice todo migrate --input <ref> --dry-run --json`で行い、複数違反をpointer付きでまとめて返す。
-この入口が担うのは**明示的な一回の登録だけ**であり、
+`lattice todo migrate --input <ref> --dry-run --json`で行い、`lattice.todo_migrate_dry_run_result.v2`の
+planned union（`connection_only: false`の通常planまたは`connection_only: true`の既存task接続）として
+複数違反をpointer付きでまとめて返す。
+この入口が担うのは**明示的な一回の登録または一件の既存task接続だけ**であり、
 Markdown 同期、watch、再取込 pipeline として常設しない。

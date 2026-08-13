@@ -98,7 +98,9 @@ import {
   appendTodoExtraction,
   compileTodoExtraction,
   explainTodoExtraction,
+  isTodoExtractionConnectionOnly,
   TODO_EXTRACTION_SCHEMA_V3,
+  TODO_EXTRACTION_SCHEMA_V4,
   validateTodoExtraction,
 } from './todo-migration.mjs';
 import {
@@ -190,7 +192,7 @@ const TODO_SCHEMA_COMMANDS = Object.freeze({
   'revise-phase': {
     title: 'lattice.phase_todo_revision.v3', file: 'lattice.phase_todo_revision.v3.schema.json',
   },
-  migrate: { title: 'lattice.todo_extraction.v3', file: 'lattice.todo_extraction.v3.schema.json' },
+  migrate: { title: 'lattice.todo_extraction.v4', file: 'lattice.todo_extraction.v4.schema.json' },
   structure: {
     title: 'lattice.todo_structure_set.v1', file: 'lattice.todo_structure_set.v1.schema.json',
   },
@@ -420,9 +422,9 @@ async function readMigrationInput(repoRoot, inputRef, { requireValid = true } = 
     throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
   }
   if (!requireValid) return extraction;
-  if (extraction?.schema !== TODO_EXTRACTION_SCHEMA_V3) {
-    throw new TodoStoreError('DESIGN_MEMO_REQUIRED', 'todo_extraction_v3_required', undefined, {
-      design_memo_prompt: TODO_DESIGN_MEMO_PROMPT,
+  if (![TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(extraction?.schema)) {
+    throw new TodoStoreError('INVALID_TODO_EXTRACTION', 'todo_extraction_schema_unsupported', undefined, {
+      expected: TODO_EXTRACTION_SCHEMA_V4,
       next_action: 'lattice todo migrate --schema --json',
     });
   }
@@ -1258,38 +1260,42 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
     });
   }
   const registered = extraction.tasks.filter(({ disposition }) => disposition.startsWith('register_'));
-  if (registered.length === 0) throw new TodoStoreError('MIGRATION_EMPTY', 'no_registered_tasks');
+  const connectionOnly = isTodoExtractionConnectionOnly(extraction);
+  if (registered.length === 0 && !connectionOnly) {
+    throw new TodoStoreError('MIGRATION_EMPTY', 'no_registered_tasks');
+  }
 
-  const dispatchShape = computeTodoDispatchShapeForPlan({
+  const dispatchShape = connectionOnly ? null : computeTodoDispatchShapeForPlan({
     projectId: extraction.project_id,
     planKey: extraction.plan_key,
     taskIds: registered.map(({ task_id: taskId }) => taskId),
     hardDependencies: extraction.hard_dependencies,
     joins: extraction.joins,
   });
-  assertTodoDispatchShapeReviewed({ shape: dispatchShape, reviewed: serializationReviewed });
+  if (dispatchShape !== null) {
+    assertTodoDispatchShapeReviewed({ shape: dispatchShape, reviewed: serializationReviewed });
+  }
 
   const imported = await appendTodoExtraction({ repoRoot, extraction });
   let companion = null;
   if ((imported.crossPlanDependencies ?? []).length > 0) {
     const connectedStore = await readTodoStore({ repoRoot });
-    const connections = imported.crossPlanDependencies.map((event) => ({
+    const event = imported.crossPlanDependencies[0];
+    companion = {
       repair: event.payload.from,
       target: event.payload.to,
       reason: event.payload.reason,
       event_digest: event.event_digest,
-    }));
-    companion = {
-      connections,
       connected_frontier: computeReadyFrontier(connectedStore),
-      next_action: isPhaselessTodoPlanSchema(imported.plan.schema)
+      next_action: imported.connectionOnly === true ? 'lattice todo status --json'
+        : isPhaselessTodoPlanSchema(imported.plan.schema)
         ? `lattice todo revise-phase --plan ${imported.plan.plan_key} --input <phase-revision.json>`
         : 'lattice todo status --json',
     };
   }
   const result = {
-    // ob03: 調整方式の案内をv3で足す。ADR 0054のとおり既存versionへのin-place追加はしない。
-    schema: 'lattice.todo_migrate_result.v3',
+    // companionを足す時点でv4へ上げ、通常移行もnullを常在させてresult shapeを固定する。
+    schema: 'lattice.todo_migrate_result.v4',
     project_id: imported.plan.project_id,
     plan_key: imported.plan.plan_key,
     plan_version: imported.plan.plan_version,
@@ -1301,7 +1307,7 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
     snapshot_ref: imported.descriptor.snapshot_ref,
     topology_digest: imported.plan.topology_digest,
     journal_head_digest: imported.events.at(-1).event_digest,
-    dispatch_shape: {
+    dispatch_shape: dispatchShape === null ? null : {
       task_count: dispatchShape.task_count,
       critical_path_length: dispatchShape.critical_path_length,
       max_frontier_width: dispatchShape.max_frontier_width,
@@ -1310,8 +1316,8 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
     // ADR 0147裁定3: phase無しplanの作成は拒否せず、終端監査が要ることを結果へ明示するに
     // 留める。extraction経由のmigrateは常にphase無しplan(todo_plan.v2)を作るが、将来の
     // 拡張に備えisPhaselessTodoPlanSchemaで動的に判定する。
-    terminal_audit_required: isPhaselessTodoPlanSchema(imported.plan.schema),
-    phase_guidance: isPhaselessTodoPlanSchema(imported.plan.schema) ? {
+    terminal_audit_required: imported.connectionOnly !== true && isPhaselessTodoPlanSchema(imported.plan.schema),
+    phase_guidance: imported.connectionOnly !== true && isPhaselessTodoPlanSchema(imported.plan.schema) ? {
       capability: 'acquire_phase',
       preserves_completed_state: true,
       schema_command: 'lattice todo revise-phase --schema --json',
@@ -1320,12 +1326,12 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
     } : null,
     // ob03: 起票直後のplanは必ず調整方式が未宣言である。ここで案内しないと、選ぶ機会が
     // 「誰も呼ぶ動機の無いdrilldown」にしか無くなる——前campaignの監査待ちと同じ形になる。
-    coordination_guidance: {
+    coordination_guidance: imported.connectionOnly === true ? null : {
       mode: null,
       modes: [...TODO_COORDINATION_MODES],
       next_action: `lattice todo independence mode --plan ${imported.plan.plan_key} --set <witness|conversation> --reason <text>`,
     },
-    ...(companion === null ? {} : { companion }),
+    companion,
     result_digest: '',
   };
   result.result_digest = todoSelfDigest(result, 'result_digest');
@@ -1419,8 +1425,9 @@ function extractionAuthoringViolations(extraction, now = new Date()) {
   }
   const registered = new Set(tasks.filter(({ disposition }) => typeof disposition === 'string'
     && disposition.startsWith('register_')).map(({ task_id: taskId }) => taskId));
+  const connectionOnly = isTodoExtractionConnectionOnly(extraction);
   const unresolvedLocal = (ref) => ref?.project_id === extraction?.project_id
-    && ref?.plan_key === extraction?.plan_key && !registered.has(ref?.task_id);
+    && ref?.plan_key === extraction?.plan_key && !connectionOnly && !registered.has(ref?.task_id);
   for (const [index, edge] of edges.entries()) {
     for (const side of ['from', 'to']) {
       if (unresolvedLocal(edge?.[side])) {
@@ -1445,12 +1452,15 @@ async function migrateDryRun({ repoRoot, inputRef, serializationReviewed = false
   const extraction = await readMigrationInput(repoRoot, inputRef, { requireValid: false });
   const violations = [];
   const tasks = Array.isArray(extraction?.tasks) ? extraction.tasks : [];
-  const invalidMemos = tasks.map((task, index) => ({
+  const designMemoSchema = [TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(extraction?.schema);
+  const invalidMemos = (designMemoSchema ? tasks : []).map((task, index) => ({
     task, index, explained: explainTodoDesignMemo(task?.design_memo),
   })).filter(({ explained }) => !explained.valid).slice(0, 64);
-  if (extraction?.schema !== TODO_EXTRACTION_SCHEMA_V3) {
+  const supportedSchema = [TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4]
+    .includes(extraction?.schema);
+  if (!supportedSchema) {
     violations.push({ code: 'schema_retired', path: '/schema', task_ids: [],
-      expected: TODO_EXTRACTION_SCHEMA_V3,
+      expected: TODO_EXTRACTION_SCHEMA_V4,
       actual: typeof extraction?.schema === 'string' ? extraction.schema
         : { type: typeof extraction?.schema },
       next_action: 'lattice todo migrate --schema --json' });
@@ -1461,8 +1471,7 @@ async function migrateDryRun({ repoRoot, inputRef, serializationReviewed = false
       expected: explained.expected, actual: explained.actual,
       prompt: TODO_DESIGN_MEMO_PROMPT, next_action: 'lattice todo migrate --schema --json' });
   }
-  const schemaValid = extraction?.schema === TODO_EXTRACTION_SCHEMA_V3
-    && validateTodoExtraction(extraction);
+  const schemaValid = supportedSchema && validateTodoExtraction(extraction);
   if (!schemaValid) {
     const explained = explainTodoExtraction(extraction);
     if (!explained.valid && !explained.path.endsWith('/design_memo')) {
@@ -1487,28 +1496,38 @@ async function migrateDryRun({ repoRoot, inputRef, serializationReviewed = false
   }
   const registered = tasks.filter(({ disposition }) => typeof disposition === 'string'
     && disposition.startsWith('register_'));
-  if (registered.length === 0) {
+  const connectionOnly = schemaValid && isTodoExtractionConnectionOnly(extraction);
+  if (registered.length === 0 && !connectionOnly) {
     violations.push({ code: 'no_registered_tasks', path: '/tasks', task_ids: [],
       next_action: 'register_at_least_one_task' });
   }
 
   let dispatchShape = null;
   let plannedPlan = null;
-  if (schemaValid && unresolvedTaskIds.length === 0 && registered.length > 0) {
+  let plannedConnection = null;
+  if (schemaValid && unresolvedTaskIds.length === 0 && (registered.length > 0 || connectionOnly)) {
     try {
       const compiled = compileTodoExtraction(extraction, repoRoot);
-      plannedPlan = buildTodoPlan(compiled.plan);
-      dispatchShape = computeTodoDispatchShapeForPlan({
-        projectId: extraction.project_id, planKey: extraction.plan_key,
-        taskIds: registered.map(({ task_id: taskId }) => taskId),
-        hardDependencies: extraction.hard_dependencies, joins: extraction.joins,
-      });
-      try {
-        assertTodoDispatchShapeReviewed({ shape: dispatchShape, reviewed: serializationReviewed });
-      } catch (error) {
-        violations.push({ code: error?.detail?.reason ?? 'plan_shape_too_serial', path: '/hard_dependencies',
-          task_ids: error?.detail?.critical_path_task_ids ?? [],
-          next_action: 'reconsider_parallel_seams_or_pass_serialization_reviewed' });
+      if (connectionOnly) {
+        plannedConnection = {
+          source: compiled.crossPlanDependencies[0].from,
+          target: compiled.crossPlanDependencies[0].to,
+          reason: compiled.crossPlanDependencies[0].reason,
+        };
+      } else {
+        plannedPlan = buildTodoPlan(compiled.plan);
+        dispatchShape = computeTodoDispatchShapeForPlan({
+          projectId: extraction.project_id, planKey: extraction.plan_key,
+          taskIds: registered.map(({ task_id: taskId }) => taskId),
+          hardDependencies: extraction.hard_dependencies, joins: extraction.joins,
+        });
+        try {
+          assertTodoDispatchShapeReviewed({ shape: dispatchShape, reviewed: serializationReviewed });
+        } catch (error) {
+          violations.push({ code: error?.detail?.reason ?? 'plan_shape_too_serial', path: '/hard_dependencies',
+            task_ids: error?.detail?.critical_path_task_ids ?? [],
+            next_action: 'reconsider_parallel_seams_or_pass_serialization_reviewed' });
+        }
       }
     } catch (error) {
       plannedPlan = null;
@@ -1543,13 +1562,19 @@ async function migrateDryRun({ repoRoot, inputRef, serializationReviewed = false
   }
   const bounded = violations.slice(0, 64);
   const result = {
-    schema: 'lattice.todo_migrate_dry_run_result.v1',
+    schema: 'lattice.todo_migrate_dry_run_result.v2',
     valid: bounded.length === 0,
     project_id: isTodoIdentifier(extraction?.project_id) ? extraction.project_id : null,
     plan_key: isTodoIdentifier(extraction?.plan_key) ? extraction.plan_key : null,
     violations: bounded,
     overflow_count: Math.max(0, violations.length - bounded.length),
-    planned: plannedPlan === null ? null : {
+    planned: plannedConnection !== null ? {
+      connection_only: true,
+      source: plannedConnection.source,
+      target: plannedConnection.target,
+      reason: plannedConnection.reason,
+    } : plannedPlan === null ? null : {
+      connection_only: false,
       plan_schema: plannedPlan.schema,
       task_count: registered.length,
       topology_digest: plannedPlan.topology_digest,
@@ -1669,17 +1694,13 @@ async function splitTodo({ repoRoot, env, planKey, inputRef }) {
 
 async function status({ repoRoot }) {
   const store = await readTodoStore({ repoRoot });
-  const diagnostics = await readTodoStructureArtifactDiagnostics({ repoRoot, store });
-  const structureFinalizations = diagnostics.length === 0
-    ? await readTodoStructureFinalizationsForStatus({ repoRoot, store }) : [];
   const result = projectTodoStatus(store, {
     planNotes: await readTodoPlanNotesForStatus({ repoRoot, store }),
     parallelCandidates: await readTodoParallelCandidatesForStatus({
       repoRoot, store, gitHead: currentHeadSha, changedPathsSince,
     }),
-    structureFinalizations,
+    structureFinalizations: await readTodoStructureFinalizationsForStatus({ repoRoot, store }),
   });
-  if (diagnostics.length > 0) result.structure_artifact_diagnostics = diagnostics;
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
 }
@@ -3581,14 +3602,6 @@ async function verify({ repoRoot, requestedPlanKey }) {
       },
     };
   });
-  const result = {
-    schema: 'lattice.todo_verify_result.v3',
-    project_id: store.project_id,
-    requested_plan_key: requestedPlanKey,
-    verified_members: verifiedMembers,
-    snapshot_stale: verifiedMembers.some((member) => member.snapshot_stale),
-    result_digest: '',
-  };
   const structureDiagnostics = [];
   for (const member of members) {
     const diagnostics = await readTodoStructureArtifactDiagnostics({
@@ -3598,8 +3611,19 @@ async function verify({ repoRoot, requestedPlanKey }) {
     structureDiagnostics.push(...diagnostics);
   }
   if (structureDiagnostics.length > 0) {
-    result.structure_artifact_diagnostics = structureDiagnostics;
+    throw new TodoStoreError(
+      'STRUCTURE_ARTIFACT_INVALID', structureDiagnostics[0].reason, undefined,
+      { diagnostics: structureDiagnostics },
+    );
   }
+  const result = {
+    schema: 'lattice.todo_verify_result.v3',
+    project_id: store.project_id,
+    requested_plan_key: requestedPlanKey,
+    verified_members: verifiedMembers,
+    snapshot_stale: verifiedMembers.some((member) => member.snapshot_stale),
+    result_digest: '',
+  };
   result.result_digest = todoSelfDigest(result, 'result_digest');
   return result;
 }

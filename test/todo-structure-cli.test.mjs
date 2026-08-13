@@ -42,6 +42,13 @@ function runCli(root, args) {
   });
 }
 
+function runRootCli(root, args) {
+  return spawnSync(process.execPath, [CLI, ...args], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1', LATTICE_DASHBOARD_AUTOSTART: '0' },
+  });
+}
+
 function runSensor(root, args) {
   return spawnSync(process.execPath, [CLI, 'sensor', ...args], {
     cwd: root, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' },
@@ -238,20 +245,23 @@ test('structure artifactの4種の破損をstatus/verifyで診断し、明示inp
     });
     await writeFile(path.join(fixture.root, todoStructureSourceRef('main')), encode(set));
 
-    const status = runCli(fixture.root, ['status', '--json']);
-    assert.equal(status.status, 0, `${name}: ${status.stderr}`);
-    const statusResult = parse(status.stdout);
-    const statusDiagnostic = statusResult.structure_artifact_diagnostics?.find(
+    const status = runRootCli(fixture.root, ['status', '--json']);
+    assert.equal(status.status, 1, `${name}: ${status.stderr}`);
+    const statusError = parse(status.stdout);
+    assert.equal(statusError.code, 'STRUCTURE_ARTIFACT_INVALID', name);
+    const statusDiagnostic = statusError.detail.diagnostics.find(
       ({ plan_key }) => plan_key === 'main',
     );
     assert.equal(statusDiagnostic?.artifact_path, todoStructureSourceRef('main'), name);
     assert.equal(statusDiagnostic?.reason, reason, name);
-    assert.match(statusDiagnostic?.next_command ?? '', /structure input --plan main/u, name);
+    assert.equal(statusDiagnostic?.next_command,
+      'lattice todo structure input --plan main --input <corrected-structure-set.json> --json', name);
 
     const verify = runCli(fixture.root, ['verify', '--json']);
-    assert.equal(verify.status, 0, `${name}: ${verify.stderr}`);
-    const verifyResult = parse(verify.stdout);
-    assert.equal(verifyResult.structure_artifact_diagnostics?.[0]?.reason, reason, name);
+    assert.equal(verify.status, 1, `${name}: ${verify.stdout}`);
+    const verifyError = parse(verify.stderr);
+    assert.equal(verifyError.code, 'STRUCTURE_ARTIFACT_INVALID', name);
+    assert.equal(verifyError.detail.diagnostics[0].reason, reason, name);
 
     const inputRef = await writeDraft(fixture.root, set, `${name}-input.json`);
     const repaired = runCli(fixture.root, [
@@ -263,22 +273,39 @@ test('structure artifactの4種の破損をstatus/verifyで診断し、明示inp
   }
 });
 
-test('bindingが既に在るplanのplanned sourceをinput writerで上書きしない', async (context) => {
+test('valid binding後も同じplanned sourceのcanonical復旧だけを許す', async (context) => {
   const fixture = await workspace(context);
   const set = structureSet(fixture);
   const inputRef = await writeDraft(fixture.root, set);
-  const bindingRef = todoStructureBindingRef('main', 'v1');
-  await mkdir(path.dirname(path.join(fixture.root, bindingRef)), { recursive: true });
-  await writeFile(path.join(fixture.root, bindingRef), '{}\n');
+  assert.equal(runCli(fixture.root, [
+    'structure', 'input', '--plan', 'main', '--input', inputRef,
+  ]).status, 0);
+  git(fixture.root, ['add', '.lattice/todo', inputRef]);
+  git(fixture.root, ['commit', '--quiet', '-m', 'structure source']);
+  assert.equal(runSensor(fixture.root, ['init', '.', '--json']).status, 0);
+  const compile = runCli(fixture.root, [
+    'structure', 'compile', '--plan', 'main', '--input', todoStructureSourceRef('main'),
+  ]);
+  assert.equal(compile.status, 0, compile.stderr);
+  await writeFile(path.join(fixture.root, todoStructureSourceRef('main')),
+    `${JSON.stringify(set, null, 2)}\n`);
 
   const execution = runCli(fixture.root, [
     'structure', 'input', '--plan', 'main', '--input', inputRef,
   ]);
-  assert.equal(execution.status, 1);
-  const error = parse(execution.stderr);
-  assert.equal(error.code, 'STRUCTURE_ALREADY_ENABLED');
-  assert.equal(error.detail.reason, 'immutable_binding_exists');
-  await assert.rejects(lstat(path.join(fixture.root, todoStructureSourceRef('main'))), { code: 'ENOENT' });
+  assert.equal(execution.status, 0, execution.stderr);
+  assert.equal(await readFile(path.join(fixture.root, todoStructureSourceRef('main')), 'utf8'),
+    `${canonicalizeTodoArtifact(set)}\n`);
+
+  const changed = structureSet(fixture);
+  changed.tasks[0].planned.outcome = '別の成果へ変更する';
+  changed.structure_set_digest = todoSelfDigest(changed, 'structure_set_digest');
+  const changedRef = await writeDraft(fixture.root, changed, 'changed-structure.json');
+  const rejected = runCli(fixture.root, [
+    'structure', 'input', '--plan', 'main', '--input', changedRef,
+  ]);
+  assert.equal(rejected.status, 1);
+  assert.equal(parse(rejected.stderr).code, 'STRUCTURE_ALREADY_ENABLED');
 });
 
 test('todo helpはstructure schema・dry-run・保存後も未有効であることを案内する', () => {

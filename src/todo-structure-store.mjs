@@ -18,9 +18,6 @@ import {
   readTodoStructureFinalization,
   readTodoStructureRealizationChain,
   readTodoStructureSource,
-  todoStructureBindingRef,
-  todoStructureCompileArtifactRef,
-  todoStructureFinalizationRef,
   todoStructureSourceRef,
 } from './todo-store.mjs';
 
@@ -378,9 +375,9 @@ export async function readTodoStructureFinalizationsForStatus(options = {}) {
 }
 
 /**
- * 保存済みstructure artifactの破損を、status／verifyが成功扱いへ丸めずに
- * 利用者へ渡すためのbounded診断。入力の推測や修理は行わず、既存の
- * structure input writerへ戻す次の一手だけを示す。
+ * 既存のstructure input writerで直せるplanned sourceの破損だけを診断する。
+ * binding／compile／finalizationは同writerでは直せないため、ここで修理可能と
+ * 偽って案内しない。
  */
 export async function readTodoStructureArtifactDiagnostics(options = {}) {
   const repoRoot = options.repoRoot ?? process.cwd();
@@ -388,27 +385,16 @@ export async function readTodoStructureArtifactDiagnostics(options = {}) {
   const diagnostics = [];
   for (const member of store.members) {
     const planKey = member.plan.plan_key;
-    const planVersion = member.plan.plan_version;
     try {
-      await readTodoStructureState({ repoRoot, store, planKey });
-      await readTodoStructureFinalizationState({ repoRoot, store, planKey });
+      await readTodoStructureSource({ repoRoot, planKey });
     } catch (error) {
-      const refs = {
-        INVALID_TODO_STRUCTURE_SET: todoStructureSourceRef(planKey),
-        INVALID_TODO_STRUCTURE_BINDING: todoStructureBindingRef(planKey, planVersion),
-        INVALID_TODO_STRUCTURE_COMPILE_ARTIFACT:
-          todoStructureCompileArtifactRef(planKey, planVersion),
-        INVALID_TODO_STRUCTURE_FINALIZATION:
-          todoStructureFinalizationRef(planKey, planVersion),
-      };
-      const artifactPath = refs[error?.code];
-      if (artifactPath === undefined) throw error;
+      if (error?.code !== 'INVALID_TODO_STRUCTURE_SET') throw error;
       const reason = error?.detail?.reason ?? error?.message ?? 'structure_artifact_invalid';
       diagnostics.push({
         plan_key: planKey,
-        artifact_path: artifactPath,
+        artifact_path: todoStructureSourceRef(planKey),
         reason,
-        next_command: `lattice todo structure input --plan ${planKey} --input <corrected-structure-set.json> --dry-run --json`,
+        next_command: `lattice todo structure input --plan ${planKey} --input <corrected-structure-set.json> --json`,
       });
     }
   }

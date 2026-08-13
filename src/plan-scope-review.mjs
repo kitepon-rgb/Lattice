@@ -15,7 +15,10 @@ import { TodoStoreError } from './todo-store.mjs';
 const REVIEW_SCHEMA = 'lattice.plan_scope_review.v1';
 const RESULT_SCHEMA = 'lattice.plan_scope_review_result.v1';
 const PLAN_CREATE_SCHEMA = 'lattice.plan_create_input.v4';
-const TODO_EXTRACTION_SCHEMA = 'lattice.todo_extraction.v3';
+const TODO_EXTRACTION_SCHEMAS = new Set([
+  'lattice.todo_extraction.v3',
+  'lattice.todo_extraction.v4',
+]);
 const MAX_INPUT_BYTES = 8_388_608;
 const JUDGMENTS = new Set(['required', 'out_of_scope']);
 
@@ -73,10 +76,10 @@ async function readJsonWithinRepo(repoRoot, inputRef) {
 
 function authoredPlan(value) {
   const digestField = value?.schema === PLAN_CREATE_SCHEMA ? 'input_digest'
-    : value?.schema === TODO_EXTRACTION_SCHEMA ? 'extraction_digest' : null;
+    : TODO_EXTRACTION_SCHEMAS.has(value?.schema) ? 'extraction_digest' : null;
   if (digestField === null) {
     throw new TodoStoreError('PLAN_SCOPE_REVIEW_INVALID', 'authoring_schema_unsupported', undefined, {
-      pointer: '/schema', expected: [PLAN_CREATE_SCHEMA, TODO_EXTRACTION_SCHEMA],
+      pointer: '/schema', expected: [PLAN_CREATE_SCHEMA, ...TODO_EXTRACTION_SCHEMAS],
       actual: typeof value?.schema === 'string' ? value.schema : null,
     });
   }
@@ -86,7 +89,7 @@ function authoredPlan(value) {
       pointer: `/${digestField}`,
     });
   }
-  const selected = value.schema === TODO_EXTRACTION_SCHEMA
+  const selected = TODO_EXTRACTION_SCHEMAS.has(value.schema)
     ? value.tasks?.filter((task) => typeof task?.disposition === 'string'
       && task.disposition.startsWith('register_'))
     : value.tasks;

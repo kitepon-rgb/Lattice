@@ -396,9 +396,11 @@ test('既存store経路のtodo migrateは検証済みJSONを一度だけ追加�
     'imported_task_count', 'completed_task_count', 'plan_ref', 'journal_ref', 'snapshot_ref',
     'topology_digest', 'journal_head_digest', 'dispatch_shape', 'terminal_audit_required',
     'phase_guidance', 'coordination_guidance',
+    'companion',
     'result_digest',
   ]);
-  assert.equal(result.schema, 'lattice.todo_migrate_result.v3');
+  assert.equal(result.schema, 'lattice.todo_migrate_result.v4');
+  assert.equal(result.companion, null);
   // ob03: 起票直後は調整方式が未宣言。選ぶ機会をここで案内する。
   assert.deepEqual(result.coordination_guidance, {
     mode: null,

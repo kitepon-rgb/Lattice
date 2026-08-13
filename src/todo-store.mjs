@@ -13,6 +13,7 @@ import {
   isStrictTodoTimestamp,
   isTodoDigest,
   isTodoIdentifier,
+  isTodoRef,
   todoSelfDigest,
   validateEvidenceDescriptor,
   validateTodoImportSource,
@@ -53,6 +54,9 @@ import {
 
 const STORE_ROOT_REF = '.lattice/todo';
 const MANIFEST_REF = `${STORE_ROOT_REF}/manifest.json`;
+const CROSS_PLAN_IMPORT_TRANSACTIONS_REF = `${STORE_ROOT_REF}/transactions/imports`;
+const CROSS_PLAN_RECOVERY_CLAIMS_REF = `${STORE_ROOT_REF}/.cross-plan-recovery`;
+const CROSS_PLAN_IMPORT_TRANSACTION_SCHEMA = 'lattice.todo_cross_plan_import_transaction.v1';
 const SOURCE_CUTOVER_BARRIER_REF = `${STORE_ROOT_REF}/source-cutover-recovery.json`;
 const SOURCE_CUTOVER_RECOVERY_CAPABILITY = Symbol('lattice.todo.source-cutover-recovery');
 const MAX_FUTURE_SKEW_MS = 5 * 60 * 1_000;
@@ -1300,6 +1304,7 @@ export async function readTodoStore(options = {}) {
       fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_recovery_required');
     }
   }
+  await assertNoCrossPlanImportRecoveryNeeded(repoRoot);
   const pinnedSourceCache = { commits: new Set(), blobs: new Map() };
   const manifest = await readArtifact(repoRoot, MANIFEST_REF, {
     code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
@@ -1506,13 +1511,100 @@ async function fsyncDirectory(absolute) {
   } finally { await directory.close(); }
 }
 
-async function withLock(repoRoot, callback) {
+async function createWriteLock(lockRef, { recordOwner = false } = {}) {
+  const handle = await open(lockRef, 'wx', 0o600);
+  if (!recordOwner) return handle;
+  try {
+    await handle.writeFile(canonicalLine({ pid: process.pid }));
+    await handle.sync();
+    return handle;
+  } catch (error) {
+    await handle.close();
+    await rm(lockRef, { force: true });
+    throw error;
+  }
+}
+
+async function staleWriteLockOwner(lockRef) {
+  let record;
+  try { record = JSON.parse((await readFile(lockRef)).toString('utf8')); }
+  catch { return false; }
+  if (!exactRecord(record, ['pid']) || !Number.isSafeInteger(record.pid) || record.pid <= 0) return false;
+  try {
+    process.kill(record.pid, 0);
+    return false;
+  } catch (error) {
+    return error?.code === 'ESRCH';
+  }
+}
+
+function processIsDead(pid) {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return error?.code === 'ESRCH';
+  }
+}
+
+async function acquireCrossPlanRecoveryClaim(recoveryClaimsRef) {
+  await mkdir(recoveryClaimsRef, { recursive: true, mode: 0o700 });
+  const claimName = `${process.pid}-${randomBytes(8).toString('hex')}`;
+  const claimRef = path.join(recoveryClaimsRef, claimName);
+  await mkdir(claimRef, { mode: 0o700 });
+  for (const entry of await readdir(recoveryClaimsRef, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === claimName) continue;
+    const pid = Number(entry.name.split('-', 1)[0]);
+    if (Number.isSafeInteger(pid) && pid > 0 && processIsDead(pid)) {
+      await rm(path.join(recoveryClaimsRef, entry.name), { recursive: true, force: true });
+    }
+  }
+  const candidates = await Promise.all((await readdir(recoveryClaimsRef)).map(async (name) => ({
+    name,
+    mtimeNs: (await lstat(path.join(recoveryClaimsRef, name), { bigint: true })).mtimeNs,
+  })));
+  candidates.sort((left, right) => left.mtimeNs < right.mtimeNs ? -1
+    : left.mtimeNs > right.mtimeNs ? 1 : left.name < right.name ? -1 : 1);
+  if (candidates[0]?.name === claimName) return claimRef;
+  await rmdir(claimRef);
+  return null;
+}
+
+async function recoverCrossPlanWriteLock(lockRef, recoveryClaimsRef, onProtocolStage) {
+  const claimRef = await acquireCrossPlanRecoveryClaim(recoveryClaimsRef);
+  if (claimRef === null) return undefined;
+  try {
+    if (typeof onProtocolStage === 'function') await onProtocolStage('cross_plan_lock_recovery_mutex_acquired');
+    if (!await staleWriteLockOwner(lockRef)) return undefined;
+    await rm(lockRef, { force: true });
+    try { return await createWriteLock(lockRef, { recordOwner: true }); }
+    catch (error) {
+      if (error?.code === 'EEXIST') return undefined;
+      throw error;
+    }
+  } finally {
+    await rm(claimRef, { recursive: true, force: true });
+    try { await rmdir(recoveryClaimsRef); }
+    catch (error) {
+      if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error?.code)) throw error;
+    }
+  }
+}
+
+async function withLock(repoRoot, callback, { recoverDeadLock = false, onProtocolStage = null } = {}) {
   const root = path.join(repoRoot, STORE_ROOT_REF);
   await mkdir(root, { recursive: true });
   const lockRef = path.join(root, '.write.lock');
+  const recoveryClaimsRef = path.join(repoRoot, CROSS_PLAN_RECOVERY_CLAIMS_REF);
   let handle;
-  try { handle = await open(lockRef, 'wx', 0o600); }
-  catch (error) { if (error?.code === 'EEXIST') fail('STORE_WRITE_CONFLICT', 'store_locked'); throw error; }
+  try { handle = await createWriteLock(lockRef, { recordOwner: recoverDeadLock }); }
+  catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
+    if (recoverDeadLock) {
+      handle = await recoverCrossPlanWriteLock(lockRef, recoveryClaimsRef, onProtocolStage);
+    }
+  }
+  if (handle === undefined) fail('STORE_WRITE_CONFLICT', 'store_locked');
   try { return await callback(); }
   finally { await handle.close(); await rm(lockRef, { force: true }); }
 }
@@ -2100,20 +2192,24 @@ function importedDependencyRef(ref, plan) {
   return { ...ref, expected_topology_digest: plan.topology_digest };
 }
 
-function prepareImportedCrossPlanDependencies({ store, plan, tasks, dependencies, genesis, journalRef }) {
+function prepareCrossPlanDependencies({ store, dependencies, genesis, imported = null }) {
   if (!Array.isArray(dependencies) || dependencies.length === 0) {
     return { events: [], artifacts: [] };
   }
-  const importedMember = {
-    plan, tasks,
-    plan_scoped: { ref: planScopedJournalRef(journalRef), events: [], activeBytes: Buffer.alloc(0) },
-  };
-  const members = [...store.members.map(cloneImportedDependencyMember), importedMember];
+  const members = [...store.members.map(cloneImportedDependencyMember)];
+  if (imported !== null) {
+    members.push({
+      plan: imported.plan, tasks: imported.tasks,
+      plan_scoped: {
+        ref: planScopedJournalRef(imported.journalRef), events: [], activeBytes: Buffer.alloc(0),
+      },
+    });
+  }
   const artifacts = new Map();
   const events = [];
   for (const dependency of dependencies) {
-    const from = importedDependencyRef(dependency.from, plan);
-    const to = importedDependencyRef(dependency.to, plan);
+    const from = imported === null ? dependency.from : importedDependencyRef(dependency.from, imported.plan);
+    const to = imported === null ? dependency.to : importedDependencyRef(dependency.to, imported.plan);
     const target = members.find(({ plan: targetPlan }) => targetPlan.project_id === to.project_id
       && targetPlan.plan_key === to.plan_key);
     if (target === undefined) {
@@ -2146,9 +2242,238 @@ function prepareImportedCrossPlanDependencies({ store, plan, tasks, dependencies
   return { events, artifacts: [...artifacts.values()] };
 }
 
+function prepareImportedCrossPlanDependencies({ store, plan, tasks, dependencies, genesis, journalRef }) {
+  return prepareCrossPlanDependencies({
+    store, dependencies, genesis, imported: { plan, tasks, journalRef },
+  });
+}
+
+function importedTransactionDescriptor(value) {
+  const v1Keys = [
+    'plan_key', 'active_plan_version', 'plan_ref', 'journal_ref', 'snapshot_ref',
+    'topology_digest', 'journal_head_digest',
+  ];
+  const v2Keys = [...v1Keys, 'active_revision_digest'];
+  return (exactRecord(value, v1Keys) || exactRecord(value, v2Keys))
+    && isTodoIdentifier(value.plan_key) && isTodoIdentifier(value.active_plan_version)
+    && [value.plan_ref, value.journal_ref, value.snapshot_ref].every((ref) => isTodoRef(ref)
+      && ref.startsWith(`${STORE_ROOT_REF}/plans/`))
+    && [value.topology_digest, value.journal_head_digest,
+      ...(Object.hasOwn(value, 'active_revision_digest') ? [value.active_revision_digest] : [])]
+      .every(isTodoDigest);
+}
+
+function transactionStoreRef(value) {
+  return isTodoRef(value) && value.startsWith(`${STORE_ROOT_REF}/`);
+}
+
+function validateCrossPlanImportTransaction(value) {
+  return exactRecord(value, [
+    'schema', 'transaction_digest', 'descriptor', 'artifacts', 'events',
+  ]) && value.schema === CROSS_PLAN_IMPORT_TRANSACTION_SCHEMA
+    && isTodoDigest(value.transaction_digest) && importedTransactionDescriptor(value.descriptor)
+    && Array.isArray(value.artifacts) && value.artifacts.length === 1
+    && value.artifacts.every((artifact) => exactRecord(artifact, [
+      'ref', 'staged_ref', 'bytes_digest',
+    ]) && transactionStoreRef(artifact.ref) && transactionStoreRef(artifact.staged_ref)
+      && artifact.staged_ref.startsWith(`${CROSS_PLAN_IMPORT_TRANSACTIONS_REF}/`)
+      && isTodoDigest(artifact.bytes_digest))
+    && Array.isArray(value.events) && value.events.length === 1
+    && value.events.every((event) => validateTodoEvent(event)
+      && event.kind === 'cross_plan_dependency');
+}
+
+function importedPlanTransactionDigest(options) {
+  const input = {
+    schema: 'lattice.todo_cross_plan_import_request.v1', plan: options.plan,
+    genesis: options.genesis, cross_plan_dependencies: options.crossPlanDependencies ?? [],
+    narrative_anchor_sources: options.narrativeAnchorSources ?? [],
+    completed_tasks: options.completedTasks ?? [], in_progress_tasks: options.inProgressTasks ?? [],
+    transaction_digest: '',
+  };
+  return todoSelfDigest(input, 'transaction_digest');
+}
+
+function importedCrossPlanTransaction({ transactionDigest, descriptor, transactionRef, importedCrossPlan }) {
+  return {
+    schema: CROSS_PLAN_IMPORT_TRANSACTION_SCHEMA,
+    transaction_digest: transactionDigest,
+    descriptor: structuredClone(descriptor),
+    artifacts: importedCrossPlan.artifacts.map((artifact, index) => ({
+      ref: artifact.ref,
+      staged_ref: path.posix.join(transactionRef, 'plan-scoped', `${index}.jsonl`),
+      bytes_digest: sha256Bytes(artifact.finalBytes),
+    })),
+    events: structuredClone(importedCrossPlan.events),
+  };
+}
+
+async function crossPlanImportTransactions(repoRoot) {
+  const root = path.resolve(repoRoot, CROSS_PLAN_IMPORT_TRANSACTIONS_REF);
+  let names;
+  try { names = (await readdir(root)).sort(); }
+  catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  }
+  const transactions = [];
+  for (const name of names) {
+    if (!isTodoIdentifier(name)) fail('STORE_INCONSISTENT', 'cross_plan_transaction_name_invalid', { name });
+    const transactionRef = path.posix.join(CROSS_PLAN_IMPORT_TRANSACTIONS_REF, name);
+    const markerRef = path.posix.join(transactionRef, 'transaction.json');
+    const marker = await readArtifact(repoRoot, markerRef, {
+      code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes,
+      validate: validateCrossPlanImportTransaction, missing: true,
+    });
+    // marker durable前にprocessが止まったdirectoryはstoreへ一切公開されていない。
+    // 同一入力の次回writerがtransaction pathを作り直すまで、通常readからは無視する。
+    if (marker === null) continue;
+    transactions.push({ transactionRef, marker });
+  }
+  return transactions;
+}
+
+function transactionManifestMember(manifest, marker) {
+  const member = manifest.members.find(({ plan_key: planKey }) => planKey === marker.descriptor.plan_key);
+  if (member === undefined) return null;
+  if (canonicalizeTodoArtifact(member) !== canonicalizeTodoArtifact(marker.descriptor)) {
+    fail('STORE_INCONSISTENT', 'cross_plan_transaction_manifest_conflict', {
+      plan_key: marker.descriptor.plan_key,
+    });
+  }
+  return member;
+}
+
+async function finalizeVisibleCrossPlanImport(repoRoot, transaction, { removeTransaction }) {
+  for (const artifact of transaction.marker.artifacts) {
+    const state = await pathState(repoRoot, artifact.staged_ref, 'STORE_INCONSISTENT');
+    const bytes = await readFile(state.absolute);
+    if (sha256Bytes(bytes) !== artifact.bytes_digest) {
+      fail('STORE_INCONSISTENT', 'cross_plan_transaction_staging_digest_mismatch', {
+        ref: artifact.staged_ref,
+      });
+    }
+    await atomicWrite(path.resolve(repoRoot, artifact.ref), bytes);
+  }
+  if (removeTransaction) {
+    await rm(path.resolve(repoRoot, transaction.transactionRef), { recursive: true, force: true });
+  }
+}
+
+async function assertNoCrossPlanImportRecoveryNeeded(repoRoot) {
+  const transactions = await crossPlanImportTransactions(repoRoot);
+  if (transactions.length === 0) return;
+  let manifest;
+  try {
+    manifest = await readArtifact(repoRoot, MANIFEST_REF, {
+      code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
+    });
+  } catch (error) {
+    if (error instanceof TodoStoreError && error.detail.reason === 'artifact_missing') manifest = null;
+    else throw error;
+  }
+  const transaction = transactions[0];
+  const visible = manifest !== null
+    && transactionManifestMember(manifest, transaction.marker) !== null;
+  fail('STORE_RECOVERY_REQUIRED', 'cross_plan_import_recovery_required', {
+    plan_key: transaction.marker.descriptor.plan_key,
+    transaction_digest: transaction.marker.transaction_digest,
+    state: visible ? 'manifest_activated' : 'pre_activation',
+    next_action: 'rerun_the_same_todo_migrate_input',
+  });
+}
+
+async function recoverCrossPlanImports(repoRoot, { expectedTransactionDigest }) {
+  const transactions = await crossPlanImportTransactions(repoRoot);
+  if (transactions.length === 0) return [];
+  if (!transactions.every(({ marker }) => marker.transaction_digest === expectedTransactionDigest)) {
+    await assertNoCrossPlanImportRecoveryNeeded(repoRoot);
+  }
+  let manifest;
+  try {
+    manifest = await readArtifact(repoRoot, MANIFEST_REF, {
+      code: 'STORE_INCONSISTENT', maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoManifest,
+    });
+  } catch (error) {
+    if (error instanceof TodoStoreError && error.detail.reason === 'artifact_missing') manifest = null;
+    else throw error;
+  }
+  const recovered = [];
+  for (const transaction of transactions) {
+    const member = manifest === null ? null : transactionManifestMember(manifest, transaction.marker);
+    if (member !== null) {
+      await finalizeVisibleCrossPlanImport(repoRoot, transaction, {
+        removeTransaction: true,
+      });
+      recovered.push(transaction.marker);
+      continue;
+    }
+    await rm(path.dirname(path.resolve(repoRoot, transaction.marker.descriptor.plan_ref)), {
+      recursive: true, force: true,
+    });
+    await rm(path.resolve(repoRoot, transaction.transactionRef), { recursive: true, force: true });
+  }
+  return recovered;
+}
+
+async function recoveredImportedPlanResult(repoRoot, marker, now) {
+  const store = await readTodoStore({ repoRoot, forWrite: true, now });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === marker.descriptor.plan_key);
+  if (member === undefined) fail('STORE_INCONSISTENT', 'cross_plan_transaction_recovery_missing_plan');
+  return {
+    plan: member.plan, genesis: member.journal.events[0], events: member.journal.events,
+    snapshot: member.snapshot, descriptor: member.descriptor,
+    crossPlanDependencies: marker.events, recovered: true,
+  };
+}
+
+async function appendExistingCrossPlanDependency(options) {
+  if (!exactRecord(options.connectionPlan, ['project_id', 'plan_key', 'plan_version'])
+    || !isTodoIdentifier(options.connectionPlan.project_id)
+    || !isTodoIdentifier(options.connectionPlan.plan_key)
+    || !isTodoIdentifier(options.connectionPlan.plan_version)
+    || !Array.isArray(options.crossPlanDependencies) || options.crossPlanDependencies.length !== 1) {
+    throw new TypeError('existing cross-plan dependency input invalid');
+  }
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  return withLock(repoRoot, async () => {
+    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
+    const source = store.members.find(({ plan }) => plan.project_id === options.connectionPlan.project_id
+      && plan.plan_key === options.connectionPlan.plan_key);
+    if (source === undefined) {
+      fail('DEPENDENCY_INVALID', 'dependency_plan_not_found', { ref: options.connectionPlan });
+    }
+    if (source.plan.plan_version !== options.connectionPlan.plan_version) {
+      fail('DEPENDENCY_STALE', 'connection_plan_version_stale', {
+        expected_plan_version: options.connectionPlan.plan_version,
+        actual_plan_version: source.plan.plan_version,
+      });
+    }
+    const prepared = prepareCrossPlanDependencies({
+      store, dependencies: options.crossPlanDependencies, genesis: options.genesis,
+    });
+    if (prepared.artifacts.length !== 1 || prepared.events.length !== 1) {
+      throw new TypeError('existing cross-plan dependency must produce one target event');
+    }
+    const artifact = prepared.artifacts[0];
+    await protocolStage(options, 'cross_plan_connection_validated');
+    await atomicWrite(path.resolve(repoRoot, artifact.ref), artifact.finalBytes);
+    await protocolStage(options, 'cross_plan_connection_activated');
+    return {
+      plan: source.plan, genesis: source.journal.events[0], events: source.journal.events,
+      snapshot: source.snapshot, descriptor: source.descriptor,
+      crossPlanDependencies: prepared.events, connectionOnly: true,
+    };
+  }, { recoverDeadLock: true, onProtocolStage: options.onProtocolStage });
+}
+
 /** G4-only atomic import, with optional all-or-nothing store bootstrap. */
 export async function appendImportedPlan(options = {}) {
   requireWriter(options.writer, 'g4-migration');
+  if (options.connectionOnly === true) return appendExistingCrossPlanDependency(options);
+  if (Array.isArray(options.crossPlanDependencies) && options.crossPlanDependencies.length > 1) {
+    throw new TypeError('cross-plan migration accepts at most one dependency');
+  }
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
   if (options.initializeIfMissing !== undefined) {
     try { await lstat(path.join(repoRoot, STORE_ROOT_REF)); }
@@ -2157,7 +2482,13 @@ export async function appendImportedPlan(options = {}) {
       throw error;
     }
   }
+  const transactionDigest = importedPlanTransactionDigest(options);
   return withLock(repoRoot, async () => {
+    const recovered = await recoverCrossPlanImports(repoRoot, { expectedTransactionDigest: transactionDigest });
+    const recoveredOwnTransaction = recovered.find((marker) => marker.transaction_digest === transactionDigest);
+    if (recoveredOwnTransaction !== undefined) {
+      return recoveredImportedPlanResult(repoRoot, recoveredOwnTransaction, options.now);
+    }
     // 1. Validate canonical manifest bytes and every current member before preparing output.
     const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
     const expectedManifestDigest = store.manifest.manifest_digest;
@@ -2180,20 +2511,25 @@ export async function appendImportedPlan(options = {}) {
     const planRef = `${base}/plan.json`;
     const journalRef = `${base}/journal/active.jsonl`;
     const snapshotRef = `${base}/snapshot.json`;
-    const transactionRef = `${STORE_ROOT_REF}/transactions/${plan.plan_key}-${plan.plan_version}`;
-    const transactionAbsolute = path.resolve(repoRoot, transactionRef);
-    const finalBaseAbsolute = path.resolve(repoRoot, base);
     const importedCrossPlan = prepareImportedCrossPlanDependencies({
       store, plan, tasks, dependencies: options.crossPlanDependencies, genesis, journalRef,
     });
+    const hasCrossPlanDependencies = importedCrossPlan.artifacts.length > 0;
+    const transactionRef = hasCrossPlanDependencies
+      ? `${CROSS_PLAN_IMPORT_TRANSACTIONS_REF}/${transactionDigest}`
+      : `${STORE_ROOT_REF}/transactions/${plan.plan_key}-${plan.plan_version}`;
+    const transactionAbsolute = path.resolve(repoRoot, transactionRef);
+    const finalBaseAbsolute = path.resolve(repoRoot, base);
     // These paths can only be leftovers from a transaction whose plan key is still absent.
     await rm(transactionAbsolute, { recursive: true, force: true });
     await rm(finalBaseAbsolute, { recursive: true, force: true });
 
     // 3. All future member artifacts are durable while still outside manifest membership.
-    const stagedPlan = path.join(transactionAbsolute, 'plan.json');
-    const stagedJournal = path.join(transactionAbsolute, 'active.jsonl');
-    const stagedSnapshot = path.join(transactionAbsolute, 'snapshot.json');
+    const stagedBase = hasCrossPlanDependencies ? path.join(transactionAbsolute, 'plan') : transactionAbsolute;
+    const stagedPlan = path.join(stagedBase, 'plan.json');
+    const stagedJournal = hasCrossPlanDependencies
+      ? path.join(stagedBase, 'journal', 'active.jsonl') : path.join(stagedBase, 'active.jsonl');
+    const stagedSnapshot = path.join(stagedBase, 'snapshot.json');
     await atomicWrite(stagedPlan, canonicalLine(plan));
     await atomicWrite(stagedJournal, Buffer.concat(events.map(canonicalLine)));
     await atomicWrite(stagedSnapshot, canonicalLine(snapshot));
@@ -2217,23 +2553,33 @@ export async function appendImportedPlan(options = {}) {
     await protocolStage(options, 'manifest_cas_matched');
 
     // 5. Pre-activation paths remain invisible until the final manifest rename.
-    let importedPlanActivated = false;
-    let manifestActivated = false;
-    const activatedDependencies = [];
     const descriptor = { plan_key: plan.plan_key, active_plan_version: plan.plan_version,
       plan_ref: planRef, journal_ref: journalRef, snapshot_ref: snapshotRef,
       topology_digest: plan.topology_digest, journal_head_digest: events.at(-1).event_digest,
       ...(currentManifest.schema === 'lattice.todo_manifest.v2'
         ? { active_revision_digest: plan.plan_digest } : {}) };
+    if (hasCrossPlanDependencies) {
+      const transaction = importedCrossPlanTransaction({
+        transactionDigest, descriptor, transactionRef, importedCrossPlan,
+      });
+      await atomicWrite(path.join(transactionAbsolute, 'transaction.json'), canonicalLine(transaction));
+      await protocolStage(options, 'cross_plan_transaction_durable');
+    }
     try {
-      await mkdir(path.dirname(path.resolve(repoRoot, planRef)), { recursive: true });
-      await mkdir(path.dirname(path.resolve(repoRoot, journalRef)), { recursive: true });
-      await rename(stagedPlan, path.resolve(repoRoot, planRef));
-      await rename(stagedJournal, path.resolve(repoRoot, journalRef));
-      await rename(stagedSnapshot, path.resolve(repoRoot, snapshotRef));
-      importedPlanActivated = true;
-      await fsyncDirectory(path.dirname(path.resolve(repoRoot, planRef)));
-      await fsyncDirectory(path.dirname(path.resolve(repoRoot, journalRef)));
+      if (hasCrossPlanDependencies) {
+        await mkdir(path.dirname(finalBaseAbsolute), { recursive: true });
+        await rename(stagedBase, finalBaseAbsolute);
+        await fsyncDirectory(path.dirname(finalBaseAbsolute));
+        await protocolStage(options, 'plan_directory_renamed');
+      } else {
+        await mkdir(path.dirname(path.resolve(repoRoot, planRef)), { recursive: true });
+        await mkdir(path.dirname(path.resolve(repoRoot, journalRef)), { recursive: true });
+        await rename(stagedPlan, path.resolve(repoRoot, planRef));
+        await rename(stagedJournal, path.resolve(repoRoot, journalRef));
+        await rename(stagedSnapshot, path.resolve(repoRoot, snapshotRef));
+        await fsyncDirectory(path.dirname(path.resolve(repoRoot, planRef)));
+        await fsyncDirectory(path.dirname(path.resolve(repoRoot, journalRef)));
+      }
       await protocolStage(options, 'pre_activation_renamed');
 
       currentManifest.members.push(descriptor);
@@ -2241,13 +2587,10 @@ export async function appendImportedPlan(options = {}) {
       currentManifest.manifest_digest = todoSelfDigest(currentManifest, 'manifest_digest');
       if (!validateTodoManifest(currentManifest)) throw new TypeError('import activation manifest invalid');
       await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(currentManifest));
-      manifestActivated = true;
       await protocolStage(options, 'manifest_activated');
 
       for (const artifact of importedCrossPlan.artifacts) {
-        const stagedBytes = await readFile(artifact.stagedAbsolute);
-        await atomicWrite(path.resolve(repoRoot, artifact.ref), stagedBytes);
-        activatedDependencies.push(artifact);
+        await atomicWrite(path.resolve(repoRoot, artifact.ref), artifact.finalBytes);
       }
       if (importedCrossPlan.artifacts.length > 0) {
         await protocolStage(options, 'cross_plan_dependencies_activated');
@@ -2263,7 +2606,7 @@ export async function appendImportedPlan(options = {}) {
       // the request, roll back every activated artifact so plan and edge never
       // become independently durable.
       if (importedCrossPlan.artifacts.length > 0) {
-        for (const artifact of [...activatedDependencies].reverse()) {
+        for (const artifact of [...importedCrossPlan.artifacts].reverse()) {
           const targetAbsolute = path.resolve(repoRoot, artifact.ref);
           if (artifact.originalBytes.length > 0) {
             await atomicWrite(targetAbsolute, artifact.originalBytes);
@@ -2271,15 +2614,14 @@ export async function appendImportedPlan(options = {}) {
             await rm(targetAbsolute, { force: true });
           }
         }
-        if (manifestActivated) {
-          await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(originalManifest));
-        }
-        if (importedPlanActivated) await rm(finalBaseAbsolute, { recursive: true, force: true });
+        await atomicWrite(path.resolve(repoRoot, MANIFEST_REF), canonicalLine(originalManifest));
+        await rm(finalBaseAbsolute, { recursive: true, force: true });
         await rm(transactionAbsolute, { recursive: true, force: true });
       }
       throw error;
     }
-  });
+  }, { recoverDeadLock: Array.isArray(options.crossPlanDependencies)
+    && options.crossPlanDependencies.length > 0, onProtocolStage: options.onProtocolStage });
 }
 
 export async function initializeTodoStore(options = {}) {
@@ -4726,20 +5068,27 @@ export async function writeTodoStructureSource(options = {}) {
         expected: member.plan.topology_digest, actual: structureSet.topology_digest,
       });
     }
-    const expectedTaskIds = member.tasks.filter(({ status }) => status !== 'done')
-      .map(({ task_id: taskId }) => taskId);
-    const coverage = explainTodoStructureSet(structureSet, { expectedTaskIds });
-    if (!coverage.valid) {
-      fail('STRUCTURE_BINDING_MISMATCH', coverage.reason, {
-        path: coverage.path, ...(coverage.detail ?? {}),
-      });
-    }
     const bindingRef = todoStructureBindingRef(structureSet.plan_key, structureSet.plan_version);
-    if (await exactFileOrNull(path.resolve(repoRoot, bindingRef)) !== null) {
+    const binding = await readTodoStructureBinding({
+      repoRoot, planKey: structureSet.plan_key, planVersion: structureSet.plan_version,
+    });
+    if (binding !== null && binding.structure_set_digest !== structureSet.structure_set_digest) {
       fail('STRUCTURE_ALREADY_ENABLED', 'immutable_binding_exists', {
         binding_ref: bindingRef,
         next_action: 'revise_the_plan_or_run_authoritative_compile_with_the_existing_source',
       });
+    }
+    // binding前は現在の未完taskをexact coverageする。binding後は進行によりtaskがdoneへ
+    // 移っていても、bindingと同じlogical sourceのcanonical bytes復旧だけを許す。
+    if (binding === null) {
+      const expectedTaskIds = member.tasks.filter(({ status }) => status !== 'done')
+        .map(({ task_id: taskId }) => taskId);
+      const coverage = explainTodoStructureSet(structureSet, { expectedTaskIds });
+      if (!coverage.valid) {
+        fail('STRUCTURE_BINDING_MISMATCH', coverage.reason, {
+          path: coverage.path, ...(coverage.detail ?? {}),
+        });
+      }
     }
     const ref = todoStructureSourceRef(structureSet.plan_key);
     try {

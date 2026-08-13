@@ -55,7 +55,7 @@
   除外は無い（ADR 0153の公開面除外は0.50.0で廃止）。
 - 運用表示面は動的dashboardだけとし、project別HTMLやstatus sidecarを生成しない。
   `todo gantt`／`todo gantt status`は`STATIC_GANTT_RETIRED`で正規の動的入口を返す。
-- `todo migrate --schema --json`は最新`lattice.todo_extraction.v3`を返し、`--dry-run`は書込なしで
+- `todo migrate --schema --json`は最新`lattice.todo_extraction.v4`を返し、`--dry-run`は書込なしで
   diagnostics、source inventory、cutover batchを検査する。検証結果は`lattice.todo_verify_result.v3`、
   foreground viewer起動結果は`lattice.todo_gantt_live_result.v3`で返す。
 

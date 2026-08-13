@@ -17,6 +17,7 @@ import {
 export const TODO_EXTRACTION_SCHEMA = 'lattice.todo_extraction.v1';
 export const TODO_EXTRACTION_SCHEMA_V2 = 'lattice.todo_extraction.v2';
 export const TODO_EXTRACTION_SCHEMA_V3 = 'lattice.todo_extraction.v3';
+export const TODO_EXTRACTION_SCHEMA_V4 = 'lattice.todo_extraction.v4';
 
 const V1_DISPOSITIONS = new Set([
   'register_pending',
@@ -95,17 +96,17 @@ function historicalStart(value) {
 }
 
 function extractionTask(value, schema) {
-  const v2 = [TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3].includes(schema);
-  const v3 = schema === TODO_EXTRACTION_SCHEMA_V3;
+  const v2 = [TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(schema);
+  const designMemo = [TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(schema);
   const keys = [
     'task_id', 'title', 'lane', 'narrative_ref', 'compile_binding', 'disposition',
     'completion', 'source', 'migration_context',
   ];
   if (v2) keys.push('start');
-  if (v3) keys.push('design_memo');
+  if (designMemo) keys.push('design_memo');
   if (!exactRecord(value, keys) || !isTodoIdentifier(value.task_id) || !boundedText(value.title)
     || !isTodoIdentifier(value.lane) || (value.narrative_ref !== null && !isTodoRef(value.narrative_ref))
-    || (v3 && !isTodoDesignMemo(value.design_memo))
+    || (designMemo && !isTodoDesignMemo(value.design_memo))
     || value.compile_binding !== null || !(v2 ? V2_DISPOSITIONS : V1_DISPOSITIONS).has(value.disposition)
     || !sourceLocation(value.source) || !migrationContext(value.migration_context)) return false;
   if (!v2) return value.disposition === 'register_done' ? completion(value.completion) : value.completion === null;
@@ -117,7 +118,8 @@ function extractionTask(value, schema) {
 }
 
 function isCrossPlanEdge(edge) {
-  return edge.from.project_id !== edge.to.project_id || edge.from.plan_key !== edge.to.plan_key;
+  return edge?.from?.project_id !== edge?.to?.project_id
+    || edge?.from?.plan_key !== edge?.to?.plan_key;
 }
 
 function validateEdges(value, schema) {
@@ -126,11 +128,11 @@ function validateEdges(value, schema) {
       const basic = exactRecord(edge, ['from', 'to']);
       const refsValid = nodeRef(edge?.from) && nodeRef(edge?.to);
       const crossPlan = refsValid && isCrossPlanEdge(edge);
-      const withReason = schema === TODO_EXTRACTION_SCHEMA_V3 && crossPlan
+      const withReason = [TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(schema) && crossPlan
         && exactRecord(edge, ['from', 'to', 'reason'])
         && boundedText(edge.reason);
       return (basic || withReason) && refsValid
-        && (!crossPlan || schema !== TODO_EXTRACTION_SCHEMA_V3 || withReason);
+        && (!crossPlan || ![TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(schema) || withReason);
     })
     && sortedStrictly(value, (edge) => `${refKey(edge.from)}\0${refKey(edge.to)}`);
 }
@@ -142,6 +144,23 @@ function validateJoins(value) {
       && join.after.length <= TODO_LIMITS.tasksPerPlan && join.after.every(nodeRef)
       && sortedStrictly(join.after, refKey) && nodeRef(join.before))
     && sortedStrictly(value, (join) => join.id);
+}
+
+/**
+ * taskを新規登録しない入力は、既存source planの1 taskから別planの1 taskへ張る
+ * 明示dependencyだけに限定する。top-level identityはsource planを指し、両端の
+ * topology digestで、古い観測のまま接続しない。
+ */
+export function isTodoExtractionConnectionOnly(value) {
+  const edge = Array.isArray(value?.hard_dependencies) && value.hard_dependencies.length === 1
+    ? value.hard_dependencies[0] : null;
+  return value?.schema === TODO_EXTRACTION_SCHEMA_V4
+    && Array.isArray(value.tasks) && value.tasks.length === 0
+    && Array.isArray(value.joins) && value.joins.length === 0
+    && edge !== null && nodeRef(edge.from) && nodeRef(edge.to) && isCrossPlanEdge(edge)
+    && edge.from.project_id === value.project_id && edge.from.plan_key === value.plan_key
+    && isTodoDigest(edge.from.expected_topology_digest)
+    && isTodoDigest(edge.to.expected_topology_digest);
 }
 
 const reject = (reason, path = '', detail = {}) => ({ valid: false, reason, path, ...detail });
@@ -193,13 +212,15 @@ export function explainTodoExtraction(value) {
   try {
     if (!plainObject(value)) return reject('not_an_object', '');
     const schema = value.schema;
-    if (![TODO_EXTRACTION_SCHEMA, TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3].includes(schema)) {
+    if (![TODO_EXTRACTION_SCHEMA, TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3,
+      TODO_EXTRACTION_SCHEMA_V4].includes(schema)) {
       return reject('schema_mismatch', '/schema', {
-        expected: TODO_EXTRACTION_SCHEMA_V3, actual: typeof schema === 'string' ? schema : null,
+        expected: TODO_EXTRACTION_SCHEMA_V4, actual: typeof schema === 'string' ? schema : null,
       });
     }
-    const v2 = [TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3].includes(schema);
-    const v3 = schema === TODO_EXTRACTION_SCHEMA_V3;
+    const v2 = [TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(schema);
+    const designMemo = [TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(schema);
+    const v4 = schema === TODO_EXTRACTION_SCHEMA_V4;
     const topKeys = [
       'schema', 'project_id', 'plan_key', 'plan_version', 'actor', 'recorded_at',
       'tasks', 'hard_dependencies', 'joins', 'extraction_digest',
@@ -211,8 +232,8 @@ export function explainTodoExtraction(value) {
     if (!isTodoIdentifier(value.plan_version)) return reject('invalid_identifier', '/plan_version');
     if (!actor(value.actor)) return reject('invalid_actor', '/actor');
     if (!isStrictTodoTimestamp(value.recorded_at)) return reject('invalid_timestamp', '/recorded_at');
-    if (!Array.isArray(value.tasks) || value.tasks.length === 0
-      || value.tasks.length > TODO_LIMITS.tasksPerPlan) {
+    if (!Array.isArray(value.tasks) || value.tasks.length > TODO_LIMITS.tasksPerPlan
+      || (value.tasks.length === 0 && !v4)) {
       return reject('bounded_collection_violation', '/tasks');
     }
     const taskKeys = v2
@@ -220,11 +241,11 @@ export function explainTodoExtraction(value) {
         'start', 'completion', 'source', 'migration_context']
       : ['task_id', 'title', 'lane', 'narrative_ref', 'compile_binding', 'disposition',
         'completion', 'source', 'migration_context'];
-    if (v3) taskKeys.push('design_memo');
+    if (designMemo) taskKeys.push('design_memo');
     for (const [index, task] of value.tasks.entries()) {
       const taskKeyCheck = explainKeys(task, taskKeys, `/tasks/${index}`);
       if (!taskKeyCheck.valid) return taskKeyCheck;
-      if (v3 && !isTodoDesignMemo(task.design_memo)) {
+      if (designMemo && !isTodoDesignMemo(task.design_memo)) {
         return reject('design_memo_required', `/tasks/${index}/design_memo`, {
           task_id: isTodoIdentifier(task.task_id) ? task.task_id : null,
           expected: 'non-empty Markdown or NO_PLAN',
@@ -263,32 +284,43 @@ export function explainTodoExtraction(value) {
         expected: expectedDigest, actual: value.extraction_digest,
       });
     }
-    const taskIds = new Set(value.tasks.map(({ task_id: taskId }) => taskId));
-    const badParent = value.tasks.find((task) => task.source.parent_task_id === task.task_id
-      || (task.source.parent_task_id !== null && !taskIds.has(task.source.parent_task_id)));
-    if (badParent !== undefined) {
-      return reject('parent_task_id_unresolved',
-        `/tasks/${value.tasks.indexOf(badParent)}/source/parent_task_id`);
+    if (v4 && value.hard_dependencies.filter(isCrossPlanEdge).length > 1) {
+      return reject('cross_plan_dependency_limit_exceeded', '/hard_dependencies', { maximum: 1 });
     }
-    const excluded = new Set(value.tasks
-      .filter((task) => task.disposition.startsWith('exclude_'))
-      .map(({ task_id }) => task_id));
-    const excludedParent = value.tasks.find((task) => task.disposition.startsWith('register_')
-      && task.source.parent_task_id !== null && excluded.has(task.source.parent_task_id));
-    if (excludedParent !== undefined) {
-      return reject('registered_parent_task_id_unresolved',
-        `/tasks/${value.tasks.indexOf(excludedParent)}/source/parent_task_id`, {
-          task_id: excludedParent.task_id,
-          expected: 'task_id not excluded from the compiled plan',
-          actual: excludedParent.source.parent_task_id,
-        });
-    }
-    const localRefViolation = firstUnregisteredLocalRef(value);
-    if (localRefViolation !== null) {
-      return reject('local_ref_unresolved', localRefViolation.path, {
-        task_id: localRefViolation.task_id,
-        expected: 'registered task_id', actual: localRefViolation.task_id,
+    const connectionOnly = isTodoExtractionConnectionOnly(value);
+    if (value.tasks.length === 0 && !connectionOnly) {
+      return reject('connection_only_shape_invalid', '/tasks', {
+        expected: 'one reasoned cross-plan dependency from the top-level source plan',
       });
+    }
+    if (!connectionOnly) {
+      const taskIds = new Set(value.tasks.map(({ task_id: taskId }) => taskId));
+      const badParent = value.tasks.find((task) => task.source.parent_task_id === task.task_id
+        || (task.source.parent_task_id !== null && !taskIds.has(task.source.parent_task_id)));
+      if (badParent !== undefined) {
+        return reject('parent_task_id_unresolved',
+          `/tasks/${value.tasks.indexOf(badParent)}/source/parent_task_id`);
+      }
+      const excluded = new Set(value.tasks
+        .filter((task) => task.disposition.startsWith('exclude_'))
+        .map(({ task_id }) => task_id));
+      const excludedParent = value.tasks.find((task) => task.disposition.startsWith('register_')
+        && task.source.parent_task_id !== null && excluded.has(task.source.parent_task_id));
+      if (excludedParent !== undefined) {
+        return reject('registered_parent_task_id_unresolved',
+          `/tasks/${value.tasks.indexOf(excludedParent)}/source/parent_task_id`, {
+            task_id: excludedParent.task_id,
+            expected: 'task_id not excluded from the compiled plan',
+            actual: excludedParent.source.parent_task_id,
+          });
+      }
+      const localRefViolation = firstUnregisteredLocalRef(value);
+      if (localRefViolation !== null) {
+        return reject('local_ref_unresolved', localRefViolation.path, {
+          task_id: localRefViolation.task_id,
+          expected: 'registered task_id', actual: localRefViolation.task_id,
+        });
+      }
     }
     // ここまでの個別検査を全て通過したのに`validateTodoExtraction`がfalseを返す状況は、
     // このexplainがまだ言い当てられない違反があるということ。捏造せず未特定と申告する。
@@ -333,12 +365,13 @@ export function validateTodoExtraction(value) {
     if (!exactRecord(value, [
       'schema', 'project_id', 'plan_key', 'plan_version', 'actor', 'recorded_at',
       'tasks', 'hard_dependencies', 'joins', 'extraction_digest',
-    ]) || ![TODO_EXTRACTION_SCHEMA, TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3].includes(schema)
+    ]) || ![TODO_EXTRACTION_SCHEMA, TODO_EXTRACTION_SCHEMA_V2, TODO_EXTRACTION_SCHEMA_V3,
+      TODO_EXTRACTION_SCHEMA_V4].includes(schema)
       || !isTodoIdentifier(value.project_id)
       || !isTodoIdentifier(value.plan_key) || !isTodoIdentifier(value.plan_version)
       || !actor(value.actor) || !isStrictTodoTimestamp(value.recorded_at)
-      || !Array.isArray(value.tasks) || value.tasks.length === 0
-      || value.tasks.length > TODO_LIMITS.tasksPerPlan
+      || !Array.isArray(value.tasks) || value.tasks.length > TODO_LIMITS.tasksPerPlan
+      || (value.tasks.length === 0 && schema !== TODO_EXTRACTION_SCHEMA_V4)
       || !value.tasks.every((task) => extractionTask(task, schema))
       || !sortedStrictly(value.tasks, (task) => task.task_id)
       || new Set(value.tasks.map(({ task_id }) => task_id)).size !== value.tasks.length
@@ -346,6 +379,12 @@ export function validateTodoExtraction(value) {
       || !isTodoDigest(value.extraction_digest)
       || value.extraction_digest !== todoSelfDigest(value, 'extraction_digest')) return false;
 
+    if (schema === TODO_EXTRACTION_SCHEMA_V4 && value.hard_dependencies.filter(isCrossPlanEdge).length > 1) {
+      return false;
+    }
+    const connectionOnly = isTodoExtractionConnectionOnly(value);
+    if (value.tasks.length === 0 && !connectionOnly) return false;
+    if (connectionOnly) return true;
     const taskIds = new Set(value.tasks.map(({ task_id }) => task_id));
     if (value.tasks.some((task) => task.source.parent_task_id === task.task_id
       || (task.source.parent_task_id !== null && !taskIds.has(task.source.parent_task_id)))) return false;
@@ -394,15 +433,32 @@ export function compileTodoExtraction(value, repoRoot) {
   }
 
   const registered = value.tasks.filter(({ disposition }) => disposition.startsWith('register_'));
-  if (registered.length === 0) {
+  const connectionOnly = isTodoExtractionConnectionOnly(value);
+  if (registered.length === 0 && !connectionOnly) {
     throw new TodoStoreError('MIGRATION_EMPTY', 'no_registered_tasks');
   }
   const hardDependencies = value.hard_dependencies.map(({ from, to }) => ({ from, to }));
-  const crossPlanDependencies = value.schema === TODO_EXTRACTION_SCHEMA_V3
+  const crossPlanDependencies = [TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(value.schema)
     ? value.hard_dependencies
       .filter(isCrossPlanEdge)
       .map(({ from, to, reason }) => ({ from, to, reason }))
     : [];
+  if (connectionOnly) {
+    return {
+      repoRoot,
+      writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+      connectionOnly: true,
+      connectionPlan: {
+        project_id: value.project_id, plan_key: value.plan_key, plan_version: value.plan_version,
+      },
+      crossPlanDependencies,
+      genesis: {
+        actor: value.actor,
+        recorded_at: value.recorded_at,
+        provenance: null,
+      },
+    };
+  }
   return {
     repoRoot,
     writer: createTodoStoreWriter({ caller: 'g4-migration' }),
@@ -411,7 +467,7 @@ export function compileTodoExtraction(value, repoRoot) {
       repositories: [{ repo_id: 'self', path: '.' }],
     },
     plan: {
-      schema: value.schema === TODO_EXTRACTION_SCHEMA_V3
+      schema: [TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(value.schema)
         ? 'lattice.todo_plan.v6' : 'lattice.todo_plan.v2',
       project_id: value.project_id,
       plan_key: value.plan_key,
@@ -421,12 +477,12 @@ export function compileTodoExtraction(value, repoRoot) {
         task_id: task.task_id,
         title: task.title,
         lane: task.lane,
-        ...(value.schema === TODO_EXTRACTION_SCHEMA_V3
+        ...([TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(value.schema)
           ? { design_memo: task.design_memo } : {}),
         narrative_ref: task.narrative_ref,
         narrative_anchor: null,
         compile_binding: null,
-        ...(value.schema === TODO_EXTRACTION_SCHEMA_V3
+        ...([TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(value.schema)
           ? { parent_task_id: task.source.parent_task_id } : {}),
       })),
       hard_dependencies: hardDependencies,
