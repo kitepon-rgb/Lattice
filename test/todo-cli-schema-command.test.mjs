@@ -94,6 +94,19 @@ test('todo migrate通常実行はserialization-reviewedと--jsonを併用でき�
   assert.notEqual(error.code, 'INVALID_ARGUMENTS');
 });
 
+test('todo migrate通常実行は未知の末尾引数を受理しない', async (context) => {
+  const cwd = await bareCwd(context);
+  const { stdout, stderr, out, err } = stdio();
+  const exitCode = await runTodoCli({
+    argv: ['migrate', '--input', 'missing.json', '--json', '--unexpected'],
+    cwd, stdout, stderr,
+  });
+  assert.equal(exitCode, 2);
+  assert.equal(out.length, 0);
+  assert.equal(err.length, 1);
+  assert.equal(JSON.parse(err[0]).code, 'INVALID_ARGUMENTS');
+});
+
 test('todo revise-phase --schema --jsonが返すschemaはphase_todo_revision.v3の必須12keyを持つ', async (context) => {
   const cwd = await bareCwd(context);
   const { stdout, stderr, out } = stdio();

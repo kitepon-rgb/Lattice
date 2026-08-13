@@ -3879,8 +3879,8 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   } else if ((argv.length === 3 || argv.length === 4 || argv.length === 5)
     && argv[0] === 'migrate' && argv[1] === '--input' && isTodoRef(argv[2])
     && (argv.length === 3
-      || argv[3] === '--json'
-      || (argv[3] === '--serialization-reviewed' && (argv.length === 4 || argv[4] === '--json')))) {
+      || (argv.length === 4 && ['--json', '--serialization-reviewed'].includes(argv[3]))
+      || (argv.length === 5 && argv[3] === '--serialization-reviewed' && argv[4] === '--json'))) {
     action = (repoRoot) => migrate({
       repoRoot, inputRef: argv[2], serializationReviewed: argv[3] === '--serialization-reviewed',
     });
