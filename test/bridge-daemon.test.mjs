@@ -62,7 +62,7 @@ test('configが既にdisabledでも残存daemonの停止確認を省略しない
   });
   const config = await configureBridge({ address: '127.0.0.1', env,
     upstream: { mode: 'url', url: 'http://127.0.0.1:4318/' } });
-  await ensureBridgeDaemon({ env });
+  const descriptor = await ensureBridgeDaemon({ env });
   const health = `http://127.0.0.1:${config.listen.port}/__lattice/bridge-health`;
   assert.equal((await fetch(health)).status, 200);
   await disableBridge({ env });
@@ -71,7 +71,7 @@ test('configが既にdisabledでも残存daemonの停止確認を省略しない
     stdout: { write: (chunk) => { stdout += chunk; } },
     stderr: { write: (chunk) => { stderr += chunk; } } });
   assert.equal(code, 0, stderr);
-  await assert.rejects(fetch(health, { signal: AbortSignal.timeout(300) }));
+  await assertBridgeIdentityGone(health, descriptor.pid);
 });
 
 test('config fileが消えても残存daemonの停止確認を省略しない', async (context) => {
@@ -83,7 +83,7 @@ test('config fileが消えても残存daemonの停止確認を省略しない', 
   });
   const config = await configureBridge({ address: '127.0.0.1', env,
     upstream: { mode: 'url', url: 'http://127.0.0.1:4318/' } });
-  await ensureBridgeDaemon({ env });
+  const descriptor = await ensureBridgeDaemon({ env });
   const health = `http://127.0.0.1:${config.listen.port}/__lattice/bridge-health`;
   await rm(path.join(root, 'bridge.json'), { force: true });
   let stdout = ''; let stderr = '';
@@ -91,7 +91,7 @@ test('config fileが消えても残存daemonの停止確認を省略しない', 
     stdout: { write: (chunk) => { stdout += chunk; } },
     stderr: { write: (chunk) => { stderr += chunk; } } });
   assert.equal(code, 0, stderr);
-  await assert.rejects(fetch(health, { signal: AbortSignal.timeout(300) }));
+  await assertBridgeIdentityGone(health, descriptor.pid);
 });
 
 test('configとdescriptorが同時に消えてもactive markerで停止受領証を必須にする', async (context) => {
@@ -103,7 +103,7 @@ test('configとdescriptorが同時に消えてもactive markerで停止受領証
   });
   const config = await configureBridge({ address: '127.0.0.1', env,
     upstream: { mode: 'url', url: 'http://127.0.0.1:4318/' } });
-  await ensureBridgeDaemon({ env });
+  const descriptor = await ensureBridgeDaemon({ env });
   const health = `http://127.0.0.1:${config.listen.port}/__lattice/bridge-health`;
   await rm(path.join(root, 'bridge.json'), { force: true });
   await rm(bridgeDaemonDescriptorPath(env), { force: true });
@@ -112,7 +112,7 @@ test('configとdescriptorが同時に消えてもactive markerで停止受領証
     stdout: { write: (chunk) => { stdout += chunk; } },
     stderr: { write: (chunk) => { stderr += chunk; } } });
   assert.equal(code, 0, stderr);
-  await assert.rejects(fetch(health, { signal: AbortSignal.timeout(300) }));
+  await assertBridgeIdentityGone(health, descriptor.pid);
 });
 
 test('crash後のstale active markerは保存listenのsocket不存在を証明してcleanupできる',
@@ -145,7 +145,7 @@ test('descriptor missingかつactive marker破損でもunknownとしてnonce停�
     });
     const config = await configureBridge({ address: '127.0.0.1', env,
       upstream: { mode: 'url', url: 'http://127.0.0.1:4318/' } });
-    await ensureBridgeDaemon({ env });
+    const descriptor = await ensureBridgeDaemon({ env });
     await rm(bridgeDaemonDescriptorPath(env), { force: true });
     await writeFile(bridgeDaemonActiveMarkerPath(env), '{}\n', { mode: 0o600 });
     let stdout = ''; let stderr = '';
@@ -154,7 +154,7 @@ test('descriptor missingかつactive marker破損でもunknownとしてnonce停�
       stderr: { write: (chunk) => { stderr += chunk; } } });
     assert.equal(code, 0, stderr);
     const health = `http://127.0.0.1:${config.listen.port}/__lattice/bridge-health`;
-    await assert.rejects(fetch(health, { signal: AbortSignal.timeout(300) }));
+    await assertBridgeIdentityGone(health, descriptor.pid);
   });
 
 test('setup daemonは実socket healthまで待ち、同一port再設定を反映しdisableで停止する', async (context) => {
