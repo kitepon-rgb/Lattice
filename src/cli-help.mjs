@@ -91,7 +91,7 @@ Write commands:
   dashboard remove <project_id> --json  # 登録簿から1件外す（対象repoの外からも叩ける）
   note --plan <key> [--task <id>] (--message <text>|--input <file>)
       # ToDoへ作業継続に必要な方針・調査結果・注意をappend-onlyで追記する
-  migrate --input <extraction.json> [--serialization-reviewed]
+  migrate --input <extraction.json> [--serialization-reviewed] [--json]
   migrate --input <extraction.json> --dry-run --json [--serialization-reviewed]
       # 既存storeへplanを追加する（plan createは空store初期化専用）。
       # 依存グラフがほぼ一直線なら一度突き返し、再考後の --serialization-reviewed で通す
@@ -273,7 +273,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo revise': 'todo revise --plan <key> --input <file> | --schema --json',
   'todo revise-phase': 'todo revise-phase --plan <key> --input <file> | --schema --json',
   'todo revise-set': 'todo revise-set --input <file> | --schema --json',
-  'todo migrate': 'todo migrate --input <extraction.json> [--serialization-reviewed] | --input <extraction.json> --dry-run --json [--serialization-reviewed] | --schema --json',
+  'todo migrate': 'todo migrate --input <extraction.json> [--serialization-reviewed] [--json] | --input <extraction.json> --dry-run --json [--serialization-reviewed] | --schema --json',
   'sensor init': 'sensor init [path] --json',
   'sensor sync': 'sensor sync [path] --json',
   'sensor diff': 'sensor diff <rootA> <rootB> [--subtree-a <rel>] [--subtree-b <rel>]'

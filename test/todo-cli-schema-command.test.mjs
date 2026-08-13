@@ -67,6 +67,33 @@ test('todo migrate --schema --jsonはdesign_memoとNO_PLAN案内を持つv3 sche
   assert.match(schema.$comment, /`NO_PLAN`/u);
 });
 
+test('todo migrate通常実行は--jsonを受理し、入力エラーをJSONで返す', async (context) => {
+  const cwd = await bareCwd(context);
+  const { stdout, stderr, out, err } = stdio();
+  const exitCode = await runTodoCli({
+    argv: ['migrate', '--input', 'missing.json', '--json'], cwd, stdout, stderr,
+  });
+  assert.equal(exitCode, 1);
+  assert.equal(out.length, 0);
+  assert.equal(err.length, 1);
+  const error = JSON.parse(err[0]);
+  assert.notEqual(error.code, 'INVALID_ARGUMENTS');
+});
+
+test('todo migrate通常実行はserialization-reviewedと--jsonを併用できる', async (context) => {
+  const cwd = await bareCwd(context);
+  const { stdout, stderr, out, err } = stdio();
+  const exitCode = await runTodoCli({
+    argv: ['migrate', '--input', 'missing.json', '--serialization-reviewed', '--json'],
+    cwd, stdout, stderr,
+  });
+  assert.equal(exitCode, 1);
+  assert.equal(out.length, 0);
+  assert.equal(err.length, 1);
+  const error = JSON.parse(err[0]);
+  assert.notEqual(error.code, 'INVALID_ARGUMENTS');
+});
+
 test('todo revise-phase --schema --jsonが返すschemaはphase_todo_revision.v3の必須12keyを持つ', async (context) => {
   const cwd = await bareCwd(context);
   const { stdout, stderr, out } = stdio();
