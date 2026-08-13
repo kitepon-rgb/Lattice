@@ -244,7 +244,12 @@ test('通常session activityだけでdashboard daemonを起動し同じdaemonを
   const reused = JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8'));
   assert.equal(second.port, first.port);
   assert.equal(reused.pid, daemonPid);
-  process.kill(daemonPid, 'SIGTERM');
+  if (process.platform === 'win32') {
+    const response = await fetch(`http://127.0.0.1:${descriptor.port}/__lattice/shutdown`, { method: 'POST' });
+    assert.equal(response.status, 202);
+  } else {
+    process.kill(daemonPid, 'SIGTERM');
+  }
   await new Promise((resolve) => setTimeout(resolve, 150));
   const restarted = await ensureTodoDashboardActivity({ repoRoot: process.cwd(), projectId: 'lattice',
     displayName: 'Lattice', sessionId: 'session-a', env });

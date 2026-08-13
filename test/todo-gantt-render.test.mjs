@@ -32,6 +32,16 @@ const NOW = '2026-07-18T00:00:00.000Z';
 const ACTOR = Object.freeze({ host: 'host-1', session: 'session-1', agent: 'agent-1' });
 const ref = (task_id, plan_key = 'main') => ({ project_id: 'project-1', plan_key, task_id });
 
+async function stopGanttChild(child, url) {
+  if (process.platform === 'win32') {
+    const response = await fetch(new URL('/__lattice/shutdown', url), { method: 'POST' });
+    assert.equal(response.status, 202);
+  } else {
+    child.kill('SIGTERM');
+  }
+  return once(child, 'close');
+}
+
 function readFixture(taskCount, edges = []) {
   const tasks = Array.from({ length: taskCount }, (_, index) => ({
     task_id: `T${String(index).padStart(4, '0')}`, title: `Task ${index}`, lane: `lane-${index % 8}`,
@@ -442,8 +452,7 @@ test('manual gantt serveもproject identity fileのdisplay nameを使う', async
   const response = await fetch(live.url);
   assert.equal(response.status, 200);
   assert.match(await response.text(), /<title>Lattice — Manual Fixture 依存工程図<\/title>/u);
-  child.kill('SIGTERM');
-  const [code] = await once(child, 'close');
+  const [code] = await stopGanttChild(child, live.url);
   assert.equal(code, 0);
 });
 
@@ -469,8 +478,7 @@ test('manual gantt serveもexternal_paneのタブとiframeを配信する', asyn
   assert.match(html, /connect-src 'self' https:\/\/probe\.example; frame-src https:\/\/pane\.example;/u);
   assert.match(html, /<iframe data-src="https:\/\/pane\.example\/room-a" title="円卓">/u);
   assert.ok(html.indexOf('data-show-external-pane') < html.indexOf('data-show-overview'));
-  child.kill('SIGTERM');
-  assert.equal((await once(child, 'close'))[0], 0);
+  assert.equal((await stopGanttChild(child, live.url))[0], 0);
 });
 
 test('静的gantt生成とstatusは廃止済みとしてtyped拒否しartifactを作らない', async (context) => {

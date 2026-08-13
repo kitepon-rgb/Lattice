@@ -3428,6 +3428,8 @@ export async function renderTodoGanttForProject({
 async function serveGantt({ repoRoot, port, stdout, env, scope = DEFAULT_GANTT_SCOPE }) {
   const initialStore = await readTodoStoreStable({ repoRoot });
   const identity = await resolveProjectIdentity({ repoRoot, projectId: initialStore.project_id, env });
+  let stop;
+  const stopped = new Promise((resolve) => { stop = resolve; });
   const live = await startTodoGanttLiveServer({
     projectId: initialStore.project_id,
     displayName: identity.displayName,
@@ -3444,6 +3446,7 @@ async function serveGantt({ repoRoot, port, stdout, env, scope = DEFAULT_GANTT_S
     readHead: async () => ganttLiveHeadDigest({
       repoRoot, store: await readTodoStoreStable({ repoRoot }),
     }),
+    onShutdown: process.platform === 'win32' ? stop : null,
   });
   const result = { schema: 'lattice.todo_gantt_live_result.v3', project_id: live.projectId,
     resource_scope: 'project', selection_scope: scope,
@@ -3452,10 +3455,8 @@ async function serveGantt({ repoRoot, port, stdout, env, scope = DEFAULT_GANTT_S
     host: live.host, port: live.port, project_path: live.projectPath,
     url: live.url, events_url: live.eventsUrl };
   stdout.write(`${JSON.stringify(result)}\n`);
-  await new Promise((resolve) => {
-    const stop = () => resolve();
-    process.once('SIGINT', stop); process.once('SIGTERM', stop);
-  });
+  process.once('SIGINT', stop); process.once('SIGTERM', stop);
+  await stopped;
   await live.close();
   return null;
 }

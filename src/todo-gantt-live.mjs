@@ -181,10 +181,13 @@ function finishRequestFailure(response, code, path) {
   } catch { response.destroy(); }
 }
 
-export async function startTodoGanttDashboardServer({ registry, port = 0, redirectSingleProject = false }) {
+export async function startTodoGanttDashboardServer({
+  registry, port = 0, redirectSingleProject = false, onShutdown = null,
+}) {
   if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) throw new TypeError('port must be 0..65535');
   if (registry === null || typeof registry !== 'object' || typeof registry.get !== 'function'
     || typeof registry.list !== 'function') throw new TypeError('registry required');
+  if (onShutdown !== null && typeof onShutdown !== 'function') throw new TypeError('onShutdown must be a function');
   const clientsByProject = new Map();
   const lastHeads = new Map();
   const lastHeartbeats = new Map();
@@ -208,6 +211,13 @@ export async function startTodoGanttDashboardServer({ registry, port = 0, redire
     try {
       const url = new URL(requestPath, `http://${LOOPBACK}`);
       requestPath = url.pathname;
+      if (url.pathname === '/__lattice/shutdown' && request.method === 'POST' && onShutdown !== null) {
+        response.writeHead(202, { 'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+        response.end(`${JSON.stringify({ schema: 'lattice.todo_dashboard_shutdown.v1', accepted: true })}\n`);
+        setImmediate(() => Promise.resolve().then(onShutdown).catch(() => {}));
+        return;
+      }
       if (request.method !== 'GET') {
         response.setHeader('allow', 'GET');
         sendHttpError(response, 405, 'METHOD_NOT_ALLOWED', requestPath);
@@ -341,9 +351,13 @@ export async function startTodoGanttDashboardServer({ registry, port = 0, redire
   });
 }
 
-export async function startTodoGanttLiveServer({ projectId, displayName = projectId, port = 0, render, readHead }) {
+export async function startTodoGanttLiveServer({
+  projectId, displayName = projectId, port = 0, render, readHead, onShutdown = null,
+}) {
   const registry = createTodoGanttProjectRegistry([{ projectId, displayName, render, readHead }]);
-  const dashboard = await startTodoGanttDashboardServer({ registry, port, redirectSingleProject: true });
+  const dashboard = await startTodoGanttDashboardServer({
+    registry, port, redirectSingleProject: true, onShutdown,
+  });
   const path = projectPath(projectId);
   return Object.freeze({
     projectId,

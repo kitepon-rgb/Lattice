@@ -377,6 +377,17 @@ function signalIfPresent(signalProcess, pid, signal) {
   }
 }
 
+async function requestDaemonShutdown(descriptor) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${descriptor.port}/__lattice/shutdown`, {
+      method: 'POST', signal: AbortSignal.timeout(500),
+    });
+    return response.status === 202;
+  } catch {
+    return false;
+  }
+}
+
 async function stopAttestedLegacyDaemon(descriptor, {
   signalProcess = process.kill, isProcessAlive = processIsAlive, timeoutMs = 3_000,
 } = {}) {
@@ -387,7 +398,7 @@ async function stopAttestedLegacyDaemon(descriptor, {
     error.code = 'DASHBOARD_LEGACY_ATTESTATION_LOST';
     throw error;
   }
-  signalProcess(descriptor.pid, 'SIGTERM');
+  if (!await requestDaemonShutdown(descriptor)) signalProcess(descriptor.pid, 'SIGTERM');
   if (await awaitDaemonStopped(descriptor, { isProcessAlive, deadline: Date.now() + timeoutMs })) return;
   const error = new Error('legacy dashboard daemon did not stop');
   error.code = 'DASHBOARD_LEGACY_STOP_FAILED';
@@ -406,7 +417,7 @@ async function stopStrayDaemon(descriptor, {
   signalProcess = process.kill, isProcessAlive = processIsAlive, timeoutMs = 3_000,
 } = {}) {
   if (await daemonAttestation(descriptor) === null) return false;
-  signalIfPresent(signalProcess, descriptor.pid, 'SIGTERM');
+  if (!await requestDaemonShutdown(descriptor)) signalIfPresent(signalProcess, descriptor.pid, 'SIGTERM');
   const half = Math.ceil(timeoutMs / 2);
   if (await awaitDaemonStopped(descriptor, { isProcessAlive, deadline: Date.now() + half })) return true;
   signalIfPresent(signalProcess, descriptor.pid, 'SIGKILL');
@@ -450,7 +461,7 @@ async function stopSpawnedReplacement(child, descriptor, {
       || !await isProcessAlive(child.pid);
     return exited && await daemonAttestation(descriptor) === null;
   };
-  child.kill('SIGTERM');
+  if (!await requestDaemonShutdown(descriptor)) child.kill('SIGTERM');
   let deadline = Date.now() + Math.ceil(timeoutMs / 2);
   while (Date.now() < deadline) {
     if (await stopped()) return;

@@ -300,6 +300,22 @@ test('dashboardは未知project・未知path・非GETをtyped HTTP errorにしsi
   }
 });
 
+test('明示されたlocalhost shutdown handlerだけをPOSTで起動する', async (context) => {
+  let shutdowns = 0;
+  const dashboard = await startTodoGanttDashboardServer({
+    registry: createTodoGanttProjectRegistry([]), port: 0,
+    onShutdown: () => { shutdowns += 1; },
+  });
+  context.after(() => dashboard.close());
+  const response = await fetch(new URL('/__lattice/shutdown', dashboard.url), { method: 'POST' });
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), {
+    schema: 'lattice.todo_dashboard_shutdown.v1', accepted: true,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(shutdowns, 1);
+});
+
 test('dashboardはブラウザの未知GETだけを戻り先つきHTML 404にする', async (context) => {
   const dashboard = await startTodoGanttDashboardServer({
     registry: createTodoGanttProjectRegistry([]), port: 0,

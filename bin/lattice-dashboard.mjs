@@ -117,7 +117,11 @@ function exit(code) {
 }
 
 await synchronize();
-const dashboard = await startTodoGanttDashboardServer({ registry, port });
+const dashboard = await startTodoGanttDashboardServer({
+  registry,
+  port,
+  onShutdown: process.platform === 'win32' ? () => exit(0) : null,
+});
 await writeTodoDashboardDaemonDescriptor({ port: dashboard.port, env });
 const timer = setInterval(() => synchronize().then((count) => {
   if (count === 0) exit(0);
