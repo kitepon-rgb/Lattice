@@ -122,7 +122,7 @@ test('gantt serve は作業記録込みでHTMLを配信する', async (t) => {
   registerManagedDaemonFixture(t, repoRoot, { tracked: [child.pid] });
   const started = await firstJsonLine(child);
 
-  const html = await (await fetch(started.url)).text();
+  const html = await (await fetch(new URL('/projects/project-1/', started.url))).text();
   assert.match(html, /<h2>作業記録<\/h2>/u);
   assert.match(html, new RegExp(marker, 'u'));
 });

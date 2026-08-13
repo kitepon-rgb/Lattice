@@ -302,7 +302,9 @@ test('v2 cutoverは複数ToDo・複数fileを一括移転してlive checkboxを�
   assert.equal((await readFile(path.join(root, 'plan.md'), 'utf8')).match(/\[[ xX]\]/gu), null);
   assert.equal((await readFile(path.join(root, 'extra.md'), 'utf8')).match(/\[[ xX]\]/gu), null);
   assert.equal((await stat(path.join(root, 'plan.md'))).mode & 0o7777, sourceMode);
-  assert.equal((await stat(path.join(root, 'docs/archive/main-batch-1.md'))).mode & 0o777, 0o644);
+  if (process.platform !== 'win32') {
+    assert.equal((await stat(path.join(root, 'docs/archive/main-batch-1.md'))).mode & 0o777, 0o644);
+  }
   const archive = await readFile(path.join(root, 'docs/archive/main-batch-1.md'), 'utf8');
   assert.deepEqual(archive.split('\n').slice(5, 11), revision.source_cutover_batch.operations
     .map(({ task_id }) => `- [ ] ${task_id}`));

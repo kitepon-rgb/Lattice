@@ -81,7 +81,8 @@ function runCli(root, args) {
   return result;
 }
 
-const parseCliResult = (text) => JSON.parse(text.trim().split('\n').at(-1));
+const parseCliResult = (text) => JSON.parse(text.trim().split(/\r?\n/u)
+  .findLast((line) => line.trimStart().startsWith('{')));
 
 function storeStatus(root) {
   return git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', '.lattice/todo'])

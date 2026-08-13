@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -46,7 +46,7 @@ test('untrackedなファイルはpayloadへ混入するので拒否する', asyn
 test('ignore済みのファイルは従来どおり通す', async (t) => {
   const work = await landedClone(t);
   await writeFile(path.join(work, '.gitignore'), 'ignored/\n');
-  execFileSync('mkdir', ['-p', path.join(work, 'ignored')]);
+  await mkdir(path.join(work, 'ignored'), { recursive: true });
   await writeFile(path.join(work, 'ignored', 'build.js'), 'built\n');
   assert.match(verifyReleaseCommit(work), /is landed on origin\/main\./u);
 });

@@ -54,9 +54,17 @@ function sha256Bytes(bytes) { return createHash('sha256').update(bytes).digest('
 const execFileAsync = promisify(execFile);
 
 export async function observeManagedProcessStartIdentity(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) {
+    fail('ADAPTER_CONTROLLER_UNAVAILABLE', `process start identity観測失敗: ${pid}`);
+  }
   let startedIdentity;
   try {
-    const { stdout } = await execFileAsync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' });
+    const executable = process.platform === 'win32' ? 'powershell.exe' : '/bin/ps';
+    const args = process.platform === 'win32'
+      ? ['-NoProfile', '-NonInteractive', '-Command',
+        `[System.Diagnostics.Process]::GetProcessById(${pid}).StartTime.ToUniversalTime().Ticks`]
+      : ['-o', 'lstart=', '-p', String(pid)];
+    const { stdout } = await execFileAsync(executable, args, { encoding: 'utf8' });
     startedIdentity = stdout.trim();
   } catch { fail('ADAPTER_CONTROLLER_UNAVAILABLE', `process start identity観測失敗: ${pid}`); }
   if (!startedIdentity) fail('ADAPTER_CONTROLLER_UNAVAILABLE', `process不在: ${pid}`);
