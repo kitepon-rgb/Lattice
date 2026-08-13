@@ -509,7 +509,7 @@ test('同時cross-plan stale-lock回収はmutexの所有者だけをwriterへ進
   const store = await readTodoStore({ repoRoot: root, now: NOW });
   assert.equal(store.members.find(({ plan }) => plan.plan_key === 'main').plan_scoped.events.length, 1);
   await assert.rejects(stat(path.join(root, '.lattice', 'todo', '.write.lock')), { code: 'ENOENT' });
-  await assert.rejects(stat(path.join(root, '.lattice', 'todo', '.cross-plan-recovery.lock')), { code: 'ENOENT' });
+  await assert.rejects(stat(path.join(root, '.lattice', 'todo', '.cross-plan-recovery')), { code: 'ENOENT' });
 });
 
 test('通常import writerはcross-plan回収用のPID lockを作らない', async (context) => {

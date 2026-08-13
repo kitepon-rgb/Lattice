@@ -1549,23 +1549,20 @@ function processIsDead(pid) {
 
 async function acquireCrossPlanRecoveryClaim(recoveryClaimsRef) {
   await mkdir(recoveryClaimsRef, { recursive: true, mode: 0o700 });
-  const claimName = `${process.pid}-${randomBytes(8).toString('hex')}`;
+  const claimOrder = process.hrtime.bigint().toString().padStart(20, '0');
+  const claimName = `${claimOrder}-${process.pid}-${randomBytes(8).toString('hex')}`;
   const claimRef = path.join(recoveryClaimsRef, claimName);
   await mkdir(claimRef, { mode: 0o700 });
   for (const entry of await readdir(recoveryClaimsRef, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name === claimName) continue;
-    const pid = Number(entry.name.split('-', 1)[0]);
+    const parts = entry.name.split('-', 3);
+    const pid = Number(parts.length === 2 ? parts[0] : parts[1]);
     if (Number.isSafeInteger(pid) && pid > 0 && processIsDead(pid)) {
       await rm(path.join(recoveryClaimsRef, entry.name), { recursive: true, force: true });
     }
   }
-  const candidates = await Promise.all((await readdir(recoveryClaimsRef)).map(async (name) => ({
-    name,
-    mtimeNs: (await lstat(path.join(recoveryClaimsRef, name), { bigint: true })).mtimeNs,
-  })));
-  candidates.sort((left, right) => left.mtimeNs < right.mtimeNs ? -1
-    : left.mtimeNs > right.mtimeNs ? 1 : left.name < right.name ? -1 : 1);
-  if (candidates[0]?.name === claimName) return claimRef;
+  const candidates = (await readdir(recoveryClaimsRef)).sort();
+  if (candidates[0] === claimName) return claimRef;
   await rmdir(claimRef);
   return null;
 }
