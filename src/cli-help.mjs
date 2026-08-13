@@ -202,6 +202,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'session-context': 'session-context --json',
   'plan create': 'plan create --input <file> [--serialization-reviewed] | --schema --json | --schema-version <1|2|3|4> --json',
   'plan show': 'plan show <plan_key> --json',
+  'plan scope-review': 'plan scope-review --plan-input <plan-create-or-extraction.json> --review <scope-review.json> --json | --schema --json',
   'plan compile': 'plan compile --request <request.json> | --schema --json',
   'plan verify': 'plan verify --request <request.json> --plan <plan.json>',
   'run start': 'run start --request <request.json> --executor <adapter>'

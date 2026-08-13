@@ -51,6 +51,11 @@ frontier、宣言、理由、現在のactive状態を機械可読にする。
 4. **Seam transformer**: 並列性を解放するcode変換を生成・隔離実行・検証する。
 5. **Plan compiler**: accepted artifactとversion barrierから次の実行graphを生成する。
 
+Outcome compilerの入力は、オーナーが与えた作業仕様とその受入条件である。工程の分割・統合・並列配置・
+seam-refactorは自由に行えるが、生成後の工程全体が実現する目的は入力された作業仕様と同一でなければ
+ならない。操作AIまたはLatticeが、新しい製品目的を工程へ追加してはならない。独立した改善案は工程へ
+混ぜず、提案として分離する。
+
 各ToDoはlifecycle stateとは分離したtask-scopedな作業記憶を持てる。AIが会話から選んだ方針、調査結果、
 棄却理由、注意、未解決事項はappend-only noteとして累積し、通常の個別ToDo読取と着手結果へ自動同梱する。
 これは推定や文章生成を製品へ移すものではない。操作AIの判断を次のAIへ渡すための記録・版・読取契約を

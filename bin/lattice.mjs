@@ -73,6 +73,26 @@ if (sensorRelaunchStatus !== null) {
   } catch (error) {
     process.exitCode = projectCliFailure(process.stderr, error);
   }
+} else if (args.length === 7 && args[0] === 'plan' && args[1] === 'scope-review'
+  && args[2] === '--plan-input' && args[4] === '--review' && args[6] === '--json') {
+  const { runPlanScopeReview } = await import('../src/plan-scope-review.mjs');
+  const { projectCliFailure } = await import('../src/project-cli.mjs');
+  try {
+    process.exitCode = await runPlanScopeReview({
+      cwd: process.cwd(), planInputRef: args[3], reviewRef: args[5], stdout: process.stdout,
+    });
+  } catch (error) {
+    process.exitCode = projectCliFailure(process.stderr, error);
+  }
+} else if (args.length === 4 && args[0] === 'plan' && args[1] === 'scope-review'
+  && args[2] === '--schema' && args[3] === '--json') {
+  const { runPlanScopeReviewSchema } = await import('../src/plan-scope-review.mjs');
+  const { projectCliFailure } = await import('../src/project-cli.mjs');
+  try {
+    process.exitCode = await runPlanScopeReviewSchema({ stdout: process.stdout });
+  } catch (error) {
+    process.exitCode = projectCliFailure(process.stderr, error);
+  }
 } else if (args.length === 2 && args[0] === 'factory-diagnostics' && args[1] === '--json') {
   const { buildFactoryDiagnostics } = await import('../src/factory-diagnostics.mjs');
   const diagnostics = await buildFactoryDiagnostics();

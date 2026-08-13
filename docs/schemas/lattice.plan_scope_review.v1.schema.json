@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kitepon-rgb/Lattice/blob/main/docs/schemas/lattice.plan_scope_review.v1.schema.json",
+  "title": "lattice.plan_scope_review.v1",
+  "description": "AI-authored review performed after the complete plan is written and before it is registered. Every planned task is judged against the owner-supplied work specifications; task splitting and parallelization are allowed, but a new product purpose is not.",
+  "$comment": "Lattice validates complete task coverage, known work-spec references, verdict consistency, and digest binding. The operating AI owns the semantic judgment.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "authoring_digest", "work_specs", "task_assessments", "verdict", "review_digest"
+  ],
+  "properties": {
+    "schema": { "const": "lattice.plan_scope_review.v1" },
+    "authoring_digest": { "$ref": "#/$defs/digest" },
+    "work_specs": {
+      "type": "array", "minItems": 1, "maxItems": 512,
+      "description": "The owner-supplied work specifications. Do not add inferred improvements as work specifications.",
+      "items": { "$ref": "#/$defs/workSpec" }
+    },
+    "task_assessments": {
+      "type": "array", "minItems": 1, "maxItems": 512,
+      "description": "Exactly one assessment for every task that will be registered. Use out_of_scope when the task creates a purpose not required by any work specification.",
+      "items": { "$ref": "#/$defs/taskAssessment" }
+    },
+    "verdict": { "enum": ["scope_preserved", "scope_mismatch"] },
+    "review_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "text": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "\\S" },
+    "workSpec": {
+      "type": "object", "additionalProperties": false,
+      "required": ["work_spec_id", "requirement", "acceptance"],
+      "properties": {
+        "work_spec_id": { "$ref": "#/$defs/identifier" },
+        "requirement": { "$ref": "#/$defs/text" },
+        "acceptance": { "$ref": "#/$defs/text" }
+      }
+    },
+    "taskAssessment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["task_id", "work_spec_ids", "judgment", "reason"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/identifier" },
+        "work_spec_ids": {
+          "type": "array", "maxItems": 512, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "judgment": { "enum": ["required", "out_of_scope"] },
+        "reason": { "$ref": "#/$defs/text" }
+      }
+    }
+  }
+}

@@ -143,6 +143,15 @@ JSON+LFに限定し、`lattice.todo_plan.v7`と同じPhase／task／topology制�
 旧v1〜v3は`--schema-version`で取得できるだけの歴史契約であり、create入力としては
 `plan_create_schema_retired`で拒否する。
 
+初期工程表の意味上の入力は、オーナーが与えた作業仕様と受入条件である。操作AIは作業仕様を
+dispatchableなToDoへ分割・統合・並列配置できるが、工程全体が実現する製品目的を増やしてはならない。
+工程表を完成させた後、storeへ登録する前に`lattice plan scope-review --plan-input <authoring.json>
+--review <lattice.plan_scope_review.v1> --json`を実行する。reviewは元の作業仕様、登録対象の全taskに対する
+対応先と必要性の判断、全体verdictを持ち、authoring artifactのdigestへ束縛する。Latticeは全taskが一度ずつ
+評価されたこと、参照先、未充足の作業仕様、verdictの整合を検証する。作業仕様とtaskの意味上の対応判断は
+装置の一部である操作AIが行い、Lattice内部へ別の推論器を実装しない。`scope_mismatch`なら余計なtaskを
+工程から外すか、要求追加としてオーナーへ提案し、`scope_preserved`になるまで登録へ進まない。
+
 `.lattice/todo/`のcanonical journalを工程状態の唯一正本とし、snapshotは再生成可能な投影として扱う。
 工程表HTMLはfileへ生成せず、動的viewerがstoreから応答時に描画する。読取CLIは
 `lattice todo status / show / note list / bindings / independence / seam-profile / seam-proposal /
