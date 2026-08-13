@@ -8,7 +8,7 @@ import packageJson from '../package.json' with { type: 'json' };
 installPipeCloseGuard();
 
 const args = process.argv.slice(2);
-const restoreWarningHandler = installNode22SqliteWarningFilter();
+installNode22SqliteWarningFilter();
 const help = renderCliHelp(args);
 
 if (help !== null) {
@@ -144,8 +144,6 @@ if (help !== null) {
     process.exitCode = 1;
   }
 }
-
-restoreWarningHandler();
 
 async function runRuntimeErrorsCli(rest) {
   const runtimeErrors = await import('../src/runtime-errors.mjs');
