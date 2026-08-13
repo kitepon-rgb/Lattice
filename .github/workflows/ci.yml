@@ -8,42 +8,21 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 実行する環境
+        description: 実行する工場環境
         type: choice
         default: all
-        options:
-          - all
-          - macos-native
-          - linux-native
-          - windows-native
-          - wsl2
+        options: [all, macos-native, linux-native, windows-native, wsl2]
 
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: read
 
 jobs:
   full:
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.environment != 'all' && format('["{0}"]', inputs.environment) || '["macos-native","linux-native","windows-native","wsl2"]') }}
-    timeout-minutes: 15
-    runs-on: [self-hosted, factory, "${{ matrix.environment }}"]
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '22.22.3'
-      - run: npm ci
-      - run: npm --prefix sensor ci
-      - run: npm --prefix sensor run build
-      - run: npm run test:profile -- --profile=core
-      - run: npm run test:sensor
-      - run: npm run check
-      - run: npm run check:cli-surface
-      - run: npm run check:open-questions
-      - run: npm run check:reachability
-      - run: npm run verify:todo-store
+    uses: kitepon/dotagents/.github/workflows/factory-full-ci.yml@main
+    with:
+      environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'all' }}
+      full-command: >-
+        npm ci &&
+        npm --prefix sensor ci &&
+        npm --prefix sensor run build &&
+        npm run ci
