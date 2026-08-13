@@ -59,7 +59,7 @@ test('許可パスの変更をbinary patchとして返し、observeはcleanup前
     args: ['--version'],
     outcome: 'passed',
     exit_code: 0,
-    stdout_digest: digest(`${process.version}\n`),
+    stdout_digest: digest(`${process.version}${os.EOL}`),
     stderr_digest: digest(''),
   }]);
   assert.equal(result.sourceInvariant.schema, 'lattice.source_invariant_receipt.v1');

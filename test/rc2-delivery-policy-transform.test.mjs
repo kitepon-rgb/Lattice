@@ -313,7 +313,11 @@ test('accepted transactionはactual preimage、patch、oracle、6×4 matrix、cl
     'mutation_evidence',
   ]);
   assert.equal(result.schema, 'lattice.rc2.delivery_policy_seam_transform_result.v1');
-  assert.equal(result.status, 'accepted', JSON.stringify(result.artifact.rejection));
+  assert.equal(result.status, 'accepted', JSON.stringify({
+    rejection: result.artifact.rejection,
+    scope: result.artifact.scope,
+    verification: result.artifact.verification,
+  }));
   assert.ok(Buffer.isBuffer(result.patch));
   assert.ok(result.patch.byteLength > 0);
 
