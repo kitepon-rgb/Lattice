@@ -330,9 +330,11 @@ test('upstreamの実行bitは新規追加時に保存される', async (t) => {
   });
   const result = runSync(repo, '--ref', 'main', '--apply');
   assert.equal(result.status, 0, result.stderr);
-  const { statSync } = await import('node:fs');
-  const mode = statSync(path.join(repo, 'sensor', 'tool.sh')).mode & 0o111;
-  assert.notEqual(mode, 0, 'executable bit was dropped');
+  if (process.platform !== 'win32') {
+    const { statSync } = await import('node:fs');
+    const mode = statSync(path.join(repo, 'sensor', 'tool.sh')).mode & 0o111;
+    assert.notEqual(mode, 0, 'executable bit was dropped');
+  }
 });
 
 test('upstreamでadd→deleteされたファイルはこちらに無ければ何も起きない', async (t) => {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -229,7 +230,9 @@ test('通常session activityだけでdashboard daemonを起動し同じdaemonを
       displayName: 'Lattice', sessionId: 'session-a', env }),
   ]);
   const descriptor = JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8'));
-  assert.equal((await stat(path.join(runtime, 'daemon.json'))).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') {
+    assert.equal((await stat(path.join(runtime, 'daemon.json'))).mode & 0o777, 0o600);
+  }
   daemonPid = descriptor.pid;
   assert.ok(first.port > 0);
   assert.equal(concurrent.port, first.port);
@@ -495,6 +498,9 @@ test('旧daemon停止失敗時はreplacementを停止確認してlegacy descript
       signalProcess() {},
       isProcessAlive: () => true,
     }), (error) => error.code === 'DASHBOARD_LEGACY_STOP_FAILED');
+    if (replacementChild.exitCode === null && replacementChild.signalCode === null) {
+      await once(replacementChild, 'close');
+    }
     assert.ok(replacementChild.exitCode !== null || replacementChild.signalCode !== null);
     assert.deepEqual(JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8')), descriptor);
     assert.equal((await fetch(`http://127.0.0.1:${legacy.port}/__lattice/health`)).status, 200);
@@ -667,7 +673,9 @@ test('daemonは自分の記録をdescriptorと同時に置き、停止時に落�
   const recordRef = path.join(runtime, 'daemons', `${daemonPid}.json`);
   assert.deepEqual(await daemonRecordNames(runtime), [`${daemonPid}.json`]);
   assert.deepEqual(JSON.parse(await readFile(recordRef, 'utf8')), descriptor);
-  assert.equal((await stat(recordRef)).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') {
+    assert.equal((await stat(recordRef)).mode & 0o777, 0o600);
+  }
 
   process.kill(daemonPid, 'SIGTERM');
   const deadline = Date.now() + 3_000;

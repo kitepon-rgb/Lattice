@@ -443,7 +443,7 @@ test('manual gantt serveもproject identity fileのdisplay nameを使う', async
   assert.equal(response.status, 200);
   assert.match(await response.text(), /<title>Lattice — Manual Fixture 依存工程図<\/title>/u);
   child.kill('SIGTERM');
-  const [code] = await once(child, 'exit');
+  const [code] = await once(child, 'close');
   assert.equal(code, 0);
 });
 
@@ -470,7 +470,7 @@ test('manual gantt serveもexternal_paneのタブとiframeを配信する', asyn
   assert.match(html, /<iframe data-src="https:\/\/pane\.example\/room-a" title="円卓">/u);
   assert.ok(html.indexOf('data-show-external-pane') < html.indexOf('data-show-overview'));
   child.kill('SIGTERM');
-  assert.equal((await once(child, 'exit'))[0], 0);
+  assert.equal((await once(child, 'close'))[0], 0);
 });
 
 test('静的gantt生成とstatusは廃止済みとしてtyped拒否しartifactを作らない', async (context) => {
