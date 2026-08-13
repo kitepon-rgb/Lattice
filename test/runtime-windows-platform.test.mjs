@@ -16,9 +16,9 @@ test('Windows nativeはprocess start identityを安定して観測する',
     assert.equal(second.identity_digest, first.identity_digest);
   });
 
-test('Windows nativeはmanaged runtimeをtypedに拒否しWSL2を案内する',
+test('Windows nativeはmanaged runtimeの起動だけをtypedに拒否しWSL2を案内する',
   { skip: process.platform !== 'win32' }, () => {
-    const result = spawnSync(process.execPath, [ENTRY, 'run', 'list', '--json'], {
+    const result = spawnSync(process.execPath, [ENTRY, 'run', 'activate', '--run', 'missing'], {
       encoding: 'utf8',
     });
     assert.equal(result.status, 1);

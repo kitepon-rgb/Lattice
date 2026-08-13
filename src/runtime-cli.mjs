@@ -4445,6 +4445,13 @@ export async function runRuntimeCli({ argv, cwd, stdout, stderr }) {
     && argv[0] === 'run' && argv[1] === 'activate'
     && argv[2] === '--run' && typeof argv[3] === 'string' && argv[3].length > 0) {
     action = async () => {
+      if (process.platform === 'win32') {
+        return typedFailure(
+          stderr,
+          'PLATFORM_UNSUPPORTED',
+          'Lattice managed runtime v1 is POSIX-only; use WSL2 on Windows',
+        );
+      }
       const { repoRoot, runDir, runRef } = await resolveRunStore(cwd, argv[3]);
       await requireLegacyRunMode(runDir, 'activate');
       return runActivate({ runDir, runRef, repoRoot, stdout, requestId: requestIdOverride });
