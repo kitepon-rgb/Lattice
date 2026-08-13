@@ -398,11 +398,16 @@ test('remote既定branchを解決できない時は公開状態値へ出しexit 
 
 test('upstream無しはno_upstream状態値へ出しexit 0を維持する', () => {
   run('git', ['branch', '--unset-upstream'], repoRoot);
-  const result = runCli(['run', 'landing', '--run', RUN_REF]);
-  assert.equal(result.status, 0, result.stderr);
-  const report = JSON.parse(result.stdout);
-  assert.equal(report.landed, true);
-  assert.equal(report.repository.push_state, 'no_upstream');
-  assert.equal(report.repository.push_ref, null);
-  assert.equal(report.repository.unpushed_commits, null);
+  run('git', ['config', 'push.default', 'upstream'], repoRoot);
+  try {
+    const result = runCli(['run', 'landing', '--run', RUN_REF]);
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.landed, true);
+    assert.equal(report.repository.push_state, 'no_upstream');
+    assert.equal(report.repository.push_ref, null);
+    assert.equal(report.repository.unpushed_commits, null);
+  } finally {
+    run('git', ['config', '--unset', 'push.default'], repoRoot);
+  }
 });
