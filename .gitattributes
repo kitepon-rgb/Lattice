@@ -1,1 +1,12 @@
 * text=auto eol=lf
+
+# Acquired research is retained byte-for-byte; do not rewrite source whitespace.
+rag/parallel-ready-planning/** -whitespace
+
+# Lattice storeはcanonical JSON+LFのバイト列契約。EOL変換されると
+# artifact_truncated_or_trailing_bytesでstore全体がfail closedする（Windows checkoutで実害）。
+.lattice/** -text
+
+# .mjsはshebang付き実行スクリプトを含むため全OSでLF固定。
+# Windowsのautocrlfが作る「改行だけの見かけdirty」がrelease gate（clean tree必須）を塞ぐ実害もこれで消える。
+*.mjs text eol=lf
