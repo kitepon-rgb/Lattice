@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { canonicalRepositoryFingerprint } from '../src/runtime-managed-supervisor.mjs';
@@ -54,9 +54,9 @@ test('tracked・untracked・ignored・refのどれが動いても指紋が変わ
   await rm(path.join(root, 'two.txt'));
 
   // gitignore対象への書き込み。ここを見落とすとignore経由で外から触れてしまう。
-  run('git', ['config', 'core.excludesFile', '/dev/null'], root);
+  run('git', ['config', 'core.excludesFile', devNull], root);
   const ignoredDir = path.join(root, 'ignored');
-  run('mkdir', ['-p', ignoredDir], root);
+  await mkdir(ignoredDir, { recursive: true });
   await writeFile(path.join(ignoredDir, 'artifact.bin'), 'x\n');
   assert.notEqual(await canonicalRepositoryFingerprint(root), base);
   await rm(ignoredDir, { recursive: true, force: true });

@@ -3,12 +3,13 @@ import { spawnSync } from 'node:child_process';
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 // ADR 0053 Decision 3: TODO storeはtrackedだがLatticeSensor coverageから除外し、
 // generated projectionはgitignoredかつcoverageから除外する。両rootにはindex対象の
 // .mjs probeを置き、拡張子の非対応へ依存せずcoverage分離を検証する。
-const REPO_ROOT = path.resolve(new URL('../..', import.meta.url).pathname);
+const REPO_ROOT = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const STORE_PROBE_PATH = '.lattice/todo/it-store-probe.mjs';
 const GENERATED_PROBE_PATH = '.lattice/generated/it-generated-probe.mjs';
 const CONTROL_PROBE_PATH = 'test/fixtures/todo-store-coverage-control.mjs';

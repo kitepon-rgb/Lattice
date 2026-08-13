@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -53,15 +53,15 @@ test('確定した変換のbaseへworktreeを張ると、所有を宣言した�
   const stale = path.join(root, 'stale-worktree');
   run('git', ['worktree', 'add', '--detach', '--quiet', stale, baseSha], root);
   context.after(() => spawnSync('git', ['worktree', 'remove', '--force', stale], { cwd: root }));
-  assert.equal(spawnSync('test', ['-f', path.join(stale, 'page-left.mjs')]).status !== 0, true);
+  await assert.rejects(access(path.join(stale, 'page-left.mjs')));
 
   // 前進させたbaseには実在する。再開したworkerが所有を宣言したfileを触れる。
   const resumed = path.join(root, 'resumed-worktree');
   run('git', ['worktree', 'add', '--detach', '--quiet', resumed, commitSha], root);
   context.after(() => spawnSync('git', ['worktree', 'remove', '--force', resumed], { cwd: root }));
-  assert.equal(spawnSync('test', ['-f', path.join(resumed, 'page-left.mjs')]).status, 0);
-  assert.equal(spawnSync('test', ['-f', path.join(resumed, 'page-style.mjs')]).status, 0);
-  assert.match(run('cat', [path.join(resumed, 'page.mjs')], root), /from '\.\/page-left\.mjs'/u);
+  await access(path.join(resumed, 'page-left.mjs'));
+  await access(path.join(resumed, 'page-style.mjs'));
+  assert.match(await readFile(path.join(resumed, 'page.mjs'), 'utf8'), /from '\.\/page-left\.mjs'/u);
 
   // 再開先はbaseの子孫である。別の位置へ移ったのではない。
   assert.equal(spawnSync('git', ['merge-base', '--is-ancestor', baseSha, commitSha], { cwd: root }).status, 0);

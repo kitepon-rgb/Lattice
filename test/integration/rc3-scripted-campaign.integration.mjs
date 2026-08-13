@@ -22,13 +22,13 @@ let temporaryRoot;
 let artifactRoot;
 let campaign;
 
-test.before(async () => {
+if (process.platform !== 'win32') nodeTest.before(async () => {
   temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-rc3h-test-'));
   artifactRoot = path.join(temporaryRoot, 'artifacts', 'v1');
   campaign = await runRc3ScriptedCampaign({ latticeRoot: REPO_ROOT, artifactRoot });
 });
 
-test.after(async () => {
+if (process.platform !== 'win32') nodeTest.after(async () => {
   if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
 });
 

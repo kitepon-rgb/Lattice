@@ -69,8 +69,8 @@ test('現行実行・配布・test・active contract面へ廃止名を再混入�
   for (const root of roots) {
     for (const file of await filesBelow(path.join(ROOT, root))) {
       if (file === SELF) continue;
-      if (upstreamBoundary.has(path.relative(ROOT, file))) continue;
-      const relative = path.relative(ROOT, file);
+      const relative = path.relative(ROOT, file).split(path.sep).join('/');
+      if (upstreamBoundary.has(relative)) continue;
       const source = await readFile(file, 'utf8');
       if (relative.toLowerCase().includes(RETIRED_NAME)
         || source.toLowerCase().includes(RETIRED_NAME)) violations.push(relative);

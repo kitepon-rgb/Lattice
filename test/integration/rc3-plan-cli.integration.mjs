@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -210,7 +210,7 @@ test('witness unknownはBOUNDARY_UNKNOWNのtyped errorでexit 1になり planを
 
 test('改竄planと別request planはtyped errorでexit 1になる', async () => {
   const tamperedPath = path.join(temporaryRoot, 'tampered-plan.json');
-  const artifact = JSON.parse(run('cat', [planPath], temporaryRoot));
+  const artifact = JSON.parse(await readFile(planPath, 'utf8'));
   artifact.schedule.minimum_feasible_waves = 2;
   await writeFile(tamperedPath, `${JSON.stringify(artifact)}\n`);
   const result = runCli(['plan', 'verify', '--request', requestPath, '--plan', tamperedPath], repoRoot);

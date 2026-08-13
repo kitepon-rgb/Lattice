@@ -107,18 +107,19 @@ test('runtime controllerは設定変更を反映しdisableでbridgeだけ停止�
   const env = await rootFixture(context);
   const upstream = await upstreamServer((_request, response) => response.end('local dashboard alive'));
   context.after(() => close(upstream));
-  await configureBridge({ address: '127.0.0.1', port: 58_740, env,
+  const config = await configureBridge({ address: '127.0.0.1', env,
     upstream: { mode: 'url', url: `http://127.0.0.1:${portOf(upstream)}/` } });
   const controller = bridgeRuntimeController({ env });
   context.after(() => controller.close());
   const active = await controller.reconcile();
-  assert.equal(await (await fetch('http://127.0.0.1:58740/')).text(), 'local dashboard alive');
+  const bridgeUrl = `http://127.0.0.1:${config.listen.port}/`;
+  assert.equal(await (await fetch(bridgeUrl)).text(), 'local dashboard alive');
   await configureBridge({ address: '127.0.0.1', env,
     upstream: { mode: 'url', url: `http://127.0.0.1:${portOf(upstream)}/base` } });
   assert.equal(await controller.reconcile(), active);
   await disableBridge({ env });
   assert.equal(await controller.reconcile(), null);
-  await assert.rejects(fetch('http://127.0.0.1:58740/', { signal: AbortSignal.timeout(300) }));
+  await assert.rejects(fetch(bridgeUrl, { signal: AbortSignal.timeout(300) }));
   assert.equal(await (await fetch(`http://127.0.0.1:${portOf(upstream)}/`)).text(), 'local dashboard alive');
 });
 

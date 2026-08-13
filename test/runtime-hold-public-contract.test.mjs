@@ -81,7 +81,7 @@ function witness() {
   };
 }
 
-test.before(async () => {
+if (process.platform !== 'win32') nodeTest.before(async () => {
   temporaryRoot = await mkdtemp(path.join(tmpdir(), 'lattice-runtime-hold-contract-'));
   fixtureRoot = path.join(temporaryRoot, 'repo');
   await mkdir(path.join(fixtureRoot, 'src'), { recursive: true });
@@ -128,7 +128,7 @@ test.before(async () => {
   assert.equal(JSON.parse(started.stdout).schema, 'lattice.run_start_result.v1');
 });
 
-test.after(async () => {
+if (process.platform !== 'win32') nodeTest.after(async () => {
   if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
 });
 
