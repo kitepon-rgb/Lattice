@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  installNode22SqliteWarningFilter,
   sensorNodeRuntimeFlags,
-  node22RelaunchArgv,
   SQLITE_EXPERIMENTAL_WARNING_FLAG,
+  SQLITE_EXPERIMENTAL_WARNING_MESSAGE,
 } from '../src/sensor-node-runtime.mjs';
 
 test('Node 22だけnode:sqliteのExperimentalWarningを対象指定で抑止する', () => {
@@ -13,17 +14,23 @@ test('Node 22だけnode:sqliteのExperimentalWarningを対象指定で抑止す�
   assert.deepEqual(sensorNodeRuntimeFlags('26.5.0'), []);
 });
 
-test('Node 22再起動は全CLIの引数と既存Node引数を保ちwarning flagを重複させない', () => {
-  assert.deepEqual(
-    node22RelaunchArgv('/repo/bin/lattice.mjs', ['sensor', 'diff'], ['--trace-uncaught'], '22.22.0'),
-    [SQLITE_EXPERIMENTAL_WARNING_FLAG, '--trace-uncaught', '/repo/bin/lattice.mjs', 'sensor', 'diff'],
-  );
-  assert.deepEqual(
-    node22RelaunchArgv('/repo/bin/lattice.mjs', ['sensor'], [SQLITE_EXPERIMENTAL_WARNING_FLAG], '22.22.0'),
-    [SQLITE_EXPERIMENTAL_WARNING_FLAG, '/repo/bin/lattice.mjs', 'sensor'],
-  );
-  assert.deepEqual(
-    node22RelaunchArgv('/repo/bin/lattice.mjs', ['todo', 'status', '--json'], [], '22.22.0'),
-    [SQLITE_EXPERIMENTAL_WARNING_FLAG, '/repo/bin/lattice.mjs', 'todo', 'status', '--json'],
-  );
+test('Node 22はSQLite警告だけを抑止し、他の警告とrestore後の動作を保つ', () => {
+  const emitted = [];
+  const processObject = {
+    emitWarning(warning, ...args) {
+      emitted.push([warning, ...args]);
+    },
+  };
+  const restore = installNode22SqliteWarningFilter({
+    nodeVersion: '22.22.0',
+    processObject,
+  });
+
+  processObject.emitWarning(SQLITE_EXPERIMENTAL_WARNING_MESSAGE, 'ExperimentalWarning');
+  processObject.emitWarning('another warning', 'Warning');
+  assert.deepEqual(emitted, [['another warning', 'Warning']]);
+
+  restore();
+  processObject.emitWarning(SQLITE_EXPERIMENTAL_WARNING_MESSAGE, 'ExperimentalWarning');
+  assert.equal(emitted.length, 2);
 });

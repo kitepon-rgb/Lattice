@@ -1,51 +1,32 @@
-import { spawnSync } from 'node:child_process';
-
 export const SQLITE_EXPERIMENTAL_WARNING_FLAG = '--disable-warning=ExperimentalWarning';
-const RELAUNCH_GUARD_ENV = 'LATTICE_SQLITE_WARNING_RELAUNCHED';
+export const SQLITE_EXPERIMENTAL_WARNING_MESSAGE =
+  'SQLite is an experimental feature and might change at any time';
 
 export function sensorNodeRuntimeFlags(nodeVersion = process.versions.node) {
   const major = Number(nodeVersion.split('.')[0]);
   return major === 22 ? [SQLITE_EXPERIMENTAL_WARNING_FLAG] : [];
 }
 
-export function node22RelaunchArgv(
-  scriptPath,
-  args,
-  execArgv = process.execArgv,
-  nodeVersion = process.versions.node,
-) {
-  const flags = sensorNodeRuntimeFlags(nodeVersion)
-    .filter((flag) => !execArgv.includes(flag));
-  return [...flags, ...execArgv, scriptPath, ...args];
-}
-
 /**
  * Node 22 prints node:sqlite's ExperimentalWarning to stderr. The CLI has a
- * JSON-only output contract, so relaunch before any command can import node:sqlite.
+ * JSON-only output contract, so suppress that exact warning while node:sqlite loads.
+ * Every other process warning keeps Node's original behavior.
  */
-export function relaunchForNode22IfNeeded({ args, scriptPath, env = process.env }) {
-  const flags = sensorNodeRuntimeFlags();
-  if (flags.length === 0
-    || flags.every((flag) => process.execArgv.includes(flag))
-    || env[RELAUNCH_GUARD_ENV] === '1') return null;
+export function installNode22SqliteWarningFilter({
+  nodeVersion = process.versions.node,
+  processObject = process,
+} = {}) {
+  if (sensorNodeRuntimeFlags(nodeVersion).length === 0) return () => {};
 
-  const result = spawnSync(
-    process.execPath,
-    node22RelaunchArgv(scriptPath, args),
-    {
-      cwd: process.cwd(),
-      env: { ...env, [RELAUNCH_GUARD_ENV]: '1' },
-      stdio: 'inherit',
-      windowsHide: true,
-    },
-  );
-  if (result.error) {
-    process.stderr.write(`${JSON.stringify({
-      schema: 'lattice.cli_error.v2',
-      code: 'LATTICE_SENSOR_RELAUNCH_FAILED',
-      message: result.error.message,
-    })}\n`);
-    return 1;
-  }
-  return result.status ?? 1;
+  const originalEmitWarning = processObject.emitWarning;
+  processObject.emitWarning = function filteredEmitWarning(warning, ...args) {
+    const type = typeof args[0] === 'string' ? args[0] : args[0]?.type;
+    const message = typeof warning === 'string' ? warning : warning?.message;
+    if (type === 'ExperimentalWarning' && message === SQLITE_EXPERIMENTAL_WARNING_MESSAGE) return;
+    return Reflect.apply(originalEmitWarning, processObject, [warning, ...args]);
+  };
+
+  return () => {
+    processObject.emitWarning = originalEmitWarning;
+  };
 }

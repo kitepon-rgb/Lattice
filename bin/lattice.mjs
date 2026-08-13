@@ -1,23 +1,17 @@
 #!/usr/bin/env node
 
-import { fileURLToPath } from 'node:url';
 import { installPipeCloseGuard } from '../src/cli-stdio.mjs';
 import { renderCliHelp } from '../src/cli-help.mjs';
-import { relaunchForNode22IfNeeded } from '../src/sensor-node-runtime.mjs';
+import { installNode22SqliteWarningFilter } from '../src/sensor-node-runtime.mjs';
 import packageJson from '../package.json' with { type: 'json' };
 
 installPipeCloseGuard();
 
 const args = process.argv.slice(2);
-const node22RelaunchStatus = relaunchForNode22IfNeeded({
-  args,
-  scriptPath: fileURLToPath(import.meta.url),
-});
+const restoreWarningHandler = installNode22SqliteWarningFilter();
 const help = renderCliHelp(args);
 
-if (node22RelaunchStatus !== null) {
-  process.exitCode = node22RelaunchStatus;
-} else if (help !== null) {
+if (help !== null) {
   process.stdout.write(help);
 } else if (args.length === 1 && args[0] === '--version') {
   process.stdout.write(`${packageJson.version}\n`);
@@ -150,6 +144,8 @@ if (node22RelaunchStatus !== null) {
     process.exitCode = 1;
   }
 }
+
+restoreWarningHandler();
 
 async function runRuntimeErrorsCli(rest) {
   const runtimeErrors = await import('../src/runtime-errors.mjs');
