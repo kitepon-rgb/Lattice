@@ -25,6 +25,7 @@ jobs:
       - run: npm --prefix sensor ci
       - run: npm --prefix sensor run build
       - run: npm run test:profile -- --profile=core
+      - run: npm run test:sensor
 
   # Linux native固有のdaemon、git、store、CLI、POSIX hooks境界だけを実測する。
   linux-native:
@@ -53,7 +54,6 @@ jobs:
       - run: npm --prefix sensor ci
       - run: npm --prefix sensor run build
       - run: npm run test:profile -- --profile=windows
-      - run: npm run test:sensor
       - run: npm run check
       - run: npm run check:cli-surface
       - run: npm run check:open-questions
