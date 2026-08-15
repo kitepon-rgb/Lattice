@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.60.5 — 2026-08-15
+
+### 修正
+
+- store読みのevidence blob・import source検証を、objectごとのgit子起動からstore読み単位の
+  `cat-file --batch`一括prefetchへ集約した。evidenceが育ったstoreの`lattice status`が
+  Windows実測で6.5秒→1.6秒（git起動96回→23回）。改版genesisの`state_migration`搬送evidenceも
+  収集対象に含め、status JSONは修理前後でbyte一致（挙動不変）。
+
 ## 0.60.4 — 2026-08-13
 
 ### 修正

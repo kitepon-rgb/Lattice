@@ -1177,6 +1177,102 @@ function pinnedSourceLine(repoRoot, source, cache = null) {
   throw new Error('line outside blob');
 }
 
+// 検証対象objectの一括prefetch。event payloadに現れるevidence記述子とimport sourceを
+// 収集し、repoごとに1回の`cat-file --batch`でcacheへseedする。object 1個=spawn 1回の
+// 雪崩はWindowsで起動単価66〜100msになり、evidenceが育ったstoreのstatusを桁で遅くする。
+// 成功した読みだけをcacheへ入れ、missing・型不一致・batchごと失敗（repo不在等の境界）は
+// 何もcacheしない——正誤の裁定は従来どおりper-objectの検証経路が同じ結果を出す。
+function prefetchVerificationObjects(manifest, repoRoot, events, pinnedSourceCache) {
+  const candidates = [];
+  for (const event of events) {
+    // 改版genesisはevent直下のstate_migrationでtask状態（evidence込み）を搬送する。
+    // replayがcarry系だけを復元・検証するので、収集も同じpolicyへ揃える。
+    if (Array.isArray(event.state_migration)) {
+      for (const migration of event.state_migration) {
+        if (['carry', 'carry_reconciled_metadata', 'acquire_phase'].includes(migration.state_policy)
+          && migration.state !== null && typeof migration.state === 'object'
+          && migration.state.evidence !== null && typeof migration.state.evidence === 'object') {
+          candidates.push(migration.state.evidence);
+        }
+      }
+    }
+    const payload = event.payload;
+    if (payload === null || typeof payload !== 'object') continue;
+    if (payload.evidence !== null && typeof payload.evidence === 'object') candidates.push(payload.evidence);
+    if (payload.decision_evidence !== null && typeof payload.decision_evidence === 'object') {
+      candidates.push(payload.decision_evidence);
+    }
+    if (Array.isArray(payload.evidence_slots)) {
+      for (const slot of payload.evidence_slots) {
+        if (slot !== null && typeof slot === 'object'
+          && slot.evidence !== null && typeof slot.evidence === 'object') candidates.push(slot.evidence);
+      }
+    }
+  }
+  const repositories = new Map(manifest.repositories.map((repo) => [repo.repo_id, repo.path]));
+  const oidsByRepo = new Map();
+  const pinnedCommits = new Set();
+  const pinnedSpecs = new Set();
+  for (const candidate of candidates) {
+    if (validateEvidenceDescriptor(candidate)) {
+      const repoRef = repositories.get(candidate.repo_id);
+      if (repoRef === undefined) continue;
+      const absoluteRepo = path.resolve(repoRoot, repoRef);
+      if (evidenceBlobCache.has(`${absoluteRepo}\0${candidate.git_blob_oid}`)) continue;
+      let oids = oidsByRepo.get(absoluteRepo);
+      if (oids === undefined) oidsByRepo.set(absoluteRepo, oids = new Set());
+      oids.add(candidate.git_blob_oid);
+    } else if (validateTodoImportSource(candidate) && pinnedSourceCache !== null) {
+      if (!pinnedSourceCache.commits.has(candidate.source_commit)) pinnedCommits.add(candidate.source_commit);
+      const spec = `${candidate.source_commit}:${candidate.origin_plan_ref}`;
+      if (!pinnedSourceCache.blobs.has(spec)) pinnedSpecs.add(spec);
+    }
+  }
+  for (const [absoluteRepo, oids] of oidsByRepo) {
+    let entries;
+    try {
+      entries = gitCatFileBatch([...oids], {
+        cwd: absoluteRepo, maxBodyBytes: TODO_LIMITS.narrativeSectionBytes + 1,
+      });
+    } catch { continue; }
+    let index = 0;
+    for (const oid of oids) {
+      const entry = entries[index];
+      index += 1;
+      // seedしないだけで正誤は変えない: 上限超過bodyは単体読みのmaxBufferでは読めない
+      // （＝従来は未検証）ので、batch同乗の予算合算で検証済みへ昇格させない。cacheが
+      // 満杯なら追い出さずseedを止める——seeding自身の追い出しは自分のseedを連鎖破壊し、
+      // 513件以上で全件個別spawnへ戻る。溢れた分はper-item経路が従来どおり扱う。
+      if (entry.missing || entry.type !== 'blob'
+        || entry.bytes.length > TODO_LIMITS.narrativeSectionBytes
+        || evidenceBlobCache.size >= EVIDENCE_BLOB_CACHE_LIMIT) continue;
+      evidenceBlobCache.set(`${absoluteRepo}\0${oid}`, entry.bytes);
+    }
+  }
+  const pinnedNames = [...pinnedCommits, ...pinnedSpecs];
+  if (pinnedNames.length === 0) return;
+  let entries;
+  try {
+    entries = gitCatFileBatch(pinnedNames, {
+      cwd: repoRoot, maxBodyBytes: TODO_LIMITS.narrativeSectionBytes + 1,
+    });
+  } catch { return; }
+  let index = 0;
+  for (const commit of pinnedCommits) {
+    const entry = entries[index];
+    index += 1;
+    if (!entry.missing && entry.type === 'commit') pinnedSourceCache.commits.add(commit);
+  }
+  for (const spec of pinnedSpecs) {
+    const entry = entries[index];
+    index += 1;
+    if (!entry.missing && entry.type === 'blob'
+      && entry.bytes.length <= TODO_LIMITS.narrativeSectionBytes) {
+      pinnedSourceCache.blobs.set(spec, entry.bytes);
+    }
+  }
+}
+
 function markdownCheckboxState(lineBytes) {
   if (lineBytes.length >= 3 && lineBytes[0] === 0xef && lineBytes[1] === 0xbb && lineBytes[2] === 0xbf) return null;
   let line;
@@ -1221,7 +1317,7 @@ function narrativeAnchorSource(value) {
     });
 }
 
-function materializeImportedNarrativeAnchors(repoRoot, planInput, sources) {
+function materializeImportedNarrativeAnchors(repoRoot, planInput, sources, cache = null) {
   if (sources === undefined) return planInput;
   if (!['lattice.todo_plan.v2', 'lattice.todo_plan.v6'].includes(planInput?.schema)
     || !Array.isArray(sources)
@@ -1241,7 +1337,7 @@ function materializeImportedNarrativeAnchors(repoRoot, planInput, sources) {
       if (source !== undefined && task.narrative_ref === source.origin_plan_ref
         && ['checked', 'unchecked'].includes(source.checkbox_state)) {
         try {
-          const line = pinnedSourceLine(repoRoot, source);
+          const line = pinnedSourceLine(repoRoot, source, cache);
           if (markdownCheckboxState(line) === source.checkbox_state) {
             narrativeAnchor = {
               origin_plan_ref: source.origin_plan_ref,
@@ -1259,7 +1355,7 @@ function materializeImportedNarrativeAnchors(repoRoot, planInput, sources) {
   };
 }
 
-function verifyPlanNarrativeAnchors(repoRoot, plan, trustedPlan = null) {
+function verifyPlanNarrativeAnchors(repoRoot, plan, trustedPlan = null, cache = null) {
   if (!['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4',
     'lattice.todo_plan.v5', 'lattice.todo_plan.v6', 'lattice.todo_plan.v7'].includes(plan.schema)) return;
   const trusted = new Map((['lattice.todo_plan.v2', 'lattice.todo_plan.v3', 'lattice.todo_plan.v4',
@@ -1273,7 +1369,7 @@ function verifyPlanNarrativeAnchors(repoRoot, plan, trustedPlan = null) {
     if (previous !== undefined
       && canonicalizeTodoArtifact(previous) === canonicalizeTodoArtifact(anchor)) continue;
     try {
-      const line = pinnedSourceLine(repoRoot, anchor);
+      const line = pinnedSourceLine(repoRoot, anchor, cache);
       if (sha256Bytes(line) !== anchor.source_line_digest || markdownCheckboxState(line) === null) {
         throw new Error('anchor mismatch');
       }
@@ -1374,6 +1470,7 @@ export async function readTodoStore(options = {}) {
       && descriptor.active_revision_digest !== plan.plan_digest) {
       fail('STORE_INCONSISTENT', 'manifest_revision_binding_mismatch');
     }
+    prefetchVerificationObjects(manifest, repoRoot, journal.events, pinnedSourceCache);
     const verifyEvidence = evidenceVerifier(manifest, repoRoot, options.forWrite === true);
     const verifyImportSource = importSourceVerifier(repoRoot, options.forWrite === true, pinnedSourceCache);
     const tasks = replay(plan, journal.events, {
@@ -1864,10 +1961,13 @@ export async function appendTodoEvent(options = {}) {
     }
     // Validate the prospective history, including hard evidence and transitions, before any write.
     validateMergedTransition(store, member, event);
+    const appendSourceCache = { commits: new Set(), blobs: new Map() };
+    prefetchVerificationObjects(store.manifest, repoRoot,
+      [...member.journal.events, event], appendSourceCache);
     replay(member.plan, [...member.journal.events, event], {
       now: options.now ? new Date(options.now) : new Date(),
       verifyEvidence: evidenceVerifier(store.manifest, repoRoot, true),
-      verifyImportSource: importSourceVerifier(repoRoot, true),
+      verifyImportSource: importSourceVerifier(repoRoot, true, appendSourceCache),
     });
     const eventBytes = canonicalLine(event);
     const activeRef = member.descriptor.journal_ref;
@@ -1886,7 +1986,7 @@ export async function appendTodoEvent(options = {}) {
     const tasks = replay(member.plan, [...member.journal.events, event], {
       now: options.now ? new Date(options.now) : new Date(),
       verifyEvidence: evidenceVerifier(store.manifest, repoRoot, false),
-      verifyImportSource: importSourceVerifier(repoRoot, false),
+      verifyImportSource: importSourceVerifier(repoRoot, false, appendSourceCache),
     });
     const snapshot = snapshotFor(member.plan, [...member.journal.events, event], tasks);
     await atomicWrite(path.resolve(repoRoot, member.descriptor.snapshot_ref), canonicalLine(snapshot));
@@ -2066,14 +2166,15 @@ function historicalImportInputs(value, timestampKey) {
 }
 
 function prepareImportedArtifacts(repoRoot, options, projectId, memberPlans) {
+  const importSourceCache = { commits: new Set(), blobs: new Map() };
   const planInput = materializeImportedNarrativeAnchors(
-    repoRoot, options.plan, options.narrativeAnchorSources,
+    repoRoot, options.plan, options.narrativeAnchorSources, importSourceCache,
   );
   const plan = buildTodoPlan(planInput);
   if (plan.project_id !== projectId || plan.predecessor_plan_digest !== null) {
     throw new TypeError('imported plan must be a project-local genesis plan');
   }
-  verifyPlanNarrativeAnchors(repoRoot, plan);
+  verifyPlanNarrativeAnchors(repoRoot, plan, null, importSourceCache);
   const genesis = buildPlanGenesis(plan, { ...options.genesis, historical_import: true });
   const events = [genesis];
   const inProgressTasks = options.inProgressTasks ?? [];
@@ -2091,7 +2192,7 @@ function prepareImportedArtifacts(repoRoot, options, projectId, memberPlans) {
   }
   for (const input of inProgressTasks) events.push(buildHistoricalStart(plan, events.at(-1), input, genesis));
   for (const input of completedTasks) events.push(buildHistoricalDone(plan, events.at(-1), input, genesis));
-  const verifyImportSource = importSourceVerifier(repoRoot, true);
+  const verifyImportSource = importSourceVerifier(repoRoot, true, importSourceCache);
   const tasks = replay(plan, events, {
     now: options.now ? new Date(options.now) : new Date(), verifyImportSource,
   });

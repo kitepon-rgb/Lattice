@@ -1024,6 +1024,107 @@ test('同一pinned sourceのread-time検証はstore read内でcommitとblobを�
   assert.equal((await readFile(counter, 'utf8')).length, 1);
 });
 
+// narrativeSectionBytes超のevidence blobは単体読みのmaxBufferで読めず未検証注釈になる。
+// prefetchのbatch同乗（maxBufferが件数×予算）で検証済みへ昇格させないことを固定する。
+test('上限超過evidence blobはprefetch経由でも未検証注釈のまま変わらない', async (context) => {
+  const root = await workspace(context);
+  // 通常writerは書込時hard検証で上限超過evidenceを拒むので、読み手の挙動固定には
+  // journalを直接構築する（1 MiB seal testと同じ手口）。
+  const events = [JSON.parse((await bytes(root, journalRef)).toString('utf8'))];
+  const append = (kind, taskId, payload) => {
+    const previous = events.at(-1);
+    const event = { schema: 'lattice.todo_event.v1', project_id: 'project-1', plan_key: 'main', plan_version: 'v1',
+      sequence: previous.sequence + 1, previous_digest: previous.event_digest, kind, task_id: taskId, actor: ACTOR,
+      recorded_at: NOW, provenance: null, payload, event_digest: '' };
+    event.event_digest = todoSelfDigest(event, 'event_digest');
+    events.push(event);
+  };
+  // 到達可能性検査（rev-list --all）を通すため、blobはdanglingでなくcommit済みにする。
+  const evidenceFor = async (name, evidenceBytes) => {
+    await writeFile(path.join(root, `${name}.txt`), evidenceBytes);
+    execFileSync('git', ['add', `${name}.txt`], { cwd: root });
+    execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid',
+      'commit', '--quiet', '-m', name], { cwd: root });
+    const oid = execFileSync('git', ['rev-parse', `HEAD:${name}.txt`], { cwd: root, encoding: 'utf8' }).trim();
+    return { evidence_id: name, repo_id: 'self', path: `${name}.txt`, git_blob_oid: oid,
+      content_digest: createHash('sha256').update(evidenceBytes).digest('hex'),
+      media_type: 'text/plain', anchor_digest: null };
+  };
+  // 小さいblobを同乗させて2件batchにする（batch予算=件数×上限なので、同乗がないと
+  // 単体読みと同じ予算になり、この境界は観測できない）。
+  append('start', 'T1', { override_reason: null });
+  append('done', 'T1', { done_mode: 'authored', imported: false,
+    evidence: await evidenceFor('ev-small', Buffer.from('small evidence\n')) });
+  append('start', 'T2', { override_reason: null });
+  append('done', 'T2', { done_mode: 'authored', imported: false,
+    evidence: await evidenceFor('ev-oversized', Buffer.alloc(300_000, 0x61)) });
+  await writeFile(path.join(root, journalRef), `${events.map(canonicalizeTodoArtifact).join('\n')}\n`);
+  const manifest = JSON.parse((await bytes(root, manifestRef)).toString('utf8'));
+  manifest.members[0].journal_head_digest = events.at(-1).event_digest;
+  manifest.manifest_digest = todoSelfDigest(manifest, 'manifest_digest');
+  await writeFile(path.join(root, manifestRef), `${canonicalizeTodoArtifact(manifest)}\n`);
+  await rebuildTodoSnapshot({ repoRoot: root, planKey: 'main', now: NOW });
+  // module cacheの温まりに依存しない判定にするため、statusと同じ新processで読む。
+  const storeUrl = new URL('../src/todo-store.mjs', import.meta.url).href;
+  const output = execFileSync(process.execPath, ['--input-type=module', '-e', [
+    `const { readTodoStore } = await import(${JSON.stringify(storeUrl)});`,
+    `const store = await readTodoStore({ repoRoot: ${JSON.stringify(root)}, now: ${JSON.stringify(NOW)} });`,
+    'console.log(JSON.stringify(store.members[0].tasks.map(({ task_id, evidence_unverified }) => [task_id, evidence_unverified === true])));',
+  ].join('\n')], { encoding: 'utf8' });
+  const rows = JSON.parse(output.trim().split('\n').at(-1));
+  assert.equal(rows.find(([taskId]) => taskId === 'T1')[1], false,
+    '上限内の到達可能blobは検証済みになる（fixture健全性）');
+  assert.equal(rows.find(([taskId]) => taskId === 'T2')[1], true,
+    '上限超過blobがprefetchのbatch同乗で検証済みへ昇格してはならない');
+});
+
+// 上と同じPOSIX前提の計数fixture。evidence blob読みがtaskごとのgit子起動へ戻る退行を防ぐ。
+test('store readはevidence blobを1回のcat-file --batchへ集約して読む',
+  { skip: process.platform === 'win32' }, async (context) => {
+  const root = await workspace(context);
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  for (const [taskId, body] of [['T1', 'evidence one\n'], ['T2', 'evidence two\n']]) {
+    const evidenceBytes = Buffer.from(body);
+    const oid = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+      cwd: root, input: evidenceBytes, encoding: 'utf8',
+    }).trim();
+    const evidence = { evidence_id: `ev-${taskId}`, repo_id: 'self', path: `${taskId}.txt`,
+      git_blob_oid: oid, content_digest: createHash('sha256').update(evidenceBytes).digest('hex'),
+      media_type: 'text/plain', anchor_digest: null };
+    await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+      event: { kind: 'start', task_id: taskId, actor: ACTOR, recorded_at: NOW,
+        payload: { override_reason: null } } });
+    await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+      event: { kind: 'done', task_id: taskId, actor: ACTOR, recorded_at: NOW,
+        payload: { evidence } } });
+  }
+  const shimDirectory = path.join(root, 'git-shim');
+  const counter = path.join(root, 'git-count');
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  await mkdir(shimDirectory);
+  await writeFile(path.join(shimDirectory, 'git'), [
+    '#!/bin/sh',
+    'printf x >> "$LATTICE_GIT_COUNT_FILE"',
+    `exec ${JSON.stringify(realGit)} "$@"`,
+    '',
+  ].join('\n'));
+  await chmod(path.join(shimDirectory, 'git'), 0o700);
+  // module内cache（evidenceBlobCache等）が温まった本processでは集約経路を観測できないため、
+  // statusと同じ「新しいprocessでの初回store読み」を子processで再現して数える。
+  const storeUrl = new URL('../src/todo-store.mjs', import.meta.url).href;
+  const output = execFileSync(process.execPath, ['--input-type=module', '-e', [
+    `const { readTodoStore } = await import(${JSON.stringify(storeUrl)});`,
+    `const store = await readTodoStore({ repoRoot: ${JSON.stringify(root)}, now: ${JSON.stringify(NOW)} });`,
+    'console.log(JSON.stringify(store.members[0].tasks.map(({ task_id, status }) => [task_id, status])));',
+  ].join('\n')], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${shimDirectory}:${process.env.PATH}`, LATTICE_GIT_COUNT_FILE: counter },
+  });
+  assert.deepEqual(JSON.parse(output.trim().split('\n').at(-1)), [['T1', 'done'], ['T2', 'done']]);
+  // evidence blobのprefetch batch 1回 + 到達可能性のrev-list 1回だけ。taskごとの個別起動は許さない。
+  assert.equal((await readFile(counter, 'utf8')).length, 2);
+});
+
 test('historical doneはlatent start付きdoneとしてchain/ganttへ投影し依存順を捏造しない', async (context) => {
   const root = await workspace(context);
   const result = await appendImportedPlan(importedPlanRequest(root));
