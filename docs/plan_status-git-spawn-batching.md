@@ -1,7 +1,7 @@
 # plan: status git spawn雪崩の根治（evidence blob batch集約）
 
 - 起案: 2026-08-15 / 統括レーン（条件③: Lattice製品改修＋release完遂とdotagents hook改修の複数repo書込み調整）
-- 状態: 進行中
+- 状態: **完了（2026-08-15）**。Lattice 0.60.5をpublish・install・公開後smoke済み（dotagents store実測1.5〜2.3秒）。dotagents側は非同期中継hook（e6e3b6dd）＋git-destroy-gate＋憲法1行（dd9453a6）をpush済み、この端末へClaude/Codex両配線適用済み。
 - 関連: dotagents側の非同期中継hook改修（正本はdotagents側。ここでは参照のみ）
 
 ## 背景（実測診断 2026-08-15）
