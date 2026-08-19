@@ -20,7 +20,8 @@ export const TODO_DASHBOARD_CODE_VERSION = packageJson.version;
 const REGISTRY_SCHEMA = 'lattice.todo_dashboard_registry.v1';
 const DAEMON_SCHEMA = 'lattice.todo_dashboard_daemon.v1';
 const DEFAULT_PORT = 0;
-export const TODO_DASHBOARD_STALE_MS = 2 * 60 * 60 * 1_000;
+// 登録簿の鮮度窓＝dashboard配信寿命。heartbeatの露出判定へ流用しない（ADR 0165）。
+export const TODO_DASHBOARD_STALE_MS = 7 * 24 * 60 * 60 * 1_000;
 const LOCK_ATTEMPTS = 240;
 const LOCK_WAIT_MS = 25;
 const LOCK_STALE_MS = 30_000;

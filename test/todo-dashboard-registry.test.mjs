@@ -23,6 +23,10 @@ import {
   TODO_DASHBOARD_STALE_MS,
 } from '../src/todo-dashboard-registry.mjs';
 
+test('公開配信の鮮度窓は1週間', () => {
+  assert.equal(TODO_DASHBOARD_STALE_MS, 7 * 24 * 60 * 60 * 1_000);
+});
+
 test('監査判断待ちと棄却済みPhaseはactive taskが無くてもdashboardへ残す', () => {
   for (const status of ['gate_ready', 'reviewing', 'rejected']) {
     assert.equal(todoDashboardMemberNeedsVisibility({ phases: [{ phase_id: 'audit', status }] }), true);
@@ -837,7 +841,7 @@ test('store書き込みのtodo commandが明示serveなしでproject登録とdae
 test('読み取りのtodo commandはproject登録もdaemon起動もしない', async (context) => {
   // activeであることはlocalな都合ではない。bridge heartbeatはactive project全件を
   // hubへ送り、hubはその集合から公開dashboardの配信元を決める。つまりactive化は
-  // 「この端末がこのprojectを配信する」という主張であって、2時間続く。
+  // 「この端末がこのprojectを配信する」という主張であって、鮮度窓（1週間）のあいだ続く。
   // cloneを1回覗いただけの`todo status`がそれを主張し、本当に配信している端末と
   // 衝突して、その端末のproject集合ごと公開面から落としていた（2026-08-10）。
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-read-'));

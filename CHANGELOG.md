@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.60.6 — 2026-08-19
+
+### 変更
+
+- 公開dashboardの鮮度窓を2時間から1週間へ伸ばした。`TODO_DASHBOARD_STALE_MS`。
+  last_seen が1週間以内、または active run／監査待ちがある project を配信する。
+  heartbeat の90秒 TTL と、ADR 0165 の「配信実体だけを名乗る」は変えていない。
+
 ## 0.60.5 — 2026-08-15
 
 ### 修正
