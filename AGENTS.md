@@ -91,6 +91,10 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
   エラー面が無いので、症状は「公開面から端末が消えた」だけになる（2026-08-08・2026-08-10に2度被弾）。
   新しいplatformの常駐面を足す時も同じ助走を通し、焼いた対象の実在は`lattice bridge status`の
   `persistence`が観測できる形にする。
+- **macOS LaunchAgentのbootoutは`launchctl print`が113になるまで完了しない（ADR 0179）。**
+  `bootout`のexit 0はunload受付だけである。labelが残ったまま`bootstrap`するとlaunchdは
+  `5 Input/output error`を返す（0.58.3・0.58.4・0.60.6で同じ形）。socket停止確認だけでは足りない。
+  Windows Startup folderへこの待ちを写さない。
 - 実daemon・実processを起動するtestは、後片付けをtestごとに手書きせず共通のfixture helperへ焼き込む。
   停止対象はdescriptorのpidでなくargvがfixtureのtemp pathを指すprocessとし、SIGTERMからSIGKILLへ上げて
   死を確認してからfixtureを消し、最後に生き残りゼロをassertする。取り残しは機械を重くして、時間予算を

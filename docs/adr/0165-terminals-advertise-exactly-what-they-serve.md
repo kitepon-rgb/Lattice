@@ -46,3 +46,9 @@
 - 配信が本当に止まった時（daemon停止・repo消滅）は従来通り90秒でofflineへ落ちる。TTLの意味は変えない。
 - `readActiveTodoDashboardProjects` は登録簿の問い合わせとして残すが、**公開面の露出判定へは使わない**。
   同じ流用を再びしないこと。
+
+## Addendum — 2026-08-19
+
+`TODO_DASHBOARD_STALE_MS` を1週間へ延長した（0.60.6）。Contextの「2時間」は当時の事実であり書き換えない。
+Decision 1〜3は変えない——heartbeatはいまも配信実体だけを名乗る。配信実体そのものの鮮度窓は1週間であり、
+active runと監査待ちPhaseは窓を超えても配信する。

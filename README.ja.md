@@ -305,7 +305,8 @@ active projectを自動登録し、一つのloopback dashboard daemonを再利�
 dashboardはmanifestのfile identityが変わらない間のstable store readを再利用します。
 巨大工程図のrender中にhealth応答が遅れても、生存中dashboardを新daemonで置き換えず
 `DASHBOARD_DAEMON_UNRESPONSIVE`としてtyped拒否します。
-最近のsession activityが期限切れでも、Lattice storeの`active_set`が非空なprojectは一覧へ残ります。
+最近のsession activityが1週間を過ぎても、Lattice storeの`active_set`が非空なproject、
+または監査待ちPhaseがあるprojectは一覧へ残ります。
 長時間の外部処理中にCLI呼出しが途切れても進行中projectを休眠扱いしません。
 LANや外部reverse proxyから閲覧するoptional bridgeは既定で無効です。明示したIPにだけbindする初回設定、
 再設定、停止方法は[bridge setup](docs/bridge-setup.md)を参照してください。reverse proxy hostへsshで

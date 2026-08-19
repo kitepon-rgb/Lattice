@@ -419,8 +419,11 @@ foreground read-only viewerで、stable store readとSSEにより更新を反映
 live result v3は`project_id`、project scope、選択scope、起動時点で含むplan key群、HTML media type、
 動的表示であること、`/projects/<project_id>/`のproject固有URL、同じnamespace配下の`events_url`を返す。
 各projectのforeground sessionは独立portで同時起動でき、project間でHTML、SSE、store stateを共有しない。
-共有dashboardのactive project判定はrecent session activityまたはstoreの非空`active_set`だけを根拠にする。
-activity TTLを越えてもactive runがあるprojectを一覧から除外せず、active run終了かつTTL期限切れで除外する。
+共有dashboardの配信判定は、登録簿の`last_seen_at`が`TODO_DASHBOARD_STALE_MS`（1週間）以内、
+またはstoreの非空`active_set`、または監査待ちPhase（`gate_ready`／`reviewing`／`rejected`）の
+いずれかがあることとする。期限切れかつactive runも監査待ちも無いprojectは一覧から外す。
+heartbeatは配信集合を二次計算せず、dashboard daemonが実際に配信しているidをそのまま名乗る
+（[ADR 0165](adr/0165-terminals-advertise-exactly-what-they-serve.md)）。
 dashboard daemonは起動時に読み込んだ版数をhealthで名乗り、installされた版と食い違うdaemonは新版へ
 置き換える。publishとinstallを終えた版が、古いdaemonの生存を理由に配信面へ届かないままになることを
 許さない。置き換えの待ち時間は固定秒数で打ち切らず、spawnした子が生きている間は待ち、子の死で即座に

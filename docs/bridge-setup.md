@@ -103,6 +103,12 @@ bridgeが無効な間は以下すべてnullで、bridgeを有効にしている�
 lattice bridge reconfigure --json
 ```
 
+macOSのLaunchAgent載せ直しでは、`launchctl bootout`のexit 0はunload受付だけである。labelが
+domainから消える（`launchctl print`が113）前に`bootstrap`すると、launchdは
+`5 Input/output error`を返す。`reconfigure`はprint 113を待ってから載せる（0.60.7・
+[ADR 0179](adr/0179-launchctl-bootout-completes-when-print-returns-113.md)）。失敗時は
+launchctlのexit codeとstderrが`lattice.cli_error.v2`の`detail`に残る。
+
 ### 公開面から自分のprojectが消えた時（`last_heartbeat`）
 
 hubへ繋いでいる端末では、`runtime.last_heartbeat`が最後にhubへ名乗った結果を持つ。公開一覧で
@@ -118,8 +124,11 @@ hubへ繋いでいる端末では、`runtime.last_heartbeat`が最後にhubへ�
 | `skipped_no_dashboard` | dashboard daemonを観測できない。配信そのものが立っていない | daemonの生死を見る。`todo`系commandを1回打てば起動する |
 | `null` | hub未設定、またはまだ1回も送っていない | — |
 
-名乗る集合はdaemonが実際に配信している集合そのもの（ADR 0165）。登録簿の`last_seen_at`が古い
-ことは露出に影響しない——**人がCLIを叩かなくなっただけで公開面から消えることはない**。
+名乗る集合はdaemonが実際に配信している集合そのもの（ADR 0165）。配信集合は
+`last_seen_at`が1週間以内、またはactive run、または監査待ちPhaseがあるprojectである。
+人がCLIを叩かなくても、その条件を満たす限り公開面に残る。1週間を超え、runも監査待ちも
+無いprojectは配信から外れる。heartbeatの90秒TTLは、配信そのものが止まった時
+（daemon停止）にofflineへ落とすためのもので、鮮度窓ではない。
 
 ### 焼き込むnode pathの選び方（ADR 0163）
 
