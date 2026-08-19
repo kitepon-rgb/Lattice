@@ -431,8 +431,11 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
     } else stdout.write(`${JSON.stringify(result(command, config, recovery, liveness, diagnostics, warnings))}\n`);
     return 0;
   } catch (error) {
-    stderr.write(`${JSON.stringify({ schema: 'lattice.cli_error.v2',
-      code: error?.code ?? 'BRIDGE_FAILED', message: error?.message ?? 'bridge command failed' })}\n`);
+    const payload = { schema: 'lattice.cli_error.v2',
+      code: error?.code ?? 'BRIDGE_FAILED', message: error?.message ?? 'bridge command failed' };
+    if (error?.detail && typeof error.detail === 'object' && !Array.isArray(error.detail)
+      && Object.keys(error.detail).length > 0) payload.detail = error.detail;
+    stderr.write(`${JSON.stringify(payload)}\n`);
     return error?.code === 'USAGE' ? 2 : 1;
   }
 }

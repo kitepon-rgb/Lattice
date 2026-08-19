@@ -36,15 +36,29 @@ async function fixture(context, prefix) {
   return { root, env: { HOME: path.join(root, 'home'), LATTICE_CONFIG_DIR: path.join(root, 'config') } };
 }
 
-function launchctlDouble() {
+function launchctlDouble({ lingerPrints = 0 } = {}) {
   let loaded = false;
+  let lingering = 0;
   let bootstrapFailure = false;
   const calls = [];
   const runner = async (args) => {
     calls.push([...args]);
-    if (args[0] === 'print') return { code: loaded ? 0 : 113, stdout: '', stderr: '' };
-    if (args[0] === 'bootout') { loaded = false; return { code: 0, stdout: '', stderr: '' }; }
+    if (args[0] === 'print') {
+      if (lingering > 0) {
+        lingering -= 1;
+        return { code: 0, stdout: '', stderr: '' };
+      }
+      return { code: loaded ? 0 : 113, stdout: '', stderr: '' };
+    }
+    if (args[0] === 'bootout') {
+      lingering = lingerPrints;
+      loaded = false;
+      return { code: 0, stdout: '', stderr: '' };
+    }
     if (args[0] === 'bootstrap') {
+      if (lingering > 0 || loaded) {
+        return { code: 5, stdout: '', stderr: 'Bootstrap failed: 5: Input/output error\n' };
+      }
       if (bootstrapFailure) return { code: 5, stdout: '', stderr: 'failed' };
       loaded = true;
       return { code: 0, stdout: '', stderr: '' };
@@ -82,6 +96,38 @@ test('LaunchAgentは引数分離した絶対pathとKeepAlive/RunAtLoadを0600 pl
     assert.equal(control.isLoaded(), true);
     assert.equal(control.calls.at(-1)[0], 'bootstrap');
   });
+
+test('bootout直後にprintが残っている間はbootstrapせず、消えてから載せる', macOnly, async (context) => {
+  const { env } = await fixture(context, 'lattice-launch-agent-unload-');
+  const control = launchctlDouble({ lingerPrints: 3 });
+  const order = [];
+  const runner = async (args) => {
+    order.push(args[0]);
+    return control.runner(args);
+  };
+  await installBridgeLaunchAgent({ config: config(58_768), env, runner,
+    waitReady: async () => {}, waitStopped: async () => {} });
+  await installBridgeLaunchAgent({ config: config(58_769, '2026-07-21T00:01:00.000Z'), env, runner,
+    previousListen: config(58_768).listen, waitReady: async () => {}, waitStopped: async () => {} });
+  const second = order.slice(order.indexOf('bootout'));
+  const bootstrapAt = second.indexOf('bootstrap');
+  assert.ok(bootstrapAt > 0, 'reconfigureはbootoutのあとbootstrapする');
+  assert.equal(second.slice(0, bootstrapAt).filter((name) => name === 'print').length >= 4, true,
+    'bootout後のprint 113を待ってからbootstrapする');
+  assert.equal(control.isLoaded(), true);
+});
+
+test('launchctl bootstrap失敗はexit codeとstderrをdetailへ残す', macOnly, async (context) => {
+  const { env } = await fixture(context, 'lattice-launch-agent-bootstrap-detail-');
+  const control = launchctlDouble();
+  control.failBootstrap();
+  await assert.rejects(installBridgeLaunchAgent({ config: config(58_770), env,
+    runner: control.runner, waitReady: async () => {} }), (error) => {
+    assert.equal(error.code, 'BRIDGE_LAUNCHCTL_BOOTSTRAP_FAILED');
+    assert.deepEqual(error.detail, { launchctl_code: 5, stderr: 'failed' });
+    return true;
+  });
+});
 
 test('reconfigureは旧service停止確認後にplistを置換し、新しいserviceのreadyを待つ', macOnly, async (context) => {
   const { env } = await fixture(context, 'lattice-launch-agent-reconfigure-');

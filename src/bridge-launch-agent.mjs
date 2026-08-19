@@ -15,10 +15,13 @@ import { bridgeRegistrarSettings } from './bridge-registrar.mjs';
 export const BRIDGE_LAUNCH_AGENT_LABEL = 'dev.kitepon.lattice.bridge';
 const START_TIMEOUT_MS = 5_000;
 const STOP_TIMEOUT_MS = 3_000;
+// launchd の default ExitTimeOut は 5 秒。bootout の exit 0 はその前に返り、
+// label が domain から消えるのは process が落ちた後である。
+const UNLOAD_TIMEOUT_MS = 8_000;
 const execFileAsync = promisify(execFile);
 
-function fail(code, message, cause = undefined) {
-  return new BridgeConfigError(code, message, undefined, cause);
+function fail(code, message, cause = undefined, detail = undefined) {
+  return new BridgeConfigError(code, message, detail, cause);
 }
 
 function userId() {
@@ -182,6 +185,14 @@ export async function defaultLaunchctlRunner(args) {
 function domain(uid) { return `gui/${uid}`; }
 function service(uid) { return `${domain(uid)}/${BRIDGE_LAUNCH_AGENT_LABEL}`; }
 
+function launchctlDetail(result) {
+  const stderr = typeof result?.stderr === 'string' ? result.stderr.trim() : '';
+  return {
+    launchctl_code: Number.isInteger(result?.code) ? result.code : null,
+    stderr: stderr.length > 0 ? stderr.slice(0, 1_024) : null,
+  };
+}
+
 async function launchctl(runner, args, code, message, accepted = [0]) {
   let result;
   try { result = await runner(args); } catch (error) {
@@ -189,7 +200,7 @@ async function launchctl(runner, args, code, message, accepted = [0]) {
     throw fail(code, message, error);
   }
   if (!result || !Number.isInteger(result.code) || !accepted.includes(result.code)) {
-    throw fail(code, message);
+    throw fail(code, message, undefined, launchctlDetail(result));
   }
   return result;
 }
@@ -285,10 +296,25 @@ export async function describeBridgeLaunchAgent({ snapshot } = {}) {
   };
 }
 
+async function waitUnloaded({ runner, uid, timeoutMs = UNLOAD_TIMEOUT_MS }) {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    if (!await loadedState(runner, uid)) return;
+    if (Date.now() >= deadline) {
+      throw fail('BRIDGE_LAUNCHCTL_BOOTOUT_FAILED', 'bridge LaunchAgent did not unload');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 async function bootoutIfLoaded({ runner, uid }) {
   if (!await loadedState(runner, uid)) return false;
   await launchctl(runner, ['bootout', service(uid)], 'BRIDGE_LAUNCHCTL_BOOTOUT_FAILED',
     'could not stop bridge LaunchAgent');
+  // bootout の exit 0 は unload 受付だけである。label が残ったまま bootstrap すると
+  // launchd は 5 Input/output error を返す（2026-08-19 実測。print が 113 になって
+  // から bootstrap すれば通る）。
+  await waitUnloaded({ runner, uid });
   return true;
 }
 
@@ -325,8 +351,7 @@ export async function disableBridgeLaunchAgent({ snapshot, listen, env = process
   }
   const refs = bridgeLaunchAgentPaths(env);
   if (snapshot.loaded) {
-    await launchctl(runner, ['bootout', service(uid)], 'BRIDGE_LAUNCHCTL_BOOTOUT_FAILED',
-      'could not stop bridge LaunchAgent');
+    await bootoutIfLoaded({ runner, uid });
     await waitStopped({ listen, env });
   }
   await rm(refs.plist, { force: true });

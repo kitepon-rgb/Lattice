@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.60.7 — 2026-08-19
+
+### 修正
+
+- `lattice bridge reconfigure`が`BRIDGE_LAUNCHCTL_BOOTSTRAP_FAILED`を返すのに
+  processは起きている状態を直した。`launchctl bootout`のexit 0はunload受付だけで、
+  `print`がまだ0のあいだに`bootstrap`するとlaunchdが`5 Input/output error`を返す。
+  labelがdomainから消える（`print` 113）まで待ってから載せる。失敗時はlaunchctlの
+  exit codeとstderrを`detail`へ残す。
+
 ## 0.60.6 — 2026-08-19
 
 ### 変更
