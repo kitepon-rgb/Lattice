@@ -1082,8 +1082,12 @@ function doneBinding(store, intake) {
   }
   const task = member.tasks.find((entry) => entry.task_id === intake.task_id);
   if (task?.status !== 'done') fail('TASK_NOT_DONE', `todo done前はacceptできない: ${intake.task_id}`);
-  const event = literalEvent(member, { kind: 'done', taskId: intake.task_id, actor: intake.actor });
-  if (event === null) fail('TASK_DONE_BINDING_UNSUPPORTED', 'same-version literal authored doneだけをacceptする');
+  // accept は intake actor に束縛する。done の記録者は別でよい（監査担当が閉じ、intake 席が accept）。
+  const event = member.journal?.events?.findLast((entry) => (
+    entry.kind === 'done' && entry.task_id === intake.task_id
+      && entry.plan_version === member.plan.plan_version
+  )) ?? null;
+  if (event === null) fail('TASK_DONE_BINDING_UNSUPPORTED', 'same-version literal doneだけをacceptする');
   return event;
 }
 

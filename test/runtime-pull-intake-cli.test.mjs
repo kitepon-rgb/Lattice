@@ -159,7 +159,7 @@ async function declareCoordination(root, mode, reason, timestamp) {
   });
 }
 
-async function doneTask(root, taskId, timestamp) {
+async function doneTask(root, taskId, timestamp, actor = ACTOR) {
   const bytes = Buffer.from(`${taskId} evidence\n`);
   const oid = git(root, ['hash-object', '-w', '--stdin'], { input: bytes });
   const evidence = {
@@ -170,7 +170,7 @@ async function doneTask(root, taskId, timestamp) {
   return appendTodoEvent({
     repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
     planKey: PLAN_KEY, now: timestamp,
-    event: { kind: 'done', task_id: taskId, actor: ACTOR, recorded_at: timestamp,
+    event: { kind: 'done', task_id: taskId, actor, recorded_at: timestamp,
       payload: { evidence } },
   });
 }
@@ -615,6 +615,27 @@ test('acceptはsame-version literal doneと独立worktree観測へ束縛しlandi
       false);
     assert.equal(parsed(runCli(root, ['run', 'close', '--run', '.lattice/runs/pull-run'])).already_closed,
       true);
+  });
+
+test('acceptはintake actorと異なるdone actorのsame-version literal doneを束縛できる',
+  async (context) => {
+    const auditor = Object.freeze({ host: 'mac', session: 'auditor', agent: 'auditor' });
+    const { root } = await workspace(context);
+    parsed(startPull(root));
+    await startTask(root, 'A', '2026-08-09T00:01:00.000Z');
+    const intaked = parsed(runCli(root, [
+      'run', 'intake', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    await writeFile(path.join(intaked.worktree_path, 'src', 'a.mjs'), 'export const a = 2;\n');
+    git(intaked.worktree_path, ['add', 'src/a.mjs']);
+    git(intaked.worktree_path, ['commit', '--quiet', '-m', 'result']);
+    const resultHead = git(intaked.worktree_path, ['rev-parse', 'HEAD']);
+    const done = await doneTask(root, 'A', '2026-08-09T00:03:00.000Z', auditor);
+    const accepted = parsed(runCli(root, [
+      'run', 'intake', 'accept', '--run', '.lattice/runs/pull-run', '--task', 'A',
+    ]));
+    assert.equal(accepted.head_sha, resultHead);
+    assert.equal(accepted.done_event_digest, done.event.event_digest);
   });
 
 test('attachはexpected lstart/argv digestを再認証し、raw argv、decoy、同一pidの複数active intakeを拒否する',

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.60.8 — 2026-08-19
+
+### 修正
+
+- pull `intake accept` の done 束縛が intake actor と同一の done event だけを見ていた。
+  監査担当が `todo done` したあとに実装席が accept できなかった。
+  accept の実行者は従来どおり intake actor。done 記録者は同一 plan version の
+  literal done であれば別 actor でよい。
+
 ## 0.60.7 — 2026-08-19
 
 ### 修正
