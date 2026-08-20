@@ -13,7 +13,7 @@ import { classifyObservedDiff } from './runtime-decision-verifier.mjs';
 import { captureWorktreeDiff, detectCheckpointFindings } from './runtime-diff-observer.mjs';
 import { acquireRuntimeLifecycleLock } from './runtime-lifecycle-lock.mjs';
 import { observeManagedProcessStartIdentity } from './runtime-managed-supervisor.mjs';
-import { observeWindowsWorkerProcess } from './runtime-windows-process.mjs';
+import { deliverWorkerSignal, observeWindowsWorkerProcess } from './runtime-windows-process.mjs';
 import { ensureScriptedWorktree } from './runtime-scripted-worktree.mjs';
 import {
   BOUNDARY_MANIFEST_SCHEMA, selfDigest, validateRuntimeBoundaryManifest, validateRuntimePlan,
@@ -948,7 +948,7 @@ async function signalAttachedWorker(intake, signal) {
     || observed.process_group_id !== intake.worker.process_group_id) {
     fail('WORKER_IDENTITY_MISMATCH', 'signal前のlstart/argv/pgidがattach bindingと一致しない');
   }
-  try { process.kill(intake.worker.pid, signal); }
+  try { deliverWorkerSignal(intake.worker.pid, signal); }
   catch { fail('WORKER_SIGNAL_FAILED', `workerへ${signal}を送れない`); }
   return true;
 }

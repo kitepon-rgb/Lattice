@@ -21,6 +21,16 @@ export function parseWindowsCreationDate(value) {
   return parsed.toISOString();
 }
 
+export function deliverWorkerSignal(pid, signal) {
+  if (!Number.isSafeInteger(pid) || pid < 1) throw new Error('pidが正整数でない');
+  const jobControl = signal === 'SIGSTOP' || signal === 'SIGCONT';
+  if (process.platform === 'win32' && jobControl) {
+    return { delivered: false, recorded: true };
+  }
+  process.kill(pid, signal);
+  return { delivered: true, recorded: true };
+}
+
 export async function observeWindowsWorkerProcess(pid) {
   if (!Number.isSafeInteger(pid) || pid < 1) {
     throw new Error('pidが正整数でない');

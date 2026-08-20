@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 
 import {
+  deliverWorkerSignal,
   observeWindowsWorkerProcess,
   parseWindowsCreationDate,
 } from '../src/runtime-windows-process.mjs';
@@ -11,6 +12,16 @@ import {
 test('PowerShell /Date(ms)/ をISOへ戻す', () => {
   assert.equal(parseWindowsCreationDate('/Date(1787183412912)/'), new Date(1787183412912).toISOString());
   assert.throws(() => parseWindowsCreationDate('not-a-date'));
+});
+
+test('Windows は SIGSTOP/SIGCONT をカーネルへ送らず記録だけする', (context) => {
+  if (process.platform !== 'win32') {
+    context.skip('win32 only');
+    return;
+  }
+  const result = deliverWorkerSignal(process.pid, 'SIGSTOP');
+  assert.deepEqual(result, { delivered: false, recorded: true });
+  assert.equal(deliverWorkerSignal(process.pid, 'SIGCONT').delivered, false);
 });
 
 test('Windows attach観測は /bin/ps を使わず pid=pgid を返す', async (context) => {

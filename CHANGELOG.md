@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.61.2 — 2026-08-20
+
+### 修正
+
+- pull の attach worker へ `SIGSTOP`/`SIGCONT` を送ると Windows で `WORKER_SIGNAL_FAILED`
+  （`kill EINVAL`）になり `intake accept` が完了しなかった。Windows に job control は無いので
+  カーネル停止はせず、hold／resume は store の記録だけにする。`SIGTERM`/`SIGKILL` は送る。
+
 ## 0.61.1 — 2026-08-20
 
 ### 修正
