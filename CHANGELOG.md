@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.62.1 — 2026-08-20
+
+### 修正
+
+- `intake accept` が `runtime_conflict` hold 中の task を観測モデルから外し、
+  nodes が空になって `pull observation planを構成できない` で止まっていた。
+  accept 対象は hold 中でも観測集合へ残す。
+
 ## 0.62.0 — 2026-08-20
 
 ### 変更

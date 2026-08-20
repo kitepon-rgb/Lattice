@@ -1082,10 +1082,16 @@ export async function detachPullWorker({ runDir, taskId, environment = process.e
   } finally { await lock.release(); }
 }
 
-function observationModel(state) {
-  const intakes = state.intakes.filter((entry) => (
-    entry.accepted === null && entry.intervention.state !== 'hold'
-  ));
+export function observationIntakes(state, includeTaskId = null) {
+  return state.intakes.filter((entry) => {
+    if (entry.accepted !== null) return false;
+    if (entry.intervention.state !== 'hold') return true;
+    return includeTaskId !== null && entry.task_id === includeTaskId;
+  });
+}
+
+function observationModel(state, { includeTaskId = null } = {}) {
+  const intakes = observationIntakes(state, includeTaskId);
   const manifests = Object.fromEntries(intakes.map((entry) => [entry.task_id, entry.manifest]));
   const nodes = intakes.map((entry) => ({ todo_id: entry.task_id })).sort((l, r) => l.todo_id.localeCompare(r.todo_id));
   const plan = {
@@ -1154,7 +1160,7 @@ export async function acceptPullTask({ repoRoot, runDir, taskId, environment = p
     const checkpoint = await captureWorktreeDiff({
       worktreePath: intake.worktree_path, baseSha: intake.base_sha,
     });
-    const model = observationModel(state);
+    const model = observationModel(state, { includeTaskId: taskId });
     const packets = Object.fromEntries(model.intakes.map((entry) => [entry.task_id, entry.packet]));
     const direct = detectCheckpointFindings({
       todoId: taskId, checkpoint, packets, manifests: model.manifests,
