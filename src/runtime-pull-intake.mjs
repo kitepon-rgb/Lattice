@@ -990,8 +990,23 @@ export async function attachPullWorker({ runDir, taskId, input, environment = pr
     const occupied = state.intakes.find((entry) => (
       entry.task_id !== taskId && entry.accepted === null && entry.worker?.pid === input.pid
     ));
-    if (occupied) {
+    if (occupied && occupied.intervention.state !== 'hold') {
       fail('WORKER_ALREADY_ATTACHED', `同じworkerは複数active intakeへattachできない: ${occupied.task_id}`);
+    }
+    if (occupied && occupied.intervention.state === 'hold') {
+      if (occupied.worker.stopped) {
+        await signalAttachedWorker(occupied, 'SIGCONT');
+        current = await appendEvent(runDir, current, buildEvent({
+          events: current.events, meta: current.meta, kind: 'worker_resumed',
+          taskId: occupied.task_id, payload: { released_by: 'stale_hold_reattach' },
+        }));
+      }
+      current = await appendEvent(runDir, current, buildEvent({
+        events: current.events, meta: current.meta, kind: 'worker_detached',
+        taskId: occupied.task_id,
+        payload: { detached_by: actor, pid: occupied.worker.pid, resumed: occupied.worker.stopped },
+      }));
+      state = project(current.events, current.meta);
     }
     if (intake.worker !== null) {
       if (digestArtifact(binding) !== digestArtifact({
@@ -1080,6 +1095,11 @@ export async function detachPullWorker({ runDir, taskId, environment = process.e
     output.result_digest = digestArtifact(output);
     return output;
   } finally { await lock.release(); }
+}
+
+export function concurrentAttachBlocked(occupied) {
+  if (!occupied) return false;
+  return occupied.intervention?.state !== 'hold';
 }
 
 export function remainingRuntimeConflictFindings(findings, acceptedTaskId) {

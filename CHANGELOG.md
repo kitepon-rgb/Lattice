@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.62.3 — 2026-08-20
+
+### 修正
+
+- hold 中の未 accept intake に worker が残っていると、同じ席の次の intake へ
+  `WORKER_ALREADY_ATTACHED` で attach できなかった。hold の古い binding は
+  次の attach で外す。granted な未 accept 同士は従来どおり拒否する。
+
 ## 0.62.2 — 2026-08-20
 
 ### 修正

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { observationIntakes, remainingRuntimeConflictFindings } from '../src/runtime-pull-intake.mjs';
+import {
+  concurrentAttachBlocked,
+  observationIntakes,
+  remainingRuntimeConflictFindings,
+} from '../src/runtime-pull-intake.mjs';
 
 function intake(taskId, { accepted = false, hold = false } = {}) {
   return {
@@ -12,6 +16,16 @@ function intake(taskId, { accepted = false, hold = false } = {}) {
       : { state: 'none', reason: null },
   };
 }
+
+test('hold 中の古い attach は次の intake への attach を塞がない', () => {
+  assert.equal(concurrentAttachBlocked({
+    intervention: { state: 'hold' }, worker: { pid: 1, stopped: true },
+  }), false);
+  assert.equal(concurrentAttachBlocked({
+    intervention: { state: 'none' }, worker: { pid: 1, stopped: false },
+  }), true);
+  assert.equal(concurrentAttachBlocked(null), false);
+});
 
 test('runtime_conflict hold の accept 対象は観測モデルから外さない', () => {
   const state = {
