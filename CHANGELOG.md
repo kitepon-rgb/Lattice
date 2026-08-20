@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.61.1 — 2026-08-20
+
+### 修正
+
+- pull `intake attach` が Windows で `/bin/ps` を spawn して `ENOENT` になっていた。
+  Win32_Process で pid / CommandLine / CreationDate を観測し、process group は pid 自身とする。
+  started_identity は peertable 0.4.11 と同じ ISO（`/Date(ms)/` を含む）。
+
 ## 0.61.0 — 2026-08-20
 
 ### 変更

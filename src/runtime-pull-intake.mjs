@@ -13,6 +13,7 @@ import { classifyObservedDiff } from './runtime-decision-verifier.mjs';
 import { captureWorktreeDiff, detectCheckpointFindings } from './runtime-diff-observer.mjs';
 import { acquireRuntimeLifecycleLock } from './runtime-lifecycle-lock.mjs';
 import { observeManagedProcessStartIdentity } from './runtime-managed-supervisor.mjs';
+import { observeWindowsWorkerProcess } from './runtime-windows-process.mjs';
 import { ensureScriptedWorktree } from './runtime-scripted-worktree.mjs';
 import {
   BOUNDARY_MANIFEST_SCHEMA, selfDigest, validateRuntimeBoundaryManifest, validateRuntimePlan,
@@ -890,6 +891,36 @@ export async function releasePullTask({ runDir, taskId, environment = process.en
 
 async function observeProcessBinding(pid) {
   if (!Number.isSafeInteger(pid) || pid < 1) fail('INVALID_WORKER_PID', 'pidが正整数でない');
+  if (process.platform === 'win32') {
+    let observed;
+    try {
+      observed = await observeWindowsWorkerProcess(pid);
+    } catch (error) {
+      fail('WORKER_IDENTITY_MISMATCH', `Windows worker process identityを完全観測できない: ${error.message}`);
+    }
+    const processStartIdentity = {
+      schema: 'lattice.process_start_identity.v1',
+      platform: 'win32',
+      pid: observed.pid,
+      started_identity: observed.started_identity,
+      identity_digest: '',
+    };
+    processStartIdentity.identity_digest = selfDigest(processStartIdentity, 'identity_digest');
+    const expected = {
+      pid: observed.pid,
+      process_group_id: observed.process_group_id,
+      process_start_identity: processStartIdentity,
+    };
+    if (!validateExpectedWorkerProcess(expected) || observed.argv.length === 0) {
+      fail('WORKER_IDENTITY_MISMATCH', 'worker process identityを完全観測できない');
+    }
+    return {
+      pid: observed.pid,
+      process_group_id: observed.process_group_id,
+      process_start_identity: processStartIdentity,
+      argv_digest: createHash('sha256').update(observed.argv, 'utf8').digest('hex'),
+    };
+  }
   const processStartIdentity = await observeManagedProcessStartIdentity(pid);
   const { stdout: pgidOut } = await execFileAsync('/bin/ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' });
   const { stdout: argvOut } = await execFileAsync('/bin/ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' });
