@@ -268,13 +268,12 @@ test('migrate dry-runはenum・配列・digest・参照・clock skewを一回で
   assert.equal(exitCode, 0, error);
   const result = JSON.parse(output);
   assert.deepEqual(result.violations.map(({ code }) => code), [
-    'enum_mismatch', 'expected_array', 'extraction_digest_mismatch',
+    'enum_mismatch', 'expected_array',
     'local_ref_unresolved', 'future_clock_skew',
   ]);
   assert.equal(result.violations[0].path, '/tasks/0/completion/done_mode');
   assert.equal(result.violations[0].expected, 'historical_import');
-  assert.match(result.violations[2].expected, /^[0-9a-f]{64}$/u);
-  assert.equal(result.violations[3].path, '/hard_dependencies/0/to');
-  assert.equal(result.violations[4].expected.max_future_skew_ms, 300_000);
+  assert.equal(result.violations[2].path, '/hard_dependencies/0/to');
+  assert.equal(result.violations[3].expected.max_future_skew_ms, 300_000);
   await assert.rejects(readTodoStore({ repoRoot }), (failure) => failure.code === 'STORE_INCONSISTENT');
 });

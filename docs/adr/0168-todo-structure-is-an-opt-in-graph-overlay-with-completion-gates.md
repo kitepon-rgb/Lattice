@@ -141,6 +141,9 @@ Git追跡するplanned source、再生成可能なcompile artifact、append-only
 
 ### 7. applicable taskのdoneはfresh realizationを必須にする
 
+**[ADR 0181](0181-authoring-entry-accepts-drafts.md) が置き換える。** realizationはoverlay観測のまま残し、
+`todo done`の前提からは外す。planを閉じるfinalization（Decision 8）は残す。
+
 有効化済みplanで`applicability: graph`のtaskだけ、`todo done`のjournal append前に次を要求する。
 
 - task／plan version／planned digestへ束縛した現行realizationがある

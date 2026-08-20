@@ -1,11 +1,20 @@
 import { gitSync } from './git-process.mjs';
 import { createHash } from 'node:crypto';
 import {
+  hostname,
+} from 'node:os';
+import {
   lstat, mkdir, readFile, realpath, writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseTree } from 'jsonc-parser';
+import {
+  isAuthoringPathToken,
+  matchFlagCommand,
+  parseAuthoringJson,
+  readAuthoringJsonFile,
+  resolveAuthoringInputPath,
+} from './todo-authoring-input.mjs';
 
 import {
   TODO_COORDINATION_MODES,
@@ -169,7 +178,6 @@ import { commitTodoStoreMutation } from './todo-store-git-transaction.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_SCOPE = 'live';
-const MAX_MIGRATION_INPUT_BYTES = 8_388_608;
 const MAX_NOTE_INPUT_BYTES = 16_384;
 const ACTOR_ENV_KEYS = Object.freeze([
   'LATTICE_TODO_ACTOR_HOST',
@@ -315,25 +323,11 @@ function selectNoteTask(member, requestedTaskId) {
 }
 
 async function readNoteTextInput(repoRoot, inputRef) {
-  if (!isTodoRef(inputRef)) throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo');
-  const canonicalRoot = await realpath(repoRoot);
-  const absolute = path.resolve(canonicalRoot, inputRef);
-  if (!within(canonicalRoot, absolute) || absolute === canonicalRoot) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo');
+  const located = await resolveAuthoringInputPath(repoRoot, inputRef);
+  const bytes = await readFile(located.absolute);
+  if (bytes.length > MAX_NOTE_INPUT_BYTES) {
+    throw new TodoStoreError('INPUT_TOO_LARGE', 'note_input_too_large');
   }
-  let metadata;
-  try { metadata = await lstat(absolute); } catch {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_missing');
-  }
-  if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > MAX_NOTE_INPUT_BYTES) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'unsafe_or_oversized_note_input');
-  }
-  const resolved = await realpath(absolute);
-  if (resolved !== absolute || !within(canonicalRoot, resolved)) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_alias_or_escape');
-  }
-  const bytes = await readFile(resolved);
-  if (bytes.length > MAX_NOTE_INPUT_BYTES) throw new TodoStoreError('INPUT_TOO_LARGE', 'note_input_too_large');
   try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
   catch { throw new TodoStoreError('INPUT_UNREADABLE', 'note_input_invalid_utf8'); }
 }
@@ -368,58 +362,8 @@ function within(root, candidate) {
   return candidate === root || candidate.startsWith(`${root}${path.sep}`);
 }
 
-function hasDuplicateJsonKey(node) {
-  if (node?.type === 'object') {
-    const keys = new Set();
-    for (const property of node.children ?? []) {
-      const [key, value] = property.children ?? [];
-      if (keys.has(key?.value) || hasDuplicateJsonKey(value)) return true;
-      keys.add(key?.value);
-    }
-  } else if (node?.type === 'array') {
-    return (node.children ?? []).some(hasDuplicateJsonKey);
-  }
-  return false;
-}
-
 async function readMigrationInput(repoRoot, inputRef, { requireValid = true } = {}) {
-  const canonicalRoot = await realpath(repoRoot);
-  const absolute = path.resolve(canonicalRoot, inputRef);
-  if (!within(canonicalRoot, absolute) || absolute === canonicalRoot) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo', undefined, { input_ref: inputRef });
-  }
-  let stats;
-  try { stats = await lstat(absolute); } catch {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_missing', undefined, { input_ref: inputRef });
-  }
-  if (stats.isSymbolicLink() || !stats.isFile()) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'unsafe_input_path', undefined, { input_ref: inputRef });
-  }
-  const resolved = await realpath(absolute);
-  if (resolved !== absolute || !within(canonicalRoot, resolved)) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_alias_or_escape', undefined, { input_ref: inputRef });
-  }
-  if (stats.size > MAX_MIGRATION_INPUT_BYTES) {
-    throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
-  }
-  const bytes = await readFile(resolved);
-  if (bytes.length > MAX_MIGRATION_INPUT_BYTES) {
-    throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
-  }
-  let text;
-  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch {
-    throw new TodoStoreError('INVALID_JSON', 'invalid_utf8');
-  }
-  const parseErrors = [];
-  const tree = parseTree(text, parseErrors, { allowTrailingComma: false, disallowComments: true });
-  if (parseErrors.length > 0 || tree === undefined) {
-    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
-  }
-  if (hasDuplicateJsonKey(tree)) throw new TodoStoreError('INVALID_JSON', 'duplicate_key');
-  let extraction;
-  try { extraction = JSON.parse(text); } catch {
-    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
-  }
+  const extraction = await readAuthoringJsonFile(repoRoot, inputRef);
   if (!requireValid) return extraction;
   if (![TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(extraction?.schema)) {
     throw new TodoStoreError('INVALID_TODO_EXTRACTION', 'todo_extraction_schema_unsupported', undefined, {
@@ -454,53 +398,13 @@ async function readRevisionInput(repoRoot, inputRef, {
   invalidReason = 'revision_schema_or_digest_invalid',
   explain = explainTodoRevision,
 } = {}) {
-  const canonicalRoot = await realpath(repoRoot);
-  const absolute = path.resolve(canonicalRoot, inputRef);
-  if (!within(canonicalRoot, absolute) || absolute === canonicalRoot) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo', undefined, { input_ref: inputRef });
-  }
-  let stats;
-  try { stats = await lstat(absolute); } catch {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_missing', undefined, { input_ref: inputRef });
-  }
-  if (stats.isSymbolicLink() || !stats.isFile()) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'unsafe_input_path', undefined, { input_ref: inputRef });
-  }
-  const resolved = await realpath(absolute);
-  if (resolved !== absolute || !within(canonicalRoot, resolved)) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_alias_or_escape', undefined, { input_ref: inputRef });
-  }
-  if (stats.size > MAX_MIGRATION_INPUT_BYTES) throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
-  const bytes = await readFile(resolved);
-  if (bytes.length > MAX_MIGRATION_INPUT_BYTES) throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
-  let text;
-  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch {
-    throw new TodoStoreError('INVALID_JSON', 'invalid_utf8');
-  }
-  if (!text.endsWith('\n') || text.startsWith('\uFEFF') || text.includes('\r')
-    || text.slice(0, -1).includes('\n')) {
-    throw new TodoStoreError(invalidCode, 'non_canonical_revision_bytes');
-  }
-  const parseErrors = [];
-  const tree = parseTree(text.slice(0, -1), parseErrors, { allowTrailingComma: false, disallowComments: true });
-  if (parseErrors.length > 0 || tree === undefined) throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
-  if (hasDuplicateJsonKey(tree)) throw new TodoStoreError('INVALID_JSON', 'duplicate_key');
-  let revision;
-  try { revision = JSON.parse(text.slice(0, -1)); } catch {
-    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed');
-  }
+  const revision = await readAuthoringJsonFile(repoRoot, inputRef, { invalidCode });
   if (!validate(revision)) {
-    // 「schema_or_digest_invalid」だけでは何のfieldがどう壊れているか分からない
-    // （ADR 0130の案内規律）。explainは可否判定を変えず、診断だけを追加する。
-    // 呼び出し元がexplainを渡さない（phase decision入力等）場合はdetail無しのまま。
     const explained = explain === null ? null : explain(revision);
     throw new TodoStoreError(invalidCode, invalidReason, undefined,
       explained === null || explained.valid ? undefined : {
         violation_reason: explained.reason, violation_path: explained.path,
       });
-  }
-  if (text !== `${canonicalizeTodoArtifact(revision)}\n`) {
-    throw new TodoStoreError(invalidCode, 'non_canonical_revision_bytes');
   }
   return revision;
 }
@@ -516,63 +420,97 @@ const EVIDENCE_DESCRIPTOR_EXPECTED = Object.freeze({
     + 'content_digestはblob bytesのsha256（hex）で得る。refsから到達可能なblobだけが検証を通る',
 });
 
+function evidenceIdFor(planKey, taskId) {
+  const compact = `ev-${planKey}-${taskId}`.replace(/[^0-9A-Za-z._-]/gu, '-').slice(0, 128);
+  return isTodoIdentifier(compact) ? compact : 'evidence';
+}
+
+function mediaTypeFor(ref) {
+  if (ref.endsWith('.md')) return 'text/markdown';
+  if (ref.endsWith('.json')) return 'application/json';
+  return 'text/plain';
+}
+
+function looksLikeEvidenceDescriptor(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function writeEvidenceBlob(repoRoot, bytes) {
+  const oid = gitSync(['hash-object', '-w', '--stdin'], {
+    cwd: repoRoot, input: bytes, encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'],
+  }).trim();
+  return {
+    git_blob_oid: oid,
+    content_digest: createHash('sha256').update(bytes).digest('hex'),
+  };
+}
+
+async function resolveDoneEvidence({ repoRoot, evidenceRef, evidenceMessage, planKey, taskId }) {
+  if (typeof evidenceMessage === 'string') {
+    const bytes = Buffer.from(evidenceMessage, 'utf8');
+    const descriptor = {
+      evidence_id: evidenceIdFor(planKey, taskId),
+      repo_id: 'self',
+      path: `.lattice/todo/evidence/${planKey}/${taskId}.md`,
+      ...writeEvidenceBlob(repoRoot, bytes),
+      media_type: 'text/markdown',
+      anchor_digest: null,
+    };
+    if (!validateEvidenceDescriptor(descriptor) || !isTodoRef(descriptor.path)) {
+      throw new TodoStoreError('INVALID_EVIDENCE', 'authored_evidence_descriptor_invalid');
+    }
+    return descriptor;
+  }
+  const located = await resolveAuthoringInputPath(repoRoot, evidenceRef);
+  const bytes = await readFile(located.absolute);
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch { throw new TodoStoreError('INVALID_EVIDENCE', 'evidence_input_invalid_utf8'); }
+  let parsed = null;
+  try {
+    parsed = parseAuthoringJson(text, { invalidCode: 'INVALID_JSON' });
+  } catch (error) {
+    if (error instanceof TodoStoreError && error.code !== 'INVALID_JSON') throw error;
+  }
+  if (looksLikeEvidenceDescriptor(parsed)) {
+    if (!validateEvidenceDescriptor(parsed)) {
+      throw new TodoStoreError('INVALID_EVIDENCE', 'schema_invalid', undefined, {
+        expected: EVIDENCE_DESCRIPTOR_EXPECTED,
+      });
+    }
+    return parsed;
+  }
+  const descriptor = {
+    evidence_id: evidenceIdFor(planKey, taskId),
+    repo_id: 'self',
+    path: located.inputRef,
+    ...writeEvidenceBlob(repoRoot, bytes),
+    media_type: mediaTypeFor(located.inputRef),
+    anchor_digest: null,
+  };
+  if (!validateEvidenceDescriptor(descriptor)) {
+    throw new TodoStoreError('INVALID_EVIDENCE', 'authored_evidence_descriptor_invalid');
+  }
+  return descriptor;
+}
+
 async function readEvidenceInput(repoRoot, inputRef) {
-  return readJsonInput(repoRoot, inputRef, {
-    validate: validateEvidenceDescriptor, invalidCode: 'INVALID_EVIDENCE',
-    expected: EVIDENCE_DESCRIPTOR_EXPECTED,
+  return resolveDoneEvidence({
+    repoRoot, evidenceRef: inputRef, evidenceMessage: null, planKey: 'evidence', taskId: 'body',
   });
 }
 
 async function readJsonInput(repoRoot, inputRef, { validate, invalidCode, expected = null }) {
-  if (!isTodoRef(inputRef)) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo', undefined, { input_ref: inputRef });
-  }
-  const canonicalRoot = await realpath(repoRoot);
-  const absolute = path.resolve(canonicalRoot, inputRef);
-  if (!within(canonicalRoot, absolute) || absolute === canonicalRoot) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_outside_repo', undefined, { input_ref: inputRef });
-  }
-  let stats;
-  try { stats = await lstat(absolute); } catch {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_missing', undefined, { input_ref: inputRef });
-  }
-  if (stats.isSymbolicLink() || !stats.isFile()) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'unsafe_input_path', undefined, { input_ref: inputRef });
-  }
-  const resolved = await realpath(absolute);
-  if (resolved !== absolute || !within(canonicalRoot, resolved)) {
-    throw new TodoStoreError('INPUT_UNREADABLE', 'input_path_alias_or_escape', undefined, { input_ref: inputRef });
-  }
-  if (stats.size > MAX_MIGRATION_INPUT_BYTES) {
-    throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
-  }
-  const bytes = await readFile(resolved);
-  if (bytes.length > MAX_MIGRATION_INPUT_BYTES) {
-    throw new TodoStoreError('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
-  }
-  let text;
-  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch {
-    throw new TodoStoreError('INVALID_JSON', 'invalid_utf8');
-  }
-  if (text.startsWith('\uFEFF') || text.includes('\r')) {
-    throw new TodoStoreError('INVALID_JSON', 'non_portable_json_bytes');
-  }
-  // parse失敗は「JSONでないファイル（証拠本体など）をそのまま渡した」誤用が大半なので、
-  // 期待形を知っている入口では expected を同梱して次の一手を示す（ADR 0130）。
-  const parseFailureDetail = expected === null ? undefined : { expected };
-  const parseErrors = [];
-  const tree = parseTree(text, parseErrors, { allowTrailingComma: false, disallowComments: true });
-  if (parseErrors.length > 0 || tree === undefined) {
-    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed', undefined, parseFailureDetail);
-  }
-  if (hasDuplicateJsonKey(tree)) throw new TodoStoreError('INVALID_JSON', 'duplicate_key');
   let descriptor;
-  try { descriptor = JSON.parse(text); } catch {
-    throw new TodoStoreError('INVALID_JSON', 'json_parse_failed', undefined, parseFailureDetail);
+  try {
+    descriptor = await readAuthoringJsonFile(repoRoot, inputRef, { invalidCode: 'INVALID_JSON' });
+  } catch (error) {
+    if (error?.code === 'INVALID_JSON' && expected !== null && error.detail?.reason === 'json_parse_failed') {
+      throw new TodoStoreError('INVALID_JSON', 'json_parse_failed', undefined, { expected });
+    }
+    throw error;
   }
   if (!validate(descriptor)) {
-    // 「schema_invalid」だけを返すと、呼び出したAIは何をどう直せばよいか分からない。
-    // 期待する形を渡されている入口は、それをそのまま返す（ADR 0130の案内規律）。
     throw new TodoStoreError(invalidCode, 'schema_invalid', undefined,
       expected === null ? undefined : { expected });
   }
@@ -607,23 +545,35 @@ async function readStructureSetDraft(repoRoot, inputRef) {
   });
 }
 
+function sanitizeActorIdentifier(raw, fallback) {
+  const compact = String(raw ?? '').replace(/[^0-9A-Za-z._-]/gu, '-').replace(/^-+/u, '').slice(0, 128);
+  return isTodoIdentifier(compact) ? compact : fallback;
+}
+
 function mutationActor(env) {
-  const entries = ACTOR_ENV_KEYS.map((key) => ({ key, value: env[key] }));
-  const missingEnvironment = entries
-    .filter(({ value }) => typeof value !== 'string' || value.length === 0)
-    .map(({ key }) => key);
-  const invalidEnvironment = entries
+  const provided = ACTOR_ENV_KEYS.map((key) => ({ key, value: env[key] }));
+  const invalidEnvironment = provided
     .filter(({ value }) => typeof value === 'string' && value.length > 0 && !isTodoIdentifier(value))
     .map(({ key }) => key);
-  if (missingEnvironment.length > 0 || invalidEnvironment.length > 0) {
+  if (invalidEnvironment.length > 0) {
     throw new TodoStoreError('ACTOR_UNRESOLVED', 'actor_environment_invalid', undefined, {
       required_environment: ACTOR_ENV_KEYS,
-      missing_environment: missingEnvironment,
+      missing_environment: [],
       invalid_environment: invalidEnvironment,
       next_action: 'set_required_actor_environment_and_retry',
     });
   }
-  return { host: entries[0].value, session: entries[1].value, agent: entries[2].value };
+  return {
+    host: isTodoIdentifier(env.LATTICE_TODO_ACTOR_HOST)
+      ? env.LATTICE_TODO_ACTOR_HOST
+      : sanitizeActorIdentifier(hostname(), 'host'),
+    session: isTodoIdentifier(env.LATTICE_TODO_ACTOR_SESSION)
+      ? env.LATTICE_TODO_ACTOR_SESSION
+      : 'session',
+    agent: isTodoIdentifier(env.LATTICE_TODO_ACTOR_AGENT)
+      ? env.LATTICE_TODO_ACTOR_AGENT
+      : sanitizeActorIdentifier(env.USER ?? env.LOGNAME, 'agent'),
+  };
 }
 
 /**
@@ -664,11 +614,15 @@ function terminalAuditDoneAdvisory(plan, phases) {
 }
 
 async function mutate({
-  repoRoot, env, planKey, taskId, kind, payload, evidenceRef, advisory = null,
-  noteContext = null, structureContext = null, testResultRef = null,
+  repoRoot, env, planKey, taskId, kind, payload, evidenceRef, evidenceMessage = null,
+  advisory = null, noteContext = null, structureContext = null, testResultRef = null,
 }) {
   const actor = mutationActor(env);
-  const evidence = evidenceRef === null ? null : await readEvidenceInput(repoRoot, evidenceRef);
+  const evidence = evidenceRef === null && evidenceMessage === null
+    ? null
+    : await resolveDoneEvidence({
+      repoRoot, evidenceRef, evidenceMessage, planKey, taskId,
+    });
   const testResult = testResultRef === null ? null : await readTestResultInput(repoRoot, testResultRef);
   let eventPayload = payload;
   if (kind === 'done' && payload === 'authored') {
@@ -731,13 +685,23 @@ async function startStructureContext({ repoRoot, store, planKey, taskId }) {
     structure_set_digest: null, task: null, next_actions: [],
   };
   if (source.structure_set_digest !== binding.structure_set_digest) {
-    throw new TodoStoreError('STRUCTURE_LIFECYCLE_GATE_FAILED',
-      'enabled_structure_source_unreadable', undefined, { plan_key: planKey });
+    return {
+      status: 'unreadable', enabled: true, freshness: 'stale',
+      stale_reasons: ['enabled_structure_source_unreadable'],
+      structure_set_digest: source.structure_set_digest,
+      task: null,
+      next_actions: [`lattice todo structure compile --plan ${planKey} --input <file>`],
+    };
   }
   const task = source.tasks.find(({ task_id: id }) => id === taskId);
   if (task === undefined) {
-    throw new TodoStoreError('STRUCTURE_LIFECYCLE_GATE_FAILED',
-      'enabled_structure_task_missing', undefined, { plan_key: planKey, task_id: taskId });
+    return {
+      status: 'unreadable', enabled: true, freshness: 'stale',
+      stale_reasons: ['enabled_structure_task_missing'],
+      structure_set_digest: source.structure_set_digest,
+      task: null,
+      next_actions: [`lattice todo structure compile --plan ${planKey} --input <file>`],
+    };
   }
   const state = await readTodoStructureState({ repoRoot, store, planKey });
   return {
@@ -873,10 +837,26 @@ async function startTask({
     });
   }
   const resolvedTaskId = readyTask?.task_id ?? taskMatches[0].task_id;
-  // noteはjournal appendより前に読む。読めなければstart自体を止め、部分進行を作らない。
-  const { context: noteContext } = await readTodoNoteContext({
-    repoRoot, store, planKey, taskId: resolvedTaskId,
-  });
+  // noteはjournal appendより前に読む。壊れていてもstartは通す（ADR 0166 / 0181）。
+  let noteContext;
+  try {
+    ({ context: noteContext } = await readTodoNoteContext({
+      repoRoot, store, planKey, taskId: resolvedTaskId,
+    }));
+  } catch (error) {
+    if (!['NOTE_LOG_CORRUPT', 'NOTE_PROJECTION_INVALID'].includes(error?.code)) {
+      throw error;
+    }
+    noteContext = {
+      schema: 'lattice.todo_note_context.unreadable.v1',
+      project_id: member.plan.project_id,
+      plan_key: planKey,
+      task_id: resolvedTaskId,
+      code: error.code,
+      reason: error.detail?.reason ?? 'note_context_unreadable',
+      next_action: `lattice todo note list --plan ${planKey} --json`,
+    };
+  }
   // 助言はjournalへ書く前に確定させる。計算できないならstart自体を止める。
   const advisory = await startAdvisory({
     repoRoot, store, projection, planKey, taskId: resolvedTaskId,
@@ -1788,25 +1768,6 @@ function changedPathsSince(repoRoot, baseSha) {
     .sort();
 }
 
-function requireCleanWorktree(repoRoot) {
-  let porcelain;
-  try {
-    porcelain = gitSync(['status', '--porcelain'], {
-      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    });
-  } catch {
-    throw new TodoStoreError('INDEPENDENCE_BASE_UNRESOLVED', 'git_status_unresolved');
-  }
-  const dirty = porcelain.split('\n').filter((line) => line.trim().length > 0);
-  if (dirty.length > 0) {
-    // 未commitの観測を検証済み証拠として固定化しない（ADR 0127 Decision 3）。
-    throw new TodoStoreError('INDEPENDENCE_WORKTREE_DIRTY', 'worktree_not_clean', undefined, {
-      changed_entries: dirty.length,
-      next_action: 'commit_or_stash_then_retry',
-    });
-  }
-}
-
 function structureGitIdentity(repoRoot, baselineSha, violations) {
   let currentHeadSha = null;
   try {
@@ -1988,7 +1949,7 @@ function parseAutomatedStructureRealizeArgs(argv) {
   let realizedRef = null;
   if (argv[6] === '--planned') {
     cursor = 7; usePlanned = true;
-  } else if (argv[6] === '--realized' && isTodoRef(argv[7])) {
+  } else if (argv[6] === '--realized' && isAuthoringPathToken(argv[7])) {
     cursor = 8; usePlanned = false; realizedRef = argv[7];
   } else {
     return null;
@@ -2656,7 +2617,6 @@ async function seamProfile({ repoRoot, planKey, filePath }) {
 }
 
 async function seamProposalCompile({ repoRoot, planKey }) {
-  requireCleanWorktree(repoRoot);
   const currentBaseSha = currentHeadSha(repoRoot);
   const store = await readTodoStore({ repoRoot });
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
@@ -3421,26 +3381,22 @@ function writesTodoStore(argv) {
 
 async function ensureActiveProjectDashboard({ repoRoot, env }) {
   if (env.LATTICE_DASHBOARD_AUTOSTART === '0') return null;
-  const actorIdentity = ACTOR_ENV_KEYS.map((key) => env[key]);
-  if (!actorIdentity.every(isTodoIdentifier)) return null;
-  const sessionId = env.LATTICE_TODO_ACTOR_SESSION;
-  const store = await readTodoStoreStable({ repoRoot });
+  let actor;
+  try { actor = mutationActor(env); } catch { return null; }
+  const sessionId = actor.session;
+  let store;
+  try { store = await readTodoStoreStable({ repoRoot }); }
+  catch { return null; }
   let identity;
-  try { identity = await resolveProjectIdentity({ repoRoot, projectId: store.project_id, env }); } catch (error) {
-    throw new TodoStoreError(error?.code ?? 'PROJECT_IDENTITY_INVALID',
-      'project_identity_resolve_failed', undefined, error?.detail ?? {});
-  }
+  try { identity = await resolveProjectIdentity({ repoRoot, projectId: store.project_id, env }); }
+  catch { return null; }
   try {
     return await ensureTodoDashboardActivity({
       repoRoot, projectId: store.project_id, displayName: identity.displayName, sessionId, env,
     });
-  } catch (error) {
-    throw new TodoStoreError(error?.code ?? 'DASHBOARD_DAEMON_UNAVAILABLE',
-      'dashboard_daemon_ensure_failed', undefined, {
-        project_id: store.project_id,
-        ...(typeof error?.detail?.next_action === 'string'
-          ? { next_action: error.detail.next_action } : {}),
-      });
+  } catch {
+    // dashboardは副作用。start/doneをdashboard故障で止めない（ADR 0181）。
+    return null;
   }
 }
 
@@ -3578,38 +3534,6 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     return atomicStoreCommitUnsupported(stderr, argv);
   }
 
-  if (argv[0] === 'migrate' && argv[1] === '--input'
-    && typeof argv[2] === 'string' && path.isAbsolute(argv[2])) {
-    return typedArgumentFailure(stderr, 'INPUT_OUTSIDE_REPOSITORY', 'absolute_input_path_rejected', {
-      argument: '--input', expected: 'repo-relative path', actual: 'absolute path',
-      next_action: 'place_the_input_inside_the_repository_and_pass_a_repo_relative_path',
-    });
-  }
-
-  if (argv[0] === 'structure' && ['input', 'compile'].includes(argv[1])
-    && argv[4] === '--input' && typeof argv[5] === 'string' && path.isAbsolute(argv[5])) {
-    return typedArgumentFailure(stderr, 'INPUT_OUTSIDE_REPOSITORY', 'absolute_input_path_rejected', {
-      argument: '--input', expected: 'repo-relative path', actual: 'absolute path',
-      next_action: 'place_the_input_inside_the_repository_and_pass_a_repo_relative_path',
-    });
-  }
-
-  if (argv[0] === 'structure' && argv[1] === 'realize'
-    && argv[6] === '--input' && typeof argv[7] === 'string' && path.isAbsolute(argv[7])) {
-    return typedArgumentFailure(stderr, 'INPUT_OUTSIDE_REPOSITORY', 'absolute_input_path_rejected', {
-      argument: '--input', expected: 'repo-relative path', actual: 'absolute path',
-      next_action: 'place_the_input_inside_the_repository_and_pass_a_repo_relative_path',
-    });
-  }
-
-  if (argv[0] === 'structure' && argv[1] === 'realize'
-    && argv[6] === '--realized' && typeof argv[7] === 'string' && path.isAbsolute(argv[7])) {
-    return typedArgumentFailure(stderr, 'INPUT_OUTSIDE_REPOSITORY', 'absolute_input_path_rejected', {
-      argument: '--realized', expected: 'repo-relative path', actual: 'absolute path',
-      next_action: 'place_the_input_inside_the_repository_and_pass_a_repo_relative_path',
-    });
-  }
-
   // `--schema --json`はstoreを読まない決定的な出力（`plan create --schema`と同じ規律）。
   // 通常dispatchより前に処理し、repoRoot解決やdashboard daemon起動を経由させない。
   if (argv.length === 3 && argv[1] === '--schema' && argv[2] === '--json'
@@ -3663,33 +3587,25 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && (argv.length === 3 || argv[3] === '--json')) {
     action = (repoRoot) => bindings({ repoRoot, requestedPlanKey: argv[2] });
-  } else if ((argv.length === 7 || argv.length === 9) && argv[0] === 'note'
-    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && argv[3] === '--task' && isTodoIdentifier(argv[4])
-    && ['--message', '--input'].includes(argv[5])
-    && ((argv[5] === '--message' && argv[6].length > 0)
-      || (argv[5] === '--input' && isTodoRef(argv[6])))
-    && (argv.length === 7 || (argv[7] === '--supersedes' && isTodoDigest(argv[8])))) {
-    action = (repoRoot) => appendNote({
-      repoRoot, env, planKey: argv[2], taskId: argv[4],
-      message: argv[5] === '--message' ? argv[6] : null,
-      inputRef: argv[5] === '--input' ? argv[6] : null,
-      supersedes: argv[8] ?? null,
+  } else if (argv[0] === 'note' && argv[1] !== 'list') {
+    const flags = matchFlagCommand(argv, ['note'], {
+      known: ['plan', 'task', 'message', 'input', 'supersedes'],
+      required: ['plan'],
     });
-  } else if ((argv.length === 5 || argv.length === 7) && argv[0] === 'note'
-    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && ['--message', '--input'].includes(argv[3])
-    && ((argv[3] === '--message' && argv[4].length > 0)
-      || (argv[3] === '--input' && isTodoRef(argv[4])))
-    && (argv.length === 5 || (argv[5] === '--supersedes' && isTodoDigest(argv[6])))) {
-    // `--task`省略でplan単位note。工程レベルの義務(順序制約・一度きりの観測が在ること)は
-    // 特定のtaskに属さない。
-    action = (repoRoot) => appendNote({
-      repoRoot, env, planKey: argv[2], taskId: null,
-      message: argv[3] === '--message' ? argv[4] : null,
-      inputRef: argv[3] === '--input' ? argv[4] : null,
-      supersedes: argv[6] ?? null,
-    });
+    const hasMessage = typeof flags?.message === 'string' && flags.message.length > 0;
+    const hasInput = isAuthoringPathToken(flags?.input);
+    if (flags !== null && isTodoIdentifier(flags.plan)
+      && (flags.task === undefined || isTodoIdentifier(flags.task))
+      && (flags.supersedes === undefined || isTodoDigest(flags.supersedes))
+      && hasMessage !== hasInput) {
+      action = (repoRoot) => appendNote({
+        repoRoot, env, planKey: flags.plan,
+        taskId: flags.task ?? null,
+        message: hasMessage ? flags.message : null,
+        inputRef: hasInput ? flags.input : null,
+        supersedes: flags.supersedes ?? null,
+      });
+    }
   } else if (argv.length === 5 && argv[0] === 'note' && argv[1] === 'list'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--json') {
     action = (repoRoot) => listNotes({ repoRoot, planKey: argv[3], taskId: null });
@@ -3716,34 +3632,43 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
       repoRoot, env, fromPlanKey: argv[3], fromTaskId: argv[5],
       toPlanKey: argv[7], toTaskId: argv[9], reason: argv[11],
     });
-  } else if (argv.length === 6 && argv[0] === 'independence' && argv[1] === 'compile'
-    && argv[2] === '--plan' && isTodoIdentifier(argv[3]) && argv[4] === '--input') {
-    action = (repoRoot) => independenceCompile({
-      repoRoot, planKey: argv[3], inputRef: argv[5],
+  } else if (argv[0] === 'independence' && argv[1] === 'compile') {
+    const flags = matchFlagCommand(argv, ['independence', 'compile'], {
+      known: ['plan', 'input'], required: ['plan', 'input'],
     });
-  } else if (argv.length === 8 && argv[0] === 'structure' && argv[1] === 'input'
-    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
-    && argv[4] === '--input' && isTodoRef(argv[5])
-    && argv[6] === '--dry-run' && argv[7] === '--json') {
-    action = (repoRoot) => structureInputDryRun({
-      repoRoot, planKey: argv[3], inputRef: argv[5],
+    if (flags !== null && isTodoIdentifier(flags.plan) && isAuthoringPathToken(flags.input)) {
+      action = (repoRoot) => independenceCompile({
+        repoRoot, planKey: flags.plan, inputRef: flags.input,
+      });
+    }
+  } else if (argv[0] === 'structure' && argv[1] === 'input') {
+    const flags = matchFlagCommand(argv, ['structure', 'input'], {
+      known: ['plan', 'input', 'dry-run', 'json'],
+      required: ['plan', 'input'],
+      booleans: ['dry-run', 'json'],
     });
-  } else if (argv.length === 6 && argv[0] === 'structure' && argv[1] === 'input'
-    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
-    && argv[4] === '--input' && isTodoRef(argv[5])) {
-    action = (repoRoot) => structureInput({
-      repoRoot, planKey: argv[3], inputRef: argv[5],
+    if (flags !== null && isTodoIdentifier(flags.plan) && isAuthoringPathToken(flags.input)) {
+      action = flags['dry-run'] === true
+        ? (repoRoot) => structureInputDryRun({
+          repoRoot, planKey: flags.plan, inputRef: flags.input,
+        })
+        : (repoRoot) => structureInput({
+          repoRoot, planKey: flags.plan, inputRef: flags.input,
+        });
+    }
+  } else if (argv[0] === 'structure' && argv[1] === 'compile') {
+    const flags = matchFlagCommand(argv, ['structure', 'compile'], {
+      known: ['plan', 'input'], required: ['plan', 'input'],
     });
-  } else if (argv.length === 6 && argv[0] === 'structure' && argv[1] === 'compile'
-    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
-    && argv[4] === '--input' && isTodoRef(argv[5])) {
-    action = (repoRoot) => structureCompile({
-      repoRoot, env, planKey: argv[3], inputRef: argv[5],
-    });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isAuthoringPathToken(flags.input)) {
+      action = (repoRoot) => structureCompile({
+        repoRoot, env, planKey: flags.plan, inputRef: flags.input,
+      });
+    }
   } else if (argv.length === 8 && argv[0] === 'structure' && argv[1] === 'realize'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])
     && argv[4] === '--task' && isTodoIdentifier(argv[5])
-    && argv[6] === '--input' && isTodoRef(argv[7])) {
+    && argv[6] === '--input' && isAuthoringPathToken(argv[7])) {
     action = (repoRoot) => structureRealize({
       repoRoot, env, planKey: argv[3], taskId: argv[5], inputRef: argv[7],
     });
@@ -3771,11 +3696,11 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     action = (repoRoot) => seamProposalApply({ repoRoot, planKey: argv[3] });
   } else if (argv.length === 7 && argv[0] === 'independence' && argv[1] === 'witness'
     && argv[2] === 'scaffold' && argv[3] === '--plan' && isTodoIdentifier(argv[4])
-    && argv[5] === '--input' && isTodoRef(argv[6])) {
+    && argv[5] === '--input' && isAuthoringPathToken(argv[6])) {
     action = (repoRoot) => witnessScaffold({ repoRoot, planKey: argv[4], inputRef: argv[6] });
   } else if (argv.length === 6 && argv[0] === 'seam-proposal' && argv[1] === 'land'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])
-    && argv[4] === '--names' && isTodoRef(argv[5])) {
+    && argv[4] === '--names' && isAuthoringPathToken(argv[5])) {
     action = async (repoRoot) => seamProposalApply({
       repoRoot,
       planKey: argv[3],
@@ -3784,7 +3709,7 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     });
   } else if ((argv.length === 5 || argv.length === 6) && argv[0] === 'seam-profile'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && argv[3] === '--file' && isTodoRef(argv[4])
+    && argv[3] === '--file' && isAuthoringPathToken(argv[4])
     && (argv.length === 5 || argv[5] === '--json')) {
     action = (repoRoot) => seamProfile({ repoRoot, planKey: argv[2], filePath: argv[4] });
   } else if (argv.length === 4 && argv[0] === 'seam-proposal' && argv[1] === 'compile'
@@ -3824,32 +3749,46 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
         next_action: 'lattice todo gantt serve --port 0',
       });
     };
-  } else if ((argv.length === 5 || argv.length === 6) && argv[0] === 'migrate'
-    && argv[1] === '--input' && isTodoRef(argv[2])
-    && argv[3] === '--dry-run' && argv[4] === '--json'
-    && (argv.length === 5 || argv[5] === '--serialization-reviewed')) {
-    action = (repoRoot) => migrateDryRun({ repoRoot, inputRef: argv[2] });
-  } else if ((argv.length === 3 || argv.length === 4 || argv.length === 5)
-    && argv[0] === 'migrate' && argv[1] === '--input' && isTodoRef(argv[2])
-    && (argv.length === 3
-      || (argv.length === 4 && ['--json', '--serialization-reviewed'].includes(argv[3]))
-      || (argv.length === 5 && argv[3] === '--serialization-reviewed' && argv[4] === '--json'))) {
-    action = (repoRoot) => migrate({ repoRoot, inputRef: argv[2] });
-  } else if (argv.length === 5 && argv[0] === 'revise'
-    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && argv[3] === '--input' && isTodoRef(argv[4])) {
-    action = (repoRoot) => revise({ repoRoot, env, planKey: argv[2], inputRef: argv[4] });
-  } else if (argv.length === 5 && argv[0] === 'split'
-    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && argv[3] === '--input' && isTodoRef(argv[4])) {
-    action = (repoRoot) => splitTodo({ repoRoot, env, planKey: argv[2], inputRef: argv[4] });
-  } else if (argv.length === 3 && argv[0] === 'revise-set'
-    && argv[1] === '--input' && isTodoRef(argv[2])) {
-    action = (repoRoot) => reviseSet({ repoRoot, env, inputRef: argv[2] });
-  } else if (argv.length === 5 && argv[0] === 'revise-phase'
-    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && argv[3] === '--input' && isTodoRef(argv[4])) {
-    action = (repoRoot) => revisePhase({ repoRoot, env, planKey: argv[2], inputRef: argv[4] });
+  } else if (argv[0] === 'migrate' && argv[1] !== '--schema') {
+    const flags = matchFlagCommand(argv, ['migrate'], {
+      known: ['input', 'json', 'serialization-reviewed', 'dry-run'],
+      required: ['input'],
+      booleans: ['json', 'serialization-reviewed', 'dry-run'],
+    });
+    if (flags !== null && isAuthoringPathToken(flags.input)) {
+      action = flags['dry-run'] === true
+        ? (repoRoot) => migrateDryRun({ repoRoot, inputRef: flags.input })
+        : (repoRoot) => migrate({ repoRoot, inputRef: flags.input });
+    }
+  }
+  if (action === null && argv[0] === 'revise') {
+    const flags = matchFlagCommand(argv, ['revise'], {
+      known: ['plan', 'input'], required: ['plan', 'input'],
+    });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isAuthoringPathToken(flags.input)) {
+      action = (repoRoot) => revise({ repoRoot, env, planKey: flags.plan, inputRef: flags.input });
+    }
+  } else if (argv[0] === 'split') {
+    const flags = matchFlagCommand(argv, ['split'], {
+      known: ['plan', 'input'], required: ['plan', 'input'],
+    });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isAuthoringPathToken(flags.input)) {
+      action = (repoRoot) => splitTodo({ repoRoot, env, planKey: flags.plan, inputRef: flags.input });
+    }
+  } else if (argv[0] === 'revise-set') {
+    const flags = matchFlagCommand(argv, ['revise-set'], {
+      known: ['input'], required: ['input'],
+    });
+    if (flags !== null && isAuthoringPathToken(flags.input)) {
+      action = (repoRoot) => reviseSet({ repoRoot, env, inputRef: flags.input });
+    }
+  } else if (argv[0] === 'revise-phase') {
+    const flags = matchFlagCommand(argv, ['revise-phase'], {
+      known: ['plan', 'input'], required: ['plan', 'input'],
+    });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isAuthoringPathToken(flags.input)) {
+      action = (repoRoot) => revisePhase({ repoRoot, env, planKey: flags.plan, inputRef: flags.input });
+    }
   } else if (argv.length === 4 && argv[0] === 'phase' && argv[1] === 'status'
     && argv[2] === '--plan' && isTodoIdentifier(argv[3])) {
     action = (repoRoot) => phaseStatus({ repoRoot, planKey: argv[3] });
@@ -3859,13 +3798,17 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[6] === '--reason' && argv[7].length > 0) {
     action = (repoRoot) => phaseMutation({ repoRoot, env, planKey: argv[3], phaseId: argv[5],
       kind: 'phase_review', payload: { reason: argv[7] } });
-  } else if (argv.length === 8 && argv[0] === 'phase'
-    && ['accept', 'reject'].includes(argv[1])
-    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
-    && argv[4] === '--phase' && isTodoIdentifier(argv[5])
-    && argv[6] === '--input' && isTodoRef(argv[7])) {
-    action = (repoRoot) => phaseDecision({ repoRoot, env, planKey: argv[3], phaseId: argv[5],
-      outcome: argv[1], inputRef: argv[7] });
+  } else if (argv[0] === 'phase' && ['accept', 'reject'].includes(argv[1])) {
+    const flags = matchFlagCommand(argv, ['phase', argv[1]], {
+      known: ['plan', 'phase', 'input'], required: ['plan', 'phase', 'input'],
+    });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.phase)
+      && isAuthoringPathToken(flags.input)) {
+      action = (repoRoot) => phaseDecision({
+        repoRoot, env, planKey: flags.plan, phaseId: flags.phase,
+        outcome: argv[1], inputRef: flags.input,
+      });
+    }
   } else if ((argv.length === 8 || argv.length === 10) && argv[0] === 'phase'
     && argv[1] === 'reopen' && argv[2] === '--plan' && isTodoIdentifier(argv[3])
     && argv[4] === '--phase' && isTodoIdentifier(argv[5])
@@ -3884,56 +3827,98 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && parseBaselineExceptFlags(argv.slice(4)) !== null) {
     const exceptPlanKeys = parseBaselineExceptFlags(argv.slice(4));
     action = (repoRoot) => phaseBaseline({ repoRoot, env, reason: argv[3], exceptPlanKeys });
-  } else if ((argv.length === 5 || argv.length === 6 || argv.length === 7 || argv.length === 8)
-    && argv[0] === 'start'
-    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && argv[3] === '--task' && isTodoIdentifier(argv[4])
-    && (argv.length === 5 || (argv.length === 6 && argv[5] === '--parallel-frontier')
-      || ((argv.length === 7 || argv.length === 8)
-        && argv[5] === '--override-reason' && argv[6].length > 0
-        && (argv.length === 7 || argv[7] === '--serial-confirmed')))) {
-    const overrideReason = argv.length >= 7 ? argv[6] : null;
-    action = (repoRoot) => startTask({ repoRoot, env, planKey: argv[2], taskId: argv[4],
-      overrideReason, parallelFrontier: argv.length === 6 });
-  } else if (argv.length === 7 && argv[0] === 'retract'
-    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && argv[3] === '--task' && isTodoIdentifier(argv[4])
-    && argv[5] === '--reason' && argv[6].length > 0) {
-    action = (repoRoot) => retractStart({
-      repoRoot, env, planKey: argv[2], taskId: argv[4], reason: argv[6],
+  } else if (argv[0] === 'start') {
+    const flags = matchFlagCommand(argv, ['start'], {
+      known: ['plan', 'task', 'parallel-frontier', 'override-reason', 'serial-confirmed'],
+      required: ['plan', 'task'],
+      booleans: ['parallel-frontier', 'serial-confirmed'],
     });
-  } else if (argv.length === 7 && argv[0] === 'block'
-    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && argv[3] === '--task' && isTodoIdentifier(argv[4])
-    && argv[5] === '--reason' && argv[6].length > 0) {
-    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
-      kind: 'block', payload: { reason: argv[6] }, evidenceRef: null });
-  } else if (argv.length === 5 && argv[0] === 'unblock'
-    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && argv[3] === '--task' && isTodoIdentifier(argv[4])) {
-    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
-      kind: 'unblock', payload: {}, evidenceRef: null });
-  } else if ((argv.length === 7 || argv.length === 9) && argv[0] === 'done'
-    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && argv[3] === '--task' && isTodoIdentifier(argv[4])
-    && argv[5] === '--evidence' && isTodoRef(argv[6])
-    && (argv.length === 7 || (argv[7] === '--test-result' && isTodoRef(argv[8])))) {
-    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
-      kind: 'done', payload: 'authored', evidenceRef: argv[6], testResultRef: argv[8] ?? null });
-  } else if (argv.length === 8 && argv[0] === 'evidence' && argv[1] === 'promote'
-    && argv[2] === '--plan' && isTodoIdentifier(argv[3])
-    && argv[4] === '--task' && isTodoIdentifier(argv[5])
-    && argv[6] === '--evidence' && isTodoRef(argv[7])) {
-    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[3], taskId: argv[5],
-      kind: 'done', payload: 'evidence_promotion', evidenceRef: argv[7] });
-  } else if ((argv.length === 7 || argv.length === 9) && argv[0] === 'reopen'
-    && argv[1] === '--plan' && isTodoIdentifier(argv[2])
-    && argv[3] === '--task' && isTodoIdentifier(argv[4])
-    && argv[5] === '--reason' && argv[6].length > 0
-    && (argv.length === 7 || (argv[7] === '--override-reason' && argv[8].length > 0))) {
-    const overrideReason = argv.length === 9 ? argv[8] : null;
-    action = (repoRoot) => mutate({ repoRoot, env, planKey: argv[2], taskId: argv[4],
-      kind: 'reopen', payload: { reason: argv[6], override_reason: overrideReason }, evidenceRef: null });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.task)
+      && (flags['override-reason'] === undefined || (typeof flags['override-reason'] === 'string'
+        && flags['override-reason'].length > 0))) {
+      action = (repoRoot) => startTask({
+        repoRoot, env, planKey: flags.plan, taskId: flags.task,
+        overrideReason: typeof flags['override-reason'] === 'string' ? flags['override-reason'] : null,
+        parallelFrontier: flags['parallel-frontier'] === true,
+      });
+    }
+  } else if (argv[0] === 'done') {
+    const flags = matchFlagCommand(argv, ['done'], {
+      known: ['plan', 'task', 'evidence', 'test-result', 'message'],
+      required: ['plan', 'task'],
+    });
+    const hasEvidence = isAuthoringPathToken(flags?.evidence);
+    const hasMessage = typeof flags?.message === 'string' && flags.message.length > 0;
+    if (flags !== null && isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.task)
+      && hasEvidence !== hasMessage
+      && (flags['test-result'] === undefined || isAuthoringPathToken(flags['test-result']))) {
+      action = (repoRoot) => mutate({
+        repoRoot, env, planKey: flags.plan, taskId: flags.task,
+        kind: 'done', payload: 'authored',
+        evidenceRef: hasEvidence ? flags.evidence : null,
+        evidenceMessage: hasMessage ? flags.message : null,
+        testResultRef: flags['test-result'] ?? null,
+      });
+    }
+  }
+  if (action === null && argv[0] === 'retract') {
+    const flags = matchFlagCommand(argv, ['retract'], {
+      known: ['plan', 'task', 'reason'], required: ['plan', 'task', 'reason'],
+    });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.task)) {
+      action = (repoRoot) => retractStart({
+        repoRoot, env, planKey: flags.plan, taskId: flags.task, reason: flags.reason,
+      });
+    }
+  } else if (argv[0] === 'block') {
+    const flags = matchFlagCommand(argv, ['block'], {
+      known: ['plan', 'task', 'reason'], required: ['plan', 'task', 'reason'],
+    });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.task)) {
+      action = (repoRoot) => mutate({
+        repoRoot, env, planKey: flags.plan, taskId: flags.task,
+        kind: 'block', payload: { reason: flags.reason }, evidenceRef: null,
+      });
+    }
+  } else if (argv[0] === 'unblock') {
+    const flags = matchFlagCommand(argv, ['unblock'], {
+      known: ['plan', 'task'], required: ['plan', 'task'],
+    });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.task)) {
+      action = (repoRoot) => mutate({
+        repoRoot, env, planKey: flags.plan, taskId: flags.task,
+        kind: 'unblock', payload: {}, evidenceRef: null,
+      });
+    }
+  } else if (argv[0] === 'evidence' && argv[1] === 'promote') {
+    const flags = matchFlagCommand(argv, ['evidence', 'promote'], {
+      known: ['plan', 'task', 'evidence'], required: ['plan', 'task', 'evidence'],
+    });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.task)
+      && isAuthoringPathToken(flags.evidence)) {
+      action = (repoRoot) => mutate({
+        repoRoot, env, planKey: flags.plan, taskId: flags.task,
+        kind: 'done', payload: 'evidence_promotion', evidenceRef: flags.evidence,
+      });
+    }
+  } else if (argv[0] === 'reopen') {
+    const flags = matchFlagCommand(argv, ['reopen'], {
+      known: ['plan', 'task', 'reason', 'override-reason'],
+      required: ['plan', 'task', 'reason'],
+    });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.task)
+      && (flags['override-reason'] === undefined
+        || (typeof flags['override-reason'] === 'string' && flags['override-reason'].length > 0))) {
+      action = (repoRoot) => mutate({
+        repoRoot, env, planKey: flags.plan, taskId: flags.task,
+        kind: 'reopen',
+        payload: {
+          reason: flags.reason,
+          override_reason: typeof flags['override-reason'] === 'string' ? flags['override-reason'] : null,
+        },
+        evidenceRef: null,
+      });
+    }
   }
   if (action === null) {
     const command = typeof argv[0] === 'string' ? argv[0] : null;

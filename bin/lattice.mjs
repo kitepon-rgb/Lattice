@@ -31,15 +31,26 @@ if (help !== null) {
       cwd: process.cwd(), stdout: process.stdout, cliVersion: packageJson.version, error,
     });
   }
-} else if ((args.length === 4 || args.length === 5) && args[0] === 'plan' && args[1] === 'create'
-  && args[2] === '--input' && (args.length === 4 || args[4] === '--serialization-reviewed')) {
-  const { projectCliFailure, runPlanCreate } = await import('../src/project-cli.mjs');
-  try {
-    process.exitCode = await runPlanCreate({
-      cwd: process.cwd(), inputRef: args[3], stdout: process.stdout,
-    });
-  } catch (error) {
-    process.exitCode = projectCliFailure(process.stderr, error);
+} else if (args[0] === 'plan' && args[1] === 'create'
+  && args[2] !== '--schema' && args[2] !== '--schema-version') {
+  const { matchFlagCommand } = await import('../src/todo-authoring-input.mjs');
+  const flags = matchFlagCommand(args, ['plan', 'create'], {
+    known: ['input', 'serialization-reviewed'],
+    required: ['input'],
+    booleans: ['serialization-reviewed'],
+  });
+  if (flags === null) {
+    process.stderr.write('lattice: unsupported command or arguments: plan create\n');
+    process.exitCode = 2;
+  } else {
+    const { projectCliFailure, runPlanCreate } = await import('../src/project-cli.mjs');
+    try {
+      process.exitCode = await runPlanCreate({
+        cwd: process.cwd(), inputRef: flags.input, stdout: process.stdout,
+      });
+    } catch (error) {
+      process.exitCode = projectCliFailure(process.stderr, error);
+    }
   }
 } else if (args.length === 4 && args[0] === 'plan' && args[1] === 'create'
   && args[2] === '--schema' && args[3] === '--json') {

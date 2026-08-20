@@ -137,9 +137,11 @@ canonical store ref、active plan、active run、`uninitialized | ready | active
 Markdownへ暗黙fallbackしない。
 
 未初期化projectの初期authoring入口は
-`lattice plan create --input <lattice.plan_create_input.v4>`である。入力はrepo内のcanonical
-JSON+LFに限定し、`lattice.todo_plan.v7`と同じPhase／task／topology制約を満たすfull desired stateを
-一回のtransactionでstoreへ登録する。移行専用の`todo migrate`を新規authoringへ流用しない。
+`lattice plan create --input <lattice.plan_create_input.v4>`である。入力はrepo内のJSON
+（pretty-print・digest未計算・repo内絶対pathを含む）を機械がcanonicalizeして受理し、
+`lattice.todo_plan.v7`と同じPhase／task／topology制約を満たすfull desired stateを
+一回のtransactionでstoreへ登録する。空の設計メモは拒否する（`NO_PLAN`は明示申告だけ）。
+移行専用の`todo migrate`を新規authoringへ流用しない。
 旧v1〜v3は`--schema-version`で取得できるだけの歴史契約であり、create入力としては
 `plan_create_schema_retired`で拒否する。
 
@@ -200,7 +202,8 @@ compile commandまで案内する（ADR 0160）。**新しい判定はここで�
 再compileを案内し、壊れた記録とは区別する。記録は`(plan_version, topology_digest, base_sha)`へ束縛し、
 dirty worktreeでは記録しない。
 記録はwitness setから再生成できるhost localの投影として扱い、git追跡するのは入力のwitness setだけとする。
-witness setは`concern_anchors`を任意で持てる。これは係争資源の内側で自分が触るsymbolをToDoごとに
+witness setは`concern_anchors`を任意で持てる。`within`は`owns`または`writes`が指す資源に限る。
+これは係争資源の内側で自分が触るsymbolをToDoごとに
 名前で宣言する束縛専用の入力であり、並列可否の判定へは写らない——判定入力へ合成する時点で落とすので、
 宣言が誤っていてもconflictを作ることも消すこともできない。concern anchorを持たない
 `lattice.todo_witness_set.v1`の宣言もそのまま受理し、書き換えを要求しない。
@@ -285,8 +288,9 @@ session開始時にhostが必要とする現在地は`lattice session-context --
 
 topologyとsource reconciliationの変更はfull desired-state successorを
 発行する`todo revise`／`todo revise-phase`だけが所有し、Markdown fallback、部分CRUD、独立`todo reconcile`を持たない。
-通常revision inputはcanonical JSON+LFの`lattice.todo_revision.v1/v2`、Phase revisionは
-`lattice.phase_todo_revision.v1/v2/v3`とする。設計メモを持つdesired planは通常revision v2のv6と
+通常revision inputは`lattice.todo_revision.v1/v2`、Phase revisionは
+`lattice.phase_todo_revision.v1/v2/v3`とする。入口はpretty-printとdigest未計算を機械が直す。
+storeへ書くbytesはcanonical。設計メモを持つdesired planは通常revision v2のv6と
 Phase revision v3のv7が所有する。
 cross-plan successorは`todo revise-set`で一括公開し、
 `lattice.todo_revision_set.v3`はPhase revisionを必須として通常revisionとの混在を許す。全desired graphと
@@ -360,25 +364,28 @@ authoring契約のJSON Schemaは各入口から取得できる。`plan create --
 上限付き配列でまとめて返す。digest不一致は期待digest、ソート違反はsort key、未来時刻は現在時刻と
 許容5分窓を返す。循環等のtopology違反とstore／I/O障害を混同せず、除外taskを登録taskのparent・
 dependency・joinから参照する入力はcompile前にpointer付きで拒否する。未知subcommand、不正引数、
-repo外絶対inputはそれぞれ`UNKNOWN_SUBCOMMAND`、
-`INVALID_ARGUMENTS`、`INPUT_OUTSIDE_REPOSITORY`へ分ける。`lattice plan show <plan_key> --json`は`lattice.plan_show_result.v1`として
+repo外inputはそれぞれ`UNKNOWN_SUBCOMMAND`、
+`INVALID_ARGUMENTS`、`INPUT_UNREADABLE`へ分ける。repo内なら絶対pathを受理する。`lattice plan show <plan_key> --json`は`lattice.plan_show_result.v1`として
 plan本体（phase定義と状態・task一覧と状態・依存本数・topology要約）を投影する——
 `todo bindings`が`compile_binding`付きtaskだけを投影することによる「planが空」という誤読を塞ぐ面である。
 
 通常の状態遷移は`todo start / block / unblock / done / evidence promote / reopen`のclosed面で行う。
 mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,
-`LATTICE_TODO_ACTOR_AGENT`をすべてtodo identifierとして明示し、欠落時は書き込まない。`done`の
-evidenceはrepo内descriptor JSONとpinned Git objectをwrite時にhard検証する。成功は
+`LATTICE_TODO_ACTOR_AGENT`をtodo identifierとして受理する。欠落はhost／`session`／USERから
+sanitizeしたdefaultを使う。渡した値がidentifierとして不正なら`ACTOR_UNRESOLVED`で書き込まない。
+`done`はtaskを閉じる。evidenceはrepo内のdescriptor JSONでも証拠本文でもよく、`--message`は
+本文からblob descriptorを書く。dashboard故障とstructure realizationはdoneの門ではない。
+監査と構造finalizationはstatusの残作業である（ADR 0159・0181）。成功は
 `lattice.todo_mutation_result.v2`一行（`note_context`を同梱する成功は
 `lattice.todo_mutation_result.v5`）、失敗とusage違反は`lattice.cli_error.v2`一行で、
 失敗時のstore bytesは不変とする。`advisory`は`todo start`だけが非nullで返し、着手対象と
 進行中ToDoの競合・切断可能性・未検査の内訳を機械可読で載せる（ADR 0128）。助言であって拒否ではなく、
 ready frontier dispatch契約は変えない。ただし記録があるのに鮮度を判定できない場合は、
-助言なしで通さずjournal書込前に失敗させる。actor解決失敗はrequired／missing／invalid環境キーと正規次操作を
-error detailへ返し、OS由来の偽identityへfallbackしない。`todo start`はさらに`structure_context`を
+助言なしで通さずjournal書込前に失敗させる。`todo start`はさらに`structure_context`を
 必ず返す。構造機能が有効なら対象taskのcanonical planned構造、structure set identity、compile freshness、
-realizationの次操作を同梱し、未適用なら`status=not_enabled`を明示する。実装者へ別コマンドやsource file探索を
-要求しない（ADR 0172）。
+realizationの次操作を同梱し、未適用なら`status=not_enabled`、破損なら`status=unreadable`を明示する。
+note chainが壊れていてもstartは通り、`note_context`はunreadableを返す。実装者へ別コマンドやsource file探索を
+要求しない（ADR 0172・0181）。
 
 PhaseはToDoの直列化groupではなく重監査の制御境界である。現行`todo_plan.v7`は各ToDoの`phase_id`、
 gate policy、前段Phase、required evidence slotを所有するが、通常ToDoのstart/done readinessはToDo DAGだけで決める。

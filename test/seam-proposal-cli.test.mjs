@@ -449,15 +449,13 @@ test('HEAD進行はstale、independence再compileはsupersededとして区別す
   assert.equal(superseded.guidance.code, 'seam_proposal_superseded');
 });
 
-test('dirty worktreeではseam proposal compileをsensorより前に拒否する', async (context) => {
+test('dirty worktreeではseam proposal compileをworktreeの汚れだけでは拒否しない', async (context) => {
   const root = await workspace(context);
   await writeFile(path.join(root, 'dirty.txt'), 'dirty\n');
   const result = run(root, ['todo', 'seam-proposal', 'compile', '--plan', 'main']);
-
   assert.equal(result.status, 1);
   const error = parse(result.stderr);
-  assert.equal(error.code, 'INDEPENDENCE_WORKTREE_DIRTY');
-  assert.equal(error.detail.next_action, 'commit_or_stash_then_retry');
+  assert.notEqual(error.code, 'INDEPENDENCE_WORKTREE_DIRTY');
 });
 
 test('compile入口は実sensorでindependence記録からartifactを生成し、readできる',

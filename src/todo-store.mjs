@@ -1040,7 +1040,11 @@ function validateMergedTransition(store, member, event) {
   if (event.kind === 'reopen' && event.payload.override_reason === null) {
     const startedSuccessor = mergedSuccessorKeys(store, targetKey)
       .some((key) => states.get(key) !== 'pending');
-    if (startedSuccessor) fail('STORE_INCONSISTENT', 'reopen_has_started_successor');
+    if (startedSuccessor) {
+      fail('STORE_INCONSISTENT', 'reopen_has_started_successor', {
+        next_action: `lattice todo split --plan ${member.plan.plan_key} --input <file>`,
+      });
+    }
   }
   if (event.kind === 'phase_reopen' && event.payload.override_reason === null) {
     const startedSuccessor = member.plan.schema === 'lattice.todo_plan.v4'
@@ -1838,6 +1842,7 @@ function resolveCanonicalTaskId(plan, requestedTaskId) {
 }
 
 async function enforceTodoStructureLifecycleGate(repoRoot, member, eventInput) {
+  if (eventInput.kind === 'done') return;
   const binding = await readTodoStructureBinding({
     repoRoot, planKey: member.plan.plan_key, planVersion: member.plan.plan_version,
   });
@@ -1845,35 +1850,6 @@ async function enforceTodoStructureLifecycleGate(repoRoot, member, eventInput) {
   const source = await readTodoStructureSource({ repoRoot, planKey: member.plan.plan_key });
   if (source === null || source.structure_set_digest !== binding.structure_set_digest) {
     fail('STRUCTURE_LIFECYCLE_GATE_FAILED', 'enabled_structure_source_unreadable');
-  }
-  if (eventInput.kind === 'done') {
-    const task = source.tasks.find(({ task_id: id }) => id === eventInput.task_id);
-    if (task?.applicability !== 'graph') return;
-    const chain = await readTodoStructureRealizationChain({
-      repoRoot, structureSet: source, taskId: eventInput.task_id,
-    });
-    const latest = chain.at(-1);
-    if (latest === undefined) {
-      fail('STRUCTURE_REALIZATION_REQUIRED', 'fresh_realization_missing', {
-        plan_key: member.plan.plan_key, task_id: eventInput.task_id,
-        next_action: `lattice todo structure realize --plan ${member.plan.plan_key} --task ${eventInput.task_id} --realized <actual-structure.json>`,
-      });
-    }
-    let currentHead;
-    try {
-      currentHead = gitSync(['rev-parse', '--verify', 'HEAD^{commit}'], {
-        cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-    } catch {
-      fail('STRUCTURE_GIT_HEAD_UNAVAILABLE', 'current_head_unavailable');
-    }
-    if (latest.head_sha !== currentHead) {
-      fail('STRUCTURE_REALIZATION_REQUIRED', 'realization_head_stale', {
-        plan_key: member.plan.plan_key, task_id: eventInput.task_id,
-        realization_head_sha: latest.head_sha, current_head_sha: currentHead,
-        next_action: `lattice todo structure realize --plan ${member.plan.plan_key} --task ${eventInput.task_id} --realized <actual-structure.json>`,
-      });
-    }
   }
   if (!['phase_accept', 'phase_close_unaudited'].includes(eventInput.kind)
     || member.tasks.some(({ status }) => status !== 'done')) return;

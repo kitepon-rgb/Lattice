@@ -203,15 +203,20 @@ export function synthesizeWitnessRunRequest(witnessSet, { baseSha, requestId }) 
 /**
  * 1 taskのconcern anchor宣言を検査する。
  *
- * `within`はそのtask自身が`owns`で主張している資源に限る。所有していない資源の内側に
- * 担当を主張させない。symbol名の実在・資源内包含・task間排他はsensorとcompile側が見る。
+ * `within`は`owns`または`writes`が指す資源に限る。触ると宣言した面の内側に担当を書ける。
+ * 所有も書き込みも無い資源の内側には主張させない。
  */
-function explainConcernAnchors(anchors, owns, at) {
+function explainConcernAnchors(anchors, owns, writes, at) {
   const reject = (reason, path) => ({ valid: false, reason, path });
   if (!Array.isArray(anchors) || anchors.length > TODO_CONCERN_ANCHOR_LIMIT) {
     return reject('bounded_collection_violation', at);
   }
   const ownedKeys = new Set(owns.map((own) => `${own.kind}\0${own.target}`));
+  if (Array.isArray(writes)) {
+    for (const write of writes) {
+      if (typeof write === 'string') ownedKeys.add(`path\0${write}`);
+    }
+  }
   for (const [index, entry] of anchors.entries()) {
     const entryAt = `${at}/${index}`;
     if (!exactRecord(entry, ['within', 'symbols'])) {
@@ -297,7 +302,9 @@ export function explainTodoWitnessSet(value) {
       if (!CONCERN_ANCHOR_SCHEMAS.includes(value.schema)) {
         return reject('concern_anchors_require_witness_set_v2', at);
       }
-      const anchors = explainConcernAnchors(witness.concern_anchors, witness.owns, at);
+      const anchors = explainConcernAnchors(
+        witness.concern_anchors, witness.owns, witness.writes, at,
+      );
       if (!anchors.valid) return reject(anchors.reason, anchors.path);
     }
     return { valid: true };

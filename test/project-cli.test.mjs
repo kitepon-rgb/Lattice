@@ -370,18 +370,13 @@ test('壊れたstore配置はMarkdown fallbackせずtyped invalidを返す', asy
   assert.equal(result.next_action.command, 'lattice todo verify');
 });
 
-test('plan createの非canonical inputはtyped failureでstoreを書かない', async (context) => {
+test('plan createはpretty-print入力を受理してstoreを作る', async (context) => {
   const root = await workspace(context);
   await writeFile(path.join(root, 'plan.json'), `${JSON.stringify(createInput(), null, 2)}\n`);
   const execution = run(root, ['plan', 'create', '--input', 'plan.json']);
-  assert.equal(execution.status, 1);
-  assert.equal(execution.stdout, '');
-  const failure = JSON.parse(execution.stderr);
-  assert.equal(failure.schema, 'lattice.cli_error.v2');
-  assert.equal(failure.code, 'INPUT_INVALID');
-  assert.equal(failure.detail.reason, 'input_bytes_noncanonical');
+  assert.equal(execution.status, 0, execution.stderr);
   const status = JSON.parse(run(root, ['status', '--json']).stdout);
-  assert.equal(status.state, 'uninitialized');
+  assert.equal(status.state, 'ready');
 });
 
 test('plan createのmissing inputはENOENTを漏らさずtyped INPUT_INVALIDを返す', async (context) => {
@@ -391,7 +386,7 @@ test('plan createのmissing inputはENOENTを漏らさずtyped INPUT_INVALIDを�
   assert.equal(execution.stdout, '');
   const failure = JSON.parse(execution.stderr);
   assert.equal(failure.code, 'INPUT_INVALID');
-  assert.equal(failure.detail.reason, 'input_unreadable');
+  assert.equal(failure.detail.reason, 'input_missing');
 });
 
 test('plan createは上限超過inputを全量parseせずtyped拒否する', async (context) => {
@@ -401,7 +396,7 @@ test('plan createは上限超過inputを全量parseせずtyped拒否する', asy
   assert.equal(execution.status, 1);
   const failure = JSON.parse(execution.stderr);
   assert.equal(failure.code, 'INPUT_INVALID');
-  assert.equal(failure.detail.reason, 'input_too_large');
+  assert.equal(failure.detail.reason, 'input_size_limit_exceeded');
 });
 
 test('plan createはunsafe .latticeで失敗してもstagingを残さない', async (context) => {

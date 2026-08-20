@@ -75,13 +75,13 @@ test('note append/listをtyped CLIで提供しlifecycle artifactを変更しな�
   assert.deepEqual(await Promise.all(refs.map((ref) => readFile(path.join(root, ref)))), before);
 });
 
-test('messageとinputは排他的でactor未解決・task不在をtyped failureにする', async (t) => {
+test('messageとinputは排他的で、actor欠落はdefaultしtask不在はtyped failureにする', async (t) => {
   const root = await workspace(t);
   await writeFile(path.join(root, 'note.md'), '入力note');
   assert.equal(run(root, ['todo', 'note', '--plan', 'main', '--task', 'T1', '--input', 'note.md']).status, 0);
   const noActor = run(root,
-    ['todo', 'note', '--plan', 'main', '--task', 'T1', '--message', 'x'], false);
-  assert.equal(JSON.parse(noActor.stderr).code, 'ACTOR_UNRESOLVED');
+    ['todo', 'note', '--plan', 'main', '--task', 'T1', '--message', 'default-actor'], false);
+  assert.equal(noActor.status, 0, noActor.stderr);
   const missing = run(root,
     ['todo', 'note', '--plan', 'main', '--task', 'missing', '--message', 'x']);
   assert.equal(JSON.parse(missing.stderr).code, 'NOTE_TASK_NOT_FOUND');

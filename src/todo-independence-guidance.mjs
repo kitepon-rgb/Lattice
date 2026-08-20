@@ -304,8 +304,8 @@ export function selectSeamProposalGuidance({ coverage, unknownKinds = [] }) {
  */
 export const TODO_INDEPENDENCE_WORKFLOW = Object.freeze([
   '1. 宣言する: .lattice/todo/witness/<plan_key>.json へ、ToDoごとのowns／reads／writes／affected_testsを書く',
-  '   係争資源しか所有していないToDoは、その資源の中で自分が触るsymbolをconcern_anchorsへ宣言できる（witness set v2）。並列可否の判定には写らず、切断候補の束縛だけに効く',
-  '2. 判定する: lattice todo independence compile --plan <key> --input <ref>（実sensorを引き、clean worktreeが要る）',
+  '   係争資源しか所有していないToDoは、ownsまたはwritesの内側で自分が触るsymbolをconcern_anchorsへ宣言できる（witness set v2）。並列可否の判定には写らず、切断候補の束縛だけに効く',
+  '2. 判定する: lattice todo independence compile --plan <key> --input <ref>（実sensorを引く。pretty-printやdigest未計算の下書きは機械が直す）',
   '3. 読む: lattice todo independence --plan <key> --json（sensorを引かず、記録とHEAD照合だけで返る）',
   '4. 追従する: plan改訂後は lattice todo independence witness migrate --plan <key> で宣言を写してから再compileする',
 ]);
@@ -319,8 +319,8 @@ export const TODO_INDEPENDENCE_WORKFLOW = Object.freeze([
  */
 const SCAFFOLD_CATALOG = Object.freeze({
   anchor_outside_owned: {
-    message: 'concern_anchorのwithinが、自分の所有pathを指していない。所有していない資源の内側に担当を主張できない。',
-    next_action: 'align_anchor_with_owns',
+    message: 'concern_anchorのwithinが、ownsにもwritesにも無い。触ると宣言した面の内側にだけ担当を書ける。',
+    next_action: 'align_anchor_with_owns_or_writes',
   },
   draft_invalid: {
     message: '下書きがlattice.todo_witness_draft契約を満たしていない。',

@@ -111,16 +111,16 @@ test('manifestが参照する正規plan artifactの欠落はnote/startでもfail
   assert.equal(JSON.parse(started.stderr).code, 'STORE_INCONSISTENT');
 });
 
-test('note取得不能ならstart前にtyped failureしlifecycleを部分進行させない', async (t) => {
+test('note取得不能でもstartは通り、note_contextはunreadableを返す', async (t) => {
   const root = await workspace(t);
   assert.equal(run(root,
     ['todo', 'note', '--plan', 'main', '--task', 'T1', '--message', '壊す']).status, 0);
   const activeNote = path.join(root, '.lattice/todo/notes/main/active.jsonl');
   await writeFile(activeNote, ` ${await readFile(activeNote, 'utf8')}`);
-  const journal = path.join(root, '.lattice/todo/plans/main/v1/journal/active.jsonl');
-  const before = await readFile(journal);
   const started = run(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']);
-  assert.equal(started.status, 1);
-  assert.equal(JSON.parse(started.stderr).code, 'NOTE_LOG_CORRUPT');
-  assert.deepEqual(await readFile(journal), before);
+  assert.equal(started.status, 0, started.stderr);
+  const result = JSON.parse(started.stdout);
+  assert.equal(result.status, 'in-progress');
+  assert.equal(result.note_context.schema, 'lattice.todo_note_context.unreadable.v1');
+  assert.equal(result.note_context.code, 'NOTE_LOG_CORRUPT');
 });

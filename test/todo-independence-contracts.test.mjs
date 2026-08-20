@@ -269,6 +269,19 @@ test('concern anchorは所有資源・整列・v2 schemaを要求する', () => 
     symbols: ['renderLeft'],
   }])).reason, 'concern_anchor_resource_not_owned');
 
+  const written = witnessSet({
+    manual_witness: {
+      'tip-001': witness({
+        writes: ['src/alpha.mjs', 'src/beta.mjs'],
+        concern_anchors: [{
+          within: { kind: 'path', target: 'src/beta.mjs' },
+          symbols: ['renderLeft'],
+        }],
+      }),
+    },
+  });
+  assert.equal(explainTodoWitnessSet(written).valid, true);
+
   assert.equal(explainTodoWitnessSet(anchored([{
     within: { kind: 'path', target: 'src/alpha.mjs' },
     symbols: ['renderRight', 'renderLeft'],

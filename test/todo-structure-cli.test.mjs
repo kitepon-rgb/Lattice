@@ -214,15 +214,18 @@ test('baselineが実commitでもHEAD祖先でなければdry-runで区別する'
   assert.equal(result.violations.some(({ code }) => code === 'baseline_not_ancestor'), true);
 });
 
-test('repo外inputはgit・store読取より前にtyped usage拒否する', async (context) => {
+test('repo外inputはtyped INPUT_UNREADABLEで拒否する', async (context) => {
   const fixture = await workspace(context);
+  const outside = path.join(tmpdir(), `lattice-outside-${process.pid}.json`);
+  await writeFile(outside, '{}\n');
+  context.after(() => rm(outside, { force: true }));
   const execution = runCli(fixture.root, [
-    'structure', 'input', '--plan', 'main', '--input', '/tmp/structure.json', '--dry-run', '--json',
+    'structure', 'input', '--plan', 'main', '--input', outside, '--dry-run', '--json',
   ]);
-  assert.equal(execution.status, 2);
+  assert.equal(execution.status, 1);
   const error = parse(execution.stderr);
-  assert.equal(error.code, 'INPUT_OUTSIDE_REPOSITORY');
-  assert.equal(error.detail.argument, '--input');
+  assert.equal(error.code, 'INPUT_UNREADABLE');
+  assert.equal(error.detail.reason, 'input_path_outside_repo');
 });
 
 test('structure artifactの4種の破損をstatus/verifyで診断し、明示inputからcanonical復旧する', async (context) => {

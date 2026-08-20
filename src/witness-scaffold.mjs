@@ -65,6 +65,7 @@ export function validateWitnessDraft(value) {
     && task !== null && typeof task === 'object' && !Array.isArray(task)
     && draftOwnEntries(task, value.schema) !== null
     && (task.reads === undefined || (Array.isArray(task.reads) && task.reads.every(isTodoRef)))
+    && (task.writes === undefined || (Array.isArray(task.writes) && task.writes.every(isTodoRef)))
     && (task.unknowns === undefined || (Array.isArray(task.unknowns)
       && task.unknowns.every((entry) => entry !== null && typeof entry === 'object'
         && isTodoIdentifier(entry.kind) && typeof entry.ref === 'string' && entry.ref.length > 0)))
@@ -113,20 +114,26 @@ export function buildWitnessSet({ draft, observationByPath } = {}) {
     const entries = draftOwnEntries(task, draft.schema) ?? [];
     const owns = [...new Map(entries.map((entry) => [entry.target, entry])).values()]
       .sort((left, right) => compareText(left.target, right.target));
-    const ownedTargets = new Set(owns.map(({ target }) => target));
+    const writeTargets = sortedUnique([
+      ...owns.map(({ target }) => target),
+      ...(Array.isArray(task.writes) ? task.writes : []),
+    ]);
+    const declaredTargets = new Set(writeTargets);
     const affected = sortedUnique(owns.flatMap(({ target }) => (
       observationByPath?.[target]?.affectedTests ?? []
     )));
     for (const anchor of task.concern_anchors ?? []) {
-      // `within`は自分が所有している資源に限る。所有していない資源の内側に担当を主張させない。
-      if (!ownedTargets.has(anchor.within)) reasons.push(`anchor_outside_owned:${taskId}:${anchor.within}`);
+      // `within`はownsまたはwritesが指す資源に限る。
+      if (!declaredTargets.has(anchor.within)) {
+        reasons.push(`anchor_outside_owned:${taskId}:${anchor.within}`);
+      }
     }
     manualWitness[taskId] = {
       owns: owns.map(({ target, creates }) => (
         creates ? { kind: 'path', target, creates: true } : { kind: 'path', target }
       )),
       reads: sortedUnique(task.reads ?? []),
-      writes: owns.map(({ target }) => target),
+      writes: writeTargets,
       resources: [],
       state_effects: [],
       sensor_provenance: {

@@ -93,13 +93,17 @@ Write commands:
   migrate --input <extraction.json> [--serialization-reviewed] [--json]
   migrate --input <extraction.json> --dry-run --json [--serialization-reviewed]
       # 既存storeへplanを追加する（plan createは空store初期化専用）。
+      # pretty-print・digest未計算・repo内絶対pathは機械が直す。空の設計メモは拒否する。
       # 結果へdispatch_shapeを載せる。--serialization-reviewedは互換のため受理するだけで門ではない
   start --plan <key> --task <id> [--parallel-frontier|--override-reason <text> [--serial-confirmed]]
-        # readyならflagなしで着手する。--parallel-frontierと--override-reasonは方針・理由の記録。
+        # readyならflagなしで着手する。flagの順は問わない。
+        # --parallel-frontierと--override-reasonは方針・理由の記録。
         # --serial-confirmedは互換のため受理する。いずれも門ではない
   block --plan <key> --task <id> --reason <text>
   unblock --plan <key> --task <id>
-  done --plan <key> --task <id> --evidence <file>  # 構造対象taskはfresh realizationを要求する
+  done --plan <key> --task <id> (--evidence <file>|--message <text>)
+        # taskを閉じる。--evidenceはdescriptor JSONでも証拠本文でもよい。repo内なら絶対path可。
+        # 監査と構造finalizationは残作業であり、doneの門ではない
   reopen --plan <key> --task <id> --reason <text> [--override-reason <text>]
   evidence promote --plan <key> --task <id> --evidence <file>
   dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>
@@ -139,8 +143,8 @@ Write commands:
       # 現在gate_readyかつphase eventを1つも持たないPhaseを一括でclosed_unauditedへ宣言する。
       # 自動実行はしない(明示コマンドのみ)。--exceptで指定したplanは対象から除外する
 
-Write commands require LATTICE_TODO_ACTOR_HOST, LATTICE_TODO_ACTOR_SESSION,
-and LATTICE_TODO_ACTOR_AGENT.
+Write commandsはLATTICE_TODO_ACTOR_HOST / SESSION / AGENTを受理する。
+欠落はhost／session／agentのdefaultを使う。渡した値がidentifierとして不正なら拒否する。
 
 storeだけを書き換えるcommandの末尾へ--commit-storeを付けると、共有Git lockを取得し、
 生じた.lattice/todoの変更だけをcommitしてreceiptを返す。
@@ -264,7 +268,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo retract': 'todo retract --plan <key> --task <id> --reason <text>',
   'todo block': 'todo block --plan <key> --task <id> --reason <text>',
   'todo unblock': 'todo unblock --plan <key> --task <id>',
-  'todo done': 'todo done --plan <key> --task <id> --evidence <file> [--test-result <markdown-file>]',
+  'todo done': 'todo done --plan <key> --task <id> (--evidence <file>|--message <text>) [--test-result <markdown-file>]',
   'todo reopen': 'todo reopen --plan <key> --task <id> --reason <text> [--override-reason <text>]',
   'todo evidence': 'todo evidence promote --plan <key> --task <id> --evidence <file>',
   'todo evidence promote': 'todo evidence promote --plan <key> --task <id> --evidence <file>',

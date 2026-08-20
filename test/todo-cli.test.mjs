@@ -399,16 +399,12 @@ test('todo verifyはactive phase v1/v2でも履歴上のsource inventoryを検�
   assert.equal(JSON.parse(drifted.stderr).detail.reason, 'source_digest_mismatch');
 });
 
-test('todo reviseはnon-canonical input bytesをstore無変更で拒否する', async (context) => {
+test('todo reviseはpretty-print入力を受理してcanonical storeへ書く', async (context) => {
   const root = await workspace(context);
   const revision = await revisionInput(root);
   await writeFile(path.join(root, 'revision.json'), JSON.stringify(revision, null, 2));
-  const before = await storeDigest(root);
   const result = runCli(root, ['todo', 'revise', '--plan', 'main', '--input', 'revision.json']);
-  assert.equal(result.status, 1);
-  assert.equal(result.stdout, '');
-  assert.equal(JSON.parse(result.stderr).code, 'REVISION_INVALID');
-  assert.equal(await storeDigest(root), before);
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test('authoring CLIはclosed遷移をappendしmutation resultをdigest束縛する', async (context) => {
@@ -488,39 +484,28 @@ test('authoring CLIはtask IDのcase差をlock内でcanonical IDへ解決する'
   assert.equal(await storeDigest(root), before);
 });
 
-test('authoring CLIはactor欠落・順序違反・blocked中doneを無変更拒否する', async (context) => {
+test('authoring CLIはactor欠落をdefaultで通し、順序違反・blocked中doneを無変更拒否する', async (context) => {
   const root = await workspace(context);
   const { descriptorRef } = await evidenceFixture(root);
-  for (const [args, actor, code, reason] of [
-    [['todo', 'start', '--plan', 'main', '--task', 'T1'], false, 'ACTOR_UNRESOLVED', 'actor_environment_invalid'],
-    [['todo', 'start', '--plan', 'main', '--task', 'T2'], true, 'STORE_INCONSISTENT', 'invalid_start_transition'],
-  ]) {
-    const before = await storeDigest(root);
-    const result = runCli(root, args, { actor });
-    assert.equal(result.status, 1);
-    const error = JSON.parse(result.stderr);
-    assert.equal(error.code, code);
-    assert.equal(error.detail.reason, reason);
-    if (code === 'ACTOR_UNRESOLVED') {
-      assert.deepEqual(error.detail.required_environment, [
-        'LATTICE_TODO_ACTOR_HOST', 'LATTICE_TODO_ACTOR_SESSION', 'LATTICE_TODO_ACTOR_AGENT',
-      ]);
-      assert.deepEqual(error.detail.missing_environment, error.detail.required_environment);
-      assert.deepEqual(error.detail.invalid_environment, []);
-      assert.equal(error.detail.next_action, 'set_required_actor_environment_and_retry');
-    }
-    assert.equal(await storeDigest(root), before);
-  }
-  successJson(runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']));
-  successJson(runCli(root, ['todo', 'block', '--plan', 'main', '--task', 'T1', '--reason', 'waiting']));
+  const defaulted = successJson(runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T1'], {
+    actor: false,
+  }));
+  assert.equal(defaulted.status, 'in-progress');
   const before = await storeDigest(root);
+  const skipped = runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T2']);
+  assert.equal(skipped.status, 1);
+  assert.equal(JSON.parse(skipped.stderr).code, 'STORE_INCONSISTENT');
+  assert.equal(JSON.parse(skipped.stderr).detail.reason, 'invalid_start_transition');
+  assert.equal(await storeDigest(root), before);
+  successJson(runCli(root, ['todo', 'block', '--plan', 'main', '--task', 'T1', '--reason', 'waiting']));
+  const blockedBefore = await storeDigest(root);
   const blockedDone = runCli(root, ['todo', 'done', '--plan', 'main', '--task', 'T1', '--evidence', descriptorRef]);
   assert.equal(blockedDone.status, 1);
   assert.equal(JSON.parse(blockedDone.stderr).detail.reason, 'invalid_done_transition');
-  assert.equal(await storeDigest(root), before);
+  assert.equal(await storeDigest(root), blockedBefore);
 });
 
-test('authoring CLIは不正actor環境を不足と不正へ分けて次操作を返す', async (context) => {
+test('authoring CLIは不正actor環境だけを拒否し、欠落はdefaultする', async (context) => {
   const root = await workspace(context);
   const env = {
     ...process.env,
@@ -534,9 +519,30 @@ test('authoring CLIは不正actor環境を不足と不正へ分けて次操作�
   assert.equal(result.status, 1);
   const error = JSON.parse(result.stderr);
   assert.equal(error.code, 'ACTOR_UNRESOLVED');
-  assert.deepEqual(error.detail.missing_environment, ['LATTICE_TODO_ACTOR_AGENT']);
+  assert.deepEqual(error.detail.missing_environment, []);
   assert.deepEqual(error.detail.invalid_environment, ['LATTICE_TODO_ACTOR_SESSION']);
   assert.equal(error.detail.next_action, 'set_required_actor_environment_and_retry');
+});
+
+test('flag順と証拠本文・repo内絶対pathでstart/doneが通る', async (context) => {
+  const root = await workspace(context);
+  const started = successJson(runCli(root, ['todo', 'start', '--task', 'T1', '--plan', 'main']));
+  assert.equal(started.status, 'in-progress');
+  const byMessage = successJson(runCli(root, [
+    'todo', 'done', '--task', 'T1', '--plan', 'main', '--message', '閉じた',
+  ]));
+  assert.equal(byMessage.status, 'done');
+
+  const startedT2 = successJson(runCli(root, [
+    'todo', 'start', '--plan', 'main', '--task', 'T2', '--override-reason', 'after T1',
+  ]));
+  assert.equal(startedT2.status, 'in-progress');
+  const bodyRef = path.join(root, 'body-evidence.md');
+  await writeFile(bodyRef, '# 実装メモ\n');
+  const byAbsolute = successJson(runCli(root, [
+    'todo', 'done', '--plan', 'main', '--task', 'T2', '--evidence', bodyRef,
+  ]));
+  assert.equal(byAbsolute.status, 'done');
 });
 
 test('start/reopen overrideとdescriptor schema拒否をexact argvで処理する', async (context) => {
@@ -557,15 +563,6 @@ test('start/reopen overrideとdescriptor schema拒否をexact argvで処理す�
   assert.match(invalidError.detail.expected.shape, /git_blob_oid/u);
   assert.equal(await storeDigest(root), before);
 
-  // 記述子でないファイル（証拠本体の誤渡し）でも期待形が案内される
-  const notJsonRef = 'not-json-evidence.md';
-  await writeFile(path.join(root, notJsonRef), '# evidence body\n');
-  const notJson = runCli(root, ['todo', 'done', '--plan', 'main', '--task', 'T2', '--evidence', notJsonRef]);
-  assert.equal(notJson.status, 1);
-  const notJsonError = JSON.parse(notJson.stderr);
-  assert.equal(notJsonError.message, 'json_parse_failed');
-  assert.match(notJsonError.detail.expected.shape, /git_blob_oid/u);
-
   successJson(runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T1']));
   successJson(runCli(root, ['todo', 'done', '--plan', 'main', '--task', 'T1', '--evidence', descriptorRef]));
   const withoutOverride = runCli(root, [
@@ -573,6 +570,7 @@ test('start/reopen overrideとdescriptor schema拒否をexact argvで処理す�
   ]);
   assert.equal(withoutOverride.status, 1);
   assert.equal(JSON.parse(withoutOverride.stderr).detail.reason, 'reopen_has_started_successor');
+  assert.match(JSON.parse(withoutOverride.stderr).detail.next_action, /todo split/u);
   const reopened = successJson(runCli(root, [
     'todo', 'reopen', '--plan', 'main', '--task', 'T1', '--reason', 'correction',
     '--override-reason', 'successor audited',
@@ -759,15 +757,12 @@ test('todo namespaceの未知subcommandと不正引数は別codeのtyped exit 2'
     ['todo', 'snapshot', '--rebuild', '--plan', 'main', 'extra'],
     ['todo', 'migrate'],
     ['todo', 'migrate', '--input'],
-    ['todo', 'migrate', '--input', '/tmp/extraction.json'],
     ['todo', 'migrate', 'extraction.json', '--input'],
     ['todo', 'migrate', '--input', 'extraction.json', 'extra'],
-    ['todo', 'start', '--task', 'T1', '--plan', 'main'],
     ['todo', 'start', '--plan', 'main', '--task', 'T1', '--override-reason'],
     ['todo', 'block', '--plan', 'main', '--task', 'T1'],
     ['todo', 'unblock', '--plan', 'main', '--task', 'T1', 'extra'],
     ['todo', 'done', '--plan', 'main', '--task', 'T1'],
-    ['todo', 'evidence', 'promote', '--task', 'T1', '--plan', 'main', '--evidence', 'evidence.json'],
     ['todo', 'reopen', '--plan', 'main', '--task', 'T1', '--reason', 'why', '--override-reason'],
   ];
   for (const args of malformed) {
@@ -776,9 +771,7 @@ test('todo namespaceの未知subcommandと不正引数は別codeのtyped exit 2'
     assert.equal(result.status, 2, args.join(' '));
     assert.equal(result.stdout, '');
     const error = JSON.parse(result.stderr);
-    const expectedCode = args[1] === 'unknown' ? 'UNKNOWN_SUBCOMMAND'
-      : args[1] === 'migrate' && path.isAbsolute(args[3] ?? '')
-        ? 'INPUT_OUTSIDE_REPOSITORY' : 'INVALID_ARGUMENTS';
+    const expectedCode = args[1] === 'unknown' ? 'UNKNOWN_SUBCOMMAND' : 'INVALID_ARGUMENTS';
     assert.equal(error.code, expectedCode, args.join(' '));
     assert.equal(typeof error.detail.next_action, 'string');
     assert.equal(await storeDigest(root), before);

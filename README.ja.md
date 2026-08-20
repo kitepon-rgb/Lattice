@@ -325,7 +325,8 @@ pidへは送りません（pid再利用で無関係のprocessを止めうるた�
 [ADR 0157](docs/adr/0157-dashboard-daemons-are-discoverable-by-record.md)が正です。
 状態を書き込む`start / block / unblock / done / evidence promote / reopen / note / independence mode /
 revise / revise-phase / revise-set / phase review|accept|reject|reopen|close-unaudited|baseline /
-dashboard adopt`では、監査actorとして次の3環境変数をすべて設定してください。
+dashboard adopt`では、監査actorとして次の3環境変数を渡せます。未設定ならhost／`session`／USERから
+defaultします。渡した値がidentifierとして不正なら`ACTOR_UNRESOLVED`です。
 
 ```bash
 export LATTICE_TODO_ACTOR_HOST=<host-id>
@@ -333,12 +334,11 @@ export LATTICE_TODO_ACTOR_SESSION=<session-id>
 export LATTICE_TODO_ACTOR_AGENT=<agent-id>
 ```
 
-不足またはidentifierとして不正な値がある場合、mutationはstoreを変更せず`ACTOR_UNRESOLVED`を返します。
-error detailの`missing_environment`／`invalid_environment`と
-`next_action: set_required_actor_environment_and_retry`を確認し、正規値を設定して同じ操作を再試行してください。
+`todo done`は`--evidence`にdescriptor JSONでも証拠本文でも渡せます。`--message`なら本文から
+blobを書きます。flagの順は問いません。空の設計メモは拒否します。無策なら`NO_PLAN`と書いてください。
 
-正確なargv、evidence descriptor、result wireは
-[ADR 0056](docs/adr/0056-todo-authoring-transitions.md)を参照してください。
+authoring入口と閉じる口の契約は
+[ADR 0181](docs/adr/0181-authoring-entry-accepts-drafts.md)を参照してください。
 
 ## 特許
 

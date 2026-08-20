@@ -1,18 +1,16 @@
 import { gitSync } from './git-process.mjs';
 import { constants as fsConstants } from 'node:fs';
-import { lstat, open, realpath } from 'node:fs/promises';
+import { lstat, open } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
   TODO_DESIGN_MEMO_PROMPT,
-  canonicalizeTodoArtifact,
   exactRecord,
   explainTodoDesignMemo,
   isTodoDesignMemo,
   isStrictTodoTimestamp,
   isTodoDigest,
   isTodoIdentifier,
-  isTodoRef,
   todoSelfDigest,
 } from './todo-contracts.mjs';
 import { projectTodoStatus } from './todo-status.mjs';
@@ -39,10 +37,10 @@ import {
 import {
   computeTodoDispatchShapeForPlan,
 } from './todo-dispatch-shape.mjs';
+import { readAuthoringJsonFile } from './todo-authoring-input.mjs';
 
 const STORE_REF = '.lattice/todo';
 const MANIFEST_REF = `${STORE_REF}/manifest.json`;
-const MAX_INPUT_BYTES = 8_388_608;
 const STATUS_SCHEMA = 'lattice.project_status.v1';
 const SESSION_CONTEXT_SCHEMA = 'lattice.session_context.v1';
 /** HEADが読めない環境でも投影を組めるようにする。記録があるときは実HEADで置き換わる。 */
@@ -339,15 +337,19 @@ export async function runProjectStatus({ cwd, stdout, cliVersion, env = process.
   // dashboard活動の登録はdiscovery面の副作用として維持する（ADR 0131 Decision 4で
   // session-context側だけが持たない、と決めた面である）。
   if (state.store !== null && env.LATTICE_DASHBOARD_AUTOSTART !== '0') {
-    const identity = await resolveProjectIdentity({
-      repoRoot: state.repoRoot, projectId: state.store.project_id, env,
-    });
-    const actorSession = env.LATTICE_TODO_ACTOR_SESSION;
-    await ensureDashboardActivity({
-      repoRoot: state.repoRoot, projectId: state.store.project_id,
-      displayName: identity.displayName,
-      sessionId: isTodoIdentifier(actorSession) ? actorSession : `status-${process.pid}`, env,
-    });
+    try {
+      const identity = await resolveProjectIdentity({
+        repoRoot: state.repoRoot, projectId: state.store.project_id, env,
+      });
+      const actorSession = env.LATTICE_TODO_ACTOR_SESSION;
+      await ensureDashboardActivity({
+        repoRoot: state.repoRoot, projectId: state.store.project_id,
+        displayName: identity.displayName,
+        sessionId: isTodoIdentifier(actorSession) ? actorSession : `status-${process.pid}`, env,
+      });
+    } catch {
+      // dashboardはdiscoveryの副作用。statusをdashboard故障で止めない（ADR 0181）。
+    }
   }
   stdout.write(`${JSON.stringify(state.result)}\n`);
   return state.exitCode;
@@ -382,68 +384,17 @@ export async function runSessionContext({ cwd, stdout, cliVersion }) {
 }
 
 async function readCanonicalInput(repoRoot, inputRef) {
-  if (!isTodoRef(inputRef)) throw new TodoStoreError('INPUT_INVALID', 'input_ref_invalid');
-  const root = await realpath(repoRoot);
-  const absolute = path.resolve(root, inputRef);
-  if (!absolute.startsWith(`${root}${path.sep}`)) throw new TodoStoreError('INPUT_INVALID', 'input_outside_repo');
-  let cursor = root;
   try {
-    for (const part of path.relative(root, absolute).split(path.sep)) {
-      cursor = path.join(cursor, part);
-      const entry = await lstat(cursor);
-      if (entry.isSymbolicLink()) throw new TodoStoreError('INPUT_INVALID', 'input_path_symlink');
-    }
+    return await readAuthoringJsonFile(repoRoot, inputRef, { invalidCode: 'INPUT_INVALID' });
   } catch (error) {
-    if (error instanceof TodoStoreError) throw error;
-    throw new TodoStoreError('INPUT_INVALID', 'input_unreadable');
-  }
-  const state = await lstat(absolute);
-  if (!state.isFile() || await realpath(absolute) !== absolute) {
-    throw new TodoStoreError('INPUT_INVALID', 'input_path_invalid');
-  }
-  if (state.size > MAX_INPUT_BYTES) throw new TodoStoreError('INPUT_INVALID', 'input_too_large');
-  let handle;
-  let bytes;
-  try {
-    handle = await open(absolute, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
-    const opened = await handle.stat();
-    if (opened.dev !== state.dev || opened.ino !== state.ino || opened.size !== state.size
-      || opened.mtimeMs !== state.mtimeMs || opened.ctimeMs !== state.ctimeMs || !opened.isFile()) {
-      throw new TodoStoreError('INPUT_INVALID', 'input_changed_during_validation');
+    if (error instanceof TodoStoreError && [
+      'INPUT_UNREADABLE', 'INPUT_TOO_LARGE', 'INVALID_JSON',
+    ].includes(error.code)) {
+      throw new TodoStoreError('INPUT_INVALID', error.detail?.reason ?? 'input_unreadable', undefined,
+        error.detail);
     }
-    if (opened.size > MAX_INPUT_BYTES) throw new TodoStoreError('INPUT_INVALID', 'input_too_large');
-    const capture = Buffer.allocUnsafe(MAX_INPUT_BYTES + 1);
-    let captured = 0;
-    while (captured < capture.length) {
-      const { bytesRead } = await handle.read(capture, captured, capture.length - captured, null);
-      if (bytesRead === 0) break;
-      captured += bytesRead;
-    }
-    if (captured > MAX_INPUT_BYTES) throw new TodoStoreError('INPUT_INVALID', 'input_too_large');
-    bytes = capture.subarray(0, captured);
-    const after = await lstat(absolute);
-    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size
-      || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs
-      || await realpath(absolute) !== absolute) {
-      throw new TodoStoreError('INPUT_INVALID', 'input_changed_during_validation');
-    }
-  } catch (error) {
-    if (error instanceof TodoStoreError) throw error;
-    throw new TodoStoreError('INPUT_INVALID', 'input_unreadable');
-  } finally {
-    await handle?.close();
+    throw error;
   }
-  if (bytes.length > MAX_INPUT_BYTES) throw new TodoStoreError('INPUT_INVALID', 'input_too_large');
-  let text;
-  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
-  catch { throw new TodoStoreError('INPUT_INVALID', 'input_utf8_invalid'); }
-  if (!text.endsWith('\n') || text.includes('\r') || text.slice(0, -1).includes('\n')) {
-    throw new TodoStoreError('INPUT_INVALID', 'input_bytes_noncanonical');
-  }
-  let value;
-  try { value = JSON.parse(text.slice(0, -1)); } catch { throw new TodoStoreError('INPUT_INVALID', 'input_json_invalid'); }
-  if (`${canonicalizeTodoArtifact(value)}\n` !== text) throw new TodoStoreError('INPUT_INVALID', 'input_bytes_noncanonical');
-  return value;
 }
 
 function validateCreateInput(value) {

@@ -246,7 +246,7 @@ test('下書きが受理されない時、理由ごとに具体的な次の一�
   assert.equal(selectWitnessScaffoldGuidance(['draft_invalid']).next_action,
     'fix_draft_schema_then_retry');
   assert.equal(selectWitnessScaffoldGuidance(['anchor_outside_owned:T1:src/x.mjs']).next_action,
-    'align_anchor_with_owns');
+    'align_anchor_with_owns_or_writes');
 });
 
 test('理由が重なったら、形の壊れている側を先に述べる', () => {

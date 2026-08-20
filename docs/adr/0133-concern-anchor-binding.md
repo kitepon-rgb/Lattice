@@ -25,7 +25,8 @@ ToDoがfile所有をやめてsymbol所有へ絞ると`writes`の交差が未解�
 ### 1. 宣言は判定入力から構造的に落とす（`lattice.todo_witness_set.v2`）
 
 witness setへ任意の`concern_anchors: [{within, symbols}]`を新設する。`within`はそのtask自身が
-`owns`で主張している資源に限り、所有していない資源の内側に担当を主張させない。
+`owns`または`writes`で主張している資源に限り、触ると宣言していない資源の内側に担当を主張させない
+（書き込み面への拡張は [ADR 0181](0181-authoring-entry-accepts-drafts.md)）。
 
 宣言は並列可否の判定へ**写さない**。判定正本である合成`lattice.run_request.v1`を作る時点で
 落とすので、宣言が誤っていてもconflictを作ることも消すこともできない。非影響をtestの主張でなく

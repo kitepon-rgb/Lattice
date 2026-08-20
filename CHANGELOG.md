@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.62.0 — 2026-08-20
+
+### 変更
+
+- authoring入口は下書きを受理する（ADR 0181）。pretty-print・digest未計算・repo内絶対pathは
+  機械が直す。flagの順は契約ではない。actor欠落はdefaultする。
+  `todo done`はtaskを閉じ、dashboard／structure realization／証拠本文で止めない。
+  `--evidence`はdescriptorでも本文でもよく、`--message`は本文からblobを書く。
+  `concern_anchors.within`はownsまたはwrites。seam-proposal compileはdirty worktreeを拒否しない。
+  空の設計メモは拒否したまま。`NO_PLAN`は明示申告だけ受理する。
+
 ## 0.61.3 — 2026-08-20
 
 ### 修正
