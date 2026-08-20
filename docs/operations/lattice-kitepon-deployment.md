@@ -279,6 +279,15 @@ FOXのinbound TCP 61578は最初から通っていて、firewall ruleの追加�
 heartbeatはoutbound、配信はinboundなので、**一覧の「オンライン」はそのページが開けることを
 意味しない**。受入は必ず`/projects/<id>/`の実応答で判定する。
 
+## 2026-08-20 v0.62.0・authoring入口受理
+
+- 対象commit `cedd2c3d`（`origin/main`の祖先）。npm `@quolu/lattice@0.62.0`。
+- Mac: `npm install -g @quolu/lattice@0.62.0 --prefer-online`。CLI 0.62.0。
+  bridge runtime 0.62.0、heartbeat accepted、reachable。
+- 公開面: `https://lattice.kitepon.dev/projects/` と `/projects/lattice/` が HTTP 200。
+- 配線（Cloudflare Tunnel → Caddy → hub）は変更していない。
+- 証跡: [2026-08-20-v0.62.0-authoring-entry-release.md](../evidence/2026-08-20-v0.62.0-authoring-entry-release.md)。
+
 ## 2026-08-20 v0.61.1・dispatch往復廃止
 
 - 対象commit `3f106a05`（`origin/main`の祖先）。npm `@quolu/lattice@0.61.1`。
