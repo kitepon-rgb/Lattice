@@ -47,7 +47,7 @@ Phase追加の発見困難、Gantt出力契約の誤解誘発、動的dashboard�
   生成・更新・stale管理する運用契約は廃止し、AIへ案内しない。
 - Latticeは文章を生成しない。AIが生成したMarkdownを受け取り、存在・上限・束縛・移行・表示を検証する。
 - registryは`project_id`とcanonical rootの衝突をfail-closedにし、明示adopt以外で配信元を変更しない。
-- エラーは`PARALLEL_DISPATCH_RECONSIDER`と同じく、測定値、対象、期待、次の一手を返す。
+- エラーは測定値、対象、期待、次の一手を返す。
 
 ## 実装単位
 

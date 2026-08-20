@@ -104,7 +104,6 @@ import {
   validateTodoExtraction,
 } from './todo-migration.mjs';
 import {
-  assertTodoDispatchShapeReviewed,
   computeTodoDispatchShapeForPlan,
 } from './todo-dispatch-shape.mjs';
 import {
@@ -842,31 +841,8 @@ async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
   };
 }
 
-// 直列化の理由として認めない定型句。
-// worker数・セッション構成・作業者の都合は「並列にできない根拠」ではない。
-// 根拠になるのは実際の干渉だけ（同一fileへの書込衝突・外部資源の排他・順序依存）。
-// 単一プロセスのagentが「自分は1人だから」と直列へ逃げる事例が実運用で出たため、
-// frontierの既定（all_ready_parallel_by_default）を宣言だけでなく機構で守る。
-const SERIAL_NON_REASONS = [
-  /単一(?:の)?(?:セッション|エージェント|worker|ワーカー|プロセス|スレッド)/u,
-  /(?:逐次|順次|直列|シリアル)(?:実行|処理|化|に|で)/u,
-  /(?:一人|1人|ひとり|1名|単独)(?:で|の|しか)/u,
-  /(?:サブ)?エージェント(?:が|は)?(?:居ない|いない|使わない|使えない)/u,
-  /single[-\s]?(?:session|agent|worker|process|thread)/iu,
-  /\b(?:sequential|serial)(?:ly)?\s*(?:execution|processing|run|dispatch)?\b/iu,
-  /one[-\s]at[-\s]a[-\s]time|\bsolo\b|\bby myself\b/iu,
-];
-
-/**
- * 直列化理由が「実際の干渉」を述べているかを検査する。
- * worker数・セッション構成を述べただけの理由は根拠にならないので拒否する。
- */
-function serialReasonNonInterference(reason) {
-  return SERIAL_NON_REASONS.find((pattern) => pattern.test(reason)) ?? null;
-}
-
 async function startTask({
-  repoRoot, env, planKey, taskId, overrideReason, parallelFrontier, serialConfirmed = false,
+  repoRoot, env, planKey, taskId, overrideReason, parallelFrontier,
 }) {
   const store = await readTodoStore({ repoRoot });
   // startはready判定にしかprojectionを使わず、resultを出力しない。
@@ -875,62 +851,10 @@ async function startTask({
     task.plan_key === planKey && task.task_id.toLowerCase() === taskId.toLowerCase()
   ));
   const targetReady = readyTask !== undefined;
+  // `--parallel-frontier`は方針の記録口で、対象がreadyでないときにだけ用法誤り。
+  // 複数readyのplain startや直列理由の文言審査で着手を止めない（ADR 0180）。
   if (parallelFrontier && !targetReady) {
     throw new TodoStoreError('PARALLEL_DISPATCH_INVALID', 'parallel_frontier_not_applicable');
-  }
-  const frontierContested = targetReady && projection.active_set.length === 0
-    && projection.next_ready.length > 1;
-  if (frontierContested && overrideReason === null && !parallelFrontier) {
-    throw new TodoStoreError('PARALLEL_DISPATCH_REQUIRED', 'parallel_frontier_requires_declaration',
-      undefined, {
-        ready_count: projection.next_ready.length,
-        ready_task_ids: projection.next_ready.map((task) => task.task_id),
-        frontier_digest: projection.dispatch_frontier.frontier_digest,
-        parallel_start_flag: projection.dispatch_frontier.parallel_start_flag,
-        serial_reason_flag: '--override-reason',
-        default_policy: projection.dispatch_frontier.policy,
-        guidance: '既定は全ready分の同時dispatch。並列で始めるなら --parallel-frontier を使う。'
-          + '--override-reason は「なぜ並列にできないか」を書く欄であり、'
-          + 'worker数・セッション構成・作業者の都合は根拠にならない'
-          + '（同一fileへの書込衝突・外部資源の排他・順序依存だけが根拠になる）。',
-      });
-  }
-  if (frontierContested && overrideReason !== null) {
-    if (serialReasonNonInterference(overrideReason) !== null) {
-      throw new TodoStoreError('PARALLEL_DISPATCH_INVALID', 'serial_reason_is_not_an_interference',
-        undefined, {
-          ready_count: projection.next_ready.length,
-          ready_task_ids: projection.next_ready.map((task) => task.task_id),
-          rejected_reason: overrideReason,
-          default_policy: projection.dispatch_frontier.policy,
-          parallel_start_flag: projection.dispatch_frontier.parallel_start_flag,
-          guidance: 'worker数・セッション構成・作業者の都合は直列化の根拠にならない。'
-            + 'readyが複数あるなら既定は同時dispatchであり、実行主体が1つしか無いことは'
-            + '並列にできない理由ではない（必要ならworkerを増やす）。'
-            + '直列にするなら、並列で走らせたときに実際に起きる干渉'
-            + '（同一fileへの書込衝突・外部資源の排他・順序依存）を書く。',
-        });
-    }
-    // 直列の申告は一度突き返して並列を再検討させる。
-    // 規則を書くだけでは読み飛ばされるため、再考をコマンドの往復で強制する。
-    if (!serialConfirmed) {
-      throw new TodoStoreError('PARALLEL_DISPATCH_RECONSIDER', 'consider_parallel_before_serial',
-        undefined, {
-          ready_count: projection.next_ready.length,
-          ready_task_ids: projection.next_ready.map((task) => task.task_id),
-          declared_reason: overrideReason,
-          default_policy: projection.dispatch_frontier.policy,
-          parallel_start_flag: projection.dispatch_frontier.parallel_start_flag,
-          serial_confirm_flag: '--serial-confirmed',
-          guidance: `並列を検討しなさい。ready ${projection.next_ready.length} 件は同時に着手できる`
-            + '前提で並んでおり、既定は全件同時dispatchである。'
-            + `まず ${projection.dispatch_frontier.parallel_start_flag} で全readyを起こし、`
-            + 'それぞれ別のworkerへ渡すことを検討する'
-            + '（実行主体が足りないなら増やす。増やせないことは並列にできない理由ではない）。'
-            + '検討した上でなお直列にするなら、同じ --override-reason に'
-            + ' --serial-confirmed を付けて再実行する。',
-        });
-    }
   }
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
   if (member === undefined) throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active');
@@ -1244,13 +1168,11 @@ async function phaseBaseline({ repoRoot, env, reason, exceptPlanKeys }) {
   return result;
 }
 
-async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
+async function migrate({ repoRoot, inputRef }) {
   const extraction = await readMigrationInput(repoRoot, inputRef);
-  // dispatch_shapeのgateはappendTodoExtraction（store書込み）より前に判定する必要がある
-  // （拒否時にstoreへ何も書かないため、再考後の再実行がplan_key_already_existsで
-  // 詰まらない）。unresolved/空集合の2つの早期gateは、compileTodoExtraction内部の
-  // 同名gateをここでも先に通しておくことで、既存のエラー優先順位
-  // （unresolved・空集合を直列度より先に報告する）を変えない。
+  // unresolved/空集合の早期gateは、compileTodoExtraction内部の同名gateをここでも
+  // 先に通しておくことで、既存のエラー優先順位を変えない。
+  // dispatch_shapeは結果へ載せる観測であり、直列度では書込みを拒まない（ADR 0180）。
   const unresolvedTaskIds = extraction.tasks
     .filter(({ disposition }) => disposition === 'unknown_requires_evidence')
     .map(({ task_id: taskId }) => taskId);
@@ -1272,9 +1194,6 @@ async function migrate({ repoRoot, inputRef, serializationReviewed = false }) {
     hardDependencies: extraction.hard_dependencies,
     joins: extraction.joins,
   });
-  if (dispatchShape !== null) {
-    assertTodoDispatchShapeReviewed({ shape: dispatchShape, reviewed: serializationReviewed });
-  }
 
   const imported = await appendTodoExtraction({ repoRoot, extraction });
   let companion = null;
@@ -1448,7 +1367,7 @@ function extractionAuthoringViolations(extraction, now = new Date()) {
   return violations;
 }
 
-async function migrateDryRun({ repoRoot, inputRef, serializationReviewed = false }) {
+async function migrateDryRun({ repoRoot, inputRef }) {
   const extraction = await readMigrationInput(repoRoot, inputRef, { requireValid: false });
   const violations = [];
   const tasks = Array.isArray(extraction?.tasks) ? extraction.tasks : [];
@@ -1521,13 +1440,6 @@ async function migrateDryRun({ repoRoot, inputRef, serializationReviewed = false
           taskIds: registered.map(({ task_id: taskId }) => taskId),
           hardDependencies: extraction.hard_dependencies, joins: extraction.joins,
         });
-        try {
-          assertTodoDispatchShapeReviewed({ shape: dispatchShape, reviewed: serializationReviewed });
-        } catch (error) {
-          violations.push({ code: error?.detail?.reason ?? 'plan_shape_too_serial', path: '/hard_dependencies',
-            task_ids: error?.detail?.critical_path_task_ids ?? [],
-            next_action: 'reconsider_parallel_seams_or_pass_serialization_reviewed' });
-        }
       }
     } catch (error) {
       plannedPlan = null;
@@ -1586,7 +1498,7 @@ async function migrateDryRun({ repoRoot, inputRef, serializationReviewed = false
       },
     },
     next_action: bounded.length === 0
-      ? `lattice todo migrate --input ${inputRef}${serializationReviewed ? ' --serialization-reviewed' : ''}`
+      ? `lattice todo migrate --input ${inputRef}`
       : 'correct_all_reported_violations_and_rerun_dry_run',
     result_digest: '',
   };
@@ -3916,17 +3828,13 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[1] === '--input' && isTodoRef(argv[2])
     && argv[3] === '--dry-run' && argv[4] === '--json'
     && (argv.length === 5 || argv[5] === '--serialization-reviewed')) {
-    action = (repoRoot) => migrateDryRun({
-      repoRoot, inputRef: argv[2], serializationReviewed: argv.length === 6,
-    });
+    action = (repoRoot) => migrateDryRun({ repoRoot, inputRef: argv[2] });
   } else if ((argv.length === 3 || argv.length === 4 || argv.length === 5)
     && argv[0] === 'migrate' && argv[1] === '--input' && isTodoRef(argv[2])
     && (argv.length === 3
       || (argv.length === 4 && ['--json', '--serialization-reviewed'].includes(argv[3]))
       || (argv.length === 5 && argv[3] === '--serialization-reviewed' && argv[4] === '--json'))) {
-    action = (repoRoot) => migrate({
-      repoRoot, inputRef: argv[2], serializationReviewed: argv[3] === '--serialization-reviewed',
-    });
+    action = (repoRoot) => migrate({ repoRoot, inputRef: argv[2] });
   } else if (argv.length === 5 && argv[0] === 'revise'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--input' && isTodoRef(argv[4])) {
@@ -3986,8 +3894,7 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
         && (argv.length === 7 || argv[7] === '--serial-confirmed')))) {
     const overrideReason = argv.length >= 7 ? argv[6] : null;
     action = (repoRoot) => startTask({ repoRoot, env, planKey: argv[2], taskId: argv[4],
-      overrideReason, parallelFrontier: argv.length === 6,
-      serialConfirmed: argv.length === 8 });
+      overrideReason, parallelFrontier: argv.length === 6 });
   } else if (argv.length === 7 && argv[0] === 'retract'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--task' && isTodoIdentifier(argv[4])

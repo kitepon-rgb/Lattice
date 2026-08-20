@@ -25,8 +25,7 @@ const NAMESPACE_HELP = Object.freeze({
 
 Commands:
   create --input <file> [--serialization-reviewed]
-      # 依存グラフがほぼ一直線（serialization_ratioが閾値超）なら一度突き返す。
-      # 再考した上でなお直列でよいなら --serialization-reviewed を付けて再実行する
+      # 結果へdispatch_shapeを載せる。--serialization-reviewedは互換のため受理するだけで門ではない
   create --schema --json             # 既定は最新版（v4）のJSON Schemaを返す
   create --schema-version <1|2|3|4> --json
   show <plan_key> --json             # task・依存・phase・状態をplan本体から1コマンドで投影する
@@ -94,9 +93,10 @@ Write commands:
   migrate --input <extraction.json> [--serialization-reviewed] [--json]
   migrate --input <extraction.json> --dry-run --json [--serialization-reviewed]
       # 既存storeへplanを追加する（plan createは空store初期化専用）。
-      # 依存グラフがほぼ一直線なら一度突き返し、再考後の --serialization-reviewed で通す
+      # 結果へdispatch_shapeを載せる。--serialization-reviewedは互換のため受理するだけで門ではない
   start --plan <key> --task <id> [--parallel-frontier|--override-reason <text> [--serial-confirmed]]
-        # 既定は全ready同時dispatch。直列にするには理由の申告後、再考を経て --serial-confirmed が要る
+        # readyならflagなしで着手する。--parallel-frontierと--override-reasonは方針・理由の記録。
+        # --serial-confirmedは互換のため受理する。いずれも門ではない
   block --plan <key> --task <id> --reason <text>
   unblock --plan <key> --task <id>
   done --plan <key> --task <id> --evidence <file>  # 構造対象taskはfresh realizationを要求する
@@ -152,6 +152,7 @@ ${TODO_INDEPENDENCE_WORKFLOW.join('\n')}
 
 判定していない工程は「競合が無い」ではなく「未検査」として扱われ、
 todo startのadvisoryとtodo independenceの投影が、その状況と次の一歩を返す。
+並列既定はstatusのdispatch_frontierとnext_actionが案内する。着手・作成を拒まない。
 `,
   sensor: `Usage: lattice sensor <init|sync> [path] --json
        lattice sensor diff <rootA> <rootB> [options] --json

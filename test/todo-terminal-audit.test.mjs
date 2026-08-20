@@ -245,10 +245,7 @@ test('終端監査gateはToDoのdispatch(next_ready/active_set/dispatch_frontier
 
 test('todo doneはphase無しplanの最後のpending taskがdoneになった時だけ終端監査のadvisoryを返す', async (t) => {
   const root = await workspace(t);
-  // A/B/Pが同時readyな最初のstartはPARALLEL_DISPATCH_REQUIREDに引っかかるため
-  // --parallel-frontierを明示する(0.35.0のdispatch_shape gateとは無関係、既存機構)。
-  const middle = run(root, ['todo', 'start', '--plan', 'audited', '--task', 'A',
-    '--parallel-frontier'], ACTOR_ENV);
+  const middle = run(root, ['todo', 'start', '--plan', 'audited', '--task', 'A'], ACTOR_ENV);
   assert.equal(middle.status, 0, middle.stderr);
   const middleDone = run(root, ['todo', 'done', '--plan', 'audited', '--task', 'A',
     '--evidence', await evidenceFile(root, 'evidence-a')], ACTOR_ENV);
@@ -256,12 +253,8 @@ test('todo doneはphase無しplanの最後のpending taskがdoneになった時�
   // Aはaudited planの最初のdoneであり、B/Cがまだpendingなので終端監査のadvisoryは付かない。
   assert.equal(JSON.parse(middleDone.stdout).advisory, null);
 
-  // Aがdoneした直後はactive_setが再び空になり、B/Cの2件が同時readyでcontestedになる。
-  // 最初のstart(B)だけ--parallel-frontierを要求される。
-  for (const [index, taskId] of ['B', 'C'].entries()) {
-    const startArgs = ['todo', 'start', '--plan', 'audited', '--task', taskId,
-      ...(index === 0 ? ['--parallel-frontier'] : [])];
-    const started = run(root, startArgs, ACTOR_ENV);
+  for (const taskId of ['B', 'C']) {
+    const started = run(root, ['todo', 'start', '--plan', 'audited', '--task', taskId], ACTOR_ENV);
     assert.equal(started.status, 0, started.stderr);
   }
   const lastDone = run(root, ['todo', 'done', '--plan', 'audited', '--task', 'B',

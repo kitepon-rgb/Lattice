@@ -218,39 +218,25 @@ cross-plan topologyを同時に切り替える場合は
 Phase付きv5 planでは、通常ToDoの開始順はToDo DAGだけで決まり、Phase前後関係は重監査の順序だけを
 制御します。特定ToDoがPhase受理を本当に必要とする場合だけ`phase_accept_dependencies`で明示します。
 `lattice todo status --json`の`dispatch_frontier`はready全件を同時dispatchする既定を示します。
-readyが複数なら最初のstartに`--parallel-frontier`を付けます。subsetだけを直列着手する場合は
-`--override-reason <reason>`で理由を残しますが、**その申告は一度突き返されます**。
+readyが複数でも、最初の`todo start`はflagなしで通ります。並列で始めるなら
+`--parallel-frontier`を付けられます。subsetだけを直列着手する場合は
+`--override-reason <reason>`で理由を残せます。どちらも門ではなく記録です。
 
 ```bash
+lattice todo start --plan <key> --task <id>
 lattice todo start --plan <key> --task <id> --parallel-frontier
-lattice todo start --plan <key> --task <id> --override-reason <reason> --serial-confirmed
+lattice todo start --plan <key> --task <id> --override-reason <reason>
 ```
 
-直列の申告に対して`PARALLEL_DISPATCH_RECONSIDER`を返し、並列の再検討を促してから、
-同じ理由に`--serial-confirmed`を付けた再実行だけを通します。規則を文書へ書くだけでは
-読み飛ばされるため、再考をコマンドの往復で強制する設計です。**足止めは一度だけで、
-再実行すれば直列で進みます。**
+`--serial-confirmed`と`--serialization-reviewed`は古い手順の互換として受理しますが、
+再実行の条件ではありません。直列理由の文言を審査して拒否することもありません。
 
-ただし理由が**実際の干渉を述べていない**場合——「単一セッションだから」「逐次実行するので」
-のようにworker数・セッション構成・作業者の都合を述べただけの場合——は
-`PARALLEL_DISPATCH_INVALID`で拒否し、`--serial-confirmed`を付けても通しません。
-実行主体が1つしか無いことは並列にできない理由ではない（必要ならworkerを増やす）ためです。
-「両taskが同一fileへ書き込む」のような干渉を書けば、再確認を経て通ります。
-
-**同じ検査を計画時点にも掛けます。** 着手時だけを締めても、planそのものが直列に組まれていれば
-並列は生まれません。`lattice plan create`と`lattice todo migrate`は依存グラフから
+`lattice plan create`と`lattice todo migrate`は依存グラフから
 `dispatch_shape`（`task_count`／`critical_path_length`／`max_frontier_width`／
-`serialization_ratio`）を計算して結果へ載せ、直列度が閾値を超えるplanを一度突き返します。
-再考した上でなお直列でよいなら`--serialization-reviewed`を付けて再実行します
-（6 task未満のplanは対象外）。判定はstore書込みの前に行うので、拒否された時にstoreへは
-何も書かれません。
+`serialization_ratio`）を計算して結果へ載せます。直列度が閾値を超えても作成は通ります。
 
-```bash
-lattice todo migrate --input <extraction.json> --serialization-reviewed
-```
-
-`--parallel-frontier`はhostへ並列dispatch方針を宣言する開始gateです。Lattice自身がAI hostのagentを
-起動するものではなく、実際のdispatchはhostが行います。宣言後もready全件が着手されたかは
+`--parallel-frontier`はhostへ並列dispatch方針を伝える記録です。Lattice自身がAI hostのagentを
+起動するものではなく、実際のdispatchはhostが行います。ready全件が着手されたかは
 `active_set`と`next_ready`で観測できます。
 ToDo完了は軽量確認までで、所属ToDoが全てdoneになったPhaseは`gate_ready`となり、`todo phase review`後に
 required evidenceを束縛した`todo phase accept`で重監査の判断を記録します。監査回数やPhase数を自動追加する

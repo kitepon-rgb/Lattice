@@ -454,32 +454,15 @@ test('既存store経路のtodo migrateは検証済みJSONを一度だけ追加�
   assert.equal(await storeDigest(root), beforeDuplicate);
 });
 
-test('critical pathがほぼ一直線のtodo migrateはdispatch_shapeで一度突き返され、'
-  + '--serialization-reviewedで通る', async (context) => {
+test('critical pathがほぼ一直線のtodo migrateはdispatch_shapeを載せて通り、'
+  + '--serialization-reviewedは不要', async (context) => {
   const root = await workspace(context);
   const input = bindCommit(
     chainExtraction({ projectId: 'project-1', planKey: 'chain', taskCount: 6 }),
     pinnedPlanCommit(root),
   );
   const inputRef = await writeInput(root, 'chain', input);
-  const before = await storeDigest(root);
-
-  const reconsider = runCli(root, inputRef);
-  assert.equal(reconsider.status, 1);
-  assert.equal(reconsider.stdout, '');
-  const reconsiderError = JSON.parse(reconsider.stderr);
-  assert.equal(reconsiderError.code, 'PARALLEL_DISPATCH_RECONSIDER');
-  assert.equal(reconsiderError.detail.reason, 'plan_shape_too_serial');
-  assert.equal(reconsiderError.detail.task_count, 6);
-  assert.equal(reconsiderError.detail.critical_path_length, 6);
-  assert.equal(reconsiderError.detail.max_frontier_width, 1);
-  assert.equal(reconsiderError.detail.serialization_ratio, '1.0000');
-  assert.deepEqual(reconsiderError.detail.critical_path_task_ids, ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
-  assert.equal(reconsiderError.detail.default_policy, 'all_ready_parallel_by_default');
-  assert.equal(reconsiderError.detail.serialization_reviewed_flag, '--serialization-reviewed');
-  assert.equal(await storeDigest(root), before);
-
-  const accepted = runCli(root, inputRef, ['--serialization-reviewed']);
+  const accepted = runCli(root, inputRef);
   assert.equal(accepted.status, 0, accepted.stderr);
   const result = JSON.parse(accepted.stdout);
   assert.deepEqual(result.dispatch_shape, {

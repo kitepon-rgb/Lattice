@@ -441,27 +441,13 @@ function chainInput({ projectId = 'chain-project', taskCount = 6 } = {}) {
   return value;
 }
 
-test('critical pathがほぼ一直線のplan createはdispatch_shapeで一度突き返され、'
-  + '--serialization-reviewedで通る', async (context) => {
+test('critical pathがほぼ一直線のplan createはdispatch_shapeを載せて通り、'
+  + '--serialization-reviewedは不要', async (context) => {
   const root = await workspace(context);
   const input = chainInput({ taskCount: 6 });
   await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(input)}\n`);
 
-  const reconsider = run(root, ['plan', 'create', '--input', 'plan.json']);
-  assert.equal(reconsider.status, 1);
-  assert.equal(reconsider.stdout, '');
-  const reconsiderError = JSON.parse(reconsider.stderr);
-  assert.equal(reconsiderError.code, 'PARALLEL_DISPATCH_RECONSIDER');
-  assert.equal(reconsiderError.detail.reason, 'plan_shape_too_serial');
-  assert.equal(reconsiderError.detail.task_count, 6);
-  assert.equal(reconsiderError.detail.critical_path_length, 6);
-  assert.equal(reconsiderError.detail.serialization_ratio, '1.0000');
-  assert.deepEqual(reconsiderError.detail.critical_path_task_ids, ['T1', 'T2', 'T3', 'T4', 'T5', 'T6']);
-  assert.equal(reconsiderError.detail.serialization_reviewed_flag, '--serialization-reviewed');
-  const statusAfterReject = JSON.parse(run(root, ['status', '--json']).stdout);
-  assert.equal(statusAfterReject.state, 'uninitialized');
-
-  const created = run(root, ['plan', 'create', '--input', 'plan.json', '--serialization-reviewed']);
+  const created = run(root, ['plan', 'create', '--input', 'plan.json']);
   assert.equal(created.status, 0, created.stderr);
   const createResult = JSON.parse(created.stdout);
   assert.deepEqual(createResult.dispatch_shape, {

@@ -37,7 +37,6 @@ if (help !== null) {
   try {
     process.exitCode = await runPlanCreate({
       cwd: process.cwd(), inputRef: args[3], stdout: process.stdout,
-      serializationReviewed: args.length === 5,
     });
   } catch (error) {
     process.exitCode = projectCliFailure(process.stderr, error);

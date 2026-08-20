@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.61.0 — 2026-08-20
+
+### 変更
+
+- 往復強制のdispatch gateを廃止した（ADR 0180）。複数readyのplain `todo start`、
+  直列理由の正規表現審査、`--serial-confirmed`／`--serialization-reviewed`による再実行条件は
+  門ではない。`dispatch_frontier`と`dispatch_shape`は案内・観測として残る。
+  旧flagは互換のため受理する。`--parallel-frontier`が用法誤りになるのは対象がreadyでないときだけ。
+
 ## 0.60.8 — 2026-08-19
 
 ### 修正

@@ -1,26 +1,24 @@
 import { TodoStoreError } from './todo-store.mjs';
 
 /**
- * 依存グラフの「直列度」を判定する既定閾値。
+ * 依存グラフの「直列度」を分類する既定閾値。
  *
  * `serialization_ratio = critical_path_length / task_count` がこれを超えると、
  * 依存連鎖が全task数の半分を超えて連なっている＝大半のtaskが並列候補ではなく
- * 一本の鎖に押し込まれていることを意味する。`todo start`側が既に持つ
- * `all_ready_parallel_by_default`方針をplan作成時点まで前倒しする出発点として
- * 0.5を採る。実測（parent-child-repair: task 26, critical path約20,
- * ratio≈0.77）を確実に超える一方、緩やかな分岐を持つ通常のplanまでは拾わない
- * 水準として選んだ。
+ * 一本の鎖に押し込まれていることを意味する。結果の`dispatch_shape`がこの事実を
+ * 載せる。拒否には使わない（ADR 0180）。
+ * 実測（parent-child-repair: task 26, critical path約20, ratio≈0.77）を確実に
+ * 超える一方、緩やかな分岐を持つ通常のplanまでは拾わない水準として選んだ。
  */
 export const DISPATCH_SHAPE_SERIALIZATION_THRESHOLD = 0.5;
 
 /**
- * 閾値判定の対象にする最小task数。
- * 3〜5 task程度の一直線planを毎回突き返しても再考の余地がなく
- * （並列化する意味のある規模でない）機構がノイズになるだけなので、
- * 6 task未満は常に素通りさせる。
+ * 直列度分類の対象にする最小task数。
+ * 3〜5 task程度の一直線は並列化する意味のある規模でないので、excessiveとはしない。
  */
 export const DISPATCH_SHAPE_MIN_TASK_COUNT_FOR_GATE = 6;
 
+/** 互換のため受理するだけのflag名。門には使わない（ADR 0180）。 */
 export const DISPATCH_SHAPE_SERIALIZATION_REVIEWED_FLAG = '--serialization-reviewed';
 
 function compareText(left, right) {
@@ -128,38 +126,10 @@ export function computeTodoDispatchShape({ taskIds, edges }) {
   };
 }
 
-/** dispatch_shapeが、再考なしで直列のまま通してよい規模・度合いかを判定する。 */
+/** dispatch_shapeが、観測上「直列に寄っている」規模・度合いかを分類する。拒否には使わない。 */
 export function isTodoDispatchShapeSerializationExcessive(shape) {
   return shape.task_count >= DISPATCH_SHAPE_MIN_TASK_COUNT_FOR_GATE
     && Number(shape.serialization_ratio) > DISPATCH_SHAPE_SERIALIZATION_THRESHOLD;
-}
-
-/**
- * dispatch_shapeが直列に寄りすぎているplanを、再考なしでは通さない。
- *
- * `todo start`の`PARALLEL_DISPATCH_RECONSIDER`と同じ二段階（一度突き返し、
- * 再考を経たflagが無ければ通さない）をplan作成時点へ前倒しする。ここで
- * 拒否する場合、呼び出し側はまだstoreへ何も書いていないこと（初期化／追加を
- * この呼び出しより後で行うこと）。
- */
-export function assertTodoDispatchShapeReviewed({ shape, reviewed }) {
-  if (!isTodoDispatchShapeSerializationExcessive(shape) || reviewed) return;
-  throw new TodoStoreError('PARALLEL_DISPATCH_RECONSIDER', 'plan_shape_too_serial', undefined, {
-    task_count: shape.task_count,
-    critical_path_length: shape.critical_path_length,
-    max_frontier_width: shape.max_frontier_width,
-    serialization_ratio: shape.serialization_ratio,
-    critical_path_task_ids: shape.critical_path_task_ids,
-    default_policy: 'all_ready_parallel_by_default',
-    serialization_reviewed_flag: DISPATCH_SHAPE_SERIALIZATION_REVIEWED_FLAG,
-    guidance: `並列を検討しなさい。task ${shape.task_count}件のうちcritical pathが`
-      + `${shape.critical_path_length}段（serialization_ratio ${shape.serialization_ratio}）で、`
-      + '大半のtaskが並列候補ではなく一本の依存鎖に押し込まれている。'
-      + 'critical_path_task_idsに沿った依存のうち、実際には干渉しない組を'
-      + 'hard_dependencies/joinsから外せないか見直す'
-      + '（実行主体が足りないなら増やす。増やせないことは直列化の理由にならない）。'
-      + `検討した上でなお直列でよいなら ${DISPATCH_SHAPE_SERIALIZATION_REVIEWED_FLAG} を付けて再実行する。`,
-  });
 }
 
 /**

@@ -5,7 +5,6 @@ import { TodoStoreError } from '../src/todo-store.mjs';
 import {
   DISPATCH_SHAPE_MIN_TASK_COUNT_FOR_GATE,
   DISPATCH_SHAPE_SERIALIZATION_THRESHOLD,
-  assertTodoDispatchShapeReviewed,
   computeTodoDispatchShape,
   computeTodoDispatchShapeForPlan,
   isTodoDispatchShapeSerializationExcessive,
@@ -122,30 +121,18 @@ test('joinはafterの各taskからbeforeへの辺として形状へ展開され�
   assert.equal(shape.max_frontier_width, 2);
 });
 
-test('assertTodoDispatchShapeReviewedは最小task数未満なら閾値超でも素通りさせる', () => {
+test('最小task数未満の一直線はexcessiveと分類しない', () => {
   const taskIds = chainTaskIds(DISPATCH_SHAPE_MIN_TASK_COUNT_FOR_GATE - 1);
   const shape = computeTodoDispatchShape({ taskIds, edges: chainEdges(taskIds) });
   assert.equal(shape.serialization_ratio, '1.0000');
   assert.equal(isTodoDispatchShapeSerializationExcessive(shape), false);
-  assert.doesNotThrow(() => assertTodoDispatchShapeReviewed({ shape, reviewed: false }));
 });
 
-test('assertTodoDispatchShapeReviewedは閾値超・未reviewedをPARALLEL_DISPATCH_RECONSIDERで拒否する', () => {
+test('閾値超の一直線shapeはexcessiveと分類する（拒否はしない）', () => {
   const taskIds = chainTaskIds(DISPATCH_SHAPE_MIN_TASK_COUNT_FOR_GATE);
   const shape = computeTodoDispatchShape({ taskIds, edges: chainEdges(taskIds) });
-  assert.throws(() => assertTodoDispatchShapeReviewed({ shape, reviewed: false }), (error) => error instanceof TodoStoreError
-    && error.code === 'PARALLEL_DISPATCH_RECONSIDER'
-    && error.detail.reason === 'plan_shape_too_serial'
-    && error.detail.task_count === shape.task_count
-    && error.detail.critical_path_length === shape.critical_path_length
-    && error.detail.serialization_ratio === shape.serialization_ratio
-    && Array.isArray(error.detail.critical_path_task_ids)
-    && error.detail.default_policy === 'all_ready_parallel_by_default'
-    && error.detail.serialization_reviewed_flag === '--serialization-reviewed');
-});
-
-test('assertTodoDispatchShapeReviewedはreviewed===trueなら閾値超でも通す', () => {
-  const taskIds = chainTaskIds(DISPATCH_SHAPE_MIN_TASK_COUNT_FOR_GATE);
-  const shape = computeTodoDispatchShape({ taskIds, edges: chainEdges(taskIds) });
-  assert.doesNotThrow(() => assertTodoDispatchShapeReviewed({ shape, reviewed: true }));
+  assert.equal(isTodoDispatchShapeSerializationExcessive(shape), true);
+  assert.equal(shape.task_count, DISPATCH_SHAPE_MIN_TASK_COUNT_FOR_GATE);
+  assert.equal(shape.critical_path_length, DISPATCH_SHAPE_MIN_TASK_COUNT_FOR_GATE);
+  assert.equal(shape.serialization_ratio, '1.0000');
 });

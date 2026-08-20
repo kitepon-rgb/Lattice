@@ -1,6 +1,6 @@
 # ADR 0063: ready frontier全件を並列dispatchの既定にする
 
-- Status: accepted
+- Status: accepted（Decision 3–4 の拒否は [ADR 0180](0180-dispatch-round-trips-are-advice.md) が廃止。frontier 投影は維持）
 - Date: 2026-07-21
 
 ## Context

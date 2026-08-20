@@ -249,22 +249,16 @@ JSON Schemaの公開正本は`lattice.todo_structure_set.v1`、`lattice.todo_str
 工程依存SVGとdataflow graphは別の表示面であり、同じedgeとして描かない。findingから問題node／edgeへ
 移動でき、script無効時もfinding一覧を読める。dashboard描画はsensor ownershipを取得しない。
 
-readyが複数ある状態での直列着手は、`--override-reason`の申告だけでは通さない。一度
-`PARALLEL_DISPATCH_RECONSIDER`で突き返し、同じ理由に`--serial-confirmed`を付けた再実行だけを
-受理する。足止めは一度だけとし、再実行した直列着手は受理する。さらに、理由がworker数・
-セッション構成・作業者の都合を述べただけで実際の干渉を述べていない場合は
-`PARALLEL_DISPATCH_INVALID`で拒否し、`--serial-confirmed`があっても通さない——実行主体が
-1つしか無いことは並列にできない理由ではなく、直列化の根拠になるのは同一fileへの書込衝突・
-外部資源の排他・順序依存だけである。既定が並列であることを規則として書くだけでは読み飛ばされる
-実例が出たため、再考をコマンドの往復で強制する。
+readyが複数ある状態での着手は、`--parallel-frontier`も`--override-reason`も必須ではない。
+plain startは通る。`--override-reason`は直列理由の記録であり、文言を審査しない。
+`--serial-confirmed`と`--serialization-reviewed`は互換のため受理するだけで、門ではない。
+`--parallel-frontier`が用法誤りになるのは、対象taskが`next_ready`に無いときだけである
+（`PARALLEL_DISPATCH_INVALID`）。並列既定は`todo status`の`dispatch_frontier`と
+`lattice status`の`next_action`が案内する。着手を拒まない（ADR 0180）。
 
-同じ検査をplan作成時点にも掛ける。`plan create`と`todo migrate`は依存グラフから
-`dispatch_shape`（`task_count`／`critical_path_length`／`max_frontier_width`／
-`serialization_ratio`）を計算して結果へ載せ、`serialization_ratio`が閾値を超えるplanを
-`PARALLEL_DISPATCH_RECONSIDER`で一度突き返す。再考後の`--serialization-reviewed`だけを受理し、
-6 task未満のplanは対象外とする。判定はstore書込みの前に行い、拒否時はstoreへ何も書かない。
-着手時のgateだけではplanが直列に組まれた時点で並列が生まれないため、同じ既定を計画時点へ
-前倒しする。
+`plan create`と`todo migrate`は依存グラフから`dispatch_shape`（`task_count`／
+`critical_path_length`／`max_frontier_width`／`serialization_ratio`）を計算して結果へ載せる。
+直列度が閾値を超えても作成を拒まない。観測は残し、進行は止めない。
 
 切断可能と分類されたconflictについて、`todo seam-proposal compile --plan <key>`が独立性記録と実sensorから
 `lattice.seam_proposal.v2`を生成し、`todo seam-proposal [--plan <key>] --json`がsensorを引かずに

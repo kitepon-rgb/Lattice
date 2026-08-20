@@ -37,7 +37,6 @@ import {
   TodoStoreError,
 } from './todo-store.mjs';
 import {
-  assertTodoDispatchShapeReviewed,
   computeTodoDispatchShapeForPlan,
 } from './todo-dispatch-shape.mjs';
 
@@ -485,7 +484,7 @@ function validateCreateInput(value) {
   } catch { return false; }
 }
 
-export async function runPlanCreate({ cwd, inputRef, stdout, serializationReviewed = false }) {
+export async function runPlanCreate({ cwd, inputRef, stdout }) {
   const repoRoot = resolveRepoRoot(cwd);
   if (repoRoot === null) throw new TodoStoreError('REPO_UNRESOLVED', 'git_toplevel_unresolved');
   const input = await readCanonicalInput(repoRoot, inputRef);
@@ -526,8 +525,7 @@ export async function runPlanCreate({ cwd, inputRef, stdout, serializationReview
       next_action: 'correct_the_reported_pointer_then_rerun_plan_create',
     });
   }
-  // dispatch_shapeのgateはstore初期化より前に判定する（拒否時にstoreへ何も書かないため、
-  // 再考後の再実行がplan_key_already_existsで詰まらない）。
+  // dispatch_shapeは結果へ載せる観測であり、直列度では初期化を拒まない（ADR 0180）。
   const dispatchShape = computeTodoDispatchShapeForPlan({
     projectId: input.project_id,
     planKey: input.plan_key,
@@ -535,7 +533,6 @@ export async function runPlanCreate({ cwd, inputRef, stdout, serializationReview
     hardDependencies: input.hard_dependencies,
     joins: input.joins,
   });
-  assertTodoDispatchShapeReviewed({ shape: dispatchShape, reviewed: serializationReviewed });
   const store = await initializeAuthoredTodoStore({
     repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
     projectId: input.project_id, repositories: [{ repo_id: 'self', path: '.' }],
