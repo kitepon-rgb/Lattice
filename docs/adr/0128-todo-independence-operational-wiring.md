@@ -74,6 +74,8 @@ witness setは読み出し時に手元に無く、読みに行けばADR 0127の�
    **advisoryは助言であって拒否ではない。** ADR 0063のdispatch契約（何を拒否するか）は変えない。
    ただしadvisoryを計算できない状況——git HEADが読めない等——はsilent degradeせず、
    journalへ書く前にstart自体をtyped errorで止める。曖昧な成功として通さない。
+   **Amended by [ADR 0182](0182-unverified-independence-refuses-start.md):**
+   記録があるのに対象工程が未検証なら start を拒否する。どの ready を取るかはなお助言。
 
 6. **witness宣言の移行はコマンドで明示的に行う。** `todo independence witness migrate --plan <key>`が
    active版revisionの`task_migration`を読み、宣言のtask_idを写像する（from→to、`removed`は削除、冪等）。

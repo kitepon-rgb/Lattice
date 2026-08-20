@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  INDEPENDENCE_START_REFUSAL_CODES,
   SEAM_PROPOSAL_GUIDANCE_CODES,
   TODO_INDEPENDENCE_GUIDANCE_CODES,
   TODO_INDEPENDENCE_WORKFLOW,
+  independenceStartRefusal,
   selectIndependenceGuidance,
   selectSeamProposalGuidance,
   scopeExpansionRecommendations,
@@ -27,6 +29,18 @@ test('全codeが説明と次の一歩を持つ', () => {
 
 test('未知のcodeは黙って通さない', () => {
   assert.throws(() => todoIndependenceGuidance('probably_fine'), TypeError);
+});
+
+test('記録がある未検証だけをstart拒否にし、記録無しと競合は助言のまま残す', () => {
+  for (const code of INDEPENDENCE_START_REFUSAL_CODES) {
+    const guidance = todoIndependenceGuidance(code);
+    assert.equal(independenceStartRefusal(guidance)?.code, code, code);
+  }
+  assert.equal(independenceStartRefusal(todoIndependenceGuidance('independence_unrecorded')), null);
+  assert.equal(independenceStartRefusal(todoIndependenceGuidance('coordination_conversation')), null);
+  assert.equal(independenceStartRefusal(todoIndependenceGuidance('independence_verified')), null);
+  assert.equal(independenceStartRefusal(todoIndependenceGuidance('independence_conflict_with_active')), null);
+  assert.throws(() => independenceStartRefusal(null), TypeError);
 });
 
 test('宣言膨張は既知の回数だけを分割検討の助言へ写す', () => {
@@ -223,11 +237,12 @@ test('束縛失敗に対応しないunknownは、案内を検証済みから動�
 
 test('作業手順は宣言からcompileを経て読むまでを順に述べる', () => {
   const numbered = TODO_INDEPENDENCE_WORKFLOW.filter((line) => /^\d\. /u.test(line));
-  assert.equal(numbered.length, 4);
+  assert.equal(numbered.length, 5);
   assert.match(numbered[0], /witness/u);
   assert.match(numbered[1], /independence compile/u);
   assert.match(numbered[2], /todo independence --plan/u);
   assert.match(numbered[3], /witness migrate/u);
+  assert.match(numbered[4], /todo start は拒否する/u);
 });
 
 test('宣言の手順はconcern_anchorsを宣言できる欄として挙げる', () => {

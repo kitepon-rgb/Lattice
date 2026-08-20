@@ -379,9 +379,11 @@ sanitizeしたdefaultを使う。渡した値がidentifierとして不正なら`
 `lattice.todo_mutation_result.v2`一行（`note_context`を同梱する成功は
 `lattice.todo_mutation_result.v5`）、失敗とusage違反は`lattice.cli_error.v2`一行で、
 失敗時のstore bytesは不変とする。`advisory`は`todo start`だけが非nullで返し、着手対象と
-進行中ToDoの競合・切断可能性・未検査の内訳を機械可読で載せる（ADR 0128）。助言であって拒否ではなく、
-ready frontier dispatch契約は変えない。ただし記録があるのに鮮度を判定できない場合は、
-助言なしで通さずjournal書込前に失敗させる。`todo start`はさらに`structure_context`を
+進行中ToDoの競合・切断可能性・未検査の内訳を機械可読で載せる（ADR 0128）。
+どの ready を取るかは host の所有のまま変えない。記録があるのに対象工程が未宣言・失効なら
+`todo start`は`INDEPENDENCE_UNVERIFIED`で拒否する（ADR 0182）。
+`independence compile`は`next_ready`が witness に無いとき`INDEPENDENCE_READY_UNDECLARED`で拒否する。
+記録があるのに鮮度を判定できない場合は、助言なしで通さずjournal書込前に失敗させる。`todo start`はさらに`structure_context`を
 必ず返す。構造機能が有効なら対象taskのcanonical planned構造、structure set identity、compile freshness、
 realizationの次操作を同梱し、未適用なら`status=not_enabled`、破損なら`status=unreadable`を明示する。
 note chainが壊れていてもstartは通り、`note_context`はunreadableを返す。実装者へ別コマンドやsource file探索を

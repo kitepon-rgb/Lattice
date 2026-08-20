@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.63.0 — 2026-08-21
+
+### 変更
+
+- 記録があるのに対象工程が未宣言・失効なら `todo start` は `INDEPENDENCE_UNVERIFIED` で拒否する。
+  競合の同時起動は助言のまま。記録が無い plan の start は従来どおり助言だけ（ADR 0182）。
+- `independence compile` は `next_ready` が witness に無いとき `INDEPENDENCE_READY_UNDECLARED` で拒否する。
+
 ## 0.62.3 — 2026-08-20
 
 ### 修正

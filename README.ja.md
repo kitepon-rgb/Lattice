@@ -228,6 +228,10 @@ lattice todo start --plan <key> --task <id> --parallel-frontier
 lattice todo start --plan <key> --task <id> --override-reason <reason>
 ```
 
+記録があるのに対象工程が未宣言・失効なら`todo start`は`INDEPENDENCE_UNVERIFIED`で拒否します。
+`independence compile`は`next_ready`がwitnessに無いとき`INDEPENDENCE_READY_UNDECLARED`で拒否します。
+remainingのA工程は同じwitnessへ含めます。競合の同時起動は助言のままです。
+
 `--serial-confirmed`と`--serialization-reviewed`は古い手順の互換として受理しますが、
 再実行の条件ではありません。直列理由の文言を審査して拒否することもありません。
 

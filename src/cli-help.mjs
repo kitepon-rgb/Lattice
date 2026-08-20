@@ -156,7 +156,9 @@ ${TODO_INDEPENDENCE_WORKFLOW.join('\n')}
 
 判定していない工程は「競合が無い」ではなく「未検査」として扱われ、
 todo startのadvisoryとtodo independenceの投影が、その状況と次の一歩を返す。
-並列既定はstatusのdispatch_frontierとnext_actionが案内する。着手・作成を拒まない。
+記録があるのに対象工程が未宣言・失効なら todo start は拒否する。
+next_ready が witness に無い independence compile も拒否する。
+競合の同時起動は助言のまま。並列既定はstatusのdispatch_frontierとnext_actionが案内する。
 `,
   sensor: `Usage: lattice sensor <init|sync> [path] --json
        lattice sensor diff <rootA> <rootB> [options] --json

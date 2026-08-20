@@ -154,10 +154,11 @@ test('既知の旧artifactはsupersededとしてindependence・session-context�
       encoding: 'utf8',
       env: { ...process.env, ...actorEnv, LATTICE_DASHBOARD_AUTOSTART: '0' },
     });
-    assert.equal(started.status, 0, started.stderr);
-    const advisory = parse(started.stdout).advisory;
-    assert.equal(advisory.coverage, 'superseded');
-    assert.deepEqual(advisory.guidance, projection.guidance);
+    assert.equal(started.status, 1, started.stdout);
+    const refused = parse(started.stderr);
+    assert.equal(refused.code, 'INDEPENDENCE_UNVERIFIED');
+    assert.equal(refused.detail.reason, 'independence_contract_superseded');
+    assert.deepEqual(refused.detail.next_action, projection.guidance.next_action);
 
     const session = spawnSync(process.execPath, [CLI, 'session-context', '--json'], {
       cwd: root, encoding: 'utf8', env: { ...process.env, LATTICE_DASHBOARD_AUTOSTART: '0' },
@@ -617,7 +618,7 @@ test('存在しないplanはfail closedにする', async (context) => {
 });
 
 test('dirty worktreeの無関係WIPを残したままclean基準でcompileする', async (context) => {
-  const root = await workspace(context);
+  const root = await workspace(context, { tasks: ['T1'] });
   const witnessSet = {
     schema: TODO_WITNESS_SET_SCHEMA,
     project_id: 'project-1',
@@ -906,4 +907,77 @@ test('未知の引数はusage failureで終わる', async (context) => {
     assert.equal(result.status, 2, `expected usage failure for: ${args.join(' ')}`);
     assert.equal(result.stdout, '');
   }
+});
+
+test('next_ready が witness に無い compile は拒否する', async (context) => {
+  const root = await workspace(context);
+  const witnessSet = {
+    schema: TODO_WITNESS_SET_SCHEMA,
+    project_id: 'project-1',
+    plan_key: 'main',
+    capacity: { executors: 2 },
+    sensor_query_set: { queries: [{ id: 'q-status', operation: 'status' }] },
+    manual_witness: {
+      T1: {
+        owns: [], reads: [], writes: ['src/t1.mjs'], resources: [],
+        state_effects: [], sensor_provenance: { queries: [] },
+        affected_tests: [], unknowns: [],
+      },
+    },
+    witness_set_digest: '',
+  };
+  witnessSet.witness_set_digest = todoSelfDigest(witnessSet, 'witness_set_digest');
+  await writeFile(path.join(root, 'witness.json'), `${JSON.stringify(witnessSet)}\n`);
+
+  const compiled = runCli(root, [
+    'independence', 'compile', '--plan', 'main', '--input', 'witness.json',
+  ]);
+  assert.equal(compiled.status, 1, compiled.stderr);
+  const error = parse(compiled.stderr);
+  assert.equal(error.code, 'INDEPENDENCE_READY_UNDECLARED');
+  assert.deepEqual(error.detail.missing_task_ids, ['T2']);
+  assert.equal(error.detail.next_action, 'add_task_to_witness_set_then_compile');
+});
+
+test('記録がある未宣言 task の start は拒否し、宣言済みは通す', async (context) => {
+  const root = await workspace(context);
+  const head = git(root, ['rev-parse', 'HEAD']);
+  const artifact = {
+    schema: TODO_INDEPENDENCE_SCHEMA,
+    project_id: 'project-1',
+    plan_key: 'main',
+    plan_version: 'v1',
+    topology_digest: parse(runCli(root, ['verify', '--json']).stdout)
+      .verified_members[0].topology_digest,
+    base_sha: head,
+    witness_set_digest: 'd'.repeat(64),
+    compiled_at: NOW,
+    task_ids: ['T1'],
+    task_boundaries: [{ task_id: 'T1', paths: ['src/t1.mjs'] }],
+    conflict_resources: [],
+    conflicts: [],
+    precedences: [],
+    unknowns: [],
+    wave_plan: { waves: [{ task_ids: ['T1'] }], minimum_feasible_waves: 1 },
+    outcome: 'compiled',
+    result_digest: '',
+  };
+  artifact.scope_expanded = [{
+    task_id: 'T1', compared_witness_digest: null, first_seen_path_count: 0,
+    path_count: 0, added_paths: [], removed_paths: [], growth_events: 0, gate_shape: false,
+  }];
+  artifact.result_digest = todoSelfDigest(artifact, 'result_digest');
+  await writeTodoIndependenceArtifact({ repoRoot: root, artifact, now: NOW });
+
+  const refused = runCli(root, ['start', '--plan', 'main', '--task', 'T2']);
+  assert.equal(refused.status, 1, refused.stderr);
+  const error = parse(refused.stderr);
+  assert.equal(error.code, 'INDEPENDENCE_UNVERIFIED');
+  assert.equal(error.detail.reason, 'independence_task_undeclared');
+  assert.equal(error.detail.task_id, 'T2');
+  assert.equal(error.detail.next_action, 'add_task_to_witness_set_then_compile');
+
+  const started = runCli(root, ['start', '--plan', 'main', '--task', 'T1']);
+  assert.equal(started.status, 0, started.stderr);
+  assert.equal(parse(started.stdout).kind, 'start');
 });

@@ -133,8 +133,10 @@ import {
   compileTodoIndependence,
   migrateWitnessSetTaskIds,
   projectIndependenceFrontier,
+  TodoIndependenceError,
 } from './todo-independence.mjs';
 import {
+  independenceStartRefusal,
   selectIndependenceGuidance,
   selectWitnessScaffoldGuidance,
   selectSeamProposalGuidance,
@@ -728,8 +730,9 @@ function designMemoProjection(task) {
 /**
  * 着手しようとしているtaskについて、記録済みの独立性から助言を組む（ADR 0128 Decision 5）。
  *
- * 助言であって拒否ではない。ADR 0063のdispatch契約は変えない。ただし助言を計算できない
- * 状況——git HEADが読めない等——はsilent degradeせず、呼び出し側でstart自体を止める。
+ * どの ready を取るかは助言のまま。記録があるのに対象工程が未検証なら呼び出し側が
+ * start を拒否する（ADR 0182）。助言を計算できない状況——git HEADが読めない等——は
+ * silent degradeせず、呼び出し側でstart自体を止める。
  */
 async function startAdvisory({ repoRoot, store, projection, planKey, taskId }) {
   const artifact = await readTodoIndependenceArtifact({ repoRoot, store, planKey });
@@ -861,6 +864,14 @@ async function startTask({
   const advisory = await startAdvisory({
     repoRoot, store, projection, planKey, taskId: resolvedTaskId,
   });
+  const refusal = independenceStartRefusal(advisory.guidance);
+  if (refusal !== null) {
+    throw new TodoStoreError('INDEPENDENCE_UNVERIFIED', refusal.code, refusal.message, {
+      plan_key: planKey,
+      task_id: resolvedTaskId,
+      next_action: refusal.next_action,
+    });
+  }
   const structureContext = await startStructureContext({
     repoRoot, store, planKey, taskId: resolvedTaskId,
   });
@@ -2388,9 +2399,41 @@ async function structure({ repoRoot, requestedPlanKey }) {
 
 async function independenceCompile({ repoRoot, planKey, inputRef }) {
   const witnessSet = await readWitnessSetInput(repoRoot, inputRef);
+  const storeForReady = await readTodoStore({ repoRoot });
+  const memberForReady = storeForReady.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (!memberForReady) {
+    throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, { plan_key: planKey });
+  }
+  const planTaskIds = new Set(memberForReady.plan.tasks.map(({ task_id: taskId }) => taskId));
+  const declaredIds = Object.keys(witnessSet.manual_witness ?? {});
+  const absentFromPlan = declaredIds.filter((taskId) => !planTaskIds.has(taskId)).sort();
+  if (absentFromPlan.length > 0) {
+    throw new TodoIndependenceError(
+      'INDEPENDENCE_TASK_ABSENT',
+      'witness_task_absent_from_plan',
+      { task_ids: absentFromPlan },
+    );
+  }
+  const readyIds = projectTodoStatus(storeForReady, TODO_STATUS_DISPATCH_ONLY).next_ready
+    .filter((task) => task.plan_key === planKey)
+    .map((task) => task.task_id);
+  const declared = new Set(declaredIds);
+  const missingReady = readyIds.filter((taskId) => !declared.has(taskId)).sort();
+  if (missingReady.length > 0) {
+    throw new TodoStoreError(
+      'INDEPENDENCE_READY_UNDECLARED',
+      'ready_tasks_missing_from_witness',
+      undefined,
+      {
+        plan_key: planKey,
+        missing_task_ids: missingReady,
+        next_action: 'add_task_to_witness_set_then_compile',
+      },
+    );
+  }
   const observation = await collectTodoIndependenceAuthoritativeObservation({ repoRoot, witnessSet });
   const baseSha = observation.head_sha;
-  const store = await readTodoStore({ repoRoot });
+  const store = storeForReady;
   const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
   if (!member) throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active', undefined, { plan_key: planKey });
 
