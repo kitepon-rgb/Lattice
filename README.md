@@ -189,6 +189,15 @@ lattice todo seam-proposal apply   --plan <key>               # isolated worktre
 lattice todo seam-proposal land    --plan <key> --names names.json
 ```
 
+`lattice todo status --json` exposes `dispatch_frontier`: every ready task is the default
+parallel set. Starting one of them does not require `--parallel-frontier` or
+`--override-reason`. Those flags record intent; they are not gates.
+`--serial-confirmed` and `--serialization-reviewed` are accepted only for compatibility.
+
+```bash
+lattice todo start --plan <key> --task <id>
+```
+
 Full CLI surface: `lattice --help`, then
 `lattice <plan|run|event|todo|sensor|factory-diagnostics|runtime-errors|bridge|hooks> --help`.
 

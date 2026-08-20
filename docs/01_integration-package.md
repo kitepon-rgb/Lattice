@@ -61,12 +61,13 @@
 
 ## 2.5 ready frontier dispatch契約
 
-正典: [ADR 0063](adr/0063-ready-frontier-dispatch-contract.md)。
+正典: [ADR 0063](adr/0063-ready-frontier-dispatch-contract.md)（frontier投影）・
+[ADR 0180](adr/0180-dispatch-round-trips-are-advice.md)（往復強制の廃止）。
 
 - `todo status`の`dispatch_frontier`は`next_ready`全件、推奨同時数、frontier digest、subset理由要否を返す。
-- readyが複数かつactive taskがない時、最初の`todo start`は`--parallel-frontier`か
-  `--override-reason <reason>`を必須とする。
-- hostがagent生成と実dispatchを所有する。Latticeは宣言後の全件着手完了を成功扱いせず、
+- readyが複数でも最初の`todo start`はflagなしで通る。`--parallel-frontier`と`--override-reason`は
+  方針・理由の記録であり門ではない。
+- hostがagent生成と実dispatchを所有する。Latticeは全件着手完了を成功扱いせず、
   `active_set`と`next_ready`へ実状態だけを投影する。
 - Phase、監査回数、task DAGをこの契約から追加・変更しない。
 

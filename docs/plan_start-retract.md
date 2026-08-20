@@ -22,7 +22,7 @@ journalは追記専用で、startの後の遷移はdone/blockedしかない—�
   逆順を許すと「観測中の作業の根拠eventが消える」
 - 負のコントロール: pending/done/blockedへのretract・他actorのretract・intake中のretractが
   全部typed errorで止まること
-- 撤回後のtaskはnext_readyへ戻り、`--parallel-frontier`の規則は通常どおり適用される
+- 撤回後のtaskはnext_readyへ戻る。並列既定はstatusの案内であり、再startをflagで拒まない（ADR 0180）
 - 既存storeの読み口（旧journalにretract eventが無い）は無変更で通る——加算互換
 
 ## 工程

@@ -10,7 +10,8 @@
 - [06_design-spec.md](06_design-spec.md): static／live Ganttの表示仕様
 - [bridge-setup.md](bridge-setup.md): optional network bridgeと公開時の受入gate
 - [operations/lattice-kitepon-deployment.md](operations/lattice-kitepon-deployment.md): `lattice.kitepon.dev`の現行配備構成と運用記録
-- [adr/0063-ready-frontier-dispatch-contract.md](adr/0063-ready-frontier-dispatch-contract.md): ready全件を並列既定にする開始契約
+- [adr/0063-ready-frontier-dispatch-contract.md](adr/0063-ready-frontier-dispatch-contract.md): ready全件を並列既定にする開始契約（拒否はADR 0180が廃止）
+- [adr/0180-dispatch-round-trips-are-advice.md](adr/0180-dispatch-round-trips-are-advice.md): 往復強制のdispatch gateは助言であり拒否ではない
 - [adr/0068-gantt-routes-run-between-the-columns.md](adr/0068-gantt-routes-run-between-the-columns.md): 依存線の配線規約（ADR 0066 Decision 7を置き換え）
 - [adr/0149-task-notes-are-a-third-layer.md](adr/0149-task-notes-are-a-third-layer.md): ToDo作業記憶の永続化・自動供給・公開境界
 - [../PLAN.md](../PLAN.md): 製品思想と研究方向

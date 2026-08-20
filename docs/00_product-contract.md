@@ -301,11 +301,11 @@ predecessor source消失は`predecessor_source_silently_dropped`として拒否�
 verify v3の各memberは`reconciliation_guidance`を持ち、`registered_unreconciled`がsource inventoryの
 検証状態であってlifecycle操作とdashboard表示を塞がないこと、および正規のrevision schema取得・適用commandを示す。
 status v6の`dispatch_frontier`は`next_ready`全件を既定の同時dispatch集合とし、推奨同時数、
-frontier digest、subset選択時の理由要否を機械表示する。readyが複数でactive taskがない時の最初の
-`todo start`は`--parallel-frontier`による並列開始宣言、または`--override-reason <reason>`による
-意図的直列化理由のどちらかを必須とする。これはPhase、監査回数、task DAGを増やさない。
-`--parallel-frontier`は開始時のdispatch方針宣言であり、LatticeがAI hostのagentを直接生成する契約ではない。
-宣言後の実dispatchはhostが所有し、Latticeは`active_set`と残存`next_ready`から実状態を投影する。
+frontier digest、subset選択時の理由要否を機械表示する。readyが複数でも最初の`todo start`は
+flagなしで通る。`--parallel-frontier`と`--override-reason`は方針・理由の記録であり門ではない
+（ADR 0180）。これはPhase、監査回数、task DAGを増やさない。
+`--parallel-frontier`は開始時のdispatch方針記録であり、LatticeがAI hostのagentを直接生成する契約ではない。
+実dispatchはhostが所有し、Latticeは`active_set`と残存`next_ready`から実状態を投影する。
 
 **監査の既定は「有り」であり、無しは表現できない**（ADR 0147）。phaseを持たないplan
 （`todo_plan.v1/v2/v3`）は予約Phase `terminal-audit`を暗黙に1つ持ち、所属taskはそのplanの全taskとする。
