@@ -1144,7 +1144,7 @@ export async function acceptPullTask({ repoRoot, runDir, taskId, environment = p
         done_event_digest: intake.accepted.done_event_digest };
       result.result_digest = digestArtifact(result); return result;
     }
-    if (intake.intervention.state === 'hold') {
+    if (intake.intervention.state === 'hold' && intake.intervention.reason !== 'runtime_conflict') {
       fail('TASK_HELD', 'hold中taskはacceptできない', {
         reason: intake.intervention.reason, next_action: intake.intervention.next_action,
       });
@@ -1197,6 +1197,20 @@ export async function acceptPullTask({ repoRoot, runDir, taskId, environment = p
         }
       }
       fail('RUNTIME_CONFLICT_HOLD', 'observed diffがruntime conflictを生成した', { findings });
+    }
+    if (intake.intervention.state === 'hold' && intake.intervention.reason === 'runtime_conflict') {
+      const released = { state: 'none', reason: null, next_action: null,
+        lease_state: 'granted', detail: { released_by_empty_findings: true } };
+      current = await changeIntervention(runDir, current, taskId, released);
+      const resumed = project(current.events, current.meta).intakes
+        .find((entry) => entry.task_id === taskId);
+      if (resumed.worker?.stopped) {
+        await signalAttachedWorker(resumed, 'SIGCONT');
+        current = await appendEvent(runDir, current, buildEvent({
+          events: current.events, meta: current.meta, kind: 'worker_resumed', taskId,
+          payload: { released_by_empty_findings: true },
+        }));
+      }
     }
     current = await appendEvent(runDir, current, buildEvent({
       events: current.events, meta: current.meta, kind: 'task_accepted', taskId,

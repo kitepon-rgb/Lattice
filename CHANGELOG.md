@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.61.3 — 2026-08-20
+
+### 修正
+
+- pull の checkpoint が gitignore 済みの `obj/` / `bin/` / `node_modules` 等を
+  展開し、`dotnet test` の生成物を `undeclared_write` として `RUNTIME_CONFLICT_HOLD`
+  にしていた。ignored なコンパイラ出力は観測から外し、ignored なソース相当は残す。
+- `runtime_conflict` hold 中の `intake accept` は即 `TASK_HELD` せず、checkpoint を
+  撮り直す。findings が空なら hold を解いて accept する。
+
 ## 0.61.2 — 2026-08-20
 
 ### 修正

@@ -23,6 +23,33 @@ const MAX_TRACKED_FILE_BYTES = 4_194_304;
 const GIT_SHA1 = /^[0-9a-f]{40}$/;
 const LINE_ID = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/;
 
+/**
+ * gitignore 済みのコンパイラ／ツール出力 directory 名。
+ * 観測から外すのは ignored かつこの segment を持つ path だけ。
+ * tracked な `bin/`（CLI の正本）は status code が `!!` ではないので残る。
+ * gitignore 迂回の検知（ignored なソース相当 file）は残す。
+ */
+export const GENERATED_OUTPUT_DIR_NAMES = Object.freeze([
+  'obj', 'bin', 'node_modules', '.vs', 'TestResults',
+  '__pycache__', '.pytest_cache', 'dist', 'coverage',
+]);
+
+export function isGeneratedOutputPath(relativePath) {
+  if (typeof relativePath !== 'string' || relativePath.length === 0) return false;
+  return relativePath.replace(/\/$/u, '').split('/').some(
+    (segment) => GENERATED_OUTPUT_DIR_NAMES.includes(segment),
+  );
+}
+
+function isIgnoredStatus(code) {
+  return typeof code === 'string' && code.includes('!');
+}
+
+function keepObservedEntry(entry) {
+  if (!isIgnoredStatus(entry.code)) return true;
+  return !isGeneratedOutputPath(entry.path);
+}
+
 function fail(reason) {
   throw new TypeError(`diff observer契約違反: ${reason}`);
 }
@@ -174,10 +201,12 @@ export async function captureWorktreeDiff(options = {}) {
   }
   // ignored fileへのwriteもwrite sensorの対象にする（gitignore経由の
   // scope violation迂回を塞ぐ。isolation-runnerと同じ--ignored=matching）。
+  // ただし obj/bin/node_modules 等のコンパイラ出力は成果ではない。
+  // 展開すると MAX_DIFF_ENTRIES を踏み、accept が undeclared_write で hold する。
   const statusBytes = await run('git', [
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
   ], worktreePath);
-  const entries = statusEntries(statusBytes);
+  const entries = statusEntries(statusBytes).filter(keepObservedEntry);
   // commit済みの変更はstatusへ出ない。base..HEADの範囲も観測へ入れないと、
   // commitした瞬間に変更が観測から消える。
   if (head !== baseSha) {
@@ -196,6 +225,7 @@ export async function captureWorktreeDiff(options = {}) {
   // （集約のまま扱うとdirectoryをspecial file扱いで落とし、write pathを特定できない）。
   const expanded = [];
   for (const entry of entries) {
+    if (isIgnoredStatus(entry.code) && isGeneratedOutputPath(entry.path)) continue;
     if (!entry.path.endsWith('/')) {
       expanded.push(entry);
       continue;
@@ -205,7 +235,9 @@ export async function captureWorktreeDiff(options = {}) {
     ], worktreePath);
     for (const innerPath of inner.toString('utf8').split('\0')) {
       if (innerPath.length === 0) continue;
-      expanded.push({ path: innerPath, code: entry.code });
+      const innerEntry = { path: innerPath, code: entry.code };
+      if (!keepObservedEntry(innerEntry)) continue;
+      expanded.push(innerEntry);
     }
   }
   if (expanded.length > MAX_DIFF_ENTRIES) {
