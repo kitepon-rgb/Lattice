@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { observationIntakes } from '../src/runtime-pull-intake.mjs';
+import { observationIntakes, remainingRuntimeConflictFindings } from '../src/runtime-pull-intake.mjs';
 
 function intake(taskId, { accepted = false, hold = false } = {}) {
   return {
@@ -25,6 +25,20 @@ test('runtime_conflict hold の accept 対象は観測モデルから外さな�
   assert.deepEqual(without, ['t06-live-observation']);
   const withHeld = observationIntakes(state, 't07-knowledge-pack').map((entry) => entry.task_id);
   assert.deepEqual(withHeld, ['t07-knowledge-pack', 't06-live-observation']);
+});
+
+test('accept 済み task だけが相手の runtime_conflict finding は残さない', () => {
+  const findings = [
+    { kind: 'observed_write_conflict', path: 'a.cs', todo_ids: ['t06', 't07'] },
+    { kind: 'undeclared_write', path: 'b.cs', todo_ids: ['t06'] },
+  ];
+  assert.deepEqual(remainingRuntimeConflictFindings(findings, 't07'), [
+    { kind: 'undeclared_write', path: 'b.cs', todo_ids: ['t06'] },
+  ]);
+  assert.deepEqual(
+    remainingRuntimeConflictFindings([findings[0]], 't07'),
+    [],
+  );
 });
 
 test('hold 中 task だけが残っても観測集合は空にしない', () => {

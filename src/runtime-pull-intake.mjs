@@ -1082,6 +1082,11 @@ export async function detachPullWorker({ runDir, taskId, environment = process.e
   } finally { await lock.release(); }
 }
 
+export function remainingRuntimeConflictFindings(findings, acceptedTaskId) {
+  if (!Array.isArray(findings)) return [];
+  return findings.filter((finding) => !(finding.todo_ids ?? []).includes(acceptedTaskId));
+}
+
 export function observationIntakes(state, includeTaskId = null) {
   return state.intakes.filter((entry) => {
     if (entry.accepted !== null) return false;
@@ -1234,6 +1239,34 @@ export async function acceptPullTask({ repoRoot, runDir, taskId, environment = p
     ))) {
       const artifact = await readTodoIndependenceArtifact({ repoRoot, planKey: current.meta.plan_key });
       if (planningConstraint(artifact, waiting.task_id, state, planningMember) !== null) continue;
+      const intervention = { state: 'none', reason: null, next_action: null,
+        lease_state: 'granted', detail: { released_by_accepted_task: taskId } };
+      current = await changeIntervention(runDir, current, waiting.task_id, intervention);
+      const resumed = project(current.events, current.meta).intakes
+        .find((entry) => entry.task_id === waiting.task_id);
+      if (resumed.worker?.stopped) {
+        await signalAttachedWorker(resumed, 'SIGCONT');
+        current = await appendEvent(runDir, current, buildEvent({
+          events: current.events, meta: current.meta, kind: 'worker_resumed', taskId: waiting.task_id,
+          payload: { released_by_accepted_task: taskId },
+        }));
+      }
+    }
+    state = project(current.events, current.meta);
+    for (const waiting of state.intakes.filter((entry) => (
+      entry.accepted === null && entry.intervention.reason === 'runtime_conflict'
+    ))) {
+      const remaining = remainingRuntimeConflictFindings(
+        waiting.intervention.detail?.findings, taskId,
+      );
+      if (remaining.length > 0) {
+        if (remaining.length === (waiting.intervention.detail?.findings ?? []).length) continue;
+        current = await changeIntervention(runDir, current, waiting.task_id, {
+          ...waiting.intervention,
+          detail: { ...waiting.intervention.detail, findings: remaining },
+        });
+        continue;
+      }
       const intervention = { state: 'none', reason: null, next_action: null,
         lease_state: 'granted', detail: { released_by_accepted_task: taskId } };
       current = await changeIntervention(runDir, current, waiting.task_id, intervention);

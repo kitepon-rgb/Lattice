@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.62.2 — 2026-08-20
+
+### 修正
+
+- `intake accept` 後も、accepted task だけが相手の `runtime_conflict` hold が残っていた。
+  残 findings が空なら hold を解き worker を resume する。
+
 ## 0.62.1 — 2026-08-20
 
 ### 修正
