@@ -91,7 +91,20 @@ export function repairAuthoringArtifact(value) {
   return next;
 }
 
-export async function resolveAuthoringInputPath(repoRoot, inputRef) {
+/**
+ * 渡された値がpathでなく本文そのものに見えるか。
+ * `--input`/`--evidence`はfileを取るが、AIも人もインラインの文章を渡して詰まる。
+ * 詰まった時に「fileを取る／文章なら--message」と言えるように判定する。
+ */
+function looksLikeProse(value) {
+  if (typeof value !== 'string') return false;
+  return value.length > 160
+    || /[\n\r]/u.test(value)
+    || /[、。「」（）]/u.test(value)
+    || (/\s/u.test(value) && !/[/\\]/u.test(value));
+}
+
+export async function resolveAuthoringInputPath(repoRoot, inputRef, { inlineFlag = null } = {}) {
   if (typeof inputRef !== 'string' || inputRef.length === 0) {
     fail('INPUT_UNREADABLE', 'input_ref_invalid', { input_ref: inputRef });
   }
@@ -101,19 +114,35 @@ export async function resolveAuthoringInputPath(repoRoot, inputRef) {
     : path.resolve(canonicalRoot, inputRef);
   let stats;
   try { stats = await lstat(candidate); } catch {
-    fail('INPUT_UNREADABLE', 'input_missing', { input_ref: inputRef });
+    fail('INPUT_UNREADABLE', 'input_missing', {
+      input_ref: inputRef,
+      repo_root: canonicalRoot,
+      next_action: looksLikeProse(inputRef)
+        ? (inlineFlag
+          ? `この引数はrepo内のfile pathを取る。文章をそのまま渡すなら ${inlineFlag} <text> を使う`
+          : 'この引数はrepo内のfile pathを取る。渡された値は本文に見える——先にfileへ書いてからそのpathを渡す')
+        : `repo内に存在するfile pathを渡す（repo_root: ${canonicalRoot}）`,
+    });
   }
   if (stats.isSymbolicLink() || !stats.isFile()) {
     fail('INPUT_UNREADABLE', 'unsafe_input_path', { input_ref: inputRef });
   }
   const resolved = await realpath(candidate);
   if (!within(canonicalRoot, resolved) || resolved === canonicalRoot) {
-    fail('INPUT_UNREADABLE', 'input_path_outside_repo', { input_ref: inputRef });
+    fail('INPUT_UNREADABLE', 'input_path_outside_repo', {
+      input_ref: inputRef,
+      repo_root: canonicalRoot,
+      next_action: `repo内のfileだけ受理する。repo外(/tmp等)にあるならrepo内へ写してから渡す（repo_root: ${canonicalRoot}）`,
+    });
   }
   if (stats.size > MAX_AUTHORING_INPUT_BYTES) fail('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
   const relative = path.relative(canonicalRoot, resolved);
   if (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
-    fail('INPUT_UNREADABLE', 'input_path_outside_repo', { input_ref: inputRef });
+    fail('INPUT_UNREADABLE', 'input_path_outside_repo', {
+      input_ref: inputRef,
+      repo_root: canonicalRoot,
+      next_action: `repo内のfileだけ受理する。repo外(/tmp等)にあるならrepo内へ写してから渡す（repo_root: ${canonicalRoot}）`,
+    });
   }
   return {
     absolute: resolved,
@@ -124,8 +153,9 @@ export async function resolveAuthoringInputPath(repoRoot, inputRef) {
 
 export async function readAuthoringJsonFile(repoRoot, inputRef, {
   invalidCode = 'INVALID_JSON',
+  inlineFlag = null,
 } = {}) {
-  const located = await resolveAuthoringInputPath(repoRoot, inputRef);
+  const located = await resolveAuthoringInputPath(repoRoot, inputRef, { inlineFlag });
   const bytes = await readFile(located.absolute);
   if (bytes.length > located.maxBytes) fail('INPUT_TOO_LARGE', 'input_size_limit_exceeded');
   let text;

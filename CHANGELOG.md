@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.63.1 — 2026-08-22
+
+### 修正
+
+- file を取る引数（`todo note --input` / `todo done --evidence` など）に本文をそのまま渡すと
+  `INPUT_UNREADABLE / input_missing` だけを返し、file を取ることも `--message` があることも
+  案内しなかった。渡された値が本文に見える時は `--message <text>` を、path に見える時は
+  repo 内の存在する path を案内する。`--message` を持たない入口では存在しない flag を案内しない。
+- repo 外の path を渡した時の `input_path_outside_repo` に、repo 内へ写してから渡すことと
+  `repo_root` を添える。どちらも回避策を探す前に次の一手が読める。
+- `plan create` の usage 違反が、受け取った引数を返さず固定文言 `plan create` を返していた。
+  `plan create --input`（値の欠落）でも何を打って弾かれたか読めなかった。他 surface と同じ
+  「受け取った引数をそのまま返す」契約へ戻す。0.63.0 の `npm run ci` はこれで赤かった。
+
 ## 0.63.0 — 2026-08-21
 
 ### 変更

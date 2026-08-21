@@ -40,7 +40,9 @@ if (help !== null) {
     booleans: ['serialization-reviewed'],
   });
   if (flags === null) {
-    process.stderr.write('lattice: unsupported command or arguments: plan create\n');
+    // usage違反は受け取った引数をそのまま返す。他surfaceと同じ契約で、
+    // 何を打って弾かれたのかが読める（固定文言だと --input の欠落が見えない）。
+    process.stderr.write(`lattice: unsupported command or arguments: ${args.join(' ')}\n`);
     process.exitCode = 2;
   } else {
     const { projectCliFailure, runPlanCreate } = await import('../src/project-cli.mjs');

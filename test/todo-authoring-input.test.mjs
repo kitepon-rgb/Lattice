@@ -9,6 +9,7 @@ import {
   parseAuthoringJson,
   readAuthoringJsonFile,
   repairAuthoringArtifact,
+  resolveAuthoringInputPath,
 } from '../src/todo-authoring-input.mjs';
 import { todoSelfDigest } from '../src/todo-contracts.mjs';
 
@@ -63,4 +64,44 @@ test('BOMとCRLFのJSONはparseし、commentは拒否する', () => {
   assert.deepEqual(value, { a: 1 });
   assert.throws(() => parseAuthoringJson('{"a":1,}'), { code: 'INVALID_JSON' });
   assert.throws(() => parseAuthoringJson('{"a":1 /* c */}'), { code: 'INVALID_JSON' });
+});
+
+test('file引数に本文を渡した時は「fileを取る／文章なら--message」と案内する', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-authoring-guidance-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+
+  const prose = 'MS-A2 に bluez 5.85 を導入。hci0 が UP RUNNING。受入を満たす。';
+  const proseError = await resolveAuthoringInputPath(root, prose, { inlineFlag: '--message' })
+    .then(() => null, (error) => error);
+  assert.equal(proseError.code, 'INPUT_UNREADABLE');
+  assert.equal(proseError.detail.reason, 'input_missing');
+  assert.match(proseError.detail.next_action, /--message <text>/u);
+  assert.equal(typeof proseError.detail.repo_root, 'string');
+
+  // --message を持たない入口では、存在しないflagを案内しない
+  const noInline = await resolveAuthoringInputPath(root, prose)
+    .then(() => null, (error) => error);
+  assert.doesNotMatch(noInline.detail.next_action, /--message/u);
+  assert.match(noInline.detail.next_action, /file/u);
+
+  // pathらしい値の欠落は「repo内のfile pathを渡す」案内にする
+  const missing = await resolveAuthoringInputPath(root, 'docs/nope.md', { inlineFlag: '--message' })
+    .then(() => null, (error) => error);
+  assert.equal(missing.detail.reason, 'input_missing');
+  assert.doesNotMatch(missing.detail.next_action, /--message/u);
+});
+
+test('repo外pathは写してから渡すよう案内する', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-authoring-outside-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'lattice-authoring-elsewhere-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(outside, { recursive: true, force: true }));
+  const stray = path.join(outside, 'evidence.md');
+  await writeFile(stray, 'ok\n');
+
+  const error = await resolveAuthoringInputPath(root, stray).then(() => null, (e) => e);
+  assert.equal(error.code, 'INPUT_UNREADABLE');
+  assert.equal(error.detail.reason, 'input_path_outside_repo');
+  assert.match(error.detail.next_action, /repo内へ写して/u);
+  assert.equal(typeof error.detail.repo_root, 'string');
 });

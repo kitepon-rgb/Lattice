@@ -325,7 +325,7 @@ function selectNoteTask(member, requestedTaskId) {
 }
 
 async function readNoteTextInput(repoRoot, inputRef) {
-  const located = await resolveAuthoringInputPath(repoRoot, inputRef);
+  const located = await resolveAuthoringInputPath(repoRoot, inputRef, { inlineFlag: '--message' });
   const bytes = await readFile(located.absolute);
   if (bytes.length > MAX_NOTE_INPUT_BYTES) {
     throw new TodoStoreError('INPUT_TOO_LARGE', 'note_input_too_large');
@@ -463,7 +463,7 @@ async function resolveDoneEvidence({ repoRoot, evidenceRef, evidenceMessage, pla
     }
     return descriptor;
   }
-  const located = await resolveAuthoringInputPath(repoRoot, evidenceRef);
+  const located = await resolveAuthoringInputPath(repoRoot, evidenceRef, { inlineFlag: '--message' });
   const bytes = await readFile(located.absolute);
   let text;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
