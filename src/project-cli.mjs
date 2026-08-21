@@ -397,7 +397,100 @@ async function readCanonicalInput(repoRoot, inputRef) {
   }
 }
 
-function validateCreateInput(value) {
+/**
+ * buildTodoPlanは通ったか否かしか返さない。authorが実際に書くtasks・phasesについて、
+ * 落ちた最初の条件をpointer付きで名指しする。ここで拾えない違反だけ総称へ落とす。
+ * 整列要求（task_id昇順など）はJSON Schemaに書けないので、ここが唯一の案内面になる。
+ */
+function describePlanShapeViolation(value, { phaseInput }) {
+  const TASK_KEYS = ['task_id', 'title', 'lane', 'design_memo', 'narrative_ref',
+    'narrative_anchor', 'compile_binding', 'parent_task_id', 'phase_id'];
+  const PHASE_KEYS = ['phase_id', 'title', 'gate_policy', 'predecessor_phase_ids',
+    'required_evidence_slots'];
+
+  if (value.tasks.length === 0) {
+    return { violation_kind: 'empty', pointer: '/tasks',
+      expected: { min_items: 1 }, actual: { length: 0 } };
+  }
+  for (const [index, task] of value.tasks.entries()) {
+    if (!exactRecord(task, TASK_KEYS)) {
+      return { violation_kind: 'unexpected_or_missing_keys', pointer: `/tasks/${index}`,
+        expected: { keys: [...TASK_KEYS].sort() },
+        actual: (task === null || typeof task !== 'object')
+          ? { type: task === null ? 'null' : typeof task }
+          : { keys: Object.keys(task).sort() } };
+    }
+    for (const field of ['task_id', 'lane', 'phase_id']) {
+      if (!isTodoIdentifier(task[field])) {
+        return { violation_kind: 'identifier_invalid', pointer: `/tasks/${index}/${field}`,
+          expected: { format: 'todo_identifier' }, actual: task[field] };
+      }
+    }
+    if (index > 0 && !(value.tasks[index - 1].task_id < task.task_id)) {
+      return { violation_kind: 'unsorted', pointer: `/tasks/${index}/task_id`,
+        expected: { greater_than: value.tasks[index - 1].task_id, order: 'ascending_unique' },
+        actual: task.task_id };
+    }
+  }
+  if (!phaseInput) return null;
+
+  if (!Array.isArray(value.phases) || value.phases.length === 0) {
+    return { violation_kind: 'empty', pointer: '/phases', expected: { min_items: 1 },
+      actual: Array.isArray(value.phases) ? { length: 0 } : { type: typeof value.phases } };
+  }
+  for (const [index, phase] of value.phases.entries()) {
+    if (!exactRecord(phase, PHASE_KEYS)) {
+      return { violation_kind: 'unexpected_or_missing_keys', pointer: `/phases/${index}`,
+        expected: { keys: [...PHASE_KEYS].sort() },
+        actual: (phase === null || typeof phase !== 'object')
+          ? { type: phase === null ? 'null' : typeof phase }
+          : { keys: Object.keys(phase).sort() } };
+    }
+    for (const field of ['phase_id', 'gate_policy']) {
+      if (!isTodoIdentifier(phase[field])) {
+        return { violation_kind: 'identifier_invalid', pointer: `/phases/${index}/${field}`,
+          expected: { format: 'todo_identifier' }, actual: phase[field] };
+      }
+    }
+    if (!Array.isArray(phase.required_evidence_slots) || phase.required_evidence_slots.length === 0) {
+      return { violation_kind: 'empty',
+        pointer: `/phases/${index}/required_evidence_slots`,
+        expected: { min_items: 1, note: 'Phase gateが要求する証跡slotを1つ以上挙げる' },
+        actual: Array.isArray(phase.required_evidence_slots)
+          ? { length: 0 } : { type: typeof phase.required_evidence_slots } };
+    }
+    for (const field of ['predecessor_phase_ids', 'required_evidence_slots']) {
+      const list = phase[field];
+      const unsorted = list.findIndex((entry, i) => i > 0 && !(list[i - 1] < entry));
+      if (unsorted > 0) {
+        return { violation_kind: 'unsorted', pointer: `/phases/${index}/${field}/${unsorted}`,
+          expected: { greater_than: list[unsorted - 1], order: 'ascending_unique' },
+          actual: list[unsorted] };
+      }
+    }
+    if (index > 0 && !(value.phases[index - 1].phase_id < phase.phase_id)) {
+      return { violation_kind: 'unsorted', pointer: `/phases/${index}/phase_id`,
+        expected: { greater_than: value.phases[index - 1].phase_id, order: 'ascending_unique' },
+        actual: phase.phase_id };
+    }
+  }
+  const phaseIds = new Set(value.phases.map(({ phase_id }) => phase_id));
+  const orphan = value.tasks.findIndex(({ phase_id }) => !phaseIds.has(phase_id));
+  if (orphan >= 0) {
+    return { violation_kind: 'unknown_reference', pointer: `/tasks/${orphan}/phase_id`,
+      expected: { one_of: [...phaseIds].sort() }, actual: value.tasks[orphan].phase_id };
+  }
+  return null;
+}
+
+/**
+ * plan create入力の違反を、通ったか否かでなく「どこがどう違うか」で返す。
+ * 以前は巨大な `||` 連鎖と `catch { return false }` で理由を捨てており、
+ * 呼び手には pointer `/` と `validation: failed` しか届かなかった。
+ * 直せない指摘は指摘ではないので、最初に落ちた条件をpointer付きで返す。
+ * 違反が無ければ null。
+ */
+function describeCreateInputViolation(value) {
   const phaseInput = [PHASE_CREATE_INPUT_SCHEMA, DECOUPLED_PHASE_CREATE_INPUT_SCHEMA,
     MEMO_PHASE_CREATE_INPUT_SCHEMA].includes(value?.schema);
   const decoupledPhaseInput = [DECOUPLED_PHASE_CREATE_INPUT_SCHEMA,
@@ -408,18 +501,61 @@ function validateCreateInput(value) {
   ];
   if (phaseInput) keys.push('phases');
   if (decoupledPhaseInput) keys.push('phase_accept_dependencies');
-  if (!exactRecord(value, keys) || ![
-    CREATE_INPUT_SCHEMA, PHASE_CREATE_INPUT_SCHEMA, DECOUPLED_PHASE_CREATE_INPUT_SCHEMA,
-    MEMO_PHASE_CREATE_INPUT_SCHEMA,
-  ].includes(value.schema)
-    || !isTodoIdentifier(value.project_id)
-    || !isTodoIdentifier(value.plan_key) || !isTodoIdentifier(value.plan_version)
-    || !exactRecord(value.actor, ['host', 'session', 'agent'])
-    || ![value.actor.host, value.actor.session, value.actor.agent].every(isTodoIdentifier)
-    || !isStrictTodoTimestamp(value.recorded_at) || !isTodoDigest(value.input_digest)
-    || value.input_digest !== todoSelfDigest(value, 'input_digest')
-    || !Array.isArray(value.tasks)
-    || value.tasks.some((task) => task?.narrative_anchor !== null || task?.compile_binding !== null)) return false;
+
+  if (!exactRecord(value, keys)) {
+    const actual = (value === null || typeof value !== 'object' || Array.isArray(value))
+      ? { type: value === null ? 'null' : typeof value }
+      : { keys: Object.keys(value).sort() };
+    return { violation_kind: 'unexpected_or_missing_keys', pointer: '/',
+      expected: { keys: [...keys].sort() }, actual };
+  }
+  const schemas = [CREATE_INPUT_SCHEMA, PHASE_CREATE_INPUT_SCHEMA,
+    DECOUPLED_PHASE_CREATE_INPUT_SCHEMA, MEMO_PHASE_CREATE_INPUT_SCHEMA];
+  if (!schemas.includes(value.schema)) {
+    return { violation_kind: 'const_mismatch', pointer: '/schema',
+      expected: { one_of: schemas }, actual: value.schema };
+  }
+  for (const field of ['project_id', 'plan_key', 'plan_version']) {
+    if (!isTodoIdentifier(value[field])) {
+      return { violation_kind: 'identifier_invalid', pointer: `/${field}`,
+        expected: { format: 'todo_identifier' }, actual: value[field] };
+    }
+  }
+  if (!exactRecord(value.actor, ['host', 'session', 'agent'])) {
+    return { violation_kind: 'unexpected_or_missing_keys', pointer: '/actor',
+      expected: { keys: ['agent', 'host', 'session'] },
+      actual: (value.actor === null || typeof value.actor !== 'object')
+        ? { type: value.actor === null ? 'null' : typeof value.actor }
+        : { keys: Object.keys(value.actor).sort() } };
+  }
+  for (const field of ['host', 'session', 'agent']) {
+    if (!isTodoIdentifier(value.actor[field])) {
+      return { violation_kind: 'identifier_invalid', pointer: `/actor/${field}`,
+        expected: { format: 'todo_identifier' }, actual: value.actor[field] };
+    }
+  }
+  if (!isStrictTodoTimestamp(value.recorded_at)) {
+    return { violation_kind: 'timestamp_invalid', pointer: '/recorded_at',
+      expected: { format: 'strict_iso8601_utc_milliseconds' }, actual: value.recorded_at };
+  }
+  if (!isTodoDigest(value.input_digest)
+    || value.input_digest !== todoSelfDigest(value, 'input_digest')) {
+    return { violation_kind: 'input_digest_mismatch', pointer: '/input_digest',
+      expected: todoSelfDigest(value, 'input_digest'),
+      actual: { type: typeof value.input_digest, matches_canonical_input: false } };
+  }
+  if (!Array.isArray(value.tasks)) {
+    return { violation_kind: 'type', pointer: '/tasks', expected: { type: 'array' },
+      actual: { type: value.tasks === null ? 'null' : typeof value.tasks } };
+  }
+  for (const [index, task] of value.tasks.entries()) {
+    for (const field of ['narrative_anchor', 'compile_binding']) {
+      if (task?.[field] !== null) {
+        return { violation_kind: 'not_authorable_at_create', pointer: `/tasks/${index}/${field}`,
+          expected: null, actual: task?.[field] };
+      }
+    }
+  }
   try {
     buildTodoPlan({
       schema: value.schema === MEMO_PHASE_CREATE_INPUT_SCHEMA ? 'lattice.todo_plan.v7'
@@ -431,8 +567,18 @@ function validateCreateInput(value) {
       ...(phaseInput ? { phases: value.phases } : {}),
       ...(decoupledPhaseInput ? { phase_accept_dependencies: value.phase_accept_dependencies } : {}),
     });
-    return true;
-  } catch { return false; }
+  } catch (error) {
+    // buildTodoPlanは通否しか返さない。authorが書いた形を自分で診てpointerを出す。
+    const shape = describePlanShapeViolation(value, { phaseInput });
+    if (shape !== null) return shape;
+    return {
+      violation_kind: error?.reason ?? error?.code ?? 'topology_invalid',
+      pointer: error?.detail?.pointer ?? '/',
+      expected: error?.detail?.expected ?? { schema: value.schema },
+      actual: error?.detail?.actual ?? { message: String(error?.message ?? error) },
+    };
+  }
+  return null;
 }
 
 export async function runPlanCreate({ cwd, inputRef, stdout }) {
@@ -463,16 +609,10 @@ export async function runPlanCreate({ cwd, inputRef, stdout }) {
       prompt: TODO_DESIGN_MEMO_PROMPT, next_action: CURRENT_CREATE_SCHEMA_COMMAND,
     });
   }
-  if (!validateCreateInput(input)) {
-    const digestValid = isTodoDigest(input.input_digest)
-      && input.input_digest === todoSelfDigest(input, 'input_digest');
+  const violation = describeCreateInputViolation(input);
+  if (violation !== null) {
     throw new TodoStoreError('INPUT_INVALID', 'plan_create_schema_invalid', undefined, {
-      violation_kind: digestValid ? 'schema_or_topology_invalid' : 'input_digest_mismatch',
-      pointer: digestValid ? '/' : '/input_digest',
-      expected: digestValid ? { schema: MEMO_PHASE_CREATE_INPUT_SCHEMA }
-        : todoSelfDigest(input, 'input_digest'),
-      actual: digestValid ? { validation: 'failed' }
-        : { type: typeof input.input_digest, matches_canonical_input: false },
+      ...violation,
       next_action: 'correct_the_reported_pointer_then_rerun_plan_create',
     });
   }

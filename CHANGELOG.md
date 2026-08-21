@@ -10,6 +10,14 @@
   repo 内の存在する path を案内する。`--message` を持たない入口では存在しない flag を案内しない。
 - repo 外の path を渡した時の `input_path_outside_repo` に、repo 内へ写してから渡すことと
   `repo_root` を添える。どちらも回避策を探す前に次の一手が読める。
+- `plan create` の入力違反が `pointer: "/"` と `validation: failed` しか返さず、
+  「報告された pointer を直せ」と言いながらどこが違うか指していなかった。原因は
+  巨大な `||` 連鎖と `catch { return false }` が理由を捨てていたこと。tasks・phases・
+  actor・整列・phase_id 参照の違反を、落ちた最初の一件として pointer 付きで名指しする。
+- `plan create --schema --json` が `input_digest` の算出方法と `gate_policy` の性質を
+  書いていなかった。`input_digest` は空文字を置けば CLI が算出して埋めること、
+  `gate_policy` は製品が分岐しない自由ラベルであることを schema の description に載せ、
+  整列要求（JSON Schema では表現できない）も tasks・phases の description に書く。
 - `plan create` の usage 違反が、受け取った引数を返さず固定文言 `plan create` を返していた。
   `plan create --input`（値の欠落）でも何を打って弾かれたか読めなかった。他 surface と同じ
   「受け取った引数をそのまま返す」契約へ戻す。0.63.0 の `npm run ci` はこれで赤かった。

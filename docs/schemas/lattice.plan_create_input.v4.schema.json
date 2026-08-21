@@ -6,80 +6,352 @@
   "$comment": "Runtime validation additionally enforces canonical JSON+LF bytes, sorted identifiers and edges, unique ids, combined task/phase acyclicity, byte bounds, non-empty design_memo, and input_digest.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "project_id", "plan_key", "plan_version", "actor", "recorded_at", "tasks", "phases", "hard_dependencies", "joins", "phase_accept_dependencies", "input_digest"],
+  "required": [
+    "schema",
+    "project_id",
+    "plan_key",
+    "plan_version",
+    "actor",
+    "recorded_at",
+    "tasks",
+    "phases",
+    "hard_dependencies",
+    "joins",
+    "phase_accept_dependencies",
+    "input_digest"
+  ],
   "properties": {
-    "schema": { "const": "lattice.plan_create_input.v4" },
-    "project_id": { "$ref": "#/$defs/identifier" },
-    "plan_key": { "$ref": "#/$defs/identifier" },
-    "plan_version": { "$ref": "#/$defs/identifier" },
-    "actor": { "$ref": "#/$defs/actor" },
-    "recorded_at": { "$ref": "#/$defs/strictTimestamp" },
-    "tasks": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/task" } },
-    "phases": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/phase" } },
-    "hard_dependencies": { "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/edge" } },
-    "joins": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/join" } },
-    "phase_accept_dependencies": { "type": "array", "maxItems": 2048, "items": { "$ref": "#/$defs/phaseAcceptDependency" } },
-    "input_digest": { "$ref": "#/$defs/digest" }
+    "schema": {
+      "const": "lattice.plan_create_input.v4"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "plan_key": {
+      "$ref": "#/$defs/identifier"
+    },
+    "plan_version": {
+      "$ref": "#/$defs/identifier"
+    },
+    "actor": {
+      "$ref": "#/$defs/actor"
+    },
+    "recorded_at": {
+      "$ref": "#/$defs/strictTimestamp"
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/task"
+      },
+      "description": "task_idの昇順・重複なしで並べる。整列はJSON Schemaでは表現できないがCLIは拒否する。"
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/phase"
+      },
+      "description": "phase_idの昇順・重複なしで並べる。全taskのphase_idはここに存在しなければならない。"
+    },
+    "hard_dependencies": {
+      "type": "array",
+      "maxItems": 2048,
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "joins": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/join"
+      }
+    },
+    "phase_accept_dependencies": {
+      "type": "array",
+      "maxItems": 2048,
+      "items": {
+        "$ref": "#/$defs/phaseAcceptDependency"
+      }
+    },
+    "input_digest": {
+      "$ref": "#/$defs/authoringDigest"
+    }
   },
   "$defs": {
-    "identifier": { "type": "string", "pattern": "^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$" },
-    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "repoRef": { "type": "string", "minLength": 1, "maxLength": 1024 },
-    "strictTimestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$" },
-    "nullableRepoRef": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/repoRef" }] },
-    "nullableIdentifier": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/identifier" }] },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "repoRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "strictTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "nullableRepoRef": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/repoRef"
+        }
+      ]
+    },
+    "nullableIdentifier": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/identifier"
+        }
+      ]
+    },
     "actor": {
-      "type": "object", "additionalProperties": false, "required": ["host", "session", "agent"],
-      "properties": { "host": { "$ref": "#/$defs/identifier" }, "session": { "$ref": "#/$defs/identifier" }, "agent": { "$ref": "#/$defs/identifier" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "session",
+        "agent"
+      ],
+      "properties": {
+        "host": {
+          "$ref": "#/$defs/identifier"
+        },
+        "session": {
+          "$ref": "#/$defs/identifier"
+        },
+        "agent": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
     },
     "task": {
-      "type": "object", "additionalProperties": false,
-      "required": ["task_id", "title", "lane", "design_memo", "narrative_ref", "narrative_anchor", "compile_binding", "parent_task_id", "phase_id"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "title",
+        "lane",
+        "design_memo",
+        "narrative_ref",
+        "narrative_anchor",
+        "compile_binding",
+        "parent_task_id",
+        "phase_id"
+      ],
       "properties": {
-        "task_id": { "$ref": "#/$defs/identifier" },
-        "title": { "oneOf": [{ "type": "null" }, { "type": "string", "minLength": 1, "maxLength": 16384 }] },
-        "lane": { "$ref": "#/$defs/identifier" },
+        "task_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          ]
+        },
+        "lane": {
+          "$ref": "#/$defs/identifier"
+        },
         "design_memo": {
-          "type": "string", "minLength": 1, "maxLength": 16384,
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
           "description": "Markdown design memo. あなたがこのToDoに対して、何も考えていないならば、設計メモに `NO_PLAN` と書いてください"
         },
-        "narrative_ref": { "$ref": "#/$defs/nullableRepoRef" },
-        "narrative_anchor": { "type": "null" },
-        "compile_binding": { "type": "null" },
-        "parent_task_id": { "$ref": "#/$defs/nullableIdentifier" },
-        "phase_id": { "$ref": "#/$defs/identifier" }
+        "narrative_ref": {
+          "$ref": "#/$defs/nullableRepoRef"
+        },
+        "narrative_anchor": {
+          "type": "null"
+        },
+        "compile_binding": {
+          "type": "null"
+        },
+        "parent_task_id": {
+          "$ref": "#/$defs/nullableIdentifier"
+        },
+        "phase_id": {
+          "$ref": "#/$defs/identifier"
+        }
       }
     },
     "phase": {
-      "type": "object", "additionalProperties": false,
-      "required": ["phase_id", "title", "gate_policy", "predecessor_phase_ids", "required_evidence_slots"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase_id",
+        "title",
+        "gate_policy",
+        "predecessor_phase_ids",
+        "required_evidence_slots"
+      ],
       "properties": {
-        "phase_id": { "$ref": "#/$defs/identifier" },
-        "title": { "oneOf": [{ "type": "null" }, { "type": "string", "minLength": 1, "maxLength": 16384 }] },
-        "gate_policy": { "$ref": "#/$defs/identifier" },
-        "predecessor_phase_ids": { "type": "array", "items": { "$ref": "#/$defs/identifier" }, "uniqueItems": true },
-        "required_evidence_slots": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/identifier" }, "uniqueItems": true }
+        "phase_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          ]
+        },
+        "gate_policy": {
+          "$ref": "#/$defs/identifier",
+          "description": "Phase gateの呼び名。製品はこの値で分岐しないので統制語彙は無く、identifierなら何でもよい。表示に使う。慣用は 'heavy'（重監査）と 'terminal-audit'（暗黙の終端Phaseが使う）。"
+        },
+        "predecessor_phase_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "uniqueItems": true,
+          "description": "先行Phase。identifierの昇順・重複なしで並べる。"
+        },
+        "required_evidence_slots": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "uniqueItems": true,
+          "description": "Phase gateが要求する証跡slot。1つ以上必須で、identifierの昇順・重複なしで並べる。"
+        }
       }
     },
     "nodeRef": {
-      "type": "object", "additionalProperties": false, "required": ["project_id", "plan_key", "task_id"],
-      "properties": { "project_id": { "$ref": "#/$defs/identifier" }, "plan_key": { "$ref": "#/$defs/identifier" }, "task_id": { "$ref": "#/$defs/identifier" }, "expected_topology_digest": { "$ref": "#/$defs/digest" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "plan_key",
+        "task_id"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "plan_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "task_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_topology_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
     },
     "phaseRef": {
-      "type": "object", "additionalProperties": false, "required": ["project_id", "plan_key", "phase_id"],
-      "properties": { "project_id": { "$ref": "#/$defs/identifier" }, "plan_key": { "$ref": "#/$defs/identifier" }, "phase_id": { "$ref": "#/$defs/identifier" }, "expected_topology_digest": { "$ref": "#/$defs/digest" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "plan_key",
+        "phase_id"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "plan_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "phase_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_topology_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
     },
     "edge": {
-      "type": "object", "additionalProperties": false, "required": ["from", "to"],
-      "properties": { "from": { "$ref": "#/$defs/nodeRef" }, "to": { "$ref": "#/$defs/nodeRef" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/nodeRef"
+        },
+        "to": {
+          "$ref": "#/$defs/nodeRef"
+        }
+      }
     },
     "phaseAcceptDependency": {
-      "type": "object", "additionalProperties": false, "required": ["from", "to"],
-      "properties": { "from": { "$ref": "#/$defs/phaseRef" }, "to": { "$ref": "#/$defs/nodeRef" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/phaseRef"
+        },
+        "to": {
+          "$ref": "#/$defs/nodeRef"
+        }
+      }
     },
     "join": {
-      "type": "object", "additionalProperties": false, "required": ["id", "after", "before"],
-      "properties": { "id": { "$ref": "#/$defs/identifier" }, "after": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/nodeRef" } }, "before": { "$ref": "#/$defs/nodeRef" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "after",
+        "before"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "after": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/nodeRef"
+          }
+        },
+        "before": {
+          "$ref": "#/$defs/nodeRef"
+        }
+      }
+    },
+    "authoringDigest": {
+      "type": "string",
+      "pattern": "^(|[0-9a-f]{64})$",
+      "description": "canonical入力から算出される自己digest。CLIが読み込み時に必ず再計算して埋めるので、authorは空文字 \"\" を置けばよい。手で計算する必要はない。"
     }
   }
 }
