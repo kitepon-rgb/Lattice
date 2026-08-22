@@ -10,6 +10,7 @@ import { selfDigest } from './runtime-contracts.mjs';
 import { captureWorktreeDiff } from './runtime-diff-observer.mjs';
 import { pidsOwningSocketPath, socketPathsOwnedByPid } from './runtime-socket-owner.mjs';
 import { createDirectOsProcessObserver as createDirectOsProcessObserverV2 } from './runtime-direct-os-observer.mjs';
+import { observeExecutablePath, observeStartIdentityRaw, osObservationEnvironment } from './runtime-os-observation.mjs';
 import {
   armStagedWriteLease,
   createControllerBootstrap,
@@ -53,24 +54,13 @@ function monotonicDefault() { return Number(process.hrtime.bigint() / 1_000_000n
 function sha256Bytes(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
 const execFileAsync = promisify(execFile);
 
-// OS観測はobserverのlocaleへ依存させない。psのlstart書式（LC_TIME）と非ASCII argvの
-// エスケープ有無（LC_CTYPE）はlocaleで変わり、同じprocessでも観測者ごとにidentity digestが
-// 割れる（2026-08-22 実測: 席fileと席自身の観測でWORKER_IDENTITY_MISMATCH）。
-export function osObservationEnvironment() { return { ...process.env, LC_ALL: 'C' }; }
-
 export async function observeManagedProcessStartIdentity(pid) {
   if (!Number.isSafeInteger(pid) || pid < 1) {
     fail('ADAPTER_CONTROLLER_UNAVAILABLE', `process start identity観測失敗: ${pid}`);
   }
   let startedIdentity;
   try {
-    const executable = process.platform === 'win32' ? 'powershell.exe' : '/bin/ps';
-    const args = process.platform === 'win32'
-      ? ['-NoProfile', '-NonInteractive', '-Command',
-        `[System.Diagnostics.Process]::GetProcessById(${pid}).StartTime.ToUniversalTime().Ticks`]
-      : ['-o', 'lstart=', '-p', String(pid)];
-    const { stdout } = await execFileAsync(executable, args, { encoding: 'utf8', env: osObservationEnvironment() });
-    startedIdentity = stdout.trim();
+    startedIdentity = await observeStartIdentityRaw(pid);
   } catch (error) {
     const cause = String(error?.stderr ?? '').trim() || error?.message || 'unknown';
     fail('ADAPTER_CONTROLLER_UNAVAILABLE', `process start identity観測失敗: pid=${pid}, 観測コマンドの失敗=${cause}`);
@@ -117,18 +107,10 @@ export async function observeProcessExecutablePath(pid) {
   if (!Number.isSafeInteger(pid) || pid < 1) {
     fail('ADAPTER_BINARY_IDENTITY_MISMATCH', 'exec後image PID不正');
   }
-  if (process.platform === 'linux') {
-    return realpath(`/proc/${pid}/exe`);
+  if (process.platform !== 'linux' && process.platform !== 'darwin') {
+    fail('ADAPTER_BINARY_IDENTITY_MISMATCH', `exec後image path観測未対応platform: ${process.platform}`);
   }
-  if (process.platform === 'darwin') {
-    const { stdout } = await execFileAsync(
-      '/bin/ps',
-      ['-o', 'comm=', '-p', String(pid)],
-      { encoding: 'utf8', env: osObservationEnvironment() },
-    );
-    return realpath(stdout.trim());
-  }
-  fail('ADAPTER_BINARY_IDENTITY_MISMATCH', `exec後image path観測未対応platform: ${process.platform}`);
+  return observeExecutablePath(pid);
 }
 
 /** storeが解決したimmutable bindingからprocess/worktree/checkpointをDirect OSで再観測する。 */

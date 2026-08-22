@@ -1,6 +1,5 @@
 import net from 'node:net';
 import { createHash, randomBytes } from 'node:crypto';
-import { execFile } from 'node:child_process';
 import { constants as fsConstants, readFileSync } from 'node:fs';
 import {
   chmod,
@@ -13,7 +12,6 @@ import {
   rm,
 } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import {
@@ -31,7 +29,8 @@ import {
 } from './runtime-contracts.mjs';
 import { captureWorktreeDiff } from './runtime-diff-observer.mjs';
 import { validateSupervisorWriteGate } from './runtime-gate-store.mjs';
-import { observeManagedProcessStartIdentity, osObservationEnvironment } from './runtime-managed-supervisor.mjs';
+import { observeManagedProcessStartIdentity } from './runtime-managed-supervisor.mjs';
+import { observePsSnapshot } from './runtime-os-observation.mjs';
 import {
   scriptedWorktreeId as workOrderWorktreeId,
   scriptedWorktreePath as workOrderWorktreePath,
@@ -45,7 +44,6 @@ import {
 const MAX_DOCUMENT_BYTES = 8_388_608;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const ID = /^[0-9A-Za-z](?:[0-9A-Za-z._-]{0,127})$/u;
-const execFileAsync = promisify(execFile);
 const REQUEST_SCHEMA_TO_OPERATION = Object.freeze(Object.fromEntries([
   ['lattice.adapter_dispatch_request.v1', 'dispatch'],
   ['lattice.adapter_observe_request.v1', 'observe'],
@@ -328,13 +326,7 @@ function quiescedState(rawState) {
 async function observeWorkerProcessTree(pid, { requireDescendantsInRootGroup = true } = {}) {
   let stdout;
   try {
-    ({ stdout } = await execFileAsync('/bin/ps', [
-      '-axo', 'pid=,ppid=,pgid=,state=,lstart=',
-    ], {
-      encoding: 'utf8',
-      maxBuffer: 8 * 1024 * 1024,
-      env: osObservationEnvironment(),
-    }));
+    stdout = await observePsSnapshot();
   } catch { fail('WORK_ORDER_REPORT_INVALID', 'worker_pidをOS観測できない'); }
   const records = new Map();
   for (const rawLine of stdout.split('\n')) {

@@ -1,18 +1,18 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import {
   lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
 import { canonicalizeArtifact, digestArtifact } from './artifact-contracts.mjs';
 import { validateExpectedWorkerProcess } from './runtime-controller-protocol.mjs';
 import { classifyObservedDiff } from './runtime-decision-verifier.mjs';
 import { captureWorktreeDiff, detectCheckpointFindings } from './runtime-diff-observer.mjs';
 import { acquireRuntimeLifecycleLock } from './runtime-lifecycle-lock.mjs';
-import { observeManagedProcessStartIdentity, osObservationEnvironment } from './runtime-managed-supervisor.mjs';
+import { observeManagedProcessStartIdentity } from './runtime-managed-supervisor.mjs';
+import { observeArgv, observePgid } from './runtime-os-observation.mjs';
 import { deliverWorkerSignal, observeWindowsWorkerProcess } from './runtime-windows-process.mjs';
 import { ensureScriptedWorktree } from './runtime-scripted-worktree.mjs';
 import {
@@ -33,7 +33,6 @@ const SHA1 = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const MAX_FILE_BYTES = 8_388_608;
-const execFileAsync = promisify(execFile);
 
 export class PullRunError extends Error {
   constructor(code, message, detail) {
@@ -924,10 +923,10 @@ async function observeProcessBinding(pid) {
     };
   }
   const processStartIdentity = await observeManagedProcessStartIdentity(pid);
-  const { stdout: pgidOut } = await execFileAsync('/bin/ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8', env: osObservationEnvironment() });
-  const { stdout: argvOut } = await execFileAsync('/bin/ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', env: osObservationEnvironment() });
-  const processGroupId = Number(pgidOut.trim());
-  const argv = argvOut.trim();
+  const pgidOut = await observePgid(pid);
+  const argvOut = await observeArgv(pid);
+  const processGroupId = Number(pgidOut);
+  const argv = argvOut;
   const expected = { pid, process_group_id: processGroupId, process_start_identity: processStartIdentity };
   if (!validateExpectedWorkerProcess(expected) || argv.length === 0) {
     fail('WORKER_IDENTITY_MISMATCH', 'worker process identityを完全観測できない');

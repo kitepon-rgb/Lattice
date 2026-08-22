@@ -1,15 +1,12 @@
-import { execFile } from 'node:child_process';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
 import { digestArtifact } from './artifact-contracts.mjs';
 import { selfDigest } from './runtime-contracts.mjs';
 import { validateProcessStartIdentity } from './runtime-controller-protocol.mjs';
 import { captureWorktreeDiff } from './runtime-diff-observer.mjs';
-import { osObservationEnvironment } from './runtime-managed-supervisor.mjs';
+import { observePsSnapshot } from './runtime-os-observation.mjs';
 
-const execFileAsync = promisify(execFile);
 const GIT_SHA1 = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 
@@ -71,10 +68,7 @@ function validateResolvedBinding(value) {
 
 async function runPsSnapshot() {
   try {
-    const { stdout } = await execFileAsync('/bin/ps', [
-      '-axo', 'pid=,ppid=,pgid=,state=,lstart=',
-    ], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, env: osObservationEnvironment() });
-    return stdout;
+    return await observePsSnapshot();
   } catch (error) {
     fail(`ps観測失敗: ${error?.code ?? error?.message ?? 'unknown'}`);
   }
