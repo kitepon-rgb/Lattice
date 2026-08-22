@@ -3,6 +3,7 @@ import path from 'node:path';
 import { digestArtifact } from './artifact-contracts.mjs';
 import { validateCarryOverWitness } from './runtime-contracts.mjs';
 import { projectRuntimeState } from './runtime-projection.mjs';
+import { coveredBy } from './runtime-diff-observer.mjs';
 
 // RC3 runtime decision verifier（ADR 0044 Decision 4〜7）。
 // dispatch／hold／continue／invalidate裁定を、保存planとevent prefixだけから
@@ -102,17 +103,11 @@ export function computeReadyFrontier(options = {}) {
   return { dispatchable };
 }
 
-// 宣言 write はファイルにもディレクトリにも成り得る（witness の writes は `templates` の
-// ような素のディレクトリ名を普通に持つ）。末尾 `/` の有無で prefix 扱いを分けると、
-// ディレクトリ境界を正しく宣言した task の配下ファイルが全部 undeclared_write になり、
-// accept のたびに hold → worker SIGSTOP で卓が凍る（2026-08-22 実測: t1/t3 で連続被弾）。
-function declaredWriteCovers(declaredWrites, observedPath) {
-  return declaredWrites.some((declared) => {
-    if (declared === observedPath) return true;
-    const prefix = declared.endsWith('/') ? declared : `${declared}/`;
-    return observedPath.startsWith(prefix);
-  });
-}
+// 宣言 write の被覆判定は runtime-diff-observer の coveredBy（唯一の述語）へ一本化する。
+// 述語が分かれると「警報は出たが checkpoint では競合にならない」種類のずれが生まれる
+// （coveredBy の docstring と同じ理由。実際に 2026-08-22、複製3個のうち1個だけ直して
+// 同じ hold を踏み直した）。
+const declaredWriteCovers = coveredBy;
 
 function witnessSet(manifest, kinds) {
   const resources = new Set(manifest?.resources ?? []);

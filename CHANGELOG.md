@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.63.6 — 2026-08-22
+
+### 修正
+
+- 0.63.5 が直した宣言境界の照合に、runtime-diff-observer 側の複製述語 `coveredBy` が
+  残っており、accept 直叩き経路（detectCheckpointFindings）では同じ誤 hold を踏み直した。
+  被覆判定を `coveredBy` 1本へ統合し、decision-verifier は import して使う。
+
 ## 0.63.5 — 2026-08-22
 
 ### 修正

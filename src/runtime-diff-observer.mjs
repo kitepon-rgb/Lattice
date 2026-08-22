@@ -279,10 +279,14 @@ export async function captureWorktreeDiff(options = {}) {
  * どちらが正しいのか誰にも分からなくなる。
  */
 export function coveredBy(declaredWrites, observedPath) {
-  return declaredWrites.some((declared) => (
-    declared === observedPath
-    || (declared.endsWith('/') && observedPath.startsWith(declared))
-  ));
+  // 宣言はファイルにも素のディレクトリ名（`templates` 等）にも成り得る。末尾 `/` の時だけ
+  // prefix 扱いにすると、境界内で作った配下ファイルが全部 undeclared_write になる
+  // （2026-08-22 実測: accept のたびに hold → worker SIGSTOP で卓が凍った）。
+  return declaredWrites.some((declared) => {
+    if (declared === observedPath) return true;
+    const prefix = declared.endsWith('/') ? declared : `${declared}/`;
+    return observedPath.startsWith(prefix);
+  });
 }
 
 function lineGroupsFor(manifests, todoIds) {
