@@ -237,3 +237,26 @@ test('successor directory rename後pointer前crashはsame transactionだけroll-
     transactionId: 'successor-2', ...evidence });
   assert.equal(retried.pointer.pointer_digest, committed.pointer.pointer_digest);
 });
+
+// 活性化はpointer→metaの順で書く。逆順だとmeta v2だけが見える窓ができ、並行する
+// readerがINVALID_RUN_STORE（committed epoch pointerを読めない）で落ちる
+// （2026-08-22 CI負荷下で実被弾: run observeのpolling中に落ちた）。この順での
+// 途中crash盤面（pointerあり・metaはv1のまま）はlegacyへfallbackし、再活性化で回復する。
+test('pointer書込み後meta書込み前のcrash盤面はlegacy fallbackし再活性化で回復する', async (t) => {
+  const value = await fixture();
+  t.after(() => rm(value.root, { recursive: true, force: true }));
+  const request = JSON.parse(await readFile(path.join(value.runDir, 'request.json')));
+  const compileArtifact = JSON.parse(await readFile(path.join(value.runDir, 'plan-compile-result.json')));
+  const legacyMetaBytes = await readFile(path.join(value.runDir, 'run-meta.json'));
+  const legacyMeta = JSON.parse(legacyMetaBytes);
+  const evidence = await activationEvidence(value.runDir);
+  const options = { runDir: value.runDir, request, compileArtifact, legacyMeta, ...evidence };
+  const first = await activateEpochOneStore(options);
+  // pointerだけが耐久化されmetaがv1のままの盤面（新しい書込み順の唯一の途中状態）を作る。
+  await writeFile(path.join(value.runDir, 'run-meta.json'), legacyMetaBytes);
+  assert.equal(await readCommittedEpochStore(value.runDir), null,
+    'meta v1のままならmulti-epochとして読まずlegacyへfallbackする');
+  const recovered = await activateEpochOneStore(options);
+  assert.equal(recovered.pointer.pointer_digest, first.pointer.pointer_digest);
+  assert.equal((await readCommittedEpochStore(value.runDir)).pointer.plan_epoch, 1);
+});

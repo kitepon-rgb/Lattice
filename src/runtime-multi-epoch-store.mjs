@@ -490,18 +490,11 @@ export async function activateEpochOneStore({
     }
   }
 
-  const meta = {
-    schema: 'lattice.run_meta.v2',
-    run_id: normalizedMeta.run_id,
-    executor_adapter: normalizedMeta.executor_adapter,
-    run_event_schema: 'lattice.run_event.v1',
-    control_event_schema: 'lattice.runtime_control_event.v1',
-    epoch_bundle_schema: 'lattice.runtime_epoch_bundle.v1',
-    created_plan_digest: compileArtifact.plan.plan_digest,
-  };
-  meta.meta_digest = digestArtifact(meta);
-  await replaceDurableJson(runDir, 'run-meta.json', meta);
-
+  // pointerをmetaより先に書く。読み手はmeta v2を見てからpointerを読むので、逆順だと
+  // 2書き込みの間にmeta v2だけが見え、並行するreaderがINVALID_RUN_STORE
+  // （committed epoch pointerを読めない）で落ちる（2026-08-22 CI負荷下で実被弾）。
+  // この順ならmeta v2の可視がpointer実在を含意し、途中crashはmeta v1のまま
+  // （余剰のpointerはlegacy読取りに影響せず、再activationが置換する）。
   const pointer = {
     schema: 'lattice.committed_epoch_pointer.v1',
     run_id: normalizedMeta.run_id,
@@ -513,6 +506,18 @@ export async function activateEpochOneStore({
   };
   pointer.pointer_digest = digestArtifact(pointer);
   await replaceDurableJson(runDir, 'committed-epoch.json', pointer);
+
+  const meta = {
+    schema: 'lattice.run_meta.v2',
+    run_id: normalizedMeta.run_id,
+    executor_adapter: normalizedMeta.executor_adapter,
+    run_event_schema: 'lattice.run_event.v1',
+    control_event_schema: 'lattice.runtime_control_event.v1',
+    epoch_bundle_schema: 'lattice.runtime_epoch_bundle.v1',
+    created_plan_digest: compileArtifact.plan.plan_digest,
+  };
+  meta.meta_digest = digestArtifact(meta);
+  await replaceDurableJson(runDir, 'run-meta.json', meta);
   return { bundle, meta, pointer };
 }
 
