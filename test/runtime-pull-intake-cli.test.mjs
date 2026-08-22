@@ -823,12 +823,16 @@ test('detachはattach bindingと一致しないprocessへsignalを送らない',
     'run', 'intake', 'attach', '--run', '.lattice/runs/pull-run', '--task', 'A', '--input', attachPath,
   ]));
 
-  // pidが再利用されて別のprocessになった状況。SIGCONTを無関係な相手へ送らない。
+  // workerが死んだ（またはpidが再利用された）状況。SIGCONTを無関係な相手へ送らず、
+  // かつ死んだworkerのbindingがdetachを恒久に塞がない——signalは「配達先なし」でskipし、
+  // detach自体は通る（worker_resumedは刻まれない）。
   process.kill(child.pid, 'SIGKILL');
   await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.equal(parsed(runCli(root, [
+  const detached = parsed(runCli(root, [
     'run', 'intake', 'detach', '--run', '.lattice/runs/pull-run', '--task', 'A',
-  ]), 1).code, 'WORKER_IDENTITY_MISMATCH');
+  ]));
+  assert.equal(detached.outcome, 'detached');
+  assert.equal(detached.resumed, false);
 
   // attach済みworkerが無いintakeへのdetachは、成功へ丸めずtypedに落とす。
   await startTask(root, 'B', '2026-08-09T00:02:00.000Z');

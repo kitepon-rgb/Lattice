@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.63.4 — 2026-08-22
+
+### 修正
+
+- process identity のOS観測（`/bin/ps` の `lstart=` / `command=` / `pgid=` ほか全8箇所）が
+  observer の locale に依存していた。lstart の日付書式は LC_TIME で、非ASCII argv の
+  エスケープ有無は LC_CTYPE で変わるため、同じ process でも記録者と照合者の locale が
+  違うだけで identity digest が割れ、`run intake attach` が `WORKER_IDENTITY_MISMATCH` で
+  恒久に拒否された（2026-08-22 に円卓運用で実測。席の argv に日本語が含まれると必発）。
+  観測 process の環境を `LC_ALL=C` へ固定し、観測を locale 非依存にした。
+- attach 済み worker への signal 前再認証が argv digest と pgid（どちらも process 自身が
+  書き換えられる可変量）まで照合していた。TUI worker が実行中にプロセスタイトルを
+  書き換えると、生きている正当な worker へ signal できなくなり、detach / release / hold の
+  全経路が恒久停止した。再認証を不変量（pid + lstart）だけに絞る。無関係な process へ
+  signal を送らない安全性は lstart 照合で変わらず保たれる。
+- attach 済み worker が終了（または pid 再利用）した後の detach が、死んだ process の
+  resume を要求して `WORKER_IDENTITY_MISMATCH` で恒久に失敗した。不在（ESRCH）と
+  pid 再利用は「配達先なし」として signal を skip し、detach を通す。worker_stopped /
+  worker_resumed イベントは実際に signal が配達された時だけ刻む。
+- `observeManagedProcessStartIdentity` が観測失敗時に原因を握りつぶし、対象 pid だけを
+  返していた。sandbox 内から `ps` が失敗した時に「存在しない pid を渡した」ように読め、
+  誤診を誘発した。失敗した観測コマンドの stderr / message を detail に載せる。
+
 ## 0.63.1 — 2026-08-22
 
 ### 修正

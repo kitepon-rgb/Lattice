@@ -31,7 +31,7 @@ import {
 } from './runtime-contracts.mjs';
 import { captureWorktreeDiff } from './runtime-diff-observer.mjs';
 import { validateSupervisorWriteGate } from './runtime-gate-store.mjs';
-import { observeManagedProcessStartIdentity } from './runtime-managed-supervisor.mjs';
+import { observeManagedProcessStartIdentity, osObservationEnvironment } from './runtime-managed-supervisor.mjs';
 import {
   scriptedWorktreeId as workOrderWorktreeId,
   scriptedWorktreePath as workOrderWorktreePath,
@@ -333,6 +333,7 @@ async function observeWorkerProcessTree(pid, { requireDescendantsInRootGroup = t
     ], {
       encoding: 'utf8',
       maxBuffer: 8 * 1024 * 1024,
+      env: osObservationEnvironment(),
     }));
   } catch { fail('WORK_ORDER_REPORT_INVALID', 'worker_pidをOS観測できない'); }
   const records = new Map();

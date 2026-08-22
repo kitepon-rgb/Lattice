@@ -12,7 +12,7 @@ import { validateExpectedWorkerProcess } from './runtime-controller-protocol.mjs
 import { classifyObservedDiff } from './runtime-decision-verifier.mjs';
 import { captureWorktreeDiff, detectCheckpointFindings } from './runtime-diff-observer.mjs';
 import { acquireRuntimeLifecycleLock } from './runtime-lifecycle-lock.mjs';
-import { observeManagedProcessStartIdentity } from './runtime-managed-supervisor.mjs';
+import { observeManagedProcessStartIdentity, osObservationEnvironment } from './runtime-managed-supervisor.mjs';
 import { deliverWorkerSignal, observeWindowsWorkerProcess } from './runtime-windows-process.mjs';
 import { ensureScriptedWorktree } from './runtime-scripted-worktree.mjs';
 import {
@@ -755,17 +755,19 @@ export async function intakePullTask({ repoRoot, runDir, taskId, environment = p
       const updated = project(current.events, current.meta).intakes
         .find((entry) => entry.task_id === taskId);
       if (updated.worker && intervention.state === 'hold' && !updated.worker.stopped) {
-        await signalAttachedWorker(updated, 'SIGSTOP');
-        current = await appendEvent(runDir, current, buildEvent({
-          events: current.events, meta: current.meta, kind: 'worker_stopped', taskId,
-          payload: { reason: intervention.reason },
-        }));
+        if (await signalAttachedWorker(updated, 'SIGSTOP')) {
+          current = await appendEvent(runDir, current, buildEvent({
+            events: current.events, meta: current.meta, kind: 'worker_stopped', taskId,
+            payload: { reason: intervention.reason },
+          }));
+        }
       } else if (updated.worker?.stopped && intervention.state === 'none') {
-        await signalAttachedWorker(updated, 'SIGCONT');
-        current = await appendEvent(runDir, current, buildEvent({
-          events: current.events, meta: current.meta, kind: 'worker_resumed', taskId,
-          payload: { released_by: 'intake_refresh' },
-        }));
+        if (await signalAttachedWorker(updated, 'SIGCONT')) {
+          current = await appendEvent(runDir, current, buildEvent({
+            events: current.events, meta: current.meta, kind: 'worker_resumed', taskId,
+            payload: { released_by: 'intake_refresh' },
+          }));
+        }
       }
       state = project(current.events, current.meta);
       const result = { schema: 'lattice.pull_intake_result.v1', outcome: 'intaked',
@@ -922,8 +924,8 @@ async function observeProcessBinding(pid) {
     };
   }
   const processStartIdentity = await observeManagedProcessStartIdentity(pid);
-  const { stdout: pgidOut } = await execFileAsync('/bin/ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' });
-  const { stdout: argvOut } = await execFileAsync('/bin/ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' });
+  const { stdout: pgidOut } = await execFileAsync('/bin/ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8', env: osObservationEnvironment() });
+  const { stdout: argvOut } = await execFileAsync('/bin/ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', env: osObservationEnvironment() });
   const processGroupId = Number(pgidOut.trim());
   const argv = argvOut.trim();
   const expected = { pid, process_group_id: processGroupId, process_start_identity: processStartIdentity };
@@ -937,16 +939,26 @@ async function observeProcessBinding(pid) {
   };
 }
 
+// signal前の再認証は不変量（pid + lstart）だけで行う。argvはTUIがプロセスタイトルを
+// 書き換えると変わり、pgidもprocess自身が変えられる——可変量を照合に使うと、生きている
+// 正当なworkerへsignalできなくなり、detach/release/holdの全経路が恒久停止する。
+// pid + lstart が同じなら同一process instanceであり、誤配は起きない。
+// 不在（ESRCH）とpid再利用（lstart不一致）は「配達先がもう居ない」＝falseで返し、
+// 観測自体の失敗だけを失敗として扱う。
 async function signalAttachedWorker(intake, signal) {
   if (intake.worker === null) return false;
+  try { process.kill(intake.worker.pid, 0); }
+  catch (error) { if (error?.code === 'ESRCH') return false; }
   let observed;
   try { observed = await observeProcessBinding(intake.worker.pid); }
-  catch { fail('WORKER_IDENTITY_MISMATCH', 'signal前にworkerを再認証できない'); }
+  catch {
+    try { process.kill(intake.worker.pid, 0); }
+    catch (error) { if (error?.code === 'ESRCH') return false; }
+    fail('WORKER_IDENTITY_MISMATCH', 'signal前にworkerを再認証できない');
+  }
   if (observed.process_start_identity.identity_digest
-      !== intake.worker.process_start_identity.identity_digest
-    || observed.argv_digest !== intake.worker.argv_digest
-    || observed.process_group_id !== intake.worker.process_group_id) {
-    fail('WORKER_IDENTITY_MISMATCH', 'signal前のlstart/argv/pgidがattach bindingと一致しない');
+      !== intake.worker.process_start_identity.identity_digest) {
+    return false;
   }
   try { deliverWorkerSignal(intake.worker.pid, signal); }
   catch { fail('WORKER_SIGNAL_FAILED', `workerへ${signal}を送れない`); }
@@ -994,8 +1006,10 @@ export async function attachPullWorker({ runDir, taskId, input, environment = pr
       fail('WORKER_ALREADY_ATTACHED', `同じworkerは複数active intakeへattachできない: ${occupied.task_id}`);
     }
     if (occupied && occupied.intervention.state === 'hold') {
-      if (occupied.worker.stopped) {
-        await signalAttachedWorker(occupied, 'SIGCONT');
+      const resumed = occupied.worker.stopped
+        ? await signalAttachedWorker(occupied, 'SIGCONT')
+        : false;
+      if (resumed) {
         current = await appendEvent(runDir, current, buildEvent({
           events: current.events, meta: current.meta, kind: 'worker_resumed',
           taskId: occupied.task_id, payload: { released_by: 'stale_hold_reattach' },
@@ -1004,7 +1018,7 @@ export async function attachPullWorker({ runDir, taskId, input, environment = pr
       current = await appendEvent(runDir, current, buildEvent({
         events: current.events, meta: current.meta, kind: 'worker_detached',
         taskId: occupied.task_id,
-        payload: { detached_by: actor, pid: occupied.worker.pid, resumed: occupied.worker.stopped },
+        payload: { detached_by: actor, pid: occupied.worker.pid, resumed },
       }));
       state = project(current.events, current.meta);
     }
@@ -1023,11 +1037,12 @@ export async function attachPullWorker({ runDir, taskId, input, environment = pr
     }
     const refreshed = state.intakes.find((entry) => entry.task_id === taskId);
     if (refreshed.intervention.state === 'hold' && !refreshed.worker.stopped) {
-      await signalAttachedWorker(refreshed, 'SIGSTOP');
-      current = await appendEvent(runDir, current, buildEvent({
-        events: current.events, meta: current.meta, kind: 'worker_stopped', taskId,
-        payload: { reason: refreshed.intervention.reason },
-      }));
+      if (await signalAttachedWorker(refreshed, 'SIGSTOP')) {
+        current = await appendEvent(runDir, current, buildEvent({
+          events: current.events, meta: current.meta, kind: 'worker_stopped', taskId,
+          payload: { reason: refreshed.intervention.reason },
+        }));
+      }
     }
     const result = { schema: 'lattice.pull_worker_attach_result.v1', outcome: 'attached',
       task_id: taskId, pid: input.pid, stopped: project(current.events, current.meta)
@@ -1074,9 +1089,10 @@ export async function detachPullWorker({ runDir, taskId, environment = process.e
     // Resume before unbinding. Once the binding is gone nothing in this store can
     // name that pid again, so a worker left stopped here would be unreachable by
     // any future command — the same one-way door, one step further along.
-    const resumed = intake.worker.stopped;
+    const resumed = intake.worker.stopped
+      ? await signalAttachedWorker(intake, 'SIGCONT')
+      : false;
     if (resumed) {
-      await signalAttachedWorker(intake, 'SIGCONT');
       current = await appendEvent(runDir, current, buildEvent({
         events: current.events, meta: current.meta, kind: 'worker_resumed', taskId,
         payload: { released_by: 'worker_detach' },
@@ -1220,11 +1236,12 @@ export async function acceptPullTask({ repoRoot, runDir, taskId, environment = p
         const stoppedIntake = project(current.events, current.meta).intakes
           .find((entry) => entry.task_id === affectedTaskId);
         if (stoppedIntake.worker && !stoppedIntake.worker.stopped) {
-          await signalAttachedWorker(stoppedIntake, 'SIGSTOP');
-          current = await appendEvent(runDir, current, buildEvent({
-            events: current.events, meta: current.meta, kind: 'worker_stopped', taskId: affectedTaskId,
-            payload: { reason: 'runtime_conflict' },
-          }));
+          if (await signalAttachedWorker(stoppedIntake, 'SIGSTOP')) {
+            current = await appendEvent(runDir, current, buildEvent({
+              events: current.events, meta: current.meta, kind: 'worker_stopped', taskId: affectedTaskId,
+              payload: { reason: 'runtime_conflict' },
+            }));
+          }
         }
       }
       fail('RUNTIME_CONFLICT_HOLD', 'observed diffがruntime conflictを生成した', { findings });
@@ -1236,11 +1253,12 @@ export async function acceptPullTask({ repoRoot, runDir, taskId, environment = p
       const resumed = project(current.events, current.meta).intakes
         .find((entry) => entry.task_id === taskId);
       if (resumed.worker?.stopped) {
-        await signalAttachedWorker(resumed, 'SIGCONT');
-        current = await appendEvent(runDir, current, buildEvent({
-          events: current.events, meta: current.meta, kind: 'worker_resumed', taskId,
-          payload: { released_by_empty_findings: true },
-        }));
+        if (await signalAttachedWorker(resumed, 'SIGCONT')) {
+          current = await appendEvent(runDir, current, buildEvent({
+            events: current.events, meta: current.meta, kind: 'worker_resumed', taskId,
+            payload: { released_by_empty_findings: true },
+          }));
+        }
       }
     }
     current = await appendEvent(runDir, current, buildEvent({
@@ -1265,11 +1283,12 @@ export async function acceptPullTask({ repoRoot, runDir, taskId, environment = p
       const resumed = project(current.events, current.meta).intakes
         .find((entry) => entry.task_id === waiting.task_id);
       if (resumed.worker?.stopped) {
-        await signalAttachedWorker(resumed, 'SIGCONT');
-        current = await appendEvent(runDir, current, buildEvent({
-          events: current.events, meta: current.meta, kind: 'worker_resumed', taskId: waiting.task_id,
-          payload: { released_by_accepted_task: taskId },
-        }));
+        if (await signalAttachedWorker(resumed, 'SIGCONT')) {
+          current = await appendEvent(runDir, current, buildEvent({
+            events: current.events, meta: current.meta, kind: 'worker_resumed', taskId: waiting.task_id,
+            payload: { released_by_accepted_task: taskId },
+          }));
+        }
       }
     }
     state = project(current.events, current.meta);
@@ -1293,11 +1312,12 @@ export async function acceptPullTask({ repoRoot, runDir, taskId, environment = p
       const resumed = project(current.events, current.meta).intakes
         .find((entry) => entry.task_id === waiting.task_id);
       if (resumed.worker?.stopped) {
-        await signalAttachedWorker(resumed, 'SIGCONT');
-        current = await appendEvent(runDir, current, buildEvent({
-          events: current.events, meta: current.meta, kind: 'worker_resumed', taskId: waiting.task_id,
-          payload: { released_by_accepted_task: taskId },
-        }));
+        if (await signalAttachedWorker(resumed, 'SIGCONT')) {
+          current = await appendEvent(runDir, current, buildEvent({
+            events: current.events, meta: current.meta, kind: 'worker_resumed', taskId: waiting.task_id,
+            payload: { released_by_accepted_task: taskId },
+          }));
+        }
       }
     }
     const result = { schema: 'lattice.pull_accept_result.v1', outcome: 'accepted',

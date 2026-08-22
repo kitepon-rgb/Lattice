@@ -53,6 +53,11 @@ function monotonicDefault() { return Number(process.hrtime.bigint() / 1_000_000n
 function sha256Bytes(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
 const execFileAsync = promisify(execFile);
 
+// OS観測はobserverのlocaleへ依存させない。psのlstart書式（LC_TIME）と非ASCII argvの
+// エスケープ有無（LC_CTYPE）はlocaleで変わり、同じprocessでも観測者ごとにidentity digestが
+// 割れる（2026-08-22 実測: 席fileと席自身の観測でWORKER_IDENTITY_MISMATCH）。
+export function osObservationEnvironment() { return { ...process.env, LC_ALL: 'C' }; }
+
 export async function observeManagedProcessStartIdentity(pid) {
   if (!Number.isSafeInteger(pid) || pid < 1) {
     fail('ADAPTER_CONTROLLER_UNAVAILABLE', `process start identity観測失敗: ${pid}`);
@@ -64,9 +69,12 @@ export async function observeManagedProcessStartIdentity(pid) {
       ? ['-NoProfile', '-NonInteractive', '-Command',
         `[System.Diagnostics.Process]::GetProcessById(${pid}).StartTime.ToUniversalTime().Ticks`]
       : ['-o', 'lstart=', '-p', String(pid)];
-    const { stdout } = await execFileAsync(executable, args, { encoding: 'utf8' });
+    const { stdout } = await execFileAsync(executable, args, { encoding: 'utf8', env: osObservationEnvironment() });
     startedIdentity = stdout.trim();
-  } catch { fail('ADAPTER_CONTROLLER_UNAVAILABLE', `process start identity観測失敗: ${pid}`); }
+  } catch (error) {
+    const cause = String(error?.stderr ?? '').trim() || error?.message || 'unknown';
+    fail('ADAPTER_CONTROLLER_UNAVAILABLE', `process start identity観測失敗: pid=${pid}, 観測コマンドの失敗=${cause}`);
+  }
   if (!startedIdentity) fail('ADAPTER_CONTROLLER_UNAVAILABLE', `process不在: ${pid}`);
   const identity = { schema: 'lattice.process_start_identity.v1', platform: process.platform, pid, started_identity: startedIdentity, identity_digest: '' };
   identity.identity_digest = selfDigest(identity, 'identity_digest');
@@ -116,7 +124,7 @@ export async function observeProcessExecutablePath(pid) {
     const { stdout } = await execFileAsync(
       '/bin/ps',
       ['-o', 'comm=', '-p', String(pid)],
-      { encoding: 'utf8' },
+      { encoding: 'utf8', env: osObservationEnvironment() },
     );
     return realpath(stdout.trim());
   }
@@ -170,7 +178,7 @@ export function createDirectOsProcessObserver({ resolveObservationBinding }) {
     let observedIdentity = resolved.process_start_identity;
     let processGroupId = resolved.process_group_id;
     try {
-      const { stdout } = await execFileAsync('/bin/ps', ['-o', 'lstart=,pgid=,state=', '-p', String(resolved.process_pid)], { encoding: 'utf8' });
+      const { stdout } = await execFileAsync('/bin/ps', ['-o', 'lstart=,pgid=,state=', '-p', String(resolved.process_pid)], { encoding: 'utf8', env: osObservationEnvironment() });
       const line = stdout.trim();
       if (line) {
         const match = line.match(/^(.*\d{4})\s+(\d+)\s+(\S+)$/);
@@ -188,7 +196,7 @@ export function createDirectOsProcessObserver({ resolveObservationBinding }) {
     }
     if (!['stopped', 'exited'].includes(processState)) fail('HOLD_ACKS_INCOMPLETE', 'executor processがquiescedでない');
     try {
-      const { stdout: groupStdout } = await execFileAsync('/bin/ps', ['-o', 'pid=,state=', '-g', String(resolved.process_group_id)], { encoding: 'utf8' });
+      const { stdout: groupStdout } = await execFileAsync('/bin/ps', ['-o', 'pid=,state=', '-g', String(resolved.process_group_id)], { encoding: 'utf8', env: osObservationEnvironment() });
       for (const line of groupStdout.trim().split('\n').filter(Boolean)) {
         const match = line.trim().match(/^(\d+)\s+(\S+)$/);
         if (!match || (!match[2].startsWith('T') && !match[2].startsWith('Z'))) fail('HOLD_ACKS_INCOMPLETE', 'process group childがquiescedでない');

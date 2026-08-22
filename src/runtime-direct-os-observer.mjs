@@ -7,6 +7,7 @@ import { digestArtifact } from './artifact-contracts.mjs';
 import { selfDigest } from './runtime-contracts.mjs';
 import { validateProcessStartIdentity } from './runtime-controller-protocol.mjs';
 import { captureWorktreeDiff } from './runtime-diff-observer.mjs';
+import { osObservationEnvironment } from './runtime-managed-supervisor.mjs';
 
 const execFileAsync = promisify(execFile);
 const GIT_SHA1 = /^[0-9a-f]{40}$/;
@@ -72,7 +73,7 @@ async function runPsSnapshot() {
   try {
     const { stdout } = await execFileAsync('/bin/ps', [
       '-axo', 'pid=,ppid=,pgid=,state=,lstart=',
-    ], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    ], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, env: osObservationEnvironment() });
     return stdout;
   } catch (error) {
     fail(`ps観測失敗: ${error?.code ?? error?.message ?? 'unknown'}`);

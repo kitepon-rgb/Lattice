@@ -658,3 +658,24 @@ test('deep run pathでもcwd anchorのrelative AF_UNIXでlisten/connectする', 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('process start identity観測はobserverのlocaleに依存しない', async () => {
+  // 席fileの記録者と席自身でlocaleが違うと、psのlstart書式（LC_TIME）が変わって
+  // identity_digestが割れる（2026-08-22 実測: WORKER_IDENTITY_MISMATCH）。観測はLC_ALL=Cへ固定する。
+  const { spawn } = await import('node:child_process');
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '--', '日本語の引数']);
+  const originalLocale = process.env.LC_ALL;
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    process.env.LC_ALL = 'C';
+    const identityC = await observeManagedProcessStartIdentity(child.pid);
+    process.env.LC_ALL = 'ja_JP.UTF-8';
+    const identityJa = await observeManagedProcessStartIdentity(child.pid);
+    assert.equal(identityJa.started_identity, identityC.started_identity);
+    assert.equal(identityJa.identity_digest, identityC.identity_digest);
+  } finally {
+    if (originalLocale === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = originalLocale;
+    child.kill('SIGKILL');
+  }
+});
