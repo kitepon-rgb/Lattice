@@ -486,6 +486,11 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
   const doneDigest = new Map();
   const completion = new Map();
   const authoredStartBindings = new Map();
+  // hard証拠検証は即時でなくreplay完了後、まだ現在状態を支えている記述子だけへ行う。
+  // reopen・再doneで差し替えられた古いdoneが指すblobは一度もcommitされないままGCで消え得るし、
+  // 履歴の完全性はevent_digest鎖が既に持つ。即時検証だと消えたblobを指す過去eventが
+  // storeを恒久的に書き込み不能へ落とす（2026-08-22実被弾: reopen済み旧doneのdangling blob）。
+  const pendingVerifications = new Map();
   const importedGenesis = events[0]?.payload.historical_import === true;
   let previousTime = null;
   for (const event of events) {
@@ -528,13 +533,15 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           const state = states.get(migration.to_task_id);
           Object.assign(state, structuredClone(migration.state), { evidence_unverified: false });
           if (state.evidence !== null) {
+            const evidence = state.evidence;
+            const context = { plan_key: plan.plan_key, task_id: migration.to_task_id };
             if (state.imported) {
-              if (verifyImportSource) verifyImportSource(state.evidence, {
-                plan_key: plan.plan_key, task_id: migration.to_task_id,
-              });
-            } else if (verifyEvidence) verifyEvidence(state.evidence, {
-              plan_key: plan.plan_key, task_id: migration.to_task_id,
-            });
+              if (verifyImportSource) {
+                pendingVerifications.set(`task:${migration.to_task_id}`, () => verifyImportSource(evidence, context));
+              }
+            } else if (verifyEvidence) {
+              pendingVerifications.set(`task:${migration.to_task_id}`, () => verifyEvidence(evidence, context));
+            }
           }
           if (state.status === 'done') {
             doneDigest.set(migration.to_task_id, event.event_digest);
@@ -571,6 +578,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         if (currentStatus !== 'gate_ready') fail('STORE_INCONSISTENT', 'phase_gate_not_ready');
         state.status = 'reviewing'; state.review_event_digest = event.event_digest;
         state.decision_event_digest = null; state.decision_evidence = null;
+        pendingVerifications.delete(`phase:${event.phase_id}`);
       } else if (event.kind === 'phase_accept') {
         const phase = phasesOf(plan).find(({ phase_id }) => phase_id === event.phase_id);
         const slots = event.payload.evidence_slots.map(({ slot_id }) => slot_id);
@@ -579,8 +587,12 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           fail('STORE_INCONSISTENT', 'phase_accept_binding_invalid');
         }
         if (verifyEvidence) {
-          verifyEvidence(event.payload.decision_evidence);
-          for (const slot of event.payload.evidence_slots) verifyEvidence(slot.evidence);
+          const decisionEvidence = event.payload.decision_evidence;
+          const slotEvidence = event.payload.evidence_slots.map((slot) => slot.evidence);
+          pendingVerifications.set(`phase:${event.phase_id}`, () => {
+            verifyEvidence(decisionEvidence);
+            for (const evidence of slotEvidence) verifyEvidence(evidence);
+          });
         }
         state.status = 'accepted'; state.decision_event_digest = event.event_digest;
         state.decision_evidence = event.payload.decision_evidence;
@@ -588,7 +600,10 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         if (currentStatus !== 'reviewing' || state.review_event_digest !== event.payload.review_event_digest) {
           fail('STORE_INCONSISTENT', 'phase_reject_binding_invalid');
         }
-        if (verifyEvidence) verifyEvidence(event.payload.decision_evidence);
+        if (verifyEvidence) {
+          const decisionEvidence = event.payload.decision_evidence;
+          pendingVerifications.set(`phase:${event.phase_id}`, () => verifyEvidence(decisionEvidence));
+        }
         state.status = 'rejected'; state.decision_event_digest = event.event_digest;
         state.decision_evidence = event.payload.decision_evidence;
       } else if (event.kind === 'phase_close_unaudited') {
@@ -597,6 +612,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         if (currentStatus !== 'gate_ready') fail('STORE_INCONSISTENT', 'phase_gate_not_ready');
         state.status = 'closed_unaudited'; state.decision_event_digest = event.event_digest;
         state.decision_evidence = null;
+        pendingVerifications.delete(`phase:${event.phase_id}`);
       } else {
         // phase_reopen。ADR 0148裁定5: closed_unauditedもaccepted/rejectedと同じく
         // reopenで初期状態へ戻せる——監査せずに閉じた工程を、後から本当に監査したくなった時に
@@ -624,6 +640,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           fail('STORE_INCONSISTENT', 'phase_reopen_has_started_successor');
         }
         Object.assign(state, emptyPhaseState(event.phase_id));
+        pendingVerifications.delete(`phase:${event.phase_id}`);
       }
       continue;
     }
@@ -635,9 +652,12 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         if (!importedGenesis || state.status !== 'pending') {
           fail('STORE_INCONSISTENT', 'invalid_historical_import_start_transition');
         }
-        if (verifyImportSource) verifyImportSource(event.payload.evidence, {
-          plan_key: plan.plan_key, task_id: event.task_id,
-        });
+        if (verifyImportSource) {
+          const evidence = event.payload.evidence;
+          pendingVerifications.set(`task:${event.task_id}`, () => verifyImportSource(evidence, {
+            plan_key: plan.plan_key, task_id: event.task_id,
+          }));
+        }
         state.status = 'in-progress';
         state.started_at = event.payload.started_at === 'unknown_requires_evidence'
           ? null : event.payload.started_at;
@@ -686,18 +706,24 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
     } else if (event.kind === 'done') {
       if (event.payload.done_mode === 'authored') {
         if (state.status !== 'in-progress' || !dependenciesDone) fail('STORE_INCONSISTENT', 'invalid_done_transition');
-        if (verifyEvidence) verifyEvidence(event.payload.evidence, {
-          plan_key: plan.plan_key, task_id: event.task_id,
-        });
+        if (verifyEvidence) {
+          const evidence = event.payload.evidence;
+          pendingVerifications.set(`task:${event.task_id}`, () => verifyEvidence(evidence, {
+            plan_key: plan.plan_key, task_id: event.task_id,
+          }));
+        }
         state.status = 'done'; state.done_at = event.recorded_at; state.evidence = event.payload.evidence;
         state.test_result = event.payload.test_result ?? null;
         state.imported = false;
         completion.set(event.task_id, { mode: 'authored', completed_at: event.recorded_at });
       } else if (event.payload.done_mode === 'historical_import') {
         if (!importedGenesis || state.status !== 'pending') fail('STORE_INCONSISTENT', 'invalid_historical_import_transition');
-        if (verifyImportSource) verifyImportSource(event.payload.evidence, {
-          plan_key: plan.plan_key, task_id: event.task_id,
-        });
+        if (verifyImportSource) {
+          const evidence = event.payload.evidence;
+          pendingVerifications.set(`task:${event.task_id}`, () => verifyImportSource(evidence, {
+            plan_key: plan.plan_key, task_id: event.task_id,
+          }));
+        }
         state.status = 'done'; state.done_at = event.payload.completed_at === 'unknown_requires_evidence'
           ? null : event.payload.completed_at;
         state.evidence = event.payload.evidence; state.imported = true;
@@ -709,9 +735,12 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           || doneDigest.get(event.task_id) !== event.payload.target_done_digest) {
           fail('STORE_INCONSISTENT', 'invalid_evidence_promotion');
         }
-        if (verifyEvidence) verifyEvidence(event.payload.evidence, {
-          plan_key: plan.plan_key, task_id: event.task_id,
-        });
+        if (verifyEvidence) {
+          const evidence = event.payload.evidence;
+          pendingVerifications.set(`task:${event.task_id}`, () => verifyEvidence(evidence, {
+            plan_key: plan.plan_key, task_id: event.task_id,
+          }));
+        }
         state.evidence = event.payload.evidence;
         completion.set(event.task_id, { mode: 'evidence_promotion', completed_at: current.completed_at });
       }
@@ -739,8 +768,10 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
       if (startedSuccessor && event.payload.override_reason === null) fail('STORE_INCONSISTENT', 'reopen_has_started_successor');
       state.status = 'in-progress'; state.done_at = null; state.evidence = null; state.test_result = null;
       completion.delete(event.task_id);
+      pendingVerifications.delete(`task:${event.task_id}`);
     }
   }
+  for (const verify of pendingVerifications.values()) verify();
   return [...states.values()].sort((left, right) => left.task_id < right.task_id ? -1 : left.task_id > right.task_id ? 1 : 0);
 }
 

@@ -1236,3 +1236,61 @@ test('authored doneはpending/blockedを許さず従来のhard evidence検証も
     event: { kind: 'done', task_id: 'T1', actor: ACTOR, recorded_at: NOW, payload: authored } }),
   'STORE_INCONSISTENT', 'invalid_done_transition');
 });
+
+// 一度もcommitされないままGCで消えたblobを指す旧doneがjournalに残ると、hard検証が
+// 全書き込みを恒久拒否していた（2026-08-22実被弾: reopen済み旧doneのdangling blob）。
+// hard検証は現在状態を支える記述子だけに掛かることを固定する。
+async function danglingDoneFixture(context, { replace }) {
+  const root = await workspace(context);
+  const events = [JSON.parse((await bytes(root, journalRef)).toString('utf8'))];
+  const append = (kind, taskId, payload) => {
+    const previous = events.at(-1);
+    const event = { schema: 'lattice.todo_event.v1', project_id: 'project-1', plan_key: 'main', plan_version: 'v1',
+      sequence: previous.sequence + 1, previous_digest: previous.event_digest, kind, task_id: taskId, actor: ACTOR,
+      recorded_at: NOW, provenance: null, payload, event_digest: '' };
+    event.event_digest = todoSelfDigest(event, 'event_digest');
+    events.push(event);
+  };
+  const vanished = { evidence_id: 'vanished', repo_id: 'self', path: 'vanished.txt',
+    git_blob_oid: '0123456789abcdef0123456789abcdef01234567',
+    content_digest: 'a'.repeat(64), media_type: 'text/plain', anchor_digest: null };
+  append('start', 'T1', { override_reason: null });
+  append('done', 'T1', { done_mode: 'authored', imported: false, evidence: vanished });
+  if (replace) {
+    append('reopen', 'T1', { reason: 'evidence replaced',
+      target_done_digest: events.at(-1).event_digest, override_reason: null });
+    const replacedBytes = Buffer.from('replaced evidence\n');
+    await writeFile(path.join(root, 'replaced.txt'), replacedBytes);
+    execFileSync('git', ['add', 'replaced.txt'], { cwd: root });
+    execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid',
+      'commit', '--quiet', '-m', 'replaced'], { cwd: root });
+    const oid = execFileSync('git', ['rev-parse', 'HEAD:replaced.txt'], { cwd: root, encoding: 'utf8' }).trim();
+    append('done', 'T1', { done_mode: 'authored', imported: false,
+      evidence: { evidence_id: 'replaced', repo_id: 'self', path: 'replaced.txt', git_blob_oid: oid,
+        content_digest: createHash('sha256').update(replacedBytes).digest('hex'),
+        media_type: 'text/plain', anchor_digest: null } });
+  }
+  await writeFile(path.join(root, journalRef), `${events.map(canonicalizeTodoArtifact).join('\n')}\n`);
+  const manifest = JSON.parse((await bytes(root, manifestRef)).toString('utf8'));
+  manifest.members[0].journal_head_digest = events.at(-1).event_digest;
+  manifest.manifest_digest = todoSelfDigest(manifest, 'manifest_digest');
+  await writeFile(path.join(root, manifestRef), `${canonicalizeTodoArtifact(manifest)}\n`);
+  await rebuildTodoSnapshot({ repoRoot: root, planKey: 'main', now: NOW });
+  return root;
+}
+
+test('reopenで差し替え済みの旧doneが指す消えたblobは書き込みhard検証の対象外になる', async (context) => {
+  const root = await danglingDoneFixture(context, { replace: true });
+  const writable = await readTodoStore({ repoRoot: root, now: NOW, forWrite: true });
+  assert.equal(writable.members[0].tasks.find(({ task_id }) => task_id === 'T1').evidence_unverified, false);
+  const writer = createTodoStoreWriter({ caller: 'g5-authoring' });
+  const started = await appendTodoEvent({ repoRoot: root, writer, planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T2', actor: ACTOR, recorded_at: NOW, payload: { override_reason: null } } });
+  assert.equal(started.event.kind, 'start');
+});
+
+test('現在のdoneが指す消えたblobは引き続き書き込みを拒む', async (context) => {
+  const root = await danglingDoneFixture(context, { replace: false });
+  await expectCode(readTodoStore({ repoRoot: root, now: NOW, forWrite: true }),
+    'STORE_INCONSISTENT', 'evidence_unverified');
+});
