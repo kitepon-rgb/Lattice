@@ -1011,8 +1011,33 @@ async function activateManagedSupervisorController({ repoRoot, runDir, runId, ad
         fail('ADAPTER_LAUNCH_INVALID', 'existing endpoint ownerが一意でない');
       }
     }
-    const handshake = await exchangeControllerHandshake({ socketPath: handshakeConnectPath, runId,
-      supervisorSessionNonce, controllerSocketRef, timeoutMs });
+    // socket fileの出現はbindの証拠でありlistenの証拠ではない。負荷下ではcontrollerが
+    // bindとlistenの間でpreemptされ、fileを見て接続した一回だけECONNREFUSEDになる
+    // （2026-08-22 CI負荷下で実被弾）。起動したchildに限り、listen受理までを起動待ちに
+    // 含めてdeadline内はECONNREFUSEDだけを待ち直す。死んだcontrollerはexitCode検査が、
+    // 起動しないcontrollerはdeadlineが従来どおり落とす。既存endpoint（child無し）は
+    // owner検証済みのlistener前提なので単発のまま。
+    const handshakeDeadline = Date.now() + timeoutMs;
+    let handshake;
+    for (;;) {
+      try {
+        handshake = await exchangeControllerHandshake({ socketPath: handshakeConnectPath, runId,
+          supervisorSessionNonce, controllerSocketRef, timeoutMs });
+        break;
+      } catch (error) {
+        const listenPending = child !== null && error instanceof ManagedRuntimeError
+          && ['ECONNREFUSED', 'ENOENT'].some((code) => String(error.message).includes(code))
+          && Date.now() < handshakeDeadline;
+        if (!listenPending) throw error;
+        if (child.exitCode !== null) {
+          fail(
+            'ADAPTER_CONTROLLER_UNAVAILABLE',
+            `controller exited: ${child.exitCode}${childStderr ? `: ${childStderr.trim()}` : ''}`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
     const controllerDescriptor = handshake.descriptor;
     if (controllerDescriptor.adapter_kind !== adapterKind || controllerDescriptor.socket_ref !== controllerSocketRef
       || controllerDescriptor.capabilities.capabilities_digest !== launch.capabilities_digest
