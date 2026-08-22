@@ -2050,6 +2050,19 @@ export async function appendTodoEvent(options = {}) {
         eventDigest: event.event_digest,
       }),
     });
+    if (options.materializedEvidence !== null && options.materializedEvidence !== undefined) {
+      const asset = options.materializedEvidence;
+      const descriptor = event.kind === 'done' ? event.payload.evidence : null;
+      if (!exactRecord(asset, ['ref', 'bytes']) || !Buffer.isBuffer(asset.bytes)
+        || descriptor === null || asset.ref !== descriptor.path
+        || !asset.ref.startsWith(`${STORE_ROOT_REF}/evidence/`)
+        || sha256Bytes(asset.bytes) !== descriptor.content_digest) {
+        throw new TypeError('materialized evidence input invalid');
+      }
+      // prospective replayが成立した後、journalより先に実体を同じstore lock内へ置く。
+      // content-addressed pathなので再試行と同文面の並行要求も同じbytesへ収束する。
+      await atomicWrite(path.resolve(repoRoot, asset.ref), asset.bytes);
+    }
     const eventBytes = canonicalLine(event);
     const activeRef = member.descriptor.journal_ref;
     const activeAbsolute = path.resolve(repoRoot, activeRef);

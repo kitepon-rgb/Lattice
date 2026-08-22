@@ -32,6 +32,10 @@
    検証する。これによりreopen前のdoneを含む旧object不達が、修復後の通常mutationを再停止しない。
 7. `imported`は完了の来歴であり、現在のevidence descriptor型ではない。imported doneを通常
    evidenceへ再束縛しても`imported=true`を維持し、その状態を後続revisionへcarryできる。
+8. evidence fileからblobを作る時は、そのrepo・pathのGit clean filterを通したbytesを正とする。
+   `git add`／commitが作るblobとdescriptorを一致させ、worktreeの改行表現へ束縛しない。
+9. `--message`は本文blobだけをobject databaseへ置かず、content-addressed pathのevidence fileを
+   store lock内で実体化する。`--commit-store`はjournalとfileを同じcommitへ含める。
 
 ## Acceptance
 
@@ -44,6 +48,8 @@
 - reopen前後の複数done evidenceが不達でも最新promotion後のhard readが成立する。
 - 新しいevidenceが不正ならstore bytes不変で拒否する。
 - 従来のunknown historical done promotionを維持する。
+- CRLF worktreeからLFへ正規化されるevidence fileをcommitした後もhard verifyが成立する。
+- `--message --commit-store`直後のhard verifyが成立し、失敗遷移はevidence fileを残さない。
 
 ## Consequences
 

@@ -437,24 +437,32 @@ function looksLikeEvidenceDescriptor(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function writeEvidenceBlob(repoRoot, bytes) {
-  const oid = gitSync(['hash-object', '-w', '--stdin'], {
+function writeEvidenceBlob(repoRoot, bytes, blobPath) {
+  // worktree pathから作る証拠は`git add`と同じclean filterを通す。生のCRLF bytesを
+  // そのままhashすると、commit先はLFへ正規化される一方、descriptorはdangling blobを
+  // 指すため、commit後もhard検証を通せない。
+  const oid = gitSync(['hash-object', '-w', `--path=${blobPath}`, '--stdin'], {
     cwd: repoRoot, input: bytes, encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'],
   }).trim();
+  const storedBytes = gitSync(['cat-file', 'blob', oid], {
+    cwd: repoRoot, stdio: ['ignore', 'pipe', 'ignore'],
+  });
   return {
     git_blob_oid: oid,
-    content_digest: createHash('sha256').update(bytes).digest('hex'),
+    content_digest: createHash('sha256').update(storedBytes).digest('hex'),
   };
 }
 
 async function resolveDoneEvidence({ repoRoot, evidenceRef, evidenceMessage, planKey, taskId }) {
   if (typeof evidenceMessage === 'string') {
     const bytes = Buffer.from(evidenceMessage, 'utf8');
+    const sourceDigest = createHash('sha256').update(bytes).digest('hex');
+    const evidencePath = `.lattice/todo/evidence/${planKey}/${taskId}/${sourceDigest}.md`;
     const descriptor = {
       evidence_id: evidenceIdFor(planKey, taskId),
       repo_id: 'self',
-      path: `.lattice/todo/evidence/${planKey}/${taskId}.md`,
-      ...writeEvidenceBlob(repoRoot, bytes),
+      path: evidencePath,
+      ...writeEvidenceBlob(repoRoot, bytes, evidencePath),
       media_type: 'text/markdown',
       anchor_digest: null,
     };
@@ -486,7 +494,7 @@ async function resolveDoneEvidence({ repoRoot, evidenceRef, evidenceMessage, pla
     evidence_id: evidenceIdFor(planKey, taskId),
     repo_id: 'self',
     path: located.inputRef,
-    ...writeEvidenceBlob(repoRoot, bytes),
+    ...writeEvidenceBlob(repoRoot, bytes, located.inputRef),
     media_type: mediaTypeFor(located.inputRef),
     anchor_digest: null,
   };
@@ -626,6 +634,14 @@ async function mutate({
       repoRoot, evidenceRef, evidenceMessage, planKey, taskId,
     });
   const testResult = testResultRef === null ? null : await readTestResultInput(repoRoot, testResultRef);
+  const materializedEvidence = typeof evidenceMessage === 'string'
+    ? {
+      ref: evidence.path,
+      bytes: gitSync(['cat-file', 'blob', evidence.git_blob_oid], {
+        cwd: repoRoot, stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    }
+    : null;
   let eventPayload = payload;
   if (kind === 'done' && payload === 'authored') {
     eventPayload = { evidence, ...(testResult === null ? {} : { test_result: testResult }) };
@@ -641,6 +657,7 @@ async function mutate({
     writer: createTodoStoreWriter({ caller: 'g5-authoring' }),
     planKey,
     event: { kind, task_id: taskId, actor, payload: eventPayload },
+    materializedEvidence,
   });
   const task = snapshot.tasks.find(({ task_id: current }) => current === event.task_id);
   const authoredTask = plan.tasks.find(({ task_id: current }) => current === event.task_id);

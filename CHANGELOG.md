@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.63.8 — 2026-08-23
+
+### 修正
+
+- `todo done`／`todo evidence promote`がevidence fileのworktree bytesをclean filterなしで
+  `hash-object`していた。WindowsのCRLF worktreeではcommitがLF blobへ正規化されるため、
+  descriptorだけがrefsから到達不能なCRLF blobを指し続け、commit後も`todo verify`を
+  `evidence_unverified`で停止させた。evidence pathを指定してGitのclean filterを通し、
+  descriptorのdigestも正規化後のblob bytesから作る。`--message`はblobだけでなく
+  content-addressed evidence fileをstore内へ保存し、`--commit-store`の同一commitへ含める。
+
 ## 0.63.7 — 2026-08-23
 
 ### 修正
