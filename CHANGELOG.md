@@ -2,6 +2,12 @@
 
 ## 0.63.4 — 2026-08-22
 
+### 変更
+
+- OS process 観測（/bin/ps・PowerShell・/proc）を `runtime-os-observation.mjs` へ集約し、
+  locale 固定・trim・書式の規約を1モジュールの所有にした（挙動不変。観測規約の
+  部分適用による再発を防ぐ構造対処）。
+
 ### 修正
 
 - process identity のOS観測（`/bin/ps` の `lstart=` / `command=` / `pgid=` の全8箇所）が
