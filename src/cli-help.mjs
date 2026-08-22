@@ -106,6 +106,7 @@ Write commands:
         # 監査と構造finalizationは残作業であり、doneの門ではない
   reopen --plan <key> --task <id> --reason <text> [--override-reason <text>]
   evidence promote --plan <key> --task <id> --evidence <file>
+      # done状態と完了時刻を維持し、最新doneへ追記eventで証拠を再束縛する
   dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>
       # 開発中に発見したplan跨ぎ依存を明示接続する。依存の自動推定は行わない
   independence compile --plan <key> --input <file>  # witness setとsensorから並列可否を記録する

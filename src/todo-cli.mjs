@@ -631,7 +631,10 @@ async function mutate({
     eventPayload = { evidence, ...(testResult === null ? {} : { test_result: testResult }) };
   }
   if (kind === 'done' && payload === 'evidence_promotion') {
-    eventPayload = { done_mode: 'evidence_promotion', imported: true, evidence };
+    // imported/authored の由来はlock内のcanonical stateから解決する。
+    // CLI側で固定するとauthored doneの証拠を再束縛できず、path更新後の
+    // evidence_unverifiedを修復する公開経路が無くなる。
+    eventPayload = { done_mode: 'evidence_promotion', evidence };
   }
   const { event, snapshot, plan, phases } = await appendTodoEvent({
     repoRoot,

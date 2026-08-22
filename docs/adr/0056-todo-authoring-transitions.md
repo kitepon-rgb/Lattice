@@ -1,6 +1,6 @@
 # ADR 0056: TODO authoring transition CLI の入力・actor・result 契約
 
-- Status: accepted（Decision 1 の exact argv 順、Decision 2 の欠落拒否、Decision 3 の相対path／descriptor専用は [ADR 0181](0181-authoring-entry-accepts-drafts.md) が置き換える）
+- Status: accepted（Decision 1 の exact argv 順、Decision 2 の欠落拒否、Decision 3 の相対path／descriptor専用は [ADR 0181](0181-authoring-entry-accepts-drafts.md)、Decision 4 の historical unknown done 限定は [ADR 0183](0183-done-evidence-can-be-rebound-by-an-audited-event.md) が置き換える）
 - Date: 2026-07-19
 - 前提: [ADR 0053](0053-todo-store-and-gantt-surface.md)（closed 状態機械、exact argv、
   journal 唯一正本、単一 writer）、[ADR 0055](0055-todo-revision-and-source-reconciliation.md)

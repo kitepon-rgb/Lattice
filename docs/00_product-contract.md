@@ -375,6 +375,11 @@ mutation callerは`LATTICE_TODO_ACTOR_HOST`, `LATTICE_TODO_ACTOR_SESSION`,
 sanitizeしたdefaultを使う。渡した値がidentifierとして不正なら`ACTOR_UNRESOLVED`で書き込まない。
 `done`はtaskを閉じる。evidenceはrepo内のdescriptor JSONでも証拠本文でもよく、`--message`は
 本文からblob descriptorを書く。dashboard故障とstructure realizationはdoneの門ではない。
+`evidence promote`は現在doneのtaskへ最新done digestで束縛した追記eventを積み、authored／importedを
+問わずevidenceだけを再束縛する。done_atとimportedはlock内の現状態を維持し、対象taskの過去evidence
+不達だけを新eventのhard検証で置き換える。以後のreplayは最新の証拠束縛だけを検証し、importedは
+完了来歴として維持したまま通常evidenceを後続revisionへcarryできる。他taskの不達と新evidence不正はstore bytes不変で拒否する
+（ADR 0183）。
 監査と構造finalizationはstatusの残作業である（ADR 0159・0181）。成功は
 `lattice.todo_mutation_result.v2`一行（`note_context`を同梱する成功は
 `lattice.todo_mutation_result.v5`）、失敗とusage違反は`lattice.cli_error.v2`一行で、

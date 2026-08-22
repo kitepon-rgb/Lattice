@@ -544,7 +544,8 @@ function validPayload(event) {
   }
   if (event.kind === 'done' && payload?.done_mode === 'evidence_promotion') {
     return exactRecord(payload, ['done_mode', 'imported', 'target_done_digest', 'evidence'])
-      && payload.imported === true && isTodoDigest(payload.target_done_digest) && evidence(payload.evidence);
+      && typeof payload.imported === 'boolean'
+      && isTodoDigest(payload.target_done_digest) && evidence(payload.evidence);
   }
   if (event.kind === 'reopen') return exactRecord(payload, ['reason', 'target_done_digest', 'override_reason'])
     && nullableText(payload.reason) && payload.reason !== null && isTodoDigest(payload.target_done_digest)
@@ -599,7 +600,11 @@ function validCarriedState(value) {
   if (value.status === 'blocked') return value.done_at === null && value.blocked_reason !== null
     && activeEvidenceValid && testResult === null;
   return value.blocked_reason === null && value.evidence !== null
-    && (value.imported ? validateTodoImportSource(value.evidence) : evidence(value.evidence));
+    // importedは完了状態の来歴を表す。evidence_promotion後もtrueを維持するため、
+    // imported doneの現在証拠はimport sourceまたは通常evidence descriptorのどちらも有効。
+    && (value.imported
+      ? validateTodoImportSource(value.evidence) || evidence(value.evidence)
+      : evidence(value.evidence));
 }
 
 function validStateMigration(value) {

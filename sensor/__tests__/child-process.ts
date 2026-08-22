@@ -5,7 +5,9 @@ export async function terminateChild(child: ChildProcessWithoutNullStreams): Pro
   if ((child.exitCode !== null || child.signalCode !== null) && streamsClosed) return;
 
   await new Promise<void>((resolve, reject) => {
+    let forceTimer: ReturnType<typeof setTimeout> | null = null;
     const cleanup = () => {
+      if (forceTimer !== null) clearTimeout(forceTimer);
       child.off('close', onClose);
       child.off('error', onError);
     };
@@ -19,6 +21,13 @@ export async function terminateChild(child: ChildProcessWithoutNullStreams): Pro
     };
     child.once('close', onClose);
     child.once('error', onError);
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    if (child.exitCode === null && child.signalCode === null) {
+      // MCP transportはstdin EOFでwatcherとSQLiteを閉じて終了する。即SIGKILLするとWindowsで
+      // child cwd/native handleの解放が遅れ、一時directory cleanupがEPERMになる。
+      if (!child.stdin.destroyed && !child.stdin.writableEnded) child.stdin.end();
+      forceTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      }, 2_000);
+    }
   });
 }

@@ -59,6 +59,7 @@ const CROSS_PLAN_RECOVERY_CLAIMS_REF = `${STORE_ROOT_REF}/.cross-plan-recovery`;
 const CROSS_PLAN_IMPORT_TRANSACTION_SCHEMA = 'lattice.todo_cross_plan_import_transaction.v1';
 const SOURCE_CUTOVER_BARRIER_REF = `${STORE_ROOT_REF}/source-cutover-recovery.json`;
 const SOURCE_CUTOVER_RECOVERY_CAPABILITY = Symbol('lattice.todo.source-cutover-recovery');
+const EVIDENCE_REPAIR_CAPABILITY = Symbol('lattice.todo.evidence-repair');
 const MAX_FUTURE_SKEW_MS = 5 * 60 * 1_000;
 const WRITER_CALLERS = new Set(['g4-migration', 'g5-authoring']);
 const TODO_REVISION_SCHEMAS = Object.freeze([
@@ -534,8 +535,11 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
           Object.assign(state, structuredClone(migration.state), { evidence_unverified: false });
           if (state.evidence !== null) {
             const evidence = state.evidence;
-            const context = { plan_key: plan.plan_key, task_id: migration.to_task_id };
-            if (state.imported) {
+            const context = { plan_key: plan.plan_key, task_id: migration.to_task_id,
+              event_digest: event.event_digest };
+            // importedは完了の来歴であって現在のdescriptor型ではない。promotion後の
+            // imported doneは通常evidenceを持つため、descriptor自身から検証器を選ぶ。
+            if (validateTodoImportSource(evidence)) {
               if (verifyImportSource) {
                 pendingVerifications.set(`task:${migration.to_task_id}`, () => verifyImportSource(evidence, context));
               }
@@ -655,7 +659,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         if (verifyImportSource) {
           const evidence = event.payload.evidence;
           pendingVerifications.set(`task:${event.task_id}`, () => verifyImportSource(evidence, {
-            plan_key: plan.plan_key, task_id: event.task_id,
+            plan_key: plan.plan_key, task_id: event.task_id, event_digest: event.event_digest,
           }));
         }
         state.status = 'in-progress';
@@ -709,7 +713,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         if (verifyEvidence) {
           const evidence = event.payload.evidence;
           pendingVerifications.set(`task:${event.task_id}`, () => verifyEvidence(evidence, {
-            plan_key: plan.plan_key, task_id: event.task_id,
+            plan_key: plan.plan_key, task_id: event.task_id, event_digest: event.event_digest,
           }));
         }
         state.status = 'done'; state.done_at = event.recorded_at; state.evidence = event.payload.evidence;
@@ -721,7 +725,7 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         if (verifyImportSource) {
           const evidence = event.payload.evidence;
           pendingVerifications.set(`task:${event.task_id}`, () => verifyImportSource(evidence, {
-            plan_key: plan.plan_key, task_id: event.task_id,
+            plan_key: plan.plan_key, task_id: event.task_id, event_digest: event.event_digest,
           }));
         }
         state.status = 'done'; state.done_at = event.payload.completed_at === 'unknown_requires_evidence'
@@ -730,15 +734,27 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
         completion.set(event.task_id, { mode: 'historical_import', completed_at: event.payload.completed_at });
       } else {
         const current = completion.get(event.task_id);
-        if (state.status !== 'done' || current?.mode !== 'historical_import'
-          || current.completed_at !== 'unknown_requires_evidence'
-          || doneDigest.get(event.task_id) !== event.payload.target_done_digest) {
-          fail('STORE_INCONSISTENT', 'invalid_evidence_promotion');
+        const expectedTarget = doneDigest.get(event.task_id) ?? null;
+        if (state.status !== 'done' || current === undefined
+          || state.imported !== event.payload.imported
+          || expectedTarget !== event.payload.target_done_digest) {
+          fail('STORE_INCONSISTENT', 'invalid_evidence_promotion', {
+            task_id: event.task_id,
+            status: state.status,
+            current_completion_mode: current?.mode ?? null,
+            current_imported: state.imported,
+            requested_imported: event.payload.imported,
+            expected_target_done_digest: expectedTarget,
+            actual_target_done_digest: event.payload.target_done_digest,
+            eligible_status: 'done',
+            next_action: state.status === 'done'
+              ? 'retry_against_latest_done_state' : 'complete_the_task_before_promoting_evidence',
+          });
         }
         if (verifyEvidence) {
           const evidence = event.payload.evidence;
           pendingVerifications.set(`task:${event.task_id}`, () => verifyEvidence(evidence, {
-            plan_key: plan.plan_key, task_id: event.task_id,
+            plan_key: plan.plan_key, task_id: event.task_id, event_digest: event.event_digest,
           }));
         }
         state.evidence = event.payload.evidence;
@@ -1143,7 +1159,7 @@ function readEvidenceBlob(absoluteRepo, oid) {
   return entry.bytes;
 }
 
-function evidenceVerifier(manifest, repoRoot, hard) {
+function evidenceVerifier(manifest, repoRoot, hard, repair = null) {
   const repositories = new Map(manifest.repositories.map((repo) => [repo.repo_id, repo.path]));
   return (descriptor, context = {}) => {
     if (!validateEvidenceDescriptor(descriptor)) fail('STORE_INCONSISTENT', 'evidence_descriptor_invalid');
@@ -1166,6 +1182,15 @@ function evidenceVerifier(manifest, repoRoot, hard) {
       if (sha256Bytes(bytes) !== descriptor.content_digest) throw new Error('digest mismatch');
       return true;
     } catch {
+      const repairTarget = repair !== null
+        && typeof repair.taskId === 'string'
+        && context.plan_key === repair.planKey
+        && typeof context.task_id === 'string'
+        && context.task_id === repair.taskId;
+      // evidence promotionだけは、同じtaskの過去eventを新しいhard-verified eventで
+      // supersedeするためにここを通る。prospective event自身と他taskは免除しない。
+      if (repairTarget
+        && (repair.eventDigest === null || context.event_digest !== repair.eventDigest)) return false;
       if (hard) fail('STORE_INCONSISTENT', 'evidence_unverified', {
         ...context,
         next_action: context.plan_key === undefined
@@ -1325,13 +1350,20 @@ function liveReplacementPreservesListStructure(lineBytes, replacement) {
   return source !== null && target !== null && source[1] === target[1] && source[2] === target[2];
 }
 
-function importSourceVerifier(repoRoot, hard, cache = null) {
+function importSourceVerifier(repoRoot, hard, cache = null, repair = null) {
   return (descriptor, context = {}) => {
     if (!validateTodoImportSource(descriptor)) fail('STORE_INCONSISTENT', 'import_source_descriptor_invalid');
     try {
       pinnedSourceLine(repoRoot, descriptor, cache);
       return true;
     } catch {
+      const repairTarget = repair !== null
+        && typeof repair.taskId === 'string'
+        && context.plan_key === repair.planKey
+        && typeof context.task_id === 'string'
+        && context.task_id === repair.taskId;
+      if (repairTarget
+        && (repair.eventDigest === null || context.event_digest !== repair.eventDigest)) return false;
       if (hard) fail('STORE_INCONSISTENT', 'import_source_unverified', {
         ...context,
         next_action: 'verify_source_commit_origin_path_and_line_then_retry',
@@ -1506,8 +1538,14 @@ export async function readTodoStore(options = {}) {
       fail('STORE_INCONSISTENT', 'manifest_revision_binding_mismatch');
     }
     prefetchVerificationObjects(manifest, repoRoot, journal.events, pinnedSourceCache);
-    const verifyEvidence = evidenceVerifier(manifest, repoRoot, options.forWrite === true);
-    const verifyImportSource = importSourceVerifier(repoRoot, options.forWrite === true, pinnedSourceCache);
+    const evidenceRepair = options.evidenceRepairCapability === EVIDENCE_REPAIR_CAPABILITY
+      ? options.evidenceRepair ?? null : null;
+    const verifyEvidence = evidenceVerifier(
+      manifest, repoRoot, options.forWrite === true, evidenceRepair,
+    );
+    const verifyImportSource = importSourceVerifier(
+      repoRoot, options.forWrite === true, pinnedSourceCache, evidenceRepair,
+    );
     const tasks = replay(plan, journal.events, {
       now: options.now ? new Date(options.now) : new Date(),
       verifyEvidence: options.forWrite === true ? verifyEvidence : undefined,
@@ -1516,8 +1554,13 @@ export async function readTodoStore(options = {}) {
     const expectedSnapshot = snapshotFor(plan, journal.events, structuredClone(tasks));
     // Read-time evidence failure is annotation, never store rejection.
     for (const task of tasks) if (task.evidence !== null) {
+      const context = {
+        plan_key: plan.plan_key,
+        task_id: task.task_id,
+        event_digest: null,
+      };
       const verified = validateTodoImportSource(task.evidence)
-        ? verifyImportSource(task.evidence) : verifyEvidence(task.evidence);
+        ? verifyImportSource(task.evidence, context) : verifyEvidence(task.evidence, context);
       if (!verified) task.evidence_unverified = true;
     }
     let snapshot = null;
@@ -1829,17 +1872,33 @@ function resolveTargetedEvent(input, storeMember) {
       payload: { ...input.payload, target_done_digest: targetDigest },
     };
   }
-  if (input.kind === 'done' && exactRecord(input.payload, [
-    'done_mode', 'imported', 'evidence',
-  ]) && input.payload.done_mode === 'evidence_promotion' && input.payload.imported === true) {
-    // Same binding as `reopen`: an imported completion carried across a revision
-    // is bound to the carrying `plan_genesis`, not to a `done` event. Whether the
-    // completion is actually eligible for promotion stays replay's decision.
+  if (input.kind === 'done'
+    && (exactRecord(input.payload, ['done_mode', 'evidence'])
+      || exactRecord(input.payload, ['done_mode', 'imported', 'evidence']))
+    && input.payload.done_mode === 'evidence_promotion') {
+    // Same binding as `reopen`: a completion carried across a revision is bound
+    // to the carrying `plan_genesis`, while an authored/re-promoted completion is
+    // bound to its latest done event. imported/authored is canonical state, not a
+    // caller assertion; resolving both under the store lock avoids a stale read.
     const targetDigest = resolveDoneBindingDigest(storeMember, input.task_id);
-    if (targetDigest === null) fail('STORE_INCONSISTENT', 'invalid_evidence_promotion');
+    const state = storeMember.tasks.find(({ task_id: taskId }) => taskId === input.task_id);
+    if (targetDigest === null || state?.status !== 'done') {
+      fail('STORE_INCONSISTENT', 'invalid_evidence_promotion', {
+        task_id: input.task_id,
+        status: state?.status ?? null,
+        expected_target_done_digest: targetDigest,
+        eligible_status: 'done',
+        next_action: 'complete_the_task_before_promoting_evidence',
+      });
+    }
     return {
       ...input,
-      payload: { ...input.payload, target_done_digest: targetDigest },
+      payload: {
+        done_mode: 'evidence_promotion',
+        imported: state.imported,
+        target_done_digest: targetDigest,
+        evidence: input.payload.evidence,
+      },
     };
   }
   if (input.kind === 'phase_reopen' && exactRecord(input.payload, ['reason', 'override_reason'])) {
@@ -1940,7 +1999,14 @@ export async function appendTodoEvent(options = {}) {
   requireWriter(options.writer, 'g5-authoring');
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
   return withLock(repoRoot, async () => {
-    const store = await readTodoStore({ repoRoot, forWrite: true, now: options.now });
+    const evidenceRepair = options.event.kind === 'done'
+      && options.event.payload?.done_mode === 'evidence_promotion'
+      ? { planKey: options.planKey, taskId: options.event.task_id, eventDigest: null }
+      : null;
+    const store = await readTodoStore({
+      repoRoot, forWrite: true, now: options.now, evidenceRepair,
+      evidenceRepairCapability: EVIDENCE_REPAIR_CAPABILITY,
+    });
     const member = store.members.find(({ descriptor }) => descriptor.plan_key === options.planKey);
     if (!member) fail('STORE_INCONSISTENT', 'plan_not_active');
     // planへ帰属するeventは別chainへ積む。task状態もPhase状態も直接は動かさないので、
@@ -1973,8 +2039,16 @@ export async function appendTodoEvent(options = {}) {
       [...member.journal.events, event], appendSourceCache);
     replay(member.plan, [...member.journal.events, event], {
       now: options.now ? new Date(options.now) : new Date(),
-      verifyEvidence: evidenceVerifier(store.manifest, repoRoot, true),
-      verifyImportSource: importSourceVerifier(repoRoot, true, appendSourceCache),
+      verifyEvidence: evidenceVerifier(store.manifest, repoRoot, true, {
+        planKey: member.plan.plan_key,
+        taskId: event.task_id,
+        eventDigest: event.event_digest,
+      }),
+      verifyImportSource: importSourceVerifier(repoRoot, true, appendSourceCache, {
+        planKey: member.plan.plan_key,
+        taskId: event.task_id,
+        eventDigest: event.event_digest,
+      }),
     });
     const eventBytes = canonicalLine(event);
     const activeRef = member.descriptor.journal_ref;

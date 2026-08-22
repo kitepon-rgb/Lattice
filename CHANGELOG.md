@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.63.7 — 2026-08-23
+
+### 修正
+
+- `todo verify`がauthored doneや完了時刻ありのimported doneを`evidence_unverified`と判定しても、
+  `todo evidence promote`がhistorical unknown done専用だったため正規に修復できなかった。
+  最新doneへ監査可能な追記eventを束縛し、完了時刻とimported属性を維持したまま証拠を再束縛する。
+  対象taskの過去不達だけを置換対象にし、新しい証拠と他taskはhard検証を維持する。修復後の通常
+  mutationと、promote済みimported doneのrevision carryも旧証拠へ逆戻りせず成立する（ADR 0183）。
+- MCP child試験の後始末が即SIGKILLしてWindowsでcwd／SQLite handle解放を遅らせていたため、
+  stdin EOFによる正常終了を待ち、応答しないchildだけをbounded SIGKILLする。
+
 ## 0.63.6 — 2026-08-22
 
 ### 修正
@@ -72,7 +84,6 @@
 - `plan create` の usage 違反が、受け取った引数を返さず固定文言 `plan create` を返していた。
   `plan create --input`（値の欠落）でも何を打って弾かれたか読めなかった。他 surface と同じ
   「受け取った引数をそのまま返す」契約へ戻す。0.63.0 の `npm run ci` はこれで赤かった。
-
 ## 0.63.0 — 2026-08-21
 
 ### 変更
