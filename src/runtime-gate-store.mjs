@@ -4,6 +4,7 @@ import { lstat, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
 import { canonicalizeArtifact } from './artifact-contracts.mjs';
+import { withControlJournalMutation } from './runtime-control-store.mjs';
 import { selfDigest } from './runtime-contracts.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -407,9 +408,17 @@ async function commitBuilt({ runDir, built, crashInjector, controlEventsPath = n
 }
 
 export async function commitRuntimeGateActivation(options) {
-  const built = await buildCommit(options);
-  return commitBuilt({ runDir: options.runDir, built, crashInjector: options.crashInjector,
-    controlEventsPath: options.controlEventsPath ?? null });
+  // control journalの読み(buildCommit)と置換(commitBuilt)の間へ、同一process内の
+  // control store appendが挟まると、committed prefix検査が偽のGATE_COMMIT_CONFLICTに
+  // なる（2026-08-22 CI負荷下で実被弾: managed recompileのepoch activationへdaemonの
+  // 並行appendが割り込んだ）。appendと同じper-directory直列化を共有して排除する。
+  // 別process間の競合検査は従来どおりprefix比較が持つ。
+  const eventsPath = options.controlEventsPath ?? path.join(options.runDir, 'control-events.json');
+  return withControlJournalMutation(path.dirname(eventsPath), async () => {
+    const built = await buildCommit(options);
+    return commitBuilt({ runDir: options.runDir, built, crashInjector: options.crashInjector,
+      controlEventsPath: options.controlEventsPath ?? null });
+  });
 }
 
 export async function recoverRuntimeGateCommit(options) {

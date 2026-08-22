@@ -13,6 +13,7 @@ import {
   validateLeaseRevokedControlEvent,
   validateRuntimeGateCommitReceipt,
 } from '../src/runtime-gate-store.mjs';
+import { createRuntimeControlStore } from '../src/runtime-control-store.mjs';
 
 const D = (character) => character.repeat(64);
 const WHEN = '2026-07-21T00:00:00.000Z';
@@ -223,4 +224,40 @@ test('lease_revoked成功証拠はresponse digest、exact revoked集合、residu
   delete missingReceipt.payload.revoke_response_digest;
   missingReceipt.event_digest = selfDigest(missingReceipt, 'event_digest');
   assert.equal(validateLeaseRevokedControlEvent(missingReceipt), false);
+});
+
+// gate commitはcontrol storeのappendと同じcontrol-events.jsonを書く。書き手の直列化が
+// 分かれていると、同一process内のappendがcommitの読みと置換の間へ挟まり、偽の
+// GATE_COMMIT_CONFLICT（eventsのcommitted prefixが変化した）になる（2026-08-22
+// CI負荷下で実被弾: managed recompileのepoch activationへdaemonの並行appendが割込み）。
+test('同一process内のcontrol appendとgate commitは直列化され偽の衝突を出さない', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-gate-serialized-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runDir = path.join(root, 'run-a');
+  await mkdir(path.join(runDir, 'supervisor'), { recursive: true });
+  // control storeのjournal検査はsupervisor_activatedへ3 digest fieldを要求する。
+  const activated = sign({
+    schema: 'lattice.runtime_control_event.v1', run_id: 'run-a', sequence: 1,
+    previous_digest: null, kind: 'supervisor_activated', session_nonce_digest: D('d'),
+    payload: { supervisor_descriptor_digest: D('e'), controller_descriptor_digest: D('e'),
+      registration_digest: D('e') },
+    recorded_at: WHEN, event_digest: '',
+  }, 'event_digest');
+  await writeFile(path.join(runDir, 'control-events.json'),
+    `${canonicalizeArtifact([activated])}\n`, { mode: 0o600 });
+  const controlStore = createRuntimeControlStore({ runDir, runId: 'run-a', clock: () => WHEN });
+  const [receipt, appendDigest] = await Promise.all([
+    store(runDir).commit(activation(gate())),
+    controlStore.append({ run_id: 'run-a', kind: 'controller_heartbeat',
+      session_nonce_digest: D('d'),
+      payload: { controller_id: 'c-1', registration_digest: D('f'), sequence: 1,
+        lease_set_digest: D('a') } }),
+  ]);
+  assert.equal(validateRuntimeGateCommitReceipt(receipt), true);
+  const journal = JSON.parse(await readFile(path.join(runDir, 'control-events.json'), 'utf8'));
+  assert.equal(journal.every((event, index) => index === 0
+    || event.previous_digest === journal[index - 1].event_digest), true, '鎖が切れている');
+  assert.deepEqual([...journal.map(({ kind }) => kind)].sort(), ['controller_heartbeat',
+    'epoch_activated', 'intake_resumed', 'supervisor_activated', 'write_gate_committed']);
+  assert.equal(journal.some(({ event_digest: value }) => value === appendDigest), true);
 });

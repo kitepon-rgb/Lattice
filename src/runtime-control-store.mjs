@@ -319,6 +319,15 @@ async function replaceCanonical({ pathname, expectedBytes, value, validator, cra
   }
 }
 
+/**
+ * control-events.jsonを書く他module（gate storeのatomic commit）が、このstoreのappendと
+ * 同じper-directory直列化を共有するための入口。同一process内で書き手が2つの規律に
+ * 分かれると、appendがcommitの読みと置換の間へ挟まり偽のcommitted prefix衝突になる。
+ */
+export function withControlJournalMutation(runDir, mutation) {
+  return enqueue(path.resolve(runDir), mutation);
+}
+
 function enqueue(runDir, mutation) {
   const previous = mutationQueues.get(runDir) ?? Promise.resolve();
   const result = previous.then(mutation);
