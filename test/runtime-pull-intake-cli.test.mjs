@@ -442,7 +442,7 @@ test('再intakeはequipment identity不変で実効manifestを更新し、境界
     context.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
     await new Promise((resolve) => setTimeout(resolve, 50));
     const identity = await observeManagedProcessStartIdentity(child.pid);
-    const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8' }).trim();
+    const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).trim();
     const attachPath = path.join(root, 'refresh-attach.json');
     await writeFile(attachPath, `${JSON.stringify({
       schema: 'lattice.pull_worker_attach_input.v1', name: ACTOR.agent, session: ACTOR.session,
@@ -654,7 +654,7 @@ test('attachはexpected lstart/argv digestを再認証し、raw argv、decoy、�
     context.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
     await new Promise((resolve) => setTimeout(resolve, 50));
     const identity = await observeManagedProcessStartIdentity(child.pid);
-    const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8' }).trim();
+    const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).trim();
     const attachInput = {
       schema: 'lattice.pull_worker_attach_input.v1', name: ACTOR.agent, session: ACTOR.session,
       pid: child.pid, started_identity: identity.started_identity,
@@ -745,7 +745,7 @@ test('解けないholdの席はdetachで解放でき、release→closeでrunを�
   context.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
   await new Promise((resolve) => setTimeout(resolve, 50));
   const identity = await observeManagedProcessStartIdentity(child.pid);
-  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8' }).trim();
+  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).trim();
   const attachPath = path.join(root, 'deadlock-attach.json');
   await writeFile(attachPath, `${JSON.stringify({
     schema: 'lattice.pull_worker_attach_input.v1', name: ACTOR.agent, session: ACTOR.session,
@@ -812,7 +812,7 @@ test('detachはattach bindingと一致しないprocessへsignalを送らない',
   context.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
   await new Promise((resolve) => setTimeout(resolve, 50));
   const identity = await observeManagedProcessStartIdentity(child.pid);
-  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8' }).trim();
+  const argv = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(child.pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).trim();
   const attachPath = path.join(root, 'identity-attach.json');
   await writeFile(attachPath, `${JSON.stringify({
     schema: 'lattice.pull_worker_attach_input.v1', name: ACTOR.agent, session: ACTOR.session,

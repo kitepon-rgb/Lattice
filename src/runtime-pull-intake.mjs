@@ -1064,7 +1064,7 @@ export async function attachPullWorker({ runDir, taskId, input, environment = pr
  * never verifiable and the hold was permanent.
  *
  * Authorization is process identity, not the actor: `signalAttachedWorker`
- * re-verifies lstart/argv/pgid against the recorded binding before signalling,
+ * re-verifies pid+lstart against the recorded binding before signalling,
  * which is strictly stronger than an env-derived actor claim (env vars are
  * trivially settable; a process's start identity is not). See
  * `optionalActorFromEnvironment` for why the seat's own identity cannot be the

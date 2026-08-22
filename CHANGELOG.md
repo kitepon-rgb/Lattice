@@ -4,17 +4,20 @@
 
 ### 修正
 
-- process identity のOS観測（`/bin/ps` の `lstart=` / `command=` / `pgid=` ほか全8箇所）が
-  observer の locale に依存していた。lstart の日付書式は LC_TIME で、非ASCII argv の
-  エスケープ有無は LC_CTYPE で変わるため、同じ process でも記録者と照合者の locale が
-  違うだけで identity digest が割れ、`run intake attach` が `WORKER_IDENTITY_MISMATCH` で
-  恒久に拒否された（2026-08-22 に円卓運用で実測。席の argv に日本語が含まれると必発）。
-  観測 process の環境を `LC_ALL=C` へ固定し、観測を locale 非依存にした。
+- process identity のOS観測（`/bin/ps` の `lstart=` / `command=` / `pgid=` の全8箇所）が
+  observer の locale に依存していた。非ASCII argv のエスケープ有無は LC_CTYPE で変わる
+  ため、席fileの記録者（C 相当）と `LC_CTYPE=UTF-8` の席から打った `run intake attach` で
+  digest が割れ、`WORKER_IDENTITY_MISMATCH` が必発だった（2026-08-22 に円卓運用で実測・
+  再現済み）。lstart の日付書式も LC_TIME で変わり同型の割れ方をする（原理を実測で確認。
+  今回の実障害の原因は argv 側）。観測 process の環境を `LC_ALL=C` へ固定した。
+  既知の限界: Linux の `LC_ALL=C` は非ASCII バイトを `?` へ非可逆に潰すため、非ASCII
+  部分だけが違う argv の識別力が Linux では落ちる（観測者間の一致は保たれる）。
 - attach 済み worker への signal 前再認証が argv digest と pgid（どちらも process 自身が
-  書き換えられる可変量）まで照合していた。TUI worker が実行中にプロセスタイトルを
-  書き換えると、生きている正当な worker へ signal できなくなり、detach / release / hold の
-  全経路が恒久停止した。再認証を不変量（pid + lstart）だけに絞る。無関係な process へ
-  signal を送らない安全性は lstart 照合で変わらず保たれる。
+  書き換えられる可変量）まで照合していた。TUI worker がプロセスタイトルを書き換えると
+  生きている正当な worker へ signal できなくなり、detach / release / hold の全経路が
+  恒久停止し得る構造だった（コード上の確認。実測の発生記録は無い）。再認証を不変量
+  （pid + lstart）だけに絞る。無関係な process へ signal を送らない安全性は lstart 照合で
+  変わらず保たれる。
 - attach 済み worker が終了（または pid 再利用）した後の detach が、死んだ process の
   resume を要求して `WORKER_IDENTITY_MISMATCH` で恒久に失敗した。不在（ESRCH）と
   pid 再利用は「配達先なし」として signal を skip し、detach を通す。worker_stopped /
