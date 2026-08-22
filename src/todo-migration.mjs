@@ -128,7 +128,7 @@ function validateEdges(value, schema) {
       const basic = exactRecord(edge, ['from', 'to']);
       const refsValid = nodeRef(edge?.from) && nodeRef(edge?.to);
       const crossPlan = refsValid && isCrossPlanEdge(edge);
-      const withReason = [TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(schema) && crossPlan
+      const withReason = [TODO_EXTRACTION_SCHEMA_V3, TODO_EXTRACTION_SCHEMA_V4].includes(schema)
         && exactRecord(edge, ['from', 'to', 'reason'])
         && boundedText(edge.reason);
       return (basic || withReason) && refsValid

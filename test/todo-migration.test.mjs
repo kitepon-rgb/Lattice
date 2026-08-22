@@ -149,6 +149,44 @@ function chainExtraction({ projectId = 'chain-project', planKey = 'chain', taskC
   return value;
 }
 
+test('extraction v3/v4はschemaどおりlocal dependencyの任意reasonを受理する', () => {
+  const value = currentExtraction(chainExtraction({ taskCount: 2 }));
+  value.hard_dependencies[0].reason = 'protocol契約を先に固定する';
+  value.extraction_digest = todoSelfDigest(value, 'extraction_digest');
+
+  assert.equal(validateTodoExtraction(value), true);
+  const v4 = structuredClone(value);
+  v4.schema = 'lattice.todo_extraction.v4';
+  v4.extraction_digest = todoSelfDigest(v4, 'extraction_digest');
+  assert.equal(validateTodoExtraction(v4), true);
+  assert.deepEqual(compileTodoExtraction(value).plan.hard_dependencies, [{
+    from: { project_id: 'chain-project', plan_key: 'chain', task_id: 'S1' },
+    to: { project_id: 'chain-project', plan_key: 'chain', task_id: 'S2' },
+  }]);
+});
+
+test('local reasonはv2で拒否し、v4 cross-plan reasonは欠落と空文字を拒否する', () => {
+  const v3 = currentExtraction(chainExtraction({ taskCount: 2 }));
+  v3.hard_dependencies[0].reason = 'local reason';
+  const v2 = structuredClone(v3);
+  v2.schema = 'lattice.todo_extraction.v2';
+  for (const entry of v2.tasks) delete entry.design_memo;
+  v2.extraction_digest = todoSelfDigest(v2, 'extraction_digest');
+  assert.equal(validateTodoExtraction(v2), false);
+
+  const crossPlan = structuredClone(v3);
+  crossPlan.schema = 'lattice.todo_extraction.v4';
+  crossPlan.hard_dependencies[0].to = {
+    project_id: 'other-project', plan_key: 'other-plan', task_id: 'T1',
+  };
+  delete crossPlan.hard_dependencies[0].reason;
+  crossPlan.extraction_digest = todoSelfDigest(crossPlan, 'extraction_digest');
+  assert.equal(validateTodoExtraction(crossPlan), false);
+  crossPlan.hard_dependencies[0].reason = '';
+  crossPlan.extraction_digest = todoSelfDigest(crossPlan, 'extraction_digest');
+  assert.equal(validateTodoExtraction(crossPlan), false);
+});
+
 async function storeDigest(root) {
   const entries = [];
   async function visit(directory, prefix = '') {

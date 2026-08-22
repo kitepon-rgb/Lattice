@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.63.9 — 2026-08-23
+
+### 修正
+
+- `lattice.todo_extraction.v3/v4`の公開schemaはlocal dependencyにも任意の`reason`を許す一方、
+  migration runtimeだけが`reason`付きlocal edgeを`hard_dependencies_invalid`として拒否していた。
+  schemaどおり受理し、cross-plan edgeでは従来どおり非空`reason`を必須とする。
+
 ## 0.63.8 — 2026-08-23
 
 ### 修正
