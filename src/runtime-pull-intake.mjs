@@ -371,10 +371,14 @@ function boundaryFor(artifact, taskId) {
   return artifact?.task_boundaries?.find((entry) => entry.task_id === taskId) ?? null;
 }
 
+// boundary / changed のどちらも素のディレクトリ名で来る（末尾 `/` は保証されない）。
+// 末尾 `/` の時だけ prefix 扱いにすると、ディレクトリ境界の配下変更が「触れていない」へ
+// 誤判定される（declaredWriteCovers と同族。2026-08-22 実測）。
 function pathTouches(boundary, changed) {
-  return boundary === changed
-    || (boundary.endsWith('/') && changed.startsWith(boundary))
-    || (changed.endsWith('/') && boundary.startsWith(changed));
+  if (boundary === changed) return true;
+  const boundaryPrefix = boundary.endsWith('/') ? boundary : `${boundary}/`;
+  const changedPrefix = changed.endsWith('/') ? changed : `${changed}/`;
+  return changed.startsWith(boundaryPrefix) || boundary.startsWith(changedPrefix);
 }
 
 async function boundaryVerdict({ repoRoot, store, member, meta, taskId, intakeBase }) {

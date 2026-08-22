@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.63.5 — 2026-08-22
+
+### 修正
+
+- 宣言境界の照合（`declaredWriteCovers` / `pathTouches`）が、末尾 `/` 付きの宣言だけを
+  ディレクトリ prefix として扱っていた。witness の writes は `templates` のような素の
+  ディレクトリ名を普通に持つため、境界内で作った配下ファイルが全部 `undeclared_write` と
+  誤判定され、`run intake accept` のたびに runtime_conflict hold → worker SIGSTOP で
+  卓が凍った（2026-08-22 実測: 連続2 task で被弾）。宣言は `<dir>/` 境界での prefix
+  照合に正し、`templatesX` のような同名 prefix の別 path は従来どおり検出する。
+
 ## 0.63.4 — 2026-08-22
 
 ### 変更

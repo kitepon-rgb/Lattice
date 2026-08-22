@@ -245,3 +245,27 @@ test('再分類のdedupeは同じtask組でもline_idごとに独立する', () 
     kind: 'observed_line_change', todo_ids: ['OBSERVER', 'READER'], resource_id: secondLine,
   }]);
 });
+
+test('ディレクトリ宣言のwritesは末尾スラッシュ無しでも配下pathを覆う', () => {
+  // witness の writes は `templates` のような素のディレクトリ名を普通に持つ。
+  // 末尾 `/` の時だけ prefix 扱いにすると、境界内で作った配下ファイルが全部
+  // undeclared_write になり、accept のたびに hold → worker SIGSTOP で卓が凍る
+  // （2026-08-22 実測: plaude 円卓の t1/t3 で連続被弾）。
+  const { plan, manifests } = fixture();
+  manifests.OBSERVER = boundary('OBSERVER', { writes: ['templates'] });
+  plan.manifest_digests.OBSERVER = manifests.OBSERVER.manifest_digest;
+  plan.plan_digest = '';
+  plan.plan_digest = selfDigest(plan, 'plan_digest');
+  const verified = classifyObservedDiff({
+    plan, manifests,
+    observations: [{ todo_id: 'OBSERVER', paths: ['templates/board-update.md', 'templates/a/b.md'] }],
+    relevantTodoIds: ['OBSERVER'],
+  }).findings;
+  assert.deepEqual(verified.filter((f) => f.kind === 'undeclared_write'), []);
+  const outside = classifyObservedDiff({
+    plan, manifests,
+    observations: [{ todo_id: 'OBSERVER', paths: ['templatesX/evil.md'] }],
+    relevantTodoIds: ['OBSERVER'],
+  }).findings;
+  assert.deepEqual(outside, [{ kind: 'undeclared_write', todo_ids: ['OBSERVER'], path: 'templatesX/evil.md' }]);
+});

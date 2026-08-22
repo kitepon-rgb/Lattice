@@ -102,11 +102,16 @@ export function computeReadyFrontier(options = {}) {
   return { dispatchable };
 }
 
+// 宣言 write はファイルにもディレクトリにも成り得る（witness の writes は `templates` の
+// ような素のディレクトリ名を普通に持つ）。末尾 `/` の有無で prefix 扱いを分けると、
+// ディレクトリ境界を正しく宣言した task の配下ファイルが全部 undeclared_write になり、
+// accept のたびに hold → worker SIGSTOP で卓が凍る（2026-08-22 実測: t1/t3 で連続被弾）。
 function declaredWriteCovers(declaredWrites, observedPath) {
-  return declaredWrites.some((declared) => (
-    declared === observedPath
-    || (declared.endsWith('/') && observedPath.startsWith(declared))
-  ));
+  return declaredWrites.some((declared) => {
+    if (declared === observedPath) return true;
+    const prefix = declared.endsWith('/') ? declared : `${declared}/`;
+    return observedPath.startsWith(prefix);
+  });
 }
 
 function witnessSet(manifest, kinds) {
