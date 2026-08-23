@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { fsyncDirectory as syncDirectory } from './fs-dir-sync.mjs';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open, readFile, rename, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -124,14 +125,6 @@ async function ownerIsLive(artifact, observer) {
   return observed.identity_digest === artifact.owner_process_start_identity.identity_digest;
 }
 
-async function syncDirectory(directory) {
-  const handle = await open(directory, fsConstants.O_RDONLY);
-  // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
-  // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
-  try { await handle.sync(); } catch (error) {
-    if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
-  } finally { await handle.close(); }
-}
 
 async function recoverStaleLock(lockPath, expectedDigest) {
   const quarantine = path.join(path.dirname(lockPath),

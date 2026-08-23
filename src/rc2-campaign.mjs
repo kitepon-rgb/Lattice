@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { fsyncDirectory as syncDirectory } from './fs-dir-sync.mjs';
 import { createHash } from 'node:crypto';
 import {
   lstat,
@@ -1360,18 +1361,6 @@ function artifactMediaType(relativePath) {
   return 'application/octet-stream';
 }
 
-async function syncDirectory(directory) {
-  const handle = await open(directory, 'r');
-  // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
-  // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
-  try {
-    await handle.sync();
-  } catch (error) {
-    if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
-  } finally {
-    await handle.close();
-  }
-}
 
 async function writeDurableFile(target, bytes) {
   await mkdir(path.dirname(target), { recursive: true });

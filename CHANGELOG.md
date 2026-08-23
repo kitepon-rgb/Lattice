@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.63.10 — 2026-08-24
+
+### 変更
+
+- 挙動不変の内部リファクタ（harness用語統一campaignのOS層分離規約）: 14ファイルへ複製されていた
+  win32ガード付きdirectory fsync実装を新設`src/fs-dir-sync.mjs`の`fsyncDirectory()`へ一本化した
+  （名前付きローカル関数9件＋inline 6件）。共通実装はPOSIXで`O_DIRECTORY`を併用し、directory以外を
+  fail-loudにする（全呼び出し箇所はdirectoryだけを渡すため成功経路は不変）。公開API・schema・CLIは不変。
+
 ## 0.63.9 — 2026-08-23
 
 ### 修正

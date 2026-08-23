@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { fsyncDirectory } from './fs-dir-sync.mjs';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open, readFile, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -279,14 +280,6 @@ async function readCanonical(pathname, validator, label, { missing = false } = {
   return { value, bytes };
 }
 
-async function fsyncDirectory(directory) {
-  const handle = await open(directory, fsConstants.O_RDONLY);
-  // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
-  // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
-  try { await handle.sync(); } catch (error) {
-    if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
-  } finally { await handle.close(); }
-}
 
 async function inject(crashInjector, point, context) {
   if (typeof crashInjector === 'function') await crashInjector(point, structuredClone(context));

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { fsyncDirectory } from './fs-dir-sync.mjs';
 import { constants as fsConstants } from 'node:fs';
 import {
   lstat,
@@ -187,16 +188,7 @@ async function durableReplaceBytes(directory, name, bytes) {
     await handle.close();
     handle = null;
     await rename(temporaryPath, path.join(directory, name));
-    const directoryHandle = await open(directory, fsConstants.O_RDONLY);
-    // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
-    // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
-    try {
-      await directoryHandle.sync();
-    } catch (error) {
-      if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
-    } finally {
-      await directoryHandle.close();
-    }
+    await fsyncDirectory(directory);
   } finally {
     if (handle) await handle.close().catch(() => {});
     await rm(temporaryPath, { force: true }).catch(() => {});

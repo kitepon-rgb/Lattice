@@ -1,3 +1,4 @@
+import { fsyncDirectory } from './fs-dir-sync.mjs';
 import {
   lstat,
   mkdir,
@@ -217,18 +218,6 @@ async function readRegularJson(filePath, label) {
   }
 }
 
-async function fsyncDirectory(directory) {
-  const handle = await open(directory, 'r');
-  // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
-  // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
-  try {
-    await handle.sync();
-  } catch (error) {
-    if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
-  } finally {
-    await handle.close();
-  }
-}
 
 async function writeDurableJson(filePath, value, { exclusive = true } = {}) {
   const bytes = `${JSON.stringify(value, null, 1)}\n`;

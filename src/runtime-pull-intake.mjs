@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { fsyncDirectory as syncDirectory } from './fs-dir-sync.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import {
@@ -94,14 +95,6 @@ async function readJson(filePath, label) {
   return value;
 }
 
-async function syncDirectory(directory) {
-  const handle = await open(directory, fsConstants.O_RDONLY);
-  // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
-  // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
-  try { await handle.sync(); } catch (error) {
-    if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
-  } finally { await handle.close(); }
-}
 
 async function writeCanonicalNew(filePath, value) {
   await writeFile(filePath, `${canonicalizeArtifact(value)}\n`, { mode: 0o600, flag: 'wx' });

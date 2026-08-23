@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { fsyncDirectory } from './fs-dir-sync.mjs';
 import { lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -75,18 +76,6 @@ function statePath(runDir) {
   return path.join(runDir, 'supervisor', 'driver-state.json');
 }
 
-async function fsyncDirectory(directory) {
-  const handle = await open(directory, 'r');
-  // Windowsはdirectory handleのfsyncを許さず常にEPERM/EINVALを返す（Node仕様）。
-  // win32のこの2値だけ許容し、他OS・他エラーは従来どおり失敗させる。
-  try {
-    await handle.sync();
-  } catch (error) {
-    if (process.platform !== 'win32' || !['EPERM', 'EINVAL'].includes(error?.code)) throw error;
-  } finally {
-    await handle.close();
-  }
-}
 
 export async function replaceRuntimeDriverState({
   runDir,
