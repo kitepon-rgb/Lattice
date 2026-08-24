@@ -21,6 +21,11 @@
 > どのtaskが並列に走れるかを裏付け、本当に衝突している場合は**その境界をrefactorして
 > planを再コンパイルし、並列に走れる形へ変えます**。
 
+Windows工場hostの開発・運用shellはPowerShell 7（`pwsh.exe`）だけを前提とし、5.1しかなければ
+Microsoft公式installer／package managerで7を導入してから使います。Lattice runtimeはpsmuxへ
+依存しません。対話型の永続PTYが必要な外部実行だけAiterm公開APIを使い、psmuxはAitermの
+Windows backendとしてAitermが所有します。
+
 ## なぜ要るのか
 
 3つのagentに3つのtaskを渡すと、たいてい次のどちらかで失敗します。

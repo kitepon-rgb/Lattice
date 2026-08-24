@@ -22,6 +22,11 @@
 
 Built and maintained by [Quo](https://x.com/QLyun35332) at [kitepon.dev](https://kitepon.dev/en).
 
+On Windows factory hosts, development and operations use PowerShell 7 (`pwsh.exe`) only; install it
+through Microsoft's official installer or package manager when only Windows PowerShell 5.1 is present.
+The Lattice runtime does not depend on psmux. External interactive work that needs a persistent PTY uses
+Aiterm's public API; Aiterm alone owns psmux as its Windows backend.
+
 ## Why
 
 Give three coding agents three tasks and the usual outcome is one of two failures:
