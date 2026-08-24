@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.64.2 — 2026-08-25
+
+### 修正
+
+- `.lattice/.gitattributes`導入前に作られたToDo storeが、Windowsの`core.autocrlf=true` checkoutで
+  CRLF化され、`lattice status --json`を原因不明の`STORE_INCONSISTENT`で停止させていた。
+  CRLF artifactは原因pathと`lattice todo repair-eol --json`を案内する。修復commandはCR除去後の
+  byte列が同じpathのHEAD blobと完全一致するfileだけをatomicにLFへ戻し、`* -text`保護を追加する。
+  実編集・staged変更・非純粋な破損・untracked artifactは変更せず、store rootからartifactまでの
+  symlink／junctionも拒否してrepo外を辿らない。Git indexのstat cacheは内容をstageしない
+  `git add --refresh`で対象pathだけ更新し、内容差分ゼロの大量変更表示を残さない（ADR 0185）。
+- Windowsでsensor testを全並列実行した時、所有handleをclose済みでもSQLite fixture directoryの削除が
+  一時的な`EPERM`を返し、750msのcleanup上限を超えてCIを不安定化させていた。Node標準のEPERM線形backoffを
+  2.75秒上限へ合わせ、runtimeへ再試行を足さずtest harnessの外部filesystem境界だけを安定化した。
+
 ## 0.64.1 — 2026-08-24
 
 ### 修正

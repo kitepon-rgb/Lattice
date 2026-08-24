@@ -86,6 +86,7 @@ Read commands:
   phase status --plan <key>
 
 Write commands:
+  repair-eol --json  # Git checkoutでCRLF化された既存storeをcanonical LFへ戻し、EOL保護を追加する
   dashboard adopt --json  # 衝突したproject_idの配信元rootを現在repoへ明示的に移す
   dashboard remove <project_id> --json  # 登録簿から1件外す（対象repoの外からも叩ける）
   note --plan <key> [--task <id>] (--message <text>|--input <file>)
@@ -251,6 +252,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo seam-profile': 'todo seam-profile --plan <key> --file <path> [--json]',
   'todo seam-proposal': 'todo seam-proposal [--plan <key>] [--json] | compile --plan <key>',
   'todo verify': 'todo verify [--plan <key>] [--json]',
+  'todo repair-eol': 'todo repair-eol --json',
   'todo snapshot': 'todo snapshot --rebuild --plan <key>',
   'todo gantt': 'todo gantt serve --port <port> [--scope live|all]  # 動的表示のみ。静的HTML生成は廃止',
   'todo gantt serve': 'todo gantt serve --port <0..65535> [--scope live|all]  # loopback動的viewer',

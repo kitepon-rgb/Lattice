@@ -325,7 +325,14 @@ async function resolveProjectState({ cwd, cliVersion, diagnoseStructureArtifacts
     if (error?.code === 'STRUCTURE_ARTIFACT_INVALID') throw error;
     const reason = error instanceof TodoStoreError
       ? `${error.code}:${error.detail?.reason ?? error.message}` : 'store_validation_failed';
-    return invalid(reason);
+    const nextAction = error instanceof TodoStoreError
+      && error.detail?.next_action === 'lattice todo repair-eol --json'
+      ? { command: error.detail.next_action, reason: `${reason}:${error.detail.ref}` }
+      : null;
+    return {
+      exitCode: 1, repoRoot, store: null, todo: null,
+      result: invalidStatus({ cliVersion, repoRoot, reason, nextAction }),
+    };
   }
 }
 

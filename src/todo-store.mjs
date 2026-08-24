@@ -135,18 +135,26 @@ function decodeUtf8(bytes, code, reason) {
   catch { fail(code, reason); }
 }
 
-function parseCanonicalJsonLine(bytes, { code, reason, maxBytes, validate }) {
-  if (bytes.length === 0 || bytes.length > maxBytes) fail(code, bytes.length > maxBytes ? 'size_limit_exceeded' : reason);
+function parseCanonicalJsonLine(bytes, { code, reason, maxBytes, validate, ref = null }) {
+  const detail = ref === null ? undefined : { ref };
+  if (bytes.length === 0 || bytes.length > maxBytes) {
+    fail(code, bytes.length > maxBytes ? 'size_limit_exceeded' : reason, detail);
+  }
   const text = decodeUtf8(bytes, code, 'invalid_utf8');
-  if (text.includes('\r') || text.startsWith('\uFEFF')) fail(code, reason);
+  if (text.includes('\r')) {
+    fail(code, 'artifact_eol_converted', {
+      ...detail, next_action: 'lattice todo repair-eol --json',
+    });
+  }
+  if (text.startsWith('\uFEFF')) fail(code, reason, detail);
   const body = text.endsWith('\n') ? text.slice(0, -1) : text;
   let value;
-  try { value = JSON.parse(body); } catch { fail(code, reason); }
-  if (!text.endsWith('\n')) fail(code, reason);
+  try { value = JSON.parse(body); } catch { fail(code, reason, detail); }
+  if (!text.endsWith('\n')) fail(code, reason, detail);
   let expected;
-  try { expected = `${canonicalizeTodoArtifact(value)}\n`; } catch { fail(code, reason); }
-  if (text !== expected) fail(code, 'non_canonical_or_duplicate_key');
-  if (!validate(value)) fail(code, 'schema_invalid');
+  try { expected = `${canonicalizeTodoArtifact(value)}\n`; } catch { fail(code, reason, detail); }
+  if (text !== expected) fail(code, 'non_canonical_or_duplicate_key', detail);
+  if (!validate(value)) fail(code, 'schema_invalid', detail);
   return value;
 }
 
@@ -154,7 +162,9 @@ async function readArtifact(repoRoot, ref, { code, maxBytes, validate, missing =
   const state = await pathState(repoRoot, ref, code, { missing });
   if (state === null) return null;
   const bytes = await readFile(state.absolute);
-  return parseCanonicalJsonLine(bytes, { code, reason: 'artifact_truncated_or_trailing_bytes', maxBytes, validate });
+  return parseCanonicalJsonLine(bytes, {
+    code, reason: 'artifact_truncated_or_trailing_bytes', maxBytes, validate, ref,
+  });
 }
 
 async function readSnapshotArtifact(repoRoot, ref) {
@@ -163,16 +173,23 @@ async function readSnapshotArtifact(repoRoot, ref) {
   const bytes = await readFile(state.absolute);
   return parseCanonicalJsonLine(bytes, {
     code: 'SNAPSHOT_INVALID', reason: 'snapshot_truncated_or_trailing_bytes',
-    maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoSnapshot,
+    maxBytes: TODO_LIMITS.snapshotBytes, validate: validateTodoSnapshot, ref,
   });
 }
 
-function parseJournalSegment(bytes) {
+function parseJournalSegment(bytes, ref = null) {
+  const detail = ref === null ? undefined : { ref };
   if (bytes.length === 0 || bytes.length > TODO_LIMITS.journalSegmentBytes) {
-    fail('STORE_CORRUPT', bytes.length > TODO_LIMITS.journalSegmentBytes ? 'journal_segment_limit_exceeded' : 'journal_empty');
+    fail('STORE_CORRUPT', bytes.length > TODO_LIMITS.journalSegmentBytes
+      ? 'journal_segment_limit_exceeded' : 'journal_empty', detail);
   }
   const text = decodeUtf8(bytes, 'STORE_CORRUPT', 'journal_invalid_utf8');
-  if (!text.endsWith('\n') || text.includes('\r') || text.startsWith('\uFEFF')) fail('STORE_CORRUPT', 'journal_byte_contract');
+  if (text.includes('\r')) {
+    fail('STORE_CORRUPT', 'artifact_eol_converted', {
+      ...detail, next_action: 'lattice todo repair-eol --json',
+    });
+  }
+  if (!text.endsWith('\n') || text.startsWith('\uFEFF')) fail('STORE_CORRUPT', 'journal_byte_contract', detail);
   const lines = text.slice(0, -1).split('\n');
   if (lines.some((line) => line.length === 0)) fail('STORE_CORRUPT', 'journal_truncated_or_empty_line');
   return lines.map((line) => {
@@ -205,8 +222,8 @@ async function readJournal(repoRoot, journalRef) {
       const [, startText, endText, previousDigest, segmentDigest] = name.match(
         /^(\d{12})-(\d{12})-([0-9a-f]{64})-([0-9a-f]{64})\.jsonl$/u,
       );
+      const events = parseJournalSegment(bytes, ref);
       if (sha256Bytes(bytes) !== segmentDigest) fail('STORE_CORRUPT', 'sealed_segment_digest_mismatch');
-      const events = parseJournalSegment(bytes);
       if (events[0].sequence !== Number(startText) || events.at(-1).sequence !== Number(endText)) {
         fail('STORE_CORRUPT', 'sealed_segment_range_mismatch');
       }
@@ -220,7 +237,7 @@ async function readJournal(repoRoot, journalRef) {
     if (error?.code !== 'ENOENT') fail('STORE_CORRUPT', 'sealed_segment_read_failed');
   }
   const activeBytes = await readFile(state.absolute);
-  segments.push({ ref: journalRef, bytes: activeBytes, events: parseJournalSegment(activeBytes) });
+  segments.push({ ref: journalRef, bytes: activeBytes, events: parseJournalSegment(activeBytes, journalRef) });
   const events = segments.flatMap(({ events: entries }) => entries);
   const failures = verifyLinearHashChain({
     entries: events,
@@ -291,7 +308,7 @@ async function readPlanScopedJournal(repoRoot, journalRef) {
     if (error?.code === 'ENOENT') return { ref, events: [], activeBytes: Buffer.alloc(0) };
     fail('STORE_CORRUPT', 'plan_scoped_journal_read_failed');
   }
-  const events = parseJournalSegment(bytes);
+  const events = parseJournalSegment(bytes, ref);
   if (!events.every(({ kind }) => TODO_PLAN_SCOPED_EVENT_KINDS.includes(kind))) {
     fail('STORE_CORRUPT', 'plan_scoped_journal_kind_invalid');
   }
@@ -1571,7 +1588,8 @@ export async function readTodoStore(options = {}) {
       snapshotStale = snapshot === null || canonicalizeTodoArtifact(snapshot) !== canonicalizeTodoArtifact(expectedSnapshot);
     } catch (error) {
       if (error instanceof TodoStoreError && error.code === 'SNAPSHOT_INVALID'
-        && !['unsafe_artifact_path', 'path_alias_or_escape', 'path_outside_store'].includes(error.detail.reason)) snapshotStale = true;
+        && !['unsafe_artifact_path', 'path_alias_or_escape', 'path_outside_store',
+          'artifact_eol_converted'].includes(error.detail.reason)) snapshotStale = true;
       else throw error;
     }
     if (options.forWrite === true && snapshotStale) fail('STORE_WRITE_REFUSED', 'snapshot_stale');

@@ -585,7 +585,7 @@ const journalCorruptions = [
   ['duplicate_key', 'journal_non_canonical_or_duplicate_key', (line) => Buffer.from(`{"schema":"lattice.todo_event.v1",${line.slice(1)}`)],
   ['invalid_utf8', 'journal_invalid_utf8', () => Buffer.from([0xff, 0x0a])],
   ['bom', 'journal_byte_contract', (line) => Buffer.from(`\uFEFF${line}`)],
-  ['crlf', 'journal_byte_contract', (line) => Buffer.from(line.replace(/\n$/u, '\r\n'))],
+  ['crlf', 'artifact_eol_converted', (line) => Buffer.from(line.replace(/\n$/u, '\r\n'))],
   ['truncated_write', 'journal_byte_contract', (line) => Buffer.from(line.slice(0, -2))],
   ['merge_marker', 'journal_json_invalid', () => Buffer.from('<<<<<<< HEAD\n')],
   ['schema_version_mixed', 'journal_schema_invalid', (line) => Buffer.from(line.replace('lattice.todo_event.v1', 'lattice.todo_event.v2'))],
@@ -655,7 +655,6 @@ for (const [name, mutate] of [
     await writeFile(path.join(root, snapshotRef), `${canonicalizeTodoArtifact(value)}\n`);
   }],
   ['bom', async (root) => writeFile(path.join(root, snapshotRef), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), await bytes(root, snapshotRef)]))],
-  ['crlf', async (root) => writeFile(path.join(root, snapshotRef), (await bytes(root, snapshotRef)).toString('utf8').replace(/\n$/u, '\r\n'))],
   ['truncated', async (root) => {
     const value = await bytes(root, snapshotRef); await writeFile(path.join(root, snapshotRef), value.subarray(0, value.length - 2));
   }],
@@ -674,6 +673,18 @@ for (const [name, mutate] of [
     assert.equal((await readTodoStore({ repoRoot: root, now: NOW })).snapshot_stale, false);
   });
 }
+
+test('snapshot単独CRLFはstaleへ丸めず正規repair導線付きで拒否する', async (context) => {
+  const root = await workspace(context);
+  await writeFile(path.join(root, snapshotRef),
+    (await bytes(root, snapshotRef)).toString('utf8').replace(/\n$/u, '\r\n'));
+  await assert.rejects(readTodoStore({ repoRoot: root, now: NOW }), (error) => (
+    error?.code === 'SNAPSHOT_INVALID'
+    && error.detail?.reason === 'artifact_eol_converted'
+    && error.detail?.ref === snapshotRef
+    && error.detail?.next_action === 'lattice todo repair-eol --json'
+  ));
+});
 
 test('snapshot symlinkはsnapshot_staleへ丸めずhard rejectする', async (context) => {
   const root = await workspace(context); const outside = path.join(root, 'snapshot-copy.json');

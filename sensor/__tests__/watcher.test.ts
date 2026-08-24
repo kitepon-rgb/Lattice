@@ -74,13 +74,16 @@ describe('FileWatcher', () => {
     __setFsWatchForTests(null); // reset the injected fs.watch seam
     vi.restoreAllMocks();
     if (fs.existsSync(testDir)) {
-      // A nested integration cleanup can close the real fs.watch handle at the
-      // same time. macOS may briefly repopulate the watched directory, so use
-      // Node's bounded ENOTEMPTY retry instead of making the suite flaky.
+      // Every owned watcher, worker and SQLite connection is closed before a
+      // test returns. Under the full parallel suite, macOS may still briefly
+      // repopulate a watched directory and Windows may hold the just-closed DB
+      // path long enough to return EPERM. Node's rm contract retries both with
+      // linear backoff. Five 50ms steps (750ms total) proved insufficient on
+      // Windows CI; ten steps bound the external-handle release wait to 2.75s.
       fs.rmSync(testDir, {
         recursive: true,
         force: true,
-        maxRetries: 5,
+        maxRetries: 10,
         retryDelay: 50,
       });
     }

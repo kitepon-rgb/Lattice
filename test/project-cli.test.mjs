@@ -370,6 +370,153 @@ test('壊れたstore配置はMarkdown fallbackせずtyped invalidを返す', asy
   assert.equal(result.next_action.command, 'lattice todo verify');
 });
 
+test('Windows checkoutでCRLF化された旧storeは原因pathを案内し正規repairで復旧する', async (context) => {
+  const root = await workspace(context);
+  await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(createInput())}\n`);
+  const created = run(root, ['plan', 'create', '--input', 'plan.json']);
+  assert.equal(created.status, 0, created.stderr);
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['-c', 'user.name=Lattice Test', '-c', 'user.email=lattice@example.invalid',
+    'commit', '--quiet', '-m', 'fixture'], { cwd: root });
+
+  const planRef = '.lattice/todo/plans/main/v1/plan.json';
+  const planPath = path.join(root, planRef);
+  await rm(path.join(root, '.lattice', '.gitattributes'));
+  const canonical = await readFile(planPath, 'utf8');
+  await writeFile(planPath, canonical.replaceAll('\n', '\r\n'));
+
+  const invalid = run(root, ['status', '--json']);
+  assert.equal(invalid.status, 1, invalid.stderr);
+  const invalidResult = JSON.parse(invalid.stdout);
+  assert.equal(invalidResult.state, 'invalid');
+  assert.equal(invalidResult.next_action.command, 'lattice todo repair-eol --json');
+  assert.equal(invalidResult.next_action.reason,
+    `STORE_INCONSISTENT:artifact_eol_converted:${planRef}`);
+
+  const repaired = run(root, ['todo', 'repair-eol', '--json']);
+  assert.equal(repaired.status, 0, repaired.stderr);
+  const result = JSON.parse(repaired.stdout);
+  assert.equal(result.schema, 'lattice.todo_eol_repair_result.v1');
+  assert.equal(result.project_id, 'sample-project');
+  assert.deepEqual(result.repaired_refs, [planRef]);
+  assert.equal(result.repaired_count, 1);
+  assert.equal(result.protection_created, true);
+  assert.match(await readFile(path.join(root, '.lattice', '.gitattributes'), 'utf8'),
+    /^\* -text$/mu);
+  assert.equal((await readFile(planPath)).includes(13), false);
+  assert.equal(execFileSync('git', ['diff-files', '--quiet', '--', planRef], {
+    cwd: root, encoding: 'utf8',
+  }), '');
+  assert.equal(JSON.parse(run(root, ['status', '--json']).stdout).state, 'ready');
+});
+
+test('repair-eolは純粋なCRLF変換でない破損を変更せず拒否する', async (context) => {
+  const root = await workspace(context);
+  await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(createInput())}\n`);
+  assert.equal(run(root, ['plan', 'create', '--input', 'plan.json']).status, 0);
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['-c', 'user.name=Lattice Test', '-c', 'user.email=lattice@example.invalid',
+    'commit', '--quiet', '-m', 'fixture'], { cwd: root });
+  const planPath = path.join(root, '.lattice', 'todo', 'plans', 'main', 'v1', 'plan.json');
+  await rm(path.join(root, '.lattice', '.gitattributes'));
+  const before = Buffer.concat([await readFile(planPath), Buffer.from('\r')]);
+  await writeFile(planPath, before);
+
+  const repaired = run(root, ['todo', 'repair-eol', '--json']);
+  assert.equal(repaired.status, 1);
+  const failure = JSON.parse(repaired.stderr);
+  assert.equal(failure.code, 'STORE_EOL_REPAIR_UNSAFE');
+  assert.equal(failure.detail.reason, 'artifact_not_pure_crlf_conversion');
+  assert.equal(await readFile(planPath, 'utf8'), before.toString('utf8'));
+  assert.equal(await readFile(path.join(root, '.lattice', '.gitattributes'), 'utf8')
+    .catch((error) => error.code), 'ENOENT');
+});
+
+test('repair-eolはstaged artifactを変更前に拒否しindexとworktreeを保持する', async (context) => {
+  const root = await workspace(context);
+  await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(createInput())}\n`);
+  assert.equal(run(root, ['plan', 'create', '--input', 'plan.json']).status, 0);
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['-c', 'user.name=Lattice Test', '-c', 'user.email=lattice@example.invalid',
+    'commit', '--quiet', '-m', 'fixture'], { cwd: root });
+
+  const planRef = '.lattice/todo/plans/main/v1/plan.json';
+  const planPath = path.join(root, planRef);
+  await rm(path.join(root, '.lattice', '.gitattributes'));
+  const canonical = await readFile(planPath, 'utf8');
+  const staged = canonical.replace('"project_id":"sample-project"', '"project_id":"staged-edit"');
+  await writeFile(planPath, staged);
+  execFileSync('git', ['add', '--', planRef], { cwd: root });
+  const stagedBefore = execFileSync('git', ['show', `:${planRef}`], { cwd: root });
+  const converted = Buffer.from(canonical.replaceAll('\n', '\r\n'));
+  await writeFile(planPath, converted);
+
+  const repaired = run(root, ['todo', 'repair-eol', '--json']);
+  assert.equal(repaired.status, 1);
+  const failure = JSON.parse(repaired.stderr);
+  assert.equal(failure.code, 'STORE_EOL_REPAIR_UNSAFE');
+  assert.equal(failure.detail.reason, 'artifact_staged_change_present');
+  assert.equal(failure.detail.ref, planRef);
+  assert.deepEqual(execFileSync('git', ['show', `:${planRef}`], { cwd: root }), stagedBefore);
+  assert.deepEqual(await readFile(planPath), converted);
+  assert.equal(await readFile(path.join(root, '.lattice', '.gitattributes'), 'utf8')
+    .catch((error) => error.code), 'ENOENT');
+});
+
+test('repair-eolはstore root junctionを辿らずrepo外artifactを変更しない', async (context) => {
+  if (process.platform !== 'win32') context.skip('junction is Windows only');
+  const root = await workspace(context);
+  const outside = await mkdtemp(path.join(tmpdir(), 'lattice-project-cli-outside-'));
+  context.after(() => rm(outside, { recursive: true, force: true }));
+  await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(createInput())}\n`);
+  assert.equal(run(root, ['plan', 'create', '--input', 'plan.json']).status, 0);
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['-c', 'user.name=Lattice Test', '-c', 'user.email=lattice@example.invalid',
+    'commit', '--quiet', '-m', 'fixture'], { cwd: root });
+
+  const planRef = '.lattice/todo/plans/main/v1/plan.json';
+  const canonical = await readFile(path.join(root, planRef), 'utf8');
+  const outsidePlan = path.join(outside, 'plans', 'main', 'v1', 'plan.json');
+  await mkdir(path.dirname(outsidePlan), { recursive: true });
+  const outsideBefore = Buffer.from(canonical.replaceAll('\n', '\r\n'));
+  await writeFile(outsidePlan, outsideBefore);
+  const storeRoot = path.join(root, '.lattice', 'todo');
+  await rm(storeRoot, { recursive: true, force: true });
+  await symlink(outside, storeRoot, 'junction');
+
+  const repaired = run(root, ['todo', 'repair-eol', '--json']);
+  assert.equal(repaired.status, 1);
+  const failure = JSON.parse(repaired.stderr);
+  assert.equal(failure.code, 'STORE_EOL_REPAIR_UNSAFE');
+  assert.equal(failure.detail.reason, 'unsafe_artifact_path');
+  assert.equal(failure.detail.ref, '.lattice/todo');
+  assert.deepEqual(await readFile(outsidePlan), outsideBefore);
+});
+
+test('snapshotとjournalのCRLF変換も原因path付きrepair導線を返す', async (context) => {
+  for (const ref of [
+    '.lattice/todo/plans/main/v1/snapshot.json',
+    '.lattice/todo/plans/main/v1/journal/active.jsonl',
+  ]) {
+    const root = await workspace(context);
+    await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(createInput())}\n`);
+    assert.equal(run(root, ['plan', 'create', '--input', 'plan.json']).status, 0);
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['-c', 'user.name=Lattice Test', '-c', 'user.email=lattice@example.invalid',
+      'commit', '--quiet', '-m', 'fixture'], { cwd: root });
+    await rm(path.join(root, '.lattice', '.gitattributes'));
+    const absolute = path.join(root, ref);
+    await writeFile(absolute, (await readFile(absolute, 'utf8')).replaceAll('\n', '\r\n'));
+
+    const invalid = run(root, ['status', '--json']);
+    assert.equal(invalid.status, 1, invalid.stderr);
+    const result = JSON.parse(invalid.stdout);
+    assert.equal(result.next_action.command, 'lattice todo repair-eol --json');
+    assert.equal(result.next_action.reason,
+      `${ref.endsWith('snapshot.json') ? 'SNAPSHOT_INVALID' : 'STORE_CORRUPT'}:artifact_eol_converted:${ref}`);
+  }
+});
+
 test('plan createはpretty-print入力を受理してstoreを作る', async (context) => {
   const root = await workspace(context);
   await writeFile(path.join(root, 'plan.json'), `${JSON.stringify(createInput(), null, 2)}\n`);

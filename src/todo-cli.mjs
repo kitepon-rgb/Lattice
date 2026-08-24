@@ -177,6 +177,7 @@ import {
 } from './todo-note-store.mjs';
 import { readTodoParallelCandidatesForStatus } from './todo-parallel-candidates.mjs';
 import { commitTodoStoreMutation } from './todo-store-git-transaction.mjs';
+import { repairTodoStoreWorktreeEol } from './todo-store-worktree-eol.mjs';
 
 const CLI_ERROR_SCHEMA = 'lattice.cli_error.v2';
 const DEFAULT_GANTT_SCOPE = 'live';
@@ -254,7 +255,7 @@ function internalFailure(stderr, error) {
 
 const TODO_COMMAND_NAMES = Object.freeze([
   'status', 'show', 'note', 'bindings', 'independence', 'structure', 'seam-profile', 'seam-proposal',
-  'verify', 'snapshot', 'gantt', 'dashboard', 'phase', 'migrate', 'start', 'block',
+  'verify', 'repair-eol', 'snapshot', 'gantt', 'dashboard', 'phase', 'migrate', 'start', 'block',
   'unblock', 'done', 'reopen', 'evidence', 'split', 'revise', 'revise-phase', 'revise-set',
 ]);
 
@@ -3579,6 +3580,20 @@ async function rebuildSnapshot({ repoRoot, planKey }) {
   return result;
 }
 
+async function repairStoreEol({ repoRoot }) {
+  const repair = await repairTodoStoreWorktreeEol({ repoRoot });
+  const store = await readTodoStore({ repoRoot });
+  const result = {
+    schema: 'lattice.todo_eol_repair_result.v1',
+    project_id: store.project_id,
+    ...repair,
+    repaired_count: repair.repaired_refs.length,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
 /**
  * `lattice todo` namespace. Exact position, order, and argument count are part of
  * the public contract; usage failures never use a JSON envelope.
@@ -3633,7 +3648,10 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
 
   const automatedStructureRealize = parseAutomatedStructureRealizeArgs(argv);
   let action = null;
-  if ((argv.length === 1 && argv[0] === 'status')
+  if (argv.length === 2 && argv[0] === 'repair-eol' && argv[1] === '--json') {
+    // 壊れたstoreを読めない時の入口なので、dashboard所有権pre-hookを通さない。
+    action = (repoRoot) => repairStoreEol({ repoRoot });
+  } else if ((argv.length === 1 && argv[0] === 'status')
     || (argv.length === 2 && argv[0] === 'status' && argv[1] === '--json')) {
     action = (repoRoot) => status({ repoRoot });
   } else if (argv.length === 3 && argv[0] === 'dashboard'
