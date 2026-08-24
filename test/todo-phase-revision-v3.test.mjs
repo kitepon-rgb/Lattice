@@ -48,7 +48,7 @@ function manifestV2Fixture(activeRevisionDigest = 'a'.repeat(64)) {
 
 async function fixture(t, {
   initialEdge = false, desiredEdge = true, crlf = false, carryT2 = false, t2Status = 'pending',
-  initialDesignMemo = null, desiredDesignMemo = null, t1StatePolicy = 'carry',
+  digestCrlf = crlf, initialDesignMemo = null, desiredDesignMemo = null, t1StatePolicy = 'carry',
 } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-phase-v3-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -129,12 +129,13 @@ async function fixture(t, {
   desiredSeed.plan_version = phaseTodoRevisionPlanVersion({ projectId: 'project-1', planKey: 'main',
     predecessor, desiredPlan: desiredSeed, taskMigration, phaseMigration });
   const desiredPlan = buildTodoPlan(desiredSeed);
-  const sourceLines = ['- [ ] T1 source', '- [ ] T2 source']
+  const sourceTexts = ['- [ ] T1 source', '- [ ] T2 source'];
+  const sourceLines = sourceTexts
     .map((line) => `${line}${crlf ? '\r' : ''}`);
   const sourceCutoverBatch = { batch_id: 'phase-v3-cutover',
-    archive_ref: '.lattice/todo/source-ledger/cutover.md', operations: sourceLines.map((line, index) => ({
+    archive_ref: '.lattice/todo/source-ledger/cutover.md', operations: sourceTexts.map((line, index) => ({
       task_id: `T${index + 1}`, disposition: 'active', source_ref: `docs/plan.md#L${index + 1}`,
-      source_digest: createHash('sha256').update(line).digest('hex'),
+      source_digest: createHash('sha256').update(`${line}${digestCrlf ? '\r' : ''}`).digest('hex'),
       live_replacement: `- T${index + 1} state is managed by Lattice`,
     })), batch_digest: '' };
   sourceCutoverBatch.batch_digest = todoSelfDigest(sourceCutoverBatch, 'batch_digest');
@@ -612,6 +613,16 @@ test('phase v3 CRLF sourceはpublish crash後もCRをreceiptへbindしてretry�
     createHash('sha256').update(`${revision.source_cutover_batch.operations[0].live_replacement}\r`)
       .digest('hex'));
   assert.equal(receipt.source_cutover_receipt_digest, sourceReceipt.receipt_digest);
+});
+
+test('phase v3はLFで作ったrevisionをCRLF checkoutへ適用してreceiptを検証する', async (t) => {
+  const { root, revision, writer } = await fixture(t, { crlf: true, digestCrlf: false });
+  const receipt = await applyPhaseTodoRevision({ repoRoot: root, writer, revision, actor: ACTOR,
+    recordedAt: COMMIT_AT, now: COMMIT_AT });
+  assert.equal(receipt.revision_digest, revision.revision_digest);
+  const verified = await readTodoStore({ repoRoot: root, now: COMMIT_AT, hardVerify: true });
+  assert.equal(verified.members[0].revision.revision_digest, revision.revision_digest);
+  assert.match(await readFile(path.join(root, 'docs', 'plan.md'), 'utf8'), /\r\n/u);
 });
 
 test('phase v3 recoveryはstage traversalをrejectしtransaction外を削除しない', async (t) => {

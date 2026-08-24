@@ -44,6 +44,7 @@ import {
 } from './todo-structure-git-adapter.mjs';
 import { sha256Bytes, verifyLinearHashChain } from './hash-chain.mjs';
 import { gitCatFileBatch, gitSync } from './git-process.mjs';
+import { matchesTodoSourceLineDigest } from './todo-source-line-eol.mjs';
 import {
   parseTodoSourceRef,
   todoCutoverArchiveSourceRef,
@@ -1455,7 +1456,8 @@ function verifyPlanNarrativeAnchors(repoRoot, plan, trustedPlan = null, cache = 
       && canonicalizeTodoArtifact(previous) === canonicalizeTodoArtifact(anchor)) continue;
     try {
       const line = pinnedSourceLine(repoRoot, anchor, cache);
-      if (sha256Bytes(line) !== anchor.source_line_digest || markdownCheckboxState(line) === null) {
+      if (!matchesTodoSourceLineDigest(line, anchor.source_line_digest)
+        || markdownCheckboxState(line) === null) {
         throw new Error('anchor mismatch');
       }
     } catch {
@@ -3039,7 +3041,7 @@ async function sourceItemBytes(repoRoot, sourceRef) {
 async function verifyRevisionSources(repoRoot, inventory) {
   for (const entry of [...inventory.active, ...inventory.excluded_tombstones]) {
     const line = await sourceItemBytes(repoRoot, entry.source_ref);
-    if (sha256Bytes(line) !== entry.source_digest) {
+    if (!matchesTodoSourceLineDigest(line, entry.source_digest)) {
       fail('RECONCILIATION_INCOMPLETE', 'source_digest_mismatch', { source_ref: entry.source_ref });
     }
     if (markdownCheckboxState(line) === null) {
@@ -3396,9 +3398,9 @@ async function buildPhaseV3SourceReceipt(repoRoot, revision, transactionRef) {
       archive_ref: archiveRef, replacement: operation.live_replacement,
       staged_source_bytes_digest: operation.source_digest,
       published_source_bytes_digest: sha256Bytes(publishedBytes),
-      archived_source_bytes_digest: sha256Bytes(archivedBytes), entry_digest: '' };
+      archived_source_bytes_digest: operation.source_digest, entry_digest: '' };
     if (entry.published_source_bytes_digest !== sha256Bytes(expectedPublishedBytes)
-      || entry.archived_source_bytes_digest !== operation.source_digest) {
+      || !matchesTodoSourceLineDigest(archivedBytes, operation.source_digest)) {
       fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_receipt_bytes_mismatch');
     }
     entry.entry_digest = todoSelfDigest(entry, 'entry_digest');
@@ -3472,10 +3474,11 @@ async function verifyPhaseV3SourceReceipt(repoRoot, revision, receipt) {
     await safeRepoFile(repoRoot, archive.path);
     const publishedBytes = await sourceItemBytes(repoRoot, entry.published_ref);
     const archivedBytes = await sourceItemBytes(repoRoot, entry.archive_ref);
-    if (sha256Bytes(publishedBytes) !== entry.published_source_bytes_digest
-      || sha256Bytes(archivedBytes) !== entry.archived_source_bytes_digest
-      || entry.published_source_bytes_digest !== sha256Bytes(phaseV3PublishedSourceBytes(
-        revision.source_cutover_batch.operations[index], archivedBytes))) return false;
+    if (!matchesTodoSourceLineDigest(publishedBytes, entry.published_source_bytes_digest)
+      || !matchesTodoSourceLineDigest(archivedBytes, entry.archived_source_bytes_digest)
+      || !matchesTodoSourceLineDigest(phaseV3PublishedSourceBytes(
+        revision.source_cutover_batch.operations[index], archivedBytes),
+      entry.published_source_bytes_digest)) return false;
   }
   return true;
 }
@@ -3796,7 +3799,7 @@ async function buildSourceCutoverImages(repoRoot, revision) {
     if (line === undefined) fail('RECONCILIATION_INCOMPLETE', 'source_line_missing', {
       source_ref: operation.source_ref,
     });
-    if (sha256Bytes(line) !== operation.source_digest) {
+    if (!matchesTodoSourceLineDigest(line, operation.source_digest)) {
       fail('RECONCILIATION_INCOMPLETE', 'source_digest_mismatch', { source_ref: operation.source_ref });
     }
     if (markdownCheckboxState(line) === null) {
@@ -3904,7 +3907,7 @@ async function loadSourceCutoverStage(repoRoot, transaction, revision) {
       const source = parseTodoSourceRef(operation.source_ref);
       if (source.path !== file.ref) continue;
       const line = lines[source.line - 1];
-      if (line === undefined || sha256Bytes(line.bytes) !== operation.source_digest
+      if (line === undefined || !matchesTodoSourceLineDigest(line.bytes, operation.source_digest)
         || markdownCheckboxState(line.bytes) === null
         || !liveReplacementPreservesListStructure(line.bytes, operation.live_replacement)) {
         fail('SOURCE_CUTOVER_RECOVERY_REQUIRED', 'source_cutover_stage_invalid');

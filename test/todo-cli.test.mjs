@@ -334,6 +334,23 @@ test('todo reviseはcanonical revisionだけを発行しstatus/verifyへreconcil
   assert.equal(JSON.parse(drifted.stderr).code, 'RECONCILIATION_INCOMPLETE');
 });
 
+test('todo revise/verifyはsource inventoryのLF digestをCRLF checkoutでも照合する', async (context) => {
+  const root = await workspace(context);
+  const revision = await revisionInput(root);
+  await writeFile(path.join(root, 'plan.md'), '- [ ] T1\r\n- [ ] T2\r\n');
+  await writeCanonical(root, 'revision.json', revision);
+
+  const revised = runCli(root, ['todo', 'revise', '--plan', 'main', '--input', 'revision.json']);
+  assert.equal(revised.status, 0, revised.stderr);
+  const verified = runCli(root, ['todo', 'verify', '--plan', 'main']);
+  assert.equal(verified.status, 0, verified.stderr);
+
+  await writeFile(path.join(root, 'plan.md'), '- [ ] T1 changed\r\n- [ ] T2\r\n');
+  const drifted = runCli(root, ['todo', 'verify', '--plan', 'main']);
+  assert.equal(drifted.status, 1);
+  assert.equal(JSON.parse(drifted.stderr).detail.reason, 'source_digest_mismatch');
+});
+
 test('todo reviseのcarryは完了済みTaskのtest_resultを次版へ引き継ぐ', async (context) => {
   const root = await workspace(context);
   const { descriptor } = await evidenceFixture(root);

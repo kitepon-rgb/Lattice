@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.64.4 — 2026-08-25
+
+### 修正
+
+- source inventoryの行digestがcheckout後の行末CRを意味差として扱い、LFで作ったplanを
+  Windows CRLF checkoutで`todo verify`すると`source_digest_mismatch`になっていた。
+  source line境界だけでLF／CRLFを同一内容として照合し、本文差分は従来どおり拒否する。
+  source cutoverとreceiptも同じ照合契約を使い、実ファイルへは元のEOLを保持する。
+
 ## 0.64.3 — 2026-08-25
 
 ### 修正
