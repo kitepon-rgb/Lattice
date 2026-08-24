@@ -1090,7 +1090,6 @@ export async function runHooksCli({
   }
   const [command, , host] = argv;
   if (platform === 'win32') {
-    if (command === 'status') return status(host, env, stdout, source, platform, testHooks);
     return failure(stdout, 'HOST_PLATFORM_UNSUPPORTED', 'native Windows hooks are unsupported');
   }
   if (command === 'install') return mutate(host, env, stdout, false, source, platform, testHooks);

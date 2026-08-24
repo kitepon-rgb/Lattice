@@ -143,9 +143,9 @@ native Windowsでは`HOST_PLATFORM_UNSUPPORTED`を返し、設定やstateへ書�
   `hooks emit --host <host>`形はforeign candidateとして数えるだけで、所有物と推定しない。
 - `status`は`lattice.hooks_status_result.v1`の一行JSONで、`host`、`config_path`、`state`、
   `canonical_command`、`matched_handler_count`、`foreign_candidate_count`、`executable_ok`、
-  `next_action`を返す。stateは`wired|drift|not_wired|unreadable`である。`wired`は現canonical handlerが
+  `next_action`を返す（POSIX hostのみ）。stateは`wired|drift|not_wired|unreadable`である。`wired`は現canonical handlerが
   exactに1件、foreign candidateが0件、Nodeとscriptがともに実行可能な時だけである。matchedと
-  foreign candidateがともに0件なら`not_wired`、読取可能だがそれ以外なら`drift`、dir／file／platformを
+  foreign candidateがともに0件なら`not_wired`、読取可能だがそれ以外なら`drift`、dir／fileを
   安全に読めなければ`unreadable`とする。
   `unreadable`だけexit 1、その他はexit 0である。
 - `uninstall`は現canonical argvとreceiptのcommitted argvに完全一致するhandlerだけを除去し、

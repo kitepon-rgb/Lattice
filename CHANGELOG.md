@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.64.1 — 2026-08-24
+
+### 修正
+
+- native Windowsで`hooks install|uninstall|emit`がtyped
+  `HOST_PLATFORM_UNSUPPORTED`を返す一方、`hooks status`だけが
+  `lattice.hooks_status_result.v1 / state=unreadable`を返していた不整合を修正した。
+  native Windowsの全hooks commandは`lattice.hooks_error.v1 / HOST_PLATFORM_UNSUPPORTED`、
+  exit 1で揃い、設定やstateへ触れない。
+
 ## 0.64.0 — 2026-08-24
 
 ### 追加

@@ -900,8 +900,8 @@ test('P3 C4: self identityが0件なら status は not_wired を返す', async (
   assert.equal(value.foreign_candidate_count, 0);
 });
 
-// C4: dir/file不能、symlink、不正JSON、非POSIXはunreadable exit 1である。
-test('P3 C4: config不能/symlink/不正JSON/platform非対応は status unreadable exit 1 を返す', async (t) => {
+// C4: dir/file不能、symlink、不正JSONはunreadable、非POSIXはtyped unsupportedである。
+test('P3 C4: config不能/symlink/不正JSONはstatus unreadable、platform非対応はtyped errorを返す', async (t) => {
   const absentHost = await hooksFixture(t, 'claude', { createHost: false });
   const absent = runCli(['hooks', 'status', '--host', 'claude'], options(absentHost));
   assert.equal(absent.status, 1);
@@ -919,7 +919,7 @@ test('P3 C4: config不能/symlink/不正JSON/platform非対応は status unreada
   assert.equal(JSON.parse(symlinked.stdout).state, 'unreadable');
   const windows = await directCli(['status', '--host', 'claude'], invalid, { platform: 'win32' });
   assert.equal(windows.status, 1);
-  assert.equal(JSON.parse(windows.stdout).state, 'unreadable');
+  assert.equal(JSON.parse(windows.stdout).code, 'HOST_PLATFORM_UNSUPPORTED');
 });
 
 // C5: uninstallはreceipt照合したself identityだけをinner handler単位で除去する。
