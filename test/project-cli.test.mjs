@@ -373,6 +373,7 @@ test('壊れたstore配置はMarkdown fallbackせずtyped invalidを返す', asy
 test('Windows checkoutでCRLF化された旧storeは原因pathを案内し正規repairで復旧する', async (context) => {
   const root = await workspace(context);
   await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(createInput())}\n`);
+  await writeFile(path.join(root, 'user.txt'), 'baseline\n');
   const created = run(root, ['plan', 'create', '--input', 'plan.json']);
   assert.equal(created.status, 0, created.stderr);
   execFileSync('git', ['add', '.'], { cwd: root });
@@ -384,6 +385,7 @@ test('Windows checkoutでCRLF化された旧storeは原因pathを案内し正規
   await rm(path.join(root, '.lattice', '.gitattributes'));
   const canonical = await readFile(planPath, 'utf8');
   await writeFile(planPath, canonical.replaceAll('\n', '\r\n'));
+  await writeFile(path.join(root, 'user.txt'), 'user dirty change\n');
 
   const invalid = run(root, ['status', '--json']);
   assert.equal(invalid.status, 1, invalid.stderr);
@@ -407,6 +409,8 @@ test('Windows checkoutでCRLF化された旧storeは原因pathを案内し正規
   assert.equal(execFileSync('git', ['diff-files', '--quiet', '--', planRef], {
     cwd: root, encoding: 'utf8',
   }), '');
+  assert.deepEqual(execFileSync('git', ['status', '--short'], { cwd: root, encoding: 'utf8' })
+    .trim().split(/\r?\n/u), ['M user.txt']);
   assert.equal(JSON.parse(run(root, ['status', '--json']).stdout).state, 'ready');
 });
 
@@ -461,6 +465,30 @@ test('repair-eolはstaged artifactを変更前に拒否しindexとworktreeを保
   assert.deepEqual(await readFile(planPath), converted);
   assert.equal(await readFile(path.join(root, '.lattice', '.gitattributes'), 'utf8')
     .catch((error) => error.code), 'ENOENT');
+});
+
+test('repair-eolは内容が同じstaged mode変更をrefresh対象から外して保持する', async (context) => {
+  const root = await workspace(context);
+  await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(createInput())}\n`);
+  assert.equal(run(root, ['plan', 'create', '--input', 'plan.json']).status, 0);
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['-c', 'user.name=Lattice Test', '-c', 'user.email=lattice@example.invalid',
+    'commit', '--quiet', '-m', 'fixture'], { cwd: root });
+
+  const planRef = '.lattice/todo/plans/main/v1/plan.json';
+  execFileSync('git', ['config', 'core.filemode', 'true'], { cwd: root });
+  execFileSync('git', ['update-index', '--chmod=+x', '--', planRef], { cwd: root });
+  const stagedBefore = execFileSync('git', ['diff', '--cached', '--summary', '--', planRef], {
+    cwd: root, encoding: 'utf8',
+  });
+  assert.match(stagedBefore, /100644 => 100755/u);
+
+  const repaired = run(root, ['todo', 'repair-eol', '--json']);
+  assert.equal(repaired.status, 0, repaired.stderr);
+  assert.equal(JSON.parse(repaired.stdout).repaired_count, 0);
+  assert.equal(execFileSync('git', ['diff', '--cached', '--summary', '--', planRef], {
+    cwd: root, encoding: 'utf8',
+  }), stagedBefore);
 });
 
 test('repair-eolはstore root junctionを辿らずrepo外artifactを変更しない', async (context) => {

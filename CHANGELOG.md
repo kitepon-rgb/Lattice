@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.64.3 — 2026-08-25
+
+### 修正
+
+- 0.64.2の`repair-eol`はCRLF artifactをLFへ戻した後、unrelated dirty fileを持つrepoでは
+  `git add --refresh`がstat cacheを揃えず、store全体を内容差分ゼロの`M`表示で残して失敗していた。
+  staged entry（blob＋mode）＝HEADを先に実証した対象だけ`git update-index --refresh`へ渡し、CRLFが既に消えた
+  0.64.2の部分実行状態もcommand再実行だけで回復する。利用者のdirty／staged内容は変更しない。
+- 全product suiteをCPU並列するharness内で、複数のintegration fixtureがsensor parse workerをさらに
+  最大8本ずつprewarmし、Windowsの子processを`0xC0000005`で落としていた。製品runtimeは変えず、
+  product test childだけsingle-workerへ固定した。sensor自身の並列契約は独立`test:sensor` gateが維持する。
+
 ## 0.64.2 — 2026-08-25
 
 ### 修正

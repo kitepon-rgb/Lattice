@@ -22,6 +22,7 @@ test('product test child envはFORCE_COLORを除去しdashboard autostartを無�
   assert.equal(Object.hasOwn(childEnv, 'FORCE_COLOR'), false);
   assert.equal(childEnv.NO_COLOR, '1');
   assert.equal(childEnv.LATTICE_DASHBOARD_AUTOSTART, '0');
+  assert.equal(childEnv.LATTICE_SENSOR_PARSE_WORKERS, '1');
   assert.equal(childEnv.PATH, '/fixture/bin');
   assert.deepEqual(parentEnv, {
     PATH: '/fixture/bin',

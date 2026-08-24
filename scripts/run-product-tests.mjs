@@ -88,7 +88,12 @@ async function collectTests(directory, prefix = '') {
 }
 
 export function productTestEnvironment(parentEnv = process.env) {
-  const env = { ...parentEnv, LATTICE_DASHBOARD_AUTOSTART: '0' };
+  // product gateはsuite単位ですでに全CPU並列である。各integration fixtureが
+  // sensor init用WASM poolまで最大8本prewarmするとnested oversubscriptionになり、
+  // Windowsで複数の子processが0xC0000005になった。sensor自身の並列契約は
+  // 独立したtest:sensor gateが検証するため、このharness内だけsingle-workerにする。
+  const env = { ...parentEnv, LATTICE_DASHBOARD_AUTOSTART: '0',
+    LATTICE_SENSOR_PARSE_WORKERS: '1' };
   delete env.FORCE_COLOR;
   return env;
 }

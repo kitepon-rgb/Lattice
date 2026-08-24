@@ -106,13 +106,30 @@ async function prepareProtection(repoRoot) {
   return { absolute, create: false };
 }
 
+function stagedArtifactRefs(repoRoot, refs) {
+  const staged = new Set();
+  for (let offset = 0; offset < refs.length; offset += INDEX_REFRESH_BATCH_SIZE) {
+    const batch = refs.slice(offset, offset + INDEX_REFRESH_BATCH_SIZE);
+    const result = gitSpawnSync(['diff-index', '--cached', '--name-only', '-z', 'HEAD', '--', ...batch], {
+      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (result.error || result.signal || result.status !== 0) {
+      fail('git_index_artifacts_unreadable', { refs: batch, status: result.status ?? null });
+    }
+    for (const ref of (result.stdout ?? '').split('\0')) {
+      if (ref !== '') staged.add(ref.replaceAll('\\', '/'));
+    }
+  }
+  return staged;
+}
+
 function refreshGitIndex(repoRoot, refs) {
   for (let offset = 0; offset < refs.length; offset += INDEX_REFRESH_BATCH_SIZE) {
     const batch = refs.slice(offset, offset + INDEX_REFRESH_BATCH_SIZE);
-    const refresh = gitSpawnSync(['add', '--refresh', '--', ...batch], {
+    const refresh = gitSpawnSync(['update-index', '--refresh', '--', ...batch], {
       cwd: repoRoot, stdio: 'ignore',
     });
-    // git add --refresh は内容をstageせずstat cacheだけを更新する。対象pathは下のdiff-filesで検証する。
+    // 対象は呼出前にindex blob=HEADを実証済み。update-index --refreshで内容をstageせずstatだけを揃える。
     if (refresh.error || refresh.signal || ![0, 1].includes(refresh.status)) {
       fail('git_index_refresh_failed', { refs: batch, status: refresh.status ?? null });
     }
@@ -132,52 +149,64 @@ function refreshGitIndex(repoRoot, refs) {
 export async function repairTodoStoreWorktreeEol({ repoRoot }) {
   const protection = await prepareProtection(repoRoot);
   const refs = await collectArtifactRefs(repoRoot);
-  const converted = [];
+  const stagedRefs = stagedArtifactRefs(repoRoot, refs);
+  const artifacts = [];
   for (const ref of refs) {
     const absolute = path.join(repoRoot, ref);
     const stats = await safeRegularFileState(repoRoot, ref);
     const bytes = await readFile(absolute);
     const normalized = normalizePureCrlf(bytes, ref);
-    if (normalized === null) continue;
-    converted.push({
-      ref, absolute, sourceBytes: bytes, bytes: normalized, mode: stats.mode,
+    artifacts.push({
+      ref, absolute, sourceBytes: bytes, bytes: normalized ?? bytes, mode: stats.mode,
+      converted: normalized !== null,
     });
   }
 
   let headArtifacts = [];
   let indexArtifacts = [];
-  if (converted.length > 0) {
-    const maxBodyBytes = Math.max(...converted.map(({ bytes }) => bytes.length));
+  if (artifacts.length > 0) {
+    const maxBodyBytes = Math.max(...artifacts.map(({ bytes }) => bytes.length));
     try {
-      headArtifacts = gitCatFileBatch(converted.map(({ ref }) => `HEAD:${ref}`), {
+      headArtifacts = gitCatFileBatch(artifacts.map(({ ref }) => `HEAD:${ref}`), {
         cwd: repoRoot, maxBodyBytes,
       });
     } catch (error) {
       fail('git_head_artifacts_unreadable', { message: error.message });
     }
     try {
-      indexArtifacts = gitCatFileBatch(converted.map(({ ref }) => `:${ref}`), {
+      indexArtifacts = gitCatFileBatch(artifacts.map(({ ref }) => `:${ref}`), {
         cwd: repoRoot, maxBodyBytes,
       });
     } catch (error) {
       fail('git_index_artifacts_unreadable', { message: error.message });
     }
   }
-  for (const [index, artifact] of converted.entries()) {
+  const converted = [];
+  const refreshRefs = [];
+  for (const [index, artifact] of artifacts.entries()) {
     const head = headArtifacts[index];
-    if (head?.type !== 'blob' || !head.bytes.equals(artifact.bytes)) {
-      fail('artifact_not_pure_checkout_conversion', { ref: artifact.ref });
-    }
     const staged = indexArtifacts[index];
-    if (staged?.type !== 'blob' || !staged.bytes.equals(head.bytes)) {
-      fail('artifact_staged_change_present', { ref: artifact.ref });
+    if (artifact.converted) {
+      if (head?.type !== 'blob' || !head.bytes.equals(artifact.bytes)) {
+        fail('artifact_not_pure_checkout_conversion', { ref: artifact.ref });
+      }
+      if (stagedRefs.has(artifact.ref)
+        || staged?.type !== 'blob' || !staged.bytes.equals(head.bytes)) {
+        fail('artifact_staged_change_present', { ref: artifact.ref });
+      }
+      converted.push(artifact);
+    }
+    if (!stagedRefs.has(artifact.ref) && head?.type === 'blob' && staged?.type === 'blob'
+      && staged.bytes.equals(head.bytes) && artifact.bytes.equals(head.bytes)) {
+      refreshRefs.push(artifact.ref);
     }
   }
 
   for (const artifact of converted) {
     await atomicReplace({ repoRoot, ...artifact });
   }
-  refreshGitIndex(repoRoot, converted.map(({ ref }) => ref));
+  // 0.64.2がLF書換後のstat refreshで止まった部分状態も、再実行だけで回復させる。
+  refreshGitIndex(repoRoot, refreshRefs);
   if (protection.create) {
     await assertSafeDirectoryChain(repoRoot, path.posix.dirname(ATTRIBUTES_REF));
     await writeFile(protection.absolute, EOL_PROTECTION, { flag: 'wx' });
