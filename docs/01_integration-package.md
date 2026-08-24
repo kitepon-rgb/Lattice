@@ -113,16 +113,19 @@ subagent executor・packet `isolation_contract`・fingerprint境界検証・diff
 ## 5.1 hooks導線（sensor気づかせ導線）
 
 正典: [設計契約r5](evidence/2026-08-01-sah-p1-design-contract.md)。公開構文は
-`lattice hooks <install|status|uninstall|emit> --host <claude|codex>`で、v1はPOSIX専用とする。
+`lattice hooks <install|status|uninstall|emit> --host <claude|codex|cursor>`で、v1はPOSIX専用とする。
 native Windowsでは`HOST_PLATFORM_UNSUPPORTED`を返し、設定やstateへ書き込まない。
 
-- `install`はClaudeの`~/.claude/settings.json`またはCodexの`~/.codex/hooks.json`の
-  `hooks.UserPromptSubmit`へ、絶対Node実行体、実在する絶対`bin/lattice.mjs`、
-  `hooks emit --host <host>`からなるcanonical commandを1件だけ冪等マージする。pathはPOSIX shellで
+- `install`はClaudeの`~/.claude/settings.json`、Codexの`~/.codex/hooks.json`、またはCursorの
+  `~/.cursor/hooks.json`へ、絶対Node実行体、実在する絶対`bin/lattice.mjs`、
+  `hooks emit --host <host>`からなるcanonical commandを1件だけ冪等マージする。ClaudeとCodexは
+  `hooks.UserPromptSubmit`の入れ子handler、Cursorは`hooks.beforeSubmitPrompt`のflat
+  `{command, timeout}`である。Cursor envelopeをClaude形へ変換せず、工場のsessionStart hookは残す。
+  pathはPOSIX shellで
   argvを往復できるようquoteし、NUL・CR・LFを含むsourceは`INSTALL_SOURCE_UNRESOLVED`で拒否する。
-  両hostのhandler timeout keyは`timeout: 5`であり、`timeoutSec`は書かない。Codex handlerはさらに
-  `async: false`と`statusMessage: null`を持つ。成功schemaは`lattice.hooks_install_result.v1`、
-  stateは`wired|already_wired`である。
+  全hostのhandler timeout keyは`timeout: 5`であり、`timeoutSec`は書かない。Codex handlerはさらに
+  `async: false`と`statusMessage: null`を持つ。Cursor handlerは`type`を持たない。成功schemaは
+  `lattice.hooks_install_result.v1`、stateは`wired|already_wired`である。
 - 設定更新前には既存bytesのbackupをO_EXCL・0600で作り、fileと親directoryをfsyncする。
   preimage再検証、既存fileのhard-link退避、dev/ino再検証、atomic rename、親directory fsync、
   read-backを順に通す。不在設定は`link(tmp,target)`でno-clobber作成する。通常成功時はbackupと
@@ -152,19 +155,21 @@ native Windowsでは`HOST_PLATFORM_UNSUPPORTED`を返し、設定やstateへ書�
   `HOST_PLATFORM_UNSUPPORTED`、`HOST_NOT_PRESENT`、`INSTALL_SOURCE_UNRESOLVED`、
   `CONFIG_SYMLINK_UNSUPPORTED`、`CONFIG_UNREADABLE`、`INSTALL_RECEIPT_UNSAFE`、
   `CONFIG_WRITE_FAILED`、`RESTORE_FAILED`である。`USAGE`はexit 2、その他はexit 1である。
-- `emit`は最大64KiBのJSON stdinへ非空`session_id`と絶対`cwd`を要求する。
+- `emit`は最大64KiBのJSON stdinへ非空のsession識別子と絶対作業directoryを要求する。
+  Claude/Codexは`session_id`と絶対`cwd`、Cursorはそれらに加えて`conversation_id`と
+  `workspace_roots[0]`を受理する。payload全体をClaude形へcanonicalizeしない。
   `LATTICE_HOOKS=off`ならstateを作らず沈黙する。git repoかつ`.lattice/sensor/` directoryがある時だけ、
   session×repoで1回だけ通知する。通知markerは7日で回収されるため、同一session×repoでも7日経過後は
   再表示されうる。Claudeは
   `INFO: このrepoにはLattice sensor index（.lattice/sensor/）があります。コード構造の調査はsensor入口（MCP: lattice_sensor_explore 等／CLI: lattice sensor）を優先できます。`
   をplain 1行、Codexは`hookSpecificOutput.hookEventName: "UserPromptSubmit"`と同じ文の
-  `additionalContext`を持つ一行JSONで返す。
+  `additionalContext`を持つ一行JSON、Cursorは`{"additional_context": <同じINFO>}`の一行JSONで返す。
   通知stateは同じ`$XDG_STATE_HOME/lattice/hooks`配下に置き、`.shown`は7日、`.claim`は1時間を超える
   Lattice所有名だけ回収する。非git・index不在は沈黙する。不正stdin／出力失敗は`errors.log`へ記録して
   沈黙し、記録失敗時だけ一行診断へfallbackする。git／sensor／claim／shown／回収処理の判定不能は
   記録を試みたうえで常に一行診断を出す。state root自体が利用不能なら記録せず一行診断を出す。
 
-実装・CLI helpとの一致と上記安全則は[test/hooks-cli.test.mjs](../test/hooks-cli.test.mjs)の48件で固定する。
+実装・CLI helpとの一致と上記安全則は[test/hooks-cli.test.mjs](../test/hooks-cli.test.mjs)の51件で固定する。
 
 ## 5.5 native factory diagnosticsとruntime error store（工場必須要件・実装済み）
 

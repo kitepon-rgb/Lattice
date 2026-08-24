@@ -10,7 +10,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const INFO = 'INFO: このrepoにはLattice sensor index（.lattice/sensor/）があります。コード構造の調査はsensor入口（MCP: lattice_sensor_explore 等／CLI: lattice sensor）を優先できます。';
-const HOSTS = new Set(['claude', 'codex']);
+const HOSTS = new Set(['claude', 'codex', 'cursor']);
+const HOST_USAGE = 'usage: lattice hooks <install|status|uninstall|emit> --host <claude|codex|cursor>';
 const MAX_STDIN_BYTES = 64 * 1024;
 const SHOWN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const CLAIM_MAX_AGE_MS = 60 * 60 * 1000;
@@ -32,7 +33,22 @@ function failure(stdout, code, message, exit = 1, detail) {
 }
 
 function configPath(home, host) {
-  return path.join(home, host === 'claude' ? '.claude/settings.json' : '.codex/hooks.json');
+  if (host === 'claude') return path.join(home, '.claude/settings.json');
+  if (host === 'cursor') return path.join(home, '.cursor/hooks.json');
+  return path.join(home, '.codex/hooks.json');
+}
+
+function eventName(host) {
+  return host === 'cursor' ? 'beforeSubmitPrompt' : 'UserPromptSubmit';
+}
+
+function isFlatHost(host) {
+  return host === 'cursor';
+}
+
+function isCommandHandler(item, host) {
+  if (item === null || typeof item !== 'object' || typeof item.command !== 'string') return false;
+  return isFlatHost(host) || item.type === 'command';
 }
 
 function stateBase(env) {
@@ -314,15 +330,16 @@ async function withReceiptLock(env, host, operation) {
   }
 }
 
-function allHandlers(value) {
-  const list = value?.hooks?.UserPromptSubmit;
+function allHandlers(value, host) {
+  const list = value?.hooks?.[eventName(host)];
   if (!Array.isArray(list)) return [];
+  if (isFlatHost(host)) return list;
   return list.flatMap((wrapper) => Array.isArray(wrapper?.hooks) ? wrapper.hooks : []);
 }
 
-function configContains(value, argv) {
-  return allHandlers(value).some((item) => item?.type === 'command'
-    && typeof item.command === 'string' && commandIs(item.command, [argv]));
+function configContains(value, argv, host) {
+  return allHandlers(value, host).some((item) => isCommandHandler(item, host)
+    && commandIs(item.command, [argv]));
 }
 
 async function recoverReceipt(env, host, configTarget, testHooks) {
@@ -335,7 +352,7 @@ async function recoverReceipt(env, host, configTarget, testHooks) {
     const config = await readConfig(configTarget);
     const entries = receipt.entries.flatMap((entry) => {
       if (entry.status !== 'pending') return [entry];
-      return configContains(config.value, entry.argv) ? [{ ...entry, status: 'committed' }] : [];
+      return configContains(config.value, entry.argv, host) ? [{ ...entry, status: 'committed' }] : [];
     });
     const recovered = { ...receipt, entries };
     await writeReceiptUnlocked(target, recovered);
@@ -390,26 +407,37 @@ async function readConfig(target) {
     || Array.isArray(value.hooks))) {
     throw Object.assign(new Error('hooks is not an object'), { code: 'CONFIG_INVALID' });
   }
-  if (value.hooks?.UserPromptSubmit !== undefined && !Array.isArray(value.hooks.UserPromptSubmit)) {
-    throw Object.assign(new Error('UserPromptSubmit is not an array'), { code: 'CONFIG_INVALID' });
+  for (const name of ['UserPromptSubmit', 'beforeSubmitPrompt']) {
+    if (value.hooks?.[name] !== undefined && !Array.isArray(value.hooks[name])) {
+      throw Object.assign(new Error(`${name} is not an array`), { code: 'CONFIG_INVALID' });
+    }
   }
   return { existed: true, mode: info.mode & 0o777, bytes, value };
 }
 
-function hooksList(value) {
+function hooksList(value, host) {
+  const name = eventName(host);
   if (value.hooks === undefined) value.hooks = {};
-  if (value.hooks.UserPromptSubmit === undefined) value.hooks.UserPromptSubmit = [];
-  return value.hooks.UserPromptSubmit;
+  if (value.hooks[name] === undefined) value.hooks[name] = [];
+  return value.hooks[name];
 }
 
-function stripIdentity(value, identities) {
+function stripIdentity(value, identities, host) {
   let removed = 0;
-  const list = hooksList(value);
-  value.hooks.UserPromptSubmit = list.flatMap((wrapper) => {
+  const name = eventName(host);
+  const list = hooksList(value, host);
+  if (isFlatHost(host)) {
+    value.hooks[name] = list.filter((item) => {
+      const owned = isCommandHandler(item, host) && commandIs(item.command, identities);
+      if (owned) removed += 1;
+      return !owned;
+    });
+    return removed;
+  }
+  value.hooks[name] = list.flatMap((wrapper) => {
     if (!wrapper || !Array.isArray(wrapper.hooks)) return [wrapper];
     const handlers = wrapper.hooks.filter((item) => {
-      const owned = item?.type === 'command' && typeof item.command === 'string'
-        && commandIs(item.command, identities);
+      const owned = isCommandHandler(item, host) && commandIs(item.command, identities);
       if (owned) removed += 1;
       return !owned;
     });
@@ -419,9 +447,9 @@ function stripIdentity(value, identities) {
 }
 
 function hostHandler(host, command) {
-  return host === 'claude'
-    ? { type: 'command', command, timeout: 5 }
-    : { type: 'command', command, timeout: 5, async: false, statusMessage: null };
+  if (host === 'claude') return { type: 'command', command, timeout: 5 };
+  if (host === 'cursor') return { command, timeout: 5 };
+  return { type: 'command', command, timeout: 5, async: false, statusMessage: null };
 }
 
 export async function resolveStableNodePath(execPath, {
@@ -655,11 +683,17 @@ async function mutate(host, env, stdout, uninstall, source, platform, testHooks)
     }
     const identities = [current, ...committedIdentities(receipt)];
     const next = structuredClone(prestate.value);
-    const removed = stripIdentity(next, identities);
-    if (!uninstall) hooksList(next).push({ hooks: [hostHandler(host, shell(current))] });
+    if (host === 'cursor' && next.version === undefined) next.version = 1;
+    const removed = stripIdentity(next, identities, host);
+    if (!uninstall) {
+      const entry = hostHandler(host, shell(current));
+      if (isFlatHost(host)) hooksList(next, host).push(entry);
+      else hooksList(next, host).push({ hooks: [entry] });
+    }
 
-    const currentHandlers = allHandlers(prestate.value).filter((item) => item?.type === 'command'
-      && typeof item.command === 'string' && commandIs(item.command, identities));
+    const currentHandlers = allHandlers(prestate.value, host).filter((item) => (
+      isCommandHandler(item, host) && commandIs(item.command, identities)
+    ));
     const alreadyWired = !uninstall && currentHandlers.length === 1
       && commandIs(currentHandlers[0].command, [current])
       && exactHandler(currentHandlers[0], hostHandler(host, shell(current)));
@@ -755,8 +789,8 @@ async function status(host, env, stdout, source, platform, testHooks) {
   let canonicalMatches = 0;
   let foreign = 0;
   let canonicalShape = false;
-  for (const item of allHandlers(config.value)) {
-    if (item?.type !== 'command' || typeof item.command !== 'string') continue;
+  for (const item of allHandlers(config.value, host)) {
+    if (!isCommandHandler(item, host)) continue;
     if (commandIs(item.command, identities)) {
       matches += 1;
       if (commandIs(item.command, [argv])) {
@@ -805,6 +839,20 @@ async function diagnose(state, stdout, message, diagnostic) {
   stdout.write(`Lattice hooks: ${diagnostic}\n`);
 }
 
+function sessionIdFromEvent(event) {
+  for (const key of ['session_id', 'conversation_id']) {
+    if (typeof event?.[key] === 'string' && event[key].length > 0) return event[key];
+  }
+  return null;
+}
+
+function cwdFromEvent(event) {
+  if (typeof event?.cwd === 'string' && path.isAbsolute(event.cwd)) return event.cwd;
+  const root = event?.workspace_roots?.[0];
+  if (typeof root === 'string' && path.isAbsolute(root)) return root;
+  return null;
+}
+
 async function readHookInput(stdin) {
   const chunks = [];
   let length = 0;
@@ -820,14 +868,15 @@ async function readHookInput(stdin) {
   try { event = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch {
     throw new Error('hook stdin is not strict JSON');
   }
-  if (typeof event?.session_id !== 'string' || event.session_id.length === 0
-    || typeof event.cwd !== 'string' || !path.isAbsolute(event.cwd)) {
+  const sessionId = sessionIdFromEvent(event);
+  const cwdValue = cwdFromEvent(event);
+  if (sessionId === null || cwdValue === null) {
     throw new Error('hook stdin requires session_id and absolute cwd');
   }
   try {
-    const cwd = await realpath(event.cwd);
+    const cwd = await realpath(cwdValue);
     if (!(await lstat(cwd)).isDirectory()) throw new Error('cwd is not a directory');
-    return { ...event, cwd };
+    return { ...event, session_id: sessionId, cwd };
   } catch {
     throw new Error('hook cwd is unavailable');
   }
@@ -925,7 +974,9 @@ async function acquireClaim(claim) {
 }
 
 function outputLine(host) {
-  return host === 'claude' ? `${INFO}\n` : `${JSON.stringify({
+  if (host === 'claude') return `${INFO}\n`;
+  if (host === 'cursor') return `${JSON.stringify({ additional_context: INFO })}\n`;
+  return `${JSON.stringify({
     hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: INFO },
   })}\n`;
 }
@@ -1035,8 +1086,7 @@ export async function runHooksCli({
 }) {
   if (argv.length !== 3 || !['install', 'status', 'uninstall', 'emit'].includes(argv[0])
     || argv[1] !== '--host' || !HOSTS.has(argv[2])) {
-    return failure(stdout, 'USAGE',
-      'usage: lattice hooks <install|status|uninstall|emit> --host <claude|codex>', 2);
+    return failure(stdout, 'USAGE', HOST_USAGE, 2);
   }
   const [command, , host] = argv;
   if (platform === 'win32') {

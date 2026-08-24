@@ -19,6 +19,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const CLI = path.join(REPO_ROOT, 'bin', 'lattice.mjs');
 const SURFACE_CHECK = path.join(REPO_ROOT, 'scripts', 'verify-cli-surface.mjs');
 const REAL_HOME_SETTINGS = path.join(process.env.HOME, '.claude', 'settings.json');
+const REAL_HOME_CURSOR_HOOKS = path.join(process.env.HOME, '.cursor', 'hooks.json');
 const INFO = 'INFO: このrepoにはLattice sensor index（.lattice/sensor/）があります。コード構造の調査はsensor入口（MCP: lattice_sensor_explore 等／CLI: lattice sensor）を優先できます。';
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 
@@ -27,6 +28,7 @@ let suiteHome;
 let suiteState;
 let suiteConfig;
 let realHomeBefore;
+let realCursorBefore;
 
 async function snapshotFile(target) {
   try {
@@ -41,6 +43,7 @@ async function snapshotFile(target) {
 before(async () => {
   // Guardだけが実HOMEをread-only観測する。CLIへは一度も渡さない。
   realHomeBefore = await snapshotFile(REAL_HOME_SETTINGS);
+  realCursorBefore = await snapshotFile(REAL_HOME_CURSOR_HOOKS);
   suiteRoot = await mkdtemp(path.join(tmpdir(), 'lattice-hooks-suite-'));
   suiteHome = path.join(suiteRoot, 'home');
   suiteState = path.join(suiteRoot, 'xdg-state');
@@ -61,6 +64,15 @@ after(async () => {
       '実HOMEのClaude settings.jsonのmtimeを変えてはならない');
     assert.deepEqual(realHomeAfter.bytes, realHomeBefore.bytes,
       '実HOMEのClaude settings.jsonのbytesを変えてはならない');
+  }
+  const realCursorAfter = await snapshotFile(REAL_HOME_CURSOR_HOOKS);
+  assert.equal(realCursorAfter.exists, realCursorBefore.exists,
+    '実HOMEのCursor hooks.jsonの存在状態を変えてはならない');
+  if (realCursorBefore.exists) {
+    assert.equal(realCursorAfter.mtimeNs, realCursorBefore.mtimeNs,
+      '実HOMEのCursor hooks.jsonのmtimeを変えてはならない');
+    assert.deepEqual(realCursorAfter.bytes, realCursorBefore.bytes,
+      '実HOMEのCursor hooks.jsonのbytesを変えてはならない');
   }
   await rm(suiteRoot, { recursive: true, force: true });
 });
@@ -116,7 +128,9 @@ async function hooksFixture(context, host, { config, git = false, createHost = t
   const configHome = path.join(root, 'xdg-config');
   const configPath = host === 'claude'
     ? path.join(home, '.claude', 'settings.json')
-    : path.join(home, '.codex', 'hooks.json');
+    : host === 'cursor'
+      ? path.join(home, '.cursor', 'hooks.json')
+      : path.join(home, '.codex', 'hooks.json');
   await Promise.all([
     mkdir(home, { recursive: true, mode: 0o700 }),
     mkdir(stateHome, { recursive: true, mode: 0o700 }),
@@ -164,6 +178,15 @@ const FOREIGN_CODEX_HOOKS = JSON.stringify({
   },
   omega: 2,
 }, null, 2);
+const FOREIGN_CURSOR_HOOKS = JSON.stringify({
+  version: 1,
+  alpha: 1,
+  hooks: {
+    sessionStart: [{ command: '/factory/cursor-constitution-hook', timeout: 10 }],
+    beforeSubmitPrompt: [{ command: 'other-product --observe', timeout: 9 }],
+  },
+  omega: 2,
+}, null, 2);
 
 async function canonical(host) {
   return [await resolveStableNodePath(process.execPath), await realpath(CLI), 'hooks', 'emit', '--host', host];
@@ -184,8 +207,10 @@ function receiptPath(fixture, host) {
   return path.join(fixture.stateHome, 'lattice', 'hooks', 'installs', `${host}.json`);
 }
 
-function handlers(config) {
-  return config.hooks.UserPromptSubmit.flatMap((wrapper) => wrapper.hooks ?? []);
+function handlers(config, host = 'claude') {
+  const list = config.hooks?.[host === 'cursor' ? 'beforeSubmitPrompt' : 'UserPromptSubmit'] ?? [];
+  if (host === 'cursor') return list;
+  return list.flatMap((wrapper) => wrapper.hooks ?? []);
 }
 
 async function readJson(target) {
@@ -234,8 +259,12 @@ test('P3 C1: hooks の未知subcommandはtyped usageとして拒否される', (
   assert.equal(result.stderr, '');
 });
 
-test('P3 実CLI: Claude/Codexのinstall/status/uninstallとemitは隔離HOMEだけを使う', async (t) => {
-  for (const [host, config] of [['claude', FOREIGN_CLAUDE_HOOKS], ['codex', FOREIGN_CODEX_HOOKS]]) {
+test('P3 実CLI: Claude/Codex/Cursorのinstall/status/uninstallとemitは隔離HOMEだけを使う', async (t) => {
+  for (const [host, config] of [
+    ['claude', FOREIGN_CLAUDE_HOOKS],
+    ['codex', FOREIGN_CODEX_HOOKS],
+    ['cursor', FOREIGN_CURSOR_HOOKS],
+  ]) {
     const fixture = await hooksFixture(t, host, { config, git: true });
     const installed = runCli(['hooks', 'install', '--host', host], options(fixture));
     assert.equal(installed.status, 0, installed.stdout);
@@ -250,12 +279,13 @@ test('P3 実CLI: Claude/Codexのinstall/status/uninstallとemitは隔離HOMEだ�
     }));
     assert.equal(emitted.status, 0);
     if (host === 'claude') assert.equal(emitted.stdout, `${INFO}\n`);
+    else if (host === 'cursor') assert.equal(JSON.parse(emitted.stdout).additional_context, INFO);
     else assert.equal(JSON.parse(emitted.stdout).hookSpecificOutput.additionalContext, INFO);
   }
 });
 
 // C1: 4 subcommand と --host 構文の公開surface（emitも位置引数を許さない）。
-test('P3 C1: install/status/uninstall/emit は --host claude|codex のみを受理し、emit位置引数をusage拒否する', async (t) => {
+test('P3 C1: install/status/uninstall/emit は --host claude|codex|cursor のみを受理し、emit位置引数をusage拒否する', async (t) => {
   const fixture = await hooksFixture(t, 'claude', { config: '{}' });
   assert.equal(runCli(['hooks', 'install', '--host', 'claude'], options(fixture)).status, 0);
   assert.equal(runCli(['hooks', 'status', '--host', 'claude'], options(fixture)).status, 0);
@@ -263,6 +293,8 @@ test('P3 C1: install/status/uninstall/emit は --host claude|codex のみを受�
   assert.equal(runCli(['hooks', 'emit', '--host', 'claude'], options(fixture, {
     input: '{}', extraEnv: { LATTICE_HOOKS: 'off' },
   })).status, 0);
+  const cursor = await hooksFixture(t, 'cursor', { config: '{}' });
+  assert.equal(runCli(['hooks', 'install', '--host', 'cursor'], options(cursor)).status, 0);
   for (const bad of [
     ['hooks', 'emit', 'claude'], ['hooks', 'emit', '--host', 'other'],
     ['hooks', 'install', 'claude'], ['hooks', 'status', '--host'],
@@ -277,10 +309,10 @@ test('P3 C1: install/status/uninstall/emit は --host claude|codex のみを受�
 test('P3 C1: hooks namespace/subcommand helpとCLI surface COMMANDSは4 subcommandの同一構文を公開する', () => {
   assert.match(runCli(['--help']).stdout, /hooks <command>/u);
   const namespace = runCli(['hooks', '--help']).stdout;
-  assert.match(namespace, /<install\|status\|uninstall\|emit> --host <claude\|codex>/u);
+  assert.match(namespace, /<install\|status\|uninstall\|emit> --host <claude\|codex\|cursor>/u);
   for (const command of ['install', 'status', 'uninstall', 'emit']) {
     assert.match(runCli(['hooks', command, '--help']).stdout,
-      new RegExp(`hooks ${command} --host <claude\\|codex>`, 'u'));
+      new RegExp(`hooks ${command} --host <claude\\|codex\\|cursor>`, 'u'));
   }
   const surface = spawnSync(process.execPath, [SURFACE_CHECK], {
     cwd: REPO_ROOT, encoding: 'utf8', env: isolatedEnv(),
@@ -351,6 +383,23 @@ test('P3 C2: install は Codex のcanonical commandを絶対node/絶対mjs/hooks
     type: 'command', command: self[0].command, timeout: 5,
     async: false, statusMessage: null,
   }]);
+});
+
+test('P3 C2: install は Cursor のcanonical commandを beforeSubmitPrompt のflat {command,timeout} で1件だけ書く', async (t) => {
+  const fixture = await hooksFixture(t, 'cursor', { config: FOREIGN_CURSOR_HOOKS });
+  assert.equal(runCli(['hooks', 'install', '--host', 'cursor'], options(fixture)).status, 0);
+  const value = await readJson(fixture.configPath);
+  assert.equal(value.version, 1);
+  assert.deepEqual(value.hooks.sessionStart, [
+    { command: '/factory/cursor-constitution-hook', timeout: 10 },
+  ]);
+  const self = handlers(value, 'cursor').filter((item) => commandArgv(item.command).includes('hooks'));
+  assert.equal(self.length, 1);
+  assert.deepEqual(commandArgv(self[0].command), await canonical('cursor'));
+  assert.deepEqual(self[0], { command: self[0].command, timeout: 5 });
+  assert.equal(Object.hasOwn(self[0], 'type'), false);
+  assert.equal(Array.isArray(value.hooks.beforeSubmitPrompt), true);
+  assert.equal(value.hooks.beforeSubmitPrompt.some((item) => Array.isArray(item?.hooks)), false);
 });
 
 // C2: identityはinstall receipt照合だけであり、pendingはconfig実体との照合後に回復する。
@@ -550,7 +599,7 @@ test('P4 F6: pending receipt回復はlock取得後にconfigを再読してcommit
 
 // C3-1: host home dir不在はHOST_NOT_PRESENT exit 1で、dirを作らない。
 test('P3 C3-1: host home dir不在は HOST_NOT_PRESENT exit 1、設定dirを作らずに終了する', async (t) => {
-  for (const host of ['claude', 'codex']) {
+  for (const host of ['claude', 'codex', 'cursor']) {
     const fixture = await hooksFixture(t, host, { createHost: false });
     const result = runCli(['hooks', 'install', '--host', host], options(fixture));
     assert.equal(result.status, 1);
@@ -561,7 +610,7 @@ test('P3 C3-1: host home dir不在は HOST_NOT_PRESENT exit 1、設定dirを作�
 
 // C3-2: 設定file symlinkはCONFIG_SYMLINK_UNSUPPORTED exit 1で、一切書かない。
 test('P3 C3-2: Claude/Codex設定symlinkは CONFIG_SYMLINK_UNSUPPORTED exit 1、一切書かない', async (t) => {
-  for (const host of ['claude', 'codex']) {
+  for (const host of ['claude', 'codex', 'cursor']) {
     const fixture = await hooksFixture(t, host);
     const outside = path.join(fixture.root, `${host}-outside`);
     await writeFile(outside, 'outside-bytes');
@@ -640,6 +689,18 @@ test('P3 C3-6: foreign Claude/Codex hook同居fixtureでは他entry/key/順序�
     assert.deepEqual(commandArgv(value.hooks.UserPromptSubmit.at(-1).hooks[0].command),
       await canonical(host));
   }
+});
+
+test('P3 C3-6: foreign Cursor hook同居fixtureでは工場sessionStartと他keyを不変にしselfだけ末尾追加する', async (t) => {
+  const fixture = await hooksFixture(t, 'cursor', { config: FOREIGN_CURSOR_HOOKS });
+  runCli(['hooks', 'install', '--host', 'cursor'], options(fixture));
+  const value = await readJson(fixture.configPath);
+  assert.deepEqual(Object.keys(value), ['version', 'alpha', 'hooks', 'omega']);
+  assert.deepEqual(value.hooks.sessionStart, [
+    { command: '/factory/cursor-constitution-hook', timeout: 10 },
+  ]);
+  assert.equal(value.hooks.beforeSubmitPrompt[0].command, 'other-product --observe');
+  assert.deepEqual(commandArgv(value.hooks.beforeSubmitPrompt.at(-1).command), await canonical('cursor'));
 });
 
 // C3-7: existed:falseはlink(tmp,target) no-clobberでcommitし、EEXISTは再読込re-mergeする。
@@ -1112,15 +1173,17 @@ test('P4 F4-5: output成功後のclaim rename失敗はshownを直接wx作成し�
 });
 
 // C6: Claude出力は指定INFO文のplain 1行、CodexはASCII hookSpecificOutput envelopeである。
-test('P3 C6 output: Claudeは指定INFO plain 1行、CodexはASCII hookSpecificOutput envelopeを返す', async (t) => {
-  for (const host of ['claude', 'codex']) {
+test('P3 C6 output: Claudeは指定INFO plain 1行、CodexはASCII hookSpecificOutput、Cursorはadditional_context envelopeを返す', async (t) => {
+  for (const host of ['claude', 'codex', 'cursor']) {
     const fixture = await hooksFixture(t, host, { git: true });
     await mkdir(path.join(fixture.root, '.lattice', 'sensor'), { recursive: true });
     const result = runCli(['hooks', 'emit', '--host', host], options(fixture, {
       input: JSON.stringify({ session_id: `output-${host}`, cwd: fixture.root }),
     }));
     if (host === 'claude') assert.equal(result.stdout, `${INFO}\n`);
-    else {
+    else if (host === 'cursor') {
+      assert.deepEqual(JSON.parse(result.stdout), { additional_context: INFO });
+    } else {
       assert.equal(/^[\x00-\x7F]*$/u.test(result.stdout), false,
         'additionalContextの日本語だけがnon-ASCIIで、envelope keyはASCIIである');
       const value = JSON.parse(result.stdout);
@@ -1131,4 +1194,18 @@ test('P3 C6 output: Claudeは指定INFO plain 1行、CodexはASCII hookSpecificO
       assert.equal(/^[\x00-\x7F]+$/u.test('hookSpecificOutput hookEventName additionalContext'), true);
     }
   }
+});
+
+test('P3 C6 input: Cursor emitは conversation_id と workspace_roots[0] をsession/cwdとして受理する', async (t) => {
+  const fixture = await hooksFixture(t, 'cursor', { git: true });
+  await mkdir(path.join(fixture.root, '.lattice', 'sensor'), { recursive: true });
+  const result = runCli(['hooks', 'emit', '--host', 'cursor'], options(fixture, {
+    input: JSON.stringify({
+      conversation_id: 'conv-cursor',
+      workspace_roots: [fixture.root],
+      prompt: 'hello',
+    }),
+  }));
+  assert.equal(result.status, 0, result.stdout);
+  assert.deepEqual(JSON.parse(result.stdout), { additional_context: INFO });
 });

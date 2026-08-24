@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.64.0 — 2026-08-24
+
+### 追加
+
+- `lattice hooks` に `--host cursor` を足した。設定先は `~/.cursor/hooks.json` の
+  `beforeSubmitPrompt` で、Throughline / Caveat と同じ flat `{command, timeout: 5}` を
+  冪等マージする。Claude / Codex の入れ子 `UserPromptSubmit` は変えない。
+  emit は Cursor の `conversation_id` / `workspace_roots` を読み、
+  `{"additional_context": ...}` を返す。工場の sessionStart hook は残す。
+
 ## 0.63.10 — 2026-08-24
 
 ### 変更
