@@ -973,9 +973,20 @@ function validateCrossPlanDependencyTransition(store, owner, input) {
   if (from.project_id !== store.project_id || to.project_id !== store.project_id) {
     fail('DEPENDENCY_INVALID', 'dependency_project_mismatch');
   }
-  if (from.plan_key === to.plan_key) fail('DEPENDENCY_INVALID', 'dependency_must_cross_plans');
+  // 同一plan内の後追い接続も受ける（2026-08-25 オーナー裁定）。「工程の線を誤ったので足す」という
+  // 当たり前の修理を、source cutover込みのplan改訂トランザクションへ格上げする門は、能力を守らない
+  // 防御でしかなかった。ready計算・gantt描画・start/doneゲートはmergedTaskKeyでplan非依存に動くため、
+  // 跨ぎと同じ台帳・同じ検査（束縛digest・重複・自己辺・循環）でそのまま成立する。
+  if (mergedTaskKey(from) === mergedTaskKey(to)) {
+    fail('DEPENDENCY_INVALID', 'dependency_self_reference');
+  }
   if (to.plan_key !== owner.plan.plan_key || to.project_id !== owner.plan.project_id) {
     fail('DEPENDENCY_INVALID', 'dependency_owner_mismatch');
+  }
+  // 同一planでは、plan本体が既に持つhard依存と同じ辺を二重に記録しない
+  if (from.plan_key === to.plan_key && owner.plan.hard_dependencies.some((edge) => (
+    edge.from.task_id === from.task_id && edge.to.task_id === to.task_id))) {
+    fail('DEPENDENCY_EXISTS', 'dependency_already_in_plan', { from, to });
   }
   const source = crossPlanDependencyTask(store, from);
   const target = crossPlanDependencyTask(store, to);

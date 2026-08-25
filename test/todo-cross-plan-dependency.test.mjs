@@ -111,7 +111,7 @@ test('同一plan・重複・stale binding・cycleをtyped拒否する', async (c
   const { root, ref, connect } = await workspace(context);
 
   await assert.rejects(() => connect({ fromPlan: 'producer', fromTask: 'P', toPlan: 'producer', toTask: 'P' }),
-    (error) => error.code === 'DEPENDENCY_INVALID' && error.detail.reason === 'dependency_must_cross_plans');
+    (error) => error.code === 'DEPENDENCY_INVALID' && error.detail.reason === 'dependency_self_reference');
 
   await connect();
   await assert.rejects(() => connect(),
@@ -199,4 +199,68 @@ test('公開helpは発見時接続のexact argvを案内する', () => {
   });
   assert.match(help, /todo dependency connect --from-plan <key> --from-task <id>/u);
   assert.match(help, /--to-plan <key> --to-task <id> --reason <text>/u);
+});
+
+test('同一plan内の後追い接続を受理し、plan辺重複・循環はtyped拒否する', async (context) => {
+  // 2026-08-25 オーナー裁定: 「工程の線を誤ったので足す」をplan改訂トランザクションへ
+  // 格上げしていた dependency_must_cross_plans 門を撤去した。跨ぎと同じ台帳・同じ検査で受ける。
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-same-plan-dependency-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  execFileSync('git', ['init', '--quiet'], { cwd: root });
+  execFileSync('git', ['config', 'user.name', 'test'], { cwd: root });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
+  await writeFile(path.join(root, 'evidence.md'), '# evidence\n');
+  execFileSync('git', ['add', 'evidence.md'], { cwd: root });
+  execFileSync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: root });
+  const edge = (fromTask, toTask) => ({
+    from: { project_id: 'project-1', plan_key: 'solo', task_id: fromTask },
+    to: { project_id: 'project-1', plan_key: 'solo', task_id: toTask },
+  });
+  await initializeTodoStore({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g4-migration' }),
+    projectId: 'project-1', repositories: [{ repo_id: 'self', path: '.' }],
+    plans: [{
+      plan: {
+        schema: 'lattice.todo_plan.v1', project_id: 'project-1', plan_key: 'solo',
+        plan_version: 'v1', predecessor_plan_digest: null,
+        tasks: [task('A'), task('B'), task('C')], hard_dependencies: [edge('A', 'B')], joins: [],
+      },
+      genesis: { actor: ACTOR, recorded_at: NOW },
+    }],
+    now: NOW,
+  });
+  const read = () => readTodoStore({ repoRoot: root, now: NOW });
+  const ref = async (taskId) => {
+    const store = await read();
+    const member = store.members.find(({ plan: value }) => value.plan_key === 'solo');
+    return {
+      project_id: 'project-1', plan_key: 'solo', task_id: taskId,
+      expected_topology_digest: member.plan.topology_digest,
+    };
+  };
+  const connect = async (fromTask, toTask, reason = '線の修理') => appendTodoEvent({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), planKey: 'solo', now: NOW,
+    event: {
+      kind: 'cross_plan_dependency', actor: ACTOR, recorded_at: NOW,
+      payload: { from: await ref(fromTask), to: await ref(toTask), reason },
+    },
+  });
+
+  // 成立: B→C を後追いで張れる
+  const { event } = await connect('B', 'C');
+  assert.equal(event.payload.from.plan_key, 'solo');
+  assert.equal(event.payload.to.plan_key, 'solo');
+  const after = await read();
+  assert.deepEqual(
+    projectTodoCrossPlanDependencies(after.members).map(({ from, to }) => [from.task_id, to.task_id]),
+    [['B', 'C']],
+  );
+
+  // plan本体のhard依存と同じ辺は二重記録しない
+  await assert.rejects(() => connect('A', 'B'),
+    (error) => error.code === 'DEPENDENCY_EXISTS' && error.detail.reason === 'dependency_already_in_plan');
+
+  // plan辺A→B＋後追いB→Cと合わせて循環になる接続は拒否する
+  await assert.rejects(() => connect('C', 'A'),
+    (error) => error.code === 'DEPENDENCY_CYCLE' && error.detail.reason === 'cross_plan_dependency_cycle');
 });

@@ -996,7 +996,7 @@ async function independenceMode({ repoRoot, env, planKey, mode, reason }) {
   return result;
 }
 
-/** 開発中に発見したplan跨ぎ依存を、consumer planのplan-scoped chainへ接続する。 */
+/** 開発中に発見した依存（同一plan内・plan跨ぎとも）を、consumer planのplan-scoped chainへ接続する。 */
 async function dependencyConnect({
   repoRoot, env, fromPlanKey, fromTaskId, toPlanKey, toTaskId, reason,
 }) {
