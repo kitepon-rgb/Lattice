@@ -110,6 +110,7 @@ Write commands:
   evidence promote --plan <key> --task <id> --evidence <file>
       # done状態と完了時刻を維持し、最新doneへ追記eventで証拠を再束縛する
   dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>
+  dependency disconnect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>
       # 開発中に発見した依存を明示接続する（同一plan内・plan跨ぎとも）。依存の自動推定は行わない
   independence compile --plan <key> --input <file>  # witness setとsensorから並列可否を記録する
   independence witness migrate --plan <key>  # revision後の宣言をtask migrationで写す
@@ -281,6 +282,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo evidence promote': 'todo evidence promote --plan <key> --task <id> --evidence <file>',
   'todo dependency': 'todo dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>',
   'todo dependency connect': 'todo dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>',
+  'todo dependency disconnect': 'todo dependency disconnect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>',
   'todo split': 'todo split --plan <key> --input <file>',
   'todo revise': 'todo revise --plan <key> --input <file> | --schema --json',
   'todo revise-phase': 'todo revise-phase --plan <key> --input <file> | --schema --json',

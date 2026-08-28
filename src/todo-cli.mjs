@@ -1047,6 +1047,44 @@ async function dependencyConnect({
   return result;
 }
 
+// connectの対。誤って張った線の除去（tombstone）。端点で一意に生きた接続を特定し、
+// その接続eventが積まれているplanのplan-scoped chainへ除去eventを積む。
+async function dependencyDisconnect({
+  repoRoot, env, fromPlanKey, fromTaskId, toPlanKey, toTaskId, reason,
+}) {
+  const store = await readTodoStore({ repoRoot });
+  const live = projectTodoCrossPlanDependencies(store.members).filter((dependency) => (
+    dependency.from.plan_key === fromPlanKey && dependency.from.task_id === fromTaskId
+    && dependency.to.plan_key === toPlanKey && dependency.to.task_id === toTaskId
+  ));
+  if (live.length === 0) {
+    throw new TodoStoreError('DEPENDENCY_INVALID', 'cross_plan_dependency_not_found', undefined, {
+      from: { plan_key: fromPlanKey, task_id: fromTaskId },
+      to: { plan_key: toPlanKey, task_id: toTaskId },
+    });
+  }
+  const [target] = live;
+  const owner = store.members.find((member) => (member.plan_scoped?.events ?? [])
+    .some((event) => event.event_digest === target.event_digest));
+  const { event } = await appendTodoEvent({
+    repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), planKey: owner.plan.plan_key,
+    event: {
+      kind: 'cross_plan_dependency_removed', actor: mutationActor(env),
+      payload: { target_event_digest: target.event_digest, reason },
+    },
+  });
+  const result = {
+    schema: 'lattice.todo_dependency_disconnect_result.v1', project_id: store.project_id,
+    from: target.from, to: target.to, reason,
+    removed_event_digest: target.event_digest,
+    disconnected_by: event.actor, disconnected_at: event.recorded_at,
+    event_digest: event.event_digest,
+    result_digest: '',
+  };
+  result.result_digest = todoSelfDigest(result, 'result_digest');
+  return result;
+}
+
 async function phaseStatus({ repoRoot, planKey }) {
   const store = await readTodoStore({ repoRoot });
   const [member] = selectMembers(store, planKey);
@@ -3434,7 +3472,7 @@ function writesTodoStore(argv) {
       || (second === 'input' && !argv.includes('--dry-run'));
     case 'seam-proposal': return ['compile', 'apply', 'land'].includes(second);
     case 'evidence': return second === 'promote';
-    case 'dependency': return second === 'connect';
+    case 'dependency': return ['connect', 'disconnect'].includes(second);
     case 'phase': return second !== 'status';
     case 'start': case 'retract': case 'block': case 'unblock': case 'retire': case 'done':
     case 'reopen': case 'split': case 'revise': case 'revise-phase': case 'revise-set':
@@ -3710,6 +3748,16 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     && argv[8] === '--to-task' && isTodoIdentifier(argv[9])
     && argv[10] === '--reason' && argv[11].length > 0) {
     action = (repoRoot) => dependencyConnect({
+      repoRoot, env, fromPlanKey: argv[3], fromTaskId: argv[5],
+      toPlanKey: argv[7], toTaskId: argv[9], reason: argv[11],
+    });
+  } else if (argv.length === 12 && argv[0] === 'dependency' && argv[1] === 'disconnect'
+    && argv[2] === '--from-plan' && isTodoIdentifier(argv[3])
+    && argv[4] === '--from-task' && isTodoIdentifier(argv[5])
+    && argv[6] === '--to-plan' && isTodoIdentifier(argv[7])
+    && argv[8] === '--to-task' && isTodoIdentifier(argv[9])
+    && argv[10] === '--reason' && argv[11].length > 0) {
+    action = (repoRoot) => dependencyDisconnect({
       repoRoot, env, fromPlanKey: argv[3], fromTaskId: argv[5],
       toPlanKey: argv[7], toTaskId: argv[9], reason: argv[11],
     });

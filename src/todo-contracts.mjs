@@ -16,11 +16,14 @@ export const TODO_EVENT_KINDS = Object.freeze([
   // 開発中に発見したplan跨ぎの依存を、active plan topologyの追記改変ではなく
   // version-boundなplan-scoped eventとして接続する。推定はせず、AIが発見した時だけ積む。
   'cross_plan_dependency',
+  // 誤って張った接続の除去（connectの対・2026-08-29オーナー裁定系）。対象eventのdigestを指す
+  // tombstoneとして積み、projectionが両方を読んで線を消す。歴史は書き換えない。
+  'cross_plan_dependency_removed',
 ]);
 
 /** planへ帰属し、taskにもPhaseにも属さないevent kind。 */
 export const TODO_PLAN_SCOPED_EVENT_KINDS = Object.freeze([
-  'coordination_mode', 'cross_plan_dependency',
+  'coordination_mode', 'cross_plan_dependency', 'cross_plan_dependency_removed',
 ]);
 
 /** 調整方式。witness=独立性を宣言し検証して並列する／conversation=会話で調整する。 */
@@ -522,6 +525,11 @@ function validPayload(event) {
       && isTodoIdentifier(value.task_id) && isTodoDigest(value.expected_topology_digest);
     return exactRecord(payload, ['from', 'to', 'reason'])
       && dependencyRef(payload.from) && dependencyRef(payload.to)
+      && nullableText(payload.reason) && payload.reason !== null;
+  }
+  if (event.kind === 'cross_plan_dependency_removed') {
+    return exactRecord(payload, ['target_event_digest', 'reason'])
+      && isTodoDigest(payload.target_event_digest)
       && nullableText(payload.reason) && payload.reason !== null;
   }
   if (event.kind === 'start') return exactRecord(payload, ['override_reason']) && nullableText(payload.override_reason);

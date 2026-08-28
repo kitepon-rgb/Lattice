@@ -264,3 +264,35 @@ test('同一plan内の後追い接続を受理し、plan辺重複・循環はtyp
   await assert.rejects(() => connect('C', 'A'),
     (error) => error.code === 'DEPENDENCY_CYCLE' && error.detail.reason === 'cross_plan_dependency_cycle');
 });
+
+test('dependency disconnectは誤接続をtombstoneで消し、二重除去と不在を拒否する', async (context) => {
+  const { root } = await workspace(context);
+  const run = async (argv) => {
+    let out = '';
+    let err = '';
+    const code = await runTodoCli({
+      argv, cwd: root,
+      stdout: { write: (chunk) => { out += chunk; } },
+      stderr: { write: (chunk) => { err += chunk; } },
+      env: { ...process.env, LATTICE_TODO_ACTOR_HOST: 'host-1', LATTICE_TODO_ACTOR_SESSION: 'session-1',
+        LATTICE_TODO_ACTOR_AGENT: 'agent-1', LATTICE_DASHBOARD_AUTOSTART: '0' },
+    });
+    return { code, out, err };
+  };
+  const edge = ['--from-plan', 'producer', '--from-task', 'P', '--to-plan', 'consumer', '--to-task', 'C'];
+  const connect = await run(['dependency', 'connect', ...edge, '--reason', '誤接続の再現']);
+  assert.equal(connect.code, 0, connect.err);
+  let store = await readTodoStore({ repoRoot: root });
+  assert.equal(projectTodoCrossPlanDependencies(store.members).length, 1);
+  const disconnect = await run(['dependency', 'disconnect', ...edge, '--reason', '方向を誤ったため除去']);
+  assert.equal(disconnect.code, 0, disconnect.err);
+  assert.equal(JSON.parse(disconnect.out).schema, 'lattice.todo_dependency_disconnect_result.v1');
+  store = await readTodoStore({ repoRoot: root });
+  assert.equal(projectTodoCrossPlanDependencies(store.members).length, 0, '線が消える');
+  const again = await run(['dependency', 'disconnect', ...edge, '--reason', '二重除去']);
+  assert.notEqual(again.code, 0, '既に消えた線の再除去は拒否');
+  const reconnect = await run(['dependency', 'connect', ...edge, '--reason', '張り直し']);
+  assert.equal(reconnect.code, 0, '除去後の張り直しは重複でない');
+  store = await readTodoStore({ repoRoot: root });
+  assert.equal(projectTodoCrossPlanDependencies(store.members).length, 1);
+});

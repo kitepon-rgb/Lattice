@@ -407,9 +407,15 @@ export function projectTodoCoordination(events) {
  * 記録された線だけを返す。順序はtask identityで固定し、status/Ganttが同じ入力を見る。
  */
 export function projectTodoCrossPlanDependencies(members) {
+  // 除去tombstoneを先に集め、指された接続を線として数えない（歴史は両eventとも残る）
+  const removed = new Set();
+  for (const member of members) for (const event of member.plan_scoped?.events ?? []) {
+    if (event.kind === 'cross_plan_dependency_removed') removed.add(event.payload.target_event_digest);
+  }
   const dependencies = [];
   for (const member of members) for (const event of member.plan_scoped?.events ?? []) {
     if (event.kind !== 'cross_plan_dependency') continue;
+    if (removed.has(event.event_digest)) continue;
     dependencies.push({
       from: event.payload.from,
       to: event.payload.to,
@@ -2039,6 +2045,19 @@ export async function appendTodoEvent(options = {}) {
     if (TODO_PLAN_SCOPED_EVENT_KINDS.includes(options.event.kind)) {
       if (options.event.kind === 'cross_plan_dependency') {
         validateCrossPlanDependencyTransition(store, member, options.event);
+      }
+      if (options.event.kind === 'cross_plan_dependency_removed') {
+        const digest = options.event.payload.target_event_digest;
+        const events = member.plan_scoped?.events ?? [];
+        const target = events.find((entry) => entry.kind === 'cross_plan_dependency'
+          && entry.event_digest === digest);
+        if (target === undefined) {
+          fail('DEPENDENCY_INVALID', 'cross_plan_dependency_not_found', { target_event_digest: digest });
+        }
+        if (events.some((entry) => entry.kind === 'cross_plan_dependency_removed'
+          && entry.payload.target_event_digest === digest)) {
+          fail('DEPENDENCY_INVALID', 'cross_plan_dependency_already_removed', { target_event_digest: digest });
+        }
       }
       return appendPlanScopedEvent({
         repoRoot, member,
