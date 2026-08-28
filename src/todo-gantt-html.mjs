@@ -81,6 +81,8 @@ function normalizeSections(readModel, narratives, anchorOutcomes, noteContexts) 
   for (const member of readModel.members) {
     const states = new Map(member.tasks.map((state) => [state.task_id, state]));
     for (const task of member.plan.tasks) {
+      // retired（恒久除去）は図にも詳細パネルにも出さない。履歴と理由はsnapshot/journalが持つ。
+      if (states.get(task.task_id)?.status === 'retired') continue;
       const ref = { project_id: member.plan.project_id, plan_key: member.plan.plan_key, task_id: task.task_id };
       const narrative = supplied.get(refKey(ref));
       const markdown = narrative?.markdown ?? '';
