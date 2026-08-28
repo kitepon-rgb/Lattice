@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { isCanonicalUtcTimestamp } from './timestamp-contract.mjs';
 
 export const TODO_EVENT_KINDS = Object.freeze([
-  'plan_genesis', 'start', 'start_retracted', 'block', 'unblock', 'done', 'reopen',
+  'plan_genesis', 'start', 'start_retracted', 'block', 'unblock', 'retire', 'done', 'reopen',
   'phase_review', 'phase_accept', 'phase_reject', 'phase_reopen',
   // ADR 0148: 監査していない歴史を「監査なしで閉じた」として明示的に閉じるための専用kind。
   // phase_review/accept/reject/reopenと同じv3 tail event shape(phase_id持ち)に収め、
@@ -530,6 +530,9 @@ function validPayload(event) {
     && isTodoDigest(payload.target_start_digest);
   if (event.kind === 'block') return exactRecord(payload, ['reason']) && nullableText(payload.reason) && payload.reason !== null;
   if (event.kind === 'unblock') return exactRecord(payload, []);
+  // retire: 消費計画が消えた工程の恒久除去（ADR 0147系の状態遷移に足す軽量kind・2026-08-29オーナー裁定）。
+  // 理由必須。blocked_reasonのfieldを理由の置き場として再利用し、state recordの形を変えない。
+  if (event.kind === 'retire') return exactRecord(payload, ['reason']) && nullableText(payload.reason) && payload.reason !== null;
   if (event.kind === 'done' && payload?.done_mode === 'authored') {
     return (exactRecord(payload, ['done_mode', 'imported', 'evidence'])
       || exactRecord(payload, ['done_mode', 'imported', 'evidence', 'test_result']))
@@ -582,7 +585,7 @@ function validCarriedState(value) {
   const resultAware = exactRecord(value, [
     'status', 'started_at', 'done_at', 'blocked_reason', 'evidence', 'imported', 'test_result',
   ]);
-  if ((!legacy && !resultAware) || !['pending', 'in-progress', 'blocked', 'done'].includes(value.status)
+  if ((!legacy && !resultAware) || !['pending', 'in-progress', 'blocked', 'retired', 'done'].includes(value.status)
     || (value.started_at !== null && !isStrictTodoTimestamp(value.started_at))
     || (value.done_at !== null && !isStrictTodoTimestamp(value.done_at))
     || (value.blocked_reason !== null && !nullableText(value.blocked_reason))
@@ -599,6 +602,9 @@ function validCarriedState(value) {
     && activeEvidenceValid && testResult === null;
   if (value.status === 'blocked') return value.done_at === null && value.blocked_reason !== null
     && activeEvidenceValid && testResult === null;
+  // retired: 実行されないまま恒久に閉じた工程。理由はblocked_reasonが持ち、証拠・試験結果は持たない。
+  if (value.status === 'retired') return value.done_at === null && value.blocked_reason !== null
+    && value.evidence === null && testResult === null;
   return value.blocked_reason === null && value.evidence !== null
     // importedは完了状態の来歴を表す。evidence_promotion後もtrueを維持するため、
     // imported doneの現在証拠はimport sourceまたは通常evidence descriptorのどちらも有効。
@@ -737,7 +743,7 @@ export function validateTodoSnapshot(value) {
       && value.tasks.every((entry) => exactRecord(entry, [
         'task_id', 'status', 'started_at', 'done_at', 'blocked_reason', 'evidence', 'evidence_unverified', 'imported',
         ...(resultAware ? ['test_result'] : []),
-      ]) && isTodoIdentifier(entry.task_id) && ['pending', 'in-progress', 'blocked', 'done'].includes(entry.status)
+      ]) && isTodoIdentifier(entry.task_id) && ['pending', 'in-progress', 'blocked', 'retired', 'done'].includes(entry.status)
         && (entry.started_at === null || isStrictTodoTimestamp(entry.started_at))
         && (entry.done_at === null || isStrictTodoTimestamp(entry.done_at)) && nullableText(entry.blocked_reason)
         && (entry.evidence === null || evidence(entry.evidence) || validateTodoImportSource(entry.evidence))

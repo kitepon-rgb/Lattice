@@ -439,7 +439,8 @@ function derivedPhaseStatus(plan, taskStates, phaseStates, phaseId) {
   // 存在しない)ため、所属taskをフィルタで絞らずplan全taskとして扱う。
   const tasks = phaseId === TERMINAL_AUDIT_PHASE_ID && isPhaselessTodoPlanSchema(plan.schema)
     ? plan.tasks : plan.tasks.filter((entry) => entry.phase_id === phaseId);
-  return tasks.every((entry) => taskStates.get(entry.task_id)?.status === 'done') ? 'gate_ready' : 'active';
+  // retiredは「実行されないまま閉じた」工程であり、Phase完了の妨げにしない（全taskがretiredのPhaseも閉じられる）
+  return tasks.every((entry) => ['done', 'retired'].includes(taskStates.get(entry.task_id)?.status)) ? 'gate_ready' : 'active';
 }
 
 function projectPhaseStates(plan, events, taskStates) {
@@ -726,6 +727,10 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
     } else if (event.kind === 'unblock') {
       if (state.status !== 'blocked') fail('STORE_INCONSISTENT', 'invalid_unblock_transition');
       state.status = 'in-progress'; state.blocked_reason = null;
+    } else if (event.kind === 'retire') {
+      // 恒久除去はpending/blockedからだけ。in-progressは保持者がretractしてから、doneは撤去対象でない。
+      if (!['pending', 'blocked'].includes(state.status)) fail('STORE_INCONSISTENT', 'invalid_retire_transition');
+      state.status = 'retired'; state.blocked_reason = event.payload.reason;
     } else if (event.kind === 'done') {
       if (event.payload.done_mode === 'authored') {
         if (state.status !== 'in-progress' || !dependenciesDone) fail('STORE_INCONSISTENT', 'invalid_done_transition');

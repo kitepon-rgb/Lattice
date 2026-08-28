@@ -441,7 +441,7 @@ function buildTodoGraph(readModel) {
     }
     for (const task of member.plan.tasks) {
       const state = states.get(task.task_id);
-      if (!plain(state) || !['pending', 'in-progress', 'blocked', 'done'].includes(state.status)) {
+      if (!plain(state) || !['pending', 'in-progress', 'blocked', 'retired', 'done'].includes(state.status)) {
         fail('TODO_STATUS_INVALID_INPUT', 'todo_status_task_state_missing', {
           plan_key: member.plan.plan_key,
           task_id: task.task_id,

@@ -256,7 +256,7 @@ function internalFailure(stderr, error) {
 const TODO_COMMAND_NAMES = Object.freeze([
   'status', 'show', 'note', 'bindings', 'independence', 'structure', 'seam-profile', 'seam-proposal',
   'verify', 'repair-eol', 'snapshot', 'gantt', 'dashboard', 'phase', 'migrate', 'start', 'block',
-  'unblock', 'done', 'reopen', 'evidence', 'split', 'revise', 'revise-phase', 'revise-set',
+  'unblock', 'retire', 'done', 'reopen', 'evidence', 'split', 'revise', 'revise-phase', 'revise-set',
 ]);
 
 function typedArgumentFailure(stderr, code, message, detail) {
@@ -275,7 +275,7 @@ function supportsAtomicStoreCommit(argv) {
   if (command === 'snapshot') return argv[1] === '--rebuild';
   if (command === 'migrate') return !argv.includes('--dry-run') && !argv.includes('--schema');
   if (['revise', 'split', 'revise-set', 'revise-phase', 'start', 'retract', 'block',
-    'unblock', 'done', 'reopen'].includes(command)) return true;
+    'unblock', 'retire', 'done', 'reopen'].includes(command)) return true;
   if (command === 'evidence') return argv[1] === 'promote';
   if (command === 'phase') return argv[1] !== 'status';
   return false;
@@ -3436,7 +3436,7 @@ function writesTodoStore(argv) {
     case 'evidence': return second === 'promote';
     case 'dependency': return second === 'connect';
     case 'phase': return second !== 'status';
-    case 'start': case 'retract': case 'block': case 'unblock': case 'done':
+    case 'start': case 'retract': case 'block': case 'unblock': case 'retire': case 'done':
     case 'reopen': case 'split': case 'revise': case 'revise-phase': case 'revise-set':
       return true;
     default: return false;
@@ -3959,6 +3959,17 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
       action = (repoRoot) => mutate({
         repoRoot, env, planKey: flags.plan, taskId: flags.task,
         kind: 'block', payload: { reason: flags.reason }, evidenceRef: null,
+      });
+    }
+  } else if (argv[0] === 'retire') {
+    // 恒久除去（2026-08-29オーナー裁定）。planの形は変えず、状態遷移として工程を閉じる。
+    const flags = matchFlagCommand(argv, ['retire'], {
+      known: ['plan', 'task', 'reason'], required: ['plan', 'task', 'reason'],
+    });
+    if (flags !== null && isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.task)) {
+      action = (repoRoot) => mutate({
+        repoRoot, env, planKey: flags.plan, taskId: flags.task,
+        kind: 'retire', payload: { reason: flags.reason }, evidenceRef: null,
       });
     }
   } else if (argv[0] === 'unblock') {

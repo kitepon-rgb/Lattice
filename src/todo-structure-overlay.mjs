@@ -61,7 +61,7 @@ function normalizeTaskStates(structureSet, taskStates) {
   for (const entry of taskStates) {
     if (!isPlain(entry) || Object.keys(entry).length !== 2
       || typeof entry.task_id !== 'string'
-      || !['pending', 'in-progress', 'blocked', 'done'].includes(entry.status)
+      || !['pending', 'in-progress', 'blocked', 'retired', 'done'].includes(entry.status)
       || states.has(entry.task_id)) {
       fail('STRUCTURE_OVERLAY_INPUT_INVALID', 'task_state_entry_invalid');
     }

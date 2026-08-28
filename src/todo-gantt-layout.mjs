@@ -140,6 +140,7 @@ function normalizeInput(readModel, chainProjection) {
   }
 
   const nodesByKey = new Map();
+  const retiredKeys = new Set(); // 撤去済みtask。端点に持つ辺は図から一緒に消す
   const members = [...readModel.members].sort((left, right) => {
     const leftPlan = left?.plan;
     const rightPlan = right?.plan;
@@ -164,9 +165,12 @@ function normalizeInput(readModel, chainProjection) {
         fail('TODO_LAYOUT_INVALID_INPUT', 'plan task has an invalid shape');
       }
       const state = statusByTask.get(task.task_id);
-      if (!plain(state) || !['pending', 'in-progress', 'blocked', 'done'].includes(state.status)) {
+      if (!plain(state) || !['pending', 'in-progress', 'blocked', 'retired', 'done'].includes(state.status)) {
         fail('TODO_LAYOUT_INVALID_INPUT', `missing task state for ${task.task_id}`);
       }
+      // retiredは「実行されないまま恒久に閉じた」工程。工程図は今とこれからの仕事を表す面なので
+      // 描画から除く（理由と履歴はsnapshot/journalが持つ。2026-08-29オーナー裁定「消せ」）。
+      if (state.status === 'retired') { retiredKeys.add(refKey({ project_id: plan.project_id, plan_key: plan.plan_key, task_id: task.task_id })); continue; }
       const ref = { project_id: plan.project_id, plan_key: plan.plan_key, task_id: task.task_id };
       const key = refKey(ref);
       if (nodesByKey.has(key)) fail('TODO_LAYOUT_INVALID_INPUT', `duplicate task: ${key}`);
@@ -203,6 +207,7 @@ function normalizeInput(readModel, chainProjection) {
     const toRef = refOf(toValue, 'edge.to');
     const from = refKey(fromRef);
     const to = refKey(toRef);
+    if (retiredKeys.has(from) || retiredKeys.has(to)) return; // 撤去済み端点の辺は描かない
     if (!nodesByKey.has(from) || !nodesByKey.has(to) || from === to) {
       fail('TODO_LAYOUT_INVALID_INPUT', 'edge must connect two distinct read-model tasks');
     }

@@ -102,6 +102,7 @@ Write commands:
         # --serial-confirmedは互換のため受理する。いずれも門ではない
   block --plan <key> --task <id> --reason <text>
   unblock --plan <key> --task <id>
+  retire --plan <key> --task <id> --reason <text>
   done --plan <key> --task <id> (--evidence <file>|--message <text>)
         # taskを閉じる。--evidenceはdescriptor JSONでも証拠本文でもよい。repo内なら絶対path可。
         # 監査と構造finalizationは残作業であり、doneの門ではない
@@ -273,6 +274,7 @@ const SUBCOMMAND_USAGE = Object.freeze({
   'todo retract': 'todo retract --plan <key> --task <id> --reason <text>',
   'todo block': 'todo block --plan <key> --task <id> --reason <text>',
   'todo unblock': 'todo unblock --plan <key> --task <id>',
+  'todo retire': 'todo retire --plan <key> --task <id> --reason <text>',
   'todo done': 'todo done --plan <key> --task <id> (--evidence <file>|--message <text>) [--test-result <markdown-file>]',
   'todo reopen': 'todo reopen --plan <key> --task <id> --reason <text> [--override-reason <text>]',
   'todo evidence': 'todo evidence promote --plan <key> --task <id> --evidence <file>',
