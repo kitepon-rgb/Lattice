@@ -3695,6 +3695,16 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
   } else if (argv.length === 3 && argv[0] === 'dashboard'
     && argv[1] === 'adopt' && argv[2] === '--json') {
     action = (repoRoot) => adoptDashboardRoot({ repoRoot, env });
+  } else if (argv.length === 3 && argv[0] === 'dashboard'
+    && argv[1] === 'ensure' && argv[2] === '--json') {
+    // 生存保証の独立入口（2026-08-29 オーナー裁定「死んだら自動で起こせ」）。従来は書込み
+    // コマンドの副作用でしか daemon を ensure できず、OS再起動後に誰も書込まなければ
+    // 公開工程図が503のまま沈黙した。launchd等の周期実行から叩く冪等な入口。
+    action = async (repoRoot) => {
+      const ensured = await ensureActiveProjectDashboard({ repoRoot, env });
+      return { schema: 'lattice.todo_dashboard_ensure_result.v1',
+        ensured: ensured !== null, activity: ensured };
+    };
   } else if (argv.length === 6 && argv[0] === 'show'
     && argv[1] === '--plan' && isTodoIdentifier(argv[2])
     && argv[3] === '--task' && isTodoIdentifier(argv[4]) && argv[5] === '--json') {
