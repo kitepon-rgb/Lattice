@@ -8,21 +8,13 @@ import test from 'node:test';
 import {
   captureWorktreeDiff,
   detectCheckpointFindings,
-  isGeneratedOutputPath,
 } from '../src/runtime-diff-observer.mjs';
 
 function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
 }
 
-test('generated output の path 判定は directory segment だけを見る', () => {
-  assert.equal(isGeneratedOutputPath('src/OpenLogicool.Contracts/obj/project.assets.json'), true);
-  assert.equal(isGeneratedOutputPath('bin/lattice.mjs'), true);
-  assert.equal(isGeneratedOutputPath('src/hidden.cs'), false);
-  assert.equal(isGeneratedOutputPath('docs/readme.md'), false);
-});
-
-test('ignored な obj/ は undeclared_write にせず、ignored なソースは残す', async (t) => {
+test('gitignore済みfileは観測に載せない（未追跡の未宣言writeは残す）', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-diff-obs-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'src'), { recursive: true });
@@ -40,9 +32,11 @@ test('ignored な obj/ は undeclared_write にせず、ignored なソースは�
   await writeFile(path.join(root, 'src', 'Lib', 'obj', 'project.assets.json'), '{}\n');
   await writeFile(path.join(root, 'hidden.cs'), 'class Hidden {}\n');
 
+  await writeFile(path.join(root, 'extra.mjs'), 'export const x = 1;\n');
+
   const checkpoint = await captureWorktreeDiff({ worktreePath: root, baseSha });
   const paths = checkpoint.diff.entries.map((entry) => entry.path).sort();
-  assert.deepEqual(paths, ['hidden.cs', 'src/a.mjs']);
+  assert.deepEqual(paths, ['extra.mjs', 'src/a.mjs']);
 
   const findings = detectCheckpointFindings({
     todoId: 'T1',
@@ -52,6 +46,6 @@ test('ignored な obj/ は undeclared_write にせず、ignored なソースは�
     runningTodoIds: ['T1'],
   }).findings;
   assert.deepEqual(findings, [
-    { kind: 'undeclared_write', todo_ids: ['T1'], path: 'hidden.cs' },
+    { kind: 'undeclared_write', todo_ids: ['T1'], path: 'extra.mjs' },
   ]);
 });
