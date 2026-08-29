@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>dev.kitepon.lattice-dashboard</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/opt/homebrew/lib/node_modules/@quolu/lattice/bin/lattice.mjs</string>
+    <string>todo</string><string>dashboard</string><string>ensure</string><string>--json</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/kite/Developer/poly</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>LATTICE_TODO_ACTOR_HOST</key><string>kite-mac</string>
+    <key>LATTICE_TODO_ACTOR_SESSION</key><string>launchd</string>
+    <key>LATTICE_TODO_ACTOR_AGENT</key><string>ensure</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>120</integer>
+  <key>StandardOutPath</key><string>/Users/kite/Library/Logs/lattice-dashboard-ensure.log</string>
+  <key>StandardErrorPath</key><string>/Users/kite/Library/Logs/lattice-dashboard-ensure.log</string>
+</dict>
+</plist>
