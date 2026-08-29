@@ -1052,7 +1052,8 @@ async function dependencyConnect({
 async function dependencyDisconnect({
   repoRoot, env, fromPlanKey, fromTaskId, toPlanKey, toTaskId, reason,
 }) {
-  const store = await readTodoStore({ repoRoot });
+  // 修理扉: 越境依存の固定digestが陳腐化した store でも disconnect だけは通す（todo-store.mjs 参照）
+  const store = await readTodoStore({ repoRoot, tolerateStaleBindings: true });
   const live = projectTodoCrossPlanDependencies(store.members).filter((dependency) => (
     dependency.from.plan_key === fromPlanKey && dependency.from.task_id === fromTaskId
     && dependency.to.plan_key === toPlanKey && dependency.to.task_id === toTaskId
@@ -1068,6 +1069,7 @@ async function dependencyDisconnect({
     .some((event) => event.event_digest === target.event_digest));
   const { event } = await appendTodoEvent({
     repoRoot, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), planKey: owner.plan.plan_key,
+    tolerateStaleBindings: true,
     event: {
       kind: 'cross_plan_dependency_removed', actor: mutationActor(env),
       payload: { target_event_digest: target.event_digest, reason },

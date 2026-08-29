@@ -879,7 +879,13 @@ function snapshotFor(plan, events, tasks) {
   return snapshot;
 }
 
-function validateMergedGraph(members, crossPlanDependencies = []) {
+function validateMergedGraph(members, crossPlanDependencies = [], options = {}) {
+  // tolerateStaleBindings は dependency disconnect 専用の修理扉。plan revise が越境依存の
+  // 固定digestを陳腐化させると、通常loadは binding_stale で fail closed するが、その修理
+  // コマンド自身も load を要するため、扉が無いと修理経路が存在しない（実被弾 2026-08-29:
+  // evidence-2 改訂で store 全体が読めなくなり、disconnect も同エラーで詰んだ）。
+  // 許容するのは digest 不一致だけで、dangling / missing は修理扉でも fail する。
+  const tolerateStale = options.tolerateStaleBindings === true;
   const tasks = new Map();
   for (const member of members) for (const task of member.plan.tasks) {
     tasks.set(`${member.plan.project_id}\0${member.plan.plan_key}\0${task.task_id}`, member.plan.topology_digest);
@@ -900,7 +906,7 @@ function validateMergedGraph(members, crossPlanDependencies = []) {
     if (topology === undefined) fail('STORE_INCONSISTENT', 'dangling_dependency');
     if ((ref.project_id !== ownerPlan.project_id || ref.plan_key !== ownerPlan.plan_key)
       && ref.expected_topology_digest === undefined) fail('STORE_INCONSISTENT', 'cross_plan_binding_missing');
-    if (ref.expected_topology_digest !== undefined && topology !== ref.expected_topology_digest) {
+    if (!tolerateStale && ref.expected_topology_digest !== undefined && topology !== ref.expected_topology_digest) {
       fail('STORE_INCONSISTENT', 'binding_stale');
     }
     return key;
@@ -911,7 +917,7 @@ function validateMergedGraph(members, crossPlanDependencies = []) {
     if (topology === undefined) fail('STORE_INCONSISTENT', 'dangling_phase_dependency');
     if ((ref.project_id !== ownerPlan.project_id || ref.plan_key !== ownerPlan.plan_key)
       && ref.expected_topology_digest === undefined) fail('STORE_INCONSISTENT', 'cross_plan_binding_missing');
-    if (ref.expected_topology_digest !== undefined && topology !== ref.expected_topology_digest) {
+    if (!tolerateStale && ref.expected_topology_digest !== undefined && topology !== ref.expected_topology_digest) {
       fail('STORE_INCONSISTENT', 'binding_stale');
     }
     return key;
@@ -1629,7 +1635,9 @@ export async function readTodoStore(options = {}) {
       snapshot: snapshotStale ? expectedSnapshot : snapshot,
       tasks, phases, coordination, snapshot_stale: snapshotStale });
   }
-  validateMergedGraph(loaded, projectTodoCrossPlanDependencies(loaded));
+  validateMergedGraph(loaded, projectTodoCrossPlanDependencies(loaded), {
+    tolerateStaleBindings: options.tolerateStaleBindings === true,
+  });
   return {
     schema: 'lattice.todo_store_read.v1', project_id: manifest.project_id, manifest,
     members: loaded, snapshot_stale: loaded.some((member) => member.snapshot_stale),
@@ -2036,6 +2044,10 @@ export async function appendTodoEvent(options = {}) {
     const store = await readTodoStore({
       repoRoot, forWrite: true, now: options.now, evidenceRepair,
       evidenceRepairCapability: EVIDENCE_REPAIR_CAPABILITY,
+      // 修理扉は除去event（tombstone）の書込みだけに開く。それ以外の書込みは従来どおり
+      // binding_stale で fail closed する（validateMergedGraph の注記を参照）
+      tolerateStaleBindings: options.tolerateStaleBindings === true
+        && options.event.kind === 'cross_plan_dependency_removed',
     });
     const member = store.members.find(({ descriptor }) => descriptor.plan_key === options.planKey);
     if (!member) fail('STORE_INCONSISTENT', 'plan_not_active');
