@@ -678,6 +678,17 @@ function replay(plan, events, { now = new Date(), verifyEvidence, verifyImportSo
     if (state === undefined) fail('STORE_INCONSISTENT', 'event_task_missing');
     const dependenciesDone = localPredecessors(plan, event.task_id).every((id) => states.get(id)?.status === 'done');
     if (event.kind === 'start') {
+      if (event.payload.start_mode === 'rebind') {
+        // 改訂でcarryされたin-progressの再束縛。状態・開始時刻は動かさず、start束縛だけを
+        // 現actor・現plan_versionのeventへ更新する（ADR 0191）
+        if (state.status !== 'in-progress') {
+          fail('STORE_INCONSISTENT', 'invalid_rebind_start_transition');
+        }
+        authoredStartBindings.set(event.task_id, {
+          actor: structuredClone(event.actor), event_digest: event.event_digest,
+        });
+        continue;
+      }
       if (event.payload.start_mode === 'historical_import') {
         if (!importedGenesis || state.status !== 'pending') {
           fail('STORE_INCONSISTENT', 'invalid_historical_import_start_transition');
@@ -1125,6 +1136,7 @@ function validateMergedTransition(store, member, event) {
   const phaseAcceptReady = mergedPhaseAcceptReady(store, targetKey);
   const dependenciesDone = taskDependenciesDone && phaseAcceptReady;
   if (event.kind === 'start' && event.payload.start_mode !== 'historical_import'
+    && event.payload.start_mode !== 'rebind'
     && (!phaseAcceptReady || (!taskDependenciesDone && event.payload.override_reason === null))) {
     fail('STORE_INCONSISTENT', 'invalid_start_transition');
   }

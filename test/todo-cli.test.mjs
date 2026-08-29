@@ -1141,3 +1141,25 @@ test('todo verifyはdone evidenceをhard検証し、解決不能ならtyped exit
   assert.equal(error.detail.task_id, 'T1');
   assert.equal(await storeDigest(root), before);
 });
+
+test('start --rebindはcarryされたin-progressへ現版のstart束縛を積み、pendingを拒否する', async (context) => {
+  const root = await workspace(context);
+  // fixtureの固定時刻NOWで開始を積む（CLI実時刻で積むとrevisionInputのnow=NOW読みが
+  // future_clock_skewになる）
+  await appendTodoEvent({
+    repoRoot: root, writer: createTodoStoreWriter({ caller: 'g5-authoring' }), planKey: 'main', now: NOW,
+    event: { kind: 'start', task_id: 'T1', actor: ACTOR, recorded_at: NOW, payload: { override_reason: null } },
+  });
+  const revision = await revisionInput(root);
+  await writeCanonical(root, 'revision.json', revision);
+  successJson(runCli(root, ['todo', 'revise', '--plan', 'main', '--input', 'revision.json']));
+  const rebound = successJson(runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T1',
+    '--rebind', '--reason', '改訂後の再束縛']));
+  assert.equal(rebound.kind, 'start');
+  assert.equal(rebound.status, 'in-progress');
+  assert.equal(rebound.plan_version, revision.desired_plan.plan_version);
+  const pending = runCli(root, ['todo', 'start', '--plan', 'main', '--task', 'T2',
+    '--rebind', '--reason', 'pendingは拒否']);
+  assert.notEqual(pending.status, 0);
+  assert.equal(JSON.parse(pending.stderr).code, 'TASK_START_BINDING_UNSUPPORTED');
+});

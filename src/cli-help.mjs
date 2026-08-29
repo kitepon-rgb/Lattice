@@ -110,6 +110,7 @@ Write commands:
   reopen --plan <key> --task <id> --reason <text> [--override-reason <text>]
   evidence promote --plan <key> --task <id> --evidence <file>
       # done状態と完了時刻を維持し、最新doneへ追記eventで証拠を再束縛する
+  start --plan <key> --task <id> --rebind --reason <text>  # 改訂でcarryされたin-progressへ現版のstart束縛を積み直す（ADR 0191）
   dependency connect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>
   dependency disconnect --from-plan <key> --from-task <id> --to-plan <key> --to-task <id> --reason <text>
       # 開発中に発見した依存を明示接続する（同一plan内・plan跨ぎとも）。依存の自動推定は行わない

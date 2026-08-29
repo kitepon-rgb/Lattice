@@ -532,6 +532,12 @@ function validPayload(event) {
       && isTodoDigest(payload.target_event_digest)
       && nullableText(payload.reason) && payload.reason !== null;
   }
+  // rebind: plan改訂でcarryされたin-progress ToDoへ、現plan_versionの明示的start束縛を積み直す
+  // （runtime intakeはliteral startだけを束縛に使い、carryを推定しない。ADR 0191）
+  if (event.kind === 'start' && payload?.start_mode === 'rebind') {
+    return exactRecord(payload, ['start_mode', 'reason'])
+      && nullableText(payload.reason) && payload.reason !== null;
+  }
   if (event.kind === 'start') return exactRecord(payload, ['override_reason']) && nullableText(payload.override_reason);
   if (event.kind === 'start_retracted') return exactRecord(payload, ['reason', 'target_start_digest'])
     && nullableText(payload.reason) && payload.reason !== null

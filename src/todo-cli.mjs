@@ -901,6 +901,47 @@ async function startTask({
     structureContext });
 }
 
+// plan改訂でcarryされたin-progress ToDoの再束縛入口（ADR 0191）。task状態・開始時刻は
+// 変えず、現plan_version・現actorのstart束縛だけをjournalへ積む。runtime intakeは
+// literal startだけを束縛に使いcarryを推定しないため、改訂を跨いだ進行中工程の
+// 再開はこの入口だけが正規経路になる。advisory・independence gateは初回startで
+// 済んでいるため再適用しない。
+async function rebindStart({ repoRoot, env, planKey, taskId, reason }) {
+  const store = await readTodoStore({ repoRoot });
+  const member = store.members.find(({ descriptor }) => descriptor.plan_key === planKey);
+  if (member === undefined) throw new TodoStoreError('STORE_INCONSISTENT', 'plan_not_active');
+  const task = member.tasks.find(({ task_id: candidate }) => candidate === taskId);
+  if (task === undefined) {
+    throw new TodoStoreError('TASK_NOT_FOUND', 'task_not_found', undefined, {
+      requested_task_id: taskId,
+    });
+  }
+  if (task.status !== 'in-progress') {
+    throw new TodoStoreError('TASK_START_BINDING_UNSUPPORTED', 'rebind_requires_in_progress', undefined, {
+      task_id: taskId, status: task.status,
+    });
+  }
+  let noteContext;
+  try {
+    ({ context: noteContext } = await readTodoNoteContext({ repoRoot, store, planKey, taskId }));
+  } catch (error) {
+    if (!['NOTE_LOG_CORRUPT', 'NOTE_PROJECTION_INVALID'].includes(error?.code)) throw error;
+    noteContext = {
+      schema: 'lattice.todo_note_context.unreadable.v1',
+      project_id: member.plan.project_id,
+      plan_key: planKey,
+      task_id: taskId,
+      code: error.code,
+      reason: error.detail?.reason ?? 'note_context_unreadable',
+      next_action: `lattice todo note list --plan ${planKey} --json`,
+    };
+  }
+  return mutate({
+    repoRoot, env, planKey, taskId, kind: 'start',
+    payload: { start_mode: 'rebind', reason }, evidenceRef: null, noteContext,
+  });
+}
+
 async function retractStart({ repoRoot, env, planKey, taskId, reason }) {
   const actor = mutationActor(env);
   const store = await readTodoStore({ repoRoot });
@@ -3970,11 +4011,18 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     action = (repoRoot) => phaseBaseline({ repoRoot, env, reason: argv[3], exceptPlanKeys });
   } else if (argv[0] === 'start') {
     const flags = matchFlagCommand(argv, ['start'], {
-      known: ['plan', 'task', 'parallel-frontier', 'override-reason', 'serial-confirmed'],
+      known: ['plan', 'task', 'parallel-frontier', 'override-reason', 'serial-confirmed', 'rebind', 'reason'],
       required: ['plan', 'task'],
-      booleans: ['parallel-frontier', 'serial-confirmed'],
+      booleans: ['parallel-frontier', 'serial-confirmed', 'rebind'],
     });
-    if (flags !== null && isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.task)
+    if (flags !== null && flags.rebind === true) {
+      if (isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.task)
+        && typeof flags.reason === 'string' && flags.reason.length > 0) {
+        action = (repoRoot) => rebindStart({
+          repoRoot, env, planKey: flags.plan, taskId: flags.task, reason: flags.reason,
+        });
+      }
+    } else if (flags !== null && isTodoIdentifier(flags.plan) && isTodoIdentifier(flags.task)
       && (flags['override-reason'] === undefined || (typeof flags['override-reason'] === 'string'
         && flags['override-reason'].length > 0))) {
       action = (repoRoot) => startTask({
