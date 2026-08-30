@@ -16,9 +16,9 @@
 
 - ADR 0189で撤去済みのgitignore対象観測を旧integration testと計画文書が要求し続け、
   全CI環境を赤にしていた。ignored fileをruntime diffへ混ぜない現行契約へ期待値と説明を揃えた。
-- evidence blobの1件上限を子processの`maxBuffer`打切りへ暗黙依存していたため、Linuxでは
-  読み取りtimingにより上限超過blobが検証済みへ昇格することがあった。取得後の実byte数で
-  上限を判定し、OSやNodeのprocess buffer挙動に依存せず未検証として扱う。
+- evidence／import source blobの1件上限を子processの`maxBuffer`打切りへ暗黙依存していたため、
+  Linuxでは読み取りtimingやbatch件数により上限超過blobが検証済みへ昇格することがあった。
+  取得後の実byte数で上限を判定し、OSやNodeのprocess buffer挙動に依存せず未検証として扱う。
 
 ## 0.64.4 — 2026-08-25
 

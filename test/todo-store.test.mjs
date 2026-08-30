@@ -96,9 +96,9 @@ async function expectCode(promise, code, reason) {
     && error.code === code && (reason === undefined || error.detail.reason === reason));
 }
 
-function pinnedMarkdownCommit(root) {
+function pinnedMarkdownCommit(root, input = '# Imported plan\n- [x] A1\n- [x] A2\n') {
   const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], {
-    cwd: root, input: '# Imported plan\n- [x] A1\n- [x] A2\n', encoding: 'utf8',
+    cwd: root, input, encoding: 'utf8',
   }).trim();
   const tree = execFileSync('git', ['mktree'], {
     cwd: root, input: `100644 blob ${blob}\tplan.md\n`, encoding: 'utf8',
@@ -998,6 +998,16 @@ test('historical doneは通常writerから追加できず、import source不在�
   assert.equal(readable.members.find(({ descriptor }) => descriptor.plan_key === 'archive')
     .tasks.every(({ evidence_unverified }) => evidence_unverified), true);
   await expectCode(readTodoStore({ repoRoot: root, now: NOW, forWrite: true }),
+    'STORE_INCONSISTENT', 'import_source_unverified');
+});
+
+test('上限超過pinned source blobはbatch予算に収まっても未検証として拒否する', async (context) => {
+  const root = await workspace(context);
+  const prefix = Buffer.from('# Imported plan\n- [x] A1\n- [x] A2\n');
+  const sourceCommit = pinnedMarkdownCommit(root, Buffer.concat([
+    prefix, Buffer.alloc(TODO_LIMITS.narrativeSectionBytes + 1 - prefix.length, 0x61),
+  ]));
+  await expectCode(appendImportedPlan(importedPlanRequest(root, { sourceCommit })),
     'STORE_INCONSISTENT', 'import_source_unverified');
 });
 

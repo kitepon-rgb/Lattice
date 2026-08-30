@@ -1282,7 +1282,10 @@ function pinnedSourceLine(repoRoot, source, cache = null) {
     }
     if (blob === undefined) {
       const blobEntry = entries.shift();
-      if (blobEntry.missing || blobEntry.type !== 'blob') throw new Error('not blob');
+      // commitとblobを同じbatchで読むと総buffer予算は2件分になる。source 1件の意味上限は
+      // cacheへ入れる前に実bytesで判定する。
+      if (blobEntry.missing || blobEntry.type !== 'blob'
+        || blobEntry.bytes.length > TODO_LIMITS.narrativeSectionBytes) throw new Error('not bounded source blob');
       blob = blobEntry.bytes;
       cache?.blobs.set(objectSpec, blob);
     }
