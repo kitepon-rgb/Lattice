@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/og.png" alt="Lattice — 閉ざされて見えた山岳地形から複数の進行経路が現れる" width="100%">
+  <img src="https://raw.githubusercontent.com/kitepon/Lattice/main/.github/og.png" alt="Lattice — 閉ざされて見えた山岳地形から複数の進行経路が現れる" width="100%">
   <br>
   <sub><em>この画像は、閉ざされているように見えた場所から複数の進行経路が現れ、自律した実行者たちが協調して動き出す瞬間を表しています。</em></sub>
 </p>
@@ -129,14 +129,49 @@ typed理由つきで分類します——宣言を直せば通るのか、操作
 ## 所有境界
 
 本repoはplan／ToDo／run store、Lattice sensor、schema、migration、release、diagnosticsを
-所有します。[dotagents](https://github.com/kitepon-rgb/dotagents)はkitepon.devを支える内部
-toolchainであり、製品横断の工程利用・導入・host統合を所有します。
+所有します。[dotagents](https://github.com/kitepon/dotagents)はkitepon.devを支える内部toolchainとして、
+任意の製品横断工場導入とhost統合を統括します。Latticeの製品状態、更新、診断、releaseを所有または
+制御しません。
 廃止済みの前身sensorは独立製品として配線せず、Lattice sensorだけを現役面とします。
 MarkItDownは別区分の第三者CLIです。
 
 現在の工程状態と完了証拠の正本は、このrepoのLattice storeです。文書の役割と現行導線は
-[docs/README.md](docs/README.md)、製品思想は[PLAN.md](PLAN.md)、公開contractは
-[docs/00_product-contract.md](docs/00_product-contract.md)を参照してください。
+[docs/README.md](https://github.com/kitepon/Lattice/blob/main/docs/README.md)、製品思想は
+[PLAN.md](https://github.com/kitepon/Lattice/blob/main/PLAN.md)、公開contractは
+[docs/00_product-contract.md](https://github.com/kitepon/Lattice/blob/main/docs/00_product-contract.md)を参照してください。
+
+## 導入・更新・診断
+
+npm packageが単独導入と更新の正規入口です。更新後はtyped discoveryでCLIを確認し、必要なら
+製品所有のdashboardを新版へ入れ替えます。bridgeを有効化したhostだけ`bridge status`も確認します。
+常駐bridgeは読み込み済みの旧版を1分以内に自動で置き換えます。
+
+```bash
+npm install -g @quolu/lattice@latest
+lattice --version
+lattice status --json
+lattice bridge status --json
+```
+
+## Release
+
+Latticeのreleaseはこのrepoから行います。`package.json`と`CHANGELOG.md`を更新し、製品gateを通し、
+release commitを既定branchへ着地・pushしてから、同じ版をregistryへ公開して実installを確認します。
+`prepublishOnly`はdirty treeとremote既定branchへ未着地のcommitを拒否します。
+
+```bash
+npm run ci
+npm run verify:release-commit
+npm publish --access public
+npm install -g @quolu/lattice@<version>
+lattice --version
+lattice status --json
+lattice bridge status --json
+```
+
+製品CI契約は[docs/ci-contract.md](https://github.com/kitepon/Lattice/blob/main/docs/ci-contract.md)、
+dashboard／bridgeの配備固有確認は
+[docs/operations/lattice-kitepon-deployment.md](https://github.com/kitepon/Lattice/blob/main/docs/operations/lattice-kitepon-deployment.md)が正です。
 
 CLIの全体像は`lattice --help`、各公開namespaceの正規構文は
 `lattice <plan|run|event|todo|sensor|factory-diagnostics|runtime-errors|bridge|hooks> --help`で確認できます。
@@ -145,12 +180,24 @@ CLIの全体像は`lattice --help`、各公開namespaceの正規構文は
 
 ## 開発
 
+製品local gateは次の3入口です。
+
 ```bash
 npm test
 npm run check
 npm run ci
+```
+
+製品localの保守で必要な時だけ次を使います。
+
+```bash
 node scripts/reap-orphan-test-daemons.mjs
 lattice sensor sync . --json
+```
+
+次は任意の工場統合診断であり、Lattice単独の開発gateまたはrelease gateではありません。
+
+```bash
 spotter doctor
 codex-sidecar diagnostics --project . --preset auditor --json
 ```
@@ -165,7 +212,7 @@ codex-sidecar diagnostics --project . --preset auditor --json
 
 Node.js 22.13以上、ただし25.xを除きます（`engines: >=22.13 <25 || >=26`。Node 25.xはV8 turboshaft
 WASM JITの不具合で同梱sensorが壊れるため、bannerを出して起動を止めます）。境界観測は配布物に同梱したLattice sensorだけを使い、PATH上の
-廃止済みruntimeや旧cache/dataへfallbackしません。Spotterはproject単位で生成stateの所有境界を守ります。
+廃止済みruntimeや旧cache/dataへfallbackしません。Latticeはproject単位で生成stateの所有境界を守ります。
 
 どのrepoでも、Latticeの導入状態はdirectoryの有無を推測せず、最初に次のtyped discoveryで判定します。
 
@@ -188,7 +235,7 @@ lattice plan create --input .lattice/plan-create.json
 
 `invalid`をMarkdown fallbackへ丸めず、`next_action`に従ってstoreを診断してください。
 discoveryと初期transactionの不変条件は
-[ADR 0058](docs/adr/0058-project-discovery-and-initial-authoring.md)が正です。
+[ADR 0058](https://github.com/kitepon/Lattice/blob/main/docs/adr/0058-project-discovery-and-initial-authoring.md)が正です。
 
 ## 実行runを端から端まで動かす
 
@@ -257,7 +304,7 @@ required evidenceを束縛した`todo phase accept`で重監査の判断を記�
 「閉じた」の可視表現なので、監査の記録なしにそこへ行かせません。作成時に拒否はせず、
 `todo migrate`／`plan create`の結果と最後のdoneのadvisoryで`terminal_audit_required`を通知します。
 **終端監査はToDoのdispatch可否へ影響しません**（Phaseは重監査の順序だけを制御し、開始順はToDo DAGが決めます）。
-規約は[ADR 0147](docs/adr/0147-audit-is-on-by-default.md)が正です。
+規約は[ADR 0147](https://github.com/kitepon/Lattice/blob/main/docs/adr/0147-audit-is-on-by-default.md)が正です。
 
 ```bash
 lattice todo phase status --plan <key>   # phase無しplanでも暗黙Phaseを返す（implicit: true）
@@ -277,7 +324,8 @@ lattice todo phase baseline --reason <text> --except <監査したいplan_key>  
 一括の入口は、現在監査待ちで一度も監査に触れていないPhaseだけを対象にします。**自動では
 実行しません**——どれを監査し、どれを歴史として畳むかは人が決め、Latticeは宣言を受け取って
 記録するだけです。`--except`は「最近の作業でコードも生きているので本当に監査したい」planを
-残すための口です。規約は[ADR 0148](docs/adr/0148-history-closes-unaudited-not-audited.md)が正です。
+残すための口です。規約は
+[ADR 0148](https://github.com/kitepon/Lattice/blob/main/docs/adr/0148-history-closes-unaudited-not-audited.md)が正です。
 
 誤ってphase無しで作ったplanへ後からPhaseを被せる場合は、`revise-phase`の
 `state_policy: acquire_phase`でdone状態を保ったまま獲得できます（未割当→割当の向きだけを許し、
@@ -310,13 +358,13 @@ LANや外部reverse proxyから閲覧するoptional bridgeは既定で無効で�
 完走したplanは図の場所を取りません。除いた工程は凡例の件数、右ペインの「全工程」一覧、各工程の詳細から
 辿れ、詳細の前提・後続は除外前の依存関係を示します。総数・進捗・最長依存鎖は除外前の全工程で数えます。
 凡例の件数バッジを押すと全工程を描いた図へ切り替わります。表示規約は
-[ADR 0066](docs/adr/0066-gantt-live-scope-drops-finished-work.md)が正です。
+[ADR 0066](https://github.com/kitepon/Lattice/blob/main/docs/adr/0066-gantt-live-scope-drops-finished-work.md)が正です。
 
 右ペインは概要・選択工程・全工程の3面で、いずれもToDo storeを表示します（元plan Markdown本文は
 再表示しません。元文書へは各工程の詳細が持つ行対応から辿ります）。全工程一覧は動いているplanを
 最終活動の新しい順で上に、全工程が図から外れた完走planを古い順で下にまとめ、plan内は登録順です。
 決着済みPhaseと図から外した工程は既定で畳み、開けば読めます。規約は
-[ADR 0067](docs/adr/0067-right-pane-shows-the-store-and-orders-by-activity.md)が正です。
+[ADR 0067](https://github.com/kitepon/Lattice/blob/main/docs/adr/0067-right-pane-shows-the-store-and-orders-by-activity.md)が正です。
 
 `lattice todo gantt`と`lattice todo gantt status`による静的工程表は廃止済みで、呼ぶと
 `STATIC_GANTT_RETIRED`が動的dashboardを案内します。
@@ -331,7 +379,7 @@ daemonの生死はdescriptor 1枚では持ちません。daemonは自分のpid�
 旧daemonが観測されないまま生き残ることはありません。descriptorだけを失った場合は2本目を建てず、
 配信を続けているdaemonを引き取ります。signalを送るのはその場で再認証を通った相手だけで、応答しない
 pidへは送りません（pid再利用で無関係のprocessを止めうるためです）。規約は
-[ADR 0157](docs/adr/0157-dashboard-daemons-are-discoverable-by-record.md)が正です。
+[ADR 0157](https://github.com/kitepon/Lattice/blob/main/docs/adr/0157-dashboard-daemons-are-discoverable-by-record.md)が正です。
 状態を書き込む`start / block / unblock / done / evidence promote / reopen / note / independence mode /
 revise / revise-phase / revise-set / phase review|accept|reject|reopen|close-unaudited|baseline /
 dashboard adopt`では、監査actorとして次の3環境変数を渡せます。未設定ならhost／`session`／USERから
@@ -347,7 +395,7 @@ export LATTICE_TODO_ACTOR_AGENT=<agent-id>
 blobを書きます。flagの順は問いません。空の設計メモは拒否します。無策なら`NO_PLAN`と書いてください。
 
 authoring入口と閉じる口の契約は
-[ADR 0181](docs/adr/0181-authoring-entry-accepts-drafts.md)を参照してください。
+[ADR 0181](https://github.com/kitepon/Lattice/blob/main/docs/adr/0181-authoring-entry-accepts-drafts.md)を参照してください。
 
 ## 特許
 
@@ -380,4 +428,4 @@ authoring入口と閉じる口の契約は
 **MIT License**のままです。upstreamの出自と帰属表示は[`sensor/NOTICE`](sensor/NOTICE)、
 license本文は[`sensor/LICENSE`](sensor/LICENSE)が持ちます。上記の条件はこれを変更しません。
 
-© 2026 quolu (kitepon-rgb)
+© 2026 quolu (kitepon.dev)

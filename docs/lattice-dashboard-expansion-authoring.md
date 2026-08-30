@@ -1,9 +1,5 @@
-# Lattice dashboard expansion authoring ledger
+# dashboard expansion authoring ledger（履歴参照stub）
 
-この台帳はLattice todo storeへのsource cutover用であり、工程状態の正本ではない。
-
-## Tasks
-- lpg-032 source is managed by Lattice todo store.
-- lpg-033 source is managed by Lattice todo store.
-- lpg-034 source is managed by Lattice todo store.
-- lpg-035 source is managed by Lattice todo store.
+状態: **完了済み履歴**。このpathはLattice storeのsource cutover参照を切らないためだけに保持する。
+動的dashboardの現行仕様は[`06_design-spec.md`](06_design-spec.md)、台帳全文は
+[`archive/lattice-dashboard-expansion-authoring.md`](archive/lattice-dashboard-expansion-authoring.md)を参照する。

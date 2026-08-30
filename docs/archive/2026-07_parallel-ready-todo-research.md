@@ -13,7 +13,7 @@ seam-refactorで境界を分離し、再解析後のplan versionへ並列性を�
 隔離writer frontierがある場合は、accountable ownerの下で一時的なfork-joinを許す条件も研究する。
 ownerは最終統合・受入・再計画の責任を表し、worker数を一に制限する意味ではない。
 
-実行順の親正本は[開発工場 統合マスター計画](plan_factory-master.md)。本研究中はObserverの
+実行順の親正本は[開発工場 統合マスター計画](https://github.com/kitepon/dotagents/blob/main/docs/plan_factory-master.md)。本研究中はObserverの
 実装位置を保持し、採用規則を確定してから残るObserver計画を再構成して本筋へ戻る。
 
 ## 1. 研究上の問い

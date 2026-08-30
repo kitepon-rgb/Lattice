@@ -2,7 +2,7 @@
 
 - Status: Active（execution開始。Control初期化はStage 1開始時）
 - Date: 2026-07-17
-- 前提Decision: [ADR 0044](adr/0044-rc3-runtime-contract.md)・[ADR 0045](adr/0045-rc3-phase-gate-support.md)
+- 前提Decision: [ADR 0044](../adr/0044-rc3-runtime-contract.md)・[ADR 0045](../adr/0045-rc3-phase-gate-support.md)
 - 予定Decision: ADR 0046（**Stage 1開始時**に本planの契約を不変化し、ADR 0044 Decision 9.5の
   writer target制限をstage条件付きで上書きする。Stage 0は9.5非抵触のため先行してよい）
 - **親裁定（2026-07-17オーナー裁定）**: Latticeはdotagents統括の直轄コア製品となった。本planの親正本は
@@ -62,7 +62,7 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
       混在）をオーナーと選定し、batch定義をevidenceへ記録する。**凍結不要の運用合意（オーナー裁定
       2026-07-17）**: Stage 0はread-only判定のみでdotagents側の消化を止めない。activeレーンのTODOから
       出してよく、判定のstale化はそれ自体を実測記録とする（stale化の頻度も実戦データである）。
-      — 2026-07-17完了: [batch定義evidence](evidence/2026-07-17-rc4-stage0-batch.md)（T1〜T6・オーナーGO）
+      — 2026-07-17完了: [batch定義evidence](../evidence/2026-07-17-rc4-stage0-batch.md)（T1〜T6・オーナーGO）
 - [x] batch定義evidenceへ**dotagents私有caveatの該当エントリを添付する**:
       `orchestrate-run-worker-run-record-approach-family-ref-null`（`lineage.approach_family_ref: null`が
       BUDGET_UNKNOWNで拒否される・reproduced）、`orchestrate-run-cli-internal-error-lib`
@@ -70,14 +70,14 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
       — 2026-07-17完了: batch定義evidence「添付caveat」節（5エントリ）
 - [x] 各TODOのboundary witnessを親が実際に作成し、**作成時間・参照した証拠・書けなかった項目**を
       1件ずつ実測記録する（丸め・事後推定の禁止）。
-      — 2026-07-17完了: [witness実測](evidence/2026-07-17-rc4-stage0-witness-cost.md)（17〜36秒/件・
+      — 2026-07-17完了: [witness実測](../evidence/2026-07-17-rc4-stage0-witness-cost.md)（17〜36秒/件・
       書けなかった項目1件ずつ・ADR 0048で真値訂正）
 - [x] **Lattice側clone/copy上にだけ**`codegraph init`し、`lattice plan compile`で全batchをcompileする
       （non-dispatchableはcode込みで記録。unknownの内訳＝Codegraph盲点／witness不足を分類する）。
       **dotagents正規repoにindexを作らない**——`.codegraph/`は存在せずgitignore対象外のため、
       live repoでの`init`は「正規repoへの書込ゼロ」契約違反かつdirtyを生む（実測確認済み）。
       — 2026-07-17完了: 改良前sensorはAFFECTED_TEST_DRIFTで停止（witness実測evidence）。L2改良後
-      sensorで全batch再compile＝[compile判定裁定](evidence/2026-07-17-rc4-stage0-compile-adjudication.md)
+      sensorで全batch再compile＝[compile判定裁定](../evidence/2026-07-17-rc4-stage0-compile-adjudication.md)
       （request A dispatchable・request B BOUNDARY_UNKNOWN、いずれもcode込み記録）
 - [x] 判定品質の照合: conflict／wave／unknown判定を親が1件ずつ「妥当／過剰serial／見逃し」で
       裁定し、**見逃し0件**を確認する（見逃しは即refute条件）。
@@ -108,7 +108,7 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
       clone内で実行されるとhostの`~/.claude`系symlinkがtmpdirを向き、clone廃棄後にdangling化する。
       RC3のDecision 9.2「executorはisolated worktreeだけへ書く」はこのvectorを検出しない。
   - 2026-07-17: 隔離HOMEは認証不能（credential取扱いは統括権限外）のためオーナー裁定「2でいい」で
-    [ADR 0050](adr/0050-stage1-executor-isolation-implementation.md)の実装形（subagent executor＋
+    [ADR 0050](../adr/0050-stage1-executor-isolation-implementation.md)の実装形（subagent executor＋
     packet `isolation_contract`＋前後fingerprint境界検証＋diff observer）へ確定。禁止コマンドは
     全packetへ焼き込み（artifact検査 `isolation_contract_complete`で機械検証）
 - [x] dotagents disposable cloneをdogfood targetに、実小粒タスク（docs更新・test追加・
@@ -117,7 +117,7 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
     witness作法はStage 0 compile判定裁定evidence §3を適用しdrift 0
 - [x] actual executor 2+へ隔離dispatchし、閉ループ（観測→競合→hold→carry-over→vN+1→
       redispatch→受入）を実タスクで完遂する（注入competitionは1件以上、自然発生も記録）。
-  - 2026-07-17完了: [Stage 1 evidence](evidence/2026-07-17-rc4-stage1-dogfood.md)。round 1＝
+  - 2026-07-17完了: [Stage 1 evidence](../evidence/2026-07-17-rc4-stage1-dogfood.md)。round 1＝
     conflict serialization（TA受理→TB dispatch・受理3/3）、round 2＝注入scope_violation→
     hold {TD}/continue {TF}→vN+1→TF carry-over受理→TD redispatch受理。**自然発生も記録**＝
     TD executorの実API障害をunknownとして同一handle回収（演出でない実観測）
@@ -144,7 +144,7 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
       （Latticeによる直接commit/push禁止を維持）。
   - 前段でP1欠陥を発見・即時修理（receiptにpatch本文が無い→`b61ee3d`で捕獲・bind検査追加）。
     着地run `v4-landing`（19 check green）の全5 patchを親が実読reviewし、
-    [Stage 2着地evidence](evidence/2026-07-18-rc4-stage2-landing.md)の3 batchで着地
+    [Stage 2着地evidence](../evidence/2026-07-18-rc4-stage2-landing.md)の3 batchで着地
 - [x] 着地後のdotagents full gate（当該repoの正規test/lint）greenと、境界事故0を確認する。
   - batchごとmake lint PASS＋focused green、最後に`make ci` exit 0（隔離HOME検証含む）。
     着地はH承認済み6 fileのみ＝逸脱0。push済み（dotagents `e117ac5`/`8a3befd`/`b248c46`）
@@ -156,12 +156,12 @@ ADR 0044 Decision 9.5は「Lattice自身・dotagents・Observerをdogfood writer
       plan archive（RC3-Jの作法を継承）。
   - 2026-07-18完了: full CI両repo green・`fable`×high refuter=**条件付きsupport**・
     クロスprovider検証（codex_review・指摘2件採用是正）・knowledge return（caveat＋契約正典還流）。
-    一次記録は[L5 Phase gate evidence](evidence/2026-07-18-rc4-l5-phase-gate.md)、
-    裁定は[ADR 0051](adr/0051-rc4-phase-gate-support.md)。Control finalize・archive・plan archive実施
+    一次記録は[L5 Phase gate evidence](../evidence/2026-07-18-rc4-l5-phase-gate.md)、
+    裁定は[ADR 0051](../adr/0051-rc4-phase-gate-support.md)。Control finalize・archive・plan archive実施
 
 ## 編入判定とCodegraph単独配線の退役（方向性の固定）
 
-RC4は**条件付きsupport**で閉じた（[ADR 0051](adr/0051-rc4-phase-gate-support.md)）。
+RC4は**条件付きsupport**で閉じた（[ADR 0051](../adr/0051-rc4-phase-gate-support.md)）。
 本節の未消化3項目は消さずに**dotagents導入plan＝`dotagents/docs/plan_lattice-factory-integration.md`へ
 移管済み**（ADR 0051 Decision 6）: 編入パッケージ要件の文書化はPhase L6の先頭TODO、退役手順・互換期間・
 前提条件（同等以上のshadow実証）は既存のL6/L7条項が正。本planでは追跡しない。

@@ -2,8 +2,8 @@
 
 - 状態: 採択（2026-08-01）
 - 関連: [ADR 0053](0053-todo-store-and-gantt-surface.md)（lifecycle journalとsnapshotの正本規律）、
-  [ADR 0128](0128-todo-start-advisory.md)（着手時advisory）、
-  [ADR 0131](0131-single-store-read-for-gantt.md)（Ganttの単一store read）
+  [ADR 0128](0128-todo-independence-operational-wiring.md)（着手時advisory）、
+  [ADR 0131](0131-session-context-single-store-read.md)（Ganttの単一store read）
 - 計画: [docs/plan_todo-task-notes.md](../plan_todo-task-notes.md)
 
 > 追補（2026-08-01）: [ADR 0150](0150-todo-design-memo-is-required.md)が初期設計メモを

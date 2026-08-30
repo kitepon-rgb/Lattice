@@ -106,7 +106,7 @@ lattice bridge reconfigure --json
 macOSのLaunchAgent載せ直しでは、`launchctl bootout`のexit 0はunload受付だけである。labelが
 domainから消える（`launchctl print`が113）前に`bootstrap`すると、launchdは
 `5 Input/output error`を返す。`reconfigure`はprint 113を待ってから載せる（0.60.7・
-[ADR 0179](adr/0179-launchctl-bootout-completes-when-print-returns-113.md)）。失敗時は
+[ADR 0179](https://github.com/kitepon/Lattice/blob/main/docs/adr/0179-launchctl-bootout-completes-when-print-returns-113.md)）。失敗時は
 launchctlのexit codeとstderrが`lattice.cli_error.v2`の`detail`に残る。
 
 ### 公開面から自分のprojectが消えた時（`last_heartbeat`）

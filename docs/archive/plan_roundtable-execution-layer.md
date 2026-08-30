@@ -25,7 +25,7 @@ Latticeの実行層（隔離worktree・write lease・実書き込み観測によ
 | 実行 | 実書き込み観測による`observed_write_conflict` | **消費していない** |
 | 実行 | 影響閉包だけのhold／`run seam resolve`／resume | **消費していない** |
 
-消費者契約（[00_product-contract.md](00_product-contract.md)「消費者としてのPeertable」）は
+消費者契約（[00_product-contract.md](../00_product-contract.md)「消費者としてのPeertable」）は
 消費される面を4つと記述しており、それは**現状の記録として正しい**。本campaignはその記録を
 更新しにいく——ただし**面を足す話ではない**（後述の非目標）。
 
@@ -39,13 +39,13 @@ Lattice側:
 - `lattice run adapter register --input <descriptor.json>` でexecutor adapterを登録する。
   **Peertable projectのadapter registryは空**（`adapters: []`）＝実行層が一度も使われていない
 - **各TODOは隔離worktreeで走る**。freeze後は影響閉包内だけhold、閉包外は`carry_over_witness`を
-  実証できた場合だけ継続する（[plan_backlog.md](plan_backlog.md)の請求項7の行）
+  実証できた場合だけ継続する（[plan_backlog.md](../plan_backlog.md)の請求項7の行）
 - **請求項9（実変更観測による実行時競合検出）は実装済み・実daemonで確認**。managed supervisorが
   terminal時にorigin-bound worktreeの最終diffを独立観測し、`observed_write_conflict`へ接続する
 - **請求項8（双方停止・限定変換・双方再開）は実装済み・実runで一気通貫**。入口は
   `lattice run seam resolve`で、宣言→観測の翻訳段`reconciled`を持つ
   （`test/integration/hold-transform-resume.integration.mjs`・
-  [evidence/2026-07-27-xf-003-runtime-transform-loop.md](evidence/2026-07-27-xf-003-runtime-transform-loop.md)）
+  [evidence/2026-07-27-xf-003-runtime-transform-loop.md](../evidence/2026-07-27-xf-003-runtime-transform-loop.md)）
 
 **注意（この文書を書く過程で踏んだ罠）**: `plan_backlog.md`には2026-07-28時点の経過記述
 （「請求項8は実行時に見つかった競合の形を受け取れない」）と、その後の現況表（請求項1〜12の状況）が

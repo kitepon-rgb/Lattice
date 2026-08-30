@@ -1,4 +1,4 @@
-# Lattice 製品契約（0.49.0）
+# Lattice 製品契約
 
 ## Product outcome
 
@@ -123,6 +123,11 @@ workspace書込とshell実行が許可されていれば対象projectを明示�
 CLIの`lattice sensor sync`を未初期化projectで実行した場合は`LATTICE_SENSOR_NOT_INITIALIZED`を返し、
 `detail.next_action`へ同じpathの正規`lattice sensor init ... --json`を示す。その他のsensor失敗も
 exit code、signal、最大16 KiBのstderrをtyped detailへ保持し、原因を汎用messageへ隠さない。
+
+sensorの各file rowはcontent hashと抽出契約版を持つ。通常のsync／watcherは、content hashが同じでも
+抽出契約版が実行中engineより古いfileを再抽出する。migration前のrowは旧版として扱い、手動DB再構築を
+要求しない。index全fileが現行抽出契約版へ達した時だけglobal extraction stampを前進させ、途中の
+部分syncを全体完了として扱わない。
 
 ## TODO工程store面（ADR 0053・0055・0056・0058）
 

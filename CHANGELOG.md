@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.67.6 — 2026-08-30
+
+### 変更
+
+- 完了、撤回、置換済みの文書を`docs/archive/`へ移し、固定参照が残る旧pathだけを
+  履歴参照stubとして維持する。現行文書は`docs/README.md`から辿り、archive／evidenceを
+  通常の作業文脈へ混ぜない。
+- 製品所有の文書gateをCIへ追加した。全製品Markdownの相対link、現行文書の索引、履歴stub、
+  npm tarball内Markdownの相対link／image閉包を検査し、Markdownだけの変更でも実行する。
+- Windows nativeの製品CI commandをPowerShell 7へ統一し、Git Bashへの依存を撤去した。
+- npm tarballに同梱されない文書や画像へのREADMEリンクを、製品repositoryの正規URLへ揃えた。
+
+### 修正
+
+- ADR 0189で撤去済みのgitignore対象観測を旧integration testと計画文書が要求し続け、
+  全CI環境を赤にしていた。ignored fileをruntime diffへ混ぜない現行契約へ期待値と説明を揃えた。
+
 ## 0.64.4 — 2026-08-25
 
 ### 修正

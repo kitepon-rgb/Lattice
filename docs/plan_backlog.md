@@ -72,21 +72,9 @@ Spotter併載端末で提案が二重になることは許容し、住み分け�
 所有し、本課題の範囲外とする。campaign級なので、着手時に専用planを起こし、backlogのToDoはその起票を
 もって完了とする。
 
-### 7. 宣言の膨張を観測してAIへ分割を促す（構想起票済み）
+### 7. 宣言の膨張を観測してAIへ分割を促す（完了済み）
 
-実行中にToDoが膨らんだとき、装置が何も言わない。宣言は席が手で広げ、装置は黙って受理する。
-`roundtable-exec-20260809`で実測: **79 commitのうち29（37%）が自分の宣言境界を広げるcommit**、
-t7単独で5回。会話側の帰結は、t7開始前が166発言で11 task着地、開始後が293発言で0着地。
-
-構想は[plan_todo-scope-expansion.md](plan_todo-scope-expansion.md)（実装なし・工程起票なし）。
-中核はA→A'変換（オーナー裁定 2026-08-09）: 肥大の実体は「ToDoの中に第二のToDoリスト（内側の
-gate群）が生える」ことで、対策は各gateを独立ToDo A1..Anとしてグラフへ追加し、Aは元の受入だけの
-A'へ痩せてA1..Anを前提に持つ変換。3本立て——①観測（independence compileで宣言の前回差分→
-`scope_expanded`）②促し（advisoryで変換を勧める。判断はAI）③変換の軽い入口（`todo split`が分割案を
-正規のplan revision `task_migration` from→successorsへ機械コンパイル。入口の軽さが本丸）。
-別planへ逃がすspawn形は不採用（redirect planで実測: 依存の線が切れてnoteと口約束になる）。
-ADR 0158の`prediction_excess`は変えない。欲張り（別対応可）: ToDoの箱の内側に内部工程図が
-描かれる入れ子表示（`parent_task_id`が系譜を持つ）。campaign級なので、着手時に専用planを起こす。
+実装、release、終端監査まで完了。構想と受入条件は[完了履歴](archive/plan_todo-scope-expansion.md)を参照する。
 
 ## 工程
 
@@ -543,7 +531,8 @@ renderer側の検査時点を公開契約へ明示するかを裁定する。静
 
 # 請求項の充足状況
 
-製品目標は特許請求の範囲12項の体現である（正本は`AGENTS.md`が指すPatent repo。請求項本文はここへ複製しない）。
+製品目標の正本は[`PLAN.md`](../PLAN.md)と[`00_product-contract.md`](00_product-contract.md)である。
+この節は出願時点の実コード照合履歴であり、請求項本文の外部ファイルを運用正本にしない。
 2026-07-28時点の実コード照合結果。
 
 **出願済み: 2026-07-27・特願2026-178950「情報処理装置、ソフトウェア開発制御方法及びプログラム」・
@@ -677,7 +666,8 @@ finding（競合path＋2つのtask）と実行中requestの宣言を持つ。導
 ## 検知方式の裁定（2026-07-27）
 
 実行時の検知は**予約でもI/O傍受でもなく、checkpointでの事後diff観測**である
-（`git status` ＋ `base..HEAD`、gitignore対象も含む）。
+（`git status`＋`base..HEAD`）。当時はgitignore対象も含めていたが、ignored観測は
+2026-08-29の[ADR 0189](adr/0189-drop-ignored-file-observation.md)で撤去した。
 
 成立するのは隔離worktreeがあるからである。共有ツリーなら書いた瞬間に壊れるので予約かI/O傍受が
 要る。各workerが自分のworktreeにいる限り、競合は「壊れた」ではなく「2つの版が分岐した」であり、
@@ -716,9 +706,10 @@ worktree外書き込みを塞ぐ必要が出た時に着手する。
 
 **請求項9が主張する性質が、worktreeの外について成立していない。** 請求項9は「実際に変更された
 資源の範囲を観測し、当該範囲が当該作業に対応する変更影響範囲の外に及ぶ場合…実行時競合を検出する」
-と述べる。現在の観測は`git status`（＋`base..HEAD`）であり、worktree内は`--ignored=matching`で
-gitignore対象まで漏らさず見る。しかし**worktreeの外**——絶対path、`/tmp`、ネットワーク、他repository
-——への書き込みはまったく映らない。宣言scope外の変更を検出するという主張が、そこだけ成立していない。
+と述べる。現在の観測は`git status`（＋`base..HEAD`）でworktree内の未追跡・追跡済みfileを見る。
+gitignore対象は[ADR 0189](adr/0189-drop-ignored-file-observation.md)により観測外で、悪意ある迂回は
+脅威モデル外である。**worktreeの外**——絶対path、`/tmp`、ネットワーク、他repository——への
+書き込みも映らない。宣言scope外の変更を検出するという主張は、この範囲について成立していない。
 
 これは速度の論点ではない。checkpoint間隔を詰めても、worktree外は永久に見えない。
 

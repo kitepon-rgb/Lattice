@@ -1,4 +1,4 @@
-# 動的工程表デザイン仕様（renderer v19＋live viewer）
+# 動的工程表デザイン仕様
 
 出典: Claude Code dataviz skill（validated reference palette）。以下の値は検証済みパレットからの転記であり、独自発明しない。
 

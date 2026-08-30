@@ -5,7 +5,7 @@
 
 ## Context
 
-[ADR 0127](adr/0127-todo-independence-projection.md)で並列可能性の記録面ができた。`todo independence compile`が
+[ADR 0127](../adr/0127-todo-independence-projection.md)で並列可能性の記録面ができた。`todo independence compile`が
 判定を記録し、`todo independence`がready frontierを検証済み並列・要直列・未検査へ分けて返す。
 しかし現状は**読みに行けば正しく答える台帳**であって、運用へは配線されていない。
 

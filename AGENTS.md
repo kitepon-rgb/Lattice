@@ -8,23 +8,28 @@ Latticeは、要求とcodebaseから並列開発可能なTODO graphを作るsche
 Lattice所有の内蔵sensorを構造sensorとして使い、TODO候補の境界競合を検出し、必要ならcode architectureへ
 seam-refactorを施し、再解析後に全planを新versionへコンパイルする。
 
-**製品目標の正本はオーナーの特許請求の範囲である。** 機能の優先順位は、どの構成要件を埋めるかで決める。
-請求項本文は本repoへ複製せず、`/Users/kite/Developer/Patent/Lattice/出願書類/03_特許請求の範囲案.md`
-（12項・凍結済み）を正本として参照する。複製しないのは正本を二重化しないためであり、
-出願の前後を問わない。
-
-**出願済み（2026-07-27・特願2026-178950「情報処理装置、ソフトウェア開発制御方法及びプログラム」・
-請求項12項）。** 出願日が確保されたので、公開面へ請求項の内容を出さないという
-制限は解けた。repoの公開、READMEでの特許の明示、記事や発表での言及はいずれも可能である。
-公開する時は出願番号と出願日を添え、請求項本文の複製ではなく参照とする。
-
-充足状況と残りの穴は[docs/plan_backlog.md](docs/plan_backlog.md)の「請求項の充足状況」が持つ。
+製品目標と優先順位は本repoの[PLAN.md](PLAN.md)と
+[docs/00_product-contract.md](docs/00_product-contract.md)だけを正本とする。特許出願の表示は
+[README.md](README.md)と[LICENSE](LICENSE)が持つ。外部repoや特定端末の絶対pathを、製品目標、
+工程、診断、releaseの成立条件にしない。
 
 - 製品思想の正本: [PLAN.md](PLAN.md)
 - 公開契約: [docs/00_product-contract.md](docs/00_product-contract.md)
-- 生きた工程状態: dotagents Lattice storeの`lattice-factory-integration` plan（思想・編入契約はdotagents `docs/plan_lattice-factory-integration.md`、RC4完了記録は[docs/archive/plan_lattice_rc4_dotagents_dogfood.md](docs/archive/plan_lattice_rc4_dotagents_dogfood.md)）
+- 生きた工程状態: 本repoの`.lattice/todo/`。入口は`lattice status --json`と
+  `lattice todo status --json`
 - 不変Decision: `docs/adr/`
 - 調査証拠: `rag/`。RAGはDecisionやTODOの正本ではない。
+
+## 文書の寿命と単独運用
+
+- 現行文書、進行中plan、履歴、証拠の地図は[docs/README.md](docs/README.md)を正とする。
+- 完了、撤回、置換済みのplanは全文を`docs/archive/`へ移す。immutableなstore・ADR・証拠が旧pathを
+  参照する場合だけ、旧pathに履歴stubを残す。stubとarchive本文を現行契約として読まない。
+- 同じ意味の現行文書を増やさない。恒久契約は既存の製品契約、統合契約、設計仕様へ統合してから
+  計画文書をarchiveへ移す。
+- Latticeのsource、install、設定、state、schema、migration、診断、復旧、更新、releaseは
+  このrepoだけを正本とする。dotagentsは任意の工場統合、host配線、互換性確認を統括するが、
+  Latticeの制御者でも実行条件でもない。
 
 ## 先端研究の姿勢
 
@@ -155,5 +160,6 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
   第三者コードは再ライセンスできず、帰属表示の保持義務がある。製品をOSI承認licenseへ
   変える提案をしない。特許を留保して商用を有償にする方針であり、OSIの定義は利用分野の
   制限を許さないので両立しない（特にApache-2.0は第3条で特許を明示許諾するため意図と逆行する）。
-- dotagentsは将来の導入、更新、host配線、BugHub、互換性、rollbackを所有する。Latticeの研究思想を
-  dotagentsの工場規則へ直接書き戻さない。
+- dotagentsは工場としての導入、host配線、BugHub投影、製品間互換性、工場rollbackだけを所有する。
+  Lattice自身の更新、診断、復旧、releaseは本repoが所有し、dotagentsを経由しなくても完結する。
+  Latticeの研究思想をdotagentsの工場規則へ直接書き戻さない。

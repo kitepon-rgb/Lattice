@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-27
 - Relates: [ADR 0065](0065-runtime-dogfood-usability-corrections.md)（`BOOTSTRAP_OWNERSHIP_SEAM`）・
-  [ADR 0123](0123-run-request-contract-single-source.md)（run request契約の単一正本）・
+  [ADR 0123](0123-runtime-contract-distribution-and-diagnosability.md)（run request契約の単一正本）・
   [ADR 0127](0127-todo-independence-projection.md)（witness宣言とcompile）・
   [ADR 0135](0135-readjudicating-seam-proposal-open-questions.md)（本ADRはそのDecision 3を実装する）
 

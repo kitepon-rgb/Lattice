@@ -3,8 +3,8 @@
 - 状態: Active
 - 作成日: 2026-07-15
 - 現在のplan version: `lattice-bootstrap-v1`
-- 製品思想: [../PLAN.md](../PLAN.md)
-- 公開契約: [00_product-contract.md](00_product-contract.md)
+- 製品思想: [../PLAN.md](../../PLAN.md)
+- 公開契約: [00_product-contract.md](../00_product-contract.md)
 
 ## Wave 0 — 開発環境bootstrap
 

@@ -3,15 +3,15 @@
 - 状態: Phase-supported
 - 更新日: 2026-07-16
 - 現在のplan version: `lattice-research-campaign-2-v1`
-- predecessor: `lattice-research-campaign-1-v6`（[Phase-supported archive](archive/2026-07-16-plan-lattice-research-campaign-1-v6-phase-supported.md)、SHA-256 `b655ded0a9c11dac33a79dfd3b347bc3c69ea2e5ec37af7bb688d3b9fd49a35c`）
-- predecessor Decision: [ADR 0031](adr/0031-rc1-v6-phase-gate-support.md)
-- campaign Decision: [ADR 0032](adr/0032-rc2-bounded-graph-compiler-and-three-way-seam.md)
-- transform Decision: [ADR 0037](adr/0037-rc2-delivery-policy-transform-transaction.md)
-- closed-loop Decision: [ADR 0038](adr/0038-rc2-closed-loop-version-and-artifact-contract.md)
-- Phase gate Decision: [ADR 0043](adr/0043-rc2-v4-phase-gate-support.md)
-- reconsideration evidence: [2026-07-16 RC2 plan reconsideration](evidence/2026-07-16-rc2-plan-reconsideration.md)
-- 製品思想: [../PLAN.md](../PLAN.md)
-- 公開契約: [00_product-contract.md](00_product-contract.md)
+- predecessor: `lattice-research-campaign-1-v6`（[Phase-supported archive](2026-07-16-plan-lattice-research-campaign-1-v6-phase-supported.md)、SHA-256 `b655ded0a9c11dac33a79dfd3b347bc3c69ea2e5ec37af7bb688d3b9fd49a35c`）
+- predecessor Decision: [ADR 0031](../adr/0031-rc1-v6-phase-gate-support.md)
+- campaign Decision: [ADR 0032](../adr/0032-rc2-bounded-graph-compiler-and-three-way-seam.md)
+- transform Decision: [ADR 0037](../adr/0037-rc2-delivery-policy-transform-transaction.md)
+- closed-loop Decision: [ADR 0038](../adr/0038-rc2-closed-loop-version-and-artifact-contract.md)
+- Phase gate Decision: [ADR 0043](../adr/0043-rc2-v4-phase-gate-support.md)
+- reconsideration evidence: [2026-07-16 RC2 plan reconsideration](../evidence/2026-07-16-rc2-plan-reconsideration.md)
+- 製品思想: [../PLAN.md](../../PLAN.md)
+- 公開契約: [00_product-contract.md](../00_product-contract.md)
 
 ## Plan version diff
 
@@ -232,7 +232,7 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] incomplete shardをtyped `incomplete_transform`でrejectし、accepted output／new planを持たないことを固定する。
 - [x] canonical source invariant、scope、cleanup、rollback cutをfocused gateで確認する。
 
-実装証拠: [2026-07-16 RC2 delivery policy transform](evidence/2026-07-16-rc2-delivery-policy-transform-implementation.md)
+実装証拠: [2026-07-16 RC2 delivery policy transform](../evidence/2026-07-16-rc2-delivery-policy-transform-implementation.md)
 
 ### RC2-G — closed loopとimmutable artifact
 
@@ -248,7 +248,7 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] `research/campaigns/rc2/artifacts/v1`へatomic発行し、RC1 artifactを上書きしない。
 - [x] disk verifierで保存bytesから全relationとminimumを再計算する。
 
-実行証拠: [2026-07-16 RC2 canonical closed loop](evidence/2026-07-16-rc2-canonical-closed-loop.md)
+実行証拠: [2026-07-16 RC2 canonical closed loop](../evidence/2026-07-16-rc2-canonical-closed-loop.md)
 
 ### RC2-H — Phase gate
 
@@ -279,58 +279,58 @@ artifact relationを統合する。Controlはこのplanのdocs-only commit後に
 - [x] H1-RC2をsupport／refuteする新しい不変DecisionとPhase evidenceを残す。
 
 post-publication correction実装証拠:
-[2026-07-16 RC2 artifact v2 implementation](evidence/2026-07-16-rc2-artifact-v2-implementation.md)
+[2026-07-16 RC2 artifact v2 implementation](../evidence/2026-07-16-rc2-artifact-v2-implementation.md)
 
 canonical successor証拠:
-[2026-07-16 RC2 canonical artifact v2](evidence/2026-07-16-rc2-canonical-artifact-v2.md)
+[2026-07-16 RC2 canonical artifact v2](../evidence/2026-07-16-rc2-canonical-artifact-v2.md)
 
 full regression証拠:
-[2026-07-16 RC2 full CI](evidence/2026-07-16-rc2-full-ci.md)
+[2026-07-16 RC2 full CI](../evidence/2026-07-16-rc2-full-ci.md)
 
 semantic reseal expected-red証拠:
-[2026-07-16 RC2 artifact semantic reseal characterization](evidence/2026-07-16-rc2-artifact-semantic-reseal-characterization.md)
+[2026-07-16 RC2 artifact semantic reseal characterization](../evidence/2026-07-16-rc2-artifact-semantic-reseal-characterization.md)
 
 semantic binding Decision:
-[ADR 0041: RC2 artifactへoracle／mutation semanticsをbindしv3へ再compileする](adr/0041-rc2-artifact-semantic-oracle-mutation-binding.md)
+[ADR 0041: RC2 artifactへoracle／mutation semanticsをbindしv3へ再compileする](../adr/0041-rc2-artifact-semantic-oracle-mutation-binding.md)
 
 semantic binding preflight証拠:
-[2026-07-16 RC2 semantic binding Codegraph preflight](evidence/2026-07-16-rc2-semantic-binding-codegraph-preflight.md)
+[2026-07-16 RC2 semantic binding Codegraph preflight](../evidence/2026-07-16-rc2-semantic-binding-codegraph-preflight.md)
 
 semantic binding実装証拠:
-[2026-07-16 RC2 semantic binding implementation](evidence/2026-07-16-rc2-semantic-binding-implementation.md)
+[2026-07-16 RC2 semantic binding implementation](../evidence/2026-07-16-rc2-semantic-binding-implementation.md)
 
 canonical semantic successor証拠:
-[2026-07-16 RC2 canonical artifact v3／plan v4](evidence/2026-07-16-rc2-canonical-artifact-v3.md)
+[2026-07-16 RC2 canonical artifact v3／plan v4](../evidence/2026-07-16-rc2-canonical-artifact-v3.md)
 
 semantic correction full regression証拠:
-[2026-07-16 RC2 semantic binding full CI](evidence/2026-07-16-rc2-semantic-binding-full-ci.md)
+[2026-07-16 RC2 semantic binding full CI](../evidence/2026-07-16-rc2-semantic-binding-full-ci.md)
 
 v3 witness再包装反証証拠:
-[2026-07-16 RC2 artifact v3 witness再包装 Phase refutation](evidence/2026-07-16-rc2-v3-version-downgrade-refutation.md)
+[2026-07-16 RC2 artifact v3 witness再包装 Phase refutation](../evidence/2026-07-16-rc2-v3-version-downgrade-refutation.md)
 
 version witness epoch Decision:
-[ADR 0042: artifact versionをactive witness epochへbindしv4へ再compileする](adr/0042-rc2-artifact-version-witness-epoch-and-v4.md)
+[ADR 0042: artifact versionをactive witness epochへbindしv4へ再compileする](../adr/0042-rc2-artifact-version-witness-epoch-and-v4.md)
 
 version-contract expected-red証拠:
-[2026-07-16 RC2 artifact version-contract回帰test](evidence/2026-07-16-rc2-version-downgrade-characterization.md)
+[2026-07-16 RC2 artifact version-contract回帰test](../evidence/2026-07-16-rc2-version-downgrade-characterization.md)
 
 version witness preflight証拠:
-[2026-07-16 RC2 version witness Codegraph preflight](evidence/2026-07-16-rc2-version-witness-codegraph-preflight.md)
+[2026-07-16 RC2 version witness Codegraph preflight](../evidence/2026-07-16-rc2-version-witness-codegraph-preflight.md)
 
 version witness実装証拠:
-[2026-07-16 RC2 version witness consistency implementation](evidence/2026-07-16-rc2-version-witness-implementation.md)
+[2026-07-16 RC2 version witness consistency implementation](../evidence/2026-07-16-rc2-version-witness-implementation.md)
 
 canonical version witness successor証拠:
-[2026-07-16 RC2 canonical artifact v4／plan v5](evidence/2026-07-16-rc2-canonical-artifact-v4.md)
+[2026-07-16 RC2 canonical artifact v4／plan v5](../evidence/2026-07-16-rc2-canonical-artifact-v4.md)
 
 version witness full regression証拠:
-[2026-07-16 RC2 version witness full CI](evidence/2026-07-16-rc2-version-witness-full-ci.md)
+[2026-07-16 RC2 version witness full CI](../evidence/2026-07-16-rc2-version-witness-full-ci.md)
 
 RC2 v4 Phase反証証拠:
-[2026-07-16 RC2 artifact v4／plan v5 Phase反証](evidence/2026-07-16-rc2-v4-phase-refutation.md)
+[2026-07-16 RC2 artifact v4／plan v5 Phase反証](../evidence/2026-07-16-rc2-v4-phase-refutation.md)
 
 RC2 v4 Phase gate Decision:
-[ADR 0043: RC2 v4は3-way registry fixtureで世代固有witness付き閉ループをsupportする](adr/0043-rc2-v4-phase-gate-support.md)
+[ADR 0043: RC2 v4は3-way registry fixtureで世代固有witness付き閉ループをsupportする](../adr/0043-rc2-v4-phase-gate-support.md)
 
 ## Evidence artifact
 

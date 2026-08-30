@@ -22,3 +22,13 @@ test('scripted adapter controllerをnpm binと配布filesへ含める', async ()
   );
   assert.ok(packageJson.files?.includes('bin/lattice-scripted-adapter.mjs'));
 });
+
+test('release versionはpackage、lock、CHANGELOGで同期する', async () => {
+  const packageJson = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'));
+  const packageLock = JSON.parse(await readFile(path.join(repoRoot, 'package-lock.json'), 'utf8'));
+  const changelog = await readFile(path.join(repoRoot, 'CHANGELOG.md'), 'utf8');
+
+  assert.equal(packageLock.version, packageJson.version);
+  assert.equal(packageLock.packages?.['']?.version, packageJson.version);
+  assert.match(changelog, new RegExp(`^## ${packageJson.version} —`, 'mu'));
+});

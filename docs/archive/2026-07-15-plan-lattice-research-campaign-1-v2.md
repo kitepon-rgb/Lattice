@@ -3,12 +3,12 @@
 - 状態: Active
 - 更新日: 2026-07-15
 - 現在のplan version: `lattice-research-campaign-1-v2`
-- predecessor: `lattice-bootstrap-v1`（[archive](archive/2026-07-15-plan-lattice-bootstrap-v1.md)、SHA-256 `78c07232cd2ede13dbd88bce02aa03b3591acc9ca1e39c21f7861398fc203a3b`）
-- Decision: [ADR 0002](adr/0002-research-campaign-1-closed-loop.md)
-- Control lifecycle correction: [ADR 0004](adr/0004-rc1-control-admission-correction.md)
-- Native execution verification: [ADR 0005](adr/0005-rc1-native-execution-verification.md)
-- 製品思想: [../PLAN.md](../PLAN.md)
-- 公開契約: [00_product-contract.md](00_product-contract.md)
+- predecessor: `lattice-bootstrap-v1`（[archive](2026-07-15-plan-lattice-bootstrap-v1.md)、SHA-256 `78c07232cd2ede13dbd88bce02aa03b3591acc9ca1e39c21f7861398fc203a3b`）
+- Decision: [ADR 0002](../adr/0002-research-campaign-1-closed-loop.md)
+- Control lifecycle correction: [ADR 0004](../adr/0004-rc1-control-admission-correction.md)
+- Native execution verification: [ADR 0005](../adr/0005-rc1-native-execution-verification.md)
+- 製品思想: [../PLAN.md](../../PLAN.md)
+- 公開契約: [00_product-contract.md](../00_product-contract.md)
 
 ## Plan version diff
 
@@ -108,14 +108,14 @@ ready幅を増やす目的でhard dependencyを削らない。
 ### RC1-P — 計画versionを固定する
 
 - [x] 旧Control revision 6の`worker_runs`、`consultations`、`campaigns`、dispatchが全て0と確認し、指定範囲だけ整理する。
-- [x] 同一HEADでfull baselineを再確認し、[evidence](evidence/2026-07-15-research-campaign-1-baseline-v2.md)へ固定する。
+- [x] 同一HEADでfull baselineを再確認し、[evidence](../evidence/2026-07-15-research-campaign-1-baseline-v2.md)へ固定する。
 - [x] 旧planをdigest一致でarchiveし、ADR 0002と`lattice-research-campaign-1-v2`を正本化する。
-- [x] [親反証](evidence/2026-07-15-research-campaign-1-plan-refutation.md)とdocs link／digest検証を行う。
+- [x] [親反証](../evidence/2026-07-15-research-campaign-1-plan-refutation.md)とdocs link／digest検証を行う。
 - [x] plan更新だけを独立commitする。
 
 ### RC1-S — characterization safety netを先行する
 
-Accepted Decision: [ADR 0003](adr/0003-rc1-safety-net-accepted.md)
+Accepted Decision: [ADR 0003](../adr/0003-rc1-safety-net-accepted.md)
 
 - [x] source編集前にCodegraphで既存test入口、planned owned path／symbol、caller／callee、impact、affected testを確認し、
   symbol不在を`new_surface_unknown`としてmanual boundary evidenceへ残す。
@@ -125,18 +125,18 @@ Accepted Decision: [ADR 0003](adr/0003-rc1-safety-net-accepted.md)
 
 ### RC1-A／B／C — 閉ループの三laneを実装する
 
-Source boundary／dispatch contract: [RC1 implementation boundaries](evidence/2026-07-15-rc1-implementation-boundaries.md)
+Source boundary／dispatch contract: [RC1 implementation boundaries](../evidence/2026-07-15-rc1-implementation-boundaries.md)
 
 - [x] Control `lattice-rc1-closed-loop-v2`のplacement dry-runで`budget-unknown`と
-  `verification-insufficient`を検出し、実作業をdispatchせず[ADR 0004](adr/0004-rc1-control-admission-correction.md)へ
+  `verification-insufficient`を検出し、実作業をdispatchせず[ADR 0004](../adr/0004-rc1-control-admission-correction.md)へ
   訂正条件を固定する。
-- [x] v2 Controlを[administrative closure evidence](evidence/2026-07-15-rc1-control-v2-administrative-closure.md)で
+- [x] v2 Controlを[administrative closure evidence](../evidence/2026-07-15-rc1-control-v2-administrative-closure.md)で
   archiveし、known cost envelopeを持つcontinuation Controlを初期化する。
 - [x] continuation Control内のread-only native Taskを完遂・回収・acceptし、そのevidenceで入口を
   `execution-verified`へ昇格してからRC1-B／RC1-Cを配置する。
 
-Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
-[受入証拠](evidence/2026-07-15-rc1-foundation-acceptance.md)はControl receipt、focused gate、実Codegraph post-indexを固定する。
+Accepted Decision: [ADR 0006](../adr/0006-rc1-foundation-contracts-accepted.md)。
+[受入証拠](../evidence/2026-07-15-rc1-foundation-acceptance.md)はControl receipt、focused gate、実Codegraph post-indexを固定する。
 
 - [x] **RC1-A（F・親直轄）:** `plan_input.v1`、`boundary_manifest.v1`、`boundary_verdict.v1`、`plan_graph.v1`、`plan_diff.v1`の
   RC1必要subsetをexact key、bounded collection、canonical serialization、digest付きで実装する。
@@ -148,23 +148,23 @@ Accepted Decision: [ADR 0006](adr/0006-rc1-foundation-contracts-accepted.md)。
   `query selectDispatchChannel`が`SEAM_BY_CONCERN`のsignature内文字列を返してもexact symbol存在へ昇格させず、
   query node identityをtargetへ照合し、graph traversalも同じexact resolutionを通過させる。anchorのexact hit、
   proposed surfaceのfalse positive、非JSON absenceをfocused testで固定し、失敗したD integrationだけを再実行した。
-  Accepted Decision: [ADR 0008](adr/0008-codegraph-exact-symbol-identity.md)。
+  Accepted Decision: [ADR 0008](../adr/0008-codegraph-exact-symbol-identity.md)。
 - [x] **RC1-C:** disposable worktree、bounded write scope、characterization verifier、diff artifact、rollback／cleanupを実装する。
 
 ### RC1-D／E／F — controlとtreatmentを閉じる
 
 - [x] **RC1-D:** original fixtureからboundary manifest、typed conflict／verdict、control plan v1をcompileする。
-  [ADR 0007](adr/0007-manual-evidence-provenance-in-boundary-manifest.md)に従い、同じnode内でmanual evidence個別provenanceを
+  [ADR 0007](../adr/0007-manual-evidence-provenance-in-boundary-manifest.md)に従い、同じnode内でmanual evidence個別provenanceを
   manifestへ補完する。normalはwrite conflict 1＋`seam_candidate`＋2 wave、shared-state negativeはstate conflictを保持して
-  `intentional_serial`とし、[実装契約](evidence/2026-07-15-rc1-control-compiler-contract.md)をgateにした。
-  Accepted Decision: [ADR 0009](adr/0009-rc1-control-boundary-compile-accepted.md)。
+  `intentional_serial`とし、[実装契約](../evidence/2026-07-15-rc1-control-compiler-contract.md)をgateにした。
+  Accepted Decision: [ADR 0009](../adr/0009-rc1-control-boundary-compile-accepted.md)。
 - [x] **RC1-E（F・親直轄）:** `seam_candidate`からchannel／label extractionをisolated worktreeで実行し、accept／rejectを
   strict `lattice.transform_artifact.v1`へ証拠化する。raw patch、verifier receipt、post content snapshot、cleanup、source不変を
   digestでbindし、scope violationとbehavior divergenceはpatchを後段へ渡さずrejectする。
-  Contract: [RC1-E seam transform](evidence/2026-07-15-rc1-seam-transform-contract.md)。
-  Contract Decision: [ADR 0010](adr/0010-rc1-transform-artifact-and-verifier-receipts.md)。
-  Accepted Decision: [ADR 0011](adr/0011-rc1-seam-treatment-same-base-accepted.md)。
-  [受入証拠](evidence/2026-07-15-rc1-seam-transform-acceptance.md)はsame-base binding、accepted／rejected artifact、
+  Contract: [RC1-E seam transform](../evidence/2026-07-15-rc1-seam-transform-contract.md)。
+  Contract Decision: [ADR 0010](../adr/0010-rc1-transform-artifact-and-verifier-receipts.md)。
+  Accepted Decision: [ADR 0011](../adr/0011-rc1-seam-treatment-same-base-accepted.md)。
+  [受入証拠](../evidence/2026-07-15-rc1-seam-transform-acceptance.md)はsame-base binding、accepted／rejected artifact、
   focused／related gate、reworkとresidual unknownを固定する。
 - [ ] **RC1-F:** 同じquery setで再indexし、post manifest、new plan v2、plan diff、control／treatment比較を生成する。
 - [ ] canonical artifactを再生成してdigest一致を確認し、unknown、intervention cost、未検証範囲を報告する。

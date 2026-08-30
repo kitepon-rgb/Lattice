@@ -1,6 +1,6 @@
 {
   "name": "@quolu/lattice",
-  "version": "0.67.5",
+  "version": "0.67.6",
   "description": "Schedulability compiler for multi-agent development: observe real code boundaries, refactor the conflicting seam, recompile the plan for parallel execution",
   "author": {
     "name": "Quo / クオ at kitepon.dev",
@@ -64,12 +64,15 @@
     "ignore": "^7.0.5",
     "jsonc-parser": "^3.3.1",
     "picomatch": "^4.0.3",
-    "remark-gfm": "^4.0.1",
-    "remark-parse": "^11.0.0",
     "sisteransi": "^1.0.5",
     "tree-sitter-wasms": "^0.1.11",
-    "unified": "^11.0.5",
     "web-tree-sitter": "^0.25.3"
+  },
+  "devDependencies": {
+    "micromark-util-decode-string": "^2.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5"
   },
   "scripts": {
     "prepack": "npm --prefix sensor run build",
@@ -79,11 +82,12 @@
     "test:profile": "node scripts/run-product-tests.mjs",
     "test:sensor": "npm --prefix sensor test",
     "check": "node scripts/check-syntax.mjs",
-    "ci": "npm run test && npm run test:sensor && npm run check && npm run check:cli-surface && npm run check:open-questions && npm run check:reachability && npm run verify:todo-store",
+    "ci": "npm run check:docs && npm run test && npm run test:sensor && npm run check && npm run check:cli-surface && npm run check:open-questions && npm run check:reachability && npm run verify:todo-store",
     "verify:todo-store": "node bin/lattice.mjs todo verify --json",
     "check:cli-surface": "node scripts/verify-cli-surface.mjs",
     "check:open-questions": "node scripts/verify-open-questions.mjs",
     "check:reachability": "node scripts/verify-product-reachability.mjs",
+    "check:docs": "node scripts/verify-docs.mjs && node scripts/verify-packed-markdown.mjs && node --test test/documentation-ci-contract.test.mjs test/markdown-link-targets.test.mjs",
     "upstream:check": "node scripts/upstream-check.mjs",
     "upstream:sync": "node scripts/upstream-sync.mjs"
   },

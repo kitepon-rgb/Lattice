@@ -5,8 +5,8 @@
 
 ## Context
 
-[ADR 0128](adr/0128-todo-independence-operational-wiring.md)で着手時advisoryが、
-[ADR 0129](adr/0129-gantt-independence-presentation.md)で工程表の表示ができた。機構は揃ったが、
+[ADR 0128](../adr/0128-todo-independence-operational-wiring.md)で着手時advisoryが、
+[ADR 0129](../adr/0129-gantt-independence-presentation.md)で工程表の表示ができた。機構は揃ったが、
 **Latticeを道具として使う側のエージェントへ読み方が届いていない**。実測で分かったのは次のとおり。
 
 - Lattice MCPが配るserver instructionsはsensor（code intelligence）の説明だけで、

@@ -285,7 +285,7 @@ test('checkpoint観測と食い違うreceiptはcheckpoint_mismatchでrejectさ�
   assert.equal(recomputed.decisions[0].detail, 'checkpoint_mismatch');
 });
 
-test('gitignore済みpathへのwriteもdiff sensorが予測超過として観測する', async () => {
+test('gitignore済みpathへのwriteはdiff sensorの観測に混ぜない', async () => {
   // baseへ.gitignoreをcommitしたrepoを別に作る（既存fixtureを汚さない）。
   const ignRoot = path.join(temporaryRoot, 'repo-ignored');
   await mkdir(path.join(ignRoot, 'src'), { recursive: true });
@@ -322,9 +322,7 @@ test('gitignore済みpathへのwriteもdiff sensorが予測超過として観測
       runId: RUN_ID, plan, events, packets, manifests, todoId: 'G1',
       detect: detectCheckpointFindings, recordedAt: AT,
     });
-    assert.ok(classified.observations.some((finding) => (
-      finding.kind === 'prediction_excess' && finding.path === 'ignored/rogue.txt'
-    )), JSON.stringify(classified.observations));
+    assert.deepEqual(classified.observations, []);
   } finally {
     baseSha = saved;
   }

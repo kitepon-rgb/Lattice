@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/og.png" alt="Lattice — several viable routes emerging through an apparently blocked mountain valley" width="100%">
+  <img src="https://raw.githubusercontent.com/kitepon/Lattice/main/.github/og.png" alt="Lattice — several viable routes emerging through an apparently blocked mountain valley" width="100%">
   <br>
   <sub><em>This image represents several viable paths emerging from terrain that first appeared blocked, as autonomous executors begin moving in coordination.</em></sub>
 </p>
@@ -231,7 +231,7 @@ live dependency diagram refuses to fold such a plan away, because folding is how
 says "closed", and nothing gets there without an evidence-bound `phase accept`. Creation is never
 rejected over it; the requirement is reported instead. And the audit gate never touches dispatch:
 phases order reviews, the ToDo DAG orders work
-([ADR 0147](docs/adr/0147-audit-is-on-by-default.md)).
+([ADR 0147](https://github.com/kitepon/Lattice/blob/main/docs/adr/0147-audit-is-on-by-default.md)).
 
 **History closes unaudited, never audited.** Work that finished long ago cannot be audited — the
 code under review has already moved. Demanding an audit there produces either a false finding
@@ -240,7 +240,7 @@ code under review has already moved. Demanding an audit there produces either a 
 incapable of passing as `accepted`** — phase-accept dependencies unlock on `accepted` alone. The
 bulk entry point never runs by itself, and the machine never infers "old enough to skip"; a human
 decides what gets audited and what becomes history
-([ADR 0148](docs/adr/0148-history-closes-unaudited-not-audited.md)).
+([ADR 0148](https://github.com/kitepon/Lattice/blob/main/docs/adr/0148-history-closes-unaudited-not-audited.md)).
 
 ## Patent
 
@@ -259,13 +259,48 @@ Noncommercial use is permitted under the [License](#license) below.
 ## Ownership boundary
 
 This repository owns the plan/ToDo/run store, the bundled sensor, schemas, migrations,
-releases, and diagnostics. [dotagents](https://github.com/kitepon-rgb/dotagents) is the
-internal toolchain behind kitepon.dev and owns cross-product installation and host integration.
+releases, and diagnostics. [dotagents](https://github.com/kitepon/dotagents) coordinates optional
+cross-product factory installation and host integration; it does not own or control Lattice's
+product state, update, diagnostics, or release.
 
-- Product philosophy: [PLAN.md](PLAN.md)
-- Public contract: [docs/00_product-contract.md](docs/00_product-contract.md)
-- Immutable decisions: [docs/adr/](docs/adr/)
-- Document map: [docs/README.md](docs/README.md)
+- Product philosophy: [PLAN.md](https://github.com/kitepon/Lattice/blob/main/PLAN.md)
+- Public contract: [docs/00_product-contract.md](https://github.com/kitepon/Lattice/blob/main/docs/00_product-contract.md)
+- Immutable decisions: [docs/adr/](https://github.com/kitepon/Lattice/tree/main/docs/adr)
+- Document map: [docs/README.md](https://github.com/kitepon/Lattice/blob/main/docs/README.md)
+
+## Update and diagnostics
+
+The npm package is the standalone update path. After updating, typed discovery verifies the
+installed CLI and refreshes the product-owned dashboard when needed. Check the bridge only on a
+host where it is enabled; its supervised process replaces an older loaded version within one minute.
+
+```bash
+npm install -g @quolu/lattice@latest
+lattice --version
+lattice status --json
+lattice bridge status --json
+```
+
+## Release
+
+Maintainers release Lattice from this repository. Update `package.json` and `CHANGELOG.md`, pass the
+product gate, land and push the release commit on the default branch, then publish and verify that
+same version from the registry. `prepublishOnly` rejects a dirty tree or a commit not landed on the
+remote default branch.
+
+```bash
+npm run ci
+npm run verify:release-commit
+npm publish --access public
+npm install -g @quolu/lattice@<version>
+lattice --version
+lattice status --json
+lattice bridge status --json
+```
+
+The product CI contract is [docs/ci-contract.md](https://github.com/kitepon/Lattice/blob/main/docs/ci-contract.md). The deployment-specific
+dashboard and bridge checks are in
+[docs/operations/lattice-kitepon-deployment.md](https://github.com/kitepon/Lattice/blob/main/docs/operations/lattice-kitepon-deployment.md).
 
 ## Development
 
@@ -273,6 +308,21 @@ internal toolchain behind kitepon.dev and owns cross-product installation and ho
 npm test        # product test gate
 npm run check   # syntax + control-character gate
 npm run ci      # full gate
+```
+
+Product-local maintenance, when relevant:
+
+```bash
+node scripts/reap-orphan-test-daemons.mjs
+lattice sensor sync . --json
+```
+
+These optional factory-integration diagnostics are not Lattice's standalone development or release
+gate:
+
+```bash
+spotter doctor
+codex-sidecar diagnostics --project . --preset auditor --json
 ```
 
 The full gate includes checks that are unusual and deliberate:
@@ -305,4 +355,4 @@ repository and remains under the **MIT License**. Its upstream origin and attrib
 recorded in [`sensor/NOTICE`](sensor/NOTICE); the license text is
 [`sensor/LICENSE`](sensor/LICENSE). The terms above do not modify it.
 
-© 2026 quolu (kitepon-rgb)
+© 2026 quolu (kitepon.dev)
