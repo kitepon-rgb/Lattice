@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
-  canonicalizeTodoArtifact, isStrictTodoTimestamp, todoSelfDigest,
+  TODO_LIMITS, canonicalizeTodoArtifact, isStrictTodoTimestamp, todoSelfDigest,
 } from '../src/todo-contracts.mjs';
 import {
   TodoStoreError, appendImportedPlan, appendTodoEvent, applyPhaseTodoRevision, buildTodoPlan, createTodoStoreWriter,
@@ -1035,7 +1035,7 @@ test('同一pinned sourceのread-time検証はstore read内でcommitとblobを�
   assert.equal((await readFile(counter, 'utf8')).length, 1);
 });
 
-// narrativeSectionBytes超のevidence blobは単体読みのmaxBufferで読めず未検証注釈になる。
+// narrativeSectionBytes超のevidence blobは単体読みのbytes上限で拒否され未検証注釈になる。
 // prefetchのbatch同乗（maxBufferが件数×予算）で検証済みへ昇格させないことを固定する。
 test('上限超過evidence blobはprefetch経由でも未検証注釈のまま変わらない', async (context) => {
   const root = await workspace(context);
@@ -1061,14 +1061,13 @@ test('上限超過evidence blobはprefetch経由でも未検証注釈のまま�
       content_digest: createHash('sha256').update(evidenceBytes).digest('hex'),
       media_type: 'text/plain', anchor_digest: null };
   };
-  // 小さいblobを同乗させて2件batchにする（batch予算=件数×上限なので、同乗がないと
-  // 単体読みと同じ予算になり、この境界は観測できない）。
+  // 小さいblobも同乗させ、batch prefetchが上限内だけをseedした後の個別検証を固定する。
   append('start', 'T1', { override_reason: null });
   append('done', 'T1', { done_mode: 'authored', imported: false,
     evidence: await evidenceFor('ev-small', Buffer.from('small evidence\n')) });
   append('start', 'T2', { override_reason: null });
   append('done', 'T2', { done_mode: 'authored', imported: false,
-    evidence: await evidenceFor('ev-oversized', Buffer.alloc(300_000, 0x61)) });
+    evidence: await evidenceFor('ev-oversized', Buffer.alloc(TODO_LIMITS.narrativeSectionBytes + 1, 0x61)) });
   await writeFile(path.join(root, journalRef), `${events.map(canonicalizeTodoArtifact).join('\n')}\n`);
   const manifest = JSON.parse((await bytes(root, manifestRef)).toString('utf8'));
   manifest.members[0].journal_head_digest = events.at(-1).event_digest;

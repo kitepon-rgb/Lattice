@@ -1210,7 +1210,10 @@ function readEvidenceBlob(absoluteRepo, oid) {
   const [entry] = gitCatFileBatch([oid], {
     cwd: absoluteRepo, maxBodyBytes: TODO_LIMITS.narrativeSectionBytes + 1,
   });
-  if (entry.missing || entry.type !== 'blob') throw new Error('not blob');
+  // child_processのmaxBufferはprocess出力の総量を制限するだけで、証拠1件の意味上限ではない。
+  // 契約上限はbytesで明示判定し、process bufferの打切りを意味判定に使わない。
+  if (entry.missing || entry.type !== 'blob'
+    || entry.bytes.length > TODO_LIMITS.narrativeSectionBytes) throw new Error('not bounded blob');
   if (evidenceBlobCache.size >= EVIDENCE_BLOB_CACHE_LIMIT) {
     evidenceBlobCache.delete(evidenceBlobCache.keys().next().value);
   }

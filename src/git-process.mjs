@@ -42,7 +42,9 @@ export function gitCatFileBatch(objectNames, { cwd, maxBodyBytes }) {
     maxBuffer: (maxBodyBytes + 256) * objectNames.length,
     stdio: ['pipe', 'pipe', 'ignore'],
   });
-  if (result.status !== 0 || result.stdout === undefined || result.stdout === null) {
+  // Linux / Node 24ではmaxBuffer超過時にもstatus=0と完全stdoutを返しつつ、errorだけを
+  // ENOBUFSにする競合がある。statusだけで成功判定するとprocess自身が報告した失敗を失う。
+  if (result.error || result.status !== 0 || result.stdout === undefined || result.stdout === null) {
     throw new Error(`git cat-file --batch failed: status=${result.status ?? 'signal'}`);
   }
   const stdout = result.stdout;
