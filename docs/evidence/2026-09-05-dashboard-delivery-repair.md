@@ -132,3 +132,19 @@ bridgeのheartbeatはaccepted、常駐設定とruntimeのずれはなし。
 `DASHBOARD_DAEMON_UNAVAILABLE`を返した。既存dashboardは生きて配信を継続している。
 原因は未特定で、dashboardの更新完了とは扱わない。
 オーナー指示により、先にnpm Trusted Publishingの設定へ切り替えた。
+
+## Trusted Publishingと配布依存の修理
+
+`npm trust github`でオーナーが初回認証した後、npmは`kitepon/Lattice`の`publish.yml`について
+publish権限の信頼設定作成成功を返した。長期tokenはGitHubへ登録していない。
+公開は[製品所有workflow](../../.github/workflows/publish.yml)から起動する。
+
+最初のworkflowの検査待ち中に、導入済みdashboard子processのstderrを取得したところ、
+`todo-markdown-renderer.mjs`が`unified`をimportできず終了していた。
+`unified`・`remark-gfm`・`remark-parse`は実行時に必要だがdevDependenciesに入っていた。
+OS差ではなく配布物の依存宣言欠落である。公開前のworkflowを取り消し、3件をdependenciesへ移した。
+ライブラリの版と解決先は変更しない。sensorでMarkdown描画から工程画面への呼出しを確認した。
+
+開発repoのnode_modulesを参照できない一時ディレクトリへnpm tarballを`--omit=dev`で導入し、
+dashboardの`--help`が終了コード0になることを確認した。関連13試験も成功した。
+同じ配布物の導入確認を公開jobへ加え、ソースcheckoutだけで通る依存欠落を公開前に検出する。

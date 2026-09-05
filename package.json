@@ -64,15 +64,15 @@
     "ignore": "^7.0.5",
     "jsonc-parser": "^3.3.1",
     "picomatch": "^4.0.3",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
     "sisteransi": "^1.0.5",
     "tree-sitter-wasms": "^0.1.11",
+    "unified": "^11.0.5",
     "web-tree-sitter": "^0.25.3"
   },
   "devDependencies": {
-    "micromark-util-decode-string": "^2.0.1",
-    "remark-gfm": "^4.0.1",
-    "remark-parse": "^11.0.0",
-    "unified": "^11.0.5"
+    "micromark-util-decode-string": "^2.0.1"
   },
   "scripts": {
     "prepack": "npm --prefix sensor run build",

@@ -19,12 +19,10 @@ test('Markdown-only変更は製品所有の文書gateを必ず実行する', asy
     packageJson.scripts?.['check:docs'],
     'node scripts/verify-docs.mjs && node scripts/verify-packed-markdown.mjs && node --test test/documentation-ci-contract.test.mjs test/markdown-link-targets.test.mjs',
   );
-  for (const dependency of [
-    'unified',
-    'remark-parse',
-    'remark-gfm',
-    'micromark-util-decode-string',
-  ]) assert.equal(typeof packageJson.devDependencies?.[dependency], 'string');
+  for (const dependency of ['unified', 'remark-parse', 'remark-gfm']) {
+    assert.equal(typeof packageJson.dependencies?.[dependency], 'string');
+  }
+  assert.equal(typeof packageJson.devDependencies?.['micromark-util-decode-string'], 'string');
   assert.match(caller, /uses:\s+\.\/\.github\/workflows\/product-full-ci\.yml/u);
   assert.match(
     caller,

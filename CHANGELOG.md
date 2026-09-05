@@ -7,6 +7,12 @@
 - npm公開をGitHub ActionsのTrusted Publishingへ移す。mainの製品検査後にOIDCで公開し、
   毎回の本人認証と長期有効なnpm tokenを公開手順から外す。
 
+### 修正
+
+- dashboardのMarkdown表示に必要な3ライブラリを配布時の依存へ移す。global install後に
+  `unified`を読み込めずdashboardが起動しない不具合を修正した。
+  公開前にnpm配布物だけを導入してdashboard入口の読込を確認する。
+
 ## 0.68.0 — 2026-09-05
 
 ### 修正
