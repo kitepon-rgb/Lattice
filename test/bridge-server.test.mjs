@@ -124,15 +124,15 @@ test('runtime controllerは設定変更を反映しdisableでbridgeだけ停止�
 });
 
 test('upstream unavailableはtyped 503でbridge processを維持する', async (context) => {
-  const config = { enabled: true, listen: { address: '127.0.0.1', port: 58_741 }, allowed_hosts: ['127.0.0.1'],
+  const config = { enabled: true, listen: { address: '127.0.0.1', port: 0 }, allowed_hosts: ['127.0.0.1'],
     upstream: { mode: 'dashboard_descriptor' } };
   const error = new Error('missing'); error.code = 'BRIDGE_UPSTREAM_UNAVAILABLE';
   const bridge = await startBridgeServer({ config, resolveUpstream: async () => { throw error; } });
   context.after(() => bridge.close());
-  const response = await fetch('http://127.0.0.1:58741/');
+  const response = await fetch(`http://127.0.0.1:${bridge.port}/`);
   assert.equal(response.status, 503);
   assert.equal((await response.json()).code, 'BRIDGE_UPSTREAM_UNAVAILABLE');
-  assert.equal((await fetch('http://127.0.0.1:58741/__lattice/bridge-health')).status, 200);
+  assert.equal((await fetch(`http://127.0.0.1:${bridge.port}/__lattice/bridge-health`)).status, 200);
 });
 
 test('absolute-form・base path逸脱request-targetを400で拒否し外部originへ転送しない', async (context) => {

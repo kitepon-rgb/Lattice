@@ -17,7 +17,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { hostname } from 'node:os';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { bridgeConfigPaths } from './bridge-config.mjs';
@@ -68,13 +68,18 @@ export async function readOrCreateBridgeHubTerminalId({ env = process.env } = {}
       if (error?.code !== 'ENOENT') throw error;
     }
     const terminalId = randomBytes(16).toString('hex');
+    const temporary = `${ref}.${terminalId}.tmp`;
+    await writeFile(temporary, `${JSON.stringify({ schema: TERMINAL_IDENTITY_SCHEMA, terminal_id: terminalId })}\n`,
+      { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     try {
-      await writeFile(ref, `${JSON.stringify({ schema: TERMINAL_IDENTITY_SCHEMA, terminal_id: terminalId })}\n`,
-        { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+      // 完成済みのbytesだけを、既存のIDを上書きせず公開する。
+      await link(temporary, ref);
       return terminalId;
     } catch (error) {
       if (error?.code !== 'EEXIST') throw error;
-      // Lost the create race to another process; loop back and read what it wrote.
+      // 同時生成の勝者が公開した完成済みIDを読む。
+    } finally {
+      await unlink(temporary);
     }
   }
 }

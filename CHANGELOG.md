@@ -19,6 +19,8 @@
   同じ差し替え操作を短く待って再実行し、恒久的な拒否は元のエラーで返す。
 - Windowsのprocess観測2か所をPowerShell 7の`pwsh.exe`へ揃えた。旧`powershell.exe`がPATHにない環境でも
   process identityを取得できる。MacとLinuxの観測経路は変更しない。
+- hub用端末IDの同時生成で書込み途中のJSONを読み得た。完成済みファイルを既存IDを上書きせず公開し、
+  競合した呼出しは同じIDを読む。全OS共通の初回生成処理を修正した。
 
 ## 0.67.6 — 2026-08-30
 

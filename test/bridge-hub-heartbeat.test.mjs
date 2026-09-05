@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -48,12 +48,17 @@ test('壊れたterminal identity fileはtypedに拒否し黙って作り直さ�
 });
 
 test('同時生成はcreate raceに負けた側も勝者の値を読む', async (context) => {
-  const { env } = await fixture(context);
-  const [left, right] = await Promise.all([
-    readOrCreateBridgeHubTerminalId({ env }),
-    readOrCreateBridgeHubTerminalId({ env }),
-  ]);
-  assert.equal(left, right);
+  const { root } = await fixture(context);
+  for (let round = 0; round < 20; round += 1) {
+    const directory = path.join(root, String(round));
+    const results = await Promise.allSettled(Array.from({ length: 24 }, () =>
+      readOrCreateBridgeHubTerminalId({ env: { LATTICE_CONFIG_DIR: directory } })));
+    assert.deepEqual(results.filter((result) => result.status === 'rejected'), []);
+    assert.equal(new Set(results.map((result) => result.value)).size, 1);
+    const stored = JSON.parse(await readFile(path.join(directory, 'bridge-hub-terminal.json'), 'utf8'));
+    assert.equal(stored.terminal_id, results[0].value);
+    assert.deepEqual(await readdir(directory), ['bridge-hub-terminal.json']);
+  }
 });
 
 test('buildBridgeHubRegistrationRequestはproject_idsを重複排除・整列しadoptなしで組む', () => {

@@ -96,6 +96,20 @@ runnerと同じPATHを子processへ渡した関連試験で再現し、Windows�
 sensorで`observeStartIdentityRaw`のmanaged supervisorへの影響と、
 `observeWindowsWorkerProcess`のpull intakeへの影響、対応する試験を確認した。
 修正後の最小再現は17件中16件成功、1件skip、失敗・取消0だった。
+同じrunner PATHで関連範囲を広げた26件も24件成功、2件skip、失敗・取消0だった。
+
+## 最終CIで観測したbridgeの競合
+
+commit `c4d88740`の最終CIでは、Windowsのprocess観測とatomic commit試験は通過した。
+一方、Macの既存端末ID同時生成試験が`Unexpected end of JSON input`で失敗した。
+`writeFile(..., flag: 'wx')`は存在の排他だけを保証し、完成前のファイルを別呼出しが読めた。
+共通処理で一時ファイルの書込みを終えてからhard linkで公開するよう修正した。
+既存IDは置換せず、競合側は公開済みの完成したIDを読む。sensorでheartbeat controllerと
+bridge本体への呼出し境界を確認した。競合試験は24並行・20回でID一致・保存内容・一時物の除去を確認する。
+
+同CIのWindowsでは、bridge試験の固定ポート58741が`EADDRINUSE`となった。
+失敗した試験のbindだけを既存のport 0対応へ揃え、OSが確保した実ポートへ接続する。
+製品のポート競合エラーを隠す変更は行わない。
 
 ## npm認証
 
