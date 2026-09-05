@@ -112,6 +112,10 @@ seam-refactorを施し、再解析後に全planを新versionへコンパイル�
   public npm publish、global install、Lattice所有dashboard／bridgeの再起動、公開後smokeまでを一連の完遂として
   実施する。操作権限はその時点のオーナー依頼と実行環境が与える権限だけに従い、Lattice独自の承認区分や
   追加の許可条件を設けない。
+- npm公開の正規入口は`gh workflow run publish.yml --repo kitepon/Lattice --ref main`とする。
+  製品所有の`publish.yml`がGitHub提供runnerで検査・配布物の導入確認・OIDC公開を行う。
+  通常のreleaseで端末から`npm publish`を実行して本人認証を求めない。
+  npmの信頼設定を変更する場合だけ、所有者による初回認証が必要になり得る。
 - 新しい工程群をLattice storeへ入れる時は`todo migrate`で新planを起こす。初期化済みprojectでは
   `can_create_plan`がfalseになり`plan create`は使えず、既存planへのtask追加はphase revision v3の
   full desired-state全置換（runtime task migration・source inventory・cutover batchの全整合）を要求するため、

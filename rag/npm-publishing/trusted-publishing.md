@@ -18,3 +18,7 @@ Latticeの公開入口は[workflow](../../.github/workflows/publish.yml)。main�
 既存のrelease commit検査と製品検査を通して公開する。起動はAIが`gh workflow run publish.yml --ref main`で行う。
 工場のOS別CIとは別の公開jobであり、未実行の工場CIを成功扱いするものではない。
 設定の取消はnpmの該当Trusted Publisherの削除とworkflowの停止で行う。
+
+2026-09-05に初回設定を完了し、[GitHub workflow](https://github.com/kitepon/Lattice/actions/runs/33970191336)から
+0.68.1を追加の本人認証なしで公開した。registryのprovenanceも確認済み。
+詳細は[修理・公開の証拠](../../docs/evidence/2026-09-05-dashboard-delivery-repair.md)を参照する。

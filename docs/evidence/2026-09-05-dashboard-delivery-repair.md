@@ -68,7 +68,7 @@ bridgeのstdoutは既存v4を維持し、配信結果をstderrへ出す。
 公開URL: https://lattice.kitepon.dev/projects/movie/
 
 この復旧実測時点では、修正版のnpm公開・global installはnpm認証待ちのため未実施だった。
-稼働中のbridgeは0.67.5。設定消失の直接原因となった操作は未特定のままとする。
+この復旧実測時点のbridgeは0.67.5。設定消失の直接原因となった操作は未特定のままとする。
 
 ## GitHubのMac CIで発見した文書検査の互換性
 
@@ -148,3 +148,19 @@ OS差ではなく配布物の依存宣言欠落である。公開前のworkflow�
 開発repoのnode_modulesを参照できない一時ディレクトリへnpm tarballを`--omit=dev`で導入し、
 dashboardの`--help`が終了コード0になることを確認した。関連13試験も成功した。
 同じ配布物の導入確認を公開jobへ加え、ソースcheckoutだけで通る依存欠落を公開前に検出する。
+
+## 完了実測 — 0.68.1
+
+source commit `96c19a9d`の[自動公開](https://github.com/kitepon/Lattice/actions/runs/33970191336)は成功した。
+GitHub提供Linux runnerで製品検査・配布物の導入確認を通し、追加の本人認証とnpm tokenの登録なしで
+`@quolu/lattice@0.68.1`を公開した。npm registryにGitHub Actions由来のprovenanceも存在する。
+sensorは2,308件成功・183件skip。[同commitの工場CI](https://github.com/kitepon/Lattice/actions/runs/33970182087)も
+Mac・Windowsが成功した。工場のLinux・WSL2 jobは実行機未割当のままで、4環境完了とは扱わない。
+
+2026-09-05 23:00 JST、公式global install後の`lattice bridge reconfigure --json`は終了コード0と
+`hub_delivered`を返した。bridgeとdashboardの実走版はともに0.68.1、heartbeatはaccepted、
+常駐設定とruntimeのずれは0。dashboardの起動失敗は配布依存修正で解消した。
+公開movie画面の動画理解評価計画と、HTML・SSE初回・再接続のdigest一致を確認した。
+
+通常公開の正規入口をAGENTS.mdへ反映した。以後の公開はAIがGitHub workflowを起動し、
+利用者へ毎回のnpm本人認証を求めない。信頼設定の変更には別途本人認証が必要になり得る。
