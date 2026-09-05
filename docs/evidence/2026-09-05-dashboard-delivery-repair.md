@@ -77,3 +77,9 @@ bridgeのstdoutは既存v4を維持し、配信結果をstderrへ出す。
 同じコマンドをWindowsでnpm 12.0.2から実行して再現し、原因をOS差ではなくnpm版差と確認した。
 共通の読込処理だけで新旧形式を扱う修正を追加した。
 出典と再現手順は[RAG](../../rag/npm-pack/npm-12-report-compatibility.md)に保存した。
+
+修正後はWindows上のnpm 11.17.0・12.0.2で`check:docs`がそれぞれ成功した。
+source commit `a209059fa2fc24960ef80870444ab19644afe521`の
+[GitHub CI](https://github.com/kitepon/Lattice/actions/runs/33967354439)では、Mac実機の全検査が成功した。
+同時点でWindowsは旧commitの検査から最新commitへ切替中、Linux・WSL2は実行機未割当で待機している。
+旧commitのCIは最新commitへ集約するため取消要求を送った。npm認証待ちのため公開版は引き続き0.67.5。
