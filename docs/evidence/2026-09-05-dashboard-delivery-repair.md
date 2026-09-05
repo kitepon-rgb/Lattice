@@ -67,7 +67,7 @@ bridgeのstdoutは既存v4を維持し、配信結果をstderrへ出す。
 
 公開URL: https://lattice.kitepon.dev/projects/movie/
 
-修正版のnpm公開・global installは、このPCのnpm認証が未完了のため未実施。
+この復旧実測時点では、修正版のnpm公開・global installはnpm認証待ちのため未実施だった。
 稼働中のbridgeは0.67.5。設定消失の直接原因となった操作は未特定のままとする。
 
 ## GitHubのMac CIで発見した文書検査の互換性
@@ -82,4 +82,22 @@ bridgeのstdoutは既存v4を維持し、配信結果をstderrへ出す。
 source commit `a209059fa2fc24960ef80870444ab19644afe521`の
 [GitHub CI](https://github.com/kitepon/Lattice/actions/runs/33967354439)では、Mac実機の全検査が成功した。
 同時点でWindowsは旧commitの検査から最新commitへ切替中、Linux・WSL2は実行機未割当で待機している。
-旧commitのCIは最新commitへ集約するため取消要求を送った。npm認証待ちのため公開版は引き続き0.67.5。
+旧commitのCIは最新commitへ集約するため取消要求を送った。この時点の公開版は0.67.5だった。
+
+## Windows CIのprocess観測失敗
+
+Windows CIの停止をrunnerのログと実processから切り分けた。サービスのPATHにはPowerShell 7があるが、
+旧Windows PowerShellの実行体は含まれていなかった。製品内の2か所が`powershell.exe`を固定しており、
+`spawn powershell.exe ENOENT`からprocess identity取得が失敗した。
+さらにatomic commitの競合試験が開始前エラーを飲み込んで、開始通知を永久に待っていた。
+
+runnerと同じPATHを子processへ渡した関連試験で再現し、Windows分岐とWindows専用moduleの入口を
+`pwsh.exe`へ修正した。試験の開始前エラーも待機側へ伝える。Mac・Linuxの`/bin/ps`経路は変更しない。
+sensorで`observeStartIdentityRaw`のmanaged supervisorへの影響と、
+`observeWindowsWorkerProcess`のpull intakeへの影響、対応する試験を確認した。
+修正後の最小再現は17件中16件成功、1件skip、失敗・取消0だった。
+
+## npm認証
+
+Windows CLIが発行した認証URLをオーナーがMacで開き、指紋認証した後、Windows側のlogin終了コード0と
+`npm whoami`の`quolu`を確認した。Windows側のnpm認証は完了している。

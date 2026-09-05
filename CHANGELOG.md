@@ -17,6 +17,8 @@
   npm 11の配列形式も引き続き扱い、不正な応答は検査エラーにする。
 - Windowsで工程ファイルの並行読取中にatomic renameが一時的な`EPERM`で失敗する現象を修正した。
   同じ差し替え操作を短く待って再実行し、恒久的な拒否は元のエラーで返す。
+- Windowsのprocess観測2か所をPowerShell 7の`pwsh.exe`へ揃えた。旧`powershell.exe`がPATHにない環境でも
+  process identityを取得できる。MacとLinuxの観測経路は変更しない。
 
 ## 0.67.6 — 2026-08-30
 

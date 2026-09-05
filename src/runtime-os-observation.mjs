@@ -16,7 +16,7 @@ export function osObservationEnvironment() { return { ...process.env, LC_ALL: 'C
 
 /** processのstart identity（darwin/linuxはps lstart、win32はPowerShell StartTime Ticks）の生文字列を返す。 */
 export async function observeStartIdentityRaw(pid) {
-  const executable = process.platform === 'win32' ? 'powershell.exe' : '/bin/ps';
+  const executable = process.platform === 'win32' ? 'pwsh.exe' : '/bin/ps';
   const args = process.platform === 'win32'
     ? ['-NoProfile', '-NonInteractive', '-Command',
       `[System.Diagnostics.Process]::GetProcessById(${pid}).StartTime.ToUniversalTime().Ticks`]

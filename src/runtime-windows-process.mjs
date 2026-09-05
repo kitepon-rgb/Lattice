@@ -37,7 +37,7 @@ export async function observeWindowsWorkerProcess(pid) {
   }
   const filter = JSON.stringify(`ProcessId=${pid}`);
   const script = `Get-CimInstance Win32_Process -Filter ${filter} | Select-Object ProcessId,CommandLine,CreationDate | ConvertTo-Json -Compress`;
-  const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-Command', script], {
+  const { stdout } = await execFileAsync('pwsh.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     encoding: 'utf8',
   });
   const row = JSON.parse(stdout.trim() || 'null');

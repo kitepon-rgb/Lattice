@@ -125,7 +125,8 @@ test('同じcommon Git-dirのatomic lock競合はtyped RUN_BUSYでstoreを変え
     await rm(linked, { recursive: true, force: true });
   });
   let entered;
-  const actionEntered = new Promise((resolve) => { entered = resolve; });
+  let entryFailed;
+  const actionEntered = new Promise((resolve, reject) => { entered = resolve; entryFailed = reject; });
   let release;
   const actionRelease = new Promise((resolve) => { release = resolve; });
   const holder = commitTodoStoreMutation({
@@ -137,7 +138,7 @@ test('同じcommon Git-dirのatomic lock競合はtyped RUN_BUSYでstoreを変え
       await actionRelease;
       return null;
     },
-  }).catch((error) => error);
+  }).catch((error) => { entryFailed(error); return error; });
   await actionEntered;
 
   const blocked = runCli(linked,
