@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { fsyncDirectory } from './fs-dir-sync.mjs';
+import { renamePublishedFile } from './fs-publish.mjs';
 import {
   lstat, mkdir, open, readFile, readdir, realpath, rename, rm, rmdir,
 } from 'node:fs/promises';
@@ -1722,7 +1723,7 @@ async function atomicWrite(absolute, bytes) {
       process.stderr.write(`lattice: fsync skipped (WSL2/NTFS EIO) ${absolute}\n`);
     }
     await handle.close(); handle = null;
-    await rename(temporary, absolute);
+    await renamePublishedFile(temporary, absolute);
     await fsyncDirectory(path.dirname(absolute));
   } finally {
     if (handle) await handle.close();
@@ -1743,7 +1744,7 @@ async function atomicWriteMode(absolute, bytes, mode) {
       process.stderr.write(`lattice: fsync skipped (WSL2/NTFS EIO) ${absolute}\n`);
     }
     await handle.close(); handle = null;
-    await rename(temporary, absolute);
+    await renamePublishedFile(temporary, absolute);
     await fsyncDirectory(path.dirname(absolute));
   } finally {
     if (handle) await handle.close();

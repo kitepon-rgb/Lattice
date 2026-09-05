@@ -7,6 +7,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { renamePublishedFile } from '../src/fs-publish.mjs';
 import {
   TODO_LIMITS, canonicalizeTodoArtifact, isStrictTodoTimestamp, todoSelfDigest,
 } from '../src/todo-contracts.mjs';
@@ -752,7 +753,7 @@ test('readTodoStoreStableは書込中の一時窓（毎attemptでmanifestが動�
     const manifest = path.join(root, manifestRef);
     const temporary = `${manifest}.publish`;
     await writeFile(temporary, newManifest);
-    await rename(temporary, manifest);
+    await renamePublishedFile(temporary, manifest);
   })();
   const store = await readTodoStoreStable({ repoRoot: root, now: NOW, maximumAttempts: 8 });
   await publication;

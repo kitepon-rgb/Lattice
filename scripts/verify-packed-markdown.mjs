@@ -11,11 +11,17 @@ import {
 } from './markdown-link-targets.mjs';
 
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+// npm.cmdは実行体ではなくshell scriptなのでspawnSyncでは起動できない。
+// 正規入口npm run check:docsが渡すnpm自身のJS entrypointをNodeで実行する。
+const npmEntrypoint = process.env.npm_execpath;
+const windows = process.platform === 'win32';
+if (windows && (typeof npmEntrypoint !== 'string' || !path.isAbsolute(npmEntrypoint))) {
+  throw new Error('npm run check:docsから実行してください。npmのentrypointを解決できません。');
+}
 const packed = spawnSync(
-  npmCommand,
-  ['pack', '--dry-run', '--ignore-scripts', '--json'],
-  { cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
+  windows ? process.execPath : 'npm',
+  [...(windows ? [npmEntrypoint] : []), 'pack', '--dry-run', '--ignore-scripts', '--json'],
+  { cwd: ROOT, encoding: 'utf8', windowsHide: true, maxBuffer: 32 * 1024 * 1024 },
 );
 
 if (packed.error) throw packed.error;
