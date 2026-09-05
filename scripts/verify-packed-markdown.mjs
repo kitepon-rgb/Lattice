@@ -36,11 +36,14 @@ try {
 } catch (error) {
   throw new Error(`npm pack --dry-run did not return JSON: ${error.message}`);
 }
-if (!Array.isArray(report) || report.length !== 1 || !Array.isArray(report[0]?.files)) {
+// npm 11までは配列、npm 12からはpackage名をkeyにしたobjectを返す。
+const packages = Array.isArray(report) ? report
+  : report !== null && typeof report === 'object' ? Object.values(report) : [];
+if (packages.length !== 1 || !Array.isArray(packages[0]?.files)) {
   throw new Error('npm pack --dry-run returned an unexpected report shape');
 }
 
-const packedPaths = new Set(report[0].files.map(({ path: packedPath }) => packedPath));
+const packedPaths = new Set(packages[0].files.map(({ path: packedPath }) => packedPath));
 const markdownPaths = [...packedPaths].filter((packedPath) => packedPath.endsWith('.md')).sort();
 const failures = [];
 let checkedTargets = 0;

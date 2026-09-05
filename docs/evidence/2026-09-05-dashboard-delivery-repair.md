@@ -69,3 +69,11 @@ bridgeのstdoutは既存v4を維持し、配信結果をstderrへ出す。
 
 修正版のnpm公開・global installは、このPCのnpm認証が未完了のため未実施。
 稼働中のbridgeは0.67.5。設定消失の直接原因となった操作は未特定のままとする。
+
+## GitHubのMac CIで発見した文書検査の互換性
+
+修正版をmainへpushした後、Mac CIは製品試験開始前の配布文書検査で停止した。
+`npm pack --json`の戻り値を配列に限定していたため、npm 12のobject形式を受け付けなかった。
+同じコマンドをWindowsでnpm 12.0.2から実行して再現し、原因をOS差ではなくnpm版差と確認した。
+共通の読込処理だけで新旧形式を扱う修正を追加した。
+出典と再現手順は[RAG](../../rag/npm-pack/npm-12-report-compatibility.md)に保存した。
