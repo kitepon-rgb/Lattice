@@ -812,6 +812,7 @@ test('store書き込みのtodo commandが明示serveなしでproject登録とdae
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-dashboard-cli-'));
   const runtime = path.join(root, 'runtime');
   const env = { ...process.env, LATTICE_DASHBOARD_RUNTIME_DIR: runtime,
+    LATTICE_CONFIG_DIR: path.join(root, 'bridge-config'),
     LATTICE_DASHBOARD_PORT: '0', LATTICE_DASHBOARD_AUTOSTART: '1', LATTICE_TODO_ACTOR_HOST: 'codex',
     LATTICE_TODO_ACTOR_SESSION: 'session-cli', LATTICE_TODO_ACTOR_AGENT: 'root' };
   let daemonPid = null;
@@ -830,6 +831,7 @@ test('store書き込みのtodo commandが明示serveなしでproject登録とdae
     stdout: { write: (value) => { stdout += value; } },
     stderr: { write: (value) => { stderr += value; } } });
   assert.equal(code, 1, stdout);
+  assert.equal(JSON.parse(stderr.split('\n')[0]).state, 'local_only');
   const descriptor = JSON.parse(await readFile(path.join(runtime, 'daemon.json'), 'utf8'));
   daemonPid = descriptor.pid;
   assert.ok(descriptor.port > 0);

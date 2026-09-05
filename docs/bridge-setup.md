@@ -4,6 +4,37 @@ Latticeのproject dashboardは既定でloopbackだけにbindし、bridge用socke
 LAN上のreverse proxyなどから閲覧する時だけ、利用者がlisten IPを明示してbridgeを有効化する。
 `postinstall`では質問やnetwork公開を行わない。
 
+## 工程操作から配信漏れを知る
+
+`lattice status --json`とToDoの保存操作が、工程結果のstdoutに加え、stderrへ
+`lattice.dashboard_delivery.v1`を返す。工程の保存成功を公開配信の成功と読み替えない。
+
+| state | 確認できたこと |
+| --- | --- |
+| `local_only` | PC内の工程表が利用可能。`reason`は`bridge_unconfigured`または`bridge_disabled` |
+| `bridge_only` | bridge設定を利用。hubが未設定のため、その先の公開配信は未確認 |
+| `hub_delivered` | hubが対象工程を受理し、一覧にonlineで掲載し、工程HTMLの中継が成功 |
+| `failed` | 配信を確認できない。`reason`と`next_action`で原因と復旧入口を返す |
+
+有効なbridge設定がある端末では、工程操作が常駐設定・実行体・実processを確認し、欠落や実行pathのずれを
+正規の`bridge reconfigure`で復旧してから配信を確認する。無効・未設定のbridgeは自動公開しない。
+PCの初期化等で設定自体が失われた時は`local_only`がその事実を示す。公開先を推測して復元はしない。
+
+明示の復旧入口`lattice todo dashboard ensure --json`は、ローカルdaemonから設定済みbridgeとhub配信までを
+処理する。結果は`lattice.todo_dashboard_ensure_result.v1`で、`activity.delivery`に同じ配信結果を含む。
+配信失敗では非0を返す。通常の工程保存は配信故障で止めず、保存結果と配信失敗を別々に返す。
+
+`bridge setup`／`reconfigure`にhubが設定されている場合は、dashboard起動、hubへの登録、一覧と工程HTMLの
+確認までを成功条件とする。stdoutの`lattice.bridge_cli_result.v4`は維持し、stderrへ確認結果を返す。通信や中継が
+失敗した時は`BRIDGE_HUB_DELIVERY_UNCONFIRMED`で非0を返す。通信故障でも保存済みの接続設定は保持する。
+hub URLは端末から直接到達する登録先を使う。reverse proxy経由の登録は接続元がproxyになり、hubから端末への
+経路を誤る。別の公開HTTPS入口がある構成では、公開HTTPSとSSEの受入も本書後半に従って実施する。
+
+配信確認は全OS共通とし、常駐の復旧はMacのLaunchAgent、WindowsのStartup Folderの既存入口を使う。
+実行中の版だけが異なる場合は既存の自動更新に任せ、配信確認から再設定を強制しない。
+
+## 共通の設定入口
+
 TTYでは`lattice bridge setup`で安全側既定の対話wizardを開始できる。最初の公開確認は既定で無効を選び、
 cancelした場合は設定を変更しない。非TTYではhangせず、次の非対話commandを案内する。
 portを省略するか`auto`にすると、49152–65535から候補を重複なく選び、

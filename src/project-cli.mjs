@@ -24,6 +24,7 @@ import {
 import { isTodoIndependenceLegacyMarker } from './todo-independence-contracts.mjs';
 import { selectIndependenceGuidance } from './todo-independence-guidance.mjs';
 import { ensureTodoDashboardActivity } from './todo-dashboard-registry.mjs';
+import { reportProjectDashboardDelivery } from './dashboard-delivery.mjs';
 import { resolveProjectIdentity } from './project-identity.mjs';
 import {
   buildTodoPlan,
@@ -336,8 +337,9 @@ async function resolveProjectState({ cwd, cliVersion, diagnoseStructureArtifacts
   }
 }
 
-export async function runProjectStatus({ cwd, stdout, cliVersion, env = process.env,
-  ensureDashboardActivity = ensureTodoDashboardActivity }) {
+export async function runProjectStatus({ cwd, stdout, stderr = process.stderr, cliVersion, env = process.env,
+  ensureDashboardActivity = ensureTodoDashboardActivity,
+  reportDelivery = reportProjectDashboardDelivery }) {
   const state = await resolveProjectState({
     cwd, cliVersion, diagnoseStructureArtifacts: true,
   });
@@ -349,13 +351,19 @@ export async function runProjectStatus({ cwd, stdout, cliVersion, env = process.
         repoRoot: state.repoRoot, projectId: state.store.project_id, env,
       });
       const actorSession = env.LATTICE_TODO_ACTOR_SESSION;
-      await ensureDashboardActivity({
+      const activity = await ensureDashboardActivity({
         repoRoot: state.repoRoot, projectId: state.store.project_id,
         displayName: identity.displayName,
         sessionId: isTodoIdentifier(actorSession) ? actorSession : `status-${process.pid}`, env,
       });
-    } catch {
+      if (activity !== undefined) {
+        await reportDelivery({ projectId: state.store.project_id, env, stderr });
+      }
+    } catch (error) {
       // dashboardはdiscoveryの副作用。statusをdashboard故障で止めない（ADR 0181）。
+      stderr.write(`${JSON.stringify({ schema: 'lattice.dashboard_delivery.v1', state: 'failed',
+        reason: error.code ?? 'DASHBOARD_FAILED', project_ids: [state.store.project_id], urls: [],
+        next_action: 'lattice todo dashboard ensure --json' })}\n`);
     }
   }
   stdout.write(`${JSON.stringify(state.result)}\n`);

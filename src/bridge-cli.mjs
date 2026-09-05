@@ -6,6 +6,8 @@ import * as clack from '@clack/prompts';
 import packageJson from '../package.json' with { type: 'json' };
 import { resolveBridgeListenAddress } from './bridge-address.mjs';
 import { registerBridgeUpstream } from './bridge-registrar.mjs';
+import { ensureTodoDashboardDaemon } from './todo-dashboard-registry.mjs';
+import { verifyBridgeHubDelivery } from './dashboard-delivery.mjs';
 import {
   BridgeConfigError, configureBridge, disableBridge, readBridgeConfig, restoreBridgeConfig,
   normalizeBridgeAllowedHost, withBridgeOperationLock,
@@ -237,6 +239,26 @@ function result(action, config, recovery = null, liveness = null, diagnostics = 
     warnings };
 }
 
+/** 設定済みbridgeの常駐が欠けた場合だけ、正規の再設定経路で復旧する。 */
+export async function recoverConfiguredBridge({ config, env = process.env,
+  launchAgent = platformLaunchAgent(), runtimeIdentity = readBridgeRuntimeIdentity,
+  reconfigure = runBridgeCli } = {}) {
+  const diagnostics = await bridgeDiagnostics({ config, launchAgent, env, runtimeIdentity });
+  if (diagnostics === null) return;
+  if (diagnostics.persistence.state === 'installed'
+    && diagnostics.persistence.node_exists && diagnostics.persistence.bridge_exists
+    && diagnostics.runtime?.state === 'running'
+    && diagnostics.drift.every((field) => field === 'version')) return;
+  let errorOutput = '';
+  const code = await reconfigure({ argv: ['reconfigure', '--json'], env,
+    stdout: { write() {} }, stderr: { write(chunk) { errorOutput += chunk; } },
+    launchAgent, runtimeIdentity });
+  if (code !== 0) {
+    const error = JSON.parse(errorOutput);
+    throw new BridgeConfigError(error.code, error.message, error.detail);
+  }
+}
+
 export async function collectBridgeSetupWizard({ input, output, prompts = clack } = {}) {
   const common = { input, output };
   const enabled = await prompts.confirm({ ...common,
@@ -287,6 +309,7 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
     stop: stopBridgeDaemon, clearStop: clearBridgeStopControl },
   launchAgent = platformLaunchAgent(), runtimeIdentity = readBridgeRuntimeIdentity,
   bridgePath = DEFAULT_BRIDGE_PATH,
+  ensureDashboard = ensureTodoDashboardDaemon, verifyDelivery = verifyBridgeHubDelivery,
   prompts = clack, probe = probeBridgeListener, interfaces = networkInterfaces() } = {}) {
   if (!Array.isArray(argv)) {
     return fail(stderr, 'USAGE', 'usage: lattice bridge <setup|reconfigure|status|disable|register> [options] --json');
@@ -392,6 +415,7 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
           reuseCurrentPort: options.port === undefined,
         });
         try {
+          if (configured.hub !== null) await ensureDashboard({ env });
           if (!agentSnapshot.loaded && current !== null) {
             const requestStop = daemon.requestStop ?? daemon.stop ?? requestBridgeDaemonStop;
             await requestStop({ env, listen: current.listen });
@@ -414,6 +438,12 @@ export async function runBridgeCli({ argv, stdout, stderr, env = process.env,
         return configured;
       });
     } else return fail(stderr, 'USAGE', 'unknown bridge command or options');
+    // hubを指定した設定は、保存・常駐起動だけでは成功にしない。通信故障時も設定は
+    // 保持し、次の工程操作から同じ接続を復旧できるようにする。
+    if ((command === 'setup' || command === 'reconfigure') && config.hub !== null) {
+      const delivery = await verifyDelivery({ config, env });
+      stderr.write(`${JSON.stringify(delivery)}\n`);
+    }
     // Liveness and the persistence/runtime diagnostics are only meaningful for
     // a read: the mutating commands have just reconfigured the daemon and the
     // socket may not have settled yet.

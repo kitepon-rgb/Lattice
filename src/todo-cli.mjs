@@ -3524,23 +3524,34 @@ function writesTodoStore(argv) {
   }
 }
 
-async function ensureActiveProjectDashboard({ repoRoot, env }) {
+async function ensureActiveProjectDashboard({ repoRoot, env, stderr, strict = false }) {
   if (env.LATTICE_DASHBOARD_AUTOSTART === '0') return null;
   let actor;
-  try { actor = mutationActor(env); } catch { return null; }
+  try { actor = mutationActor(env); } catch (error) { if (strict) throw error; return null; }
   const sessionId = actor.session;
   let store;
   try { store = await readTodoStoreStable({ repoRoot }); }
-  catch { return null; }
+  catch (error) { if (strict) throw error; return null; }
   let identity;
   try { identity = await resolveProjectIdentity({ repoRoot, projectId: store.project_id, env }); }
-  catch { return null; }
+  catch (error) { if (strict) throw error; return null; }
   try {
-    return await ensureTodoDashboardActivity({
+    const activity = await ensureTodoDashboardActivity({
       repoRoot, projectId: store.project_id, displayName: identity.displayName, sessionId, env,
     });
-  } catch {
+    const { reportProjectDashboardDelivery } = await import('./dashboard-delivery.mjs');
+    const delivery = await reportProjectDashboardDelivery({ projectId: store.project_id, env, stderr });
+    if (strict && delivery.state === 'failed') {
+      throw new TodoStoreError('DASHBOARD_DELIVERY_FAILED', 'dashboard_delivery_failed', undefined,
+        { delivery });
+    }
+    return { ...activity, delivery };
+  } catch (error) {
     // dashboardは副作用。start/doneをdashboard故障で止めない（ADR 0181）。
+    if (strict) throw error;
+    stderr?.write(`${JSON.stringify({ schema: 'lattice.dashboard_delivery.v1', state: 'failed',
+      reason: error.code ?? 'DASHBOARD_FAILED', project_ids: [store.project_id], urls: [],
+      next_action: 'lattice todo dashboard ensure --json' })}\n`);
     return null;
   }
 }
@@ -3744,7 +3755,8 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     // コマンドの副作用でしか daemon を ensure できず、OS再起動後に誰も書込まなければ
     // 公開工程図が503のまま沈黙した。launchd等の周期実行から叩く冪等な入口。
     action = async (repoRoot) => {
-      const ensured = await ensureActiveProjectDashboard({ repoRoot, env });
+      const ensured = await ensureActiveProjectDashboard({ repoRoot,
+        env: { ...env, LATTICE_DASHBOARD_AUTOSTART: '1' }, stderr, strict: true });
       return { schema: 'lattice.todo_dashboard_ensure_result.v1',
         ensured: ensured !== null, activity: ensured };
     };
@@ -4147,7 +4159,7 @@ export async function runTodoCli({ argv, cwd, stdout, stderr, env = process.env 
     // `readTodoStoreStable` to read (2026-08-10 P0: `todo verify` was
     // unreachable for exactly the case it exists to diagnose).
     if (writesTodoStore(argv)) {
-      await ensureActiveProjectDashboard({ repoRoot, env });
+      await ensureActiveProjectDashboard({ repoRoot, env, stderr });
     }
     const result = atomicCommit
       ? await commitTodoStoreMutation({ repoRoot, argv, action, env })

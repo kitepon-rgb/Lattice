@@ -8,6 +8,11 @@
 
 ## 初期公開面
 
+工程操作から公開工程表への配信結果は[bridge配信契約](bridge-setup.md)が所有する。
+工程結果のstdoutは維持し、`lattice status --json`とToDo保存操作はstderrへ
+`lattice.dashboard_delivery.v1`を返す。公開未設定、配信失敗、hub経由の実配信を区別する。
+設定済みbridgeの常駐復旧は同じ入口で実施し、配信故障を工程保存の拒否理由にはしない。
+
 初回vertical sliceでは次のversioned JSONを所有する。
 
 - `lattice.plan_input.v1`: project、plan version、TODO候補、手動state／effect evidence。

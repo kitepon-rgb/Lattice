@@ -737,3 +737,20 @@ test('status discoveryはactor環境がなくてもactive projectをdashboardへ
   assert.match(activity.sessionId, /^status-\d+$/u);
   assert.equal(await realpath(activity.repoRoot), await realpath(root));
 });
+
+test('statusは公開未設定をstderrへ返し、既存の工程状態契約を維持する', async (context) => {
+  const root = await workspace(context);
+  await writeFile(path.join(root, 'plan.json'), `${canonicalizeTodoArtifact(createInput())}\n`);
+  assert.equal(run(root, ['plan', 'create', '--input', 'plan.json']).status, 0);
+  let stdout = ''; let stderr = '';
+  const code = await runProjectStatus({ cwd: root, cliVersion: 'test',
+    env: { LATTICE_CONFIG_DIR: path.join(root, 'bridge-config') },
+    stdout: { write: (chunk) => { stdout += chunk; } },
+    stderr: { write: (chunk) => { stderr += chunk; } },
+    ensureDashboardActivity: async () => ({ projectId: 'sample-project' }),
+  });
+  assert.equal(code, 0);
+  assert.equal(validateProjectStatus(JSON.parse(stdout)), true);
+  assert.equal(JSON.parse(stderr).state, 'local_only');
+  assert.equal(JSON.parse(stderr).reason, 'bridge_unconfigured');
+});

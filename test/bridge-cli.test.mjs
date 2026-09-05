@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { readBridgeConfig } from '../src/bridge-config.mjs';
-import { runBridgeCli } from '../src/bridge-cli.mjs';
+import { recoverConfiguredBridge, runBridgeCli } from '../src/bridge-cli.mjs';
 
 function output(isTTY = false) {
   let value = '';
@@ -35,6 +35,62 @@ function runtimeIdentityDouble(identity = { state: 'not_running', pid: null, ver
   node_path: null, node_version: null, bridge_path: null }) {
   return async () => ({ ...identity });
 }
+
+test('設定済みbridgeの常駐欠落は工程入口から正規reconfigureで復旧する', async () => {
+  let received = null;
+  await recoverConfiguredBridge({ config: { enabled: true }, env: {},
+    launchAgent: launchAgentDouble(), runtimeIdentity: runtimeIdentityDouble(),
+    reconfigure: async (options) => { received = options.argv; return 0; } });
+  assert.deepEqual(received, ['reconfigure', '--json']);
+});
+
+test('実行中の版だけのずれは既存の自動更新に任せる', async () => {
+  const bridgePath = '/usr/local/lib/node_modules/@quolu/lattice/bin/lattice-bridge.mjs';
+  const launchAgent = launchAgentDouble();
+  await launchAgent.install({ config: { listen: { port: 55000 } } });
+  await recoverConfiguredBridge({ config: { enabled: true }, env: {}, launchAgent,
+    runtimeIdentity: runtimeIdentityDouble({ state: 'running', version: '0.0.1',
+      bridge_path: bridgePath, node_path: null }),
+    reconfigure: async () => { assert.fail('版だけのずれで常駐を再設定した'); } });
+});
+
+test('hubへ届かないsetupは設定保存を公開成功として返さない', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-delivery-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const stdout = output(); const stderr = output();
+  const code = await runBridgeCli({
+    argv: ['setup', '--listen', '127.0.0.1', '--hub', 'http://hub.example', '--json'],
+    stdout: stdout.stream, stderr: stderr.stream, env: { LATTICE_CONFIG_DIR: root },
+    launchAgent: launchAgentDouble(), ensureDashboard: async () => {},
+    verifyDelivery: async () => { throw Object.assign(new Error('配信先に届かない'),
+      { code: 'BRIDGE_HUB_DELIVERY_UNCONFIRMED' }); },
+  });
+  assert.equal(code, 1, stdout.read());
+  assert.equal(JSON.parse(stderr.read()).code, 'BRIDGE_HUB_DELIVERY_UNCONFIRMED');
+  assert.equal((await readBridgeConfig({ env: { LATTICE_CONFIG_DIR: root } })).enabled, true,
+    '通信失敗でも保存した接続設定は残し、次の復旧入口で使う');
+});
+
+test('共通setupは常駐の既存入口から配信確認まで実行しstdout契約を保つ', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-delivery-order-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const calls = [];
+  const stdout = output(); const stderr = output();
+  const code = await runBridgeCli({
+    argv: ['setup', '--listen', '127.0.0.1', '--hub', 'http://hub.example', '--json'],
+    stdout: stdout.stream, stderr: stderr.stream, env: { LATTICE_CONFIG_DIR: root },
+    launchAgent: launchAgentDouble({ calls }),
+    ensureDashboard: async () => { calls.push('dashboard'); },
+    verifyDelivery: async () => { calls.push('delivery');
+      return { schema: 'lattice.dashboard_delivery.v1', state: 'hub_delivered' }; },
+  });
+  assert.equal(code, 0, stderr.read());
+  assert.equal(JSON.parse(stderr.read()).state, 'hub_delivered');
+  const result = JSON.parse(stdout.read());
+  assert.equal(result.schema, 'lattice.bridge_cli_result.v4');
+  assert.equal(Object.hasOwn(result, 'delivery'), false);
+  assert.deepEqual(calls, ['dashboard', `install:${result.listen.port}`, 'delivery']);
+});
 
 test('bridge CLIはsetup/status/reconfigure/disableをJSON契約で提供する', async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), 'lattice-bridge-cli-'));
@@ -77,7 +133,8 @@ test('bridge CLIは--hubの設定・持ち越し・noneでの解除をJSON契約
   const invoke = async (argv) => {
     const stdout = output(); const stderr = output();
     const code = await runBridgeCli({ argv, stdout: stdout.stream, stderr: stderr.stream,
-      env, daemon, launchAgent });
+      env, daemon, launchAgent, ensureDashboard: async () => {},
+      verifyDelivery: async () => ({ state: 'hub_delivered' }) });
     return { code, stdout: stdout.read(), stderr: stderr.read() };
   };
   const setup = await invoke(['setup', '--listen', '127.0.0.1', '--port', 'auto', '--dashboard',
