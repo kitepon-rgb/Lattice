@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.68.1 — 2026-09-05
+
+### 変更
+
+- npm公開をGitHub ActionsのTrusted Publishingへ移す。mainの製品検査後にOIDCで公開し、
+  毎回の本人認証と長期有効なnpm tokenを公開手順から外す。
+
 ## 0.68.0 — 2026-09-05
 
 ### 修正

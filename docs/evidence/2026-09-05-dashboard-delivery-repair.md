@@ -115,3 +115,20 @@ bridge本体への呼出し境界を確認した。競合試験は24並行・20�
 
 Windows CLIが発行した認証URLをオーナーがMacで開き、指紋認証した後、Windows側のlogin終了コード0と
 `npm whoami`の`quolu`を確認した。Windows側のnpm認証は完了している。
+
+## 0.68.0の公開と実環境
+
+source commit `efdce4acfca8e34baabc34d6981f8291f16c9916`の
+[最終CI](https://github.com/kitepon/Lattice/actions/runs/33968992235)はMac・Windowsとも成功した。
+製品試験はMac 1,892成功・5skip、Windows 1,708成功・181skip。sensorと全静的検査も成功。
+Linux・WSL2の工場jobは実行機未割当で待機し、検証済みとは扱わない。
+
+npmの公開追加認証後に`@quolu/lattice@0.68.0`の公開終了コード0とregistryの版を確認し、
+公式のglobal installを実施した。このWindowsのCLIと常駐bridgeは0.68.0になった。
+bridgeのheartbeatはaccepted、常駐設定とruntimeのずれはなし。
+公開HTTPSのmovie画面で評価計画を確認し、HTML・SSE・再接続時のdigest一致も再確認した。
+
+ただし、更新後の`bridge reconfigure`はdashboard子processの起動失敗
+`DASHBOARD_DAEMON_UNAVAILABLE`を返した。既存dashboardは生きて配信を継続している。
+原因は未特定で、dashboardの更新完了とは扱わない。
+オーナー指示により、先にnpm Trusted Publishingの設定へ切り替えた。
