@@ -98,7 +98,7 @@ async function readJson(ref, missing) {
 
 async function atomicJson(ref, value) {
   const temporary = `${ref}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+  await writeFile(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx', flush: true });
   await rename(temporary, ref);
 }
 

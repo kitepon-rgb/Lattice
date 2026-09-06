@@ -147,6 +147,26 @@ test('reconfigureは旧supervisorをtaskkillで止めてから新descriptor/laun
   assert.ok(control.calls.some((args) => args[0] === 'taskkill.exe' && args.includes('/T') && args.includes('/F')));
 });
 
+test('日本語Windowsで再起動前のPIDが残っていても再設定できる', async (context) => {
+  const { env } = await fixture(context, 'lattice-startup-stale-pid-');
+  const refs = bridgeStartupFolderPaths(env);
+  await mkdir(refs.runtimeDirectory, { recursive: true });
+  await writeFile(refs.pidfile, '5353');
+  context.mock.method(process, 'kill', (pid, signal) => {
+    assert.equal(pid, 5353);
+    assert.equal(signal, 0);
+    throw Object.assign(new Error('終了済み'), { code: 'ESRCH' });
+  });
+  let launched = false;
+  await installBridgeStartupFolder({ config: config(58_773), env,
+    runner: async ([command]) => {
+      if (command === 'taskkill.exe') return { code: 128, stderr: 'エラー: プロセス "5353" が見つかりませんでした。' };
+      launched = true;
+      return { code: 0 };
+    }, waitReady: async () => {}, waitStopped: async () => {} });
+  assert.equal(launched, true);
+});
+
 test('disableはtaskkillと停止確認の後だけfileを除去し、snapshotから復旧できる', async (context) => {
   const { env } = await fixture(context, 'lattice-startup-disable-');
   const control = taskkillDouble();

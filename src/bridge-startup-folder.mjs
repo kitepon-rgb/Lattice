@@ -285,9 +285,13 @@ async function stopRunning({ env, listen, runner, waitStopped }) {
   const pid = Number(pidText.trim());
   if (!Number.isSafeInteger(pid) || pid <= 0) return;
   const result = await runner(['taskkill.exe', '/T', '/F', '/PID', String(pid)]);
-  // taskkill exits non-zero (128) when the target is already gone — not a failure to report.
-  if (result.code !== 0 && !/not found|not running/iu.test(result.stderr ?? '')) {
-    throw fail('BRIDGE_STARTUP_FOLDER_STOP_FAILED', 'could not stop bridge supervisor process tree');
+  // Windowsの表示言語に依存せず、既に終了したプロセスを判定する。
+  if (result.code !== 0) {
+    let absent = false;
+    try { process.kill(pid, 0); } catch (error) { absent = error?.code === 'ESRCH'; }
+    if (!absent) {
+      throw fail('BRIDGE_STARTUP_FOLDER_STOP_FAILED', 'could not stop bridge supervisor process tree');
+    }
   }
   await waitStopped({ listen, env });
   await rm(refs.pidfile, { force: true });
