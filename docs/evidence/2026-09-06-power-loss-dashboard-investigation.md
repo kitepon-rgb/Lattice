@@ -39,3 +39,11 @@ Microsoftの[File Caching](https://learn.microsoft.com/en-us/windows/win32/filei
 Windowsの停止処理から表示文言の照合を撤去し、taskkill失敗後はsignal 0による存在確認で `ESRCH` のときだけ終了済みとして扱う。常駐の起動方式は変えない。これは正規の復旧を拒否した原因の修理であり、停電後のログイン時に起動しなかった原因の確定とは区別する。
 
 共通保存処理には `flush: true` を加えた。同期がEIOで失敗すると既存の登録簿を置換しない個別試験と、日本語Windowsの終了済みPIDから再設定できる個別試験を確認した。変更境界はsensorで配信登録・daemon記録と呼出元、対応試験を確認した。
+
+## 導入と公開後の確認
+
+関連する57試験と文書検査が通過した。修正commit `c22569625da069f8c974d1fba25d0ef1d6d2c645` をmainへ着地させ、[正式公開のworkflow](https://github.com/kitepon/Lattice/actions/runs/34032831017)で製品の全体検査とnpm公開が成功した。
+
+0.68.3を公式npmからこの端末へ導入した。旧PIDファイルは手で消さずに `lattice todo dashboard ensure --json` を実行し、終了コード0、`ensured: true`、`hub_delivered` を確認した。稼働bridgeも0.68.3、heartbeatはaccepted、runtime driftは空。
+
+公開HTTPSをChromeで開き、HTTP 200、タイトル「Lattice — movie 依存工程図」、SVG 2枚、pageerror 0件を確認した。画面のスクリーンショットも目視確認した。これは修正版での正規復旧と公開描画の実測であり、次回ログインの再現試験ではない。
