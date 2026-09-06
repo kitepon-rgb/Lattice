@@ -1,6 +1,7 @@
 import { TODO_GANTT_SCOPES, projectTodoGanttScope } from './todo-gantt-scope.mjs';
 import { buildTodoGanttHierarchy } from './todo-gantt-nested.mjs';
 import { projectTodoCrossPlanDependencies } from './todo-store.mjs';
+import { projectTodoChainV1 } from './todo-chain.mjs';
 
 const TASK_LIMIT = 2_000;
 const EDGE_LIMIT = 8_000;
@@ -128,15 +129,10 @@ function groupKey(planKey, lane) {
   return JSON.stringify([planKey, lane]);
 }
 
-function normalizeInput(readModel, chainProjection) {
+function normalizeInput(readModel) {
   if (!plain(readModel) || readModel.schema !== 'lattice.todo_store_read.v1'
     || !Array.isArray(readModel.members)) {
     fail('TODO_LAYOUT_INVALID_INPUT', 'read model must be lattice.todo_store_read.v1');
-  }
-  if (!plain(chainProjection) || chainProjection.schema !== 'lattice.todo_chain.v1'
-    || !Array.isArray(chainProjection.longest_chain_node_refs)
-    || !Array.isArray(chainProjection.longest_chain_edges)) {
-    fail('TODO_LAYOUT_INVALID_INPUT', 'chain projection must be lattice.todo_chain.v1');
   }
 
   const nodesByKey = new Map();
@@ -248,10 +244,10 @@ function normalizeInput(readModel, chainProjection) {
 
   const nodes = [...nodesByKey.values()].sort((left, right) => compareRefs(left.ref, right.ref));
   const edges = [...edgeMap.values()].sort((left, right) => compareText(left.key, right.key));
-  return { nodes, nodesByKey, edges };
+  return { nodes, nodesByKey, edges, retiredKeys };
 }
 
-function readyTaskKeys(readModel, nodes, nodesByKey, incoming) {
+function readyTaskKeys(readModel, nodes, nodesByKey, incoming, retiredKeys) {
   const phaseStatuses = new Map();
   const phaseAcceptIncoming = new Map(nodes.map(({ key }) => [key, new Set()]));
   for (const member of readModel.members) {
@@ -264,6 +260,7 @@ function readyTaskKeys(readModel, nodes, nodesByKey, incoming) {
     if (['lattice.todo_plan.v5', 'lattice.todo_plan.v7'].includes(member.plan.schema)) {
       for (const edge of member.plan.phase_accept_dependencies ?? []) {
         const target = refKey(refOf(edge.to, 'phase_accept_dependencies.to'));
+        if (retiredKeys.has(target)) continue;
         if (!nodesByKey.has(target)) {
           fail('TODO_LAYOUT_INVALID_INPUT', 'phase accept dependency targets an absent task');
         }
@@ -531,7 +528,7 @@ function normalizeSeamProposals(value) {
   return { summary: { plans } };
 }
 
-function layoutTodoGanttFlat(readModel, chainProjection, options = {}) {
+function layoutTodoGanttFlat(readModel, options = {}) {
   const scope = options.scope ?? 'live';
   if (!TODO_GANTT_SCOPES.includes(scope)) {
     fail('TODO_LAYOUT_INVALID_INPUT', `scope must be one of ${TODO_GANTT_SCOPES.join(', ')}`);
@@ -540,25 +537,17 @@ function layoutTodoGanttFlat(readModel, chainProjection, options = {}) {
   // Every structural number below is measured on the FULL graph: the dependency
   // waves, the longest dependency chain and the ready frontier describe the real
   // plan. Folding first and measuring second would make all three lie.
-  const full = normalizeInput(readModel, chainProjection);
+  const full = normalizeInput(readModel);
   const fullWaves = assignWaves(full.nodes, full.nodesByKey, full.edges);
-
-  const longestNodeKeys = new Set(chainProjection.longest_chain_node_refs.map((ref, index) => {
-    const key = refKey(refOf(ref, `longest_chain_node_refs[${index}]`));
-    if (!full.nodesByKey.has(key)) fail('TODO_LAYOUT_INVALID_INPUT', 'chain projection references an absent task');
-    return key;
-  }));
-  const longestEdgeKeys = new Set(chainProjection.longest_chain_edges.map((edge, index) => {
-    if (!plain(edge)) fail('TODO_LAYOUT_INVALID_INPUT', `longest_chain_edges[${index}] is invalid`);
-    const from = refKey(refOf(edge.from, `longest_chain_edges[${index}].from`));
-    const to = refKey(refOf(edge.to, `longest_chain_edges[${index}].to`));
-    const key = JSON.stringify([from, to]);
-    if (!full.edges.some((candidate) => candidate.key === key)) {
-      fail('TODO_LAYOUT_INVALID_INPUT', 'chain projection edge is absent from the read model');
-    }
-    return key;
-  }));
-  const readyKeys = readyTaskKeys(readModel, full.nodes, full.nodesByKey, fullWaves.incoming);
+  // 経路と配置は同じ正規化済みgraphから導出し、退役前の別graphを持ち込まない。
+  const chain = projectTodoChainV1({
+    nodes: full.nodes.map(node => node.ref),
+    hard_edges: full.edges.map(edge => ({ from: full.nodesByKey.get(edge.from).ref, to: full.nodesByKey.get(edge.to).ref })),
+    joins: [],
+  });
+  const longestNodeKeys = new Set(chain.longest_chain_node_refs.map(refKey));
+  const longestEdgeKeys = new Set(chain.longest_chain_edges.map(edge => JSON.stringify([refKey(edge.from), refKey(edge.to)])));
+  const readyKeys = readyTaskKeys(readModel, full.nodes, full.nodesByKey, fullWaves.incoming, full.retiredKeys);
   const independence = normalizeIndependence(options.independence ?? null, full.nodesByKey);
   const seamProposals = normalizeSeamProposals(options.seamProposals ?? null);
 
@@ -933,8 +922,8 @@ function descendantNodes(level) {
   ]);
 }
 
-export function layoutTodoGantt(readModel, chainProjection, options = {}) {
-  const fullLayout = layoutTodoGanttFlat(readModel, chainProjection, options);
+export function layoutTodoGantt(readModel, options = {}) {
+  const fullLayout = layoutTodoGanttFlat(readModel, options);
   let nested;
   try {
     const visibleTaskKeys = (options.scope ?? 'live') === 'all' ? null
@@ -951,7 +940,7 @@ export function layoutTodoGantt(readModel, chainProjection, options = {}) {
   // 階層ごとの縮約graphは座標だけを決める。ready/最長鎖/独立性まで縮約graphで
   // 再計算すると、未完の子を持つdone親が後続をreadyへ進めるなど、実graphと違う判断を描く。
   const semanticLayout = options.scope === 'all'
-    ? fullLayout : layoutTodoGanttFlat(readModel, chainProjection, { ...options, scope: 'all' });
+    ? fullLayout : layoutTodoGanttFlat(readModel, { ...options, scope: 'all' });
   const semanticByKey = new Map(semanticLayout.nodes.map((node) => [refKey(node.ref), node]));
   const semanticRoot = applyHierarchySemantics(nested.root, semanticByKey);
   const rootLayout = semanticRoot.layout;

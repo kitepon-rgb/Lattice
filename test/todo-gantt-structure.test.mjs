@@ -22,9 +22,7 @@ const readModel = {
   }],
 };
 const taskRef = { project_id: 'project-1', plan_key: 'main', task_id: 'T1' };
-const layout = layoutTodoGantt(readModel, projectTodoChainV1({
-  nodes: [taskRef], hard_edges: [], joins: [],
-}), { scope: 'all' });
+const layout = layoutTodoGantt(readModel, { scope: 'all' });
 
 function structurePresentation() {
   return {

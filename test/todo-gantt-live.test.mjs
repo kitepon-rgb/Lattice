@@ -38,7 +38,7 @@ function ganttHtml() {
   const chain = projectTodoChainV1({
     nodes: [{ project_id: 'project-1', plan_key: 'main', task_id: 't1' }], hard_edges: [], joins: [],
   });
-  return renderTodoGanttHtml({ readModel, layout: layoutTodoGantt(readModel, chain) }).html;
+  return renderTodoGanttHtml({ readModel, layout: layoutTodoGantt(readModel) }).html;
 }
 
 test('live ganttは最新headを積んだpingを25秒ごとに送る', async (context) => {

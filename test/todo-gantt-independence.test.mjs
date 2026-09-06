@@ -64,7 +64,7 @@ function htmlInput(layout) {
 }
 
 function layoutWith(taskIds, frontier) {
-  return layoutTodoGantt(readModel(taskIds), chain, {
+  return layoutTodoGantt(readModel(taskIds), {
     scope: 'all', independence: projectionFor(frontier),
   });
 }
@@ -130,7 +130,7 @@ test('記録が語らないtaskはnullのまま残る', () => {
 });
 
 test('独立性の記録が無いplanはnull summaryのまま描ける', () => {
-  const layout = layoutTodoGantt(readModel(['A']), chain, { scope: 'all' });
+  const layout = layoutTodoGantt(readModel(['A']), { scope: 'all' });
   assert.equal(layout.independence, null);
   assert.equal(layout.nodes[0].visibility.independence, null);
 });
@@ -163,7 +163,7 @@ test('進行中との競合もconflictとしてカードへ出る', () => {
 });
 
 test('右ペインは記録がある時だけ全件同時dispatchの断定をやめる', () => {
-  const plain = renderTodoGanttHtml(htmlInput(layoutTodoGantt(readModel(['A', 'B']), chain, { scope: 'all' })));
+  const plain = renderTodoGanttHtml(htmlInput(layoutTodoGantt(readModel(['A', 'B']), { scope: 'all' })));
   // 記録が無いplanでは従来どおりADR 0063の既定を述べる。
   assert.match(plain.html, /ready frontierは全件同時dispatchが既定/u);
 
@@ -197,7 +197,7 @@ test('未検査は「競合が無い」と書かない', () => {
 
 test('seam提案はexact資源・ToDo組・verdict・typed unknownを先頭で示す', () => {
   const read = readModel(['A', 'B']);
-  const layout = layoutTodoGantt(read, chain, {
+  const layout = layoutTodoGantt(read, {
     scope: 'all',
     seamProposals: [
       seamProjection({ coverage: 'missing', planKey: 'legacy-plan' }),
@@ -231,7 +231,7 @@ test('component 0件と未生成はguidance正本のcode・message・next_action
   const read = readModel(['A']);
   const verified = seamProjection();
   const missing = seamProjection({ coverage: 'missing', planKey: 'legacy-plan' });
-  const layout = layoutTodoGantt(read, chain, {
+  const layout = layoutTodoGantt(read, {
     scope: 'all', seamProposals: [verified, missing],
   });
   const output = renderTodoGanttHtml({
@@ -254,7 +254,7 @@ test('component 0件と未生成はguidance正本のcode・message・next_action
 });
 
 test('SVGはバッジ記号とクラスを描き、カード寸法を変えない', () => {
-  const plain = layoutTodoGantt(readModel(['A', 'B']), chain, { scope: 'all' });
+  const plain = layoutTodoGantt(readModel(['A', 'B']), { scope: 'all' });
   const marked = layoutWith(['A', 'B'], {
     parallel_groups: [{ task_ids: ['A'] }],
     serialize_pairs: [],
@@ -290,7 +290,7 @@ function detailPanelOf(html, taskId) {
 test('作業中の工程は自分が塞いでいる着手候補を並列可否として述べる', () => {
   const read = readModel(['A', 'B']);
   Object.assign(read.members[0].tasks[0], { status: 'in-progress' });
-  const layout = layoutTodoGantt(read, chain, {
+  const layout = layoutTodoGantt(read, {
     scope: 'all',
     independence: projectionFor({
       parallel_groups: [],
@@ -322,7 +322,7 @@ test('記録が無い工程は状態別に未検査または判定前だと述�
   Object.assign(read.members[0].tasks[0], { status: 'in-progress' });
   Object.assign(read.members[0].tasks[2], { status: 'done', done_at: '2026-08-01T00:00:00.000Z' });
   const { html } = renderTodoGanttHtml({
-    readModel: read, layout: layoutTodoGantt(read, chain, { scope: 'all' }),
+    readModel: read, layout: layoutTodoGantt(read, { scope: 'all' }),
     narratives: [], anchorOutcomes: [],
     presentation: projectTodoGanttPresentation(read, null), metadata: {},
   });

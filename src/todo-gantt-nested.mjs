@@ -1,5 +1,3 @@
-import { projectTodoChainV1 } from './todo-chain.mjs';
-import { projectTodoCrossPlanDependencies } from './todo-store.mjs';
 
 const ROOT = Symbol('todo-gantt-root');
 
@@ -189,19 +187,6 @@ function filterIndependence(independence, selectedKeys) {
   });
 }
 
-function topologyOf(readModel) {
-  const crossPlanDependencies = projectTodoCrossPlanDependencies(readModel.members);
-  return {
-    nodes: readModel.members.flatMap((member) => member.plan.tasks
-      .map(({ task_id: taskId }) => taskRef(member, taskId))),
-    hard_edges: [
-      ...readModel.members.flatMap((member) => member.plan.hard_dependencies),
-      ...crossPlanDependencies.map(({ from, to }) => ({ from, to })),
-    ],
-    joins: readModel.members.flatMap((member) => member.plan.joins),
-  };
-}
-
 function buildLevel(readModel, hierarchy, containerKey, options, layoutFlat, includesSubtree) {
   const selected = (hierarchy.childrenByParent.get(containerKey) ?? []).filter(includesSubtree);
   const selectedKeys = new Set(selected);
@@ -216,7 +201,7 @@ function buildLevel(readModel, hierarchy, containerKey, options, layoutFlat, inc
     independence: filterIndependence(options.independence ?? null, selectedKeys),
     seamProposals: containerKey === ROOT ? options.seamProposals ?? null : null,
   };
-  const layout = layoutFlat(projectedRead, projectTodoChainV1(topologyOf(projectedRead)), levelOptions);
+  const layout = layoutFlat(projectedRead, levelOptions);
   const children = selected.flatMap((parentKey) => {
     if ((hierarchy.childrenByParent.get(parentKey) ?? []).length === 0) return [];
     const childLevel = buildLevel(

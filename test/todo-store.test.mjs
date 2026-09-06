@@ -1158,7 +1158,7 @@ test('historical doneはlatent start付きdoneとしてchain/ganttへ投影し�
   ]);
   const chain = projectTodoChainV1(todoTopology(store));
   // ここで見るのは状態投影と依存順であり表示密度ではないため、完全投影のscopeで確認する。
-  const layout = layoutTodoGantt(store, chain, { scope: 'all' });
+  const layout = layoutTodoGantt(store, { scope: 'all' });
   assert.deepEqual(layout.nodes.filter(({ ref: taskRef }) => taskRef.plan_key === 'archive')
     .map(({ ref: taskRef, status }) => [taskRef.task_id, status]), [['A1', 'done'], ['A2', 'done']]);
 });

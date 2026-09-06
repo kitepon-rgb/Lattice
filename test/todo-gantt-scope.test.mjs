@@ -30,7 +30,7 @@ function plansFixture(plans, hardEdges = []) {
   };
 }
 
-const layoutOf = (input, options) => layoutTodoGantt(input.read, projectTodoChainV1(input.topology), options);
+const layoutOf = (input, options) => layoutTodoGantt(input.read, options);
 
 /** Kahn peel over the projected layout edges. */
 function assertAcyclic(layout) {

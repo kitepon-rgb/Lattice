@@ -32,7 +32,6 @@ import {
   todoSelfDigest,
   validateEvidenceDescriptor,
 } from './todo-contracts.mjs';
-import { projectTodoChainV1 } from './todo-chain.mjs';
 import {
   adoptTodoDashboardActivity,
   ensureTodoDashboardActivity,
@@ -3381,19 +3380,17 @@ export async function renderTodoGanttForProject({
     ? await resolveProjectIdentity({ repoRoot, projectId: store.project_id, env })
     : { displayName };
   const presentation = await loadTodoGanttPresentation({ repoRoot, readModel: store });
-  const topology = mergedTopology(store);
-  const chain = projectTodoChainV1(topology);
   const [independence, seamProposals, notes, structures] = await Promise.all([
     independenceForGantt({ repoRoot, store }),
     seamProposalsForGantt({ repoRoot, store }),
     notesForGantt({ repoRoot, store }),
     loadTodoStructurePresentation({ repoRoot, readModel: store }),
   ]);
-  const layout = layoutTodoGantt(store, chain, { scope, independence, seamProposals });
+  const layout = layoutTodoGantt(store, { scope, independence, seamProposals });
   // When the diagram hides history, the page also carries the full diagram so
   // the reader can bring it back in place. Nothing is hidden under `all`.
   const expandedLayout = layout.scope.folded_task_count === 0
-    ? null : layoutTodoGantt(store, chain, {
+    ? null : layoutTodoGantt(store, {
       scope: 'all', independence, seamProposals,
     });
   const narrative = await loadNarratives(store, repoRoot);
@@ -3419,7 +3416,6 @@ export async function renderTodoGanttForProject({
     member_bindings: memberBindings,
     narrative_bindings_digest: digestTodoArtifact(narrativeBindings),
     presentation_digest: presentation.presentation_digest,
-    chain_digest: digestTodoArtifact(chain),
     layout_digest: digestTodoArtifact(layout),
     note_bindings_digest: digestTodoArtifact(notes.headBindings),
     structure_projection_digest: structures.projection_digest,

@@ -45,7 +45,7 @@ function fixtureHtml() {
   const node = { project_id: 'project', plan_key: 'main', task_id: 'T1' };
   const chain = projectTodoChainV1({ nodes: [node], hard_edges: [], joins: [] });
   return renderTodoGanttHtml({
-    readModel: read, layout: layoutTodoGantt(read, chain),
+    readModel: read, layout: layoutTodoGantt(read),
     narratives: [{ ref: node, markdown: '[external](https://example.com/x) ![image](data:image/png,x)' }],
   }).html;
 }

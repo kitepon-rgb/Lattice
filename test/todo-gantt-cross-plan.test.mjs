@@ -62,7 +62,7 @@ function chainOf(read) {
 
 test('plan跨ぎedgeはexact identityで描かれ、入力待ちconsumerをreadyにしない', () => {
   const read = readModel();
-  const layout = layoutTodoGantt(read, chainOf(read), { scope: 'all' });
+  const layout = layoutTodoGantt(read, { scope: 'all' });
   assert.deepEqual(layout.edges.map(({ from, to, kinds }) => ({ from, to, kinds })), [{
     from: ref('producer', 'P'), to: ref('consumer', 'C'), kinds: ['cross_plan'],
   }]);
@@ -75,7 +75,7 @@ test('plan跨ぎedgeはexact identityで描かれ、入力待ちconsumerをready
 
 test('producer完了後は同じedgeを保ったままconsumerがreadyになる', () => {
   const read = readModel({ producerStatus: 'done' });
-  const layout = layoutTodoGantt(read, chainOf(read), { scope: 'live' });
+  const layout = layoutTodoGantt(read, { scope: 'live' });
   assert.equal(layout.edges.length, 1);
   assert.equal(layout.nodes.find(({ ref: node }) => node.plan_key === 'consumer')
     .visibility.next_ready, true);
@@ -83,7 +83,7 @@ test('producer完了後は同じedgeを保ったままconsumerがreadyになる'
 
 test('nested lineageでは子task間edgeをroot container間へexactに射影する', () => {
   const read = readModel({ nested: true });
-  const layout = layoutTodoGantt(read, chainOf(read), { scope: 'all' });
+  const layout = layoutTodoGantt(read, { scope: 'all' });
   assert.deepEqual(layout.edges.map(({ from, to, kinds }) => ({ from, to, kinds })), [{
     from: ref('producer', 'PARENT'), to: ref('consumer', 'CONTAINER'), kinds: ['cross_plan'],
   }]);

@@ -46,7 +46,7 @@ function render(read) {
     hard_edges: [],
     joins: [],
   });
-  return renderTodoGanttHtml({ readModel: read, layout: layoutTodoGantt(read, chain) }).html;
+  return renderTodoGanttHtml({ readModel: read, layout: layoutTodoGantt(read) }).html;
 }
 
 const CHIP = '<span class="audit-pending-chip"';

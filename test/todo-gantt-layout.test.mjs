@@ -26,8 +26,25 @@ function fixture(plans, hardEdges = [], joins = []) {
 }
 
 function layoutOf(input, options) {
-  return layoutTodoGantt(input.read, projectTodoChainV1(input.topology), options);
+  return layoutTodoGantt(input.read, options);
 }
+
+test('退役した最長経路を除き、実行する工程から経路と着手可能状態を求める', () => {
+  const input = fixture([{ plan_key: 'plan', tasks: [
+    { id: 'A', lane: 'work' }, { id: 'B', lane: 'work' },
+    { id: 'R1', lane: 'old', status: 'retired' },
+    { id: 'R2', lane: 'old', status: 'retired' },
+    { id: 'R3', lane: 'old', status: 'retired' },
+  ] }], [dependency(ref('A'), ref('B')), dependency(ref('R1'), ref('R2')), dependency(ref('R2'), ref('R3'))]);
+  const member = input.read.members[0];
+  member.plan.schema = 'lattice.todo_plan.v7';
+  member.plan.phase_accept_dependencies = [{ from: { project_id: 'project', plan_key: 'plan', phase_id: 'before' }, to: ref('R1') }];
+  for (const scope of ['all', 'live']) {
+    const layout = layoutOf(input, { scope });
+    assert.deepEqual(layout.nodes.map(node => node.ref.task_id).sort(), ['A', 'B']);
+    assert.deepEqual(layout.nodes.filter(node => node.visibility.longest_dependency_chain).map(node => node.ref.task_id).sort(), ['A', 'B']);
+  }
+});
 
 function assertNoCollinearOverlap(edges) {
   const segments = edges.flatMap((edge) => edge.route.slice(0, -1).map((start, index) => ({

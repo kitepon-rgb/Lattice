@@ -67,7 +67,7 @@ function topology(read) {
 
 function renderFixture(read, narratives = [], anchorOutcomes = [], document = null, metadata = {}) {
   const chain = projectTodoChainV1(topology(read));
-  const layout = layoutTodoGantt(read, chain);
+  const layout = layoutTodoGantt(read);
   const presentation = projectTodoGanttPresentation(read, document);
   return renderTodoGanttHtml({ readModel: read, layout, narratives, anchorOutcomes, presentation, metadata });
 }
@@ -133,8 +133,8 @@ test('非表示バッジを押すと外した工程も含む図へ切り替わ�
   const chain = projectTodoChainV1(topology(read));
   const { html } = renderTodoGanttHtml({
     readModel: read,
-    layout: layoutTodoGantt(read, chain),
-    expandedLayout: layoutTodoGantt(read, chain, { scope: 'all' }),
+    layout: layoutTodoGantt(read),
+    expandedLayout: layoutTodoGantt(read, { scope: 'all' }),
     presentation: projectTodoGanttPresentation(read, null),
   });
   // 図は2枚同梱し、既定はliveだけを見せる。file://でも問い合わせ先が無いので同梱する。
@@ -272,7 +272,7 @@ test('v5 GanttはPhaseを通常ToDoのschedule gateとして説明しない', ()
   const { html } = renderFixture(read);
   assert.match(html, /Phaseは重監査の順序を表し、通常ToDoの開始順はToDo依存だけで決まります。/u);
   assert.doesNotMatch(html, /後続Phaseはまだ解放されません/u);
-  const ungatedLayout = layoutTodoGantt(read, projectTodoChainV1(topology(read)));
+  const ungatedLayout = layoutTodoGantt(read);
   assert.deepEqual(ungatedLayout.nodes.filter(({ visibility }) => visibility.next_ready)
     .map(({ ref: taskRef }) => taskRef.task_id), ['T0000', 'T0001']);
 
@@ -280,7 +280,7 @@ test('v5 GanttはPhaseを通常ToDoのschedule gateとして説明しない', ()
     from: { project_id: 'project-1', plan_key: 'main', phase_id: 'phase-1' },
     to: ref('T0001'),
   }];
-  const gatedLayout = layoutTodoGantt(read, projectTodoChainV1(topology(read)));
+  const gatedLayout = layoutTodoGantt(read);
   assert.deepEqual(gatedLayout.nodes.filter(({ visibility }) => visibility.next_ready)
     .map(({ ref: taskRef }) => taskRef.task_id), ['T0000']);
 });
@@ -855,10 +855,10 @@ test('task/edge scale limit accepts 2,000/8,000 and rejects N+1', { timeout: 15_
   const rendered = renderFixture(atLimit);
   assert.equal((rendered.html.match(/<g class="dependency-edge(?: |")/gu) ?? []).length, 8_000);
   assert.ok(rendered.html_bytes > 0 && rendered.html_bytes <= TODO_GANTT_HTML_MAX_BYTES);
-  assert.throws(() => layoutTodoGantt(readFixture(2_001), projectTodoChainV1(topology(readFixture(2_001)))),
+  assert.throws(() => layoutTodoGantt(readFixture(2_001)),
     (error) => error instanceof TodoGanttLayoutError && error.code === 'TODO_SCALE_EXCEEDED');
   const overEdges = readFixture(2_000, edges);
-  assert.throws(() => layoutTodoGantt(overEdges, projectTodoChainV1(topology(overEdges))),
+  assert.throws(() => layoutTodoGantt(overEdges),
     (error) => error instanceof TodoGanttLayoutError && error.code === 'TODO_SCALE_EXCEEDED'
       && error.detail.edge_count === 8_001);
 });

@@ -61,7 +61,7 @@ test('parent_task_id projects descendant dependencies into recursive child DAGs'
     { task_id: 'Q' },
   ], [edge('G', 'C2'), edge('C2', 'Q')]);
 
-  const layout = layoutTodoGantt(input.read, input.chain, { scope: 'all' });
+  const layout = layoutTodoGantt(input.read, { scope: 'all' });
   assert.deepEqual(layout.nodes.map(({ ref: nodeRef }) => nodeRef.task_id), ['P', 'Q']);
   assert.equal(layout.hierarchy.schema, 'lattice.todo_gantt_hierarchy.v1');
   assert.equal(layout.hierarchy.maximum_depth, 3);
@@ -87,14 +87,14 @@ test('parent_task_id projects descendant dependencies into recursive child DAGs'
 
 test('missing and cyclic parent_task_id fail closed', () => {
   const missing = fixture([{ task_id: 'P', parent_task_id: 'absent' }]);
-  assert.throws(() => layoutTodoGantt(missing.read, missing.chain), (error) =>
+  assert.throws(() => layoutTodoGantt(missing.read), (error) =>
     error instanceof TodoGanttLayoutError && error.code === 'TODO_LAYOUT_INVALID_HIERARCHY');
 
   const cyclic = fixture([
     { task_id: 'A', parent_task_id: 'B' },
     { task_id: 'B', parent_task_id: 'A' },
   ]);
-  assert.throws(() => layoutTodoGantt(cyclic.read, cyclic.chain), (error) =>
+  assert.throws(() => layoutTodoGantt(cyclic.read), (error) =>
     error instanceof TodoGanttLayoutError && error.code === 'TODO_LAYOUT_INVALID_HIERARCHY');
 });
 
@@ -111,7 +111,7 @@ test('phase accept dependencies follow a descendant to its enclosing parent box'
   }];
   member.phases = [{ phase_id: 'review', status: 'reviewing' }];
 
-  const layout = layoutTodoGantt(input.read, input.chain, { scope: 'all' });
+  const layout = layoutTodoGantt(input.read, { scope: 'all' });
   assert.equal(layout.nodes.find(({ ref: nodeRef }) => nodeRef.task_id === 'P')
     .visibility.next_ready, false);
   const parent = layout.hierarchy.children[0];
@@ -123,7 +123,7 @@ test('live scope retains a folded parent as the container of a visible child DAG
     { task_id: 'P' },
     { task_id: 'C', parent_task_id: 'P' },
   ]);
-  const layout = layoutTodoGantt(input.read, input.chain);
+  const layout = layoutTodoGantt(input.read);
   assert.deepEqual(layout.nodes.map(({ ref: nodeRef }) => nodeRef.task_id), ['P']);
   assert.deepEqual(layout.hierarchy_nodes.map(({ ref: nodeRef }) => nodeRef.task_id), ['C']);
   assert.match(renderTodoGanttSvg(layout), /data-nested-toggle-for=/u);
@@ -136,7 +136,7 @@ test('live scope does not render an empty panel for a visible parent with only f
   ]);
   input.read.members[0].tasks[0].status = 'in-progress';
   input.read.members[0].tasks[1].status = 'done';
-  const layout = layoutTodoGantt(input.read, input.chain);
+  const layout = layoutTodoGantt(input.read);
   const svg = renderTodoGanttSvg(layout);
   assert.deepEqual(layout.nodes.map(({ ref: nodeRef }) => nodeRef.task_id), ['P']);
   assert.deepEqual(layout.hierarchy_nodes, []);
@@ -149,7 +149,7 @@ test('parentless layout and SVG remain byte-identical to the pre-hierarchy rende
     { task_id: 'A', title: 'Alpha' },
     { task_id: 'B', title: 'Beta' },
   ], [edge('A', 'B')]);
-  const layout = layoutTodoGantt(input.read, input.chain);
+  const layout = layoutTodoGantt(input.read);
   assert.equal(layout.hierarchy, undefined);
   assert.equal(digest(JSON.stringify(layout)), '1441709bdec782246de2bdc9ddaca92d7c459578f6d9567bb0f1b7df1e3c6dc3');
   const svg = renderTodoGanttSvg(layout);
@@ -163,7 +163,7 @@ test('hierarchical SVG and HTML expose recursive panels without network dependen
     { task_id: 'C', parent_task_id: 'P' },
     { task_id: 'G', parent_task_id: 'C' },
   ]);
-  const layout = layoutTodoGantt(input.read, input.chain, { scope: 'all' });
+  const layout = layoutTodoGantt(input.read, { scope: 'all' });
   const svg = renderTodoGanttSvg(layout);
   assert.match(svg, /data-nested-toggle-for=/u);
   assert.match(svg, /data-nested-panel-for=/u);

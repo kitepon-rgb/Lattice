@@ -381,7 +381,7 @@ test('todo migrateはstrict/unknown開始時刻を輸入しstatus active_setとg
     hard_edges: store.members.flatMap(({ plan }) => plan.hard_dependencies),
     joins: store.members.flatMap(({ plan }) => plan.joins),
   };
-  const layout = layoutTodoGantt(store, projectTodoChainV1(topology));
+  const layout = layoutTodoGantt(store);
   assert.deepEqual(layout.nodes.filter(({ ref }) => ref.plan_key === 'active-import')
     .map(({ ref, status: taskStatus, visibility }) => [ref.task_id, taskStatus, visibility.active]), [
     ['P1', 'in-progress', true], ['P2', 'in-progress', true],
